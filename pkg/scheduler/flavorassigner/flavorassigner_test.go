@@ -8078,98 +8078,137 @@ func TestCandidateVirtualPods(t *testing.T) {
 		Obj()
 	wlInfo := workload.NewInfo(log, wl)
 
-	t.Run("creates candidate pods for assigned count with ready updates and flavor labels", func(t *testing.T) {
-		assignment := Assignment{
-			PodSets: []PodSetAssignment{
-				{
-					Name:  kueue.DefaultPodSetName,
-					Count: 2,
-					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "flavor-1", Mode: Fit, TriedFlavorIdx: 0},
+	conflictWL := utiltestingapi.MakeWorkload("wl-conflict", "default").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, "1").
+			NodeSelector(map[string]string{"arch": "amd64"}).
+			Obj()).
+		AdmissionChecks(
+			kueue.AdmissionCheckState{
+				Name:  "check-conflict",
+				State: kueue.CheckStateReady,
+				PodSetUpdates: []kueue.PodSetUpdate{
+					{
+						Name:         kueue.DefaultPodSetName,
+						NodeSelector: map[string]string{"arch": "arm64"},
 					},
-					Status: *NewStatus(),
 				},
 			},
-		}
+		).
+		Obj()
+	conflictInfo := workload.NewInfo(log, conflictWL)
 
-		pods, err := assignment.CandidateVirtualPods(wlInfo, cq)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-
-		if len(pods) != 2 {
-			t.Fatalf("expected 2 candidate pods, got %d", len(pods))
-		}
-
-		wantNodeSelector := map[string]string{
-			"arch":   "amd64",
-			"zone":   "zone-a",
-			"region": "us-central1",
-			"flavor": "one",
-		}
-
-		for i, pod := range pods {
-			if diff := cmp.Diff(wantNodeSelector, pod.Spec.NodeSelector); diff != "" {
-				t.Errorf("pod[%d] nodeSelector mismatch (-want +got):\n%s", i, diff)
-			}
-			if pod.Labels["app"] != "worker" || pod.Labels["injected-1"] != "true" || pod.Labels["injected-2"] != "true" {
-				t.Errorf("pod[%d] missing expected labels: %v", i, pod.Labels)
-			}
-			if pod.Labels["ignored-label"] != "" {
-				t.Errorf("pod[%d] should not contain labels from non-ready admission check", i)
-			}
-			if pod.Labels[constants.PodSetLabel] != string(kueue.DefaultPodSetName) {
-				t.Errorf("pod[%d] missing PodSetLabel: %v", i, pod.Labels)
-			}
-			if pod.Annotations["meta"] != "data" || pod.Annotations["injected-ann-1"] != "val-1" || pod.Annotations["injected-ann-2"] != "val-2" {
-				t.Errorf("pod[%d] missing expected annotations: %v", i, pod.Annotations)
-			}
-			if pod.Annotations[kueue.WorkloadAnnotation] != "wl" {
-				t.Errorf("pod[%d] missing WorkloadAnnotation: %v", i, pod.Annotations)
-			}
-			if len(pod.Spec.Tolerations) != 2 {
-				t.Errorf("pod[%d] expected 2 tolerations, got %d", i, len(pod.Spec.Tolerations))
-			}
-		}
-	})
-
-	t.Run("returns conflict error when PodSetUpdate conflicts with PodSet nodeSelector", func(t *testing.T) {
-		conflictWL := utiltestingapi.MakeWorkload("wl-conflict", "default").
-			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-				Request(corev1.ResourceCPU, "1").
-				NodeSelector(map[string]string{"arch": "amd64"}).
-				Obj()).
-			AdmissionChecks(
-				kueue.AdmissionCheckState{
-					Name:  "check-conflict",
-					State: kueue.CheckStateReady,
-					PodSetUpdates: []kueue.PodSetUpdate{
-						{
-							Name:         kueue.DefaultPodSetName,
-							NodeSelector: map[string]string{"arch": "arm64"},
+	cases := map[string]struct {
+		workload           *workload.Info
+		assignment         Assignment
+		wantPodsCount      int
+		wantNodeSelector   map[string]string
+		wantLabels         map[string]string
+		wantAnnotations    map[string]string
+		wantTolerationsLen int
+		wantErr            bool
+	}{
+		"creates candidate pods for assigned count with ready updates and flavor labels": {
+			workload: wlInfo,
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name:  kueue.DefaultPodSetName,
+						Count: 2,
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU: {Name: "flavor-1", Mode: Fit, TriedFlavorIdx: 0},
 						},
+						Status: *NewStatus(),
 					},
-				},
-			).
-			Obj()
-		conflictInfo := workload.NewInfo(log, conflictWL)
-
-		assignment := Assignment{
-			PodSets: []PodSetAssignment{
-				{
-					Name:  kueue.DefaultPodSetName,
-					Count: 1,
-					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "flavor-1", Mode: Fit, TriedFlavorIdx: 0},
-					},
-					Status: *NewStatus(),
 				},
 			},
-		}
+			wantPodsCount: 2,
+			wantNodeSelector: map[string]string{
+				"arch":   "amd64",
+				"zone":   "zone-a",
+				"region": "us-central1",
+				"flavor": "one",
+			},
+			wantLabels: map[string]string{
+				"app":                 "worker",
+				"injected-1":          "true",
+				"injected-2":          "true",
+				constants.PodSetLabel: string(kueue.DefaultPodSetName),
+			},
+			wantAnnotations: map[string]string{
+				"meta":                   "data",
+				"injected-ann-1":         "val-1",
+				"injected-ann-2":         "val-2",
+				kueue.WorkloadAnnotation: "wl",
+			},
+			wantTolerationsLen: 2,
+		},
+		"returns conflict error when PodSetUpdate conflicts with PodSet nodeSelector": {
+			workload: conflictInfo,
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name:  kueue.DefaultPodSetName,
+						Count: 1,
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU: {Name: "flavor-1", Mode: Fit, TriedFlavorIdx: 0},
+						},
+						Status: *NewStatus(),
+					},
+				},
+			},
+			wantErr: true,
+		},
+		"returns error when podset is failing": {
+			workload: wlInfo,
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name:   kueue.DefaultPodSetName,
+						Count:  1,
+						Status: Status{err: errors.New("podset failure")},
+					},
+				},
+			},
+			wantErr: true,
+		},
+	}
 
-		_, err := assignment.CandidateVirtualPods(conflictInfo, cq)
-		if err == nil {
-			t.Fatal("expected error due to nodeSelector conflict, got nil")
-		}
-	})
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			pods, err := tc.assignment.CandidateVirtualPods(tc.workload, cq)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("CandidateVirtualPods() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if tc.wantErr {
+				return
+			}
+
+			if len(pods) != tc.wantPodsCount {
+				t.Fatalf("expected %d candidate pods, got %d", tc.wantPodsCount, len(pods))
+			}
+
+			for i, pod := range pods {
+				if diff := cmp.Diff(tc.wantNodeSelector, pod.Spec.NodeSelector); diff != "" {
+					t.Errorf("pod[%d] nodeSelector mismatch (-want +got):\n%s", i, diff)
+				}
+				for k, v := range tc.wantLabels {
+					if pod.Labels[k] != v {
+						t.Errorf("pod[%d] label %s = %q, want %q", i, k, pod.Labels[k], v)
+					}
+				}
+				if pod.Labels["ignored-label"] != "" {
+					t.Errorf("pod[%d] should not contain labels from non-ready admission check", i)
+				}
+				for k, v := range tc.wantAnnotations {
+					if pod.Annotations[k] != v {
+						t.Errorf("pod[%d] annotation %s = %q, want %q", i, k, pod.Annotations[k], v)
+					}
+				}
+				if len(pod.Spec.Tolerations) != tc.wantTolerationsLen {
+					t.Errorf("pod[%d] expected %d tolerations, got %d", i, tc.wantTolerationsLen, len(pod.Spec.Tolerations))
+				}
+			}
+		})
+	}
 }

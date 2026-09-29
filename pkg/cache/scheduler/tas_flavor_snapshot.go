@@ -347,20 +347,14 @@ func newTASFlavorSnapshot(
 	return snapshot
 }
 
-// NodeLabels returns a copy of the flavor's node labels.
+// NodeLabels returns the flavor's node labels.
 func (s *TASFlavorSnapshot) NodeLabels() map[string]string {
-	return maps.Clone(s.nodeLabels)
+	return s.nodeLabels
 }
 
-// Tolerations returns a copy of the flavor's tolerations.
+// Tolerations returns the flavor's tolerations.
 func (s *TASFlavorSnapshot) Tolerations() []corev1.Toleration {
-	tolerations := slices.Clone(s.tolerations)
-	for i := range tolerations {
-		if tolerations[i].TolerationSeconds != nil {
-			tolerations[i].TolerationSeconds = new(*tolerations[i].TolerationSeconds)
-		}
-	}
-	return tolerations
+	return s.tolerations
 }
 
 func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
