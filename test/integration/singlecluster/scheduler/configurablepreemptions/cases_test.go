@@ -206,6 +206,151 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 		})
 	})
 
+	ginkgo.When("Defragmentation is configured across overlapping flavors", func() {
+		const overlapLabelKey = "overlapTestingKey"
+		var (
+			nodes    []corev1.Node
+			flavorA  *kueue.ResourceFlavor
+			flavorB  *kueue.ResourceFlavor
+			topology *kueue.Topology
+			cqA      *kueue.ClusterQueue
+			cqB      *kueue.ClusterQueue
+			lqA      *kueue.LocalQueue
+			lqB      *kueue.LocalQueue
+			config   *kueuealpha.PreemptionConfig
+		)
+
+		ginkgo.BeforeEach(func() {
+			nodes = []corev1.Node{
+				*testingnode.MakeNode("node-overlap-a").
+					Label(overlapLabelKey, "true").
+					Label(corev1.LabelHostname, "host-overlap-a").
+					StatusAllocatable(corev1.ResourceList{
+						extraResource:       resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("2"),
+					}).
+					Ready().Obj(),
+				*testingnode.MakeNode("node-overlap-b").
+					Label(overlapLabelKey, "true").
+					Label(corev1.LabelHostname, "host-overlap-b").
+					StatusAllocatable(corev1.ResourceList{
+						extraResource:       resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("2"),
+					}).
+					Ready().Obj(),
+			}
+			util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+			defragPreemptionConfigName := "overlap-preemption-configuration"
+			config = kueuetestalpha1.MakePreemptionConfig(defragPreemptionConfigName).
+				Rule("defrag-smaller-tpu-workloads",
+					kueuealpha.QuotaFeasibleAndInsufficientTopology,
+					kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+						Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
+							Mode:       kueuealpha.Boosted,
+							Comparison: kueuealpha.LessThanOrEqual,
+						},
+						Scope: kueuealpha.AnyClusterQueue,
+						NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
+							{
+								Key:           extraResource,
+								Comparison:    new(kueuealpha.LessThan),
+								FallbackValue: new(int32(0)),
+							},
+						},
+					}).Obj()
+			util.MustCreate(ctx, k8sClient, config)
+
+			topology = utiltestingapi.MakeDefaultOneLevelTopology("overlap-topology")
+			util.MustCreate(ctx, k8sClient, topology)
+
+			// Both flavors select the same nodes, so that, with
+			// TASHandleOverlappingFlavors, the workloads of either flavor use the
+			// node capacity seen by the other one.
+			flavorA = utiltestingapi.MakeResourceFlavor("rf-overlap-a").
+				NodeLabel(overlapLabelKey, "true").
+				TopologyName(topology.Name).
+				Obj()
+			util.MustCreate(ctx, k8sClient, flavorA)
+			flavorB = utiltestingapi.MakeResourceFlavor("rf-overlap-b").
+				NodeLabel(overlapLabelKey, "true").
+				TopologyName(topology.Name).
+				Obj()
+			util.MustCreate(ctx, k8sClient, flavorB)
+
+			cqA = utiltestingapi.MakeClusterQueue("cq-overlap-a").
+				Cohort("root").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorA.Name).
+					Resource(extraResource, "2").
+					Obj()).
+				Annotation(kueuealpha.PreemptionConfigNameAnnotation, defragPreemptionConfigName).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cqA)
+			lqA = utiltestingapi.MakeLocalQueue("lq-overlap-a", ns.Name).ClusterQueue(cqA.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqA)
+
+			cqB = utiltestingapi.MakeClusterQueue("cq-overlap-b").
+				Cohort("root").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorB.Name).
+					Resource(extraResource, "2").
+					Obj()).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cqB)
+			lqB = utiltestingapi.MakeLocalQueue("lq-overlap-b", ns.Name).ClusterQueue(cqB.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqB)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lqA, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lqB, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqA, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqB, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavorA, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavorB, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, config, true)
+			for i := range nodes {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
+			}
+		})
+
+		ginkgo.It("Should reschedule running workload of the other flavor and schedule incoming", func() {
+			var wlB *kueue.Workload
+			ginkgo.By("Scheduling small workload of the other flavor on topology domain", func() {
+				wlB = createWorkload(lqB.Name, "1", map[string]string{})
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqB.Name, wlB)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
+			})
+
+			var wlBHostnameBeforeReschedule string
+			ginkgo.By("Save hostname of small workload before reschedule", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlB), wlB)).Should(gomega.Succeed())
+				nodesB := slices.Collect(tas.LowestLevelValues(wlB.Status.Admission.PodSetAssignments[0].TopologyAssignment))
+				gomega.Expect(nodesB).To(gomega.HaveLen(1))
+				wlBHostnameBeforeReschedule = nodesB[0]
+			})
+
+			var wlA *kueue.Workload
+			ginkgo.By("Large workload requires same domain - needing defrag", func() {
+				// The quota of the ClusterQueue of the large workload is unused, but
+				// the small workload holds half of the node it requires.
+				wlA = createWorkload(lqA.Name, "2", map[string]string{corev1.LabelHostname: wlBHostnameBeforeReschedule})
+				util.FinishEvictionForWorkloads(ctx, k8sClient, wlB)
+				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqA.Name, wlA)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
+			})
+
+			ginkgo.By("Verify small workload was rescheduled", func() {
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlB), wlB)).Should(gomega.Succeed())
+				nodesB := slices.Collect(tas.LowestLevelValues(wlB.Status.Admission.PodSetAssignments[0].TopologyAssignment))
+				gomega.Expect(nodesB).To(gomega.HaveLen(1))
+				gomega.Expect(nodesB[0]).ShouldNot(gomega.Equal(wlBHostnameBeforeReschedule))
+			})
+		})
+	})
+
 	ginkgo.When("ClusterQueue configured for hero case", func() {
 		var (
 			flavor *kueue.ResourceFlavor

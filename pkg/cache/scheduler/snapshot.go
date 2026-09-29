@@ -121,7 +121,7 @@ func (s *Snapshot) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFla
 	}
 
 	for sourceFlavor, tasUsage := range usage {
-		if sourceFlavors[sourceFlavor] == nil || s.hostnameLeafTASFlavors[sourceFlavor] == nil {
+		if !s.propagatesTASUsage(sourceFlavors, sourceFlavor) {
 			continue
 		}
 		for flavor, tasFlavor := range s.hostnameLeafTASFlavors {
@@ -131,6 +131,42 @@ func (s *Snapshot) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFla
 			tasFlavor.updateTASUsageForHeldDomains(tasUsage, op)
 		}
 	}
+}
+
+// propagatesTASUsage reports whether the TAS usage recorded on the source
+// flavor is also recorded on the snapshots of the other hostname-leaf flavors,
+// which cover the same nodes. sourceFlavors are the TAS flavors of the
+// ClusterQueue holding the usage.
+func (s *Snapshot) propagatesTASUsage(sourceFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot, sourceFlavor kueue.ResourceFlavorReference) bool {
+	return features.Enabled(features.TASHandleOverlappingFlavors) &&
+		sourceFlavors[sourceFlavor] != nil &&
+		s.hostnameLeafTASFlavors[sourceFlavor] != nil
+}
+
+// UsesOverlappingTASCapacity reports whether the TAS usage of the Workload on
+// the source flavor covers nodes that the target flavor also selects, so that
+// removing the Workload frees capacity in the snapshot of the target flavor, as
+// done by updateOverlappingTASUsage. It is false unless
+// TASHandleOverlappingFlavors is enabled and source and target are distinct
+// hostname-leaf flavors.
+func (s *Snapshot) UsesOverlappingTASCapacity(wl *workload.Info, source, target kueue.ResourceFlavorReference) bool {
+	if source == target {
+		return false
+	}
+	targetSnapshot := s.hostnameLeafTASFlavors[target]
+	if targetSnapshot == nil {
+		return false
+	}
+	cq := s.ClusterQueue(wl.ClusterQueue)
+	if cq == nil || !s.propagatesTASUsage(cq.TASFlavors, source) {
+		return false
+	}
+	for _, tr := range wl.TASUsage()[source] {
+		if targetSnapshot.hasDomain(utiltas.DomainID(tr.Values)) {
+			return true
+		}
+	}
+	return false
 }
 
 // SimulateWorkloadUsageRemoval modifies the snapshot by removing the usage
