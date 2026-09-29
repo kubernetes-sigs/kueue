@@ -21,6 +21,7 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -90,19 +91,19 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", 
 			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
 
-		ginkgo.XIt("Should create a Workload with PodSet count matching Job parallelism", func() {
+		ginkgo.It("Should create a Workload with PodSet count matching Job parallelism", func() {
 			const parallelism int32 = 3
 
-			// This job is being skipped because in 1.37 the job controller has an
-			// api to control gang scheduling.
-			// The default behavior is not have gang scheduling so PodSet will not match podgroup mincount
-			// unless we bring in 1.37 apis to create the right job.
-			// Skipping for now but will reenable once we have 1.37 apis.
 			job := testingjob.MakeJob("was-test-job", ns.Name).
 				Queue("main").
 				Parallelism(parallelism).
 				Completions(parallelism).
 				Indexed(true).
+				Scheduling(&batchv1.JobSchedulingConfiguration{
+					SchedulingPolicy: &schedulingv1alpha3.WorkloadPodGroupSchedulingPolicy{
+						Gang: &schedulingv1alpha3.WorkloadPodGroupGangSchedulingPolicy{},
+					},
+				}).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				RequestAndLimit(corev1.ResourceMemory, "20Mi").
@@ -133,9 +134,9 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", 
 			})
 
 			ginkgo.By("verifying the upstream PodGroup gang minCount matches the Kueue Workload pod count", func() {
-				// The Job qualifies for gang scheduling (parallelism > 1, Indexed,
-				// completions == parallelism), so the upstream Job controller creates
-				// a PodGroup owned by the Job.
+				// The Job requests gang scheduling via spec.scheduling.schedulingPolicy.gang
+				// without a minCount, so the upstream Job controller creates a PodGroup
+				// owned by the Job with minCount defaulted to the Job's parallelism.
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdWorkload := workloadForJob(g, jobKey)
 					g.Expect(createdWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
