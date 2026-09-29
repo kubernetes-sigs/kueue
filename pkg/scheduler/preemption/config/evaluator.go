@@ -69,9 +69,9 @@ func (p *PreemptionEvaluator) HasRulesFor(triggers ...kueuealpha.PreemptionConfi
 	return false
 }
 
-// ConfigurableCandidate represents a workload selected for configurable preemption
+// configurableCandidate represents a workload selected for configurable preemption
 // together with the configuration rules and selectors that selected it.
-type ConfigurableCandidate struct {
+type configurableCandidate struct {
 	WlInfo                    *workload.Info
 	ConfigName                string
 	RuleNameToSelectorIndexes map[string][]int
@@ -85,8 +85,8 @@ func (p *PreemptionEvaluator) Candidates(
 	preemptor *workload.Info,
 	flavorsNeedPreemption sets.Set[resources.FlavorResource],
 	trigger kueuealpha.PreemptionConfigActivationTrigger,
-) ([]*ConfigurableCandidate, error) {
-	var candidates []*ConfigurableCandidate
+) ([]*configurableCandidate, error) {
+	var candidates []*configurableCandidate
 	// Several rules, or several selectors of a rule, can select the same workload.
 	// Therefore, we need to keep track of the UIDs of the selected workloads
 	// to avoid duplicates. Additionally map's value is used as index of already recorded candidate
@@ -123,7 +123,7 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 	flavorsNeedPreemption sets.Set[resources.FlavorResource],
 	ruleName string,
 	seen map[types.UID]int,
-	candidates *[]*ConfigurableCandidate,
+	candidates *[]*configurableCandidate,
 	selectorIndex int,
 ) {
 	for _, targetCq := range snapshot.ClusterQueues() {
@@ -143,15 +143,15 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 
 func (p *PreemptionEvaluator) ensureCandidate(
 	seen map[types.UID]int,
-	candidates *[]*ConfigurableCandidate,
+	candidates *[]*configurableCandidate,
 	wlInfo *workload.Info,
-) *ConfigurableCandidate {
+) *configurableCandidate {
 	if existingIndex, found := seen[wlInfo.Obj.UID]; found {
 		return (*candidates)[existingIndex]
 	}
 
 	seen[wlInfo.Obj.UID] = len(*candidates)
-	candidate := &ConfigurableCandidate{
+	candidate := &configurableCandidate{
 		WlInfo:                    wlInfo,
 		ConfigName:                p.config.Name,
 		RuleNameToSelectorIndexes: map[string][]int{},

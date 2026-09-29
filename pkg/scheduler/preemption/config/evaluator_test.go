@@ -470,7 +470,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			}
 
 			// Candidates are not ordered, so compare them as sorted lists.
-			gotCandidates := slices.Sorted(slices.Values(utilslices.Map(candidates, func(candidate **ConfigurableCandidate) string {
+			gotCandidates := slices.Sorted(slices.Values(utilslices.Map(candidates, func(candidate **configurableCandidate) string {
 				return (*candidate).WlInfo.Obj.Name
 			})))
 			wantCandidates := slices.Sorted(slices.Values(tc.wantCandidates))
@@ -500,8 +500,8 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 	}
 
 	unitWl := *utiltestingapi.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "1")
-	candidate := func(name string, indexes map[string][]int) *ConfigurableCandidate {
-		return &ConfigurableCandidate{
+	candidate := func(name string, indexes map[string][]int) *configurableCandidate {
+		return &configurableCandidate{
 			WlInfo:                    wlInfoWithName(name),
 			ConfigName:                configName,
 			RuleNameToSelectorIndexes: indexes,
@@ -516,7 +516,7 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 		preemptorCq   kueue.ClusterQueueReference
 		// Default testing value: Always
 		trigger        kueuealpha.PreemptionConfigActivationTrigger
-		wantCandidates []*ConfigurableCandidate
+		wantCandidates []*configurableCandidate
 	}{
 		"ConfigName and selector's index are added to the candidates": {
 			clusterQueues: baseCqs,
@@ -530,7 +530,7 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			},
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
-			wantCandidates: []*ConfigurableCandidate{
+			wantCandidates: []*configurableCandidate{
 				candidate("a1", map[string][]int{"test": {0}}),
 				candidate("a2", map[string][]int{"test": {0}}),
 			},
@@ -550,7 +550,7 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			},
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
-			wantCandidates: []*ConfigurableCandidate{
+			wantCandidates: []*configurableCandidate{
 				candidate("a1", map[string][]int{"test1": {0}, "test2": {0}}),
 				candidate("a2", map[string][]int{"test1": {0}, "test2": {0}}),
 			},
@@ -574,7 +574,7 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
 			trigger:     kueuealpha.InsufficientQuota,
-			wantCandidates: []*ConfigurableCandidate{
+			wantCandidates: []*configurableCandidate{
 				candidate("a1", map[string][]int{"test2": {0}, "test3": {0}}),
 				candidate("a2", map[string][]int{"test2": {0}, "test3": {0}}),
 			},
@@ -592,7 +592,7 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			},
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
-			wantCandidates: []*ConfigurableCandidate{
+			wantCandidates: []*configurableCandidate{
 				candidate("a1", map[string][]int{"test": {0, 1}}),
 				candidate("a2", map[string][]int{"test": {0, 1}}),
 			},
@@ -613,7 +613,7 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			},
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
-			wantCandidates: []*ConfigurableCandidate{
+			wantCandidates: []*configurableCandidate{
 				candidate("a1", map[string][]int{"test": {1}}),
 			},
 		},
@@ -668,7 +668,7 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 					return wlInfo.Obj.Name
 				}),
 				// Sort candidates by name to have consistent output
-				cmpopts.SortSlices(func(a, b *ConfigurableCandidate) bool {
+				cmpopts.SortSlices(func(a, b *configurableCandidate) bool {
 					return a.WlInfo.Obj.Name < b.WlInfo.Obj.Name
 				}),
 				cmpopts.EquateEmpty(),
