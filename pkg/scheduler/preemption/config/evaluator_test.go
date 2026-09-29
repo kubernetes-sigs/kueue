@@ -577,6 +577,8 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 }
 
 func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
+	const configName = "test-config"
+
 	now := time.Now()
 
 	baseCqs := []*kueue.ClusterQueue{
@@ -593,6 +595,13 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 	}
 
 	unitWl := *utiltestingapi.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "1")
+	candidate := func(name string, indexes map[string][]int) *configurableCandidate {
+		return &configurableCandidate{
+			WlInfo:                    wlInfoWithName(name),
+			ConfigName:                configName,
+			RuleNameToSelectorIndexes: indexes,
+		}
+	}
 
 	tests := map[string]struct {
 		clusterQueues []*kueue.ClusterQueue
@@ -606,24 +615,10 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 	}{
 		"ConfigName and selector's index are added to the candidates": {
 			clusterQueues: baseCqs,
-			config: kueuealpha.PreemptionConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-config",
-				},
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "test",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinCohortTree,
-								},
-							},
-						},
-					},
-				},
-			},
+			config: *utiltestingalpha.MakePreemptionConfig(configName).
+				Rule("test", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).Obj(),
+				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
@@ -631,47 +626,19 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
 			wantCandidates: []*configurableCandidate{
-				{
-					WlInfo:                    wlInfoWithName("a1"),
-					ConfigName:                "test-config",
-					RuleNameToSelectorIndexes: map[string][]int{"test": {0}},
-				},
-				{
-					WlInfo:                    wlInfoWithName("a2"),
-					ConfigName:                "test-config",
-					RuleNameToSelectorIndexes: map[string][]int{"test": {0}},
-				},
+				candidate("a1", map[string][]int{"test": {0}}),
+				candidate("a2", map[string][]int{"test": {0}}),
 			},
 		},
 		"Candidate match multiple rules": {
 			clusterQueues: baseCqs,
-			config: kueuealpha.PreemptionConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-config",
-				},
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "test1",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinCohortTree,
-								},
-							},
-						},
-						{
-							Name:             "test2",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.AnyClusterQueue,
-								},
-							},
-						},
-					},
-				},
-			},
+			config: *utiltestingalpha.MakePreemptionConfig(configName).
+				Rule("test1", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).Obj(),
+				).
+				Rule("test2", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.AnyClusterQueue).Obj(),
+				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
@@ -679,56 +646,22 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
 			wantCandidates: []*configurableCandidate{
-				{
-					WlInfo:                    wlInfoWithName("a1"),
-					ConfigName:                "test-config",
-					RuleNameToSelectorIndexes: map[string][]int{"test1": {0}, "test2": {0}},
-				},
-				{
-					WlInfo:                    wlInfoWithName("a2"),
-					ConfigName:                "test-config",
-					RuleNameToSelectorIndexes: map[string][]int{"test1": {0}, "test2": {0}},
-				},
+				candidate("a1", map[string][]int{"test1": {0}, "test2": {0}}),
+				candidate("a2", map[string][]int{"test1": {0}, "test2": {0}}),
 			},
 		},
 		"Candidate match multiple rules related to the trigger": {
 			clusterQueues: baseCqs,
-			config: kueuealpha.PreemptionConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-config",
-				},
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "test1",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinCohortTree,
-								},
-							},
-						},
-						{
-							Name:             "test2",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.InsufficientQuota},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinCohortTree,
-								},
-							},
-						},
-						{
-							Name:             "test3",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.InsufficientQuota},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.AnyClusterQueue,
-								},
-							},
-						},
-					},
-				},
-			},
+			config: *utiltestingalpha.MakePreemptionConfig(configName).
+				Rule("test1", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).Obj(),
+				).
+				Rule("test2", kueuealpha.InsufficientQuota,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).Obj(),
+				).
+				Rule("test3", kueuealpha.InsufficientQuota,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.AnyClusterQueue).Obj(),
+				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
@@ -737,41 +670,17 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			preemptorCq: "a",
 			trigger:     kueuealpha.InsufficientQuota,
 			wantCandidates: []*configurableCandidate{
-				{
-					WlInfo:                    wlInfoWithName("a1"),
-					ConfigName:                "test-config",
-					RuleNameToSelectorIndexes: map[string][]int{"test2": {0}, "test3": {0}},
-				},
-				{
-					WlInfo:                    wlInfoWithName("a2"),
-					ConfigName:                "test-config",
-					RuleNameToSelectorIndexes: map[string][]int{"test2": {0}, "test3": {0}},
-				},
+				candidate("a1", map[string][]int{"test2": {0}, "test3": {0}}),
+				candidate("a2", map[string][]int{"test2": {0}, "test3": {0}}),
 			},
 		},
 		"Candidates match multiple selectors": {
 			clusterQueues: baseCqs,
-			config: kueuealpha.PreemptionConfig{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-config",
-				},
-				Spec: kueuealpha.PreemptionConfigSpec{
-					Rules: []kueuealpha.PreemptionConfigPreemptionRule{
-						{
-							Name:             "test",
-							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
-							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
-								{
-									Scope: kueuealpha.WithinCohortTree,
-								},
-								{
-									Scope: kueuealpha.AnyClusterQueue,
-								},
-							},
-						},
-					},
-				},
-			},
+			config: *utiltestingalpha.MakePreemptionConfig(configName).
+				Rule("test", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).Obj(),
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.AnyClusterQueue).Obj(),
+				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
@@ -779,16 +688,28 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
 			wantCandidates: []*configurableCandidate{
-				{
-					WlInfo:                    wlInfoWithName("a1"),
-					ConfigName:                "test-config",
-					RuleNameToSelectorIndexes: map[string][]int{"test": {0, 1}},
-				},
-				{
-					WlInfo:                    wlInfoWithName("a2"),
-					ConfigName:                "test-config",
-					RuleNameToSelectorIndexes: map[string][]int{"test": {0, 1}},
-				},
+				candidate("a1", map[string][]int{"test": {0, 1}}),
+				candidate("a2", map[string][]int{"test": {0, 1}}),
+			},
+		},
+		"Candidate matches only the second selector": {
+			clusterQueues: baseCqs,
+			config: *utiltestingalpha.MakePreemptionConfig(configName).
+				Rule("test", kueuealpha.Always,
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).
+						LabelSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"group": "other"}}).
+						Obj(),
+					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).
+						LabelSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"group": "selected"}}).
+						Obj(),
+				).Obj(),
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").Label("group", "selected").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
+			preemptorCq: "a",
+			wantCandidates: []*configurableCandidate{
+				candidate("a1", map[string][]int{"test": {1}}),
 			},
 		},
 	}
@@ -807,7 +728,6 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 
 			cqCache := schdcache.New(cl)
 			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
-			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("other-flavour").Obj())
 
 			for _, cq := range tc.clusterQueues {
 				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {

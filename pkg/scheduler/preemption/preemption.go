@@ -277,7 +277,7 @@ func (p *Preemptor) IssuePreemptions(
 
 		p.preemptionExpectations.ExpectUIDs(log, targetKey, []types.UID{target.WorkloadInfo.Obj.UID})
 
-		message, underlyingCause := messageAndUnderlyingCause(log, target, preemptor, snap)
+		message, underlyingCause := messageAndUnderlyingCause(log, target, preemptor, preemptorPath, preempteePath)
 
 		wlCopy := target.WorkloadInfo.Obj.DeepCopy()
 		exposeLqMetrics := cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
@@ -318,28 +318,24 @@ func messageAndUnderlyingCause(
 	log logr.Logger,
 	target *Target,
 	preemptor *workload.Info,
-	snap *schdcache.ClusterQueueSnapshot) (string, kueue.EvictionUnderlyingCause) {
+	preemptorPath string,
+	preempteePath string,
+) (string, kueue.EvictionUnderlyingCause) {
 	if target.Reason == kueue.ConfigurablePreemptionReason {
 		if target.ConfigurablePreemptionReasonData != nil {
 			message := target.ConfigurablePreemptionReasonData.EvictionMessage(preemptor.Obj)
 			underlyingCause := kueue.EvictionUnderlyingCause(target.ConfigurablePreemptionReasonData.ConfigName)
 
 			return message, underlyingCause
-		} else {
-			log.Error(nil, "ConfigurablePreemptionReasonData is nil",
-				"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
-				"preemptingWorkload", klog.KObj(preemptor.Obj))
-			// fallback to default behavior
 		}
+		log.Error(nil, "ConfigurablePreemptionReasonData is nil",
+			"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
+			"preemptingWorkload", klog.KObj(preemptor.Obj))
+		// fallback to default behavior
 	}
 
-	preemptorPath := buildCQPath(string(preemptor.ClusterQueue), snap)
-	preempteePath := buildCQPath(string(target.WorkloadInfo.ClusterQueue), target.WorkloadCq)
-
 	message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
-	underlyingCause := ""
-
-	return message, kueue.EvictionUnderlyingCause(underlyingCause)
+	return message, ""
 }
 
 type preemptionAttemptOpts struct {

@@ -71,6 +71,8 @@ func (p *PreemptionEvaluator) HasRulesFor(triggers ...kueuealpha.PreemptionConfi
 	return false
 }
 
+// configurableCandidate represents a workload selected for configurable preemption
+// together with the configuration rules and selectors that selected it.
 type configurableCandidate struct {
 	WlInfo                    *workload.Info
 	ConfigName                string
