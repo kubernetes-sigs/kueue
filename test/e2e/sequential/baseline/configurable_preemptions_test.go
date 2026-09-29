@@ -36,7 +36,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Configuration Preemptions", ginkgo.Label("feature:configurablepreemption"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configurablepreemption"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
 		rf *kueue.ResourceFlavor
@@ -53,7 +53,7 @@ var _ = ginkgo.Describe("Configuration Preemptions", ginkgo.Label("feature:confi
 		Spec: kueuealpha.PreemptionConfigSpec{
 			Rules: []kueuealpha.PreemptionConfigPreemptionRule{
 				{
-					Name:             "test-rule-one",
+					Name:             "preempt-within-cq-lower-priority",
 					ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
 					CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 						{
@@ -102,6 +102,14 @@ var _ = ginkgo.Describe("Configuration Preemptions", ginkgo.Label("feature:confi
 				Resource(corev1.ResourceMemory, "2G").
 				Obj()).
 			Annotation(kueuealpha.PreemptionConfigNameAnnotation, preemptionConfigName).
+			// Disable basic/previous preemption mechanism to ensure testing of PreemptionConfig.
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue:  kueue.PreemptionPolicyNever,
+				ReclaimWithinCohort: kueue.PreemptionPolicyNever,
+				BorrowWithinCohort: &kueue.BorrowWithinCohort{
+					Policy: kueue.BorrowWithinCohortPolicyNever,
+				},
+			}).
 			Obj()
 		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
