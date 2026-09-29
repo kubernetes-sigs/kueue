@@ -19,7 +19,6 @@ package filters
 import (
 	"testing"
 
-	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -90,9 +89,9 @@ func TestClusterQueueLabelFilter_Matches(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			filter, ok := buildClusterQueueLabelFilter(logr.Discard(), tc.selector)
-			if !ok {
-				t.Fatalf("buildClusterQueueLabelFilter failed unexpectedly")
+			filter, err := buildClusterQueueLabelFilter(tc.selector)
+			if err != nil {
+				t.Fatalf("buildClusterQueueLabelFilter failed unexpectedly: %v", err)
 			}
 			if got := filter.Matches(tc.cq); got != tc.wantMatch {
 				t.Errorf("Matches(cq) = %v, want %v", got, tc.wantMatch)

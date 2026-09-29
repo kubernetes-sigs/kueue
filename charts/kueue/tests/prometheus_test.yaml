@@ -1,0 +1,96 @@
+suite: test prometheus ServiceMonitor
+templates:
+  - prometheus/monitor.yaml
+tests:
+  - it: should verify the cert-manager metrics certificate when cert-manager is enabled
+    set:
+      enablePrometheus: true
+      enableCertManager: true
+    asserts:
+      - equal:
+          path: spec.endpoints[0].tlsConfig.insecureSkipVerify
+          value: false
+      - equal:
+          path: spec.endpoints[0].tlsConfig.serverName
+          value: RELEASE-NAME-kueue-controller-manager-metrics-service.NAMESPACE.svc
+      - equal:
+          path: spec.endpoints[0].tlsConfig.ca.secret.name
+          value: RELEASE-NAME-kueue-metrics-server-cert
+
+  - it: should skip certificate verification when cert-manager is disabled
+    set:
+      enablePrometheus: true
+    asserts:
+      - equal:
+          path: spec.endpoints[0].tlsConfig.insecureSkipVerify
+          value: true
+      - notExists:
+          path: spec.endpoints[0].tlsConfig.ca
+      - notExists:
+          path: spec.endpoints[0].tlsConfig.serverName
+
+  - it: should use a user-provided tlsConfig instead of the generated one
+    set:
+      enablePrometheus: true
+      enableCertManager: true
+      metrics:
+        serviceMonitor:
+          tlsConfig:
+            insecureSkipVerify: true
+    asserts:
+      - equal:
+          path: spec.endpoints[0].tlsConfig.insecureSkipVerify
+          value: true
+      - notExists:
+          path: spec.endpoints[0].tlsConfig.ca
+
+  - it: should skip certificate verification for a custom tlsConfig without insecureSkipVerify
+    set:
+      enablePrometheus: true
+      metrics:
+        serviceMonitor:
+          tlsConfig:
+            minVersion: TLS12
+    asserts:
+      - equal:
+          path: spec.endpoints[0].tlsConfig
+          value:
+            minVersion: TLS12
+            insecureSkipVerify: true
+
+  - it: should skip certificate verification for a custom tlsConfig without insecureSkipVerify when cert-manager is enabled
+    set:
+      enablePrometheus: true
+      enableCertManager: true
+      metrics:
+        serviceMonitor:
+          tlsConfig:
+            minVersion: TLS12
+    asserts:
+      - equal:
+          path: spec.endpoints[0].tlsConfig
+          value:
+            minVersion: TLS12
+            insecureSkipVerify: true
+
+  - it: should keep insecureSkipVerify false when set in a custom tlsConfig
+    set:
+      enablePrometheus: true
+      enableCertManager: true
+      metrics:
+        serviceMonitor:
+          tlsConfig:
+            insecureSkipVerify: false
+            ca:
+              secret:
+                name: custom-ca
+                key: ca.crt
+    asserts:
+      - equal:
+          path: spec.endpoints[0].tlsConfig
+          value:
+            insecureSkipVerify: false
+            ca:
+              secret:
+                name: custom-ca
+                key: ca.crt

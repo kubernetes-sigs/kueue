@@ -277,11 +277,12 @@ func (p *Preemptor) IssuePreemptions(
 
 		p.preemptionExpectations.ExpectUIDs(log, targetKey, []types.UID{target.WorkloadInfo.Obj.UID})
 
-		message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
+		message, underlyingCause := messageAndUnderlyingCause(log, target, preemptor, preemptorPath, preempteePath)
+
 		wlCopy := target.WorkloadInfo.Obj.DeepCopy()
 		exposeLqMetrics := cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
 		err := workloadevict.Evict(
-			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, exposeLqMetrics, p.roleTracker, p.customLabels,
+			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, underlyingCause, p.clock, exposeLqMetrics, p.roleTracker, p.customLabels,
 			workloadevict.WithCustomPrepare(func(wl *kueue.Workload) {
 				workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
 			}),
@@ -311,6 +312,30 @@ func (p *Preemptor) IssuePreemptions(
 		successfullyPreempted.Add(1)
 	})
 	return int(successfullyPreempted.Load()), int(preemptionErrors.Load()), errCh.ReceiveError()
+}
+
+func messageAndUnderlyingCause(
+	log logr.Logger,
+	target *Target,
+	preemptor *workload.Info,
+	preemptorPath string,
+	preempteePath string,
+) (string, kueue.EvictionUnderlyingCause) {
+	if target.Reason == kueue.ConfigurablePreemptionReason {
+		if target.ConfigurablePreemptionReasonData != nil {
+			message := target.ConfigurablePreemptionReasonData.EvictionMessage(preemptor.Obj)
+			underlyingCause := kueue.EvictionUnderlyingCause(target.ConfigurablePreemptionReasonData.ConfigName)
+
+			return message, underlyingCause
+		}
+		log.Error(nil, "ConfigurablePreemptionReasonData is nil",
+			"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
+			"preemptingWorkload", klog.KObj(preemptor.Obj))
+		// fallback to default behavior
+	}
+
+	message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
+	return message, ""
 }
 
 type preemptionAttemptOpts struct {

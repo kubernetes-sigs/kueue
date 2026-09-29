@@ -1972,8 +1972,10 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 			// origin even once every live predecessor is gone. The scheduler still
 			// enforces that a scale-up must grow at least one PodSet, using the
 			// predecessor's live grant while it's still around (see getInitialAssignments).
+			// Capped at the new Count in case this PodSet shrank while another grew.
 			if prevPodSet != nil && prevPodSet.MinCount != nil {
-				podSets[i].MinCount = prevPodSet.MinCount
+				minCount := min(*prevPodSet.MinCount, podSets[i].Count)
+				podSets[i].MinCount = &minCount
 			}
 		}
 		if extra != "" {

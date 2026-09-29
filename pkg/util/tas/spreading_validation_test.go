@@ -36,8 +36,8 @@ func TestValidateSpreadingAnnotation(t *testing.T) {
 		wantErr field.ErrorList
 	}{
 		// Omitting the selector is how the user asks for the default: it
-		// resolves to the parent job's UID when the Workload's spreading
-		// configuration is built, which is after this validation runs.
+		// is filled in when the spreading spec is built, after this
+		// validation runs.
 		"valid: single rule, omitted selector": {
 			value: `{"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
 		},
