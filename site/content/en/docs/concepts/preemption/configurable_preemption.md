@@ -20,7 +20,7 @@ Configurable Preemptions introduces a declarative mechanism to define when preem
 - **Mission-Critical "Hero" Workloads**: Allowing dedicated, access-restricted queues with elevated preemption privileges to evict workloads across queues even when those workloads are within nominal quota (while remaining subject to configured cohort borrowing limits). When combined with the `PrioritizePreemptorWorkloads` feature gate (Alpha in v0.20), hero jobs can effectively lock quota and gain admission without extra cluster-wide modifications.
 - **Granular Priority & Label Rules**: Evaluating candidates using either priorities or custom labels.
 
-To use Configurable Preemptions, enable the `ConfigurablePreemptions` [feature gate](/docs/installation/#change-the-feature-gates-configuration).
+To use Configurable Preemptions, enable the `ConfigurablePreemptions` [feature gate](/docs/getting-started/installation/#change-the-feature-gates-configuration).
 
 ## Architecture & API Overview
 
@@ -180,11 +180,11 @@ status:
   - type: Evicted
     status: "True"
     reason: Preempted
-    message: "Preempted by rule 'evict-smaller-jobs-for-large-topology' in PreemptionConfig 'topology-defragmentation' to accommodate workload default/training-job-xyz"
+    message: "Preempted by default/hero-job-xyz because of preemption config hero-workloads-preemption-config rule hero-preempt-lower-priority/0"
   - type: Preempted
     status: "True"
     reason: ConfigurablePreemption
-    message: "Preempted by rule 'evict-smaller-jobs-for-large-topology' in PreemptionConfig 'topology-defragmentation'"
+    message: "Preempted by default/hero-job-xyz because of preemption config hero-workloads-preemption-config rule hero-preempt-lower-priority/0"
 ```
 
 ---
