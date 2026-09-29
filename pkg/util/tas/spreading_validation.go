@@ -37,9 +37,9 @@ func ValidateSpreadingAnnotation(fldPath *field.Path, value string) field.ErrorL
 	var allErrs field.ErrorList
 
 	// An omitted selector parses fine: it is how the user asks for the default
-	// spreading group, the parent job's Workloads. Parsed with no default job
-	// UID, because what is validated here is what the user wrote - the default
-	// is resolved when the Workload's spreading spec is built.
+	// spreading group. Parsed with no default job UID, because what is
+	// validated here is what the user wrote. The default is resolved when the
+	// spreading spec is built.
 	spec, err := ParseSpreadingAnnotation(value, "")
 	if err != nil {
 		switch {
@@ -98,9 +98,8 @@ func isValidShare(q resource.Quantity) bool {
 // annotation format change.
 //
 // An empty list is accepted: it is how the user asks for the default spreading
-// group, and the job-uid requirement standing in for it is built in code when
-// the Workload's spreading spec is compiled, so there is nothing to validate
-// here.
+// group. The job-uid requirement standing in for it is built when the
+// spreading spec is compiled, so there is nothing to validate here.
 func validateSpreadingSelectors(fldPath *field.Path, selectors []metav1.LabelSelectorRequirement) field.ErrorList {
 	var allErrs field.ErrorList
 
