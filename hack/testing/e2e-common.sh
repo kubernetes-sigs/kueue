@@ -921,7 +921,6 @@ function deploy_with_certmanager() {
         $KUSTOMIZE edit add patch --path "cert_metrics_manager_patch.yaml" --kind Deployment
         $KUSTOMIZE edit add patch --path "cert_visibility_manager_patch.yaml" --kind Deployment
         $KUSTOMIZE edit add patch --path "apiservice_cainjection_patch.yaml" --kind APIService
-        $KUSTOMIZE edit add patch --path "apiservice_insecure_removal.yaml" --kind APIService
     )
 
     build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/certmanager"
