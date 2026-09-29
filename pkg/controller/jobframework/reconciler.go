@@ -45,7 +45,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -419,20 +418,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// if this is a non-toplevel job, suspend the job if its ancestor's workload is not found or not admitted.
+	// Leave child job lifecycle management to the ancestor's controller.
 	if !isTopLevelJob {
-		if shouldSuspend, err := r.shouldSuspendChildJob(ctx, job, ancestorJob); err != nil {
-			return ctrl.Result{}, err
-		} else if shouldSuspend {
-			if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
-				job.Suspend()
-				return true, nil
-			}); err != nil {
-				log.Error(err, "suspending child job failed")
-				return ctrl.Result{}, err
-			}
-			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonSuspended, "Suspended", "Kueue managed child job suspended")
-		}
 		return ctrl.Result{}, nil
 	}
 
@@ -864,30 +851,6 @@ func QueueNameChange(ctx context.Context, c client.Client, job GenericJob, wl *k
 	return nil
 }
 
-func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob GenericJob, ancestorJob client.Object) (bool, error) {
-	log := ctrl.LoggerFrom(ctx).WithValues("childJob", childJob.Object().GetName(), "gvk", childJob.GVK(), "ancestorJob", ancestorJob.GetName())
-	_, _, finished := childJob.Finished(ctx)
-	if !finished && !childJob.IsSuspended() {
-		if ancestorNotFinishedWorkload, err := r.getLatestNotFinishedWorkloadForObject(ctx, ancestorJob); err != nil {
-			log.Error(err, "couldn't get an ancestor job not-finished workload")
-			return false, err
-		} else {
-			if ancestorNotFinishedWorkload == nil {
-				return true, nil
-			}
-			if workloadslicing.Enabled(childJob.Object()) || workloadslicing.Enabled(ancestorJob) {
-				// With workload slicing, during autoscaling-up, there will be two workloads at certain time for workload slice
-				// replacement. The old one was finished, the new one is going to be admitted. There is no admitted workload in
-				// this case, and we should not suspend the job. As a workaround, check evicted status instead.
-				return workloadevict.IsEvicted(ancestorNotFinishedWorkload), nil
-			}
-			// For none workload slicing, suspend the job if workload not admitted
-			return !workload.IsAdmitted(ancestorNotFinishedWorkload), nil
-		}
-	}
-	return false, nil
-}
-
 func (r *JobReconciler) shouldHandleDeletionOfDeactivatedWorkload(wl *kueue.Workload) bool {
 	return r.workloadRetentionPolicy.AfterDeactivatedByKueue != nil && !workload.IsActive(wl) && workloadevict.IsEvictedDueToDeactivationByKueue(wl)
 }
@@ -942,25 +905,6 @@ func (r *JobReconciler) recordAdmissionCheckUpdate(wl *kueue.Workload, job Gener
 			r.record.Eventf(object, nil, corev1.EventTypeNormal, ReasonUpdatedAdmissionCheck, "UpdatedAdmissionCheck", api.TruncateEventMessage(message))
 		}
 	}
-}
-
-// getLatestNotFinishedWorkloadForObject returns the latest not-finished Workload associated with the given job.
-// Returns nil if no such workload is found.
-func (r *JobReconciler) getLatestNotFinishedWorkloadForObject(ctx context.Context, jobObj client.Object) (*kueue.Workload, error) {
-	gvk, err := apiutil.GVKForObject(jobObj, r.client.Scheme())
-	if err != nil {
-		return nil, err
-	}
-	workloads, err := workloadslicing.FindNotFinishedWorkloads(ctx, r.client, jobObj, gvk)
-	if err != nil {
-		return nil, err
-	}
-
-	if len(workloads) == 0 {
-		return nil, nil
-	}
-
-	return &workloads[len(workloads)-1], nil
 }
 
 // FindAncestorJobManagedByKueue traverses controllerRefs to find the top-level ancestor Job managed by Kueue.
