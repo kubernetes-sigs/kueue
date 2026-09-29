@@ -196,17 +196,14 @@ To provide visibility into why a workload was preempted when custom rules are us
 
 Kueue records detailed eviction information in `Workload.status.schedulingStats.evictions`:
 
-- **`reason`**: Set to `ConfigurablePreemption` to indicate that the configurable preemption mechanism triggered the eviction.
 - **`underlyingCause`**: Populated with the name of the `PreemptionConfig` that triggered the preemption:
   ```yaml
   status:
     schedulingStats:
       evictions:
       - count: 1
-        reason: ConfigurablePreemption
-        underlyingCause: "Preempted because of preemption config hero-workloads-preemption-config"
-  ```
-- **`count`**: Incremented each time the workload is preempted due to this specific `PreemptionConfig`.
+        reason: Preempted
+        underlyingCause: "hero-workloads-preemption-config"
 
 ### Status Conditions
 
