@@ -49,6 +49,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -85,10 +86,10 @@ func TestPodsReady(t *testing.T) {
 	groupDriverWrapper := basePodWrapper.Clone().Name("driver").GroupNameLabel("test-group")
 
 	testCases := map[string]struct {
-		pod                           *corev1.Pod
-		groupPods                     []corev1.Pod
-		countSucceededPodsAsReadyGate bool
-		want                          bool
+		pod          *corev1.Pod
+		groupPods    []corev1.Pod
+		featureGates map[featuregate.Feature]bool
+		want         bool
 	}{
 		"single pod is ready": {
 			pod:  readyPodWrapper.Clone().Obj(),
@@ -124,12 +125,17 @@ func TestPodsReady(t *testing.T) {
 			want: false,
 		},
 		"single pod succeeded": {
-			pod:                           succeededPodWrapper.Clone().Obj(),
-			countSucceededPodsAsReadyGate: true,
-			want:                          true,
+			pod: succeededPodWrapper.Clone().Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: true,
 		},
 		"single pod succeeded, gate disabled": {
-			pod:  succeededPodWrapper.Clone().Obj(),
+			pod: succeededPodWrapper.Clone().Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: false,
+			},
 			want: false,
 		},
 		"pod group with some pods succeeded and the rest ready": {
@@ -139,8 +145,10 @@ func TestPodsReady(t *testing.T) {
 				*readyPodWrapper.Clone().Name("worker-1").Obj(),
 				*readyPodWrapper.Clone().Name("worker-2").Obj(),
 			},
-			countSucceededPodsAsReadyGate: true,
-			want:                          true,
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: true,
 		},
 		"pod group with some pods succeeded and the rest ready, gate disabled": {
 			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
@@ -148,6 +156,9 @@ func TestPodsReady(t *testing.T) {
 				*succeededPodWrapper.Clone().Name("driver").Obj(),
 				*readyPodWrapper.Clone().Name("worker-1").Obj(),
 				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: false,
 			},
 			want: false,
 		},
@@ -158,8 +169,10 @@ func TestPodsReady(t *testing.T) {
 				*succeededPodWrapper.Clone().Name("worker-1").Obj(),
 				*succeededPodWrapper.Clone().Name("worker-2").Obj(),
 			},
-			countSucceededPodsAsReadyGate: true,
-			want:                          true,
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: true,
 		},
 		"pod group with all pods succeeded, gate disabled": {
 			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
@@ -167,6 +180,9 @@ func TestPodsReady(t *testing.T) {
 				*succeededPodWrapper.Clone().Name("driver").Obj(),
 				*succeededPodWrapper.Clone().Name("worker-1").Obj(),
 				*succeededPodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: false,
 			},
 			want: false,
 		},
@@ -177,8 +193,10 @@ func TestPodsReady(t *testing.T) {
 				*readyPodWrapper.Clone().Name("worker-1").Obj(),
 				*basePodWrapper.Clone().Name("worker-2").Obj(),
 			},
-			countSucceededPodsAsReadyGate: true,
-			want:                          false,
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: false,
 		},
 		"serving pod group with some pods succeeded and the rest ready": {
 			pod: groupDriverWrapper.Clone().GroupTotalCount("3").PodGroupServingAnnotation().Obj(),
@@ -187,8 +205,10 @@ func TestPodsReady(t *testing.T) {
 				*readyPodWrapper.Clone().Name("worker-1").Obj(),
 				*readyPodWrapper.Clone().Name("worker-2").Obj(),
 			},
-			countSucceededPodsAsReadyGate: true,
-			want:                          false,
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: false,
 		},
 		"serving pod group with all pods ready": {
 			pod: groupDriverWrapper.Clone().GroupTotalCount("3").PodGroupServingAnnotation().Obj(),
@@ -197,8 +217,10 @@ func TestPodsReady(t *testing.T) {
 				*readyPodWrapper.Clone().Name("worker-1").Obj(),
 				*readyPodWrapper.Clone().Name("worker-2").Obj(),
 			},
-			countSucceededPodsAsReadyGate: true,
-			want:                          true,
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: true,
 		},
 		"pod group without total count annotation": {
 			pod: groupDriverWrapper.Clone().Obj(),
@@ -216,11 +238,167 @@ func TestPodsReady(t *testing.T) {
 			},
 			want: false,
 		},
+		"pod group within max not-ready count with gate enabled": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: true,
+		},
+		"pod group within max not-ready count even when fewer than total pods are created": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: true,
+		},
+		"pod group within max not-ready count with succeeded and ready pods": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+				features.WaitForPodsReadyMaxNotReady:             true,
+			},
+			want: true,
+		},
+		"pod group within max not-ready count with gate disabled": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: false,
+			},
+			want: false,
+		},
+		"pod group exceeding max not-ready count with gate enabled": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with divergent max not-ready count annotations uses the strictest": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("2").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("2").Obj(),
+				*basePodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("0").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("0").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with partially propagated max not-ready count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with zero max not-ready count requires all pods ready": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("0").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("0").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("0").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("0").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with negative max not-ready count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("-1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("-1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("-1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with max not-ready count equal to total count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("3").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("3").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("3").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with max not-ready count exceeding total count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("5").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("5").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("5").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("5").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with max not-ready count exceeding total count succeeds when all total pods ready": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("5").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("5").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("5").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("5").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: true,
+		},
+		"pod group with malformed max not-ready count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("invalid").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("invalid").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("invalid").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("invalid").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.PodIntegrationCountSucceededPodsAsReady, tc.countSucceededPodsAsReadyGate)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			pod := FromObject(tc.pod)
 			if len(tc.groupPods) != 0 {
@@ -7639,6 +7817,95 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
+		"pod group with WaitForPodsReady marks workload PodsReady when within GroupMaxNotReadyCount": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
+			},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					StatusPhase(corev1.PodRunning).
+					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					GroupMaxNotReadyCount("1").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					GroupMaxNotReadyCount("1").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					StatusPhase(corev1.PodRunning).
+					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					GroupMaxNotReadyCount("1").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					GroupMaxNotReadyCount("1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadStarted,
+						Message: "All pods reached readiness and the workload is running",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
 	}
 
 	for name, tc := range testCases {
@@ -7682,7 +7949,10 @@ func TestReconciler(t *testing.T) {
 				}
 				recorder := &utiltesting.EventRecorder{}
 				reconciler, err := NewReconciler(ctx, kClient, indexer, recorder,
-					append(tc.reconcilerOptions, jobframework.WithClock(testingclock.NewFakeClock(now)))...)
+					append(tc.reconcilerOptions,
+						jobframework.WithClock(testingclock.NewFakeClock(now)),
+						jobframework.WithCache(schdcache.New(kClient)),
+					)...)
 				if err != nil {
 					t.Errorf("Error creating the reconciler: %v", err)
 				}

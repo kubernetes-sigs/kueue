@@ -589,6 +589,21 @@ func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, w
 	ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKeys...)
 }
 
+func ExpectAdmittedWorkloadWithUnhealthyNodes(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, nodeNames ...string) {
+	ginkgo.GinkgoHelper()
+	expected := make([]kueue.UnhealthyNode, len(nodeNames))
+	for i, name := range nodeNames {
+		expected[i].Name = name
+	}
+	gomega.Eventually(func(g gomega.Gomega) {
+		updatedWl := &kueue.Workload{}
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).To(gomega.Succeed())
+		g.Expect(workload.IsAdmitted(updatedWl)).To(gomega.BeTrue())
+		g.Expect(apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeNil())
+		g.Expect(updatedWl.Status.UnhealthyNodes).To(gomega.Equal(expected))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectWorkloadsToBeAdmittedByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
 	expectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, Timeout, wlKeys...)

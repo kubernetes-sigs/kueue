@@ -25,12 +25,16 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/test/performance/framework/controllers"
 )
 
 const (
@@ -49,6 +53,7 @@ type WorkloadTemplate struct {
 	TASConstraint string `json:"tasConstraint"` // for TAS: "required", "preferred", "balanced"
 	TASLevel      string `json:"tasLevel"`      // for TAS: topology level
 	SliceSize     int32  `json:"sliceSize"`     // for TAS: pods per slice in balanced placement
+	Devices       int64  `json:"devices"`       // for TAS with DRA: devices each pod claims
 }
 
 type WorkloadsSet struct {
@@ -58,13 +63,15 @@ type WorkloadsSet struct {
 }
 
 type QueuesSet struct {
-	ClassName           string                 `json:"className"`
-	Count               int                    `json:"count"`
-	NominalQuota        string                 `json:"nominalQuota"`
-	BorrowingLimit      string                 `json:"borrowingLimit"`
-	ReclaimWithinCohort kueue.PreemptionPolicy `json:"reclaimWithinCohort"`
-	WithinClusterQueue  kueue.PreemptionPolicy `json:"withinClusterQueue"`
-	WorkloadsSets       []WorkloadsSet         `json:"workloadsSets"`
+	ClassName            string                 `json:"className"`
+	Count                int                    `json:"count"`
+	NominalQuota         string                 `json:"nominalQuota"`
+	BorrowingLimit       string                 `json:"borrowingLimit"`
+	ReclaimWithinCohort  kueue.PreemptionPolicy `json:"reclaimWithinCohort"`
+	WithinClusterQueue   kueue.PreemptionPolicy `json:"withinClusterQueue"`
+	DeviceNominalQuota   string                 `json:"deviceNominalQuota"`   // for DRA: quota of the generated devices
+	DeviceBorrowingLimit string                 `json:"deviceBorrowingLimit"` // for DRA
+	WorkloadsSets        []WorkloadsSet         `json:"workloadsSets"`
 }
 
 type CohortSet struct {
@@ -76,6 +83,7 @@ type CohortSet struct {
 // Config represents the full generator configuration with optional TAS features
 type Config struct {
 	Topology       *TopologyConfig       `json:"topology,omitempty"`
+	DRA            *DRAConfig            `json:"dra,omitempty"`
 	ResourceFlavor *ResourceFlavorConfig `json:"resourceFlavor,omitempty"`
 	Cohorts        []CohortSet           `json:"cohorts,omitempty"`
 }
@@ -95,6 +103,10 @@ func LoadConfig(configFile string) (*Config, error) {
 		return nil, errors.New("config must contain at least one cohort")
 	}
 
+	if err := validateDevices(config); err != nil {
+		return nil, err
+	}
+
 	// Set default resource flavor if not provided (for scheduler configs without TAS)
 	if config.ResourceFlavor == nil {
 		config.ResourceFlavor = &ResourceFlavorConfig{
@@ -103,6 +115,43 @@ func LoadConfig(configFile string) (*Config, error) {
 	}
 
 	return config, nil
+}
+
+func validateDevices(config *Config) error {
+	if config.DRA != nil && config.DRA.DevicesPerNode <= 0 {
+		return errors.New("dra.devicesPerNode must be positive")
+	}
+	for _, cohort := range config.Cohorts {
+		for _, qSet := range cohort.QueuesSets {
+			if err := validateQueueSetDevices(qSet, config.DRA); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func validateQueueSetDevices(qSet QueuesSet, dra *DRAConfig) error {
+	for _, wlSet := range qSet.WorkloadsSets {
+		for _, wlt := range wlSet.Workloads {
+			if wlt.Devices == 0 {
+				continue
+			}
+			if wlt.Devices < 0 {
+				return fmt.Errorf("workload class %q: devices must not be negative", wlt.ClassName)
+			}
+			if wlt.TASLevel == "" {
+				return fmt.Errorf("workload class %q: devices require tasLevel, since only TAS runs the device check", wlt.ClassName)
+			}
+			if dra == nil {
+				return fmt.Errorf("workload class %q requests devices but the config has no dra section", wlt.ClassName)
+			}
+			if qSet.DeviceNominalQuota == "" {
+				return fmt.Errorf("queue class %q runs workloads that request devices but has no deviceNominalQuota", qSet.ClassName)
+			}
+		}
+	}
+	return nil
 }
 
 func concurrent[T any](set T, count func(T) int, call func(int) error) error {
@@ -173,6 +222,9 @@ func generateWlSet(ctx context.Context, c client.Client, wlSet WorkloadsSet, nam
 						podSetBuilder = podSetBuilder.SliceSizeTopologyRequest(wlt.SliceSize)
 					}
 				}
+				if wlt.Devices > 0 {
+					podSetBuilder = podSetBuilder.ResourceClaimTemplate("gpu", resourceClaimTemplateName(wlt.Devices))
+				}
 
 				wlBuilder = wlBuilder.PodSets(*podSetBuilder.Obj())
 			} else {
@@ -194,10 +246,14 @@ func generateQueue(ctx context.Context, c client.Client, qSet QueuesSet, cohortN
 	log := ctrl.LoggerFrom(ctx).WithName("generate queue").WithValues("idx", queueIndex, "prefix", qSet.ClassName)
 	log.Info("Start generation")
 	defer log.Info("End generation")
+	flavorQuotas := utiltestingapi.MakeFlavorQuotas(flavorName).
+		Resource(corev1.ResourceCPU, qSet.NominalQuota, qSet.BorrowingLimit)
+	if qSet.DeviceNominalQuota != "" {
+		flavorQuotas = flavorQuotas.Resource(controllers.DRAResourceName, qSet.DeviceNominalQuota, qSet.DeviceBorrowingLimit)
+	}
 	cq := utiltestingapi.MakeClusterQueue(fmt.Sprintf("%s-%d-%d-%s", qSet.ClassName, queueSetIdx, queueIndex, cohortName)).
 		Cohort(cohortName).
-		ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavorName).
-			Resource(corev1.ResourceCPU, qSet.NominalQuota, qSet.BorrowingLimit).Obj()).
+		ResourceGroup(*flavorQuotas.Obj()).
 		Preemption(kueue.ClusterQueuePreemption{
 			ReclaimWithinCohort: qSet.ReclaimWithinCohort,
 			WithinClusterQueue:  qSet.WithinClusterQueue,
@@ -222,6 +278,23 @@ func generateQueue(ctx context.Context, c client.Client, qSet QueuesSet, cohortN
 	err = c.Create(ctx, lq)
 	if err != nil {
 		return err
+	}
+
+	devices := sets.New[int64]()
+	for _, wlSet := range qSet.WorkloadsSets {
+		for _, wlt := range wlSet.Workloads {
+			if wlt.Devices > 0 {
+				devices.Insert(wlt.Devices)
+			}
+		}
+	}
+	for _, count := range sets.List(devices) {
+		rct := utiltesting.MakeResourceClaimTemplate(resourceClaimTemplateName(count), ns.Name).
+			DeviceRequest("gpu", controllers.DRADeviceClassName, count).
+			Obj()
+		if err := c.Create(ctx, rct); err != nil {
+			return err
+		}
 	}
 
 	return concurrent(qSet.WorkloadsSets, func(wlSets []WorkloadsSet) int { return len(wlSets) }, func(wlSetIdx int) error {
@@ -274,6 +347,13 @@ func Generate(ctx context.Context, c client.Client, config *Config) error {
 		}
 	}
 
+	if config.DRA != nil {
+		log.Info("Generating DRA devices")
+		if err := generateDRADevices(ctx, c, *config.DRA); err != nil {
+			return fmt.Errorf("generating DRA devices: %w", err)
+		}
+	}
+
 	if err := generateResourceFlavor(ctx, c, *config.ResourceFlavor); err != nil {
 		return fmt.Errorf("generating resource flavor: %w", err)
 	}
@@ -318,4 +398,16 @@ func Cleanup(ctx context.Context, c client.Client) {
 	if err := c.DeleteAllOf(ctx, &corev1.Node{}, client.HasLabels{CleanupLabel}); err != nil {
 		log.Error(err, "Deleting nodes")
 	}
+
+	if err := c.DeleteAllOf(ctx, &resourcev1.ResourceSlice{}, client.HasLabels{CleanupLabel}); err != nil {
+		log.Error(err, "Deleting ResourceSlices")
+	}
+
+	if err := c.DeleteAllOf(ctx, &resourcev1.DeviceClass{}, client.HasLabels{CleanupLabel}); err != nil {
+		log.Error(err, "Deleting DeviceClasses")
+	}
+}
+
+func resourceClaimTemplateName(devices int64) string {
+	return fmt.Sprintf("gpu-%d", devices)
 }
