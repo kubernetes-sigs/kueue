@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -66,3 +67,29 @@ func TestUntil(t *testing.T) {
 		})
 	}
 }
+
+func TestMaxParallelism(t *testing.T) {
+	testCases := map[string]struct {
+		enableGate bool
+		wantMax    int
+	}{
+		"feature gate disabled": {
+			enableGate: false,
+			wantMax:    defaultMaxParallelism,
+		},
+		"feature gate enabled": {
+			enableGate: true,
+			wantMax:    higherMaxParallelism,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.HigherMaxParallelismWithinReconcile, tc.enableGate)
+			if got := maxParallelism(); got != tc.wantMax {
+				t.Errorf("maxParallelism() = %d, want %d", got, tc.wantMax)
+			}
+		})
+	}
+}
+
