@@ -32,21 +32,23 @@ import (
 // The partial slice is subject to the same constraint as the whole ones: it
 // has to be held by a single domain at the slice level.
 //
-// The placement algorithm reasons in whole slices, so every domain carries a
-// second capacity figure alongside sliceCount: the number of whole slices it
-// can still hold once it also holds the partial slice. It is computed
-// bottom-up in fillInCountsHelper, in the same pass and the same shape as the
-// leader capacity:
+// The placement algorithm reasons in whole slices, so every domain records
+// how many whole slices it can still hold with the tail obligation. This is
+// sliceCount[obligationTail], computed bottom-up in fillInCountsHelper in the
+// same pass and the same shape as the leader capacity:
 //
-//	at the slice level:  sliceCountWithTail(d) = (podCount(d) − tailSize) / sliceSize
-//	above:               sliceCountWithTail(d) = sliceCount(d) − min_c tailPenalty(c)
+//	at the slice level:  tailCapacity(d) = (podCount(d) − tailSize) / sliceSize
 //
-// where tailPenalty(c) = sliceCount(c) − sliceCountWithTail(c) is what the
-// child subtree c gives up by taking the partial slice, and the minimum runs
-// over the children that can hold it at all. The domain selection then knows,
-// before it commits to a set of domains, whether the partial slice has a
-// home inside it, which is what neither reserving a whole slice for it nor
-// placing it after the whole slices can know.
+// Here wholeCapacity(d) is sliceCount[obligationNone] and tailCapacity(d) is
+// sliceCount[obligationTail]. The tailPenalty(c) = wholeCapacity(c) −
+// tailCapacity(c) is what the child subtree c gives up by taking the partial
+// slice. Above the slice level, the smallest eligible child penalty is
+// subtracted from the sum of child whole-slice capacities before the parent's
+// capacity bound, then capped by the parent's pod count after reserving the
+// tail. If no child can hold the tail, the capacity is noTailFit.
+// Before committing to a set of domains, selection therefore knows whether
+// the partial slice has a home inside it. Neither reserving a whole slice
+// nor placing it after the whole slices can provide that guarantee.
 
 // noTailFit marks a domain that cannot hold the partial slice at all. It is
 // negative so that it compares as "no room" against any number of slices,
@@ -91,8 +93,8 @@ func sliceCountHostingTail(podCount int32, shape sliceShape) int32 {
 // slice level, where the partial slice is charged directly against the
 // domain's own pod count.
 func fillTailCountsAtSliceLevel(ds *domainState, shape sliceShape) {
-	ds.sliceCountWithTail = sliceCountHostingTail(ds.podCount, shape)
-	ds.sliceCountWithLeaderAndTail = sliceCountHostingTail(ds.podCountWithLeader, shape)
+	ds.sliceCount[obligationTail] = sliceCountHostingTail(ds.podCount, shape)
+	ds.sliceCount[obligationLeader|obligationTail] = sliceCountHostingTail(ds.podCountWithLeader, shape)
 }
 
 // fillTailCounts computes the tail capacities of one domain, either directly
@@ -101,20 +103,20 @@ func fillTailCountsAtSliceLevel(ds *domainState, shape sliceShape) {
 //
 // Child penalties are measured against the children's own slice counts, so they
 // are subtracted from childrenSliceCapacity (the sum of child slice counts
-// before any domain-level capacityBound) rather than from ds.sliceCount, which
-// may already be clamped by capacityBound. The result is then bounded by what
-// the domain's own pod count allows.
+// before any domain-level capacityBound) rather than from
+// ds.sliceCount[obligationNone], which may already be clamped by capacityBound.
+// The result is then bounded by what the domain's own pod count allows.
 func fillTailCounts(ds *domainState, shape sliceShape, atSliceLevel bool, childrenSliceCapacity int32, penalties *tailPenaltyTracker) {
 	if atSliceLevel {
 		fillTailCountsAtSliceLevel(ds, shape)
 		return
 	}
-	ds.sliceCountWithTail, ds.sliceCountWithLeaderAndTail = noTailFit, noTailFit
+	ds.sliceCount[obligationTail], ds.sliceCount[obligationLeader|obligationTail] = noTailFit, noTailFit
 	if penalty, ok := penalties.tailPenalty(); ok {
-		ds.sliceCountWithTail = min(childrenSliceCapacity-penalty, sliceCountHostingTail(ds.podCount, shape))
+		ds.sliceCount[obligationTail] = min(childrenSliceCapacity-penalty, sliceCountHostingTail(ds.podCount, shape))
 	}
 	if penalty, ok := penalties.leaderAndTailPenalty(); ok {
-		ds.sliceCountWithLeaderAndTail = min(childrenSliceCapacity-penalty, sliceCountHostingTail(ds.podCountWithLeader, shape))
+		ds.sliceCount[obligationLeader|obligationTail] = min(childrenSliceCapacity-penalty, sliceCountHostingTail(ds.podCountWithLeader, shape))
 	}
 }
 
@@ -160,15 +162,15 @@ type tailPenaltyTracker struct {
 // for the leader capacity, so that a child which cannot hold the leader is not
 // offered one.
 func (t *tailPenaltyTracker) add(idx int, ds *domainState, leaderEligible bool) {
-	if ds.sliceCountWithTail != noTailFit {
-		t.tail.add(idx, ds.sliceCount-ds.sliceCountWithTail)
+	if ds.sliceCount[obligationTail] != noTailFit {
+		t.tail.add(idx, ds.sliceCount[obligationNone]-ds.sliceCount[obligationTail])
 	}
 	if !leaderEligible {
 		return
 	}
-	t.leader.add(idx, ds.sliceCount-ds.sliceCountWithLeader)
-	if ds.sliceCountWithLeaderAndTail != noTailFit {
-		penalty := ds.sliceCount - ds.sliceCountWithLeaderAndTail
+	t.leader.add(idx, ds.sliceCount[obligationNone]-ds.sliceCount[obligationLeader])
+	if ds.sliceCount[obligationLeader|obligationTail] != noTailFit {
+		penalty := ds.sliceCount[obligationNone] - ds.sliceCount[obligationLeader|obligationTail]
 		if !t.hasBoth || penalty < t.both {
 			t.both, t.hasBoth = penalty, true
 		}
@@ -207,14 +209,14 @@ func minPenalty(best int32, found bool, candidate int32, ok bool) (int32, bool) 
 // sliceCapacity returns the number of whole slices the domain can hold while
 // also holding the obligations it is asked about. It returns noTailFit when the
 // partial slice is asked for and does not fit.
-func (s *TASFlavorSnapshot) sliceCapacity(d *domain, withLeader, withTail bool) int32 {
-	return s.domainStateOf(d).sliceCapacity(withLeader, withTail)
+func (s *TASFlavorSnapshot) sliceCapacity(d *domain, obligations obligationMask) int32 {
+	return s.domainStateOf(d).sliceCapacity(obligations)
 }
 
 // canHostTail reports whether the partial slice fits in the domain, with no
 // whole slices of this PodSet alongside it.
 func (s *TASFlavorSnapshot) canHostTail(d *domain) bool {
-	return s.domainStateOf(d).sliceCountWithTail != noTailFit
+	return s.domainStateOf(d).sliceCount[obligationTail] != noTailFit
 }
 
 // findBestFitDomainForSlicesWithTail is findBestFitDomainForSlices for the
@@ -227,14 +229,15 @@ func (s *TASFlavorSnapshot) findBestFitDomainForSlicesWithTail(domains []*domain
 	bestTailCount := int32(math.MaxInt32)
 	bestWholeCount := int32(math.MaxInt32)
 	found := false
-	withLeader := leaderCount > 0
+	wholeObligations := obligationMaskFor(leaderCount > 0, false)
+	tailObligations := wholeObligations | obligationTail
 
 	for _, domain := range candidates {
 		if s.domainStateOf(domain).leaderCount < leaderCount {
 			continue
 		}
-		tailCount := s.sliceCapacity(domain, withLeader, true)
-		wholeCount := s.sliceCapacity(domain, withLeader, false)
+		tailCount := s.sliceCapacity(domain, tailObligations)
+		wholeCount := s.sliceCapacity(domain, wholeObligations)
 		if tailCount >= sliceCount &&
 			(tailCount < bestTailCount || (tailCount == bestTailCount && wholeCount < bestWholeCount)) {
 			bestDomain = domain
@@ -256,10 +259,10 @@ func (s *TASFlavorSnapshot) cheapestTailDomains(domains []*domain) cheapestChild
 	var tail cheapestChild
 	for i, d := range domains {
 		ds := s.domainStateOf(d)
-		if ds.sliceCountWithTail == noTailFit {
+		if ds.sliceCount[obligationTail] == noTailFit {
 			continue
 		}
-		tail.add(i, ds.sliceCount-ds.sliceCountWithTail)
+		tail.add(i, ds.sliceCount[obligationNone]-ds.sliceCount[obligationTail])
 	}
 	return tail
 }
@@ -276,15 +279,15 @@ func (s *TASFlavorSnapshot) cheapestTailDomains(domains []*domain) cheapestChild
 func (s *TASFlavorSnapshot) leaderPenaltyWithTail(domains []*domain, tailCosts *cheapestChild, idx int) (int32, bool) {
 	ds := s.domainStateOf(domains[idx])
 	penalty, found := int32(0), false
-	if ds.sliceCountWithLeaderAndTail != noTailFit {
-		penalty, found = ds.sliceCount-ds.sliceCountWithLeaderAndTail, true
+	if ds.sliceCount[obligationLeader|obligationTail] != noTailFit {
+		penalty, found = ds.sliceCount[obligationNone]-ds.sliceCount[obligationLeader|obligationTail], true
 	}
 	if tailCosts.hasBest {
 		tailPenalty, elsewhere := tailCosts.best, true
 		if tailCosts.bestIdx == idx {
 			tailPenalty, elsewhere = tailCosts.second, tailCosts.hasSecond
 		}
-		split := ds.sliceCount - ds.sliceCountWithLeader + tailPenalty
+		split := ds.sliceCount[obligationNone] - ds.sliceCount[obligationLeader] + tailPenalty
 		if elsewhere && (!found || split < penalty) {
 			penalty, found = split, true
 		}
@@ -299,11 +302,8 @@ func (s *TASFlavorSnapshot) leaderPenaltyWithTail(domains []*domain, tailCosts *
 // domain started with.
 func (s *TASFlavorSnapshot) hostsTailWithAssignedSlices(d *domain) bool {
 	ds := s.domainStateOf(d)
-	capacity := ds.sliceCountWithTail
-	if ds.leaderCount > 0 {
-		capacity = ds.sliceCountWithLeaderAndTail
-	}
-	return capacity != noTailFit && ds.sliceCount <= capacity
+	capacity := ds.sliceCapacity(obligationMaskFor(ds.leaderCount > 0, true))
+	return capacity != noTailFit && ds.sliceCount[obligationNone] <= capacity
 }
 
 // placeTail gives the partial slice to one of the domains, and returns the
@@ -326,7 +326,7 @@ func (s *TASFlavorSnapshot) placeTail(assigned, candidates []*domain, tailSize i
 		return nil, false
 	}
 	ds := s.domainStateOf(d)
-	ds.sliceCount = 0
+	ds.sliceCount[obligationNone] = 0
 	ds.leaderCount = 0
 	ds.podCount = tailSize
 	return d, true
@@ -377,7 +377,7 @@ func (s *TASFlavorSnapshot) appendTailDomain(used, candidates []*domain, shape s
 // rather than read from the domains.
 func (s *TASFlavorSnapshot) selectionHoldsTail(selected []*domain, assignedSlices []int32, takesLeader []bool) bool {
 	for i, d := range selected {
-		capacity := s.sliceCapacity(d, takesLeader[i], true)
+		capacity := s.sliceCapacity(d, obligationMaskFor(takesLeader[i], true))
 		if capacity != noTailFit && assignedSlices[i] <= capacity {
 			return true
 		}
@@ -412,8 +412,9 @@ func (s *TASFlavorSnapshot) closingDomainWithTail(
 	unconstrained bool,
 ) (*domain, bool) {
 	dom := candidates[0]
-	withLeader := remainingLeaderCount > 0
-	if s.sliceCapacity(dom, withLeader, false) < remainingPrimary ||
+	wholeObligations := obligationMaskFor(remainingLeaderCount > 0, false)
+	tailObligations := wholeObligations | obligationTail
+	if s.sliceCapacity(dom, wholeObligations) < remainingPrimary ||
 		s.domainStateOf(dom).leaderCount < remainingLeaderCount {
 		return nil, false
 	}
@@ -423,15 +424,15 @@ func (s *TASFlavorSnapshot) closingDomainWithTail(
 		tailDom = s.findBestFitDomainForSlicesWithTail(candidates, remainingPrimary, remainingLeaderCount)
 		wholeFit = s.findBestFitDomainForSlices(candidates, remainingPrimary, remainingLeaderCount)
 	}
-	if s.sliceCapacity(tailDom, withLeader, true) < remainingPrimary ||
+	if s.sliceCapacity(tailDom, tailObligations) < remainingPrimary ||
 		s.domainStateOf(tailDom).leaderCount < remainingLeaderCount ||
-		s.sliceCapacity(tailDom, withLeader, false) > s.sliceCapacity(wholeFit, withLeader, false) {
+		s.sliceCapacity(tailDom, wholeObligations) > s.sliceCapacity(wholeFit, wholeObligations) {
 		return nil, false
 	}
 	domainState := s.domainStateOf(tailDom)
 	domainState.leaderCount = remainingLeaderCount
-	domainState.sliceCountWithLeader = remainingPrimary
-	domainState.sliceCount = remainingPrimary
+	domainState.sliceCount[obligationLeader] = remainingPrimary
+	domainState.sliceCount[obligationNone] = remainingPrimary
 	domainState.podCount = remainingPrimary*shape.size + shape.tailSize
 	return tailDom, true
 }

@@ -42,41 +42,37 @@ func TestSelectOptimalDomainSetToFit(t *testing.T) {
 	d1 := testDomainSpec{
 		domain: domain{id: "d1", levelValues: []string{"d1"}},
 		state: domainState{
-			podCount:             9,
-			sliceCount:           9,
-			leaderCount:          1,
-			podCountWithLeader:   8,
-			sliceCountWithLeader: 8,
+			podCount:           9,
+			sliceCount:         [4]int32{obligationNone: 9, obligationLeader: 8},
+			leaderCount:        1,
+			podCountWithLeader: 8,
 		},
 	}
 	d2 := testDomainSpec{
 		domain: domain{id: "d2", levelValues: []string{"d2"}},
 		state: domainState{
-			podCount:             6,
-			sliceCount:           6,
-			leaderCount:          0,
-			podCountWithLeader:   6,
-			sliceCountWithLeader: 6,
+			podCount:           6,
+			sliceCount:         [4]int32{obligationNone: 6, obligationLeader: 6},
+			leaderCount:        0,
+			podCountWithLeader: 6,
 		},
 	}
 	d3 := testDomainSpec{
 		domain: domain{id: "d3", levelValues: []string{"d3"}},
 		state: domainState{
-			podCount:             4,
-			sliceCount:           4,
-			leaderCount:          1,
-			podCountWithLeader:   3,
-			sliceCountWithLeader: 3,
+			podCount:           4,
+			sliceCount:         [4]int32{obligationNone: 4, obligationLeader: 3},
+			leaderCount:        1,
+			podCountWithLeader: 3,
 		},
 	}
 	d4 := testDomainSpec{
 		domain: domain{id: "d4", levelValues: []string{"d4"}},
 		state: domainState{
-			podCount:             2,
-			sliceCount:           2,
-			leaderCount:          0,
-			podCountWithLeader:   2,
-			sliceCountWithLeader: 2,
+			podCount:           2,
+			sliceCount:         [4]int32{obligationNone: 2, obligationLeader: 2},
+			leaderCount:        0,
+			podCountWithLeader: 2,
 		},
 	}
 
@@ -151,7 +147,7 @@ func TestSelectOptimalDomainSetToFitStableTieBreak(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			s := newTASFlavorSnapshot(log, "dummy", newTopologyTree([]string{}, nil, 0), nil, newDefaultSimulator())
-			equalState := domainState{podCount: 3, sliceCount: 3, podCountWithLeader: 3, sliceCountWithLeader: 3}
+			equalState := domainState{podCount: 3, sliceCount: [4]int32{obligationNone: 3, obligationLeader: 3}, podCountWithLeader: 3}
 			domains := []*domain{
 				addDomainWithState(s, &domain{id: "leaf-a", levelValues: []string{"block-b", "host-a"}}, equalState),
 				addDomainWithState(s, &domain{id: "leaf-m", levelValues: []string{"block-b", "host-m"}}, equalState),
@@ -175,7 +171,7 @@ func TestCompareDomainCapacityAndEntropy(t *testing.T) {
 	}{
 		"tie-breaking on level values when capacity and entropy are equal": {
 			domains: func(s *TASFlavorSnapshot) []*domain {
-				leaderState := domainState{leaderCount: 1, sliceCountWithLeader: 5}
+				leaderState := domainState{leaderCount: 1, sliceCount: [4]int32{obligationLeader: 5}}
 				childState := domainState{podCount: 2}
 				return []*domain{
 					addDomainWithState(s, &domain{id: "leaf-a", levelValues: []string{"block-b", "host-a"}, children: []*domain{
@@ -196,16 +192,16 @@ func TestCompareDomainCapacityAndEntropy(t *testing.T) {
 				return []*domain{
 					addDomainWithState(s, &domain{id: "lower-leader", levelValues: []string{"a"}, children: []*domain{
 						addDomainWithState(s, &domain{}, domainState{podCount: 50}), addDomainWithState(s, &domain{}, domainState{podCount: 50}),
-					}}, domainState{leaderCount: 0, sliceCountWithLeader: 100}),
+					}}, domainState{leaderCount: 0, sliceCount: [4]int32{obligationLeader: 100}}),
 					addDomainWithState(s, &domain{id: "lower-capacity", levelValues: []string{"b"}, children: []*domain{
 						addDomainWithState(s, &domain{}, domainState{podCount: 2}), addDomainWithState(s, &domain{}, domainState{podCount: 2}),
-					}}, domainState{leaderCount: 1, sliceCountWithLeader: 4}),
+					}}, domainState{leaderCount: 1, sliceCount: [4]int32{obligationLeader: 4}}),
 					addDomainWithState(s, &domain{id: "low-entropy", levelValues: []string{"c"}, children: []*domain{
 						addDomainWithState(s, &domain{}, domainState{podCount: 4}), addDomainWithState(s, &domain{}, domainState{podCount: 0}),
-					}}, domainState{leaderCount: 1, sliceCountWithLeader: 5}),
+					}}, domainState{leaderCount: 1, sliceCount: [4]int32{obligationLeader: 5}}),
 					addDomainWithState(s, &domain{id: "high-entropy", levelValues: []string{"d"}, children: []*domain{
 						addDomainWithState(s, &domain{}, domainState{podCount: 2}), addDomainWithState(s, &domain{}, domainState{podCount: 2}),
-					}}, domainState{leaderCount: 1, sliceCountWithLeader: 5}),
+					}}, domainState{leaderCount: 1, sliceCount: [4]int32{obligationLeader: 5}}),
 				}
 			},
 			want: []string{"high-entropy", "low-entropy", "lower-capacity", "lower-leader"},
@@ -230,51 +226,46 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 	d1 := testDomainSpec{
 		domain: domain{id: "d1", levelValues: []string{"d1"}},
 		state: domainState{
-			podCount:             18,
-			sliceCount:           18,
-			podCountWithLeader:   18,
-			leaderCount:          0,
-			sliceCountWithLeader: 18,
+			podCount:           18,
+			sliceCount:         [4]int32{obligationNone: 18, obligationLeader: 18},
+			podCountWithLeader: 18,
+			leaderCount:        0,
 		},
 	}
 	d2 := testDomainSpec{
 		domain: domain{id: "d2", levelValues: []string{"d2"}},
 		state: domainState{
-			podCount:             18,
-			sliceCount:           18,
-			podCountWithLeader:   18,
-			leaderCount:          0,
-			sliceCountWithLeader: 18,
+			podCount:           18,
+			sliceCount:         [4]int32{obligationNone: 18, obligationLeader: 18},
+			podCountWithLeader: 18,
+			leaderCount:        0,
 		},
 	}
 	d3 := testDomainSpec{
 		domain: domain{id: "d3", levelValues: []string{"d3"}},
 		state: domainState{
-			podCount:             18,
-			sliceCount:           18,
-			podCountWithLeader:   18,
-			leaderCount:          0,
-			sliceCountWithLeader: 18,
+			podCount:           18,
+			sliceCount:         [4]int32{obligationNone: 18, obligationLeader: 18},
+			podCountWithLeader: 18,
+			leaderCount:        0,
 		},
 	}
 	d4 := testDomainSpec{
 		domain: domain{id: "d4", levelValues: []string{"d4"}},
 		state: domainState{
-			podCount:             10,
-			sliceCount:           10,
-			podCountWithLeader:   10,
-			leaderCount:          0,
-			sliceCountWithLeader: 10,
+			podCount:           10,
+			sliceCount:         [4]int32{obligationNone: 10, obligationLeader: 10},
+			podCountWithLeader: 10,
+			leaderCount:        0,
 		},
 	}
 	d5 := testDomainSpec{
 		domain: domain{id: "d5", levelValues: []string{"d5"}},
 		state: domainState{
-			podCount:             2,
-			sliceCount:           2,
-			podCountWithLeader:   2,
-			leaderCount:          0,
-			sliceCountWithLeader: 2,
+			podCount:           2,
+			sliceCount:         [4]int32{obligationNone: 2, obligationLeader: 2},
+			podCountWithLeader: 2,
+			leaderCount:        0,
 		},
 	}
 
@@ -293,8 +284,8 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 			sliceSize:   1,
 			threshold:   10,
 			want: map[string]domainState{
-				"d1": {sliceCount: 10, podCount: 10, podCountWithLeader: 10, sliceCountWithLeader: 10, leaderCount: 0},
-				"d2": {sliceCount: 10, podCount: 10, podCountWithLeader: 10, sliceCountWithLeader: 10, leaderCount: 0},
+				"d1": {sliceCount: [4]int32{obligationNone: 10, obligationLeader: 10}, podCount: 10, podCountWithLeader: 10, leaderCount: 0},
+				"d2": {sliceCount: [4]int32{obligationNone: 10, obligationLeader: 10}, podCount: 10, podCountWithLeader: 10, leaderCount: 0},
 			},
 		},
 		"simple placement on three domains": {
@@ -304,9 +295,9 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 			sliceSize:   1,
 			threshold:   13,
 			want: map[string]domainState{
-				"d1": {sliceCount: 14, podCount: 14, podCountWithLeader: 14, sliceCountWithLeader: 14, leaderCount: 0},
-				"d2": {sliceCount: 13, podCount: 13, podCountWithLeader: 13, sliceCountWithLeader: 13, leaderCount: 0},
-				"d3": {sliceCount: 13, podCount: 13, podCountWithLeader: 13, sliceCountWithLeader: 13, leaderCount: 0},
+				"d1": {sliceCount: [4]int32{obligationNone: 14, obligationLeader: 14}, podCount: 14, podCountWithLeader: 14, leaderCount: 0},
+				"d2": {sliceCount: [4]int32{obligationNone: 13, obligationLeader: 13}, podCount: 13, podCountWithLeader: 13, leaderCount: 0},
+				"d3": {sliceCount: [4]int32{obligationNone: 13, obligationLeader: 13}, podCount: 13, podCountWithLeader: 13, leaderCount: 0},
 			},
 		},
 		"find smallest domain that fits": {
@@ -316,7 +307,7 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 			sliceSize:   1,
 			threshold:   2,
 			want: map[string]domainState{
-				"d5": {sliceCount: 2, podCount: 2, podCountWithLeader: 2, sliceCountWithLeader: 2, leaderCount: 0},
+				"d5": {sliceCount: [4]int32{obligationNone: 2, obligationLeader: 2}, podCount: 2, podCountWithLeader: 2, leaderCount: 0},
 			},
 		},
 		"correctly select domains": {
@@ -326,8 +317,8 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 			sliceSize:   1,
 			threshold:   10,
 			want: map[string]domainState{
-				"d1": {sliceCount: 15, podCount: 15, podCountWithLeader: 15, sliceCountWithLeader: 15, leaderCount: 0},
-				"d4": {sliceCount: 10, podCount: 10, podCountWithLeader: 10, sliceCountWithLeader: 10, leaderCount: 0},
+				"d1": {sliceCount: [4]int32{obligationNone: 15, obligationLeader: 15}, podCount: 15, podCountWithLeader: 15, leaderCount: 0},
+				"d4": {sliceCount: [4]int32{obligationNone: 10, obligationLeader: 10}, podCount: 10, podCountWithLeader: 10, leaderCount: 0},
 			},
 		},
 	}
@@ -354,7 +345,7 @@ func TestPlaceSlicesOnDomainsBalanced(t *testing.T) {
 func TestPlaceSlicesOnDomainsBalancedStableTieBreak(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
 	s := newTASFlavorSnapshot(log, "dummy", newTopologyTree([]string{}, nil, 0), nil, newDefaultSimulator())
-	equalState := domainState{podCount: 3, sliceCount: 3, podCountWithLeader: 3, sliceCountWithLeader: 3}
+	equalState := domainState{podCount: 3, sliceCount: [4]int32{obligationNone: 3, obligationLeader: 3}, podCountWithLeader: 3}
 	domains := []*domain{
 		addDomainWithState(s, &domain{id: "leaf-a", levelValues: []string{"block-b", "host-a"}}, equalState),
 		addDomainWithState(s, &domain{id: "leaf-z", levelValues: []string{"block-a", "host-z"}}, equalState),
@@ -373,7 +364,7 @@ func TestPlaceSlicesOnDomainsBalancedStableTieBreak(t *testing.T) {
 func TestPruneDomainsBelowThreshold(t *testing.T) {
 	domainStateValues := func(s *TASFlavorSnapshot, d *domain) [5]int32 {
 		st := s.domainStateOf(d)
-		return [5]int32{st.podCount, st.sliceCount, st.podCountWithLeader, st.sliceCountWithLeader, st.leaderCount}
+		return [5]int32{st.podCount, st.sliceCount[obligationNone], st.podCountWithLeader, st.sliceCount[obligationLeader], st.leaderCount}
 	}
 
 	testCases := map[string]struct {
@@ -390,41 +381,37 @@ func TestPruneDomainsBelowThreshold(t *testing.T) {
 				leaderLeaf := addDomainWithState(s, &domain{
 					id: "leader-leaf",
 				}, domainState{
-					podCount:             6,
-					sliceCount:           6,
-					leaderCount:          1,
-					podCountWithLeader:   5,
-					sliceCountWithLeader: 5,
+					podCount:           6,
+					sliceCount:         [4]int32{obligationNone: 6, obligationLeader: 5},
+					leaderCount:        1,
+					podCountWithLeader: 5,
 				})
 				leaderDomain := addDomainWithState(s, &domain{
 					id:       "leader-domain",
 					children: []*domain{leaderLeaf},
 				}, domainState{
-					podCount:             6,
-					sliceCount:           6,
-					leaderCount:          1,
-					podCountWithLeader:   5,
-					sliceCountWithLeader: 5,
+					podCount:           6,
+					sliceCount:         [4]int32{obligationNone: 6, obligationLeader: 5},
+					leaderCount:        1,
+					podCountWithLeader: 5,
 				})
 				leaderLeaf.parent = leaderDomain
 				workerOnlyLeaf := addDomainWithState(s, &domain{
 					id: "worker-only-leaf",
 				}, domainState{
-					podCount:             5,
-					sliceCount:           5,
-					leaderCount:          1,
-					podCountWithLeader:   4,
-					sliceCountWithLeader: 4,
+					podCount:           5,
+					sliceCount:         [4]int32{obligationNone: 5, obligationLeader: 4},
+					leaderCount:        1,
+					podCountWithLeader: 4,
 				})
 				workerOnlyDomain := addDomainWithState(s, &domain{
 					id:       "worker-only-domain",
 					children: []*domain{workerOnlyLeaf},
 				}, domainState{
-					podCount:             5,
-					sliceCount:           5,
-					leaderCount:          1,
-					podCountWithLeader:   4,
-					sliceCountWithLeader: 4,
+					podCount:           5,
+					sliceCount:         [4]int32{obligationNone: 5, obligationLeader: 4},
+					leaderCount:        1,
+					podCountWithLeader: 4,
 				})
 				workerOnlyLeaf.parent = workerOnlyDomain
 				parentDomain := addDomainWithState(s, &domain{
@@ -477,12 +464,12 @@ func TestPruneDomainsBelowThresholdPreservesAffinityScore(t *testing.T) {
 	_, log := utiltesting.ContextWithLog(t)
 	s := newTASFlavorSnapshot(log, "dummy", newTopologyTree([]string{}, nil, 0), nil, newDefaultSimulator())
 	prunedLeaf := addDomainWithState(s, &domain{id: "pruned-leaf"}, domainState{
-		sliceCount:    1,
+		sliceCount:    [4]int32{obligationNone: 1},
 		affinityScore: 100,
 	})
 	keptLeaf := addDomainWithState(s, &domain{id: "kept-leaf"}, domainState{
 		podCount:           4,
-		sliceCount:         4,
+		sliceCount:         [4]int32{obligationNone: 4},
 		podCountWithLeader: 4,
 		affinityScore:      10,
 	})
@@ -505,14 +492,14 @@ func TestPruneDomainsBelowThresholdPreservesAffinityScore(t *testing.T) {
 
 func TestFindBestDomainsForBalancedPlacement(t *testing.T) {
 	type domainSpec struct {
-		id                   string
-		parentID             string
-		levelValues          []string
-		podCount             int32
-		sliceCount           int32
-		podCountWithLeader   int32
-		sliceCountWithLeader int32
-		leaderCount          int32
+		id                 string
+		parentID           string
+		levelValues        []string
+		podCount           int32
+		sliceCount         int32
+		podCountWithLeader int32
+		leaderSliceCount   int32
+		leaderCount        int32
 	}
 
 	testCases := map[string]struct {
@@ -525,9 +512,9 @@ func TestFindBestDomainsForBalancedPlacement(t *testing.T) {
 			domains: []domainSpec{
 				{id: "b1", levelValues: []string{"b1"}},
 				{id: "b2", levelValues: []string{"b2"}},
-				{id: "b1/r1", parentID: "b1", levelValues: []string{"b1", "r1"}, podCount: 3, sliceCount: 3, podCountWithLeader: 2, sliceCountWithLeader: 2, leaderCount: 1},
-				{id: "b2/r1", parentID: "b2", levelValues: []string{"b2", "r1"}, podCount: 2, sliceCount: 2, podCountWithLeader: 1, sliceCountWithLeader: 1, leaderCount: 1},
-				{id: "b2/r2", parentID: "b2", levelValues: []string{"b2", "r2"}, podCount: 4, sliceCount: 4, podCountWithLeader: 2, sliceCountWithLeader: 2, leaderCount: 1},
+				{id: "b1/r1", parentID: "b1", levelValues: []string{"b1", "r1"}, podCount: 3, sliceCount: 3, podCountWithLeader: 2, leaderSliceCount: 2, leaderCount: 1},
+				{id: "b2/r1", parentID: "b2", levelValues: []string{"b2", "r1"}, podCount: 2, sliceCount: 2, podCountWithLeader: 1, leaderSliceCount: 1, leaderCount: 1},
+				{id: "b2/r2", parentID: "b2", levelValues: []string{"b2", "r2"}, podCount: 4, sliceCount: 4, podCountWithLeader: 2, leaderSliceCount: 2, leaderCount: 1},
 			},
 			params: topologyAssignmentParameters{
 				count:             8,
@@ -544,10 +531,10 @@ func TestFindBestDomainsForBalancedPlacement(t *testing.T) {
 				{id: "b1", levelValues: []string{"b1"}},
 				{id: "b2", levelValues: []string{"b2"}},
 				{id: "b3", levelValues: []string{"b3"}},
-				{id: "b1/r1", parentID: "b1", levelValues: []string{"b1", "r1"}, podCount: 2, sliceCount: 2, podCountWithLeader: 1, sliceCountWithLeader: 1, leaderCount: 1},
-				{id: "b2/r1", parentID: "b2", levelValues: []string{"b2", "r1"}, podCount: 3, sliceCount: 3, podCountWithLeader: 1, sliceCountWithLeader: 1, leaderCount: 1},
-				{id: "b2/r2", parentID: "b2", levelValues: []string{"b2", "r2"}, podCount: 4, sliceCount: 4, podCountWithLeader: 2, sliceCountWithLeader: 2, leaderCount: 1},
-				{id: "b3/r1", parentID: "b3", levelValues: []string{"b3", "r1"}, podCount: 4, sliceCount: 4, podCountWithLeader: 3, sliceCountWithLeader: 3, leaderCount: 1},
+				{id: "b1/r1", parentID: "b1", levelValues: []string{"b1", "r1"}, podCount: 2, sliceCount: 2, podCountWithLeader: 1, leaderSliceCount: 1, leaderCount: 1},
+				{id: "b2/r1", parentID: "b2", levelValues: []string{"b2", "r1"}, podCount: 3, sliceCount: 3, podCountWithLeader: 1, leaderSliceCount: 1, leaderCount: 1},
+				{id: "b2/r2", parentID: "b2", levelValues: []string{"b2", "r2"}, podCount: 4, sliceCount: 4, podCountWithLeader: 2, leaderSliceCount: 2, leaderCount: 1},
+				{id: "b3/r1", parentID: "b3", levelValues: []string{"b3", "r1"}, podCount: 4, sliceCount: 4, podCountWithLeader: 3, leaderSliceCount: 3, leaderCount: 1},
 			},
 			params: topologyAssignmentParameters{
 				count:             12,
@@ -571,11 +558,10 @@ func TestFindBestDomainsForBalancedPlacement(t *testing.T) {
 					id:          utiltas.TopologyDomainID(spec.id),
 					levelValues: spec.levelValues,
 				}, domainState{
-					podCount:             spec.podCount,
-					sliceCount:           spec.sliceCount,
-					podCountWithLeader:   spec.podCountWithLeader,
-					sliceCountWithLeader: spec.sliceCountWithLeader,
-					leaderCount:          spec.leaderCount,
+					podCount:           spec.podCount,
+					sliceCount:         [4]int32{obligationNone: spec.sliceCount, obligationLeader: spec.leaderSliceCount},
+					podCountWithLeader: spec.podCountWithLeader,
+					leaderCount:        spec.leaderCount,
 				})
 				if len(spec.parentID) == 0 {
 					s.domainsPerLevel[0][d.id] = d
