@@ -34,7 +34,10 @@ func UngatePod(sts *appsv1.StatefulSet, pod *corev1.Pod, force bool) bool {
 	return false
 }
 
-func ShouldUngatePod(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
-	return sts == nil || sts.Status.CurrentRevision != sts.Status.UpdateRevision &&
-		sts.Status.CurrentRevision == pod.Labels[appsv1.ControllerRevisionHashLabelKey]
+// ShouldUngatePod reports whether a Pod may be ungated without its Workload
+// being admitted, which holds only once the StatefulSet is gone. A rollout does
+// not qualify, since the Workload may not be admitted and its Pods would then
+// run without quota.
+func ShouldUngatePod(sts *appsv1.StatefulSet, _ *corev1.Pod) bool {
+	return sts == nil
 }

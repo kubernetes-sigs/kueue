@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	eventsv1 "k8s.io/api/events/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -33,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
@@ -233,12 +235,63 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("Should remove all Kueue scheduling gates from a current-revision Pod without removing its finalizer", func() {
-		ginkgo.By("Creating a StatefulSet with a rollout in progress")
+	ginkgo.It("Should keep Kueue scheduling gates on a pending Workload's Pods when a rollout starts", func() {
+		ginkgo.By("Creating a StatefulSet that does not fit the ClusterQueue")
 		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
 			Queue("lq").
 			Replicas(1).
-			Request(corev1.ResourceCPU, "100m").
+			Request(corev1.ResourceCPU, "10").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			g.Expect(createdSTS.UID).ShouldNot(gomega.BeEmpty())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		workloadName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
+		util.ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, types.NamespacedName{Name: workloadName, Namespace: ns.Name})
+
+		ginkgo.By("Creating the Pod a real StatefulSet controller would create")
+		pod := testingjobspod.MakePod("test-sts-0", ns.Name).
+			OwnerReferenceWithUID(createdSTS.Name, appsv1.SchemeGroupVersion.WithKind("StatefulSet"), string(createdSTS.UID)).
+			Annotation(constants.SuspendedByParentAnnotation, statefulset.FrameworkName).
+			Label(appsv1.ControllerRevisionHashLabelKey, "revision-1").
+			Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+
+		ginkgo.By("Waiting for the Pod to join the Workload's pod group")
+		gotPod := &corev1.Pod{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
+			g.Expect(utilpod.GetPodGroupName(gotPod)).Should(gomega.Equal(workloadName))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Starting a rollout that leaves the Pod at the current revision")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			createdSTS.Status.CurrentRevision = "revision-1"
+			createdSTS.Status.UpdateRevision = "revision-2"
+			g.Expect(k8sClient.Status().Update(ctx, createdSTS)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying the Pod retains both scheduling gates")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
+			g.Expect(gotPod.Spec.SchedulingGates).Should(gomega.ConsistOf(
+				corev1.PodSchedulingGate{Name: constants.SchedulingGateName},
+				corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate},
+			))
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should ungate a Pod created at the current revision during a rollout once the Workload is admitted", func() {
+		ginkgo.By("Creating a StatefulSet that does not fit the ClusterQueue, with a rollout in progress")
+		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
+			Queue("lq").
+			Replicas(1).
+			Request(corev1.ResourceCPU, "10").
 			Obj()
 		util.MustCreate(ctx, k8sClient, sts)
 
@@ -251,25 +304,39 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 		workloadName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
+		wlKey := types.NamespacedName{Name: workloadName, Namespace: ns.Name}
+		util.ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, wlKey)
+
+		ginkgo.By("Creating the current-revision Pod a real StatefulSet controller would create")
 		pod := testingjobspod.MakePod("test-sts-0", ns.Name).
-			Queue("lq").
 			OwnerReferenceWithUID(createdSTS.Name, appsv1.SchemeGroupVersion.WithKind("StatefulSet"), string(createdSTS.UID)).
 			Annotation(constants.SuspendedByParentAnnotation, statefulset.FrameworkName).
-			GroupNameLabel(workloadName).
-			GroupTotalCount("1").
 			Label(appsv1.ControllerRevisionHashLabelKey, "revision-1").
-			Gate(constants.SchedulingGateName).
-			Gate(kueue.TopologySchedulingGate).
-			KueueFinalizer().
 			Obj()
 		util.MustCreate(ctx, k8sClient, pod)
 
-		ginkgo.By("Verifying the Pod is ungated while its legacy finalizer remains untouched")
+		ginkgo.By("Waiting for the gated Pod to join the Workload's pod group")
 		gotPod := &corev1.Pod{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
+			g.Expect(utilpod.GetPodGroupName(gotPod)).Should(gomega.Equal(workloadName))
+			g.Expect(gotPod.Spec.SchedulingGates).Should(gomega.ContainElement(
+				corev1.PodSchedulingGate{Name: constants.SchedulingGateName},
+			))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Raising the ClusterQueue quota so that the Workload fits")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
+			cq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("20")
+			g.Expect(k8sClient.Update(ctx, cq)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKey)
+
+		ginkgo.By("Verifying the Pod is ungated by the Workload admission")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
 			g.Expect(gotPod.Spec.SchedulingGates).Should(gomega.BeEmpty())
-			g.Expect(gotPod.Finalizers).Should(gomega.ConsistOf(constants.PodFinalizer))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
@@ -316,12 +383,12 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("Should ungate a current-revision Pod whose queue-name differs from the StatefulSet", func() {
-		ginkgo.By("Creating a StatefulSet with a rollout in progress")
+	ginkgo.It("Should sync the queue-name onto a current-revision Pod that stays gated during a rollout", func() {
+		ginkgo.By("Creating a StatefulSet that does not fit the ClusterQueue, with a rollout in progress")
 		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
 			Queue("lq").
 			Replicas(1).
-			Request(corev1.ResourceCPU, "100m").
+			Request(corev1.ResourceCPU, "10").
 			Obj()
 		util.MustCreate(ctx, k8sClient, sts)
 
@@ -346,12 +413,14 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			Obj()
 		util.MustCreate(ctx, k8sClient, pod)
 
-		ginkgo.By("Verifying the Pod is ungated and keeps its queue-name")
+		ginkgo.By("Verifying the Pod stays gated and takes the StatefulSet queue-name")
 		gotPod := &corev1.Pod{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
-			g.Expect(gotPod.Spec.SchedulingGates).Should(gomega.BeEmpty())
-			g.Expect(gotPod.Labels).Should(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, "old-lq"))
+			g.Expect(gotPod.Spec.SchedulingGates).Should(gomega.ContainElement(
+				corev1.PodSchedulingGate{Name: constants.SchedulingGateName},
+			))
+			g.Expect(gotPod.Labels).Should(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, "lq"))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
