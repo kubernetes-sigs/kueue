@@ -93,7 +93,7 @@ func (p *PreemptionEvaluator) OrderedCandidates(
 	frsNeedPreemption sets.Set[resources.FlavorResource],
 	candidatesOrdering func(a, b *workload.Info) int,
 	trigger kueuealpha.PreemptionConfigActivationTrigger,
-) []*configurableCandidate {
+) []*ConfigurableCandidate {
 	if p == nil {
 		return nil
 	}
@@ -102,7 +102,7 @@ func (p *PreemptionEvaluator) OrderedCandidates(
 		p.log.Error(err, "Failed to get candidates for preemption", "trigger", trigger)
 		return nil
 	}
-	slices.SortFunc(candidates, func(a, b *configurableCandidate) int {
+	slices.SortFunc(candidates, func(a, b *ConfigurableCandidate) int {
 		return candidatesOrdering(a.WlInfo, b.WlInfo)
 	})
 	return candidates
@@ -167,7 +167,7 @@ func (p *PreemptionEvaluator) FindCandidates(
 
 func iterateOverCandidates(
 	snapshot *schdcache.Snapshot,
-	candidates []*configurableCandidate,
+	candidates []*ConfigurableCandidate,
 	yield func(*common.Target) bool,
 ) (interrupted bool) {
 	for _, candidate := range candidates {

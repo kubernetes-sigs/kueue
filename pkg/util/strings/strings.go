@@ -17,7 +17,6 @@ limitations under the License.
 package strings
 
 import (
-	"cmp"
 	"maps"
 	"slices"
 	"strconv"
@@ -45,7 +44,7 @@ func Join[T ~string](a []T, sep string) string {
 	return strings.Join(strs, sep)
 }
 
-// JoinMap builds a string from a map of string to int.
+// JoinMap builds a string from a map of strings to integer slices.
 // Keys are sorted alphabetically. Values are converted to strings and joined with valueSep.
 // Entries are separated by entrySep.
 // Example:
@@ -58,7 +57,7 @@ func JoinMap(m map[string][]int, keyValueSep string, valueSep string, entrySep s
 	itoa := func(value *int) string { return strconv.Itoa(*value) }
 
 	keys := slices.Collect(maps.Keys(m))
-	slices.SortFunc(keys, cmp.Compare)
+	slices.Sort(keys)
 
 	var builder strings.Builder
 	for i, key := range keys {

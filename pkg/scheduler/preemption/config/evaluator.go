@@ -69,7 +69,9 @@ func (p *PreemptionEvaluator) HasRulesFor(triggers ...kueuealpha.PreemptionConfi
 	return false
 }
 
-type configurableCandidate struct {
+// ConfigurableCandidate represents a workload selected for configurable preemption
+// together with the configuration rules and selectors that selected it.
+type ConfigurableCandidate struct {
 	WlInfo                    *workload.Info
 	ConfigName                string
 	RuleNameToSelectorIndexes map[string][]int
@@ -83,8 +85,8 @@ func (p *PreemptionEvaluator) Candidates(
 	preemptor *workload.Info,
 	flavorsNeedPreemption sets.Set[resources.FlavorResource],
 	trigger kueuealpha.PreemptionConfigActivationTrigger,
-) ([]*configurableCandidate, error) {
-	var candidates []*configurableCandidate
+) ([]*ConfigurableCandidate, error) {
+	var candidates []*ConfigurableCandidate
 	// Several rules, or several selectors of a rule, can select the same workload.
 	// Therefore, we need to keep track of the UIDs of the selected workloads
 	// to avoid duplicates. Additionally map's value is used as index of already recorded candidate
@@ -121,7 +123,7 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 	flavorsNeedPreemption sets.Set[resources.FlavorResource],
 	ruleName string,
 	seen map[types.UID]int,
-	candidates *[]*configurableCandidate,
+	candidates *[]*ConfigurableCandidate,
 	selectorIndex int,
 ) {
 	for _, targetCq := range snapshot.ClusterQueues() {
@@ -141,15 +143,15 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 
 func (p *PreemptionEvaluator) ensureCandidate(
 	seen map[types.UID]int,
-	candidates *[]*configurableCandidate,
+	candidates *[]*ConfigurableCandidate,
 	wlInfo *workload.Info,
-) *configurableCandidate {
+) *ConfigurableCandidate {
 	if existingIndex, found := seen[wlInfo.Obj.UID]; found {
 		return (*candidates)[existingIndex]
 	}
 
 	seen[wlInfo.Obj.UID] = len(*candidates)
-	candidate := &configurableCandidate{
+	candidate := &ConfigurableCandidate{
 		WlInfo:                    wlInfo,
 		ConfigName:                p.config.Name,
 		RuleNameToSelectorIndexes: map[string][]int{},
