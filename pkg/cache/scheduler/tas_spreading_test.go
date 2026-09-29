@@ -22,6 +22,7 @@ import (
 	"github.com/go-logr/logr/testr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -215,5 +216,58 @@ func TestCompareSpreadPriorityAboveRuleLevel(t *testing.T) {
 	}
 	if got := snapshot.sortedBySpreadPriority([]*domain{b1, b2}, rules); got[0] != b1 {
 		t.Errorf("sortedBySpreadPriority() reordered domains above the rule's level")
+	}
+}
+
+func TestFilterOutBannedDomains(t *testing.T) {
+	cases := map[string]struct {
+		spread      map[utiltas.TopologyDomainID]spreadOccupancy
+		wantAllowed []string
+		wantBanned  []string
+	}{
+		"no domain over its share": {
+			spread: map[utiltas.TopologyDomainID]spreadOccupancy{
+				"b1": {count: 1, parentCount: 2},
+				"b2": {count: 1, parentCount: 2},
+			},
+			wantAllowed: []string{"b1", "b2"},
+		},
+		"one domain over its share": {
+			spread: map[utiltas.TopologyDomainID]spreadOccupancy{
+				"b1": {count: 1, parentCount: 1},
+				"b2": {count: 0, parentCount: 1},
+			},
+			wantAllowed: []string{"b2"},
+			wantBanned:  []string{"b1"},
+		},
+		"every domain over its share": {
+			spread: map[utiltas.TopologyDomainID]spreadOccupancy{
+				"b1": {count: 2, parentCount: 2},
+				"b2": {count: 2, parentCount: 2},
+			},
+			wantAllowed: []string{},
+			wantBanned:  []string{"b1", "b2"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			snapshot := newSpreadingTestSnapshot(t)
+			rule := spreadingRule(treeTestBlockLabel, utiltas.TopologySpreadingEnforcementModeRequired)
+			rule.MaxShareAllowingPlacement = resource.MustParse("0.5")
+			rules := map[int]utiltas.SpreadingRule{0: rule}
+
+			blocks := []*domain{snapshot.domainsPerLevel[0]["b1"], snapshot.domainsPerLevel[0]["b2"]}
+			for _, d := range blocks {
+				snapshot.domainStateOf(d).spread = tc.spread[d.id]
+			}
+
+			allowed, banned := snapshot.filterOutBannedDomains(blocks, rules)
+			if diff := cmp.Diff(tc.wantAllowed, domainIDs(allowed)); diff != "" {
+				t.Errorf("Unexpected allowed domains (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantBanned, domainIDs(banned)); diff != "" {
+				t.Errorf("Unexpected banned domains (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
