@@ -100,6 +100,11 @@ func (a adapter[PtrT, T]) SyncJob(
 		return false, err
 	}
 
+	localJobRaw, err := jobframework.GetUnstructured(ctx, localClient, key, a.gvk)
+	if err != nil {
+		return false, err
+	}
+
 	remoteJob := PtrT(new(T))
 	err = remoteClient.Get(ctx, key, remoteJob)
 	if client.IgnoreNotFound(err) != nil {
@@ -123,7 +128,10 @@ func (a adapter[PtrT, T]) SyncJob(
 	// clearing the managedBy enables the controller to take over
 	a.fromObject(remoteJob).SetManagedBy(nil)
 
-	return false, remoteClient.Create(ctx, remoteJob)
+	if err := jobframework.CreateWithPreservedSpec(ctx, remoteClient, localJobRaw, localJob, remoteJob); err != nil {
+		return false, err
+	}
+	return false, nil
 }
 
 func (a adapter[PtrT, T]) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
