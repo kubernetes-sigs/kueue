@@ -139,6 +139,18 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: HigherMaxParallelismWithinReconcile
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
+- name: KueueDRADeviceFeasibility
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
 - name: HierarchicalCohorts
   versionedSpecs:
   - default: true

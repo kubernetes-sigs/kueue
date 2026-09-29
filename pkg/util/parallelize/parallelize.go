@@ -20,9 +20,21 @@ import (
 	"context"
 
 	"k8s.io/client-go/util/workqueue"
+
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
-const maxParallelism = 32
+const (
+	defaultMaxParallelism = 8
+	higherMaxParallelism  = 32
+)
+
+func maxParallelism() int {
+	if features.Enabled(features.HigherMaxParallelismWithinReconcile) {
+		return higherMaxParallelism
+	}
+	return defaultMaxParallelism
+}
 
 // ErrorChannel supports non-blocking send and receive operation to capture error.
 // A maximum of one error is kept in the channel and the rest of the errors sent
@@ -59,7 +71,7 @@ func (e *ErrorChannel) Receive() error {
 
 func Until(ctx context.Context, pieces int, doWorkPiece func(i int) error) error {
 	errCh := NewErrorChannel()
-	workers := min(pieces, maxParallelism)
+	workers := min(pieces, maxParallelism())
 	workqueue.ParallelizeUntil(ctx, workers, pieces, func(i int) {
 		errCh.SendError(doWorkPiece(i))
 	})
