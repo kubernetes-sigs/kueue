@@ -3832,7 +3832,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					})
 				})
 
-				ginkgo.It("should greedily replace queued failed nodes", framework.SlowSpec, func() {
+				ginkgo.It("should preserve the assignment when the required domain cannot be determined", framework.SlowSpec, func() {
 					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceMultipleFailedNodes, true)
 					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
 
@@ -3846,7 +3846,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					})
 
 					ginkgo.By("creating a two-pod workload requiring one block", func() {
-						wl = utiltestingapi.MakeWorkload("wl-required-greedy", ns.Name).
+						wl = utiltestingapi.MakeWorkload("wl-required-unknown-domain", ns.Name).
 							PodSets(*utiltestingapi.MakePodSet("worker", 2).
 								RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 								Obj()).
@@ -3885,46 +3885,26 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						util.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl, "x3", "x1")
 					})
 
-					ginkgo.By("adding two replacement nodes in the required block", func() {
-						replacementNodes := []corev1.Node{
-							*testingnode.MakeNode("x5").
-								Label("node-group", "tas").
-								Label(utiltesting.DefaultBlockTopologyLevel, "b1").
-								Label(utiltesting.DefaultRackTopologyLevel, "r3").
-								Label(corev1.LabelHostname, "x5").
-								StatusAllocatable(corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("1"),
-									corev1.ResourceMemory: resource.MustParse("1Gi"),
-									corev1.ResourcePods:   resource.MustParse("10"),
-								}).
-								Ready().
-								Obj(),
-							*testingnode.MakeNode("x6").
-								Label("node-group", "tas").
-								Label(utiltesting.DefaultBlockTopologyLevel, "b1").
-								Label(utiltesting.DefaultRackTopologyLevel, "r4").
-								Label(corev1.LabelHostname, "x6").
-								StatusAllocatable(corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("1"),
-									corev1.ResourceMemory: resource.MustParse("1Gi"),
-									corev1.ResourcePods:   resource.MustParse("10"),
-								}).
-								Ready().
-								Obj(),
-						}
-						nodes = append(nodes, replacementNodes...)
-						util.CreateNodesWithStatus(ctx, k8sClient, replacementNodes)
+					ginkgo.By("providing replacement capacity outside the original block", func() {
+						util.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{nodes[2], nodes[3]})
 					})
 
-					ginkgo.By("verifying both failures are replaced greedily within block b1", func() {
-						gomega.Eventually(func(g gomega.Gomega) {
+					ginkgo.By("observing a failed replacement because the required domain is unknown", func() {
+						util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+							Reason: "SecondPassFailed",
+							Type:   corev1.EventTypeWarning,
+							Note:   "couldn't assign flavors to pod set worker: cannot replace the node: required topology domain of the remaining assignment cannot be determined",
+						})
+					})
+
+					ginkgo.By("keeping the original assignment instead of replacing nodes across blocks", func() {
+						gomega.Consistently(func(g gomega.Gomega) {
 							updatedWl := &kueue.Workload{}
 							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).To(gomega.Succeed())
 							g.Expect(workload.IsAdmitted(updatedWl)).To(gomega.BeTrue())
-							g.Expect(updatedWl.Status.UnhealthyNodes).To(gomega.BeEmpty())
-							ta := updatedWl.Status.Admission.PodSetAssignments[0].TopologyAssignment
-							g.Expect(slices.Collect(utiltas.LowestLevelValues(ta))).To(gomega.ConsistOf("x5", "x6"))
-						}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+							g.Expect(updatedWl.Status.UnhealthyNodes).To(gomega.Equal([]kueue.UnhealthyNode{{Name: "x3"}, {Name: "x1"}}))
+							g.Expect(updatedWl.Status.Admission.PodSetAssignments[0].TopologyAssignment).To(gomega.BeComparableTo(originalAssignment))
+						}, 3*util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 					})
 				})
 
