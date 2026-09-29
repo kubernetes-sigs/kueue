@@ -1411,6 +1411,192 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 	}
 }
 
+func TestSnapshotUsesOverlappingTASCapacity(t *testing.T) {
+	const rackLabel = "cloud.com/rack"
+	now := time.Now().Truncate(time.Second)
+	makeNode := func(name string, labels map[string]string) *corev1.Node {
+		n := node.MakeNode(name).
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("2"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready()
+		for k, v := range labels {
+			n = n.Label(k, v)
+		}
+		return n.Obj()
+	}
+	makeWorkload := func(name string, cq kueue.ClusterQueueReference, flavor kueue.ResourceFlavorReference, level string, domain string) *kueue.Workload {
+		psa := utiltestingapi.MakePodSetAssignment("main").
+			Assignment(corev1.ResourceCPU, flavor, "1")
+		ps := utiltestingapi.MakePodSet("main", 1).
+			Request(corev1.ResourceCPU, "1")
+		if level != "" {
+			ps = ps.RequiredTopologyRequest(level)
+			psa = psa.TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{level}).
+				Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{domain}, 1).Obj()).
+				Obj())
+		}
+		return utiltestingapi.MakeWorkload(name, "").
+			PodSets(*ps.Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission(cq).PodSets(psa.Obj()).Obj(), now).
+			AdmittedAt(true, now).
+			Obj()
+	}
+	makeClusterQueue := func(name string, flavors ...string) *kueue.ClusterQueue {
+		quotas := make([]kueue.FlavorQuotas, 0, len(flavors))
+		for _, flavor := range flavors {
+			quotas = append(quotas, *utiltestingapi.MakeFlavorQuotas(flavor).
+				Resource(corev1.ResourceCPU, "100").
+				Obj())
+		}
+		return utiltestingapi.MakeClusterQueue(name).ResourceGroup(quotas...).Obj()
+	}
+
+	// x1 and x2 are in zone a, while only x1 is in pool p, so tas-b selects a
+	// subset of the nodes of tas-a. tas-c selects the disjoint zone b, and
+	// tas-rack selects the nodes of tas-a with a rack leaf level.
+	topologies := []*kueue.Topology{
+		utiltestingapi.MakeDefaultOneLevelTopology("hostname"),
+		utiltestingapi.MakeTopology("rack").Levels(rackLabel).Obj(),
+	}
+	rfs := []*kueue.ResourceFlavor{
+		utiltestingapi.MakeResourceFlavor("tas-a").TopologyName("hostname").NodeLabel("zone", "a").Obj(),
+		utiltestingapi.MakeResourceFlavor("tas-b").TopologyName("hostname").NodeLabel("pool", "p").Obj(),
+		utiltestingapi.MakeResourceFlavor("tas-c").TopologyName("hostname").NodeLabel("zone", "b").Obj(),
+		utiltestingapi.MakeResourceFlavor("tas-rack").TopologyName("rack").NodeLabel("zone", "a").Obj(),
+		utiltestingapi.MakeResourceFlavor("default").Obj(),
+	}
+	cqs := []*kueue.ClusterQueue{
+		makeClusterQueue("cq", "tas-a", "tas-b", "tas-c"),
+		makeClusterQueue("cq-rack", "tas-rack"),
+		makeClusterQueue("cq-default", "default"),
+	}
+	nodes := []*corev1.Node{
+		makeNode("x1", map[string]string{"zone": "a", "pool": "p", rackLabel: "r1"}),
+		makeNode("x2", map[string]string{"zone": "a", rackLabel: "r1"}),
+		makeNode("y1", map[string]string{"zone": "b"}),
+	}
+	wls := []*kueue.Workload{
+		makeWorkload("wl-b-x1", "cq", "tas-b", corev1.LabelHostname, "x1"),
+		makeWorkload("wl-a-x2", "cq", "tas-a", corev1.LabelHostname, "x2"),
+		makeWorkload("wl-c-y1", "cq", "tas-c", corev1.LabelHostname, "y1"),
+		makeWorkload("wl-rack", "cq-rack", "tas-rack", rackLabel, "r1"),
+		makeWorkload("wl-default", "cq-default", "default", "", ""),
+	}
+
+	testCases := map[string]struct {
+		disableOverlappingFlavors bool
+		cq                        kueue.ClusterQueueReference
+		workload                  workload.Reference
+		source                    kueue.ResourceFlavorReference
+		target                    kueue.ResourceFlavorReference
+		want                      bool
+	}{
+		"workload on a node the target flavor also selects": {
+			cq:       "cq",
+			workload: "/wl-b-x1",
+			source:   "tas-b",
+			target:   "tas-a",
+			want:     true,
+		},
+		"source and target are the same flavor": {
+			cq:       "cq",
+			workload: "/wl-b-x1",
+			source:   "tas-b",
+			target:   "tas-b",
+		},
+		"workload on a node the target flavor does not select": {
+			cq:       "cq",
+			workload: "/wl-a-x2",
+			source:   "tas-a",
+			target:   "tas-b",
+		},
+		"workload does not use the source flavor": {
+			cq:       "cq",
+			workload: "/wl-b-x1",
+			source:   "tas-a",
+			target:   "tas-b",
+		},
+		"source and target flavors select disjoint nodes": {
+			cq:       "cq",
+			workload: "/wl-c-y1",
+			source:   "tas-c",
+			target:   "tas-a",
+		},
+		"target flavor does not have a hostname leaf level": {
+			cq:       "cq",
+			workload: "/wl-b-x1",
+			source:   "tas-b",
+			target:   "tas-rack",
+		},
+		"source flavor does not have a hostname leaf level": {
+			cq:       "cq-rack",
+			workload: "/wl-rack",
+			source:   "tas-rack",
+			target:   "tas-a",
+		},
+		"source flavor is not a TAS flavor": {
+			cq:       "cq-default",
+			workload: "/wl-default",
+			source:   "default",
+			target:   "tas-a",
+		},
+		"TASHandleOverlappingFlavors is disabled": {
+			disableOverlappingFlavors: true,
+			cq:                        "cq",
+			workload:                  "/wl-b-x1",
+			source:                    "tas-b",
+			target:                    "tas-a",
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:     true,
+				features.TASHandleOverlappingFlavors: !tc.disableOverlappingFlavors,
+			})
+			ctx, log := utiltesting.ContextWithLog(t)
+			cache := New(utiltesting.NewFakeClient())
+			for _, cq := range cqs {
+				if err := cache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+					t.Fatalf("Failed adding ClusterQueue: %v", err)
+				}
+			}
+			for _, rf := range rfs {
+				cache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
+			}
+			for _, topology := range topologies {
+				cache.AddOrUpdateTopology(log, topology.DeepCopy())
+			}
+			for _, wl := range wls {
+				cache.AddOrUpdateWorkload(ctx, log, wl.DeepCopy())
+			}
+			for _, n := range nodes {
+				cache.TASCache().SyncNode(n.DeepCopy())
+			}
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			cqSnapshot := snapshot.ClusterQueue(tc.cq)
+			if cqSnapshot == nil {
+				t.Fatalf("ClusterQueue %q is missing from the snapshot", tc.cq)
+			}
+			wl := cqSnapshot.Workloads[tc.workload]
+			if wl == nil {
+				t.Fatalf("Workload %q is missing from the snapshot of ClusterQueue %q", tc.workload, tc.cq)
+			}
+
+			got := snapshot.UsesOverlappingTASCapacity(wl, tc.source, tc.target)
+			if got != tc.want {
+				t.Errorf("UsesOverlappingTASCapacity(%q, %q, %q) = %v, want %v", tc.workload, tc.source, tc.target, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestSnapshotLog is a sanity check for logging the snapshot, which the
 // scheduler does on every scheduling cycle when running with high verbosity.
 func TestSnapshotLog(t *testing.T) {

@@ -346,6 +346,13 @@ As it has an `AnyClusterQueue` relation, it can preempt workloads even if they a
 In combination with a custom numeric label selector using strict `LessThan`, this guarantees asymmetry: a larger-topology workload can preempt smaller workloads blocking the required topology domain, but smaller or equal-sized workloads cannot preempt the larger workload in return, preventing mutual preemption loops.
 Effectively, when the smaller workloads are re-admitted, they can be placed in smaller fragmented domains (where the larger workload cannot fit), thereby defragmenting the cluster.
 
+> [!NOTE]
+> Candidates must use a resource from one of the flavors for which the preemptor needs preemption.
+> With the `TASHandleOverlappingFlavors` feature gate, TAS flavors with a hostname lowest level account for the usage of each other on the nodes they share.
+> Therefore, candidates of the `QuotaFeasibleAndInsufficientTopology` trigger also include workloads using the same resource from another such flavor,
+> on nodes that are also selected by the flavor of the preemptor, as preempting them frees capacity in its topology.
+> The candidates of the other triggers are only selected on the flavors of the preemptor, as only those free the quota it needs.
+
 #### Story 2 - Hero job
 
 This example shows how a hero job's preemption config can be set up. It proposes an exemplary separate preemption config for the hero job's ClusterQueue, but in practical deployments it should be tailored to the user's needs.
