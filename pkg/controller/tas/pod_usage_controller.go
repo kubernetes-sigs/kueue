@@ -23,6 +23,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
@@ -35,6 +36,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/workload"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -117,6 +120,7 @@ func (r *PodUsageReconciler) NeedLeaderElection() bool {
 }
 
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+//+kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
 
 func (r *PodUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := klog.FromContext(ctx).WithValues("pod", req.NamespacedName)
@@ -141,7 +145,11 @@ func (r *PodUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		r.cache.TASCache().UntrackPod(ctx, req.NamespacedName)
 	}
 
-	if belongsToNonTASCache(&pod) {
+	belongs, err := r.belongsToPodUsageCache(ctx, &pod)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if belongs {
 		if freedNode := r.cache.TASCache().UpdateNonTASUsage(&pod, log); freedNode != "" {
 			r.notifyFreedNode(freedNode)
 		}
@@ -171,6 +179,40 @@ func belongsToNonTASCache(pod *corev1.Pod) bool {
 		return false
 	}
 	return true
+}
+
+func (r *PodUsageReconciler) belongsToPodUsageCache(ctx context.Context, pod *corev1.Pod) (bool, error) {
+	if pod == nil {
+		return false, nil
+	}
+	if pod.Spec.NodeName == "" {
+		return false, nil
+	}
+	if utilpod.IsTerminated(pod) {
+		return false, nil
+	}
+	if !utiltas.IsTAS(pod) {
+		return true, nil
+	}
+
+	wlName, ok := pod.Annotations[kueue.WorkloadAnnotation]
+	if !ok || wlName == "" {
+		return false, nil
+	}
+
+	var wl kueue.Workload
+	err := r.k8sClient.Get(ctx, types.NamespacedName{
+		Namespace: pod.Namespace,
+		Name:      wlName,
+	}, &wl)
+	if apierrors.IsNotFound(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+
+	return !workload.HasActiveQuotaReservation(&wl), nil
 }
 
 func (r *PodUsageReconciler) notifyFreedNode(nodeName string) {
@@ -273,6 +315,33 @@ func (r *PodUsageReconciler) Generic(event.TypedGenericEvent[*corev1.Pod]) bool 
 	return false
 }
 
+func (r *PodUsageReconciler) pods4Workload(ctx context.Context, wl *kueue.Workload) []reconcile.Request {
+	var pods corev1.PodList
+
+	if err := r.k8sClient.List(
+		ctx,
+		&pods,
+		client.InNamespace(wl.Namespace),
+		client.MatchingFields{tasindexer.WorkloadNameKey: wl.Name}); err != nil {
+
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to list pods for workload", "workload", klog.KObj(wl))
+
+		// List resource failed, return nil
+		return nil
+	}
+
+	requests := make([]reconcile.Request, 0, len(pods.Items))
+	for i := range pods.Items {
+		if isScheduledAndRunning(&pods.Items[i]) {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(&pods.Items[i]),
+			})
+		}
+	}
+
+	return requests
+}
+
 func (r *PodUsageReconciler) SetupWithManager(mgr ctrl.Manager) (string, error) {
 	return TASPodUsageController, ctrl.NewControllerManagedBy(mgr).
 		Named(TASPodUsageController).
@@ -281,6 +350,13 @@ func (r *PodUsageReconciler) SetupWithManager(mgr ctrl.Manager) (string, error) 
 			&corev1.Pod{},
 			&handler.TypedEnqueueRequestForObject[*corev1.Pod]{},
 			r,
+		)).
+		// Add kueue workload controller setup, watch workload resource changes,
+		// let pod usage reclassify.
+		WatchesRawSource(source.TypedKind(
+			mgr.GetCache(),
+			&kueue.Workload{},
+			handler.TypedEnqueueRequestsFromMapFunc(r.pods4Workload),
 		)).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
