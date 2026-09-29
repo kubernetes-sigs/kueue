@@ -94,9 +94,7 @@ func NewEvaluatorForPreemptionConfig(
 
 // HasRules returns whether the PreemptionConfig holds any rule at all. It only
 // inspects the configuration, without evaluating any candidate, so callers can
-// cheaply tell whether FindCandidates may yield any candidate before running it,
-// for example when FindCandidates only runs once other preemption strategies
-// are exhausted.
+// cheaply tell whether FindCandidates may yield any candidate before running it.
 func (p *PreemptionEvaluator) HasRules() bool {
 	return p != nil &&
 		p.hasRulesFor(kueuealpha.Always, kueuealpha.InsufficientQuota, kueuealpha.QuotaFeasibleAndInsufficientTopology)
