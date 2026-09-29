@@ -520,9 +520,10 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 	}
 	log.V(2).Info("Reconcile LeaderWorkerSet Pod")
 
-	if lws == nil || utilstatefulset.ShouldUngatePod(sts, pod) {
+	// Kueue stops managing the Pods of a deleted LeaderWorkerSet or StatefulSet, so it releases them.
+	if lws == nil || sts == nil {
 		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-			if utilstatefulset.UngatePod(sts, pod, lws == nil) {
+			if utilstatefulset.UngatePod(pod) {
 				log.V(3).Info("Ungating LeaderWorkerSet Pod")
 				return true, nil
 			}
