@@ -299,8 +299,11 @@ func runRayJobAutoscalingTest(
 	})
 
 	ginkgo.By("Creating two detached actors so the autoscaler scales the child up to two workers", func() {
-		util.CreateDetachedRayActors(
-			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, workerResource, actorA, actorB,
+		util.CreateDetachedRayActor(
+			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorA, workerResource,
+		)
+		util.CreateDetachedRayActor(
+			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorB, workerResource,
 		)
 	})
 
@@ -447,8 +450,11 @@ func runRayClusterAutoscalingTest(
 	})
 
 	ginkgo.By("Creating two detached actors so the autoscaler scales up to two workers", func() {
-		util.CreateDetachedRayActors(
-			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, workerResource, actorA, actorB,
+		util.CreateDetachedRayActor(
+			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorA, workerResource,
+		)
+		util.CreateDetachedRayActor(
+			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorB, workerResource,
 		)
 	})
 

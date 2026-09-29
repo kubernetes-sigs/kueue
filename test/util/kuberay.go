@@ -18,7 +18,6 @@ package util
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/onsi/ginkgo/v2"
@@ -99,23 +98,7 @@ func CreateDetachedRayActor(
 	actorName string,
 	resourceName string,
 ) {
-	CreateDetachedRayActors(ctx, c, cfg, restClient, rayClusterKey, resourceName, actorName)
-}
-
-// CreateDetachedRayActors creates detached actors that each request the
-// specified custom resource from the RayCluster.
-func CreateDetachedRayActors(
-	ctx context.Context,
-	c client.Client,
-	cfg *rest.Config,
-	restClient *rest.RESTClient,
-	rayClusterKey client.ObjectKey,
-	resourceName string,
-	actorNames ...string,
-) {
 	ginkgo.GinkgoHelper()
-	encodedActorNames, err := json.Marshal(actorNames)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	script := fmt.Sprintf(`import ray
 
 ray.init(namespace=%q)
@@ -124,12 +107,11 @@ ray.init(namespace=%q)
 class Actor:
     pass
 
-for actor_name in %s:
-    try:
-        ray.get_actor(actor_name)
-    except ValueError:
-        Actor.options(name=actor_name, lifetime="detached").remote()
-`, rayActorNamespace, resourceName, encodedActorNames)
+try:
+    ray.get_actor(%q)
+except ValueError:
+    Actor.options(name=%q, lifetime="detached").remote()
+`, rayActorNamespace, resourceName, actorName, actorName)
 	ExecuteCommandInRayClusterHead(ctx, c, cfg, restClient, rayClusterKey, []string{"python", "-c", script})
 }
 
