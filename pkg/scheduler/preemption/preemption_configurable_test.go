@@ -236,7 +236,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 		configurablePreemptionDisabled bool
 		wantPreempted                  sets.Set[workload.Reference]
 		wantReasons                    map[workload.Reference]string
-		wantConfigurableReasonsData    map[string]*policy.ConfigurablePreemptionReasonData
+		wantConfigurableReasonsData    map[workload.Reference]*policy.ConfigurablePreemptionReasonData
 	}{
 		"no candidates for CQ without config": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -937,7 +937,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			wantReasons: map[workload.Reference]string{
 				"/a1": kueue.ConfigurablePreemptionReason,
 			},
-			wantConfigurableReasonsData: map[string]*policy.ConfigurablePreemptionReasonData{
+			wantConfigurableReasonsData: map[workload.Reference]*policy.ConfigurablePreemptionReasonData{
 				"/a1": {
 					ConfigName:                policy.PreemptionConfigReference(defaultConfigName),
 					RuleNameToSelectorIndexes: map[policy.PreemptionConfigRuleReference][]int{"test-rule-one": {0}},
@@ -1041,9 +1041,9 @@ func TestConfigurablePreemptions(t *testing.T) {
 				}
 			}
 			if tc.wantConfigurableReasonsData != nil {
-				gotData := make(map[string]*policy.ConfigurablePreemptionReasonData, len(targets))
+				gotData := make(map[workload.Reference]*policy.ConfigurablePreemptionReasonData, len(targets))
 				for _, target := range targets {
-					gotData[string(workload.Key(target.WorkloadInfo.Obj))] = target.ConfigurablePreemptionReasonData
+					gotData[workload.Key(target.WorkloadInfo.Obj)] = target.ConfigurablePreemptionReasonData
 				}
 				if diff := cmp.Diff(tc.wantConfigurableReasonsData, gotData); diff != "" {
 					t.Errorf("Preemption reason data (-want,+got):\n%s", diff)
