@@ -144,7 +144,7 @@ spec:
           values: ["mission-critical"]
 ```
 **How it works:**
-- **Rule: reclaim-quota-within-cohort**:
+- **Rule: preempt-lower-priority-within-cohort**:
   - **Trigger**: `InsufficientQuota` activates when the incoming workload lacks sufficient quota to be admitted.
   - **Scope**: `WithinCohortTree` restricts quota reclamation to the cohort hierarchy (since borrowing outside the cohort tree is not permitted).
   - **Protection Guardrail**: `labelSelector` prevents evicting lower-priority workloads labeled `example.com/workload-tier: mission-critical`.
