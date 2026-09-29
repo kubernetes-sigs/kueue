@@ -167,12 +167,8 @@ To provide visibility into why a workload was preempted when custom rules are us
 
 Kueue records detailed eviction information in `Workload.status.schedulingStats.evictions`:
 
-- **`reason`**: Set to `ConfigurablePreemption`.
-- **`underlyingCause`**: Identifies the preemptor workload, preemption config name, rule name, and selector indices that caused the preemption. For example:
-  ```text
-  Preempted by default/hero-job-xyz because of preemption config defrag-and-hero-preemption-config rule hero-preempt-lower-priority-any-queue/0
-  ```
-  If multiple selectors within a rule are triggered, their indices are concatenated (e.g., `rule-name/0,1`).
+- **`reason`**: Set to `Preempted`.
+- **`underlyingCause`**: Identifies the preemption config name that caused the preemption.
 
 ### 2. Status Conditions
 
