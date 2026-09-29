@@ -133,6 +133,11 @@ func (w *RayServiceWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RaySe
 	if err != nil {
 		return nil, err
 	}
+	// Validated only on create so that existing RayServices remain updatable
+	// (e.g. unsuspend or finalizer removal by Kueue) after an upgrade.
+	if w.manageJobsWithoutQueueName || jobframework.QueueName(fromObject(obj)) != "" {
+		validationErrs = append(validationErrs, validateUpgradeStrategy(obj)...)
+	}
 	return nil, validationErrs.ToAggregate()
 }
 
@@ -156,7 +161,6 @@ func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RaySe
 		if len(rayClusterSpecErrors) > 0 {
 			return allErrors, nil
 		}
-		allErrors = append(allErrors, validateUpgradeStrategy(job)...)
 	}
 
 	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob, maxTimeoutOnWorkload)...)

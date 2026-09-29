@@ -242,6 +242,17 @@ func TestValidateUpdate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
+		"default upgrade strategy is not validated on update": {
+			oldService: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				Suspend(true).
+				Obj(),
+			newService: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				Suspend(false).
+				Obj(),
+			wantErr: nil,
+		},
 		"queue name unchanged while unsuspended": {
 			oldService: testingrayservice.MakeService("rayservice", "ns").
 				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
