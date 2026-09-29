@@ -25,26 +25,18 @@ import (
 // DynamicQuotaOrchestratorStatusApplyConfiguration represents a declarative configuration of the DynamicQuotaOrchestratorStatus type for use
 // with apply.
 type DynamicQuotaOrchestratorStatusApplyConfiguration struct {
-	// effectiveCapacity is the capacity aggregated from the referenced providers.
-	//
-	EffectiveCapacity *EffectiveCapacityApplyConfiguration `json:"effectiveCapacity,omitempty"`
 	// conditions represents the current state of the DQO.
 	//
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// effectiveCapacity is the capacity aggregated from the referenced providers.
+	//
+	EffectiveCapacity *EffectiveCapacityApplyConfiguration `json:"effectiveCapacity,omitempty"`
 }
 
 // DynamicQuotaOrchestratorStatusApplyConfiguration constructs a declarative configuration of the DynamicQuotaOrchestratorStatus type for use with
 // apply.
 func DynamicQuotaOrchestratorStatus() *DynamicQuotaOrchestratorStatusApplyConfiguration {
 	return &DynamicQuotaOrchestratorStatusApplyConfiguration{}
-}
-
-// WithEffectiveCapacity sets the EffectiveCapacity field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the EffectiveCapacity field is set to the value of the last call.
-func (b *DynamicQuotaOrchestratorStatusApplyConfiguration) WithEffectiveCapacity(value *EffectiveCapacityApplyConfiguration) *DynamicQuotaOrchestratorStatusApplyConfiguration {
-	b.EffectiveCapacity = value
-	return b
 }
 
 // WithConditions adds the given value to the Conditions field in the declarative configuration
@@ -57,5 +49,13 @@ func (b *DynamicQuotaOrchestratorStatusApplyConfiguration) WithConditions(values
 		}
 		b.Conditions = append(b.Conditions, *values[i])
 	}
+	return b
+}
+
+// WithEffectiveCapacity sets the EffectiveCapacity field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the EffectiveCapacity field is set to the value of the last call.
+func (b *DynamicQuotaOrchestratorStatusApplyConfiguration) WithEffectiveCapacity(value *EffectiveCapacityApplyConfiguration) *DynamicQuotaOrchestratorStatusApplyConfiguration {
+	b.EffectiveCapacity = value
 	return b
 }

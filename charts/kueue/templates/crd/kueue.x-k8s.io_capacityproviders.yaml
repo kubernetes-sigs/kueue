@@ -62,16 +62,14 @@ spec:
             metadata:
               type: object
             spec:
+              description: spec defines the desired state of the CapacityProvider.
               properties:
                 controllerName:
-                  allOf:
-                    - maxLength: 253
-                      minLength: 1
-                    - maxLength: 253
-                      minLength: 1
                   description: |-
                     controllerName identifies the controller publishing capacity.
                     This field is immutable.
+                  maxLength: 253
+                  minLength: 1
                   type: string
                   x-kubernetes-validations:
                     - message: field is immutable
@@ -134,6 +132,7 @@ spec:
                 - orchestratedFlavors
               type: object
             status:
+              description: status defines the capacity observed and published by the provider.
               properties:
                 capacity:
                   description: capacity is the normalized capacity published by the provider.
@@ -167,6 +166,7 @@ spec:
                           - resources
                         type: object
                       maxItems: 64
+                      minItems: 1
                       type: array
                       x-kubernetes-list-map-keys:
                         - name

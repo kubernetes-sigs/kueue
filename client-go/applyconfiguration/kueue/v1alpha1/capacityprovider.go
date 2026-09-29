@@ -29,10 +29,13 @@ import (
 //
 // CapacityProvider is the Schema for the capacityproviders API
 type CapacityProviderApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:""`
+	v1.TypeMetaApplyConfiguration `json:""`
+	// metadata is the standard object metadata.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *CapacityProviderSpecApplyConfiguration   `json:"spec,omitempty"`
-	Status                           *CapacityProviderStatusApplyConfiguration `json:"status,omitempty"`
+	// spec defines the desired state of the CapacityProvider.
+	Spec *CapacityProviderSpecApplyConfiguration `json:"spec,omitempty"`
+	// status defines the capacity observed and published by the provider.
+	Status *CapacityProviderStatusApplyConfiguration `json:"status,omitempty"`
 }
 
 // CapacityProvider constructs a declarative configuration of the CapacityProvider type for use with
