@@ -169,14 +169,12 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
 			child := &rayv1.RayCluster{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            "autoscaling-rayjob-child",
-					Namespace:       remoteRayJob.Namespace,
-					OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(remoteRayJob, rayv1.GroupVersion.WithKind("RayJob"))},
-				},
-				Spec: *remoteRayJob.Spec.RayClusterSpec.DeepCopy(),
+				Name:            "autoscaling-rayjob-child",
+				Namespace:       remoteRayJob.Namespace,
+				OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(remoteRayJob, rayv1.GroupVersion.WithKind("RayJob"))},
+				Spec:            *remoteRayJob.Spec.RayClusterSpec.DeepCopy(),
 			}
-			child.Spec.Suspend = ptr.To(false)
+			child.Spec.Suspend = new(false)
 			jobframework.SetMultiKueueMeta(child, originSliceKey.Name, remoteRayJob.Labels[kueue.MultiKueueOriginLabel])
 			util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, child)
 
