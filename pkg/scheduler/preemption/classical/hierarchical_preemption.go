@@ -122,47 +122,40 @@ func isAboveBorrowingThreshold(candidatePriority, incomingPriority int64, borrow
 	return candidatePriority > int64(*borrowWithinCohortThreshold)
 }
 
-func collectSameQueueCandidates(ctx *HierarchicalPreemptionCtx) []*candidateElem {
+// classifiedClusterQueue is the per-ClusterQueue classification for one
+// preemptor: which category the CQ falls into and the lca used for pruning. It
+// carries no materialized workloads. The ordered candidates are the CQ's
+// cycle-level sorted slice (owned by the CandidateOrderCache), attached later
+// into sorted and consumed lazily.
+type classifiedClusterQueue struct {
+	cq                       *schdcache.ClusterQueueSnapshot
+	lca                      *schdcache.CohortSnapshot
+	hasHierarchicalAdvantage bool
+	isSameQueue              bool
+	sorted                   []*workload.Info
+	evictedCount             int
+}
+
+func collectSameQueueCQ(ctx *HierarchicalPreemptionCtx) []classifiedClusterQueue {
 	if ctx.Cq.Preemption.WithinClusterQueue == kueue.PreemptionPolicyNever {
-		return []*candidateElem{}
+		return nil
 	}
-	return getCandidatesFromCQ(ctx.Cq, nil, ctx, false)
+	return []classifiedClusterQueue{{cq: ctx.Cq, isSameQueue: true}}
 }
 
-func getCandidatesFromCQ(cq *schdcache.ClusterQueueSnapshot, lca *schdcache.CohortSnapshot, ctx *HierarchicalPreemptionCtx, hasHiearchicalAdvantage bool) []*candidateElem {
-	candidates := []*candidateElem{}
-	for _, candidateWl := range cq.Workloads {
-		preemptionVariant := classifyPreemptionVariant(ctx, candidateWl, hasHiearchicalAdvantage)
-		if preemptionVariant == Never {
-			continue
-		}
-		candidates = append(candidates,
-			&candidateElem{
-				wl:                candidateWl,
-				lca:               lca,
-				preemptionVariant: preemptionVariant,
-			})
-	}
-	return candidates
-}
-
-func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]*candidateElem, []*candidateElem) {
-	hierarchyCandidates := []*candidateElem{}
-	priorityCandidates := []*candidateElem{}
+// collectHierarchicalReclaimCQs walks the cohort subtree and returns, for every
+// over-nominal ClusterQueue the preemptor may reclaim from, its classification
+// split into the hierarchy (preemptor has hierarchical advantage) and priority
+// (advantage decided by priority) categories, each with its lca.
+func collectHierarchicalReclaimCQs(ctx *HierarchicalPreemptionCtx) (hierarchy, priority []classifiedClusterQueue) {
 	if !ctx.Cq.HasParent() || ctx.Cq.Preemption.ReclaimWithinCohort == kueue.PreemptionPolicyNever {
-		return hierarchyCandidates, priorityCandidates
+		return nil, nil
 	}
 	var previousSubtreeRoot *schdcache.CohortSnapshot
-	var candidateList *[]*candidateElem
 	var fits bool
 	hasHierarchicalAdvantage, remainingRequests := schdcache.QuantitiesFitInQuota(ctx.Cq, ctx.Requests)
 	for currentSubtreeRoot := range ctx.Cq.PathParentToRoot() {
-		if hasHierarchicalAdvantage {
-			candidateList = &hierarchyCandidates
-		} else {
-			candidateList = &priorityCandidates
-		}
-		collectCandidatesInSubtree(ctx, currentSubtreeRoot, currentSubtreeRoot, previousSubtreeRoot, hasHierarchicalAdvantage, candidateList)
+		collectSubtreeCQs(ctx, currentSubtreeRoot, currentSubtreeRoot, previousSubtreeRoot, hasHierarchicalAdvantage, &hierarchy, &priority)
 		fits, remainingRequests = schdcache.QuantitiesFitInQuota(currentSubtreeRoot, remainingRequests)
 		// Once we find a subtree sT that fits the requests, we will look for workloads that use quota
 		// of that subtree. The preemptor will have hierarchical advantage over all such workloads
@@ -171,18 +164,18 @@ func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]
 		hasHierarchicalAdvantage = hasHierarchicalAdvantage || fits
 		previousSubtreeRoot = currentSubtreeRoot
 	}
-	return hierarchyCandidates, priorityCandidates
+	return hierarchy, priority
 }
 
-// visit the nodes in the hierarchy and collect the ones that exceed quota
+// visit the nodes in the hierarchy and classify the CQs that exceed quota
 // avoid subtrees that are within quota and the skipped subtree
-func collectCandidatesInSubtree(
+func collectSubtreeCQs(
 	ctx *HierarchicalPreemptionCtx,
 	currentCohort *schdcache.CohortSnapshot,
 	subtreeRoot *schdcache.CohortSnapshot,
 	skipSubtree *schdcache.CohortSnapshot,
 	hasHierarchicalAdvantage bool,
-	result *[]*candidateElem,
+	hierarchy, priority *[]classifiedClusterQueue,
 ) {
 	for _, childCohort := range currentCohort.ChildCohorts() {
 		// we already processed this subtree
@@ -193,14 +186,19 @@ func collectCandidatesInSubtree(
 		if schdcache.IsWithinNominalInResources(childCohort, ctx.FrsNeedPreemption) {
 			continue
 		}
-		collectCandidatesInSubtree(ctx, childCohort, subtreeRoot, skipSubtree, hasHierarchicalAdvantage, result)
+		collectSubtreeCQs(ctx, childCohort, subtreeRoot, skipSubtree, hasHierarchicalAdvantage, hierarchy, priority)
 	}
 	for _, childCq := range currentCohort.ChildCQs() {
 		if childCq == ctx.Cq {
 			continue
 		}
 		if !schdcache.IsWithinNominalInResources(childCq, ctx.FrsNeedPreemption) {
-			*result = append(*result, getCandidatesFromCQ(childCq, subtreeRoot, ctx, hasHierarchicalAdvantage)...)
+			cc := classifiedClusterQueue{cq: childCq, lca: subtreeRoot, hasHierarchicalAdvantage: hasHierarchicalAdvantage}
+			if hasHierarchicalAdvantage {
+				*hierarchy = append(*hierarchy, cc)
+			} else {
+				*priority = append(*priority, cc)
+			}
 		}
 	}
 }
