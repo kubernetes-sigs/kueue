@@ -103,8 +103,9 @@ type CapacityProviderNormalizedCapacity struct {
 	// +required
 	// +listType=map
 	// +listMapKey=name
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
-	Flavors []CapacityProviderNormalizedCapacityFlavor `json:"flavors"`
+	Flavors []CapacityProviderNormalizedCapacityFlavor `json:"flavors,omitempty"`
 }
 
 type CapacityProviderNormalizedCapacityFlavor struct {

@@ -166,6 +166,7 @@ spec:
                           - resources
                         type: object
                       maxItems: 64
+                      minItems: 1
                       type: array
                       x-kubernetes-list-map-keys:
                         - name

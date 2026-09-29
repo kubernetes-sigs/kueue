@@ -131,8 +131,9 @@ type EffectiveCapacity struct {
 	// +required
 	// +listType=map
 	// +listMapKey=name
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=128
-	Flavors []EffectiveCapacityFlavor `json:"flavors"`
+	Flavors []EffectiveCapacityFlavor `json:"flavors,omitempty"`
 }
 
 type EffectiveCapacityFlavor struct {
