@@ -21,8 +21,7 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -136,8 +135,7 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", 
 			ginkgo.By("verifying the upstream PodGroup gang minCount matches the Kueue Workload pod count", func() {
 				// The Job qualifies for gang scheduling (parallelism > 1, Indexed,
 				// completions == parallelism), so the upstream Job controller creates
-				// a PodGroup owned by the Job. We read it as unstructured data to
-				// avoid vendoring k8s.io/api/scheduling/v1beta1 into Kueue.
+				// a PodGroup owned by the Job.
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdWorkload := workloadForJob(g, jobKey)
 					g.Expect(createdWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
@@ -146,7 +144,7 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", 
 					g.Expect(err).ShouldNot(gomega.HaveOccurred())
 					g.Expect(found).Should(gomega.BeTrue(), "expected a PodGroup owned by the Job with a gang scheduling policy")
 					g.Expect(minCount).Should(
-						gomega.Equal(int64(createdWorkload.Spec.PodSets[0].Count)),
+						gomega.Equal(createdWorkload.Spec.PodSets[0].Count),
 						"PodGroup gang minCount should match the Kueue Workload pod count",
 					)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
@@ -154,19 +152,6 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", 
 		})
 	})
 })
-
-// podGroupListGVK identifies the upstream scheduling.k8s.io/v1beta1 PodGroup
-// list kind. We deliberately query it as unstructured data (instead of
-// importing k8s.io/api/scheduling/v1beta1) so that Kueue does not need to
-// vendor that API just to observe it in this e2e test.
-// TODO: once Kueue can depend on a k8s.io/api release that vendors the beta
-// types (Kubernetes 1.37), switch this back to a structured client using the
-// typed PodGroup/PodGroupList types.
-var podGroupListGVK = schema.GroupVersionKind{
-	Group:   "scheduling.k8s.io",
-	Version: "v1beta1",
-	Kind:    "PodGroupList",
-}
 
 // workloadForJob fetches the Job identified by jobKey and returns the Kueue
 // Workload owned by it, asserting both fetches succeed. It is intended for
@@ -187,18 +172,20 @@ func workloadForJob(g gomega.Gomega, jobKey types.NamespacedName) *kueue.Workloa
 
 // gangMinCountForJob returns the gang scheduling minCount of the upstream
 // PodGroup owned by the given Job name, if one exists.
-func gangMinCountForJob(namespace, jobName string) (int64, bool, error) {
-	podGroupList := &unstructured.UnstructuredList{}
-	podGroupList.SetGroupVersionKind(podGroupListGVK)
+func gangMinCountForJob(namespace, jobName string) (int32, bool, error) {
+	podGroupList := &schedulingv1beta1.PodGroupList{}
 	if err := k8sClient.List(ctx, podGroupList, client.InNamespace(namespace)); err != nil {
 		return 0, false, err
 	}
 
 	for i := range podGroupList.Items {
 		pg := &podGroupList.Items[i]
-		for _, ownerRef := range pg.GetOwnerReferences() {
+		for _, ownerRef := range pg.OwnerReferences {
 			if ownerRef.Kind == "Job" && ownerRef.Name == jobName {
-				return unstructured.NestedInt64(pg.Object, "spec", "schedulingPolicy", "gang", "minCount")
+				if gang := pg.Spec.SchedulingPolicy.Gang; gang != nil {
+					return gang.MinCount, true, nil
+				}
+				return 0, false, nil
 			}
 		}
 	}
