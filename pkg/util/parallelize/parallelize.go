@@ -26,12 +26,12 @@ import (
 
 const (
 	defaultMaxParallelism = 8
-	higherMaxParallelism  = 32
+	highMaxParallelism    = 32
 )
 
 func maxParallelism() int {
-	if features.Enabled(features.HigherMaxParallelismWithinReconcile) {
-		return higherMaxParallelism
+	if features.Enabled(features.HighMaxParallelismWithinReconcile) {
+		return highMaxParallelism
 	}
 	return defaultMaxParallelism
 }
