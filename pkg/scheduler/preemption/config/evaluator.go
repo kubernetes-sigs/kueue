@@ -18,6 +18,8 @@ package config
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"slices"
 
 	"github.com/go-logr/logr"
@@ -84,7 +86,10 @@ func (p *PreemptionEvaluator) Candidates(
 	flavorsNeedPreemption sets.Set[resources.FlavorResource],
 	trigger kueuealpha.PreemptionConfigActivationTrigger,
 ) ([]*configurableCandidate, error) {
-	var candidates []*configurableCandidate
+	var (
+		candidates []*configurableCandidate
+		errs       []error
+	)
 	// Several rules, or several selectors of a rule, can select the same workload.
 	// Therefore, we need to keep track of the UIDs of the selected workloads
 	// to avoid duplicates. Additionally map's value is used as index of already recorded candidate
@@ -96,20 +101,28 @@ func (p *PreemptionEvaluator) Candidates(
 		}
 		matches, err := workloadMatchesSelector(rule.PreemptorSelector, preemptor)
 		if err != nil {
-			return nil, err
+			errs = append(errs, fmt.Errorf("preemptionConfig %q rule %q: %w", p.config.Name, rule.Name, err))
+			continue
 		}
 		if !matches {
 			continue
 		}
 
 		for selectorIndex, selector := range rule.CandidateSelectors {
-			filter, rejectAll := filters.NewCandidateFilters(p.log, &selector, preemptor, snapshot)
-			if rejectAll {
+			filter, buildErrs := filters.NewCandidateFilters(p.log, &selector, preemptor, snapshot)
+			if len(buildErrs) > 0 {
+				for _, bErr := range buildErrs {
+					errs = append(errs, fmt.Errorf("preemptionConfig %q rule %q candidateSelectors[%d]: %w", p.config.Name, rule.Name, selectorIndex, bErr))
+				}
 				continue
 			}
 
 			p.addMatchingCandidates(&filter, snapshot, flavorsNeedPreemption, rule.Name, seen, &candidates, selectorIndex)
 		}
+	}
+
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 
 	return candidates, nil
@@ -180,13 +193,17 @@ func matchesWorkload(filter *filters.CandidateFilters, wl *workload.Info) bool {
 // workloadMatchesSelector returns whether the labels of the workload match the
 // selector. A nil selector accepts every workload, which differs from
 // LabelSelectorAsSelector(nil), matching none.
-func workloadMatchesSelector(selector *metav1.LabelSelector, wlInfo *workload.Info) (bool, error) {
+func workloadMatchesSelector(selector *metav1.LabelSelector, wlInfo *workload.Info) (bool, *filters.FilterBuildError) {
 	if selector == nil {
 		return true, nil
 	}
 	labelSelector, err := metav1.LabelSelectorAsSelector(selector)
 	if err != nil {
-		return false, err
+		return false, &filters.FilterBuildError{
+			Filter: filters.FilterPreemptorSelector,
+			Reason: filters.ReasonInvalidSelector,
+			Err:    err,
+		}
 	}
 
 	return labelSelector.Matches(labels.Set(wlInfo.Obj.Labels)), nil
