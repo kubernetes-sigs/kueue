@@ -1558,8 +1558,8 @@ func (a *FlavorAssigner) shouldSkipBasedOnNominationMapping(log logr.Logger,
 func (a *Assignment) CandidateVirtualPods(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot) ([]*corev1.Pod, error) {
 	var allPods []*corev1.Pod
 	for _, psAssignment := range a.PodSets {
-		if psAssignment.Status.IsError() || psAssignment.Count == 0 {
-			continue
+		if psAssignment.Status.IsError() {
+			return nil, fmt.Errorf("podset %q is failing", psAssignment.Name)
 		}
 		podSet := podset.FindPodSetByName(wl.Obj.Spec.PodSets, psAssignment.Name)
 		if podSet == nil {
