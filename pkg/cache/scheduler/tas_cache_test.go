@@ -11158,7 +11158,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
 				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 2000},
 				count:           2,
-				wantReason:      `topology "default" doesn't allow to fit any of 2 pod(s). Total nodes: 6; excluded: resource "cpu": 4`,
+				wantReason: `topology "default" doesn't allow to fit any of 2 pod(s). Total nodes: 6; excluded: resource "cpu": 4` +
+					`; topology spreading excluded 1 topology domain(s) at level: cloud.com/topology-block`,
 			}},
 		},
 		"topology spreading: Preferred rule only deprioritizes the over-allowance domain": {

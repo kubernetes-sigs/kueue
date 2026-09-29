@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
+	"k8s.io/klog/v2"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -42,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -753,6 +755,10 @@ type findTopologyAssignmentState struct {
 
 	topologyAssignmentParameters
 	stats *tasExclusionStats
+
+	// spreadBannedDomains holds the candidate domains a Required spreading
+	// rule removed at the searched level, kept to explain a failed placement.
+	spreadBannedDomains []*domain
 }
 
 func (s *findTopologyAssignmentState) leaderFeasibleFor(leaf *leafDomain) bool {
@@ -1506,6 +1512,12 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	if !useBalancedPlacement {
 		fitLevelIdx, currFitDomain, reason = s.findLevelWithFitDomains(state.requestedLevelIdx, state)
 		if len(reason) > 0 {
+			if len(state.spreadBannedDomains) > 0 {
+				s.log.V(3).Info("Topology spreading excluded candidate domains, placement failed",
+					"workload", klog.KObj(wl.Obj), "podSet", workersTasPodSetRequests.PodSet.Name,
+					"level", s.levelKeys[state.requestedLevelIdx], "bannedDomains", slices.Sorted(slices.Values(domainIDs(state.spreadBannedDomains))),
+					"rules", state.spreadRules, "reason", reason)
+			}
 			return nil, nil, reason
 		}
 	}
@@ -1856,6 +1868,9 @@ func (s *TASFlavorSnapshot) findBestFitDomainBy(domains []*domain, needed int32,
 // the capacity of a domain is read as the number of whole slices it holds while
 // it also holds the partial one, so that a set of domains is only selected
 // when the partial slice has a home inside it.
+//
+// The domains topology spreading bans at the searched level are recorded in
+// state.spreadBannedDomains, so a failed placement can report them.
 func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 	searchLevelIdx int,
 	state *findTopologyAssignmentState,
@@ -1867,7 +1882,7 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 	levelDomains := slices.Collect(maps.Values(domains))
 	// The only place spreading bans apply: rules can't be below this level, so
 	// the domains visited when descending from here are never banned.
-	levelDomains = s.filterOutBannedDomains(levelDomains, state.spreadRules)
+	levelDomains, state.spreadBannedDomains = s.filterOutBannedDomains(levelDomains, state.spreadRules)
 	if len(levelDomains) == 0 {
 		return 0, nil, fmt.Sprintf("topology spreading excludes all topology domains at level: %s", s.levelKeys[searchLevelIdx])
 	}
@@ -1902,10 +1917,16 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 		}
 	}
 	notFitReason := func(slicesFitCount, totalRequestsSlicesCount int32) string {
+		var reason string
 		if len(state.multiLayerConstraints) > 0 {
-			return s.multiLayerNotFitMessage(searchLevelIdx, state.count, state.multiLayerConstraints, state.stats)
+			reason = s.multiLayerNotFitMessage(searchLevelIdx, state.count, state.multiLayerConstraints, state.stats)
+		} else {
+			reason = s.notFitMessage(slicesFitCount, totalRequestsSlicesCount, state.sliceSize, state.stats)
 		}
-		return s.notFitMessage(slicesFitCount, totalRequestsSlicesCount, state.sliceSize, state.stats)
+		if len(state.spreadBannedDomains) > 0 {
+			reason += fmt.Sprintf("; topology spreading excluded %d topology domain(s) at level: %s", len(state.spreadBannedDomains), s.levelKeys[searchLevelIdx])
+		}
+		return reason
 	}
 
 	if useLeastFreeCapacityAlgorithm(state.unconstrained) {
@@ -2373,6 +2394,10 @@ func (s *TASFlavorSnapshot) compareDomainLevelValues(a, b *domain) int {
 
 func compareDomainLevelValues(a, b *domain) int {
 	return slices.CompareFunc(a.levelValues, b.levelValues, strings.Compare)
+}
+
+func domainIDs(domains []*domain) []string {
+	return utilslices.Map(domains, func(d **domain) string { return string((*d).id) })
 }
 
 func (s *TASFlavorSnapshot) sortedDomainsWithLeader(domains []*domain, unconstrained bool, spreadRules map[int]utiltas.SpreadingRule) []*domain {
