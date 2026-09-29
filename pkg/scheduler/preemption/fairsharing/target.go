@@ -76,3 +76,19 @@ func (t *TargetClusterQueue) ComputeTargetShareAfterRemoval(wl *workload.Info) T
 func (t *TargetClusterQueue) GetTargetCq() *schdcache.ClusterQueueSnapshot {
 	return t.targetCq
 }
+
+// ShareNodes returns the AlmostLeastCommonAncestor nodes of the preemptor
+// and target ClusterQueues. Each returned node's DominantResourceShare()
+// reflects the current state of the snapshot.
+func ShareNodes(preemptorCq, targetCq *schdcache.ClusterQueueSnapshot) (almostLCA, almostLCA) {
+	preemptorAncestors := make(map[*schdcache.CohortSnapshot]struct{})
+	for ancestor := range preemptorCq.PathParentToRoot() {
+		preemptorAncestors[ancestor] = struct{}{}
+	}
+	for ancestor := range targetCq.PathParentToRoot() {
+		if _, ok := preemptorAncestors[ancestor]; ok {
+			return getAlmostLCA(preemptorCq, ancestor), getAlmostLCA(targetCq, ancestor)
+		}
+	}
+	panic("serious bug: could not find LeastCommonAncestor")
+}
