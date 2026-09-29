@@ -155,6 +155,22 @@ func ExpectMultiKueueWorkloadsAdmittedTotalMetric(cq *kueue.ClusterQueue, cluste
 		cq.Name, cluster, roletracker.RoleStandalone)
 }
 
+// GetMultiKueueDispatchRoundsTotal reads the current value of the
+// multikueue_dispatch_rounds_total counter, so tests can assert on the
+// delta and stay independent of metrics accumulated by earlier specs.
+func GetMultiKueueDispatchRoundsTotal(cq *kueue.ClusterQueue) int {
+	ginkgo.GinkgoHelper()
+	v, err := testutil.GetCounterMetricValue(metrics.MultiKueueDispatchRoundsTotal.WithLabelValues(cq.Name, roletracker.RoleStandalone))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return int(v)
+}
+
+func ExpectMultiKueueDispatchRoundsTotalMetric(cq *kueue.ClusterQueue, v int) {
+	ginkgo.GinkgoHelper()
+	expectCounterMetric(metrics.MultiKueueDispatchRoundsTotal, v,
+		cq.Name, roletracker.RoleStandalone)
+}
+
 // ExpectMultiKueueClusterStatusMetric asserts that the worker cluster reports the
 // given Active condition status under the referencing ClusterQueue, and 0 for every
 // other status.

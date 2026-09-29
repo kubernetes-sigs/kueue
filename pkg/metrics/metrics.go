@@ -102,6 +102,10 @@ var (
 	MultiKueueWorkloadsEvictedTotal *prometheus.CounterVec
 
 	// +metricsdoc:group=health
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
+	MultiKueueDispatchRoundsTotal *prometheus.CounterVec
+
+	// +metricsdoc:group=health
 	// +metricsdoc:labels=cluster_queue="the name of the manager ClusterQueue referencing the worker cluster",cluster="the name of the worker cluster",active="one of `True`, `False`, or `Unknown`",replica_role="one of `leader`, `follower`, or `standalone`"
 	MultiKueueClusterByStatus *prometheus.GaugeVec
 
@@ -440,6 +444,16 @@ The label 'result' can have the following values:
 			Help:      `The total number of remote workload evictions on a worker cluster, per 'cluster_queue', 'cluster' and 'reason'. A workload may be counted more than once if it is re-admitted and evicted again.`,
 		}, []string{"cluster_queue", "cluster", "reason", "replica_role"},
 	)
+
+	MultiKueueDispatchRoundsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.MultiKueueName,
+			Name:      "dispatch_rounds_total",
+			Help: `The total number of nomination rounds opened by the MultiKueue incremental dispatcher, per 'cluster_queue'. Each round nominates up to the configured step size of additional worker clusters for a workload; the last round may nominate fewer.
+The metric only increases when the Incremental dispatcher is configured. After a manager restart, a workload that is still being dispatched opens a new round immediately, so the count may exceed the number of batches the workload needed.`,
+		}, []string{"cluster_queue", "replica_role"},
+	)
+
 	MultiKueueClusterByStatus = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.MultiKueueName,
@@ -1156,6 +1170,10 @@ func ReportMultiKueueWorkloadEvicted(cqName kueue.ClusterQueueReference, cluster
 	MultiKueueWorkloadsEvictedTotal.WithLabelValues(string(cqName), cluster, reason, roletracker.GetRole(tracker)).Inc()
 }
 
+func ReportMultiKueueDispatchRound(cqName kueue.ClusterQueueReference, tracker *roletracker.RoleTracker) {
+	MultiKueueDispatchRoundsTotal.WithLabelValues(string(cqName), roletracker.GetRole(tracker)).Inc()
+}
+
 func RecordWorkloadCreationLatency(jobKind string, latency time.Duration, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{jobKind, roletracker.GetRole(tracker)}, customLabelValues...)
 	WorkloadCreationLatency.WithLabelValues(labels...).Observe(latency.Seconds())
@@ -1705,6 +1723,7 @@ func Register() {
 		MultiKueueWorkloadsDispatchedTotal,
 		MultiKueueWorkloadsAdmittedTotal,
 		MultiKueueWorkloadsEvictedTotal,
+		MultiKueueDispatchRoundsTotal,
 		MultiKueueClusterByStatus,
 		AdmissionCyclePreemptionSkips,
 		PreemptionTargetRecomputationsTotal,
