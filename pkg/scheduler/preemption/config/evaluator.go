@@ -211,8 +211,8 @@ func (p *PreemptionEvaluator) hasConditionalRules() bool {
 // together with the configuration rules and selectors that selected it.
 type configurableCandidate struct {
 	WlInfo                    *workload.Info
-	ConfigName                string
-	RuleNameToSelectorIndexes map[string][]int
+	ConfigName                common.PreemptionConfigReference
+	RuleNameToSelectorIndexes map[common.PreemptionConfigRuleReference][]int
 }
 
 // orderedCandidates returns the candidates selected by the rules of the
@@ -278,7 +278,8 @@ func (p *PreemptionEvaluator) candidatesFor(
 				continue
 			}
 
-			p.addMatchingCandidates(&filter, snapshot, flavorsNeedPreemption, rule.Name, seen, &candidates, selectorIndex)
+			ruleReference := common.PreemptionConfigRuleReference(rule.Name)
+			p.addMatchingCandidates(&filter, snapshot, flavorsNeedPreemption, ruleReference, seen, &candidates, selectorIndex)
 		}
 	}
 
@@ -293,7 +294,7 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 	filter *filters.CandidateFilters,
 	snapshot *schdcache.Snapshot,
 	flavorsNeedPreemption sets.Set[resources.FlavorResource],
-	ruleName string,
+	ruleReference common.PreemptionConfigRuleReference,
 	seen map[types.UID]int,
 	candidates *[]*configurableCandidate,
 	selectorIndex int,
@@ -307,7 +308,8 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 			if matchesWorkload(filter, wlInfo) && classical.WorkloadUsesResources(wlInfo, flavorsNeedPreemption) {
 				candidate := p.ensureCandidate(seen, candidates, wlInfo)
 
-				candidate.RuleNameToSelectorIndexes[ruleName] = append(candidate.RuleNameToSelectorIndexes[ruleName], selectorIndex)
+				indexes := candidate.RuleNameToSelectorIndexes[ruleReference]
+				candidate.RuleNameToSelectorIndexes[ruleReference] = append(indexes, selectorIndex)
 			}
 		}
 	}
@@ -325,8 +327,8 @@ func (p *PreemptionEvaluator) ensureCandidate(
 	seen[wlInfo.Obj.UID] = len(*candidates)
 	candidate := &configurableCandidate{
 		WlInfo:                    wlInfo,
-		ConfigName:                p.config.Name,
-		RuleNameToSelectorIndexes: map[string][]int{},
+		ConfigName:                common.PreemptionConfigReference(p.config.Name),
+		RuleNameToSelectorIndexes: map[common.PreemptionConfigRuleReference][]int{},
 	}
 
 	*candidates = append(*candidates, candidate)

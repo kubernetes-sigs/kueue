@@ -939,8 +939,8 @@ func TestConfigurablePreemptions(t *testing.T) {
 			},
 			wantConfigurableReasonsData: map[string]*preemptioncommon.ConfigurablePreemptionReasonData{
 				"/a1": {
-					ConfigName:                defaultConfigName,
-					RuleNameToSelectorIndexes: map[string][]int{"test-rule-one": {0}},
+					ConfigName:                preemptioncommon.PreemptionConfigReference(defaultConfigName),
+					RuleNameToSelectorIndexes: map[preemptioncommon.PreemptionConfigRuleReference][]int{"test-rule-one": {0}},
 				},
 			},
 		},
