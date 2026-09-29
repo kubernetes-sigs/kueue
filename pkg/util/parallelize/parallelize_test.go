@@ -79,17 +79,16 @@ func TestMaxParallelism(t *testing.T) {
 		},
 		"feature gate enabled": {
 			enableGate: true,
-			wantMax:    higherMaxParallelism,
+			wantMax:    highMaxParallelism,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.HigherMaxParallelismWithinReconcile, tc.enableGate)
+			features.SetFeatureGateDuringTest(t, features.HighMaxParallelismWithinReconcile, tc.enableGate)
 			if got := maxParallelism(); got != tc.wantMax {
 				t.Errorf("maxParallelism() = %d, want %d", got, tc.wantMax)
 			}
 		})
 	}
 }
-

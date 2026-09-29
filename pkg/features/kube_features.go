@@ -809,7 +809,7 @@ const (
 	// owner: @olekz
 	//
 	// Increases max parallelism for batch operations within a single reconcile thread from 8 to 32.
-	HigherMaxParallelismWithinReconcile featuregate.Feature = "HigherMaxParallelismWithinReconcile"
+	HighMaxParallelismWithinReconcile featuregate.Feature = "HighMaxParallelismWithinReconcile"
 )
 
 func init() {
@@ -1251,7 +1251,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
-	HigherMaxParallelismWithinReconcile: {
+	HighMaxParallelismWithinReconcile: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 }

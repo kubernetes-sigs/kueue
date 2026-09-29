@@ -179,7 +179,7 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
-- name: HigherMaxParallelismWithinReconcile
+- name: HighMaxParallelismWithinReconcile
   versionedSpecs:
   - default: true
     lockToDefault: false
