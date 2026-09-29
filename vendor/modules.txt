@@ -1982,7 +1982,7 @@ sigs.k8s.io/lws/api/leaderworkerset/v1
 ## explicit; go 1.18
 sigs.k8s.io/randfill
 sigs.k8s.io/randfill/bytesource
-# sigs.k8s.io/scheduler-library v0.2.0-alpha1.0.20260925160231-b147b3a2c073
+# sigs.k8s.io/scheduler-library v0.2.0-alpha3
 ## explicit; go 1.26.0
 sigs.k8s.io/scheduler-library/pkg/framework
 sigs.k8s.io/scheduler-library/pkg/simulator
