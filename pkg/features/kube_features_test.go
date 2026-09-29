@@ -59,6 +59,15 @@ func TestSetFeatureGatesDuringTest(t *testing.T) {
 				TASFailedNodeReplacement:      true,
 			},
 		},
+		"enable deep integration sets parent": {
+			input: map[featuregate.Feature]bool{
+				SchedulerLibraryDeepIntegration: true,
+			},
+			wantState: map[featuregate.Feature]bool{
+				SchedulerLibraryDeepIntegration: true,
+				SchedulerLibraryIntegration:     true,
+			},
+		},
 		"disable parent disables child": {
 			input: map[featuregate.Feature]bool{
 				TopologyAwareScheduling: false,
@@ -157,6 +166,14 @@ func TestSetFeatureGateDuringTest(t *testing.T) {
 			wantState: map[featuregate.Feature]bool{
 				TASFailedNodeReplacementFailFast: true,
 				TopologyAwareScheduling:          true,
+			},
+		},
+		"enable child SchedulerLibraryDeepIntegration sets SchedulerLibraryIntegration": {
+			feature: SchedulerLibraryDeepIntegration,
+			value:   true,
+			wantState: map[featuregate.Feature]bool{
+				SchedulerLibraryDeepIntegration: true,
+				SchedulerLibraryIntegration:     true,
 			},
 		},
 	}

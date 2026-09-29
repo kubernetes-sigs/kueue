@@ -603,6 +603,10 @@ const (
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8871
 	// Enable integration of the https://github.com/kubernetes-sigs/scheduler-library.
+	// The basic integration uses the library to answer questions like
+	// "can the given pods fit on a given node".
+	// A deeper mode of integration can be enabled
+	// via the SchedulerLibraryDeepIntegration feature gate.
 	SchedulerLibraryIntegration featuregate.Feature = "SchedulerLibraryIntegration"
 
 	// owner: @sohankunkerkar
@@ -824,6 +828,13 @@ const (
 	//
 	// Increases max parallelism for batch operations within a single reconcile thread from 8 to 32.
 	HighMaxParallelismWithinReconcile featuregate.Feature = "HighMaxParallelismWithinReconcile"
+
+	// owner: @alien1403
+	//
+	// Determine TAS topology assignment and preemption targets
+	// by calling the ScheduleWorkload() method
+	// from https://github.com/kubernetes-sigs/scheduler-library.
+	SchedulerLibraryDeepIntegration featuregate.Feature = "SchedulerLibraryDeepIntegration"
 )
 
 func init() {
@@ -864,6 +875,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	KueueDRAIntegrationDeviceTaints:                     {KueueDRADeviceFeasibility},
 	TASPartialSlices:                                    {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesForProvisioningRequests: {ElasticJobsViaWorkloadSlices},
+	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1276,6 +1288,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	HighMaxParallelismWithinReconcile: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	SchedulerLibraryDeepIntegration: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
