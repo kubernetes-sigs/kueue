@@ -237,7 +237,9 @@ func (o *WorkloadOptions) getAllWorkloads(ctx context.Context) ([]*kueue.Workloa
 	var haveAssociatedWorkloads bool
 	var workloads []*kueue.Workload
 
-	opts := metav1.ListOptions{}
+	// Match kueuectl list's default page size. Without Limit a real API server
+	// returns the full result in one response and never sets Continue.
+	opts := metav1.ListOptions{Limit: 100}
 	for {
 		list, err := o.Client.Workloads(namespace).List(ctx, opts)
 		if err != nil {
