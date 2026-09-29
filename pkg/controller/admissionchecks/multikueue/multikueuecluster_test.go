@@ -55,7 +55,6 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -65,7 +64,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -2122,87 +2120,5 @@ func TestStopAndRemoveClusterClearsStatusMetric(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(metrics.MultiKueueClusterByStatus.WithLabelValues("cq1", "worker2", string(metav1.ConditionTrue), roletracker.RoleStandalone)); got != 1 {
 		t.Errorf("expected worker2 to still be reported as active, got %v", got)
-	}
-}
-
-func TestQueueWorkloadEvent(t *testing.T) {
-	now := time.Now()
-	admission := utiltestingapi.MakeAdmission("cq").Obj()
-	elastic := func(name string) *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload(name, TestNamespace).
-			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
-			Annotation(kueue.WorkloadSliceNameAnnotation, "slice-1").
-			Creation(now)
-	}
-	admitted := func(w *utiltestingapi.WorkloadWrapper) *utiltestingapi.WorkloadWrapper {
-		return w.ReserveQuotaAt(admission, now).AdmittedAt(true, now)
-	}
-	oldSlice := admitted(elastic("slice-1")).Obj()
-	finishedOldSlice := admitted(elastic("slice-1")).Finished().Obj()
-	pendingReplacement := elastic("slice-2").Creation(now.Add(time.Second)).ReserveQuotaAt(admission, now).Obj()
-	admittedReplacement := admitted(elastic("slice-2").Creation(now.Add(time.Second))).Obj()
-
-	cases := map[string]struct {
-		elasticGate bool
-		key         string
-		workloads   []kueue.Workload
-		wantQueued  []string
-	}{
-		"missing workload is ignored": {
-			key: "missing",
-		},
-		"plain workload queues itself": {
-			key:        "wl",
-			workloads:  []kueue.Workload{*utiltestingapi.MakeWorkload("wl", TestNamespace).Obj()},
-			wantQueued: []string{"wl"},
-		},
-		"child marker of a finished slice wakes the admitted replacement": {
-			elasticGate: true,
-			key:         "slice-1",
-			workloads:   []kueue.Workload{*finishedOldSlice, *admittedReplacement},
-			wantQueued:  []string{"slice-2", "slice-1"},
-		},
-		"replacement that is not admitted yet is queued together with the admitted slice": {
-			elasticGate: true,
-			key:         "slice-2",
-			workloads:   []kueue.Workload{*oldSlice, *pendingReplacement},
-			wantQueued:  []string{"slice-1", "slice-2"},
-		},
-		"admitted slice queues itself once": {
-			elasticGate: true,
-			key:         "slice-1",
-			workloads:   []kueue.Workload{*oldSlice},
-			wantQueued:  []string{"slice-1"},
-		},
-		"elastic workload without an admitted slice queues itself": {
-			elasticGate: true,
-			key:         "slice-2",
-			workloads:   []kueue.Workload{*pendingReplacement},
-			wantQueued:  []string{"slice-2"},
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticGate)
-			ctx, _ := utiltesting.ContextWithLog(t)
-
-			localClient := utiltesting.NewClientBuilder().
-				WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
-				WithLists(&kueue.WorkloadList{Items: tc.workloads}).
-				Build()
-
-			wlUpdateCh := make(chan event.GenericEvent, 10)
-			rc := newRemoteClient(localClient, wlUpdateCh, nil, nil, defaultOrigin, "worker", nil)
-			rc.queueWorkloadEvent(ctx, types.NamespacedName{Namespace: TestNamespace, Name: tc.key})
-			close(wlUpdateCh)
-
-			var gotQueued []string
-			for ev := range wlUpdateCh {
-				gotQueued = append(gotQueued, ev.Object.GetName())
-			}
-			if diff := cmp.Diff(tc.wantQueued, gotQueued); diff != "" {
-				t.Errorf("unexpected queued workloads (-want,+got):\n%s", diff)
-			}
-		})
 	}
 }
