@@ -42,7 +42,9 @@ spec:
     - name: v1alpha1
       schema:
         openAPIV3Schema:
-          description: CapacityProvider is the Schema for the capacityproviders API
+          description: |-
+            CapacityProvider reports capacity for ResourceFlavors.
+            DQO uses this capacity only when CapacitySynchronized=True.
           properties:
             apiVersion:
               description: |-
@@ -138,7 +140,11 @@ spec:
                   description: capacity is the normalized capacity published by the provider.
                   properties:
                     flavors:
-                      description: flavors contains capacity per flavor and resource.
+                      description: |-
+                        flavors reports capacity for each flavor and resource.
+                        The list must contain at least one flavor.
+                        It should contain the same flavors as spec.orchestratedFlavors.
+                        An empty resources map means zero capacity for all resources of the flavor.
                       items:
                         properties:
                           name:
