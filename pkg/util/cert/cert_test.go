@@ -18,6 +18,12 @@ package cert
 
 import (
 	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	cert "github.com/open-policy-agent/cert-controller/pkg/rotator"
+	"k8s.io/apimachinery/pkg/types"
+
+	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
 
 func TestDeriveWebhookBaseName(t *testing.T) {
@@ -103,6 +109,73 @@ func TestBuildWebhookConfigurationName(t *testing.T) {
 			if result != tt.expectedName {
 				t.Errorf("buildWebhookConfigurationName(%q, %q) = %q, want %q",
 					tt.baseName, tt.webhookType, result, tt.expectedName)
+			}
+		})
+	}
+}
+
+func TestBuildVisibilityCertRotatorConfig(t *testing.T) {
+	type rotatorFields struct {
+		SecretKey      types.NamespacedName
+		CertDir        string
+		DNSName        string
+		ControllerName string
+		Webhooks       []cert.WebhookInfo
+	}
+
+	tests := map[string]struct {
+		webhookServiceName string
+		namespace          string
+		want               rotatorFields
+	}{
+		"default kueue installation": {
+			webhookServiceName: "kueue-webhook-service",
+			namespace:          "kueue-system",
+			want: rotatorFields{
+				SecretKey:      types.NamespacedName{Namespace: "kueue-system", Name: "kueue-visibility-server-cert"},
+				CertDir:        "/visibility",
+				DNSName:        "kueue-visibility-server.kueue-system.svc",
+				ControllerName: "visibility-cert-rotator",
+				Webhooks:       []cert.WebhookInfo{{Type: cert.APIService, Name: "v1beta2.visibility.kueue.x-k8s.io"}},
+			},
+		},
+		"custom helm release name and namespace": {
+			webhookServiceName: "prod-kueue-webhook-service",
+			namespace:          "batch",
+			want: rotatorFields{
+				SecretKey:      types.NamespacedName{Namespace: "batch", Name: "prod-kueue-visibility-server-cert"},
+				CertDir:        "/visibility",
+				DNSName:        "prod-kueue-visibility-server.batch.svc",
+				ControllerName: "visibility-cert-rotator",
+				Webhooks:       []cert.WebhookInfo{{Type: cert.APIService, Name: "v1beta2.visibility.kueue.x-k8s.io"}},
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cfg := config.Configuration{
+				Namespace: &tc.namespace,
+				InternalCertManagement: &config.InternalCertManagement{
+					WebhookServiceName: &tc.webhookServiceName,
+				},
+			}
+			ready := make(chan struct{})
+
+			got := buildVisibilityCertRotatorConfig(cfg, ready)
+
+			if got.IsReady != ready {
+				t.Error("IsReady is not the channel passed in")
+			}
+			gotFields := rotatorFields{
+				SecretKey:      got.SecretKey,
+				CertDir:        got.CertDir,
+				DNSName:        got.DNSName,
+				ControllerName: got.ControllerName,
+				Webhooks:       got.Webhooks,
+			}
+			if diff := cmp.Diff(tc.want, gotFields); diff != "" {
+				t.Errorf("Unexpected rotator config (-want,+got):\n%s", diff)
 			}
 		})
 	}
