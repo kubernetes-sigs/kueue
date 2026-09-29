@@ -45,6 +45,7 @@ import (
 	generatedopenapi "sigs.k8s.io/kueue/apis/visibility/openapi"
 	visibilityv1beta2 "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
+	"sigs.k8s.io/kueue/pkg/util/cert"
 	"sigs.k8s.io/kueue/pkg/util/tlsconfig"
 	"sigs.k8s.io/kueue/pkg/visibility/storage"
 
@@ -64,7 +65,7 @@ var (
 		validatingwebhook.PluginName,
 		mutatingwebhook.PluginName,
 	}
-	certDir = "/visibility"
+	certDir = cert.VisibilityCertDir
 )
 
 func init() {
@@ -104,13 +105,8 @@ func createVisibilityServerOptions(cfg *configapi.Configuration) *genericoptions
 		visibilityv1beta2.SchemeGroupVersion,
 	))
 	o.Etcd = nil
-	if cfg.InternalCertManagement != nil && *cfg.InternalCertManagement.Enable {
-		// The directory where TLS certs will be created
-		o.SecureServing.ServerCert.CertDirectory = certDir
-	} else {
-		o.SecureServing.ServerCert.CertKey.CertFile = certDir + "/tls.crt"
-		o.SecureServing.ServerCert.CertKey.KeyFile = certDir + "/tls.key"
-	}
+	o.SecureServing.ServerCert.CertKey.CertFile = certDir + "/tls.crt"
+	o.SecureServing.ServerCert.CertKey.KeyFile = certDir + "/tls.key"
 
 	applyVisibilityServerSecureServingOptions(o.SecureServing, cfg)
 
@@ -127,10 +123,6 @@ func createVisibilityServerOptions(cfg *configapi.Configuration) *genericoptions
 
 func applyVisibilityServerOptions(config *genericapiserver.RecommendedConfig, cfg *configapi.Configuration, tlsOpts *tlsconfig.TLS) error {
 	o := createVisibilityServerOptions(cfg)
-
-	if err := o.SecureServing.MaybeDefaultWithSelfSignedCerts("localhost", nil, []net.IP{net.ParseIP("127.0.0.1")}); err != nil {
-		return fmt.Errorf("error creating self-signed certificates: %v", err)
-	}
 
 	if err := o.ApplyTo(config); err != nil {
 		return err
