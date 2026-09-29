@@ -243,6 +243,19 @@ func TestReconcileGenericJob(t *testing.T) {
 				*baseWl.Clone().Name("job-test-job-1").ResourceVersion("2").Obj(),
 			},
 		},
+		"update queued workload after pod set rename without resource changes": {
+			req:     baseReq,
+			job:     baseJob.DeepCopy(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").
+					PodSets(*utiltestingapi.MakePodSet("old", 1).Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").ResourceVersion("2").Obj(),
+			},
+		},
 		"update workload to match job preserves active=true": {
 			req:     baseReq,
 			job:     baseJob.DeepCopy(),
@@ -1476,6 +1489,17 @@ func TestEquivalentToWorkload(t *testing.T) {
 			job: baseJob(),
 			wl: utiltestingapi.MakeWorkload("owned-diff-pods", testNS).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+					PodSpec(baseJob().Spec.Template.Spec).
+					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
+					Obj()).
+				ControllerReference(testGVK, testJobName, testJobUID).
+				Obj(),
+			want: false,
+		},
+		"matching controller but renamed pod set with unchanged resources": {
+			job: baseJob(),
+			wl: baseWl.Clone().Name("owned-renamed-podset").
+				PodSets(*utiltestingapi.MakePodSet("old", 1).
 					PodSpec(baseJob().Spec.Template.Spec).
 					PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 					Obj()).

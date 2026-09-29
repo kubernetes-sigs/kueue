@@ -636,6 +636,7 @@ func TestNodeSelectors(t *testing.T) {
 			},
 		}).
 		WithWorkerGroups(rayv1.WorkerGroupSpec{
+			GroupName: "workers1",
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					NodeSelector: map[string]string{
@@ -644,6 +645,7 @@ func TestNodeSelectors(t *testing.T) {
 				},
 			},
 		}, rayv1.WorkerGroupSpec{
+			GroupName: "workers2",
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
 					NodeSelector: map[string]string{
@@ -666,16 +668,19 @@ func TestNodeSelectors(t *testing.T) {
 			job: baseJob.DeepCopy(),
 			runInfo: []podset.PodSetInfo{
 				{
+					Name: "head",
 					NodeSelector: map[string]string{
 						"newKey": "newValue",
 					},
 				},
 				{
+					Name: "workers1",
 					NodeSelector: map[string]string{
 						"key-wg1": "value-wg1",
 					},
 				},
 				{
+					Name:         "workers2",
 					NodeSelector: map[string]string{
 						// don't add anything
 					},
@@ -683,16 +688,19 @@ func TestNodeSelectors(t *testing.T) {
 			},
 			restoreInfo: []podset.PodSetInfo{
 				{
+					Name:         "head",
 					NodeSelector: map[string]string{
 						// clean it all
 					},
 				},
 				{
+					Name: "workers1",
 					NodeSelector: map[string]string{
 						"key-wg1": "value-wg1",
 					},
 				},
 				{
+					Name: "workers2",
 					NodeSelector: map[string]string{
 						"key-wg2": "value-wg2",
 					},
@@ -710,6 +718,7 @@ func TestNodeSelectors(t *testing.T) {
 					},
 				}).
 				WithWorkerGroups(rayv1.WorkerGroupSpec{
+					GroupName: "workers1",
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							NodeSelector: map[string]string{
@@ -718,6 +727,7 @@ func TestNodeSelectors(t *testing.T) {
 						},
 					},
 				}, rayv1.WorkerGroupSpec{
+					GroupName: "workers2",
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
 							NodeSelector: map[string]string{
@@ -741,19 +751,23 @@ func TestNodeSelectors(t *testing.T) {
 			}(),
 			runInfo: []podset.PodSetInfo{
 				{
+					Name: "head",
 					NodeSelector: map[string]string{
 						"newKey": "newValue",
 					},
 				},
 				{
+					Name: "workers1",
 					NodeSelector: map[string]string{
 						"key-wg1": "value-wg1",
 					},
 				},
 				{
+					Name:         "workers2",
 					NodeSelector: map[string]string{},
 				},
 				{
+					Name: "submitter",
 					NodeSelector: map[string]string{
 						"submitter-key": "submitter-value",
 					},
@@ -761,19 +775,23 @@ func TestNodeSelectors(t *testing.T) {
 			},
 			restoreInfo: []podset.PodSetInfo{
 				{
+					Name:         "head",
 					NodeSelector: map[string]string{},
 				},
 				{
+					Name: "workers1",
 					NodeSelector: map[string]string{
 						"key-wg1": "value-wg1",
 					},
 				},
 				{
+					Name: "workers2",
 					NodeSelector: map[string]string{
 						"key-wg2": "value-wg2",
 					},
 				},
 				{
+					Name:         "submitter",
 					NodeSelector: map[string]string{},
 				},
 			},
@@ -788,6 +806,7 @@ func TestNodeSelectors(t *testing.T) {
 				}
 				j.Spec.RayClusterSpec.WorkerGroupSpecs = []rayv1.WorkerGroupSpec{
 					{
+						GroupName: "workers1",
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								NodeSelector: map[string]string{
@@ -797,6 +816,7 @@ func TestNodeSelectors(t *testing.T) {
 						},
 					},
 					{
+						GroupName: "workers2",
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								NodeSelector: map[string]string{
@@ -940,9 +960,9 @@ func TestRestorePodSetsInfo(t *testing.T) {
 		"matching length without submitter restores pod sets": {
 			job: baseJob.Clone().Obj(),
 			podSetsInfo: []podset.PodSetInfo{
-				{NodeSelector: map[string]string{"restored": "true"}},
-				{NodeSelector: map[string]string{"restored": "true"}},
-				{NodeSelector: map[string]string{"restored": "true"}},
+				{Name: "head", NodeSelector: map[string]string{"restored": "true"}},
+				{Name: "group1", NodeSelector: map[string]string{"restored": "true"}},
+				{Name: "group2", NodeSelector: map[string]string{"restored": "true"}},
 			},
 			wantChanged: true,
 		},
@@ -954,10 +974,10 @@ func TestRestorePodSetsInfo(t *testing.T) {
 		"K8sJobMode with matching length restores pod sets including the submitter": {
 			job: baseJob.Clone().WithSubmissionMode(rayv1.K8sJobMode).Obj(),
 			podSetsInfo: []podset.PodSetInfo{
-				{NodeSelector: map[string]string{"restored": "true"}},
-				{NodeSelector: map[string]string{"restored": "true"}},
-				{NodeSelector: map[string]string{"restored": "true"}},
-				{NodeSelector: map[string]string{"restored": "true"}},
+				{Name: "head", NodeSelector: map[string]string{"restored": "true"}},
+				{Name: "group1", NodeSelector: map[string]string{"restored": "true"}},
+				{Name: "group2", NodeSelector: map[string]string{"restored": "true"}},
+				{Name: "submitter", NodeSelector: map[string]string{"restored": "true"}},
 			},
 			wantChanged: true,
 		},

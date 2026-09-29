@@ -1679,6 +1679,9 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 		return false, err
 	}
 	jobPodSets := clearUnusableMinCounts(getPodSets, wl)
+	if !workload.ExtractPodSetCounts(jobPodSets).HasSamePodSetKeys(workload.ExtractPodSetCountsFromWorkload(wl)) {
+		return false, nil
+	}
 
 	opts := make([]equality.ComparePodSetsOption, 0, 2)
 	if workload.IsAdmitted(wl) {

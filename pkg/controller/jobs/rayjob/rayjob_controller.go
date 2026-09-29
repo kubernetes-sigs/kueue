@@ -173,7 +173,7 @@ func (j *RayJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 	j.Spec.Suspend = false
 
 	log := ctrl.LoggerFrom(ctx)
-	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(log, j.Spec.RayClusterSpec, podSetsInfo)
+	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(log, j.Spec.RayClusterSpec, podSetsInfo[:raycluster.ExpectedPodSetsCount(j.Spec.RayClusterSpec)])
 	if err != nil {
 		return err
 	}

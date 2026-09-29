@@ -296,6 +296,63 @@ func TestPodSets(t *testing.T) {
 	}
 }
 
+func TestEquivalentToWorkloadAfterWorkerGroupChanges(t *testing.T) {
+	job := testingrayutil.MakeCluster("cluster", "ns").
+		Suspend(true).
+		WithWorkerGroups(
+			*testingrayutil.MakeWorkerGroup("analytics", 2).
+				Request(corev1.ResourceCPU, "1").
+				NodeSelector("workload-pool", "a").Obj(),
+			*testingrayutil.MakeWorkerGroup("serving", 2).
+				Request(corev1.ResourceCPU, "1").
+				NodeSelector("workload-pool", "b").Obj(),
+		).Obj()
+	job.UID = "cluster-uid"
+
+	cl := utiltesting.NewClientBuilder(rayv1.AddToScheme, kueue.AddToScheme).Build()
+	podSets, err := (*RayCluster)(job).PodSets(t.Context(), cl)
+	if err != nil {
+		t.Fatalf("building original pod sets: %v", err)
+	}
+	wl := utiltestingapi.MakeWorkload("cluster-workload", job.Namespace).
+		PodSets(podSets...).
+		ControllerReference(rayv1.GroupVersion.WithKind("RayCluster"), job.Name, string(job.UID)).
+		Obj()
+
+	for _, tc := range []struct {
+		name   string
+		change func(*rayv1.RayCluster)
+		want   bool
+	}{
+		{
+			name: "reorder without changing groups",
+			change: func(job *rayv1.RayCluster) {
+				job.Spec.WorkerGroupSpecs[0], job.Spec.WorkerGroupSpecs[1] =
+					job.Spec.WorkerGroupSpecs[1], job.Spec.WorkerGroupSpecs[0]
+			},
+			want: true,
+		},
+		{
+			name: "rename without changing resources",
+			change: func(job *rayv1.RayCluster) {
+				job.Spec.WorkerGroupSpecs[0].GroupName = "renamed"
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			updated := job.DeepCopy()
+			tc.change(updated)
+			got, err := jobframework.EquivalentToWorkload(t.Context(), cl, (*RayCluster)(updated), wl)
+			if err != nil {
+				t.Fatalf("checking workload equivalence: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("EquivalentToWorkload = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestReconciler(t *testing.T) {
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.

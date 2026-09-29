@@ -311,10 +311,39 @@ func UpdatePodSets(ctx context.Context, podSets []kueue.PodSet, c client.Client,
 	return podSets, nil
 }
 
+func podSetsInfoByName(rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) (map[kueue.PodSetReference]podset.PodSetInfo, error) {
+	if expected := ExpectedPodSetsCount(rayClusterSpec); len(podSetsInfo) != expected {
+		return nil, podset.BadPodSetsInfoLenError(expected, len(podSetsInfo))
+	}
+
+	infosByName := make(map[kueue.PodSetReference]podset.PodSetInfo, len(podSetsInfo))
+	for _, info := range podSetsInfo {
+		if _, found := infosByName[info.Name]; found {
+			return nil, fmt.Errorf("%w: duplicate PodSetInfo for %q", podset.ErrInvalidPodsetInfo, info.Name)
+		}
+		infosByName[info.Name] = info
+	}
+	if _, found := infosByName[headGroupPodSetName]; !found {
+		return nil, fmt.Errorf("%w: missing PodSetInfo for %q", podset.ErrInvalidPodsetInfo, headGroupPodSetName)
+	}
+	for _, worker := range rayClusterSpec.WorkerGroupSpecs {
+		name := kueue.NewPodSetReference(worker.GroupName)
+		if _, found := infosByName[name]; !found {
+			return nil, fmt.Errorf("%w: missing PodSetInfo for %q", podset.ErrInvalidPodsetInfo, name)
+		}
+	}
+	return infosByName, nil
+}
+
 func UpdateRayClusterSpecToRunWithPodSetsInfo(log logr.Logger, rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) error {
+	infosByName, err := podSetsInfoByName(rayClusterSpec, podSetsInfo)
+	if err != nil {
+		return err
+	}
+
 	// head
 	headPod := &rayClusterSpec.HeadGroupSpec.Template
-	info := podSetsInfo[0]
+	info := infosByName[headGroupPodSetName]
 	if err := podset.Merge(log, &headPod.ObjectMeta, &headPod.Spec, info); err != nil {
 		return err
 	}
@@ -322,7 +351,7 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(log logr.Logger, rayClusterSpec *r
 	// workers
 	for index := range rayClusterSpec.WorkerGroupSpecs {
 		workerPod := &rayClusterSpec.WorkerGroupSpecs[index].Template
-		info := podSetsInfo[index+1]
+		info := infosByName[kueue.NewPodSetReference(rayClusterSpec.WorkerGroupSpecs[index].GroupName)]
 		if err := podset.Merge(log, &workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
 			return err
 		}
@@ -332,23 +361,23 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(log logr.Logger, rayClusterSpec *r
 }
 
 func RestorePodSetsInfo(ctx context.Context, rayClusterSpec *rayv1.RayClusterSpec, podSetsInfo []podset.PodSetInfo) bool {
-	if expected := ExpectedPodSetsCount(rayClusterSpec); len(podSetsInfo) != expected {
+	infosByName, err := podSetsInfoByName(rayClusterSpec, podSetsInfo)
+	if err != nil {
 		ctrl.LoggerFrom(ctx).V(2).Info(
-			"Skipping pod set info restore because the pod set count does not match the admitted workload",
-			"expectedCount", expected,
-			"gotCount", len(podSetsInfo),
+			"Skipping pod set info restore because the admitted workload does not match the RayCluster",
+			"error", err,
 		)
 		return false
 	}
 
 	// head
 	headPod := &rayClusterSpec.HeadGroupSpec.Template
-	changed := podset.RestorePodSpec(&headPod.ObjectMeta, &headPod.Spec, podSetsInfo[0])
+	changed := podset.RestorePodSpec(&headPod.ObjectMeta, &headPod.Spec, infosByName[headGroupPodSetName])
 
 	// workers
 	for index := range rayClusterSpec.WorkerGroupSpecs {
 		workerPod := &rayClusterSpec.WorkerGroupSpecs[index].Template
-		info := podSetsInfo[index+1]
+		info := infosByName[kueue.NewPodSetReference(rayClusterSpec.WorkerGroupSpecs[index].GroupName)]
 		changed = podset.RestorePodSpec(&workerPod.ObjectMeta, &workerPod.Spec, info) || changed
 	}
 

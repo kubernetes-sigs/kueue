@@ -888,9 +888,11 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 			},
 			podSetsInfo: []podset.PodSetInfo{
 				{
+					Name:         "head",
 					NodeSelector: map[string]string{"node-type": "head"},
 				},
 				{
+					Name:         "workers",
 					NodeSelector: map[string]string{"node-type": "worker"},
 				},
 			},
@@ -938,6 +940,7 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 			},
 			podSetsInfo: []podset.PodSetInfo{
 				{
+					Name:   "head",
 					Labels: map[string]string{"head-label": "value1"},
 					Tolerations: []corev1.Toleration{
 						{
@@ -949,6 +952,7 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 					},
 				},
 				{
+					Name:   "workers",
 					Labels: map[string]string{"worker-label": "value2"},
 					Tolerations: []corev1.Toleration{
 						{
@@ -1032,12 +1036,15 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 			},
 			podSetsInfo: []podset.PodSetInfo{
 				{
+					Name:         "head",
 					NodeSelector: map[string]string{"node-type": "head"},
 				},
 				{
+					Name:         "workers1",
 					NodeSelector: map[string]string{"node-type": "worker1"},
 				},
 				{
+					Name:         "workers2",
 					NodeSelector: map[string]string{"node-type": "worker2"},
 				},
 			},
@@ -1070,6 +1077,78 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 						},
 					},
 				},
+			},
+		},
+		"update reordered worker groups by name": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head"}}}},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers2",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers:   []corev1.Container{{Name: "worker"}},
+								NodeSelector: map[string]string{"node-type": "worker2"},
+							},
+						},
+					},
+					{
+						GroupName: "workers1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers:   []corev1.Container{{Name: "worker"}},
+								NodeSelector: map[string]string{"node-type": "worker1"},
+							},
+						},
+					},
+				},
+			},
+			podSetsInfo: []podset.PodSetInfo{
+				{Name: "head"},
+				{Name: "workers1", NodeSelector: map[string]string{"node-type": "worker1"}, Labels: map[string]string{"group": "workers1"}},
+				{Name: "workers2", NodeSelector: map[string]string{"node-type": "worker2"}, Labels: map[string]string{"group": "workers2"}},
+			},
+			wantSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head"}}}},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers2",
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"group": "workers2"}},
+							Spec: corev1.PodSpec{
+								Containers:   []corev1.Container{{Name: "worker"}},
+								NodeSelector: map[string]string{"node-type": "worker2"},
+							},
+						},
+					},
+					{
+						GroupName: "workers1",
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"group": "workers1"}},
+							Spec: corev1.PodSpec{
+								Containers:   []corev1.Container{{Name: "worker"}},
+								NodeSelector: map[string]string{"node-type": "worker1"},
+							},
+						},
+					},
+				},
+			},
+		},
+		"reject unmatched worker group before updating the spec": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{{GroupName: "workers"}},
+			},
+			podSetsInfo: []podset.PodSetInfo{
+				{Name: "head", NodeSelector: map[string]string{"pool": "head"}},
+				{Name: "other", NodeSelector: map[string]string{"pool": "other"}},
+			},
+			wantErr: podset.ErrInvalidPodsetInfo,
+			wantSpec: &rayv1.RayClusterSpec{
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{{GroupName: "workers"}},
 			},
 		},
 	}
@@ -1120,9 +1199,11 @@ func TestRestorePodSetsInfo(t *testing.T) {
 			},
 			podSetsInfo: []podset.PodSetInfo{
 				{
+					Name:         "head",
 					NodeSelector: map[string]string{},
 				},
 				{
+					Name:         "workers",
 					NodeSelector: map[string]string{},
 				},
 			},
@@ -1170,8 +1251,8 @@ func TestRestorePodSetsInfo(t *testing.T) {
 				},
 			},
 			podSetsInfo: []podset.PodSetInfo{
-				{},
-				{},
+				{Name: "head"},
+				{Name: "workers"},
 			},
 			wantChanged: false,
 			wantSpec: &rayv1.RayClusterSpec{
@@ -1252,6 +1333,59 @@ func TestRestorePodSetsInfo(t *testing.T) {
 						},
 					},
 				},
+			},
+		},
+		"restore reordered worker groups by name": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers2",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{NodeSelector: map[string]string{"node-type": "worker2"}},
+						},
+					},
+					{
+						GroupName: "workers1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{NodeSelector: map[string]string{"node-type": "worker1"}},
+						},
+					},
+				},
+			},
+			podSetsInfo: []podset.PodSetInfo{
+				{Name: "head"},
+				{Name: "workers1", NodeSelector: map[string]string{"node-type": "original1"}},
+				{Name: "workers2", NodeSelector: map[string]string{"node-type": "original2"}},
+			},
+			wantChanged: true,
+			wantSpec: &rayv1.RayClusterSpec{
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers2",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{NodeSelector: map[string]string{"node-type": "original2"}},
+						},
+					},
+					{
+						GroupName: "workers1",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{NodeSelector: map[string]string{"node-type": "original1"}},
+						},
+					},
+				},
+			},
+		},
+		"do not restore unmatched worker groups": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{{GroupName: "workers"}},
+			},
+			podSetsInfo: []podset.PodSetInfo{
+				{Name: "head", NodeSelector: map[string]string{"pool": "head"}},
+				{Name: "other", NodeSelector: map[string]string{"pool": "other"}},
+			},
+			wantChanged: false,
+			wantSpec: &rayv1.RayClusterSpec{
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{{GroupName: "workers"}},
 			},
 		},
 	}
