@@ -1515,7 +1515,6 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		// If we are "above" the requested slice topology level and we don't run the balanced placement algorithm,
 		// we're greedily assigning pods/slices to all domains without checking what we've assigned to parent domains.
 		lowerDomains := s.lowerLevelDomains(currFitDomain)
-		lowerDomains = s.filterOutBannedDomains(lowerDomains, state.spreadRules)
 		sortedLowerDomains := s.sortedDomains(lowerDomains, state.unconstrained, state.spreadRules)
 		currFitDomain = s.updateCountsToMinimumGeneric(sortedLowerDomains, state.count, state.leaderCount, state.shape(), state.unconstrained, true)
 	}
@@ -1537,8 +1536,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		}
 		newCurrFitDomain := make([]*domain, 0)
 		for _, domain := range currFitDomain {
-			children := s.filterOutBannedDomains(domain.children, state.spreadRules)
-			sortedLowerDomains := s.sortedDomains(children, state.unconstrained, state.spreadRules)
+			sortedLowerDomains := s.sortedDomains(domain.children, state.unconstrained, state.spreadRules)
 
 			if sliceSizeOnLevel > 1 {
 				// For inner slice layers, recompute sliceCount on the
@@ -1864,6 +1862,8 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 		return 0, nil, fmt.Sprintf("no topology domains at level: %s", s.levelKeys[searchLevelIdx])
 	}
 	levelDomains := slices.Collect(maps.Values(domains))
+	// The only place spreading bans apply: rules can't be below this level, so
+	// the domains visited when descending from here are never banned.
 	levelDomains = s.filterOutBannedDomains(levelDomains, state.spreadRules)
 	if len(levelDomains) == 0 {
 		return 0, nil, fmt.Sprintf("topology spreading excludes all topology domains at level: %s", s.levelKeys[searchLevelIdx])
