@@ -407,6 +407,7 @@ func TestReconciler(t *testing.T) {
 			pods: []corev1.Pod{
 				*testingjobspod.MakePod("pod1", "ns").
 					GroupNameLabel(GetWorkloadName("", "sts")).
+					Label(controllerconstants.QueueLabel, "lq").
 					Obj(),
 			},
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -729,6 +730,83 @@ func TestReconciler(t *testing.T) {
 						Count: 1,
 						Template: corev1.PodTemplateSpec{
 							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
+						},
+					}).
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Obj(),
+			},
+			wantEvents: createdWorkloadEvents,
+		},
+		"should sync queue label only on gated pods": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("new-queue").
+				Replicas(3).
+				CurrentRevision("1").
+				UpdateRevision("2").
+				Obj(),
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("new-queue").
+				Replicas(3).
+				CurrentRevision("1").
+				UpdateRevision("2").
+				Obj(),
+			pods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					Queue("old-queue").
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "2").
+					Gate(podconstants.SchedulingGateName).
+					Obj(),
+				*testingjobspod.MakePod("pod2", "ns").
+					Queue("old-queue").
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "2").
+					Obj(),
+				*testingjobspod.MakePod("pod3", "ns").
+					Queue("old-queue").
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					Gate(podconstants.SchedulingGateName).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingjobspod.MakePod("pod1", "ns").
+					Queue("new-queue").
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "2").
+					Gate(podconstants.SchedulingGateName).
+					Obj(),
+				*testingjobspod.MakePod("pod2", "ns").
+					Queue("old-queue").
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "2").
+					Obj(),
+				*testingjobspod.MakePod("pod3", "ns").
+					Queue("new-queue").
+					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
+					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					JobUID("sts-uid").
+					Queue("new-queue").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Priority(0).
+					PodSets(kueue.PodSet{
+						Name:  kueue.DefaultPodSetName,
+						Count: 3,
+						Template: corev1.PodTemplateSpec{
+							Spec: *statefulsettesting.MakeStatefulSet("sts", "ns").Obj().Spec.Template.Spec.DeepCopy(),
+						},
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							PodIndexLabel: new(appsv1.PodIndexLabel),
 						},
 					}).
 					OwnerReference(gvk, "sts", "sts-uid").
