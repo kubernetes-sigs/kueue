@@ -10562,26 +10562,26 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			}},
 		},
-		"multi-node replacement: tolerates a concurrent failed node before status catches up": {
+		"multi-node replacement: rejects an unknown required rack before unhealthy status catches up": {
 			// node-2 is absent from the snapshot before the node controller
-			// appends it to UnhealthyNodes; it must not block replacement of node-1.
+			// appends it to UnhealthyNodes, so the required rack cannot be determined.
 			featureGates: map[featuregate.Feature]bool{
 				features.TASMultiLayerTopology:         true,
 				features.TASCacheNodeMatchResults:      true,
 				features.TASReplaceMultipleFailedNodes: true,
 			},
-			levels: []string{corev1.LabelHostname},
+			levels: []string{tasRackLabel, corev1.LabelHostname},
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("node-1").
-					Label(corev1.LabelHostname, "node-1").
+					Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "node-1").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
 					NotReady().Obj(),
 				*testingnode.MakeNode("node-2").
-					Label(corev1.LabelHostname, "node-2").
+					Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "node-2").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
 					NotReady().Obj(),
 				*testingnode.MakeNode("node-3").
-					Label(corev1.LabelHostname, "node-3").
+					Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "node-3").
 					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
 					Ready().Obj(),
 			},
@@ -10600,17 +10600,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 			podSets: []PodSetTestCase{{
 				podSetName: "main",
 				topologyRequest: &kueue.PodSetTopologyRequest{
-					Required: new(corev1.LabelHostname),
+					Required: new(tasRackLabel),
 				},
-				requests: map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
-				count:    2,
-				wantAssignment: &tas.TopologyAssignment{
-					Levels: []string{corev1.LabelHostname},
-					Domains: []tas.TopologyDomainAssignment{
-						{Count: 1, Values: []string{"node-2"}},
-						{Count: 1, Values: []string{"node-3"}},
-					},
-				},
+				requests:   map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:      2,
+				wantReason: "cannot replace the node: required topology domain of the remaining assignment cannot be determined",
 			}},
 		},
 		"multi-node replacement: surviving node pins replacement to its required rack": {
@@ -10667,7 +10661,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				wantReason:      "Cannot replace the node, because the existing topologyAssignment is invalid, as it contains the stale domain x2",
 			}},
 		},
-		"multi-node replacement: all missing nodes preserve the unconstrained domain fallback": {
+		"multi-node replacement: rejects an unknown required rack when all assigned nodes are unhealthy": {
 			featureGates: map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: true},
 			nodes:        partialFailureNodes[1:],
 			levels:       defaultThreeLevels,
@@ -10677,12 +10671,53 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
 				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
 				count:           3,
+				wantReason:      "cannot replace the node: required topology domain of the remaining assignment cannot be determined",
+			}},
+		},
+		"multi-node replacement: preferred rack allows replacement when all assigned nodes are missing": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: true},
+			nodes:        partialFailureNodes[1:],
+			levels:       defaultThreeLevels,
+			workload:     partialFailureWorkload.Clone().UnhealthyNodes("x1", "x2", "x5").Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Preferred: new(tasRackLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           3,
 				wantAssignment: &tas.TopologyAssignment{
 					Levels: defaultOneLevel,
 					Domains: []tas.TopologyDomainAssignment{
 						{Count: 1, Values: []string{"x4"}},
 						{Count: 1, Values: []string{"x2"}},
 						{Count: 1, Values: []string{"x5"}},
+					},
+				},
+			}},
+		},
+		"multi-node replacement: required rack allows moving the entire assignment": {
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: true},
+			nodes:        partialFailureNodes[1:],
+			levels:       defaultThreeLevels,
+			workload: utiltestingapi.MakeWorkload("test-wl", "test-ns").
+				Admission(utiltestingapi.MakeAdmission("test-cq", "main").
+					PodSets(utiltestingapi.MakePodSetAssignment("main").
+						Count(1).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultOneLevel).
+							Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x1"}}).
+							Obj()).
+						Obj()).
+					Obj()).
+				UnhealthyNodes("x1").
+				Obj(),
+			podSets: []PodSetTestCase{{
+				podSetName:      "main",
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x4"}},
 					},
 				},
 			}},
