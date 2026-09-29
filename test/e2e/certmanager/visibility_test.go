@@ -132,3 +132,9 @@ var _ = ginkgo.Describe("Kueue secure visibility server", func() {
 		})
 	})
 })
+
+var _ = ginkgo.Describe("Kueue visibility APIService", func() {
+	ginkgo.It("Should verify the visibility server certificate", func() {
+		util.ExpectVisibilityAPIServiceToVerifyTLS(ctx, k8sClient)
+	})
+})
