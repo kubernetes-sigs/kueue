@@ -1559,7 +1559,7 @@ func (a *Assignment) CandidateVirtualPods(wl *workload.Info, cq *schdcache.Clust
 	var allPods []*corev1.Pod
 	for _, psAssignment := range a.PodSets {
 		if psAssignment.Status.IsError() {
-			return nil, fmt.Errorf("podset %q is failing", psAssignment.Name)
+			return nil, fmt.Errorf("podset %q is failing: %w", psAssignment.Name, psAssignment.Status.err)
 		}
 		podSet := podset.FindPodSetByName(wl.Obj.Spec.PodSets, psAssignment.Name)
 		if podSet == nil {
