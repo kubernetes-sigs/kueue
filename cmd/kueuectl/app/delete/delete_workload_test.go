@@ -17,6 +17,7 @@ limitations under the License.
 package delete
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 
@@ -218,7 +219,7 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 			},
 			listPages: []runtime.Object{
 				&kueue.WorkloadList{
-					ListMeta: metav1.ListMeta{Continue: "page2"},
+					Continue: "page2",
 					Items: []kueue.Workload{
 						*utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).Obj(),
 					},
@@ -465,15 +466,29 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 }
 
 // prependPagedListReactor makes List calls for workloads return the given pages
-// in order. Once the pages are consumed, later lists use the client tracker.
+// in order. The first request must not send a continue token; later requests must
+// pass the previous page's Continue. Once the pages are consumed, later lists use
+// the client tracker.
 func prependPagedListReactor(clientset *fake.Clientset, pages []runtime.Object) {
 	var page int
-	clientset.PrependReactor("list", "workloads", func(kubetesting.Action) (bool, runtime.Object, error) {
+	var wantContinue string
+	clientset.PrependReactor("list", "workloads", func(action kubetesting.Action) (bool, runtime.Object, error) {
 		if page >= len(pages) {
 			return false, nil, nil
 		}
+		listAction, ok := action.(kubetesting.ListActionImpl)
+		if !ok {
+			return true, nil, fmt.Errorf("expected ListActionImpl, got %T", action)
+		}
+		gotContinue := listAction.GetListOptions().Continue
+		if gotContinue != wantContinue {
+			return true, nil, fmt.Errorf("list continue = %q, want %q", gotContinue, wantContinue)
+		}
 		obj := pages[page]
 		page++
+		if list, ok := obj.(*kueue.WorkloadList); ok {
+			wantContinue = list.Continue
+		}
 		return true, obj, nil
 	})
 }
