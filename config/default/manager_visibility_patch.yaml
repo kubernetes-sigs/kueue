@@ -18,6 +18,9 @@ spec:
           volumeMounts:
           - mountPath: /visibility
             name: visibility
+            readOnly: true
       volumes:
       - name: visibility
-        emptyDir: {}
+        secret:
+          defaultMode: 420
+          secretName: kueue-visibility-server-cert
