@@ -701,14 +701,29 @@ func (rc *remoteClient) StopWatchers() {
 }
 
 func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {
+	log := ctrl.LoggerFrom(ctx)
 	// Runtime children can retain the first slice's prebuilt-workload marker after
 	// their parent is repointed to a replacement slice. Resolve the marker through
 	// the slice chain so their events wake the currently admitted Workload.
-	localWl, err := workloadslicing.FindActiveWorkload(ctx, rc.localClient, wlKey, false)
-	if err == nil && localWl != nil {
-		rc.wlUpdateCh <- event.GenericEvent{Object: localWl}
-	} else if err != nil {
-		ctrl.LoggerFrom(ctx).Error(err, "reading local workload")
+	active, err := workloadslicing.FindActiveWorkload(ctx, rc.localClient, wlKey, false)
+	if err != nil {
+		log.Error(err, "reading local workload", "workload", wlKey)
+		return
+	}
+	if active != nil {
+		rc.wlUpdateCh <- event.GenericEvent{Object: active}
+		if active.Name == wlKey.Name {
+			return
+		}
+	}
+	// The key may also name a replacement slice that is not admitted yet, e.g. when
+	// the event comes from its remote Workload. It still has to be reconciled itself,
+	// since reconciling the admitted slice does not advance the replacement.
+	exact := &kueue.Workload{}
+	if err := rc.localClient.Get(ctx, wlKey, exact); err == nil {
+		rc.wlUpdateCh <- event.GenericEvent{Object: exact}
+	} else if !apierrors.IsNotFound(err) {
+		log.Error(err, "reading local workload", "workload", wlKey)
 	}
 }
 
