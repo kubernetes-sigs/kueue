@@ -714,6 +714,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	SchedulingEquivalenceHashingIgnorePodSetName:    {SchedulingEquivalenceHashing},
 	MultiKueueReuseClientConnectionConfigForWorkers: {MultiKueue},
 	TASTopologySpreading:                            {TopologyAwareScheduling},
+	SchedulerLibraryIntegration:                     {TopologyAwareScheduling},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
