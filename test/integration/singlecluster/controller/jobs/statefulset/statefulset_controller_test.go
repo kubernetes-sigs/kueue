@@ -316,6 +316,45 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 	})
 
+	ginkgo.It("Should ungate a current-revision Pod whose queue-name differs from the StatefulSet", func() {
+		ginkgo.By("Creating a StatefulSet with a rollout in progress")
+		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
+			Queue("lq").
+			Replicas(1).
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			createdSTS.Status.CurrentRevision = "revision-1"
+			createdSTS.Status.UpdateRevision = "revision-2"
+			g.Expect(k8sClient.Status().Update(ctx, createdSTS)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		workloadName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
+		pod := testingjobspod.MakePod("test-sts-0", ns.Name).
+			Queue("old-lq").
+			OwnerReferenceWithUID(createdSTS.Name, appsv1.SchemeGroupVersion.WithKind("StatefulSet"), string(createdSTS.UID)).
+			Annotation(constants.SuspendedByParentAnnotation, statefulset.FrameworkName).
+			GroupNameLabel(workloadName).
+			GroupTotalCount("1").
+			Label(appsv1.ControllerRevisionHashLabelKey, "revision-1").
+			Gate(constants.SchedulingGateName).
+			KueueFinalizer().
+			Obj()
+		util.MustCreate(ctx, k8sClient, pod)
+
+		ginkgo.By("Verifying the Pod is ungated and keeps its queue-name")
+		gotPod := &corev1.Pod{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
+			g.Expect(gotPod.Spec.SchedulingGates).Should(gomega.BeEmpty())
+			g.Expect(gotPod.Labels).Should(gomega.HaveKeyWithValue(controllerconstants.QueueLabel, "old-lq"))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
 	ginkgo.It("Should resize the workload when the StatefulSet scales up from zero to a different size", func() {
 		ginkgo.By("Creating a StatefulSet with replicas=3")
 		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).

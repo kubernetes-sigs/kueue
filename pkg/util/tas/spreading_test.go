@@ -380,10 +380,14 @@ func TestExceedsShare(t *testing.T) {
 		"exactly at the share":         {maxShare: "0.5", count: 1, total: 2, want: false},
 		"exactly at a repeating share": {maxShare: "0.1", count: 1, total: 10, want: false},
 
-		// The comparison is cross-multiplied against the share reduced to
-		// milli, so it resolves 0.1% differences without rounding a float.
-		"just over a milli-precision share":  {maxShare: "0.333", count: 1, total: 3, want: true},
-		"just under a milli-precision share": {maxShare: "0.334", count: 1, total: 3, want: false},
+		// The comparison is evaluated exactly without upward rounding from
+		// Quantity.ScaledValue(resource.Milli), so it resolves precision
+		// finer than 0.1% without permitting occupancy over the share.
+		"just over a milli-precision share":                    {maxShare: "0.333", count: 1, total: 3, want: true},
+		"just under a milli-precision share":                   {maxShare: "0.334", count: 1, total: 3, want: false},
+		"over sub-milli share that ScaledValue would round up": {maxShare: "0.4501", count: 451, total: 1000, want: true},
+		"under sub-milli share":                                {maxShare: "0.4501", count: 450, total: 1000, want: false},
+		"exactly at sub-milli share":                           {maxShare: "0.4501", count: 4501, total: 10000, want: false},
 	}
 
 	for name, tc := range cases {

@@ -870,7 +870,7 @@ Because configurable preemptions can be significantly more complex than the clas
 
 #### Eviction Statistics
 
-In the eviction statistics (`WorkloadSchedulingStatsEviction`), `Reason` will be set to `ConfigurablePreemption` to indicate that the new mechanism triggered the preemption, and `UnderlyingCause` will be populated with the name of the `PreemptionConfig` that caused it.
+In the eviction statistics (`WorkloadSchedulingStatsEviction`), `Reason` will be set to `Preempted` (consistent with the `WorkloadEvicted` condition and existing preemption mechanism), and `UnderlyingCause` will be populated with the name of the `PreemptionConfig` that caused it.
 
 Each time a workload is preempted due to a particular `PreemptionConfig`, the `Count` for the corresponding `WorkloadSchedulingStatsEviction` entry will be incremented. Because a cluster is expected to have relatively few `PreemptionConfig` resources (typically <= 10), this will neither exhaust the eviction entries limit nor cause an excessive number of resource updates.
 

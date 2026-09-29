@@ -176,6 +176,11 @@ func (p *PodWrapper) GroupTotalCount(gtc string) *PodWrapper {
 	return p.Annotation(podconstants.GroupTotalCountAnnotation, gtc)
 }
 
+// GroupMaxNotReadyCount updates the pod.GroupMaxNotReadyCountAnnotation of the Pod
+func (p *PodWrapper) GroupMaxNotReadyCount(count string) *PodWrapper {
+	return p.Annotation(podconstants.GroupMaxNotReadyCountAnnotation, count)
+}
+
 // GroupIndex updates the pod.GroupIndexLabel of the Pod
 func (p *PodWrapper) GroupIndex(index string) *PodWrapper {
 	return p.Label(kueue.PodGroupPodIndexLabel, index)
