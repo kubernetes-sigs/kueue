@@ -296,8 +296,8 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 					kueuetestalpha1.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
 						LabelSelector(&metav1.LabelSelector{
 							MatchExpressions: []metav1.LabelSelectorRequirement{
-								// "in" is invalid; label selector operators are case-sensitive ("In").
-								{Key: "preemptible", Operator: "in", Values: []string{"true"}},
+								// This unsupported operator makes the candidate selector fail to build.
+								{Key: "preemptible", Operator: "invalid", Values: []string{"true"}},
 							},
 						}).Obj(),
 				).
