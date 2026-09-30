@@ -19,6 +19,7 @@ package jobframework_test
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -259,11 +260,12 @@ func TestValidateImmutablePodSpec(t *testing.T) {
 func TestValidateJobOnUpdate(t *testing.T) {
 	fieldString := field.NewPath("metadata").Child("labels").Key(constants.QueueLabel).String()
 	testCases := map[string]struct {
-		oldJob            *batchv1.Job
-		newJob            *batchv1.Job
-		nsHasDefaultQueue bool
-		featureGates      map[featuregate.Feature]bool
-		wantErr           field.ErrorList
+		oldJob               *batchv1.Job
+		newJob               *batchv1.Job
+		nsHasDefaultQueue    bool
+		featureGates         map[featuregate.Feature]bool
+		wantErr              field.ErrorList
+		maxTimeoutOnWorkload *metav1.Duration
 	}{
 		"local queue cannot be changed if job is not suspended": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -403,6 +405,50 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			newJob:       utiltestingjob.MakeJob("test-job", "ns1").PrebuiltWorkloadLabel("workload-name-new").Suspend(true).Obj(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
+		"do not treat JSON blocks with same content but different formatting as a change in WaitForPodsReady annotation": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, "{\n  \"timeoutSeconds\": 20,\n  \"recoveryTimeoutSeconds\": 40\n}\n").
+				Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds": 20, "recoveryTimeoutSeconds":40}`).
+				Obj(),
+			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 10 * time.Second},
+		},
+		"invalid new value is caught in WaitForPodsReady annotation": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, "{\n  \"timeoutSeconds\": 20,\n  \"recoveryTimeoutSeconds\": 40\n}\n").
+				Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, "{\n  \"timeoutSeconds\": 0,\n  \"recoveryTimeoutSeconds\": 40\n}\n").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.annotations[kueue.x-k8s.io/wait-for-pods-ready]",
+				},
+			},
+		},
+		"update annotation when old object has invalid annotation and new has correct formatting": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds": "20"}`).
+				Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds": 20}`).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			wantErr:      nil,
+		},
+		"update annotation when old object has invalid annotation and new has no annotation": {
+			oldJob: utiltestingjob.MakeJob("test-job", "ns1").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds": "20"}`).
+				Obj(),
+			newJob: utiltestingjob.MakeJob("test-job", "ns1").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			wantErr:      nil,
+		},
 	}
 
 	for tcName, tc := range testCases {
@@ -422,7 +468,7 @@ func TestValidateJobOnUpdate(t *testing.T) {
 			oldMJ := newMockJob(tc.oldJob)
 			newMJ := newMockJob(tc.newJob)
 
-			gotErr := jobframework.ValidateJobOnUpdate(oldMJ, newMJ, func(string) bool { return tc.nsHasDefaultQueue }, nil)
+			gotErr := jobframework.ValidateJobOnUpdate(oldMJ, newMJ, func(string) bool { return tc.nsHasDefaultQueue }, tc.maxTimeoutOnWorkload)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
