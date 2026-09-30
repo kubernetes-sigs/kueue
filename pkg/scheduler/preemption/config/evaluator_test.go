@@ -778,11 +778,13 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 }
 
 func TestPreemptionEvaluatorFindCandidates(t *testing.T) {
+	const fullCPUQuota = "3"
+
 	now := time.Now()
 	unitWl := *utiltestingapi.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "1")
 	clusterQueue := utiltestingapi.MakeClusterQueue("a").
 		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
-			Resource(corev1.ResourceCPU, "3").Obj()).
+			Resource(corev1.ResourceCPU, fullCPUQuota).Obj()).
 		Obj()
 	fr := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
 
@@ -848,7 +850,7 @@ func TestPreemptionEvaluatorFindCandidates(t *testing.T) {
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 			},
-			preemptor:   unitWl.Clone().Name("a_incoming").Request(corev1.ResourceCPU, "3").Obj(),
+			preemptor:   unitWl.Clone().Name("a_incoming").Request(corev1.ResourceCPU, fullCPUQuota).Obj(),
 			wantTargets: []string{},
 		},
 		"stops as soon as the yield returns false": {
