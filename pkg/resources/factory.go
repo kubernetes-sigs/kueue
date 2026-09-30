@@ -33,8 +33,8 @@ func Equal(a, b Requests) bool {
 		return false
 	}
 	equal := true
-	a.ForEach(func(name corev1.ResourceName, val int64) {
-		if equal && b.ResourceValue(name) != val {
+	a.ForEach(func(name corev1.ResourceName, val Amount) {
+		if equal && !b.ResourceValue(name).Equal(val) {
 			equal = false
 		}
 	})
@@ -50,14 +50,19 @@ func NewRequests() Requests {
 }
 
 // NewRequestsFromMap creates a Requests instance from a map based on feature gates.
+// Each value already fits an int64, so wrapping it is exact.
 func NewRequestsFromMap(m map[corev1.ResourceName]int64) Requests {
 	if len(m) == 0 {
 		return NewRequests()
 	}
-	if features.Enabled(features.VectorizedResourceRequests) {
-		return new(toSliceRequests(MapRequests(m)))
+	am := make(MapRequests, len(m))
+	for name, v := range m {
+		am[name] = NewAmount(v)
 	}
-	return MapRequests(m)
+	if features.Enabled(features.VectorizedResourceRequests) {
+		return new(toSliceRequests(am))
+	}
+	return am
 }
 
 // NewRequestsFromResourceList creates a Requests instance from a corev1.ResourceList based on feature gates.
@@ -92,12 +97,12 @@ func PodRequests(podSpec *corev1.PodSpec) corev1.ResourceList {
 }
 
 // ToMap converts any Requests instance into a MapRequests map.
-func ToMap(r Requests) map[corev1.ResourceName]int64 {
+func ToMap(r Requests) map[corev1.ResourceName]Amount {
 	if isEmpty(r) {
 		return nil
 	}
 	res := make(MapRequests, r.Len())
-	r.ForEach(func(name corev1.ResourceName, val int64) {
+	r.ForEach(func(name corev1.ResourceName, val Amount) {
 		res[name] = val
 	})
 	return res
