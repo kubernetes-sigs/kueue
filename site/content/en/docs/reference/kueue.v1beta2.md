@@ -1132,7 +1132,8 @@ This is recorded only when Fair Sharing is enabled in the Kueue configuration.</
 </td>
 <td>
    <p>effectiveQuotas is used for scheduling instead of spec.resourceGroups when
-present.</p>
+present. It is set by Dynamic Quota Orchestration (DQO), which overrides
+the quotas of whole flavors.</p>
 <p>This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
 feature gate is disabled.</p>
 </td>
@@ -1289,7 +1290,8 @@ The is recorded only when Fair Sharing is enabled in the Kueue configuration.</p
 </td>
 <td>
    <p>effectiveQuotas is used for scheduling instead of spec.resourceGroups when
-present.</p>
+present. It is set by Dynamic Quota Orchestration (DQO), which overrides
+the quotas of whole flavors.</p>
 <p>This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
 feature gate is disabled.</p>
 </td>
@@ -1447,8 +1449,15 @@ Dynamic Quota Orchestration (DQO).</p>
 <a href="#kueue-x-k8s-io-v1beta2-ResourceGroup"><code>[]ResourceGroup</code></a>
 </td>
 <td>
-   <p>resourceGroups is the effective quota used by the scheduler.
-An empty list is a valid complete override and does not cause fallback to
+   <p>resourceGroups contains the quotas used by the scheduler.
+DQO starts with spec.resourceGroups.
+For each flavor in the DQO's status.effectiveCapacity, it replaces each
+resource's nominalQuota with its share of the effective capacity.
+If a resource is missing from that flavor's effective capacity, its
+nominalQuota is set to zero.
+For these resources, DQO limits any configured ClusterQueue lendingLimit
+to the new nominalQuota.
+An empty list is valid. The scheduler uses it without falling back to
 spec.resourceGroups.</p>
 </td>
 </tr>
