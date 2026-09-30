@@ -449,6 +449,45 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 	})
 
 	ginkgo.When("The parent job is managed by kueue", func() {
+		ginkgo.DescribeTable("child suspension follows SkipChildJobSuspension", func(enabled, missingWorkload, initiallySuspended bool) {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SkipChildJobSuspension, enabled)
+			parentJob := testingjob.MakeJob(parentJobName, ns.Name).Obj()
+			if missingWorkload {
+				parentJob = testingjob.MakeJob(parentJobName, ns.Name).PrebuiltWorkloadLabel("missing").Obj()
+			}
+			util.MustCreate(ctx, k8sClient, parentJob)
+			if !missingWorkload {
+				parentWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(parentJob.Name, parentJob.UID), Namespace: ns.Name}
+				gomega.Eventually(func(g gomega.Gomega) {
+					wl := &kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, parentWlKey, wl)).Should(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).Should(gomega.BeFalse())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
+			childJob := testingjob.MakeJob(childJobName, ns.Name).Suspend(initiallySuspended).Obj()
+			gomega.Expect(ctrl.SetControllerReference(parentJob, childJob, k8sClient.Scheme())).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, childJob)
+			childKey := client.ObjectKeyFromObject(childJob)
+			childWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(childJob.Name, childJob.UID), Namespace: ns.Name}
+			wantSuspended := initiallySuspended || !enabled
+			checkChild := func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, childKey, childJob)).Should(gomega.Succeed())
+				g.Expect(childJob.Spec.Suspend).Should(gomega.Equal(new(wantSuspended)))
+				g.Expect(k8sClient.Get(ctx, childWlKey, &kueue.Workload{})).Should(utiltesting.BeNotFoundError())
+			}
+			gomega.Eventually(checkChild, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Consistently(checkChild, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		},
+			ginkgo.Entry("enabled, missing workload, running child", true, true, false),
+			ginkgo.Entry("enabled, missing workload, suspended child", true, true, true),
+			ginkgo.Entry("enabled, unadmitted workload, running child", true, false, false),
+			ginkgo.Entry("enabled, unadmitted workload, suspended child", true, false, true),
+			ginkgo.Entry("disabled, missing workload, running child", false, true, false),
+			ginkgo.Entry("disabled, missing workload, suspended child", false, true, true),
+			ginkgo.Entry("disabled, unadmitted workload, running child", false, false, false),
+			ginkgo.Entry("disabled, unadmitted workload, suspended child", false, false, true),
+		)
+
 		ginkgo.It("Should not create child workload for a job with a kueue managed parent", func() {
 			ginkgo.By("creating the parent job")
 			parentJob := testingjob.MakeJob(parentJobName, ns.Name).Obj()
