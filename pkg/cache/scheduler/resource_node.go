@@ -197,12 +197,13 @@ func updateCohortTreeResources(cohort *cohort) error {
 }
 
 // updateCohortResourceNode traverses the Cohort tree to accumulate
-// SubtreeQuota and Usage, then refreshes Lendable. It should usually be
-// called via updateCohortTree, which starts at the root and includes
-// a cycle check.
+// SubtreeQuota, Usage and admittedWorkloadsCount, then refreshes Lendable.
+// It should usually be called via updateCohortTreeResources, which starts at
+// the root and includes a cycle check.
 func updateCohortResourceNode(cohort *cohort) {
 	cohort.resourceNode.SubtreeQuota = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.SubtreeQuota))
 	cohort.resourceNode.Usage = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.Usage))
+	cohort.admittedWorkloadsCount = 0
 
 	for fr, quota := range cohort.resourceNode.Quotas {
 		cohort.resourceNode.SubtreeQuota[fr] = quota.Nominal
@@ -210,10 +211,12 @@ func updateCohortResourceNode(cohort *cohort) {
 	for _, child := range cohort.ChildCohorts() {
 		updateCohortResourceNode(child)
 		accumulateFromChild(cohort, child)
+		cohort.admittedWorkloadsCount += child.admittedWorkloadsCount
 	}
 	for _, child := range cohort.ChildCQs() {
 		updateClusterQueueResourceNode(child)
 		accumulateFromChild(cohort, child)
+		cohort.admittedWorkloadsCount += child.admittedWorkloadsCount
 	}
 	// Lendable reads the root's SubtreeQuota, so it cannot be computed until the
 	// accumulation above has finished for the whole tree. The recursive calls

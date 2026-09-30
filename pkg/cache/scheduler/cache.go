@@ -492,6 +492,12 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 		return err
 	}
 	c.handleParentUpdate(oldParent)
+	if oldParent != cqImpl.Parent() {
+		if oldParent != nil {
+			reportTreeAdmittedActiveWorkloadsIfNoCycle(c.hm.Cohort(oldParent.Name))
+		}
+		reportTreeAdmittedActiveWorkloadsIfNoCycle(cqImpl.Parent())
+	}
 	for _, qImpl := range cqImpl.localQueues {
 		if qImpl == nil {
 			return errQNotFound
@@ -622,6 +628,10 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	oldParent := cohort.Parent()
 	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
 	err := cohort.updateCohort(apiCohort, oldParent)
+	// The old tree loses this subtree even when the new parent closes a cycle.
+	if oldParent != nil && oldParent != cohort.Parent() {
+		reportTreeAdmittedActiveWorkloadsIfNoCycle(c.hm.Cohort(oldParent.Name))
+	}
 	if err != nil {
 		if errors.Is(err, ErrCohortHasCycle) {
 			c.updateClusterQueues(ctrl.Log.WithName("cache"))
@@ -647,7 +657,6 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	wasCyclic := false
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
 		wasCyclic = hierarchy.HasCycle(cohort)
-		cohort.updateAdmittedWorkloadsCount(-cohort.admittedWorkloadsCount)
 		metrics.ClearCohortAdmittedWorkloadsMetrics(cohort.Name)
 		if features.Enabled(features.MetricsForCohorts) {
 			metrics.ClearCohortInfo(cohort.Name)
@@ -662,6 +671,7 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	// We need to run update algorithm.
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
 		updateCohortResourceNode(cohort)
+		reportTreeAdmittedActiveWorkloads(cohort)
 	}
 
 	if parent != nil {
