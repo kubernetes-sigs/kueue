@@ -29,6 +29,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
@@ -73,12 +74,17 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	if podSetGroupNameFound {
 		allErrs = append(allErrs, validatePodSetGroupNameAnnotation(podSetGroupNameValue, annotationsPath.Key(kueue.PodSetGroupName))...)
 
-		if sliceSizeFound {
-			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueue.PodSetGroupName), fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceSizeAnnotation)))
-		}
+		if !features.Enabled(features.TASGroupedPodSetSlicing) {
+			if sliceSizeFound {
+				allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueue.PodSetGroupName), fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceSizeAnnotation)))
+			}
 
-		if sliceRequiredFound {
-			allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueue.PodSetGroupName), fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceRequiredTopologyAnnotation)))
+			if sliceRequiredFound {
+				allErrs = append(
+					allErrs,
+					field.Forbidden(annotationsPath.Key(kueue.PodSetGroupName), fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceRequiredTopologyAnnotation)),
+				)
+			}
 		}
 
 		if !preferredFound && !requiredFound {
@@ -98,6 +104,9 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	sliceSizeAnnotationErr := validateSliceSizeAnnotation(annotationsPath, replicaMetadata)
 	allErrs = append(allErrs, sliceSizeAnnotationErr...)
 
+	offsetAnnotationErr := validatePodIndexOffsetAnnotation(annotationsPath, replicaMetadata, podSetGroupNameFound)
+	allErrs = append(allErrs, offsetAnnotationErr...)
+
 	// validate slice annotations
 	if sliceRequiredFound && !sliceSizeFound {
 		allErrs = append(allErrs, field.Required(annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), fmt.Sprintf("must be set when '%s' is specified", kueue.PodSetSliceRequiredTopologyAnnotation)))
@@ -112,15 +121,26 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	// validate multi-level constraints annotation
 	allErrs = append(allErrs, validateSliceRequiredTopologyConstraintsAnnotation(annotationsPath, replicaMetadata, sliceRequiredFound, sliceSizeFound, podSetGroupNameFound)...)
 
+	// validate topology spreading annotation
+	allErrs = append(allErrs, validateTopologySpreadingAnnotation(annotationsPath, replicaMetadata, requiredFound)...)
+
 	return allErrs
 }
 
 func validateTASUnconstrained(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
 	if val, ok := replicaMetadata.Annotations[kueue.PodSetUnconstrainedTopologyAnnotation]; ok {
-		if _, err := strconv.ParseBool(val); err != nil {
+		unconstrained, err := strconv.ParseBool(val)
+		if err != nil {
 			return field.ErrorList{
 				field.Invalid(
 					annotationsPath.Key(kueue.PodSetUnconstrainedTopologyAnnotation), val, "must be a boolean value",
+				),
+			}
+		}
+		if !unconstrained && features.Enabled(features.TASRejectFalseUnconstrainedTopology) {
+			return field.ErrorList{
+				field.Invalid(
+					annotationsPath.Key(kueue.PodSetUnconstrainedTopologyAnnotation), val, "must be true",
 				),
 			}
 		}
@@ -149,6 +169,28 @@ func validateSliceSizeAnnotation(annotationsPath *field.Path, replicaMetadata *m
 				annotationsPath.Key(kueue.PodSetSliceSizeAnnotation), sliceSizeValue,
 				"must be greater than or equal to 1",
 			),
+		}
+	}
+
+	return nil
+}
+
+func validatePodIndexOffsetAnnotation(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta, podSetGroupNameFound bool) field.ErrorList {
+	offsetValue, offsetFound := replicaMetadata.Annotations[kueue.PodIndexOffsetAnnotation]
+	if !offsetFound {
+		return nil
+	}
+
+	offsetPath := annotationsPath.Key(kueue.PodIndexOffsetAnnotation)
+	if podSetGroupNameFound {
+		return field.ErrorList{
+			field.Forbidden(offsetPath, fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetGroupName)),
+		}
+	}
+
+	if val, err := strconv.ParseInt(offsetValue, 10, 32); err != nil || val < 0 {
+		return field.ErrorList{
+			field.Invalid(offsetPath, offsetValue, "must be a non-negative integer"),
 		}
 	}
 
@@ -203,6 +245,16 @@ func ValidateSliceSizeAnnotationUpperBound(replicaPath *field.Path, replicaMetad
 					annotationsPath.Key(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation),
 					constraints[0].Size,
 					fmt.Sprintf("must not be greater than pod set count %d", podSet.Count),
+				))
+			} else if features.Enabled(features.TASPartialSlices) && len(constraints) > 1 &&
+				constraints[0].Size > 0 && podSet.Count%constraints[0].Size != 0 {
+				// A partial last slice is supported for a single layer only.
+				// The inner layers subdivide a slice further, and the trailing
+				// pods generally do not divide by their sizes.
+				allErrs = append(allErrs, field.Invalid(
+					annotationsPath.Key(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation),
+					constraints[0].Size,
+					fmt.Sprintf("must evenly divide pod set count %d when more than one layer is specified", podSet.Count),
 				))
 			}
 		}
@@ -260,6 +312,24 @@ func ValidatePodSetGroupingTopology(podSets []kueue.PodSet, podSetAnnotationsByN
 					groupName,
 					sizeErrorMessage,
 				),
+			)
+		}
+
+		v1, found1 := podSet1.Template.Annotations[kueue.PodSetTopologySpreadingAnnotation]
+		v2, found2 := podSet2.Template.Annotations[kueue.PodSetTopologySpreadingAnnotation]
+		if features.Enabled(features.TASTopologySpreading) &&
+			(found1 != found2 || (found1 && !utiltas.SpreadingAnnotationsAgree(v1, v2))) {
+			spreadingError := func(otherPath *field.Path) string {
+				return fmt.Sprintf(
+					"must specify the same '%s' annotation as '%s' in group '%s', or neither pod set may specify it",
+					kueue.PodSetTopologySpreadingAnnotation,
+					otherPath,
+					groupName,
+				)
+			}
+			allErrs = append(allErrs,
+				field.Invalid(annotationsPath1, field.OmitValueType{}, spreadingError(annotationsPath2)),
+				field.Invalid(annotationsPath2, field.OmitValueType{}, spreadingError(annotationsPath1)),
 			)
 		}
 
@@ -339,8 +409,8 @@ func validateSliceRequiredTopologyConstraintsAnnotation(
 			fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceSizeAnnotation)))
 	}
 
-	// Incompatible with podset-group-name.
-	if podSetGroupNameFound {
+	// Incompatible with podset-group-name when TASGroupedPodSetSlicing is disabled.
+	if podSetGroupNameFound && !features.Enabled(features.TASGroupedPodSetSlicing) {
 		allErrs = append(allErrs, field.Forbidden(annotationsPath.Key(kueue.PodSetGroupName),
 			fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetSliceRequiredTopologyConstraintsAnnotation)))
 	}
@@ -387,4 +457,46 @@ func validateSliceRequiredTopologyConstraintsAnnotation(
 	}
 
 	return allErrs
+}
+
+// validateTopologySpreadingAnnotation validates the topology-spreading
+// annotation syntactically. It cannot validate anything that depends on the
+// ResourceFlavor's Topology - the ResourceFlavor is unassigned at admission
+// time - which rules out both checking that a rule's "topologyKey" is a level
+// of that Topology and checking that the key is not below the level requested
+// by PodSetRequiredTopologyAnnotation. Both happen at scheduling time.
+func validateTopologySpreadingAnnotation(
+	annotationsPath *field.Path,
+	replicaMetadata *metav1.ObjectMeta,
+	requiredFound bool,
+) field.ErrorList {
+	var allErrs field.ErrorList
+
+	value, found := replicaMetadata.Annotations[kueue.PodSetTopologySpreadingAnnotation]
+	if !found {
+		return nil
+	}
+
+	// While the gate is off the annotation is inert - the scheduler ignores it
+	// entirely - so it is left unvalidated rather than rejected. That lets
+	// operators annotate their workloads ahead of enabling the gate, staging
+	// the configuration instead of having to land it in the same change.
+	if !features.Enabled(features.TASTopologySpreading) {
+		return nil
+	}
+
+	fldPath := annotationsPath.Key(kueue.PodSetTopologySpreadingAnnotation)
+
+	// Spreading counts a group as occupying one domain per rule level, which
+	// only holds for required topology - preferred/unconstrained placements
+	// spread a group across several domains, breaking maxShareAllowingPlacement.
+	// Requiring the companion annotation also rules out a Workload that
+	// carries spreading but never engages TAS at all.
+	if !requiredFound {
+		allErrs = append(allErrs, field.Forbidden(fldPath,
+			fmt.Sprintf("may only be set together with '%s'", kueue.PodSetRequiredTopologyAnnotation)))
+		return allErrs
+	}
+
+	return utiltas.ValidateSpreadingAnnotation(fldPath, value)
 }

@@ -19,10 +19,14 @@ certManager:
   #   group: cert-manager.io
 # -- Enable API Priority and Fairness configuration for the visibility API
 enableVisibilityAPF: false
+# -- Enable MutatingAdmissionPolicy for clearing nominatedClusterNames on admission or eviction (requires K8s 1.36+)
+enableMutatingAdmissionPolicy: false
 # -- Enable the visibility server's auth-reader RoleBinding. It is always created in the kube-system namespace because it binds to the built-in extension-apiserver-authentication-reader Role, which only exists there. Disable when deploying under a GitOps project that cannot target kube-system, then create the RoleBinding out-of-band.
 enableVisibilityAuthReaderRoleBinding: true
 # -- Enable KueueViz dashboard
 enableKueueViz: false
+# -- Enable Alpha APIs (e.g. DynamicQuotaOrchestrator, CapacityProvider)
+enableAlphaAPIs: false
 # -- Kubernetes cluster's domain
 kubernetesClusterDomain: cluster.local
 controllerManager:
@@ -30,6 +34,15 @@ controllerManager:
   featureGates: []
   #  - name: PartialAdmission
   #    enabled: true
+  # -- ControllerManager Deployment's update strategy. When hostNetwork is enabled the
+  # manager's ports bind to the node, so the default RollingUpdate surge cannot schedule
+  # a second pod onto an already-occupied node; set maxSurge: 0 to roll in place.
+  strategy: {}
+  # -- Run the ControllerManager pod on the host network. Needed where the API server
+  # reaches the webhook/visibility endpoints via node IPs rather than pod IPs.
+  hostNetwork: false
+  # -- ControllerManager pod's dnsPolicy. Set to ClusterFirstWithHostNet when hostNetwork is enabled.
+  dnsPolicy: ""
   manager:
     # -- ControllerManager's pod priorityClassName
     priorityClassName:
@@ -96,10 +109,12 @@ controllerManager:
   tolerations: []
   # -- ControllerManager's topologySpreadConstraints
   topologySpreadConstraints: []
+  # -- ControllerManager's affinity
+  affinity: {}
   podDisruptionBudget:
     # -- Enable PodDisruptionBudget
     enabled: false
-    # -- PodDisruptionBudget's topologySpreadConstraints
+    # -- PodDisruptionBudget's minAvailable
     minAvailable: 1
 managerConfig:
   # -- controller_manager_config.yaml.
@@ -124,6 +139,7 @@ managerConfig:
         Pod: 5
         Workload.kueue.x-k8s.io: 10
         LocalQueue.kueue.x-k8s.io: 5
+        Cohort.kueue.x-k8s.io: 1
         ClusterQueue.kueue.x-k8s.io: 5
         ResourceFlavor.kueue.x-k8s.io: 1
     clientConnection:
@@ -133,6 +149,7 @@ managerConfig:
     #waitForPodsReady:
     #  timeout: 30m
     #  recoveryTimeout: 5m
+    #  unscheduledTimeout: 5m
     #  blockAdmission: false
     #  requeuingStrategy:
     #    timestamp: Eviction
@@ -159,13 +176,13 @@ managerConfig:
       - "ray.io/rayservice"
       - "ray.io/raycluster"
       - "jobset.x-k8s.io/jobset"
-      - "trainer.kubeflow.org/trainjob"
     #  - "kubeflow.org/paddlejob"
     #  - "kubeflow.org/pytorchjob"
     #  - "kubeflow.org/tfjob"
     #  - "kubeflow.org/xgboostjob"
     #  - "kubeflow.org/jaxjob"
       - "workload.codeflare.dev/appwrapper"
+      - "trainer.kubeflow.org/trainjob"
     #  - "sparkoperator.k8s.io/sparkapplication"
       - "pod"
       - "deployment"
@@ -227,6 +244,23 @@ mutatingWebhook:
   # -- MutatingWebhookConfiguration's reinvocationPolicy
   reinvocationPolicy: Never
 kueueViz:
+  ingress:
+    # -- Enable a single path-routed ingress serving the KueueViz dashboard and its
+    # backend on one host. While enabled, the per-component `backend.ingress` and
+    # `frontend.ingress` objects are not rendered.
+    enabled: false
+    # -- Path-routed ingress annotations. Do not set
+    # `nginx.ingress.kubernetes.io/rewrite-target` here: rewriting the path
+    # breaks routing of the backend prefixes.
+    annotations: {}
+    # -- Path-routed ingress class name
+    ingressClassName:
+    # -- Host serving both the dashboard and the backend
+    host: "kueueviz.local"
+    # -- If true, enable tls on the path-routed ingress. Defaults to true if tlsSecretName is set.
+    tlsEnabled: ~
+    # -- Path-routed ingress tls secret name
+    tlsSecretName: ""
   backend:
     # -- KueueViz backend nodeSelector
     nodeSelector: {}
@@ -272,6 +306,8 @@ kueueViz:
       ingressClassName:
       # -- KueueViz dashboard backend ingress host
       host: "backend.kueueviz.local"
+      # -- If true, enable KueueViz dashboard backend ingress tls. Defaults to true if tlsSecretName is set.
+      tlsEnabled: ~
       # -- KueueViz dashboard backend ingress tls secret name
       tlsSecretName: "kueueviz-backend-tls"
     auth:
@@ -337,6 +373,8 @@ kueueViz:
       ingressClassName:
       # -- KueueViz dashboard frontend ingress host
       host: "frontend.kueueviz.local"
+      # -- If true, enable KueueViz dashboard frontend ingress tls. Defaults to true if tlsSecretName is set.
+      tlsEnabled: ~
       # -- KueueViz dashboard frontend ingress tls secret name
       tlsSecretName: "kueueviz-frontend-tls"
     image:
@@ -351,6 +389,8 @@ metrics:
   # -- Prometheus namespace
   prometheusNamespace: monitoring
   serviceMonitor:
-    # -- ServiceMonitor's tlsConfig
-    tlsConfig:
-      insecureSkipVerify: true
+    # -- ServiceMonitor's tlsConfig. When empty, the chart verifies the metrics certificate
+    # issued by cert-manager if `enableCertManager` is true, and skips verification otherwise.
+    # When set, it replaces the generated tlsConfig, and `insecureSkipVerify` defaults to true
+    # unless set explicitly.
+    tlsConfig: {}

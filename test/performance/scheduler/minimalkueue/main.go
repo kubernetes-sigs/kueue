@@ -29,6 +29,7 @@ import (
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
 	crconfig "sigs.k8s.io/controller-runtime/pkg/config"
@@ -38,16 +39,9 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
-	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/core"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/controller/tas"
-	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
-	"sigs.k8s.io/kueue/pkg/scheduler"
-	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/test/performance/framework/controllers"
 )
 
 var (
@@ -57,6 +51,7 @@ var (
 	metricsPort = flag.Int("metricsPort", 0, "metrics serving port")
 
 	enableTAS = flag.Bool("enableTAS", false, "enable TAS controllers and indexers")
+	enableDRA = flag.Bool("enableDRA", false, "enable the DRA device feasibility check and map the generated DeviceClass to quota")
 )
 
 var (
@@ -185,62 +180,17 @@ func run() int {
 		cancel()
 	}()
 
-	// Setup core indexers
-	err = indexer.Setup(ctx, mgr.GetFieldIndexer())
-	if err != nil {
-		log.Error(err, "Indexer setup")
-		return 1
-	}
-
-	// Setup TAS indexers if enabled
-	if *enableTAS {
-		err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
-		if err != nil {
-			log.Error(err, "TAS indexer setup")
+	cfg := &configapi.Configuration{}
+	if *enableDRA {
+		if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{string(features.KueueDRADeviceFeasibility): true}); err != nil {
+			log.Error(err, "Unable to enable the DRA device feasibility check")
 			return 1
 		}
+		cfg.Resources = &configapi.Resources{DeviceClassMappings: controllers.DRADeviceClassMappings()}
 	}
 
-	cCache := schdcache.New(mgr.GetClient())
-
-	// setup inadmissible workload requeuer
-	requeuer := qcache.NewRequeuer()
-	if err := mgr.Add(requeuer); err != nil {
-		log.Error(err, "Unable to add workloadRequeuer to manager")
-		return 1
-	}
-
-	preemptionExpectations := preemptexpectations.New()
-	queueOptions := qcache.WithPreemptionExpectations(preemptionExpectations)
-	queues := qcache.NewManager(mgr.GetClient(), cCache, requeuer, queueOptions)
-
-	go queues.CleanUpOnContext(ctx)
-	go cCache.CleanUpOnContext(ctx)
-
-	// Setup core controllers
-	if failedCtrl, err := core.SetupControllers(mgr, queues, cCache, &configapi.Configuration{}, core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations}); err != nil {
-		log.Error(err, "Unable to create core controller", "controller", failedCtrl)
-		return 1
-	}
-
-	// Setup TAS controllers if enabled
-	if *enableTAS {
-		if failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, &configapi.Configuration{}, nil); err != nil {
-			log.Error(err, "Unable to create TAS controller", "controller", failedCtrl)
-			return 1
-		}
-	}
-
-	sched := scheduler.New(
-		queues,
-		cCache,
-		mgr.GetClient(),
-		mgr.GetEventRecorder(constants.AdmissionName),
-		scheduler.WithPreemptionExpectations(preemptionExpectations),
-	)
-
-	if err := mgr.Add(sched); err != nil {
-		log.Error(err, "Unable to add scheduler to manager")
+	if err := controllers.Setup(ctx, mgr, cfg, *enableTAS); err != nil {
+		log.Error(err, "Unable to set up controllers and scheduler")
 		return 1
 	}
 

@@ -25,6 +25,7 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -51,6 +52,26 @@ import (
 const (
 	instanceKey = "cloud.provider.com/instance"
 )
+
+// countStoppedEvents returns how many times a Stopped event was emitted for the
+// named TrainJob, counting the repeats the recorder folds into a single event
+// series.
+func countStoppedEvents(trainJobName string) int {
+	ginkgo.GinkgoHelper()
+	events := &eventsv1.EventList{}
+	gomega.Expect(k8sClient.List(ctx, events)).To(gomega.Succeed())
+	count := 0
+	for _, event := range events.Items {
+		if event.Reason != jobframework.ReasonStopped || event.Regarding.Name != trainJobName {
+			continue
+		}
+		count++
+		if event.Series != nil {
+			count += int(event.Series.Count) - 1
+		}
+	}
+	return count
+}
 
 var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
@@ -295,6 +316,14 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("a Stopped event is emitted for the trainjob", func() {
+				util.ExpectEventAppeared(ctx, k8sClient, eventsv1.Event{
+					Reason: jobframework.ReasonStopped,
+					Type:   corev1.EventTypeNormal,
+					Note:   "By test",
+				})
+			})
+
 			ginkgo.By("the workload should stay admitted", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -312,6 +341,21 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 
 			ginkgo.By("the workload should get unadmitted", func() {
 				util.ExpectWorkloadsToBePending(ctx, k8sClient, createdWorkload)
+			})
+
+			ginkgo.By("the admission data is restored from kueue's runtime patch", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainJob), trainJob)).To(gomega.Succeed())
+					kueueRuntimePatch := testingtrainjob.KueueRuntimePatch(trainJob)
+					g.Expect(kueueRuntimePatch).NotTo(gomega.BeNil())
+					g.Expect(kueueRuntimePatch.TrainingRuntimeSpec.Template.Spec.ReplicatedJobs).To(gomega.BeNil())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("stopping the trainjob stays idempotent, so no further Stopped event is emitted", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(countStoppedEvents(trainJob.Name)).To(gomega.Equal(1))
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -347,7 +391,7 @@ var _ = ginkgo.Describe("TrainJob controller for workloads when only jobs with q
 		trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 			APIGroup: new("trainer.kubeflow.org"),
 			Name:     "test",
-			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
+			Kind:     new(kftrainerapi.TrainingRuntimeKind),
 		}).
 			Suspend(false).
 			Obj()
@@ -446,7 +490,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 		trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 			APIGroup: new("trainer.kubeflow.org"),
 			Name:     "test",
-			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
+			Kind:     new(kftrainerapi.TrainingRuntimeKind),
 		}).
 			Queue(localQueue.Name).
 			Obj()
@@ -497,7 +541,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 		trainJob1 := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 			APIGroup: new("trainer.kubeflow.org"),
 			Name:     "tr-1",
-			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
+			Kind:     new(kftrainerapi.TrainingRuntimeKind),
 		}).
 			Queue(localQueue.Name).
 			Suspend(true).
@@ -536,7 +580,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 		trainJob2 := testingtrainjob.MakeTrainJob("trainjob-test-2", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 			APIGroup: new("trainer.kubeflow.org"),
 			Name:     "tr-2",
-			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
+			Kind:     new(kftrainerapi.TrainingRuntimeKind),
 		}).
 			Queue(localQueue.Name).
 			Suspend(true).
@@ -685,7 +729,7 @@ var _ = ginkgo.Describe("TrainJob controller with TopologyAwareScheduling", gink
 		trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 			APIGroup: new("trainer.kubeflow.org"),
 			Name:     "test",
-			Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
+			Kind:     new(kftrainerapi.TrainingRuntimeKind),
 		}).
 			Queue(localQueue.Name).
 			Suspend(false).
@@ -710,20 +754,20 @@ var _ = ginkgo.Describe("TrainJob controller with TopologyAwareScheduling", gink
 						Name:  "node-1",
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Required:           ptr.To(utiltesting.DefaultBlockTopologyLevel),
-							PodIndexLabel:      ptr.To(batchv1.JobCompletionIndexAnnotation),
-							SubGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
-							SubGroupCount:      ptr.To[int32](1),
+							Required:           new(utiltesting.DefaultBlockTopologyLevel),
+							PodIndexLabel:      new(batchv1.JobCompletionIndexAnnotation),
+							SubGroupIndexLabel: new(jobsetapi.JobIndexKey),
+							SubGroupCount:      new(int32(1)),
 						},
 					},
 					{
 						Name:  "node-2",
 						Count: 1,
 						TopologyRequest: &kueue.PodSetTopologyRequest{
-							Preferred:          ptr.To(utiltesting.DefaultRackTopologyLevel),
-							PodIndexLabel:      ptr.To(batchv1.JobCompletionIndexAnnotation),
-							SubGroupIndexLabel: ptr.To(jobsetapi.JobIndexKey),
-							SubGroupCount:      ptr.To[int32](1),
+							Preferred:          new(utiltesting.DefaultRackTopologyLevel),
+							PodIndexLabel:      new(batchv1.JobCompletionIndexAnnotation),
+							SubGroupIndexLabel: new(jobsetapi.JobIndexKey),
+							SubGroupCount:      new(int32(1)),
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))

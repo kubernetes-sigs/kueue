@@ -24,7 +24,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
-	"k8s.io/utils/ptr"
 )
 
 const (
@@ -34,8 +33,8 @@ const (
 	overwriteMetricBindAddress                   = ":38081"
 	overwriteHealthProbeBindAddress              = ":38080"
 	overwriteLeaderElectionID                    = "foo.kueue.x-k8s.io"
-	expectedDefaultClientConnectionQPS   float32 = 300.0
-	expectedDefaultClientConnectionBurst int32   = 500
+	expectedDefaultClientConnectionQPS   float32 = 1000.0
+	expectedDefaultClientConnectionBurst int32   = 1000
 )
 
 func TestSetDefaults_Configuration(t *testing.T) {
@@ -128,10 +127,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		},
 		"defaulting ControllerManager": {
 			original: &Configuration{
-				ControllerManager: ControllerManager{
-					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect: new(true),
-					},
+				LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+					LeaderElect: new(true),
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
@@ -139,28 +136,26 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				Namespace: new(DefaultNamespace),
-				ControllerManager: ControllerManager{
-					Webhook: ControllerWebhook{
-						Port:    new(DefaultWebhookPort),
-						CertDir: DefaultWebhookCertDir,
+				Webhook: ControllerWebhook{
+					Port:    new(DefaultWebhookPort),
+					CertDir: DefaultWebhookCertDir,
+				},
+				Metrics: ControllerMetrics{
+					BindAddress: DefaultMetricsBindAddress,
+					LocalQueueMetrics: &LocalQueueMetrics{
+						Enable: true,
 					},
-					Metrics: ControllerMetrics{
-						BindAddress: DefaultMetricsBindAddress,
-						LocalQueueMetrics: &LocalQueueMetrics{
-							Enable: true,
-						},
-					},
-					Health: ControllerHealth{
-						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
-					},
-					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:   new(true),
-						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
-						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
-						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
-						ResourceLock:  "leases",
-						ResourceName:  DefaultLeaderElectionID,
-					},
+				},
+				Health: ControllerHealth{
+					HealthProbeBindAddress: DefaultHealthProbeBindAddress,
+				},
+				LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+					LeaderElect:   new(true),
+					LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+					RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+					RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+					ResourceLock:  "leases",
+					ResourceName:  DefaultLeaderElectionID,
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
@@ -174,28 +169,26 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		},
 		"should not default ControllerManager": {
 			original: &Configuration{
-				ControllerManager: ControllerManager{
-					Webhook: ControllerWebhook{
-						Port:    new(overwriteWebhookPort),
-						CertDir: overwriteWebhookCertDir,
+				Webhook: ControllerWebhook{
+					Port:    new(overwriteWebhookPort),
+					CertDir: overwriteWebhookCertDir,
+				},
+				Metrics: ControllerMetrics{
+					BindAddress: overwriteMetricBindAddress,
+					LocalQueueMetrics: &LocalQueueMetrics{
+						Enable: true,
 					},
-					Metrics: ControllerMetrics{
-						BindAddress: overwriteMetricBindAddress,
-						LocalQueueMetrics: &LocalQueueMetrics{
-							Enable: true,
-						},
-					},
-					Health: ControllerHealth{
-						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
-					},
-					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:   new(true),
-						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
-						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
-						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
-						ResourceLock:  "leases",
-						ResourceName:  overwriteLeaderElectionID,
-					},
+				},
+				Health: ControllerHealth{
+					HealthProbeBindAddress: overwriteHealthProbeBindAddress,
+				},
+				LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+					LeaderElect:   new(true),
+					LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+					RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+					RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+					ResourceLock:  "leases",
+					ResourceName:  overwriteLeaderElectionID,
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
@@ -204,28 +197,26 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				Namespace: new(DefaultNamespace),
-				ControllerManager: ControllerManager{
-					Webhook: ControllerWebhook{
-						Port:    new(overwriteWebhookPort),
-						CertDir: overwriteWebhookCertDir,
+				Webhook: ControllerWebhook{
+					Port:    new(overwriteWebhookPort),
+					CertDir: overwriteWebhookCertDir,
+				},
+				Metrics: ControllerMetrics{
+					BindAddress: overwriteMetricBindAddress,
+					LocalQueueMetrics: &LocalQueueMetrics{
+						Enable: true,
 					},
-					Metrics: ControllerMetrics{
-						BindAddress: overwriteMetricBindAddress,
-						LocalQueueMetrics: &LocalQueueMetrics{
-							Enable: true,
-						},
-					},
-					Health: ControllerHealth{
-						HealthProbeBindAddress: overwriteHealthProbeBindAddress,
-					},
-					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:   new(true),
-						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
-						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
-						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
-						ResourceLock:  "leases",
-						ResourceName:  overwriteLeaderElectionID,
-					},
+				},
+				Health: ControllerHealth{
+					HealthProbeBindAddress: overwriteHealthProbeBindAddress,
+				},
+				LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+					LeaderElect:   new(true),
+					LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+					RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+					RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+					ResourceLock:  "leases",
+					ResourceName:  overwriteLeaderElectionID,
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
@@ -239,10 +230,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 		},
 		"should not set LeaderElectionID": {
 			original: &Configuration{
-				ControllerManager: ControllerManager{
-					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect: new(false),
-					},
+				LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+					LeaderElect: new(false),
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
@@ -250,28 +239,26 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			},
 			want: &Configuration{
 				Namespace: new(DefaultNamespace),
-				ControllerManager: ControllerManager{
-					Webhook: ControllerWebhook{
-						Port:    new(DefaultWebhookPort),
-						CertDir: DefaultWebhookCertDir,
+				Webhook: ControllerWebhook{
+					Port:    new(DefaultWebhookPort),
+					CertDir: DefaultWebhookCertDir,
+				},
+				Metrics: ControllerMetrics{
+					BindAddress: DefaultMetricsBindAddress,
+					LocalQueueMetrics: &LocalQueueMetrics{
+						Enable: true,
 					},
-					Metrics: ControllerMetrics{
-						BindAddress: DefaultMetricsBindAddress,
-						LocalQueueMetrics: &LocalQueueMetrics{
-							Enable: true,
-						},
-					},
-					Health: ControllerHealth{
-						HealthProbeBindAddress: DefaultHealthProbeBindAddress,
-					},
-					LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
-						LeaderElect:   new(false),
-						LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
-						RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
-						RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
-						ResourceLock:  "leases",
-						ResourceName:  "c1f6bfd2.kueue.x-k8s.io",
-					},
+				},
+				Health: ControllerHealth{
+					HealthProbeBindAddress: DefaultHealthProbeBindAddress,
+				},
+				LeaderElection: &componentconfigv1alpha1.LeaderElectionConfiguration{
+					LeaderElect:   new(false),
+					LeaseDuration: metav1.Duration{Duration: DefaultLeaderElectionLeaseDuration},
+					RenewDeadline: metav1.Duration{Duration: DefaultLeaderElectionRenewDeadline},
+					RetryPeriod:   metav1.Duration{Duration: DefaultLeaderElectionRetryPeriod},
+					ResourceLock:  "leases",
+					ResourceName:  "c1f6bfd2.kueue.x-k8s.io",
 				},
 				InternalCertManagement: &InternalCertManagement{
 					Enable: new(false),
@@ -329,8 +316,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: new(false),
 				},
 				ClientConnection: &ClientConnection{
-					QPS:   ptr.To[float32](123.0),
-					Burst: ptr.To[int32](456),
+					QPS:   new(float32(123.0)),
+					Burst: new(int32(456)),
 				},
 			},
 			want: &Configuration{
@@ -340,8 +327,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Enable: new(false),
 				},
 				ClientConnection: &ClientConnection{
-					QPS:   ptr.To[float32](123.0),
-					Burst: ptr.To[int32](456),
+					QPS:   new(float32(123.0)),
+					Burst: new(int32(456)),
 				},
 				Integrations:                 overwriteNamespaceIntegrations,
 				MultiKueue:                   defaultMultiKueue,
@@ -387,8 +374,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					RecoveryTimeout: &podsReadyTimeout,
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          new(EvictionTimestamp),
-						BackoffBaseSeconds: ptr.To[int32](DefaultRequeuingBackoffBaseSeconds),
-						BackoffMaxSeconds:  ptr.To[int32](DefaultRequeuingBackoffMaxSeconds),
+						BackoffBaseSeconds: new(int32(DefaultRequeuingBackoffBaseSeconds)),
+						BackoffMaxSeconds:  new(int32(DefaultRequeuingBackoffMaxSeconds)),
 					},
 				},
 				Namespace:         new(DefaultNamespace),
@@ -433,8 +420,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Timeout: &podsReadyTimeoutOverwrite,
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          new(CreationTimestamp),
-						BackoffBaseSeconds: ptr.To[int32](63),
-						BackoffMaxSeconds:  ptr.To[int32](1800),
+						BackoffBaseSeconds: new(int32(63)),
+						BackoffMaxSeconds:  new(int32(1800)),
 					},
 					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
 				},
@@ -450,8 +437,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					RecoveryTimeout: &metav1.Duration{Duration: time.Minute},
 					RequeuingStrategy: &RequeuingStrategy{
 						Timestamp:          new(CreationTimestamp),
-						BackoffBaseSeconds: ptr.To[int32](63),
-						BackoffMaxSeconds:  ptr.To[int32](1800),
+						BackoffBaseSeconds: new(int32(63)),
+						BackoffMaxSeconds:  new(int32(1800)),
 					},
 				},
 				Namespace:         new(DefaultNamespace),
@@ -643,7 +630,7 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					Transformations: []ResourceTransformation{
 						{Input: corev1.ResourceCPU},
 						{Input: corev1.ResourceMemory, Strategy: new(Replace)},
-						{Input: corev1.ResourceEphemeralStorage, Strategy: ptr.To[ResourceTransformationStrategy]("")},
+						{Input: corev1.ResourceEphemeralStorage, Strategy: new(ResourceTransformationStrategy(""))},
 					},
 				},
 			},

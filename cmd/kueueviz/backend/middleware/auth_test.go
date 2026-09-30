@@ -18,15 +18,18 @@ package middleware
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/time/rate"
 	authenticationv1 "k8s.io/api/authentication/v1"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilcache "k8s.io/apimachinery/pkg/util/cache"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
@@ -60,7 +63,10 @@ func newRouterWithReactor(t *testing.T, reactor k8stesting.ReactionFunc) (*gin.E
 
 	r := gin.New()
 	r.Use(auth.Middleware())
-	r.GET("/test", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"user": c.GetString("username")}) })
+	r.GET("/test", func(c *gin.Context) {
+		identity, _ := IdentityFromContext(c)
+		c.JSON(http.StatusOK, gin.H{"user": identity.Username})
+	})
 	return r, clock, &callCount
 }
 
@@ -184,6 +190,39 @@ func TestAuthMiddlewareFlow(t *testing.T) {
 	}
 }
 
+func TestAuthMiddlewarePropagatesGroups(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	cs := k8sfake.NewSimpleClientset()
+	cs.PrependReactor("create", "tokenreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, &authenticationv1.TokenReview{Status: authenticationv1.TokenReviewStatus{
+			Authenticated: true,
+			User:          authenticationv1.UserInfo{Username: "alice", Groups: []string{"dev", "team-a"}},
+		}}, nil
+	})
+
+	auth := NewAuthenticator(cs, AuthConfig{CacheTTL: time.Minute, NegativeCacheTTL: 5 * time.Second})
+	defer auth.Stop()
+
+	r := gin.New()
+	r.Use(auth.Middleware())
+	r.GET("/test", func(c *gin.Context) {
+		identity, _ := IdentityFromContext(c)
+		c.JSON(http.StatusOK, gin.H{"user": identity.Username, "groups": identity.Groups, "uid": identity.UID, "extra": identity.Extra})
+	})
+
+	w := makeRequest(r, "/test", map[string]string{"Authorization": "Bearer good-token"})
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, `"user":"alice"`) {
+		t.Errorf("expected username alice in identity, body=%s", body)
+	}
+	if !strings.Contains(body, "dev") || !strings.Contains(body, "team-a") {
+		t.Errorf("expected groups [dev team-a] to propagate to the context, body=%s", body)
+	}
+}
+
 func TestAuthMiddlewareCacheExpiry(t *testing.T) {
 	tests := map[string]struct {
 		authed     bool
@@ -302,5 +341,66 @@ func TestRateLimiterMiddleware_GlobalLimit(t *testing.T) {
 	}
 	if statuses[2] != http.StatusTooManyRequests {
 		t.Fatalf("req 3 (IP 10.0.0.2): status = %d, want 429 (global limit not enforced)", statuses[2])
+	}
+}
+
+func TestSARAuthorizer(t *testing.T) {
+	tests := map[string]struct {
+		allowed     bool
+		reactErr    error
+		wantAllowed bool
+		wantErr     bool
+	}{
+		"allowed":       {allowed: true, wantAllowed: true},
+		"denied":        {allowed: false, wantAllowed: false},
+		"backend error": {reactErr: errors.New("apiserver unavailable"), wantErr: true},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			var captured *authorizationv1.SubjectAccessReview
+			cs := k8sfake.NewSimpleClientset()
+			cs.PrependReactor("create", "subjectaccessreviews", func(action k8stesting.Action) (bool, runtime.Object, error) {
+				if tc.reactErr != nil {
+					return true, nil, tc.reactErr
+				}
+				sar := action.(k8stesting.CreateAction).GetObject().(*authorizationv1.SubjectAccessReview)
+				captured = sar
+				sar.Status.Allowed = tc.allowed
+				return true, sar, nil
+			})
+
+			authorizer := NewSARAuthorizer(cs, AuthConfig{})
+			attrs := authorizationv1.ResourceAttributes{
+				Verb: "get", Group: "kueue.x-k8s.io", Resource: "workloads", Namespace: "tenant-b", Name: "wl",
+			}
+			allowed, err := authorizer.Authorize(t.Context(), Identity{Username: "alice", Groups: []string{"dev", "team-a"}, UID: "alice-uid", Extra: map[string][]string{"foo": {"bar"}}}, attrs)
+
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("expected error, got nil")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if allowed != tc.wantAllowed {
+				t.Fatalf("allowed = %v, want %v", allowed, tc.wantAllowed)
+			}
+
+			if captured.Spec.User != "alice" {
+				t.Errorf("SAR user = %q, want %q", captured.Spec.User, "alice")
+			}
+			if len(captured.Spec.Groups) != 2 || captured.Spec.Groups[0] != "dev" || captured.Spec.Groups[1] != "team-a" {
+				t.Errorf("SAR groups = %v, want [dev team-a]", captured.Spec.Groups)
+			}
+			if captured.Spec.ResourceAttributes == nil ||
+				captured.Spec.ResourceAttributes.Verb != "get" ||
+				captured.Spec.ResourceAttributes.Resource != "workloads" ||
+				captured.Spec.ResourceAttributes.Namespace != "tenant-b" {
+				t.Errorf("SAR resourceAttributes = %+v, want get workloads in tenant-b", captured.Spec.ResourceAttributes)
+			}
+		})
 	}
 }

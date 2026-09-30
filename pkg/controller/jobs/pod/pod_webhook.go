@@ -53,22 +53,26 @@ var (
 )
 
 type PodWebhook struct {
+	integrationManager           *jobframework.IntegrationManager
 	client                       client.Client
 	queues                       *qcache.Manager
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	namespaceSelector            *metav1.LabelSelector
 	podSelector                  *metav1.LabelSelector
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 // SetupWebhook configures the webhook for pods.
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &PodWebhook{
+		integrationManager:           options.IntegrationManager,
 		client:                       mgr.GetClient(),
 		queues:                       options.Queues,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &corev1.Pod{}
 	if options.NoopWebhook {
@@ -143,7 +147,7 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 		}
 
 		// Do not suspend a Pod whose owner is already managed by Kueue
-		ancestorJob, err := jobframework.FindAncestorJobManagedByKueue(ctx, w.client, pod.Object(), w.manageJobsWithoutQueueName)
+		ancestorJob, err := w.integrationManager.FindAncestorJobManagedByKueue(ctx, w.client, pod.Object(), w.manageJobsWithoutQueueName)
 		if err != nil || ancestorJob != nil {
 			return err
 		}
@@ -157,7 +161,10 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 			pod.pod.Labels[ctrlconstants.QueueLabel] = string(ctrlconstants.DefaultLocalQueueName)
 		}
 
-		jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, pod.Object())
+		// The namespace selector was already enforced above, so it is not re-checked here.
+		if err := w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, pod.Object(), nil); err != nil {
+			return err
+		}
 
 		suspend = jobframework.QueueNameForObject(pod.Object()) != "" || w.manageJobsWithoutQueueName
 		if suspend {
@@ -205,10 +212,10 @@ func (w *PodWebhook) ValidateCreate(ctx context.Context, obj *corev1.Pod) (admis
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Validating create")
 
-	allErrs := jobframework.ValidateJobOnCreate(pod)
+	allErrs := jobframework.ValidateJobOnCreate(pod, w.maxTimeoutOnWorkload)
 	allErrs = append(allErrs, validateCommon(pod)...)
 
-	if warn := warningForPodManagedLabel(pod); warn != "" {
+	if warn := warningForPodManagedLabel(w.integrationManager, pod); warn != "" {
 		warnings = append(warnings, warn)
 	}
 
@@ -223,7 +230,7 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *corev1.
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Validating update")
 
-	allErrs := jobframework.ValidateJobOnUpdate(oldPod, newPod, w.queues.DefaultLocalQueueExist)
+	allErrs := jobframework.ValidateJobOnUpdate(oldPod, newPod, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
 	allErrs = append(allErrs, validateCommon(newPod)...)
 	allErrs = append(allErrs, validateUpdateForRetriableInGroupAnnotation(oldPod, newPod)...)
 
@@ -233,7 +240,7 @@ func (w *PodWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *corev1.
 	}
 
 	if _, suspendByParent := newPod.pod.Annotations[podconstants.SuspendedByParentAnnotation]; !suspendByParent {
-		if warn := warningForPodManagedLabel(newPod); warn != "" {
+		if warn := warningForPodManagedLabel(w.integrationManager, newPod); warn != "" {
 			warnings = append(warnings, warn)
 		}
 	}
@@ -264,9 +271,9 @@ func validateManagedLabel(pod *Pod) field.ErrorList {
 }
 
 // warningForPodManagedLabel returns a warning message if the pod has a managed label, and it's parent is managed by kueue
-func warningForPodManagedLabel(p *Pod) string {
+func warningForPodManagedLabel(integrationManager *jobframework.IntegrationManager, p *Pod) string {
 	managedLabel := p.pod.GetLabels()[constants.ManagedByKueueLabelKey]
-	if managedLabel == constants.ManagedByKueueLabelValue && jobframework.IsOwnerManagedByKueueForObject(p.Object()) {
+	if managedLabel == constants.ManagedByKueueLabelValue && integrationManager.IsOwnerManagedByKueueForObject(p.Object()) {
 		return fmt.Sprintf("pod owner is managed by kueue, label '%s=%s' might lead to unexpected behaviour",
 			constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue)
 	}

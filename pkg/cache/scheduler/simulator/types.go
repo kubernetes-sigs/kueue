@@ -47,6 +47,11 @@ type NodeExclusionStats struct {
 	// Temporary non-granular reason for SchedulerLibraryIntegration, equivalent to the total number of not matching nodes.
 	// TODO(#13283): Long term the granular information should be taken in a structured form from the `scheduler-library`.
 	SchedulerLibraryNoFit int
+
+	// DRANoFit counts nodes that cannot satisfy the Pod's ResourceClaims. The device
+	// check is layered on top of the simulator rather than being one of its filters,
+	// so folding it into SchedulerLibraryNoFit would misreport it.
+	DRANoFit int
 }
 
 // PodRequirements stores pod-driven scheduling filters and
@@ -60,6 +65,11 @@ type PodRequirements struct {
 	// Used for SchedulerLibraryIntegration to compose the requirements in
 	// the form of `corev1.Pod`, which is accepted by the `scheduler-library`.
 	PodTemplate *corev1.PodTemplateSpec
+
+	// SimulateEmpty asks what would fit if no Workload were running. TAS uses it
+	// to check whether preemption could help, and to reserve capacity for a
+	// Workload that is waiting for preemption candidates.
+	SimulateEmpty bool
 }
 
 type NodeExclusionType int

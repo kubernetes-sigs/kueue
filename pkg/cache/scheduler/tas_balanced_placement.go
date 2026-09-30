@@ -33,26 +33,26 @@ func evaluateGreedyAssignment(s *TASFlavorSnapshot, domains []*domain, sliceCoun
 	remainingLeaderCount := leaderCount
 	idx := 0
 	if leaderCount > 0 {
-		sortedWithLeader = s.sortedDomainsWithLeader(domains, false)
-		for ; remainingLeaderCount > 0 && idx < len(sortedWithLeader) && sortedWithLeader[idx].leaderState > 0; idx++ {
+		sortedWithLeader = s.sortedDomainsWithLeader(domains, false, nil)
+		for ; remainingLeaderCount > 0 && idx < len(sortedWithLeader) && s.domainStateOf(sortedWithLeader[idx]).leaderCount > 0; idx++ {
 			selectedDomainsCount++
 			lastDomainWithLeader = sortedWithLeader[idx]
-			remainingLeaderCount -= sortedWithLeader[idx].leaderState
-			remainingSliceCount -= sortedWithLeader[idx].sliceStateWithLeader
+			remainingLeaderCount -= s.domainStateOf(sortedWithLeader[idx]).leaderCount
+			remainingSliceCount -= s.domainStateOf(sortedWithLeader[idx]).sliceCount[obligationLeader]
 		}
-		sortedWithoutLeader = s.sortedDomains(sortedWithLeader[idx:], false)
+		sortedWithoutLeader = s.sortedDomains(sortedWithLeader[idx:], false, nil)
 	} else {
-		sortedWithoutLeader = s.sortedDomains(domains, false)
+		sortedWithoutLeader = s.sortedDomains(domains, false, nil)
 	}
 
 	if remainingLeaderCount > 0 {
 		return false, 0, nil, nil
 	}
 
-	for idx = 0; remainingSliceCount > 0 && idx < len(sortedWithoutLeader) && sortedWithoutLeader[idx].sliceState > 0; idx++ {
+	for idx = 0; remainingSliceCount > 0 && idx < len(sortedWithoutLeader) && s.domainStateOf(sortedWithoutLeader[idx]).sliceCount[obligationNone] > 0; idx++ {
 		selectedDomainsCount++
 		lastDomain = sortedWithoutLeader[idx]
-		remainingSliceCount -= sortedWithoutLeader[idx].sliceState
+		remainingSliceCount -= s.domainStateOf(sortedWithoutLeader[idx]).sliceCount[obligationNone]
 	}
 	if remainingSliceCount > 0 {
 		return false, 0, nil, nil
@@ -61,13 +61,13 @@ func evaluateGreedyAssignment(s *TASFlavorSnapshot, domains []*domain, sliceCoun
 }
 
 // The balance threshold value is maximum possible minimum number of slices placed on a domain in a balanced placement solution.
-func balanceThresholdValue(sliceCount int32, selectedDomainsCount int32, lastDomainWithLeader *domain, lastDomain *domain) int32 {
+func balanceThresholdValue(s *TASFlavorSnapshot, sliceCount int32, selectedDomainsCount int32, lastDomainWithLeader *domain, lastDomain *domain) int32 {
 	threshold := sliceCount / selectedDomainsCount
 	if lastDomainWithLeader != nil {
-		threshold = min(threshold, lastDomainWithLeader.sliceStateWithLeader)
+		threshold = min(threshold, s.domainStateOf(lastDomainWithLeader).sliceCount[obligationLeader])
 	}
 	if lastDomain != nil {
-		threshold = min(threshold, lastDomain.sliceState)
+		threshold = min(threshold, s.domainStateOf(lastDomain).sliceCount[obligationNone])
 	}
 	return threshold
 }
@@ -84,7 +84,9 @@ func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceC
 
 	orderedDomains := slices.Clone(domains)
 	if prioritizeByEntropy {
-		slices.SortFunc(orderedDomains, compareDomainCapacityAndEntropy)
+		slices.SortFunc(orderedDomains, func(a, b *domain) int {
+			return s.compareDomainCapacityAndEntropy(a, b, leaderCount > 0)
+		})
 	} else {
 		slices.SortFunc(orderedDomains, compareDomainLevelValues)
 	}
@@ -98,35 +100,36 @@ func selectOptimalDomainSetToFit(s *TASFlavorSnapshot, domains []*domain, sliceC
 	domainPlacements[0][leaderCount] = map[int32][]*domain{sliceCount * sliceSize: {}}
 
 	for _, d := range orderedDomains {
+		domainState := s.domainStateOf(d)
 		for i := optimalNumberOfDomains; i > 0; i-- {
 			for _, beforeLeader := range slices.Sorted(maps.Keys(domainPlacements[i-1])) {
-				for _, beforeState := range slices.Sorted(maps.Keys(domainPlacements[i-1][beforeLeader])) {
-					beforePlacement := domainPlacements[i-1][beforeLeader][beforeState]
-					if beforeLeader <= 0 && beforeState <= 0 {
+				for _, beforePods := range slices.Sorted(maps.Keys(domainPlacements[i-1][beforeLeader])) {
+					beforePlacement := domainPlacements[i-1][beforeLeader][beforePods]
+					if beforeLeader <= 0 && beforePods <= 0 {
 						continue
 					}
 					newPlacement := make([]*domain, len(beforePlacement), len(beforePlacement)+1)
 					copy(newPlacement, beforePlacement)
 					newPlacement = append(newPlacement, d)
 					// Case 1: Pick this domain with leader
-					if beforeLeader > 0 && d.leaderState > 0 {
-						afterLeader := beforeLeader - d.leaderState
-						afterState := beforeState - d.stateWithLeader
+					if beforeLeader > 0 && domainState.leaderCount > 0 {
+						afterLeader := beforeLeader - domainState.leaderCount
+						afterPods := beforePods - domainState.podCountWithLeader
 						if domainPlacements[i][afterLeader] == nil {
 							domainPlacements[i][afterLeader] = make(map[int32][]*domain)
 						}
-						if _, alreadyThere := domainPlacements[i][afterLeader][afterState]; !alreadyThere {
-							domainPlacements[i][afterLeader][afterState] = newPlacement
+						if _, alreadyThere := domainPlacements[i][afterLeader][afterPods]; !alreadyThere {
+							domainPlacements[i][afterLeader][afterPods] = newPlacement
 						}
 					}
 					// Case 2: Pick this domain without leader
-					if d.sliceState > 0 {
-						afterState := beforeState - d.state
+					if domainState.sliceCount[obligationNone] > 0 {
+						afterPods := beforePods - domainState.podCount
 						if domainPlacements[i][beforeLeader] == nil {
 							domainPlacements[i][beforeLeader] = make(map[int32][]*domain)
 						}
-						if _, alreadyThere := domainPlacements[i][beforeLeader][afterState]; !alreadyThere {
-							domainPlacements[i][beforeLeader][afterState] = newPlacement
+						if _, alreadyThere := domainPlacements[i][beforeLeader][afterPods]; !alreadyThere {
+							domainPlacements[i][beforeLeader][afterPods] = newPlacement
 						}
 					}
 				}
@@ -155,27 +158,34 @@ func placeSlicesOnDomainsBalanced(s *TASFlavorSnapshot, domains []*domain, slice
 	if sliceCount < int32(len(resultDomains))*threshold {
 		return nil, "TAS Balanced Placement: Not enough slices to meet the threshold"
 	}
-	resultDomains = s.sortedDomainsWithLeader(resultDomains, false)
+	if leaderCount > 0 {
+		resultDomains = s.sortedDomainsWithLeader(resultDomains, false, nil)
+	} else {
+		resultDomains = s.sortedDomains(resultDomains, false, nil)
+	}
 	extraSlicesLeft := sliceCount - int32(len(resultDomains))*threshold
 	leadersLeft := leaderCount
 	var extraSlicesToTake int32
 	for _, domain := range resultDomains {
+		domainState := s.domainStateOf(domain)
 		switch {
 		case leadersLeft > 0:
-			extraSlicesToTake = min(domain.sliceStateWithLeader-threshold, extraSlicesLeft)
-			domain.leaderState = 1
+			extraSlicesToTake = min(domainState.sliceCount[obligationLeader]-threshold, extraSlicesLeft)
+			domainState.leaderCount = 1
 			leadersLeft--
 		case extraSlicesLeft > 0:
-			extraSlicesToTake = min(domain.sliceState-threshold, extraSlicesLeft)
-			domain.leaderState = 0
+			extraSlicesToTake = min(domainState.sliceCount[obligationNone]-threshold, extraSlicesLeft)
+			domainState.leaderCount = 0
 		default:
-			domain.leaderState = 0
+			domainState.leaderCount = 0
 			extraSlicesToTake = 0
 		}
-		domain.state = (threshold + extraSlicesToTake) * sliceSize
-		domain.sliceState = (threshold + extraSlicesToTake)
-		domain.sliceStateWithLeader = domain.sliceState
-		domain.stateWithLeader = domain.state - domain.leaderState
+		domainState.podCount = (threshold + extraSlicesToTake) * sliceSize
+		domainState.sliceCount[obligationNone] = (threshold + extraSlicesToTake)
+		if leaderCount > 0 {
+			domainState.sliceCount[obligationLeader] = domainState.sliceCount[obligationNone]
+			domainState.podCountWithLeader = domainState.podCount - domainState.leaderCount
+		}
 		extraSlicesLeft -= extraSlicesToTake
 	}
 	if extraSlicesLeft > 0 || leadersLeft > 0 {
@@ -184,14 +194,14 @@ func placeSlicesOnDomainsBalanced(s *TASFlavorSnapshot, domains []*domain, slice
 	return resultDomains, ""
 }
 
-func calculateDomainsEntropy(domains []*domain) float64 {
+func (s *TASFlavorSnapshot) calculateDomainsEntropy(domains []*domain) float64 {
 	if len(domains) == 0 {
 		return 0.0
 	}
 
 	var total int32
 	for _, d := range domains {
-		total += d.state
+		total += s.domainStateOf(d).podCount
 	}
 
 	if total == 0 {
@@ -201,23 +211,28 @@ func calculateDomainsEntropy(domains []*domain) float64 {
 	var entropy float64
 	totalF := float64(total)
 	for _, d := range domains {
-		if d.state > 0 {
-			pI := float64(d.state) / totalF
+		if podCount := s.domainStateOf(d).podCount; podCount > 0 {
+			pI := float64(podCount) / totalF
 			entropy += -pI * math.Log2(pI)
 		}
 	}
 	return entropy
 }
 
-func compareDomainCapacityAndEntropy(a, b *domain) int {
-	if r := b.leaderState - a.leaderState; r != 0 {
+func (s *TASFlavorSnapshot) compareDomainCapacityAndEntropy(a, b *domain, leaderRequired bool) int {
+	aState, bState := s.domainStateOf(a), s.domainStateOf(b)
+	aCapacity, bCapacity := aState.sliceCount[obligationNone], bState.sliceCount[obligationNone]
+	if leaderRequired {
+		if r := bState.leaderCount - aState.leaderCount; r != 0 {
+			return int(r)
+		}
+		aCapacity, bCapacity = aState.sliceCount[obligationLeader], bState.sliceCount[obligationLeader]
+	}
+	if r := bCapacity - aCapacity; r != 0 {
 		return int(r)
 	}
-	if r := b.sliceStateWithLeader - a.sliceStateWithLeader; r != 0 {
-		return int(r)
-	}
-	aEntropy := calculateDomainsEntropy(a.children)
-	bEntropy := calculateDomainsEntropy(b.children)
+	aEntropy := s.calculateDomainsEntropy(a.children)
+	bEntropy := s.calculateDomainsEntropy(b.children)
 	if bEntropy > aEntropy {
 		return 1
 	}
@@ -251,27 +266,27 @@ func findBestDomainsForBalancedPlacement(s *TASFlavorSnapshot, params *topologyA
 	var currFitDomain []*domain
 
 	for _, requestedLevelSiblingDomains := range requestedLevelDomainsToConsider {
-		candidateDomains := cloneDomains(requestedLevelSiblingDomains)
+		candidateDomains := s.cloneDomains(requestedLevelSiblingDomains)
 		lowerLevelDomains := getLowerLevelDomains(s, candidateDomains, params.requestedLevelIdx, params.sliceLevelIdx)
 		fits, selectedDomainsCount, lastDomainWithLeader, lastDomain := evaluateGreedyAssignment(s, lowerLevelDomains, sliceCount, params.leaderCount)
 		if !fits {
 			continue
 		}
-		threshold := balanceThresholdValue(sliceCount, selectedDomainsCount, lastDomainWithLeader, lastDomain)
+		threshold := balanceThresholdValue(s, sliceCount, selectedDomainsCount, lastDomainWithLeader, lastDomain)
 		thresholdWithLeaderReservation := threshold
 		if params.leaderCount > 0 && lastDomain != nil {
-			thresholdWithLeaderReservation = min(threshold, lastDomain.sliceStateWithLeader)
+			thresholdWithLeaderReservation = min(threshold, s.domainStateOf(lastDomain).sliceCount[obligationLeader])
 		}
 		if threshold >= bestThreshold {
 			s.pruneDomainsBelowThreshold(candidateDomains, threshold, params.sliceSize, params.sliceLevelIdx, params.requestedLevelIdx, params.leaderCount > 0)
 			fitsAfterPruning, requestedLevelDomainCount, _, _ := evaluateGreedyAssignment(s, candidateDomains, sliceCount, params.leaderCount)
-			if !fitsAfterPruning && thresholdWithLeaderReservation < threshold {
+			if !fitsAfterPruning && params.leaderCount > 0 && thresholdWithLeaderReservation < threshold {
 				// Retry with a lower threshold that reserves leader capacity.
 				if thresholdWithLeaderReservation <= 0 || thresholdWithLeaderReservation < bestThreshold {
 					continue
 				}
 				threshold = thresholdWithLeaderReservation
-				candidateDomains = cloneDomains(requestedLevelSiblingDomains)
+				candidateDomains = s.cloneDomains(requestedLevelSiblingDomains)
 				s.pruneDomainsBelowThreshold(candidateDomains, threshold, params.sliceSize, params.sliceLevelIdx, params.requestedLevelIdx, params.leaderCount > 0)
 				fitsAfterPruning, requestedLevelDomainCount, _, _ = evaluateGreedyAssignment(s, candidateDomains, sliceCount, params.leaderCount)
 			}
@@ -319,63 +334,75 @@ func getLowerLevelDomains(s *TASFlavorSnapshot, domains []*domain, levelIdx, sli
 	return domains
 }
 
-func clearState(d *domain) {
-	d.state = int32(0)
-	d.sliceState = int32(0)
-	d.stateWithLeader = int32(0)
-	d.sliceStateWithLeader = int32(0)
-	d.leaderState = int32(0)
+func (s *TASFlavorSnapshot) clearState(d *domain) {
+	st := s.domainStateOf(d)
+	*st = domainState{affinityScore: st.affinityScore}
 	for _, child := range d.children {
-		clearState(child)
+		s.clearState(child)
 	}
 }
 
-func clearLeaderCapacity(d *domain) {
-	d.stateWithLeader = int32(0)
-	d.sliceStateWithLeader = int32(0)
-	d.leaderState = int32(0)
+func (s *TASFlavorSnapshot) clearLeaderCapacity(d *domain) {
+	domainState := s.domainStateOf(d)
+	domainState.podCountWithLeader = 0
+	domainState.sliceCount[obligationLeader] = 0
+	domainState.leaderCount = 0
 	for _, child := range d.children {
-		clearLeaderCapacity(child)
+		s.clearLeaderCapacity(child)
 	}
 }
 
-func cloneDomains(domains []*domain) []*domain {
+// cloneDomains deep-copies the given domain subtrees, giving every copied
+// domain its own per-snapshot state slot initialized from the original's
+// current state. This lets the balanced-placement algorithm speculatively
+// mutate (e.g. prune) the copies without corrupting the state of the shared
+// domains, which other candidate sets and the fallback path still need.
+func (s *TASFlavorSnapshot) cloneDomains(domains []*domain) []*domain {
 	result := make([]*domain, len(domains))
 	for i, d := range domains {
-		result[i] = cloneDomain(d, nil)
+		result[i] = s.cloneDomain(d, nil)
 	}
 	return result
 }
 
-func cloneDomain(d *domain, parent *domain) *domain {
-	clone := *d
+func (s *TASFlavorSnapshot) cloneDomain(d *domain, parent *domain) *domain {
+	clone := s.shallowCloneWithState(d)
 	clone.parent = parent
 	clone.children = make([]*domain, len(d.children))
 	for i, child := range d.children {
-		clone.children[i] = cloneDomain(child, &clone)
+		clone.children[i] = s.cloneDomain(child, clone)
 	}
-	return &clone
+	return clone
 }
 
-func pruneDomainNodeBelowThreshold(d *domain, threshold int32, leaderRequired bool) {
-	if d.sliceState < threshold {
-		clearState(d)
+func (s *TASFlavorSnapshot) pruneDomainNodeBelowThreshold(d *domain, threshold int32, leaderRequired bool) {
+	domainState := s.domainStateOf(d)
+	if domainState.sliceCount[obligationNone] < threshold {
+		s.clearState(d)
 		return
 	}
 	// The domain can still be used for workers, but not as the leader host at this threshold.
-	if leaderRequired && d.leaderState > 0 && d.sliceStateWithLeader < threshold {
-		clearLeaderCapacity(d)
+	if leaderRequired && domainState.leaderCount > 0 && domainState.sliceCount[obligationLeader] < threshold {
+		s.clearLeaderCapacity(d)
 	}
 }
 
 func (s *TASFlavorSnapshot) pruneDomainsBelowThreshold(domains []*domain, threshold int32, sliceSize int32, sliceLevelIdx int, level int, leaderRequired bool) {
-	for _, d := range domains {
-		for _, c := range d.children {
-			pruneDomainNodeBelowThreshold(c, threshold, leaderRequired)
+	// An injected hostname level sits below the level slices are counted at, so
+	// its leaves carry no sliceCount and pruning would clear every one of them.
+	// The check is scoped to that case so topologies declaring hostname keep
+	// pruning exactly as before.
+	if !s.virtualHostname || level != s.usageLevelIdx() {
+		for _, d := range domains {
+			for _, c := range d.children {
+				s.pruneDomainNodeBelowThreshold(c, threshold, leaderRequired)
+			}
 		}
 	}
 	for _, d := range domains {
-		s.fillInCountsHelper(d, sliceSize, sliceLevelIdx, level, nil, leaderRequired)
-		pruneDomainNodeBelowThreshold(d, threshold, leaderRequired)
+		// Balanced placement runs on a count padded to whole slices, so there
+		// is no partial slice to reserve room for here.
+		s.fillInCountsHelper(d, sliceShape{size: sliceSize}, sliceLevelIdx, level, nil, leaderRequired)
+		s.pruneDomainNodeBelowThreshold(d, threshold, leaderRequired)
 	}
 }

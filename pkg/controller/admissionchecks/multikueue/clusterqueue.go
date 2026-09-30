@@ -43,7 +43,9 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/util/api"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -73,6 +75,10 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 	cq := &kueue.ClusterQueue{}
 	if err := r.client.Get(ctx, req.NamespacedName, cq); err != nil {
+		if apierrors.IsNotFound(err) {
+			// The ClusterQueue is gone, so its worker status series must go too.
+			metrics.ClearMultiKueueClusterQueueMetrics(kueue.ClusterQueueReference(req.Name))
+		}
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
@@ -82,11 +88,18 @@ func (r *cqReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 	}
 	if !hasAC {
 		log.V(3).Info("Not a MultiKueue manager ClusterQueue, skipping reconcile.")
+		metrics.ClearMultiKueueClusterQueueMetrics(kueue.ClusterQueueReference(cq.Name))
 		err := r.removeQuotaAutomationCondition(ctx, cq)
 		return reconcile.Result{}, err
 	}
 
 	log.V(2).Info("Reconciling MultiKueue manager ClusterQueue")
+
+	// Report the worker cluster statuses before the quota-automation handling below,
+	// which returns early for ClusterQueues that do not opt into it.
+	if err := r.reportWorkerClusterStatuses(ctx, cq, kueue.AdmissionCheckReference(ac.Name)); err != nil {
+		return reconcile.Result{}, err
+	}
 
 	cfg, err := r.helper.ConfigFromRef(ctx, ac.Spec.Parameters)
 	if err != nil {
@@ -246,12 +259,12 @@ func (r *cqReconciler) updateQuotaAutomationCondition(ctx context.Context, cq *k
 		Type:               kueue.MultiKueueManagerQuotaAutomation,
 		Status:             status,
 		Reason:             reason,
-		Message:            message,
+		Message:            api.TruncateConditionMessage(message),
 		ObservedGeneration: cq.Generation,
 	}
 
 	oldCondition := apimeta.FindStatusCondition(cq.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
-	if cmpConditionState(oldCondition, &newCondition) {
+	if isConditionEqual(oldCondition, &newCondition) && oldCondition.ObservedGeneration == newCondition.ObservedGeneration {
 		return nil
 	}
 
@@ -270,7 +283,7 @@ func (r *cqReconciler) queueEventsForAC(ctx context.Context, acName string, q wo
 	}
 
 	for _, cq := range cqList.Items {
-		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: cq.Name}}, r.eventsBatchPeriod)
+		q.AddAfter(reconcile.Request{Name: cq.Name}, r.eventsBatchPeriod)
 	}
 }
 
@@ -313,7 +326,7 @@ func (r *cqReconciler) setupWithManager(mgr ctrl.Manager) error {
 
 	remoteHandler := handler.TypedFuncs[kueue.ClusterQueueReference, reconcile.Request]{
 		GenericFunc: func(_ context.Context, e event.TypedGenericEvent[kueue.ClusterQueueReference], q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(e.Object)}}, r.eventsBatchPeriod)
+			q.AddAfter(reconcile.Request{Name: string(e.Object)}, r.eventsBatchPeriod)
 		},
 	}
 
@@ -326,7 +339,7 @@ func (r *cqReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Watches(&kueue.MultiKueueCluster{}, &cqClusterHandler{reconciler: r}).
 		WatchesRawSource(source.Channel(r.clusters.cqUpdateCh, remoteHandler)).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "multikueue-clusterqueue"),
+			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "multikueue-clusterqueue-reconciler"),
 		}).
 		Complete(r)
 }
@@ -339,7 +352,7 @@ var _ handler.EventHandler = (*lqHandler)(nil)
 
 func (l *lqHandler) Create(ctx context.Context, event event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	if lq, ok := event.Object.(*kueue.LocalQueue); ok {
-		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(lq.Spec.ClusterQueue)}}, l.reconciler.eventsBatchPeriod)
+		q.AddAfter(reconcile.Request{Name: string(lq.Spec.ClusterQueue)}, l.reconciler.eventsBatchPeriod)
 	}
 }
 
@@ -349,7 +362,7 @@ func (l *lqHandler) Update(ctx context.Context, event event.UpdateEvent, q workq
 
 func (l *lqHandler) Delete(ctx context.Context, event event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	if lq, ok := event.Object.(*kueue.LocalQueue); ok {
-		q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(lq.Spec.ClusterQueue)}}, l.reconciler.eventsBatchPeriod)
+		q.AddAfter(reconcile.Request{Name: string(lq.Spec.ClusterQueue)}, l.reconciler.eventsBatchPeriod)
 	}
 }
 
@@ -421,7 +434,7 @@ func (c *cqClusterHandler) Update(ctx context.Context, event event.UpdateEvent, 
 
 	oldActive := apimeta.FindStatusCondition(oldMKC.Status.Conditions, kueue.MultiKueueClusterActive)
 	newActive := apimeta.FindStatusCondition(newMKC.Status.Conditions, kueue.MultiKueueClusterActive)
-	if !cmpConditionState(oldActive, newActive) {
+	if !isConditionEqual(oldActive, newActive) {
 		c.reconciler.queueEventsForMKCluster(ctx, newMKC.Name, q)
 	}
 }

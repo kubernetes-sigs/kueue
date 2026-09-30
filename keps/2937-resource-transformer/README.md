@@ -391,11 +391,15 @@ Based on the example in Story 3, the following content can be defined in the Kue
 resources:
   transformations:
   - input: nvidia.com/gpumem
-    strategy: Retain
+    strategy: Replace
     multiplyBy: nvidia.com/gpu
     outputs:
       nvidia.com/total-gpumem: 1
 ```
+
+`multiplyBy` scales the outputs. It does not change what `Retain` keeps under the
+input's own name, so with `Retain` here the effective request above would also
+carry `nvidia.com/gpumem: 1024` and the ClusterQueue would have to cover it.
 
 ### Observability
 

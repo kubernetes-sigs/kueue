@@ -31,6 +31,7 @@ type KubeConfigApplyConfiguration struct {
 	// which the kueue controller manager is running. The config should be stored in the "kubeconfig" key.
 	Location *string `json:"location,omitempty"`
 	// locationType of the KubeConfig.
+	//
 	LocationType *kueuev1beta1.LocationType `json:"locationType,omitempty"`
 }
 

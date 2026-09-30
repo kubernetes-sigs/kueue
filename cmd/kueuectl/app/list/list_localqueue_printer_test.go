@@ -21,55 +21,90 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	testingclock "k8s.io/utils/clock/testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestLocalQueuePrint(t *testing.T) {
 	testStartTime := time.Now()
+	creationTime := testStartTime.Add(-time.Hour).Truncate(time.Second)
 
 	testCases := map[string]struct {
-		options *LocalQueueOptions
-		in      *kueue.LocalQueueList
-		out     []metav1.TableRow
+		in  *kueue.LocalQueueList
+		out []metav1.TableRow
 	}{
-		"should print local queue list": {
-			options: &LocalQueueOptions{},
+		"should print active local queue": {
 			in: &kueue.LocalQueueList{
 				Items: []kueue.LocalQueue{
-					{
-						TypeMeta: metav1.TypeMeta{},
-						ObjectMeta: metav1.ObjectMeta{
-							Name:              "lq",
-							CreationTimestamp: metav1.NewTime(testStartTime.Add(-time.Hour).Truncate(time.Second)),
-						},
-						Spec: kueue.LocalQueueSpec{ClusterQueue: "cq1"},
-						Status: kueue.LocalQueueStatus{
-							PendingWorkloads:  1,
-							AdmittedWorkloads: 2,
-						},
-					},
+					*utiltestingapi.MakeLocalQueue("lq", "").
+						ClusterQueue("cq1").
+						Creation(creationTime).
+						PendingWorkloads(1).
+						AdmittedWorkloads(2).
+						Active(metav1.ConditionTrue).
+						Obj(),
 				},
 			},
 			out: []metav1.TableRow{
 				{
-					Cells: []any{"lq", kueue.ClusterQueueReference("cq1"), int32(1), int32(2), "60m"},
+					Cells: []any{"lq", kueue.ClusterQueueReference("cq1"), int32(1), int32(2), true, "60m"},
 					Object: runtime.RawExtension{
-						Object: &kueue.LocalQueue{
-							TypeMeta: metav1.TypeMeta{},
-							ObjectMeta: metav1.ObjectMeta{
-								Name:              "lq",
-								CreationTimestamp: metav1.NewTime(testStartTime.Add(-time.Hour).Truncate(time.Second)),
-							},
-							Spec: kueue.LocalQueueSpec{ClusterQueue: "cq1"},
-							Status: kueue.LocalQueueStatus{
-								PendingWorkloads:  1,
-								AdmittedWorkloads: 2,
-							},
-						},
+						Object: utiltestingapi.MakeLocalQueue("lq", "").
+							ClusterQueue("cq1").
+							Creation(creationTime).
+							PendingWorkloads(1).
+							AdmittedWorkloads(2).
+							Active(metav1.ConditionTrue).
+							Obj(),
+					},
+				},
+			},
+		},
+		"should print inactive local queue": {
+			in: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
+					*utiltestingapi.MakeLocalQueue("lq", "").
+						ClusterQueue("cq1").
+						Creation(creationTime).
+						Active(metav1.ConditionFalse).
+						Obj(),
+				},
+			},
+			out: []metav1.TableRow{
+				{
+					Cells: []any{"lq", kueue.ClusterQueueReference("cq1"), int32(0), int32(0), false, "60m"},
+					Object: runtime.RawExtension{
+						Object: utiltestingapi.MakeLocalQueue("lq", "").
+							ClusterQueue("cq1").
+							Creation(creationTime).
+							Active(metav1.ConditionFalse).
+							Obj(),
+					},
+				},
+			},
+		},
+		"should print local queue without active condition as inactive": {
+			in: &kueue.LocalQueueList{
+				Items: []kueue.LocalQueue{
+					*utiltestingapi.MakeLocalQueue("lq", "").
+						ClusterQueue("cq1").
+						Creation(creationTime).
+						Obj(),
+				},
+			},
+			out: []metav1.TableRow{
+				{
+					Cells: []any{"lq", kueue.ClusterQueueReference("cq1"), int32(0), int32(0), false, "60m"},
+					Object: runtime.RawExtension{
+						Object: utiltestingapi.MakeLocalQueue("lq", "").
+							ClusterQueue("cq1").
+							Creation(creationTime).
+							Obj(),
 					},
 				},
 			},
@@ -79,7 +114,7 @@ func TestLocalQueuePrint(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			p := newLocalQueueTablePrinter().WithClock(testingclock.NewFakeClock(testStartTime))
 			out := p.printLocalQueueList(tc.in)
-			if diff := cmp.Diff(tc.out, out); diff != "" {
+			if diff := cmp.Diff(tc.out, out, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime")); diff != "" {
 				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
 			}
 		})

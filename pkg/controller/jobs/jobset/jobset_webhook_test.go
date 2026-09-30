@@ -18,14 +18,14 @@ package jobset
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -320,10 +320,13 @@ func TestValidateCreate(t *testing.T) {
 
 			jsw := &JobSetWebhook{}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			_, gotErr := jsw.ValidateCreate(ctx, tc.job)
+			warns, gotErr := jsw.ValidateCreate(ctx, tc.job)
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
-				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
+				t.Errorf("validateCreate() errors mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(admission.Warnings(nil), warns); diff != "" {
+				t.Errorf("validateCreate() warnings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -331,12 +334,13 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testcases := []struct {
-		name               string
-		oldJob             *jobset.JobSet
-		newJob             *jobset.JobSet
-		wantValidationErrs field.ErrorList
-		wantErr            error
-		featureGates       map[featuregate.Feature]bool
+		name                 string
+		oldJob               *jobset.JobSet
+		newJob               *jobset.JobSet
+		maxTimeoutOnWorkload *metav1.Duration
+		wantValidationErrs   field.ErrorList
+		wantErr              error
+		featureGates         map[featuregate.Feature]bool
 	}{
 		{
 			name: "set valid topology request",
@@ -370,13 +374,38 @@ func TestValidateUpdate(t *testing.T) {
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
+		{
+			name: "unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update",
+			oldJob: testingutil.MakeJobSet("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			newJob: testingutil.MakeJobSet("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
+		{
+			name: "changed wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected on update",
+			oldJob: testingutil.MakeJobSet("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
+			newJob: testingutil.MakeJobSet("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(
+					metadataPath.Child("annotations").Key(constants.WaitForPodsReadyAnnotation),
+					float64(3600),
+					"timeoutSeconds must be less than or equal to 60 seconds",
+				),
+			},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotValidationErrs, gotErr := new(JobSetWebhook).validateUpdate(ctx, (*JobSet)(tc.oldJob), (*JobSet)(tc.newJob))
+			gotValidationErrs, gotErr := (&JobSetWebhook{maxTimeoutOnWorkload: tc.maxTimeoutOnWorkload}).validateUpdate(ctx, (*JobSet)(tc.oldJob), (*JobSet)(tc.newJob))
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
 				t.Errorf("validateUpdate() error mismatch (-want +got):\n%s", diff)
 			}
@@ -404,14 +433,12 @@ func TestDefault(t *testing.T) {
 			name: "TestDefault_JobSetManagedBy_jobsetapi.JobSetControllerName",
 			jobSet: &jobset.JobSet{
 				Spec: jobset.JobSetSpec{
-					ManagedBy: ptr.To(jobset.JobSetControllerName),
+					ManagedBy: new(jobset.JobSetControllerName),
 				},
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -428,17 +455,15 @@ func TestDefault(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
-			wantManagedBy: ptr.To(kueue.MultiKueueControllerName),
+			wantManagedBy: new(kueue.MultiKueueControllerName),
 		},
 		{
 			name: "TestDefault_WithQueueLabel",
 			jobSet: &jobset.JobSet{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -455,12 +480,12 @@ func TestDefault(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
-			wantManagedBy: ptr.To(kueue.MultiKueueControllerName),
+			wantManagedBy: new(kueue.MultiKueueControllerName),
 		},
 		{
 			name: "TestDefault_WithoutQueueLabel",
 			jobSet: &jobset.JobSet{
-				ObjectMeta: ctrl.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 			},
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
 			wantManagedBy: nil,
@@ -468,34 +493,28 @@ func TestDefault(t *testing.T) {
 		{
 			name: "TestDefault_InvalidQueueName",
 			jobSet: &jobset.JobSet{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels:    map[string]string{constants.QueueLabel: "invalid-queue"},
-					Namespace: "default",
-				},
+				Labels:    map[string]string{constants.QueueLabel: "invalid-queue"},
+				Namespace: "default",
 			},
 			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
 		{
 			name: "TestDefault_QueueNotFound",
 			jobSet: &jobset.JobSet{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "non-existent-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "non-existent-queue",
 				},
+				Namespace: "default",
 			},
 			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
 		{
 			name: "TestDefault_AdmissionCheckNotFound",
 			jobSet: &jobset.JobSet{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -513,12 +532,10 @@ func TestDefault(t *testing.T) {
 		{
 			name: "TestDefault_MultiKueueFeatureDisabled",
 			jobSet: &jobset.JobSet{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -543,12 +560,10 @@ func TestDefault(t *testing.T) {
 				Spec: jobset.JobSetSpec{
 					ManagedBy: new("example.com/foo"),
 				},
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -570,12 +585,10 @@ func TestDefault(t *testing.T) {
 		{
 			name: "TestDefault_ClusterQueueWithoutAdmissionCheck",
 			jobSet: &jobset.JobSet{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -643,6 +656,7 @@ func TestDefault(t *testing.T) {
 				}
 			}
 			webhook := &JobSetWebhook{
+				client:                     cl,
 				manageJobsWithoutQueueName: false,
 				queues:                     queueManager,
 				cache:                      cqCache,

@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -130,14 +131,7 @@ func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
 	utilmaps.Copy(&podSetInfo.Labels, o.Labels)
 	utilmaps.Copy(&podSetInfo.NodeSelector, o.NodeSelector)
 
-	// make sure we don't duplicate tolerations
-	for _, t := range o.Tolerations {
-		if !slices.ContainsFunc(podSetInfo.Tolerations, func(e corev1.Toleration) bool {
-			return utiltolerations.Equal(e, t)
-		}) {
-			podSetInfo.Tolerations = append(podSetInfo.Tolerations, t)
-		}
-	}
+	podSetInfo.Tolerations = utiltolerations.Merge(podSetInfo.Tolerations, o.Tolerations)
 	// make sure we don't duplicate schedulingGates
 	for _, t := range o.SchedulingGates {
 		if slices.Index(podSetInfo.SchedulingGates, t) == -1 {
@@ -157,6 +151,28 @@ func (podSetInfo *PodSetInfo) AddOrUpdateLabel(k, v string) {
 	}
 }
 
+// isElasticAdmission reports whether info describes an elastic workload-slice
+// admission.
+func isElasticAdmission(info PodSetInfo) bool {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		return false
+	}
+	_, elastic := info.Annotations[kueue.WorkloadSliceNameAnnotation]
+	return elastic
+}
+
+// filteredOutAnnotations returns admission annotations that must never be
+// persisted on a shared elastic pod template. consume-provisioning-request
+// names one ProvisioningRequest and changes with every slice, so it is dropped
+// from both the incoming info and the template; the ElasticJobUngater stamps
+// it on each gated Pod instead.
+func filteredOutAnnotations(info PodSetInfo) []string {
+	if features.Enabled(features.ElasticJobsViaWorkloadSlicesForProvisioningRequests) && isElasticAdmission(info) {
+		return []string{autoscaling.ProvisioningRequestPodAnnotationKey}
+	}
+	return nil
+}
+
 // overrideableAnnotations returns the Kueue-owned pod template annotations
 // that Merge may overwrite instead of reporting a conflict. For elastic jobs
 // their values may legitimately change between admissions (e.g. when a new
@@ -164,13 +180,13 @@ func (podSetInfo *PodSetInfo) AddOrUpdateLabel(k, v string) {
 //  1. the workload-slice-name annotation, whenever the
 //     ElasticJobsViaWorkloadSlices feature is enabled, and
 //  2. the workload annotation, only for an elastic admission, identified by
-//     the workload-slice-name annotation being part of the injected info.
+//     workload-slice-name in info.
 func overrideableAnnotations(info PodSetInfo) []string {
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) {
 		return nil
 	}
 	annotations := []string{kueue.WorkloadSliceNameAnnotation}
-	if _, elastic := info.Annotations[kueue.WorkloadSliceNameAnnotation]; elastic {
+	if isElasticAdmission(info) {
 		annotations = append(annotations, kueue.WorkloadAnnotation)
 	}
 	return annotations
@@ -179,6 +195,13 @@ func overrideableAnnotations(info PodSetInfo) []string {
 // Merge updates or appends the replica metadata & spec fields based on PodSetInfo.
 // It returns error if there is a conflict.
 func Merge(log logr.Logger, meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetInfo) error {
+	if filteredOut := filteredOutAnnotations(info); len(filteredOut) > 0 {
+		info.Annotations = maps.Clone(info.Annotations)
+		for _, key := range filteredOut {
+			delete(info.Annotations, key)
+			delete(meta.Annotations, key)
+		}
+	}
 	for _, key := range overrideableAnnotations(info) {
 		newValue, found := info.Annotations[key]
 		if !found {
@@ -239,7 +262,7 @@ func RestorePodSpec(meta *metav1.ObjectMeta, spec *corev1.PodSpec, info PodSetIn
 }
 
 func BadPodSetsInfoLenError(want, got int) error {
-	return fmt.Errorf("%w: expecting %d podset, got %d", ErrInvalidPodsetInfo, got, want)
+	return fmt.Errorf("%w: expecting %d podset, got %d", ErrInvalidPodsetInfo, want, got)
 }
 
 func BadPodSetsUpdateError(update string, err error) error {

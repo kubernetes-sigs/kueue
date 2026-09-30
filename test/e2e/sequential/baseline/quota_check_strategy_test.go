@@ -22,9 +22,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -49,7 +47,7 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 				cfg.FeatureGates = make(map[string]bool)
 			}
 			cfg.Resources = &configapi.Resources{
-				QuotaCheckStrategy: ptr.To(configapi.QuotaCheckIgnoreUndeclared),
+				QuotaCheckStrategy: new(configapi.QuotaCheckIgnoreUndeclared),
 			}
 			cfg.Metrics = configapi.ControllerMetrics{
 				EnableClusterQueueResources: true,
@@ -90,7 +88,7 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 		ginkgo.BeforeEach(func() {
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-quota-check-strategy-")
 			metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
-				ObjectMeta: metav1.ObjectMeta{Name: "metrics-reader-rolebinding-" + ns.Name},
+				Name: "metrics-reader-rolebinding-" + ns.Name,
 				Subjects: []rbacv1.Subject{
 					{
 						Kind:      "ServiceAccount",

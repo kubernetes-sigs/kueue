@@ -20,6 +20,7 @@ import (
 	"context"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -41,22 +42,26 @@ var (
 )
 
 type RayJobWebhook struct {
+	integrationManager           *jobframework.IntegrationManager
 	client                       client.Client
 	queues                       *qcache.Manager
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	cache                        *schdcache.Cache
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 // SetupRayJobWebhook configures the webhook for RayJob.
 func SetupRayJobWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &RayJobWebhook{
+		integrationManager:           options.IntegrationManager,
 		client:                       mgr.GetClient(),
 		queues:                       options.Queues,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		cache:                        options.Cache,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &rayv1.RayJob{}
 	if options.NoopWebhook {
@@ -78,9 +83,13 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj *rayv1.RayJob) error {
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.V(5).Info("Applying defaults")
-	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
-	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object())
-	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
+	if err := w.integrationManager.ApplyDefaultLocalQueue(ctx, w.client, job.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
+	if err := w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object(), w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
+	if err := w.integrationManager.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
@@ -95,14 +104,14 @@ var _ admission.Validator[*rayv1.RayJob] = &RayJobWebhook{}
 func (w *RayJobWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RayJob) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, obj)
+	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
 	}
 	return nil, validationErrs.ToAggregate()
 }
 
-func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob) (field.ErrorList, error) {
+func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*RayJob)(job)
 
@@ -141,9 +150,12 @@ func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob) (
 		clusterSpecPath := specPath.Child("rayClusterSpec")
 		rayClusterSpecErrors := raycluster.ValidateCreate(job, clusterSpec, clusterSpecPath)
 		allErrors = append(allErrors, rayClusterSpecErrors...)
+		if len(rayClusterSpecErrors) > 0 {
+			return allErrors, nil
+		}
 	}
 
-	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob)...)
+	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob, maxTimeoutOnWorkload)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, job)
 		if err != nil {
@@ -164,18 +176,18 @@ func (w *RayJobWebhook) validateTopologyRequest(ctx context.Context, rayJob *ray
 func (w *RayJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *rayv1.RayJob) (admission.Warnings, error) {
 	oldJob := fromObject(oldObj)
 	newJob := fromObject(newObj)
-	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
-	if w.manageJobsWithoutQueueName || jobframework.QueueName(newJob) != "" {
-		log.Info("Validating update")
-		allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)
-		validationErrs, err := w.validateCreate(ctx, newObj)
-		if err != nil {
-			return nil, err
-		}
-		allErrors = append(allErrors, validationErrs...)
-		return nil, allErrors.ToAggregate()
+	if !jobframework.ShouldValidateRayOrSparkJobOnUpdate(oldJob, newJob, w.manageJobsWithoutQueueName) {
+		return nil, nil
 	}
-	return nil, nil
+	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
+	log.V(5).Info("Validating update")
+	allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
+	validationErrs, err := w.validateCreate(ctx, newObj, nil)
+	if err != nil {
+		return nil, err
+	}
+	allErrors = append(allErrors, validationErrs...)
+	return nil, allErrors.ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type

@@ -121,7 +121,7 @@ make test-multikueue-e2e-sequential
 
 你可以通过设置 `E2E_K8S_FULL_VERSION` 变量来指定用于运行 e2e 测试的 Kubernetes 版本：
 ```shell
-E2E_K8S_FULL_VERSION=1.35.0 make test-e2e-baseline
+E2E_K8S_FULL_VERSION=1.37.0 make test-e2e-baseline
 ```
 
 关于运行测试子集，请参阅 [运行测试子集](#running-subset-of-integration-or-e2e-tests)。
@@ -356,7 +356,7 @@ func TestValidateClusterQueue(t *testing.T) {
 你可以点击 `debug test` 来调试特定测试。
 
 对于集成测试，需要额外的步骤。在 settings.json 中，你需要在 `go.testEnvVars` 内添加两个变量：
-- 运行 `ENVTEST_K8S_VERSION=1.35 make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` 并将路径分配给 `KUBEBUILDER_ASSETS` 变量
+- 运行 `export ENVTEST_K8S_VERSION=1.37 && make envtest && ./bin/setup-envtest use $ENVTEST_K8S_VERSION -p path` 并将路径分配给 `KUBEBUILDER_ASSETS` 变量
 - 将 `KUEUE_BIN` 设置为你的 Kueue 仓库克隆目录内的 `bin` 目录
 ```json
 "go.testEnvVars": {

@@ -30,7 +30,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
@@ -62,6 +62,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -78,6 +79,7 @@ type workloadToCreate struct {
 }
 
 type Reconciler struct {
+	integrationManager           *jobframework.IntegrationManager
 	client                       client.Client
 	logName                      string
 	record                       events.EventRecorder
@@ -95,6 +97,7 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 	options := jobframework.ProcessOptions(opts...)
 
 	return &Reconciler{
+		integrationManager:           options.IntegrationManager,
 		client:                       client,
 		logName:                      "leaderworkerset-reconciler",
 		record:                       eventRecorder,
@@ -121,9 +124,8 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Named(controllerName).
 		Watches(&kueue.Workload{}, &lwsWorkloadHandler{}).
 		Watches(&corev1.Pod{}, &lwsPodHandler{}).
-		Watches(&appsv1.StatefulSet{}, &lwsStsHandler{}).
 		WithOptions(controller.Options{
-			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, controllerName),
+			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "leaderworkerset-reconciler"),
 		}).
 		Complete(r)
 }
@@ -220,9 +222,17 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 		return err
 	}
 
-	toCreate, toUpdate, toDelete := r.filterWorkloads(lws, wlList.Items)
+	toCreate, toUpdate, toDelete, err := r.filterWorkloads(lws, wlList.Items)
+	if err != nil {
+		return err
+	}
 
-	eg, ctx := errgroup.WithContext(ctx)
+	// The branches hold disjoint sets of Workloads, so one failing is no reason
+	// to abandon the others. A derived context would cancel them, and
+	// parallelize.Until checks for cancellation before each item, so a delete
+	// that failed first could stop the other branches before they ran at all.
+	// The reconcile context still carries shutdown and any deadline.
+	var eg errgroup.Group
 
 	eg.Go(func() error {
 		return parallelize.Until(ctx, len(toCreate), func(i int) error {
@@ -255,7 +265,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 //
 // During rolling updates with maxSurge, status.Replicas may temporarily exceed spec.Replicas.
 // This function ensures workloads exist for all groups including surge replicas.
-func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]workloadToCreate, []*kueue.Workload, []*kueue.Workload) {
+func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]workloadToCreate, []*kueue.Workload, []*kueue.Workload, error) {
 	var (
 		toCreate []workloadToCreate
 		toUpdate []*kueue.Workload
@@ -267,8 +277,14 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 
 	// During normal scale-down, status.Replicas lags behind spec.Replicas,
 	// which prevents excess workloads from being moved to toDelete on time.
-	if lws.Status.Replicas > replicas && isRollingUpdateWithSurge(lws) {
-		replicas = lws.Status.Replicas
+	if lws.Status.Replicas > replicas {
+		surging, err := isRollingUpdateWithSurge(lws)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if surging {
+			replicas = lws.Status.Replicas
+		}
 	}
 
 	_, isMultiKueueRemote := lws.Labels[kueue.MultiKueueOriginLabel]
@@ -284,15 +300,22 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 		}
 	}
 
-	return toCreate, toUpdate, slices.Collect(maps.Values(toDelete))
+	return toCreate, toUpdate, slices.Collect(maps.Values(toDelete)), nil
 }
 
-func isRollingUpdateWithSurge(lws *leaderworkersetv1.LeaderWorkerSet) bool {
+// isRollingUpdateWithSurge reports whether the LeaderWorkerSet is rolling out
+// with room for surge replicas. A percentage maxSurge is scaled against the
+// replicas the update started from, rounding up as the LeaderWorkerSet API does.
+func isRollingUpdateWithSurge(lws *leaderworkersetv1.LeaderWorkerSet) (bool, error) {
 	if lws.Spec.RolloutStrategy.RollingUpdateConfiguration == nil {
-		return false
+		return false, nil
 	}
-	maxSurge := int32(lws.Spec.RolloutStrategy.RollingUpdateConfiguration.MaxSurge.IntValue())
-	return maxSurge > 0 && lws.Status.UpdatedReplicas < ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
+	replicas := ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
+	maxSurge, err := intstr.GetScaledValueFromIntOrPercent(&lws.Spec.RolloutStrategy.RollingUpdateConfiguration.MaxSurge, int(replicas), true)
+	if err != nil {
+		return false, fmt.Errorf("%w: %w", errInvalidMaxSurge, err)
+	}
+	return maxSurge > 0 && lws.Status.UpdatedReplicas < replicas, nil
 }
 
 func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string, index int) error {
@@ -308,7 +331,7 @@ func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.
 		return err
 	}
 
-	err = jobframework.PrepareWorkloadPriority(ctx, r.client, lws, createdWorkload, nil)
+	err = jobframework.PrepareWorkloadPriority(ctx, r.client, r.record, lws, createdWorkload, nil)
 	if err != nil {
 		log.Error(err, "Failed to prepare Workload priority")
 		return err
@@ -381,7 +404,7 @@ func newPodSet(name kueue.PodSetReference, count int32, template *corev1.PodTemp
 	if features.Enabled(features.TopologyAwareScheduling) {
 		builder := jobframework.NewPodSetTopologyRequest(template.ObjectMeta.DeepCopy())
 		if podIndexLabel != nil {
-			builder.PodIndexLabel(ptr.To(leaderworkersetv1.WorkerIndexLabelKey))
+			builder.PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey))
 		}
 		topologyRequest, err := builder.Build()
 		if err != nil {
@@ -414,7 +437,7 @@ func podSets(lws *leaderworkersetv1.LeaderWorkerSet) ([]kueue.PodSet, error) {
 		defaultPodSetName,
 		defaultPodSetCount,
 		&lws.Spec.LeaderWorkerTemplate.WorkerTemplate,
-		ptr.To(leaderworkersetv1.WorkerIndexLabelKey),
+		new(leaderworkersetv1.WorkerIndexLabelKey),
 	)
 	if err != nil {
 		return nil, err
@@ -429,22 +452,43 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
 	log.V(3).Info("Update LeaderWorkerSet Workload")
 
+	var shouldUpdate bool
 	if queueName := jobframework.QueueNameForObject(lws); wl.Spec.QueueName != queueName {
 		log.V(2).Info("LeaderWorkerSet changed queue, updating workload")
 		wl.Spec.QueueName = queueName
-		if err := r.client.Update(ctx, wl); err != nil {
-			log.Error(err, "Updating workload queue name")
-			return err
-		}
-	}
-	if features.Enabled(features.AdmissionGatedBy) {
-		if err := jobframework.UpdateAdmissionGatedBy(ctx, r.client, r.record, lws, wl); err != nil {
-			log.Error(err, "Failed to update AdmissionGatedBy")
-			return err
-		}
+		shouldUpdate = true
 	}
 
-	err := jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, wl, nil)
+	var admissionGatedByUpdated bool
+	if features.Enabled(features.AdmissionGatedBy) {
+		admissionGatedByUpdated = jobframework.PropagateAdmissionGatedByAnnotation(lws, wl)
+		shouldUpdate = admissionGatedByUpdated || shouldUpdate
+	}
+
+	var waitForPodsReadyUpdated bool
+	var err error
+	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		waitForPodsReadyUpdated, err = jobframework.PropagateWaitForPodsReadyAnnotation(lws, wl)
+		if err != nil {
+			return err
+		}
+		shouldUpdate = waitForPodsReadyUpdated || shouldUpdate
+	}
+
+	if shouldUpdate {
+		if err := r.client.Update(ctx, wl); err != nil {
+			log.Error(err, "Updating workload")
+			return err
+		}
+	}
+	if admissionGatedByUpdated {
+		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, lws)
+	}
+	if waitForPodsReadyUpdated {
+		jobframework.RecordWaitForPodsReadyUpdateEvent(r.record, lws)
+	}
+
+	err = jobframework.UpdateWorkloadPriority(ctx, r.client, r.record, lws, nil, wl)
 	if err != nil {
 		log.Error(err, "Failed to update workload priority")
 		return err
@@ -493,20 +537,21 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 	}
 	log.V(2).Info("Reconcile LeaderWorkerSet Pod")
 
-	if lws == nil || utilstatefulset.ShouldFinalizePod(sts, pod) {
+	// Kueue stops managing the Pods of a deleted LeaderWorkerSet or StatefulSet, so it releases them.
+	if lws == nil || sts == nil {
 		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-			if utilstatefulset.UngateAndFinalizePod(sts, pod, lws == nil) {
-				log.V(3).Info("Finalizing LeaderWorkerSet Pod")
+			if utilstatefulset.UngatePod(pod) {
+				log.V(3).Info("Ungating LeaderWorkerSet Pod")
 				return true, nil
 			}
-			log.V(3).Info("Skipping finalizing LeaderWorkerSet Pod")
+			log.V(3).Info("Skipping ungating LeaderWorkerSet Pod")
 			return false, nil
 		})
 		if client.IgnoreNotFound(err) != nil {
-			log.Error(err, "Failed to finalize Pod")
+			log.Error(err, "Failed to ungate Pod")
 			return err
 		}
-	} else {
+	} else if !utilpod.IsTerminated(pod) && pod.DeletionTimestamp == nil {
 		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 			updated := r.setDefault(lws, pod)
 			if updated {
@@ -524,8 +569,18 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 }
 
 func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *corev1.Pod) bool {
-	// Pod already has managed-by-kueue label, skipping.
+	queueName := jobframework.QueueNameForObject(lws)
+
 	if _, ok := pod.Labels[constants.ManagedByKueueLabelKey]; ok {
+		// TODO(#13968): Candidate for removal once LeaderWorkerSets admitted before #4932
+		// are gone, no earlier than 0.21. The webhook stamps the queue name on the pod
+		// templates, so it is only missing here on those, which #4932 did not migrate.
+		// Only gated pods qualify: the pod webhook rejects the change on others.
+		if queueName != "" && utilpod.HasGate(pod, podconstants.SchedulingGateName) &&
+			pod.Labels[controllerconstants.QueueLabel] != string(queueName) {
+			pod.Labels[controllerconstants.QueueLabel] = string(queueName)
+			return true
+		}
 		return false
 	}
 
@@ -541,6 +596,14 @@ func (r *Reconciler) setDefault(lws *leaderworkersetv1.LeaderWorkerSet, pod *cor
 	}
 
 	pod.Labels[constants.ManagedByKueueLabelKey] = constants.ManagedByKueueLabelValue
+	// TODO(#13968): Candidate for removal together with the backfill above, no earlier
+	// than 0.21. Normally the webhook has already stamped the queue name on the pod
+	// template, so this only matters for a LeaderWorkerSet admitted before #4932;
+	// setting it here saves reconciling the pod a second time to backfill it.
+	// Only gated pods qualify: the pod webhook rejects the change on others.
+	if queueName != "" && utilpod.HasGate(pod, podconstants.SchedulingGateName) {
+		pod.Labels[controllerconstants.QueueLabel] = string(queueName)
+	}
 	podcontroller.SetPodGroupName(pod, wlName)
 	jobframework.SetPrebuiltWorkloadName(pod, wlName)
 	pod.Annotations[podconstants.GroupTotalCountAnnotation] = fmt.Sprint(ptr.Deref(lws.Spec.LeaderWorkerTemplate.Size, 1))
@@ -585,7 +648,7 @@ func (r *Reconciler) handle(obj client.Object) bool {
 	ctx := ctrl.LoggerInto(context.Background(), log)
 
 	// Handle only leaderworkerset managed by kueue.
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, lws, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
+	suspend, err := r.integrationManager.WorkloadShouldBeSuspended(ctx, lws, r.client, r.manageJobsWithoutQueueName, r.managedJobsNamespaceSelector)
 	if err != nil {
 		log.Error(err, "Failed to determine if the LeaderWorkerSet should be managed by Kueue")
 	}
@@ -632,10 +695,8 @@ func (h *lwsWorkloadHandler) enqueue(ctx context.Context, obj client.Object, q w
 			)
 			q.AddAfter(
 				reconcile.Request{
-					NamespacedName: types.NamespacedName{
-						Namespace: wl.Namespace,
-						Name:      ownerRef.Name,
-					},
+					Namespace: wl.Namespace,
+					Name:      ownerRef.Name,
 				},
 				constants.UpdatesBatchPeriod,
 			)
@@ -645,8 +706,8 @@ func (h *lwsWorkloadHandler) enqueue(ctx context.Context, obj client.Object, q w
 }
 
 // lwsPodHandler watches for Pod create and update events and triggers reconciliation
-// of the owning LeaderWorkerSet. This ensures that we will finalize and ungate pods
-// and set default values.
+// of the owning LeaderWorkerSet. This ensures that we will ungate Pods and set
+// default values.
 type lwsPodHandler struct{}
 
 var _ handler.EventHandler = (*lwsPodHandler)(nil)
@@ -693,80 +754,8 @@ func (h *lwsPodHandler) enqueue(ctx context.Context, obj client.Object, q workqu
 
 	q.AddAfter(
 		reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: pod.Namespace,
-				Name:      lwsName,
-			},
-		},
-		constants.UpdatesBatchPeriod,
-	)
-}
-
-// lwsStsHandler watches for StatefulSet update events and triggers reconciliation
-// of the owning LeaderWorkerSet.
-// Subscribe to StatefulSet updates and watch .Status.CurrentRevision and .Status.UpdateRevision
-// to finalize Pods and remove scheduling gates when a new revision appears.
-type lwsStsHandler struct{}
-
-var _ handler.EventHandler = (*lwsStsHandler)(nil)
-
-func (h *lwsStsHandler) Create(_ context.Context, _ event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *lwsStsHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.enqueue(ctx, e.ObjectNew, q)
-}
-
-func (h *lwsStsHandler) Delete(_ context.Context, _ event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *lwsStsHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-// enqueue adds a reconcile request for the LeaderWorkerSet owning the given StatefulSet to the provided workqueue.
-func (h *lwsStsHandler) enqueue(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	sts, ok := obj.(*appsv1.StatefulSet)
-	if !ok {
-		return
-	}
-
-	log := ctrl.LoggerFrom(ctx).WithValues(
-		"statefulset", klog.KObj(sts),
-		"currentRevision", sts.Status.CurrentRevision,
-		"updateRevision", sts.Status.UpdateRevision,
-	)
-	log.V(3).Info("Enqueue LeaderWorkerSet StatefulSet")
-
-	// Handle only when .Status.CurrentRevision != .Status.UpdateRevision.
-	// This ensures that Pods are finalized and scheduling gates are removed
-	// when the revision changes.
-	if sts.Status.CurrentRevision == "" || sts.Status.UpdateRevision == "" &&
-		sts.Status.CurrentRevision == sts.Status.UpdateRevision {
-		return
-	}
-
-	// Handle only StatefulSets suspended by LeaderWorkerSet.
-	if sts.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation] != FrameworkName {
-		log.V(3).Info("StatefulSet is not suspended by parent")
-		return
-	}
-
-	lwsName, ok := sts.Labels[leaderworkersetv1.SetNameLabelKey]
-	if !ok {
-		log.V(3).Info("StatefulSet doesn't have LeaderWorkerSet name label")
-		return
-	}
-
-	log.V(3).Info("Queueing reconcile for owning LeaderWorkerSet",
-		"leaderworkerset", klog.ObjectRef{Namespace: sts.Namespace, Name: lwsName},
-	)
-
-	q.AddAfter(
-		reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: sts.Namespace,
-				Name:      lwsName,
-			},
+			Namespace: pod.Namespace,
+			Name:      lwsName,
 		},
 		constants.UpdatesBatchPeriod,
 	)

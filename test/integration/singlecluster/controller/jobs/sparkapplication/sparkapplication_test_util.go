@@ -27,12 +27,14 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	workloadsparkapplication "sigs.k8s.io/kueue/pkg/controller/jobs/sparkapplication"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
@@ -44,6 +46,8 @@ const (
 )
 
 type PodsReadyTestSpec struct {
+	FeatureGates    map[featuregate.Feature]bool
+	PodsScheduled   *metav1.Condition
 	BeforeAppState  *sparkv1beta2.ApplicationStateType
 	BeforeCondition *metav1.Condition
 	AppState        sparkv1beta2.ApplicationStateType
@@ -142,6 +146,7 @@ func shouldNotReconcileUnmanagedSparkApplication(ctx context.Context, k8sClient 
 }
 
 func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient client.Client, sparkApp, createdSparkApplication *sparkv1beta2.SparkApplication, podsReadyTestSpec PodsReadyTestSpec) {
+	features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), podsReadyTestSpec.FeatureGates)
 	ginkgo.By("Create a SparkApplication")
 	sparkApp.Labels = map[string]string{constants.QueueLabel: string(jobQueueName)}
 	util.MustCreate(ctx, k8sClient, sparkApp)
@@ -184,6 +189,10 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 		g.Expect(k8sClient.Get(ctx, lookupKey, createdSparkApplication)).Should(gomega.Succeed())
 		g.Expect(ptr.Deref(createdSparkApplication.Spec.Suspend, true)).Should(gomega.BeFalse())
 	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+	if podsReadyTestSpec.PodsScheduled != nil {
+		util.SetPodsScheduledCondition(ctx, k8sClient, wlLookupKey, *podsReadyTestSpec.PodsScheduled)
+	}
 
 	if podsReadyTestSpec.BeforeAppState != nil {
 		ginkgo.By("Update the SparkApplication status to simulate initial progress")

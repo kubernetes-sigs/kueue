@@ -25,9 +25,15 @@ import './App.css';
  * Handles plain strings, Error objects, and arbitrary objects/events.
  */
 export const errorToString = (error) => {
+  if (error === undefined) return undefined;
   if (typeof error === 'string') return error;
   if (error && typeof error.message === 'string' && error.message.length > 0) return error.message;
-  return JSON.stringify(error);
+  try {
+    const stringified = JSON.stringify(error);
+    return stringified !== undefined ? stringified : String(error);
+  } catch {
+    return String(error);
+  }
 };
 
 const ErrorMessage = ({ error }) => {
@@ -36,15 +42,12 @@ const ErrorMessage = ({ error }) => {
   if (!error) return null;
 
   // Extract the first line as the summary
-  const errorString = errorToString(error);
+  const errorString = errorToString(error) || '';
   const lines = errorString.split('\n');
   const errorSummary = lines[0];
   
   // The rest is considered details
   const errorDetails = lines.slice(1).join('\n');
-  
-  // Format for HTML display
-  const formattedDetails = errorDetails.replace(/\n/g, '<br />');
 
   return (
     <Paper className="error-message" elevation={2}>
@@ -74,8 +77,10 @@ const ErrorMessage = ({ error }) => {
                 color="textSecondary" 
                 component="div"
                 className="error-details-text"
-                dangerouslySetInnerHTML={{ __html: formattedDetails }} 
-              />
+                sx={{ whiteSpace: 'pre-wrap' }}
+              >
+                {errorDetails}
+              </Typography>
             </Box>
           </Collapse>
         </Box>

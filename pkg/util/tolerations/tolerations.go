@@ -16,9 +16,15 @@ limitations under the License.
 
 package tolerations
 
-import corev1 "k8s.io/api/core/v1"
+import (
+	"slices"
 
-// Equal reports whether two tolerations describe the same toleration.
+	corev1 "k8s.io/api/core/v1"
+)
+
+// Equal reports whether two tolerations have the same Kubernetes identity.
+// Identity consists of key, operator, value, and effect; TolerationSeconds is
+// intentionally ignored because it controls NoExecute duration, not matching.
 // The Kubernetes API defaults an empty Operator to "Equal", so Operator: ""
 // and Operator: "Equal" describe the same toleration and compare as equal.
 func Equal(a, b corev1.Toleration) bool {
@@ -29,4 +35,20 @@ func Equal(a, b corev1.Toleration) bool {
 		b.Operator = corev1.TolerationOpEqual
 	}
 	return a.MatchToleration(&b)
+}
+
+// Merge returns a copy of base followed by tolerations from extra that are not
+// already present. The first matching toleration wins, so base values and
+// ordering are preserved, including when TolerationSeconds differs. Neither
+// input slice is modified.
+func Merge(base, extras []corev1.Toleration) []corev1.Toleration {
+	merged := slices.Clone(base)
+	for _, t := range extras {
+		if !slices.ContainsFunc(merged, func(existing corev1.Toleration) bool {
+			return Equal(existing, t)
+		}) {
+			merged = append(merged, t)
+		}
+	}
+	return merged
 }

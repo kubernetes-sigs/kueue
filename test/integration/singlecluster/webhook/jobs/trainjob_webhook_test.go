@@ -68,7 +68,7 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 			trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 				APIGroup: new(kftrainerapi.GroupVersion.Group),
 				Name:     "test",
-				Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
+				Kind:     new(kftrainerapi.TrainingRuntimeKind),
 			}).
 				Queue("queue").
 				Suspend(false).
@@ -90,6 +90,40 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 			})
 		})
 
+		ginkgo.It("should preserve an existing Kueue runtime patch without adding a duplicate", func() {
+			testJobSet := testingjobset.MakeJobSet("", "").ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name:     "node",
+					Replicas: 1,
+				}).
+				Obj()
+			testTr := testingtrainjob.MakeTrainingRuntime("test", ns.Name, testJobSet.Spec)
+			userRuntimePatch := testingtrainjob.MakeRuntimePatch("example.com/user-manager").Obj()
+			kueueRuntimePatch := testingtrainjob.MakeRuntimePatch(testingtrainjob.KueueRuntimePatchManager).
+				Annotation("example.com/key", "value").
+				Obj()
+			trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
+				APIGroup: new(kftrainerapi.GroupVersion.Group),
+				Name:     "test",
+				Kind:     new(kftrainerapi.TrainingRuntimeKind),
+			}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{userRuntimePatch, kueueRuntimePatch}).
+				Obj()
+
+			ginkgo.By("creating the TrainJob with an existing Kueue runtime patch", func() {
+				util.MustCreate(ctx, k8sClient, testTr)
+				util.MustCreateWithRetry(ctx, k8sClient, trainJob)
+			})
+
+			ginkgo.By("preserving the runtime patches", func() {
+				createdTrainJob := kftrainerapi.TrainJob{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: trainJob.Name, Namespace: ns.Name}, &createdTrainJob)).Should(gomega.Succeed())
+					g.Expect(createdTrainJob.Spec.RuntimePatches).Should(gomega.Equal([]kftrainerapi.RuntimePatch{userRuntimePatch, kueueRuntimePatch}))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
 		ginkgo.It("should not suspend a TrainJob without queue", func() {
 			testJobSet := testingjobset.MakeJobSet("", "").ReplicatedJobs(
 				testingjobset.ReplicatedJobRequirements{
@@ -101,7 +135,7 @@ var _ = ginkgo.Describe("Trainjob Webhook", func() {
 			trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
 				APIGroup: new(kftrainerapi.GroupVersion.Group),
 				Name:     "test",
-				Kind:     ptr.To(kftrainerapi.TrainingRuntimeKind),
+				Kind:     new(kftrainerapi.TrainingRuntimeKind),
 			}).
 				Suspend(false).
 				Obj()

@@ -22,6 +22,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -43,19 +44,23 @@ import (
 )
 
 type Webhook struct {
+	integrationManager           *jobframework.IntegrationManager
 	client                       client.Client
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	queues                       *qcache.Manager
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &Webhook{
+		integrationManager:           options.IntegrationManager,
 		client:                       mgr.GetClient(),
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &leaderworkersetv1.LeaderWorkerSet{}
 	if options.NoopWebhook {
@@ -77,9 +82,20 @@ func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWor
 	log := ctrl.LoggerFrom(ctx).WithName("leaderworkerset-webhook")
 	log.V(5).Info("Applying defaults")
 
-	jobframework.ApplyDefaultLocalQueue(obj, wh.queues.DefaultLocalQueueExist)
-	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, obj)
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, lws.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+	if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, obj, wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
+	if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, obj, wh.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
+	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(
+		ctx,
+		lws.Object(),
+		wh.client,
+		wh.manageJobsWithoutQueueName,
+		wh.managedJobsNamespaceSelector,
+		jobframework.WithDeletingObjectTolerance(true),
+	)
 	if err != nil {
 		return err
 	}
@@ -131,6 +147,7 @@ var (
 	specPath                      = field.NewPath("spec")
 	replicasPath                  = specPath.Child("replicas")
 	leaderWorkerTemplatePath      = specPath.Child("leaderWorkerTemplate")
+	leaderWorkerTemplateSizePath  = leaderWorkerTemplatePath.Child("size")
 	leaderTemplatePath            = leaderWorkerTemplatePath.Child("leaderTemplate")
 	leaderTemplateMetaPath        = leaderTemplatePath.Child("metadata")
 	workerTemplatePath            = leaderWorkerTemplatePath.Child("workerTemplate")
@@ -153,6 +170,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj *leaderworkersetv1.Le
 	if err != nil {
 		return nil, err
 	}
+	validationErrs = append(validationErrs, jobframework.ValidateWaitForPodsReadyAnnotation(lws.Object(), wh.maxTimeoutOnWorkload)...)
 
 	return nil, validationErrs.ToAggregate()
 }
@@ -168,6 +186,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 	if err != nil {
 		return nil, err
 	}
+	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotationOnUpdate(oldLeaderWorkerSet.Object(), newLeaderWorkerSet.Object(), wh.maxTimeoutOnWorkload)...)
 
 	oldQueueName := jobframework.QueueNameForObject(oldLeaderWorkerSet.Object())
 	newQueueName := jobframework.QueueNameForObject(newLeaderWorkerSet.Object())
@@ -190,7 +209,14 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldLeaderWorkerSet.Object(), newLeaderWorkerSet.Object())...)
 	}
 
-	suspend, err := jobframework.WorkloadShouldBeSuspended(ctx, newLeaderWorkerSet.Object(), wh.client, wh.manageJobsWithoutQueueName, wh.managedJobsNamespaceSelector)
+	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(
+		ctx,
+		newLeaderWorkerSet.Object(),
+		wh.client,
+		wh.manageJobsWithoutQueueName,
+		wh.managedJobsNamespaceSelector,
+		jobframework.WithDeletingObjectTolerance(true),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -205,6 +231,15 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 			&oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
 			workerTemplatePath,
 		)...)
+		if features.Enabled(features.LWSImmutableGroupSize) {
+			// Immutable while managed: Workload updates never recompute PodSets,
+			// so growing Size would ungate extra pods without accounting for quota.
+			allErrs = append(allErrs, apivalidation.ValidateImmutableField(
+				ptr.Deref(newLeaderWorkerSet.Spec.LeaderWorkerTemplate.Size, defaultLeaderWorkerSetSize),
+				ptr.Deref(oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.Size, defaultLeaderWorkerSetSize),
+				leaderWorkerTemplateSizePath,
+			)...)
+		}
 	}
 
 	return warnings, allErrs.ToAggregate()

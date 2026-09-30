@@ -111,11 +111,11 @@ func (d DRS) PreciseWeightedShareSerialized() string {
 // a higher value preferred for preemption.
 func CompareDRS(a, b DRS) int {
 	switch {
-	case a.zeroWeightBorrows() && b.zeroWeightBorrows():
+	case a.ZeroWeightBorrows() && b.ZeroWeightBorrows():
 		return cmp.Compare(a.unweightedRatio, b.unweightedRatio)
-	case a.zeroWeightBorrows():
+	case a.ZeroWeightBorrows():
 		return 1
-	case b.zeroWeightBorrows():
+	case b.ZeroWeightBorrows():
 		return -1
 	default:
 		return cmp.Compare(a.PreciseWeightedShare(), b.PreciseWeightedShare())
@@ -132,7 +132,7 @@ func CompareDRS(a, b DRS) int {
 // or Cohort is borrowing, we return math.MaxInt.
 func (d DRS) roundedWeightedShare() (int64, corev1.ResourceName) {
 	var weightedShare int64
-	if d.zeroWeightBorrows() {
+	if d.ZeroWeightBorrows() {
 		weightedShare = math.MaxInt64
 	} else {
 		weightedShare = int64(math.Ceil(d.PreciseWeightedShare()))
@@ -140,9 +140,10 @@ func (d DRS) roundedWeightedShare() (int64, corev1.ResourceName) {
 	return weightedShare, d.dominantResource
 }
 
-// zeroWeightBorrows returns whether this DRS represents a
+// ZeroWeightBorrows returns whether this DRS represents a
 // borrowing state for a ClusterQueue/Cohort with a zero weight.
-func (d DRS) zeroWeightBorrows() bool {
+// This is equivalent to PreciseWeightedShare returning +Inf.
+func (d DRS) ZeroWeightBorrows() bool {
 	return d.isWeightZero() && !d.IsZero()
 }
 
@@ -167,10 +168,12 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	drs.borrowing = true
 	drs.borrowedFRs = borrowedFRs
 
-	lendable := calculateLendable(node.parentHRN())
+	// Maintained by updateCohortLendable alongside SubtreeQuota. The parent is
+	// always a Cohort, because of the early return above.
+	lendable := node.parentHRN().getResourceNode().Lendable
 	for rName, b := range borrowing {
 		if lr := lendable[rName]; lr.CmpInt64(0) > 0 {
-			ratio := float64(b.Int64()) * 1000.0 / float64(lr.Int64())
+			ratio := b.PerThousandOf(lr)
 			// Use alphabetical order to get a deterministic resource name.
 			if ratio > drs.unweightedRatio || (ratio == drs.unweightedRatio && rName < drs.dominantResource) {
 				drs.unweightedRatio = ratio
@@ -181,9 +184,10 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	return drs
 }
 
-// calculateLendable aggregates capacity for resources across all
-// FlavorResources.
-func calculateLendable(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
+// computeLendable derives lendable capacity from the Cohort tree. Callers in the
+// scheduling path read resourceNode.Lendable instead, which updateCohortLendable
+// keeps in step with SubtreeQuota.
+func computeLendable(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
 	// walk to root
 	root := node
 	for root.HasParent() {

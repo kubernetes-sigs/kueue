@@ -18,6 +18,7 @@ package mpijob
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -25,8 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
-	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -321,6 +321,32 @@ func TestValidateCreate(t *testing.T) {
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
+		{
+			name: "invalid PodSet grouping request - pod-index-offset set alongside podset-group-name",
+			job: testingutil.MakeMPIJob("job", "default").
+				Queue("queue-name").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "5").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(field.NewPath("spec.mpiReplicaSpecs[Worker].template.metadata.annotations").
+					Key("kueue.x-k8s.io/pod-index-offset"), "may not be set when 'kueue.x-k8s.io/podset-group-name' is specified"),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
 	}
 
 	for _, tc := range testcases {
@@ -329,10 +355,352 @@ func TestValidateCreate(t *testing.T) {
 
 			jsw := &MpiJobWebhook{}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			_, gotErr := jsw.ValidateCreate(ctx, tc.job)
+			warns, gotErr := jsw.ValidateCreate(ctx, tc.job)
 
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
-				t.Errorf("validateCreate() mismatch (-want +got):\n%s", diff)
+				t.Errorf("validateCreate() errors mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(admission.Warnings(nil), warns); diff != "" {
+				t.Errorf("validateCreate() warnings mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateUpdate(t *testing.T) {
+	testCases := map[string]struct {
+		oldJob               *v2beta1.MPIJob
+		newJob               *v2beta1.MPIJob
+		maxTimeoutOnWorkload *metav1.Duration
+		wantErr              error
+		featureGates         map[featuregate.Feature]bool
+	}{
+		"pod-index-offset unchanged": {
+			oldJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
+			newJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"pod-index-offset removed on update, unmanaged": {
+			oldJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
+			newJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"pod-index-offset changed on update, unmanaged": {
+			oldJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
+			newJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "5").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"pod-index-offset added on update, unmanaged": {
+			oldJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).Obj(),
+			newJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"pod-index-offset removed on update, TAS disabled": {
+			oldJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
+			newJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+		},
+		"pod-index-offset self-heals from an invalid legacy value when managed": {
+			oldJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "invalid").Obj(),
+			newJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"pod-index-offset self-heals by removal once grouped": {
+			oldJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "5").Obj(),
+			newJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"pod-index-offset changed away from the managed value is still rejected": {
+			oldJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").Obj(),
+			newJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "9").Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(workerOffsetAnnotationPath, "9", `must be "1", the value the defaulting webhook would set`),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"grouped Worker with a stale numeric offset left unchanged is still rejected": {
+			oldJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "5").Obj(),
+			newJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				MPIJobReplicaSpecs(
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeLauncher,
+						ReplicaCount: 1,
+					},
+					testingutil.MPIJobReplicaSpecRequirement{
+						ReplicaType:  v2beta1.MPIReplicaTypeWorker,
+						ReplicaCount: 3,
+					},
+				).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeLauncher, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetGroupName, "groupname").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "5").Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(workerOffsetAnnotationPath, "may not be set when 'kueue.x-k8s.io/podset-group-name' is specified"),
+				field.Invalid(workerOffsetAnnotationPath, "5", `must be "", the value the defaulting webhook would set`),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
+			oldJob: testingutil.MakeMPIJob("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			newJob: testingutil.MakeMPIJob("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
+		"changed wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected on update": {
+			oldJob: testingutil.MakeMPIJob("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
+			newJob: testingutil.MakeMPIJob("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata", "annotations").Key(constants.WaitForPodsReadyAnnotation),
+					float64(3600),
+					"timeoutSeconds must be less than or equal to 60 seconds",
+				),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			jsw := &MpiJobWebhook{maxTimeoutOnWorkload: tc.maxTimeoutOnWorkload}
+			ctx, _ := utiltesting.ContextWithLog(t)
+			gotWarnings, gotErr := jsw.ValidateUpdate(ctx, tc.oldJob, tc.newJob)
+
+			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
+				t.Errorf("ValidateUpdate() error mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(admission.Warnings(nil), gotWarnings); diff != "" {
+				t.Errorf("ValidateUpdate() warnings mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
@@ -356,15 +724,13 @@ func TestDefault(t *testing.T) {
 			mpiJob: &v2beta1.MPIJob{
 				Spec: v2beta1.MPIJobSpec{
 					RunPolicy: v2beta1.RunPolicy{
-						ManagedBy: ptr.To(v2beta1.KubeflowJobController),
+						ManagedBy: new(v2beta1.KubeflowJobController),
 					},
 				},
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -381,17 +747,15 @@ func TestDefault(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
-			wantManagedBy: ptr.To(kueue.MultiKueueControllerName),
+			wantManagedBy: new(kueue.MultiKueueControllerName),
 		},
 		{
 			name: "TestDefault_WithQueueLabel",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -408,12 +772,12 @@ func TestDefault(t *testing.T) {
 				Active(metav1.ConditionTrue).
 				Obj(),
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
-			wantManagedBy: ptr.To(kueue.MultiKueueControllerName),
+			wantManagedBy: new(kueue.MultiKueueControllerName),
 		},
 		{
 			name: "TestDefault_WithoutQueueLabel",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 			},
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
 			wantManagedBy: nil,
@@ -421,34 +785,28 @@ func TestDefault(t *testing.T) {
 		{
 			name: "TestDefault_InvalidQueueName",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels:    map[string]string{constants.QueueLabel: "invalid-queue"},
-					Namespace: "default",
-				},
+				Labels:    map[string]string{constants.QueueLabel: "invalid-queue"},
+				Namespace: "default",
 			},
 			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
 		{
 			name: "TestDefault_QueueNotFound",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "non-existent-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "non-existent-queue",
 				},
+				Namespace: "default",
 			},
 			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
 		{
 			name: "TestDefault_AdmissionCheckNotFound",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -466,12 +824,10 @@ func TestDefault(t *testing.T) {
 		{
 			name: "TestDefault_MultiKueueFeatureDisabled",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -498,12 +854,10 @@ func TestDefault(t *testing.T) {
 						ManagedBy: new("example.com/foo"),
 					},
 				},
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -525,12 +879,10 @@ func TestDefault(t *testing.T) {
 		{
 			name: "TestDefault_ClusterQueueWithoutAdmissionCheck",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -593,6 +945,77 @@ func TestDefault(t *testing.T) {
 				).
 				RunLauncherAsWorker(true).
 				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").
+				Obj(),
+		},
+		{
+			name:         "TAS enabled, RunLauncherAsWorker true with 3 replica specs",
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			mpiJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericLauncherAndWorker().
+				Parallelism(3).
+				GenericReplicaSpec("Extra", &v2beta1.ReplicaSpec{}).
+				RunLauncherAsWorker(true).
+				Obj(),
+			want: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericLauncherAndWorker().
+				Parallelism(3).
+				GenericReplicaSpec("Extra", &v2beta1.ReplicaSpec{}).
+				RunLauncherAsWorker(true).
+				PodAnnotation(v2beta1.MPIReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "1").
+				Obj(),
+		},
+		{
+			// Worker alone leaves one entry, which never reached the dereference,
+			// so the extra spec is what makes this case a regression.
+			name:         "TAS enabled, RunLauncherAsWorker true without the Launcher replica spec",
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			mpiJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericWorker().
+				GenericReplicaSpec("Extra", &v2beta1.ReplicaSpec{}).
+				RunLauncherAsWorker(true).
+				Obj(),
+			want: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericWorker().
+				GenericReplicaSpec("Extra", &v2beta1.ReplicaSpec{}).
+				RunLauncherAsWorker(true).
+				Obj(),
+		},
+		{
+			name:         "TAS enabled, RunLauncherAsWorker true with a nil Launcher replica spec",
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			mpiJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericWorker().
+				Parallelism(3).
+				GenericReplicaSpec(v2beta1.MPIReplicaTypeLauncher, nil).
+				RunLauncherAsWorker(true).
+				Obj(),
+			want: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericWorker().
+				Parallelism(3).
+				GenericReplicaSpec(v2beta1.MPIReplicaTypeLauncher, nil).
+				RunLauncherAsWorker(true).
+				Obj(),
+		},
+		{
+			name:         "TAS enabled, RunLauncherAsWorker true with a nil Worker replica spec",
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			mpiJob: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericLauncher().
+				GenericReplicaSpec(v2beta1.MPIReplicaTypeWorker, nil).
+				RunLauncherAsWorker(true).
+				Obj(),
+			want: testingutil.MakeMPIJob("job", "default").
+				Queue("queue").
+				GenericLauncher().
+				GenericReplicaSpec(v2beta1.MPIReplicaTypeWorker, nil).
+				RunLauncherAsWorker(true).
 				Obj(),
 		},
 		{
@@ -809,6 +1232,7 @@ func TestDefault(t *testing.T) {
 				}
 			}
 			webhook := &MpiJobWebhook{
+				client:                     cl,
 				manageJobsWithoutQueueName: false,
 				queues:                     queueManager,
 				cache:                      cqCache,

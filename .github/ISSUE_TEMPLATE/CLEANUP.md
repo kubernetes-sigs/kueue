@@ -1,5 +1,6 @@
 ---
-name: Clean Up Request
+name: 🧹 Clean Up Request
+title: "🧹 "
 about: Suggest to clean up code, process or tech debt to the Kueue project
 labels: kind/cleanup
 

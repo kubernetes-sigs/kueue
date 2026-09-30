@@ -24,6 +24,7 @@ import (
 
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
 	apiskueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
@@ -33,11 +34,39 @@ import (
 )
 
 // WorkloadPriorityClassInformer provides access to a shared informer and lister for
-// WorkloadPriorityClasses.
+// WorkloadPriorityClasses. Prefer using the type-safe variant (see [TypedWorkloadPriorityClassInformer]).
 type WorkloadPriorityClassInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() kueuev1beta1.WorkloadPriorityClassLister
 }
+
+// TypedWorkloadPriorityClassInformer provides access to a shared informer and lister for
+// WorkloadPriorityClasses, including the type-safe TypedInformer variant.
+// It is a superset of WorkloadPriorityClassInformer.
+type TypedWorkloadPriorityClassInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() WorkloadPriorityClassIndexInformer
+	Lister() kueuev1beta1.WorkloadPriorityClassLister
+}
+
+// WorkloadPriorityClassIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type WorkloadPriorityClassIndexInformer cache.TypedSharedIndexInformer[*apiskueuev1beta1.WorkloadPriorityClass]
+
+// WorkloadPriorityClassHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for WorkloadPriorityClass.
+type WorkloadPriorityClassHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*apiskueuev1beta1.WorkloadPriorityClass]
+
+// WorkloadPriorityClassDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for WorkloadPriorityClass.
+type WorkloadPriorityClassDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*apiskueuev1beta1.WorkloadPriorityClass]
+
+// WorkloadPriorityClassFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for WorkloadPriorityClass.
+type WorkloadPriorityClassFilteringHandler = cache.TypedFilteringResourceEventHandler[*apiskueuev1beta1.WorkloadPriorityClass]
+
+// WorkloadPriorityClassIndexers is a specialization of [cache.TypedIndexers] for WorkloadPriorityClass.
+type WorkloadPriorityClassIndexers = cache.TypedIndexers[*apiskueuev1beta1.WorkloadPriorityClass]
+
+// DeletedWorkloadPriorityClass is a specialization of [cache.DeletedObject] for WorkloadPriorityClass.
+type DeletedWorkloadPriorityClass = cache.DeletedObject[*apiskueuev1beta1.WorkloadPriorityClass]
 
 type workloadPriorityClassInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -47,55 +76,132 @@ type workloadPriorityClassInformer struct {
 // NewWorkloadPriorityClassInformer constructs a new informer for WorkloadPriorityClass type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedWorkloadPriorityClassInformer]).
 func NewWorkloadPriorityClassInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredWorkloadPriorityClassInformer(client, resyncPeriod, indexers, nil)
+	return NewWorkloadPriorityClassInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedWorkloadPriorityClassInformer constructs a new informer for WorkloadPriorityClass type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedWorkloadPriorityClassInformer(client versioned.Interface, resyncPeriod time.Duration, indexers WorkloadPriorityClassIndexers) WorkloadPriorityClassIndexInformer {
+	return NewTypedWorkloadPriorityClassInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredWorkloadPriorityClassInformer constructs a new informer for WorkloadPriorityClass type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredWorkloadPriorityClassInformer]).
 func NewFilteredWorkloadPriorityClassInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return cache.NewSharedIndexInformer(
+	return NewTypedWorkloadPriorityClassInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredWorkloadPriorityClassInformer constructs a new informer for WorkloadPriorityClass type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredWorkloadPriorityClassInformer(client versioned.Interface, resyncPeriod time.Duration, indexers WorkloadPriorityClassIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) WorkloadPriorityClassIndexInformer {
+	return NewTypedWorkloadPriorityClassInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
+}
+
+// NewWorkloadPriorityClassInformerWithOptions constructs a new informer for WorkloadPriorityClass type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedWorkloadPriorityClassInformerWithOptions]).
+func NewWorkloadPriorityClassInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedWorkloadPriorityClassInformerWithOptions(client, options)
+}
+
+// NewTypedWorkloadPriorityClassInformerWithOptions constructs a new informer for WorkloadPriorityClass type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedWorkloadPriorityClassInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) WorkloadPriorityClassIndexInformer {
+	gvr := schema.GroupVersionResource{Group: "kueue.x-k8s.io", Version: "v1beta1", Resource: "workloadpriorityclasss"}
+	identifier := options.InformerName.WithResource(gvr)
+	tweakListOptions := options.TweakListOptions
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.WorkloadPriorityClass](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
-			ListFunc: func(options v1.ListOptions) (runtime.Object, error) {
+			ListFunc: func(opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KueueV1beta1().WorkloadPriorityClasses().List(context.Background(), options)
+				return client.KueueV1beta1().WorkloadPriorityClasses().List(context.Background(), opts)
 			},
-			WatchFunc: func(options v1.ListOptions) (watch.Interface, error) {
+			WatchFunc: func(opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KueueV1beta1().WorkloadPriorityClasses().Watch(context.Background(), options)
+				return client.KueueV1beta1().WorkloadPriorityClasses().Watch(context.Background(), opts)
 			},
-			ListWithContextFunc: func(ctx context.Context, options v1.ListOptions) (runtime.Object, error) {
+			ListWithContextFunc: func(ctx context.Context, opts v1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KueueV1beta1().WorkloadPriorityClasses().List(ctx, options)
+				return client.KueueV1beta1().WorkloadPriorityClasses().List(ctx, opts)
 			},
-			WatchFuncWithContext: func(ctx context.Context, options v1.ListOptions) (watch.Interface, error) {
+			WatchFuncWithContext: func(ctx context.Context, opts v1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.KueueV1beta1().WorkloadPriorityClasses().Watch(ctx, options)
+				return client.KueueV1beta1().WorkloadPriorityClasses().Watch(ctx, opts)
 			},
 		}, client),
 		&apiskueuev1beta1.WorkloadPriorityClass{},
-		resyncPeriod,
-		indexers,
-	)
+		cache.SharedIndexInformerOptions{
+			ResyncPeriod: options.ResyncPeriod,
+			Indexers:     options.Indexers,
+			Identifier:   identifier,
+		},
+	))
 }
 
 func (f *workloadPriorityClassInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredWorkloadPriorityClassInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewTypedWorkloadPriorityClassInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *workloadPriorityClassInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apiskueuev1beta1.WorkloadPriorityClass{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *workloadPriorityClassInformer) TypedInformer() WorkloadPriorityClassIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.WorkloadPriorityClass](f.factory.InformerFor(&apiskueuev1beta1.WorkloadPriorityClass{}, f.defaultInformer))
 }
 
 func (f *workloadPriorityClassInformer) Lister() kueuev1beta1.WorkloadPriorityClassLister {
 	return kueuev1beta1.NewWorkloadPriorityClassLister(f.Informer().GetIndexer())
+}
+
+// ToTypedWorkloadPriorityClassInformer converts an untyped informer into a TypedWorkloadPriorityClassInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *WorkloadPriorityClass. If that is not the case, calling type-safe methods of the returned
+// TypedWorkloadPriorityClassInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedWorkloadPriorityClassInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedWorkloadPriorityClassInformer(informer WorkloadPriorityClassInformer) TypedWorkloadPriorityClassInformer {
+	if informer, ok := informer.(TypedWorkloadPriorityClassInformer); ok {
+		return informer
+	}
+	return &workloadPriorityClassTypedInformerAdapter{informer}
+}
+
+type workloadPriorityClassTypedInformerAdapter struct {
+	WorkloadPriorityClassInformer
+}
+
+func (a *workloadPriorityClassTypedInformerAdapter) TypedInformer() WorkloadPriorityClassIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.WorkloadPriorityClass](a.Informer())
+}
+
+// ToWorkloadPriorityClassIndexInformer converts an untyped informer into a WorkloadPriorityClassIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *WorkloadPriorityClass. If that is not the case, calling type-safe methods of the returned
+// WorkloadPriorityClassIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a WorkloadPriorityClassIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToWorkloadPriorityClassIndexInformer(informer cache.SharedIndexInformer) WorkloadPriorityClassIndexInformer {
+	if informer, ok := informer.(WorkloadPriorityClassIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*apiskueuev1beta1.WorkloadPriorityClass](informer)
 }

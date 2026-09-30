@@ -132,6 +132,7 @@ func (o *ResourceFlavorOptions) Run(ctx context.Context) error {
 	}
 
 	tabWriter := printers.GetNewTabWriter(o.Out)
+	pager := newPagedListPrinter(o.PrintFlags.OutputFlagSpecified())
 
 	for {
 		headers := totalCount == 0
@@ -148,7 +149,7 @@ func (o *ResourceFlavorOptions) Run(ctx context.Context) error {
 			return err
 		}
 
-		if err := printer.PrintObj(list, tabWriter); err != nil {
+		if err := pager.printPage(list, list.Continue == "", printer, tabWriter); err != nil {
 			return err
 		}
 

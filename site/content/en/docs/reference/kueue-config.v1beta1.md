@@ -601,7 +601,13 @@ followed by a slash and a DNS label, or just a DNS label.
 DNS labels consist of lower-case alphanumeric characters or hyphens,
 and must start and end with an alphanumeric character.
 DNS subdomain prefixes follow the same rules as DNS labels but can contain periods.
-The total length must not exceed 253 characters.</p>
+The total length must not exceed 253 characters.
+With KueueDRAIntegration enabled it must not be <code>pods</code>; that exact name is
+reserved for Kueue's internal Pod-count accounting. A qualified name such
+as <code>example.com/pods</code> is allowed.
+Disabling the ReservedResourceNameValidation feature gate lets such a
+configuration load for an upgrade; flavor assignment still overwrites the
+key with the PodSet count.</p>
 </td>
 </tr>
 <tr><td><code>deviceClassNames</code> <B>[Required]</B><br/>
@@ -1139,7 +1145,12 @@ re-queuing an evicted workload.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcename-v1-core"><code>k8s.io/api/core/v1.ResourceName</code></a>
 </td>
 <td>
-   <p>Input is the name of the input resource.</p>
+   <p>Input is the name of the input resource.
+It must not be <code>pods</code>; that exact name is reserved for Kueue's internal
+Pod-count accounting. A qualified name such as <code>example.com/pods</code> is allowed.
+Disabling the ReservedResourceNameValidation feature gate lets such a
+configuration load for an upgrade; flavor assignment still overwrites the
+key with the PodSet count.</p>
 </td>
 </tr>
 <tr><td><code>strategy</code> <B>[Required]</B><br/>
@@ -1157,7 +1168,14 @@ Defaults to Retain</p>
    <p>MultiplyBy indicates the resource name requested by a workload, if
 specified.
 The requested amount of the resource is used to multiply the requested
-amount of the resource indicated by the &quot;input&quot; field.</p>
+amount of the resource indicated by the &quot;input&quot; field when computing
+&quot;outputs&quot;. It does not change the quantity retained under &quot;input&quot; when
+&quot;strategy&quot; is Retain.
+It must not be <code>pods</code>; that exact name is reserved for Kueue's internal
+Pod-count accounting. A qualified name such as <code>example.com/pods</code> is allowed.
+Disabling the ReservedResourceNameValidation feature gate lets such a
+configuration load for an upgrade; flavor assignment still overwrites the
+key with the PodSet count.</p>
 </td>
 </tr>
 <tr><td><code>outputs</code> <B>[Required]</B><br/>
@@ -1165,6 +1183,12 @@ amount of the resource indicated by the &quot;input&quot; field.</p>
 </td>
 <td>
    <p>Outputs specifies the output resources and quantities per unit of input resource.
+An output resource name must not be <code>pods</code>; that exact name is reserved for
+Kueue's internal Pod-count accounting. A qualified name such as
+<code>example.com/pods</code> is allowed.
+Disabling the ReservedResourceNameValidation feature gate lets such a
+configuration load for an upgrade; flavor assignment still overwrites the
+key with the PodSet count.
 An empty Outputs combined with a <code>Replace</code> Strategy causes the Input resource to be ignored by Kueue.</p>
 </td>
 </tr>
@@ -1311,8 +1335,9 @@ Defaults to 30min.</p>
 <code>bool</code>
 </td>
 <td>
-   <p>BlockAdmission when true, cluster queue will block admissions for all
-subsequent jobs until the jobs reach the PodsReady=true condition.
+   <p>BlockAdmission when true, Kueue blocks admission of all workloads across
+all ClusterQueues until every previously-admitted workload reaches the
+PodsReady=true condition.
 This setting is only honored when <code>Enable</code> is set to true.</p>
 </td>
 </tr>

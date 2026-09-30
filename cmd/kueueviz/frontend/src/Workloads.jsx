@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import { CircularProgress, FormControl, InputLabel, MenuItem, Paper, Select, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography, Box } from '@mui/material';
+import { Alert, CircularProgress, FormControl, InputLabel, MenuItem, Paper, Select, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography, Box } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import 'react-toastify/dist/ReactToastify.css';
@@ -41,8 +41,6 @@ const Workloads = () => {
   }, [workloadsData]);
 
   const error = workloadsError || namespacesError;
-
-  if (error) return <ErrorMessage error={error} />;
 
   // Group workloads by namespace
   const workloadsByNamespace = workloads.reduce((acc, workload) => {
@@ -77,17 +75,19 @@ const Workloads = () => {
         </Select>
       </FormControl>
       
-      {workloadsData === null ? (
+      {error ? (
+        <ErrorMessage error={error} />
+      ) : workloadsData === null ? (
         <Box display="flex" justifyContent="center" my={4}>
           <CircularProgress />
         </Box>
       ) : workloads.length === 0 ? (
-        <Typography>
+        <Alert severity="info">
           {selectedNamespace === '' 
             ? 'No workloads found in any namespace.' 
             : `No workloads found in namespace "${selectedNamespace}". Ready to monitor when workloads are submitted!`
           }
-        </Typography>
+        </Alert>
       ) : (
         <TableContainer component={Paper} className="tableContainerWithBorder">
           <Table>

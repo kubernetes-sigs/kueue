@@ -40,8 +40,8 @@ import (
 	clienttesting "k8s.io/client-go/testing"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -66,10 +66,13 @@ var defaultWaitForPodsReady = &configapi.WaitForPodsReady{
 	RecoveryTimeout: &metav1.Duration{
 		Duration: 30 * time.Minute,
 	},
+	MaxTimeoutOnWorkload: &metav1.Duration{
+		Duration: configapi.DefaultMaxTimeoutOnWorkload,
+	},
 	RequeuingStrategy: &configapi.RequeuingStrategy{
-		Timestamp:          ptr.To(configapi.EvictionTimestamp),
-		BackoffBaseSeconds: ptr.To[int32](configapi.DefaultRequeuingBackoffBaseSeconds),
-		BackoffMaxSeconds:  ptr.To[int32](configapi.DefaultRequeuingBackoffMaxSeconds),
+		Timestamp:          new(configapi.EvictionTimestamp),
+		BackoffBaseSeconds: new(int32(configapi.DefaultRequeuingBackoffBaseSeconds)),
+		BackoffMaxSeconds:  new(int32(configapi.DefaultRequeuingBackoffMaxSeconds)),
 	},
 }
 
@@ -96,9 +99,9 @@ func defaultControlOptions(namespace string) ctrl.Options {
 		LeaderElectionID:              configapi.DefaultLeaderElectionID,
 		LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
 		LeaderElectionReleaseOnCancel: true,
-		LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-		RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-		RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+		LeaseDuration:                 new(configapi.DefaultLeaderElectionLeaseDuration),
+		RenewDeadline:                 new(configapi.DefaultLeaderElectionRenewDeadline),
+		RetryPeriod:                   new(configapi.DefaultLeaderElectionRetryPeriod),
 	}
 }
 
@@ -222,6 +225,7 @@ waitForPodsReady:
   timeout: 50s
   blockAdmission: true
   recoveryTimeout: 3m
+  unscheduledTimeout: 30s
   requeuingStrategy:
     timestamp: Creation
     backoffLimitCount: 10
@@ -406,8 +410,8 @@ objectRetentionPolicies:
 
 	enableDefaultInternalCertManagement := &configapi.InternalCertManagement{
 		Enable:             new(true),
-		WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-		WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+		WebhookServiceName: new(configapi.DefaultWebhookServiceName),
+		WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 	}
 
 	ctrlOptsCmpOpts := cmp.Options{
@@ -429,8 +433,8 @@ objectRetentionPolicies:
 	}
 
 	defaultClientConnection := &configapi.ClientConnection{
-		QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-		Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+		QPS:   new(configapi.DefaultClientConnectionQPS),
+		Burst: new(configapi.DefaultClientConnectionBurst),
 	}
 
 	defaultIntegrations := &configapi.Integrations{
@@ -449,13 +453,13 @@ objectRetentionPolicies:
 
 	defaultMultiKueue := &configapi.MultiKueue{
 		GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-		Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+		Origin:            new(configapi.DefaultMultiKueueOrigin),
 		WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-		DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+		DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
 	}
 
 	defaultVisibility := &configapi.VisibilityServerConfiguration{
-		BindPort: ptr.To[int32](configapi.DefaultVisibilityBindPort),
+		BindPort: new(int32(configapi.DefaultVisibilityBindPort)),
 	}
 
 	testcases := []struct {
@@ -471,7 +475,7 @@ objectRetentionPolicies:
 			name:       "default config",
 			configFile: "",
 			wantConfiguration: configapi.Configuration{
-				Namespace:                    ptr.To(configapi.DefaultNamespace),
+				Namespace:                    new(configapi.DefaultNamespace),
 				InternalCertManagement:       enableDefaultInternalCertManagement,
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
@@ -490,7 +494,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                    ptr.To(configapi.DefaultNamespace),
+				Namespace:                    new(configapi.DefaultNamespace),
 				InternalCertManagement:       enableDefaultInternalCertManagement,
 				ClientConnection:             defaultClientConnection,
 				Integrations:                 defaultIntegrations,
@@ -548,7 +552,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                    ptr.To(configapi.DefaultNamespace),
+				Namespace:                    new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName:   false,
 				InternalCertManagement:       enableDefaultInternalCertManagement,
 				ClientConnection:             defaultClientConnection,
@@ -568,9 +572,9 @@ objectRetentionPolicies:
 				LeaderElectionID:              "test-id",
 				LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
 				LeaderElectionReleaseOnCancel: true,
-				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+				LeaseDuration:                 new(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:                 new(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                   new(configapi.DefaultLeaderElectionRetryPeriod),
 			},
 		},
 		{
@@ -581,7 +585,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable:             new(true),
@@ -605,7 +609,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable: new(false),
@@ -646,9 +650,9 @@ objectRetentionPolicies:
 				LeaderElectionID:              configapi.DefaultLeaderElectionID,
 				LeaderElectionResourceLock:    resourcelock.LeasesResourceLock,
 				LeaderElectionReleaseOnCancel: false,
-				LeaseDuration:                 ptr.To(configapi.DefaultLeaderElectionLeaseDuration),
-				RenewDeadline:                 ptr.To(configapi.DefaultLeaderElectionRenewDeadline),
-				RetryPeriod:                   ptr.To(configapi.DefaultLeaderElectionRetryPeriod),
+				LeaseDuration:                 new(configapi.DefaultLeaderElectionLeaseDuration),
+				RenewDeadline:                 new(configapi.DefaultLeaderElectionRenewDeadline),
+				RetryPeriod:                   new(configapi.DefaultLeaderElectionRetryPeriod),
 				LeaderElection:                false,
 			},
 		},
@@ -660,18 +664,20 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				WaitForPodsReady: &configapi.WaitForPodsReady{
-					BlockAdmission:  new(true),
-					Timeout:         metav1.Duration{Duration: 50 * time.Second},
-					RecoveryTimeout: &metav1.Duration{Duration: 3 * time.Minute},
+					BlockAdmission:       new(true),
+					Timeout:              metav1.Duration{Duration: 50 * time.Second},
+					RecoveryTimeout:      &metav1.Duration{Duration: 3 * time.Minute},
+					UnscheduledTimeout:   &metav1.Duration{Duration: 30 * time.Second},
+					MaxTimeoutOnWorkload: &metav1.Duration{Duration: configapi.DefaultMaxTimeoutOnWorkload},
 					RequeuingStrategy: &configapi.RequeuingStrategy{
-						Timestamp:          ptr.To(configapi.CreationTimestamp),
-						BackoffLimitCount:  ptr.To[int32](10),
-						BackoffBaseSeconds: ptr.To[int32](30),
-						BackoffMaxSeconds:  ptr.To[int32](1800),
+						Timestamp:          new(configapi.CreationTimestamp),
+						BackoffLimitCount:  new(int32(10)),
+						BackoffBaseSeconds: new(int32(30)),
+						BackoffMaxSeconds:  new(int32(1800)),
 					},
 				},
 				ClientConnection:             defaultClientConnection,
@@ -690,12 +696,12 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To[float32](50),
-					Burst: ptr.To[int32](100),
+					QPS:   new(float32(50)),
+					Burst: new(int32(100)),
 				},
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
@@ -713,12 +719,12 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To[float32](50),
-					Burst: ptr.To[int32](100),
+					QPS:   new(float32(50)),
+					Burst: new(int32(100)),
 				},
 				Integrations:                 defaultIntegrations,
 				MultiKueue:                   defaultMultiKueue,
@@ -740,9 +746,9 @@ objectRetentionPolicies:
 				LeaderElectionNamespace:       "namespace",
 				LeaderElectionResourceLock:    "lock",
 				LeaderElectionReleaseOnCancel: true,
-				LeaseDuration:                 ptr.To(time.Second * 100),
-				RenewDeadline:                 ptr.To(time.Second * 15),
-				RetryPeriod:                   ptr.To(time.Second * 30),
+				LeaseDuration:                 new(time.Second * 100),
+				RenewDeadline:                 new(time.Second * 15),
+				RetryPeriod:                   new(time.Second * 30),
 				Controller: runtimeconfig.Controller{
 					GroupKindConcurrency: map[string]int{
 						"workload": 5,
@@ -759,7 +765,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
@@ -785,7 +791,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
@@ -794,7 +800,7 @@ objectRetentionPolicies:
 					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
 					Origin:            new("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeIncremental),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(3)),
 					},
@@ -829,7 +835,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement:     enableDefaultInternalCertManagement,
 				ClientConnection:           defaultClientConnection,
@@ -838,7 +844,7 @@ objectRetentionPolicies:
 					GCInterval:        &metav1.Duration{Duration: 90 * time.Second},
 					Origin:            new("multikueue-manager1"),
 					WorkerLostTimeout: &metav1.Duration{Duration: 10 * time.Minute},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeIncremental),
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeIncremental),
 					IncrementalDispatcherConfig: &configapi.IncrementalDispatcherConfig{
 						StepSize: new(int32(3)),
 					},
@@ -869,7 +875,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                    ptr.To(configapi.DefaultNamespace),
+				Namespace:                    new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName:   false,
 				InternalCertManagement:       enableDefaultInternalCertManagement,
 				ClientConnection:             defaultClientConnection,
@@ -882,7 +888,7 @@ objectRetentionPolicies:
 					Transformations: []configapi.ResourceTransformation{
 						{
 							Input:    corev1.ResourceName("nvidia.com/mig-1g.5gb"),
-							Strategy: ptr.To(configapi.Replace),
+							Strategy: new(configapi.Replace),
 							Outputs: corev1.ResourceList{
 								corev1.ResourceName("example.com/accelerator-memory"): resourcev1.MustParse("5Gi"),
 								corev1.ResourceName("example.com/credits"):            resourcev1.MustParse("10"),
@@ -890,7 +896,7 @@ objectRetentionPolicies:
 						},
 						{
 							Input:    corev1.ResourceName("nvidia.com/mig-2g.10gb"),
-							Strategy: ptr.To(configapi.Replace),
+							Strategy: new(configapi.Replace),
 							Outputs: corev1.ResourceList{
 								corev1.ResourceName("example.com/accelerator-memory"): resourcev1.MustParse("10Gi"),
 								corev1.ResourceName("example.com/credits"):            resourcev1.MustParse("15"),
@@ -898,7 +904,7 @@ objectRetentionPolicies:
 						},
 						{
 							Input:    corev1.ResourceCPU,
-							Strategy: ptr.To(configapi.Retain),
+							Strategy: new(configapi.Retain),
 							Outputs: corev1.ResourceList{
 								corev1.ResourceName("example.com/credits"): resourcev1.MustParse("1"),
 							},
@@ -924,7 +930,7 @@ objectRetentionPolicies:
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                    ptr.To(configapi.DefaultNamespace),
+				Namespace:                    new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName:   false,
 				InternalCertManagement:       enableDefaultInternalCertManagement,
 				ClientConnection:             defaultClientConnection,
@@ -969,7 +975,7 @@ objectRetentionPolicies:
 	}
 }
 
-func TestTLSOptionsFeatureGate(t *testing.T) {
+func TestTLSOptions(t *testing.T) {
 	testScheme := runtime.NewScheme()
 	err := configapi.AddToScheme(testScheme)
 	if err != nil {
@@ -1020,40 +1026,37 @@ webhook:
 	testcases := []struct {
 		name              string
 		configFile        string
-		featureGates      map[featuregate.Feature]bool
 		wantConfiguration configapi.Configuration
-		verifyTLSApplied  bool
 		wantError         error
 	}{
 		{
-			name:         "TLS config applied when feature gate enabled",
-			configFile:   tlsConfigWithCipherSuites,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
+			name:       "TLS config with cipher suites is applied",
+			configFile: tlsConfigWithCipherSuites,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
+					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
 				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+					QPS:   new(configapi.DefaultClientConnectionQPS),
+					Burst: new(configapi.DefaultClientConnectionBurst),
 				},
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{job.FrameworkName},
 				},
 				MultiKueue: &configapi.MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1074,90 +1077,36 @@ webhook:
 					},
 				},
 			},
-			verifyTLSApplied: true,
 		},
 		{
-			name:         "TLS config NOT applied when feature gate disabled",
-			configFile:   tlsConfigWithCipherSuites,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
+			name:       "TLS 1.3 config is applied",
+			configFile: tlsConfigTLS13,
 			wantConfiguration: configapi.Configuration{
 				TypeMeta: metav1.TypeMeta{
 					APIVersion: configapi.SchemeGroupVersion.String(),
 					Kind:       "Configuration",
 				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
+				Namespace:                  new(configapi.DefaultNamespace),
 				ManageJobsWithoutQueueName: false,
 				InternalCertManagement: &configapi.InternalCertManagement{
 					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
+					WebhookServiceName: new(configapi.DefaultWebhookServiceName),
+					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
 
 				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
+					QPS:   new(configapi.DefaultClientConnectionQPS),
+					Burst: new(configapi.DefaultClientConnectionBurst),
 				},
 				Integrations: &configapi.Integrations{
 					Frameworks: []string{job.FrameworkName},
 				},
 				MultiKueue: &configapi.MultiKueue{
 					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
+					Origin:            new(configapi.DefaultMultiKueueOrigin),
 					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
-				},
-				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      corev1.LabelMetadataName,
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
-						},
-					},
-				},
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "VersionTLS12",
-						CipherSuites: []string{
-							"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
-							"TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
-						},
-					},
-				},
-			},
-			verifyTLSApplied: false,
-		},
-		{
-			name:         "TLS 1.3 config applied when feature gate enabled",
-			configFile:   tlsConfigTLS13,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
-			wantConfiguration: configapi.Configuration{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.SchemeGroupVersion.String(),
-					Kind:       "Configuration",
-				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
-				ManageJobsWithoutQueueName: false,
-				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
-				},
-				WaitForPodsReady: defaultWaitForPodsReady,
-
-				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
-				},
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{job.FrameworkName},
-				},
-				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
+					DispatcherName:    new(configapi.MultiKueueDispatcherModeAllAtOnce),
 				},
 				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -1174,116 +1123,16 @@ webhook:
 					},
 				},
 			},
-			verifyTLSApplied: true,
 		},
 		{
-			name:         "invalid TLS config returns error when feature gate enabled",
-			configFile:   tlsConfigInvalid,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: true},
-			wantError:    ErrWebhookTLSParse,
-		},
-		{
-			name:         "invalid TLS config ignored when feature gate disabled",
-			configFile:   tlsConfigInvalid,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
-			wantConfiguration: configapi.Configuration{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.SchemeGroupVersion.String(),
-					Kind:       "Configuration",
-				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
-				ManageJobsWithoutQueueName: false,
-				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
-				},
-				WaitForPodsReady: defaultWaitForPodsReady,
-				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
-				},
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{job.FrameworkName},
-				},
-				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
-				},
-				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      corev1.LabelMetadataName,
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
-						},
-					},
-				},
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "InvalidVersion",
-					},
-				},
-			},
-			verifyTLSApplied: false,
-		},
-		{
-			name:         "TLS 1.3 config NOT applied when feature gate disabled",
-			configFile:   tlsConfigTLS13,
-			featureGates: map[featuregate.Feature]bool{features.TLSOptions: false},
-			wantConfiguration: configapi.Configuration{
-				TypeMeta: metav1.TypeMeta{
-					APIVersion: configapi.SchemeGroupVersion.String(),
-					Kind:       "Configuration",
-				},
-				Namespace:                  ptr.To(configapi.DefaultNamespace),
-				ManageJobsWithoutQueueName: false,
-				InternalCertManagement: &configapi.InternalCertManagement{
-					Enable:             new(true),
-					WebhookServiceName: ptr.To(configapi.DefaultWebhookServiceName),
-					WebhookSecretName:  ptr.To(configapi.DefaultWebhookSecretName),
-				},
-				WaitForPodsReady: defaultWaitForPodsReady,
-
-				ClientConnection: &configapi.ClientConnection{
-					QPS:   ptr.To(configapi.DefaultClientConnectionQPS),
-					Burst: ptr.To(configapi.DefaultClientConnectionBurst),
-				},
-				Integrations: &configapi.Integrations{
-					Frameworks: []string{job.FrameworkName},
-				},
-				MultiKueue: &configapi.MultiKueue{
-					GCInterval:        &metav1.Duration{Duration: configapi.DefaultMultiKueueGCInterval},
-					Origin:            ptr.To(configapi.DefaultMultiKueueOrigin),
-					WorkerLostTimeout: &metav1.Duration{Duration: configapi.DefaultMultiKueueWorkerLostTimeout},
-					DispatcherName:    ptr.To(configapi.MultiKueueDispatcherModeAllAtOnce),
-				},
-				ManagedJobsNamespaceSelector: &metav1.LabelSelector{
-					MatchExpressions: []metav1.LabelSelectorRequirement{
-						{
-							Key:      corev1.LabelMetadataName,
-							Operator: metav1.LabelSelectorOpNotIn,
-							Values:   []string{"kube-system", "kueue-system"},
-						},
-					},
-				},
-				ControllerManager: configapi.ControllerManager{
-					TLS: &configapi.TLSOptions{
-						MinVersion: "VersionTLS13",
-					},
-				},
-			},
-			verifyTLSApplied: false,
+			name:       "invalid TLS config returns error",
+			configFile: tlsConfigInvalid,
+			wantError:  ErrWebhookTLSParse,
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Set the feature gate for this test
-			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-
 			options, cfg, err := Load(testScheme, tc.configFile)
 			if err != nil {
 				t.Fatalf("Unexpected error loading config: %v", err)
@@ -1314,21 +1163,13 @@ webhook:
 				t.Fatal("Expected WebhookServer to be created, but it was nil")
 			}
 
-			// Verify TLS options application based on feature gate
 			defaultServer, ok := options.WebhookServer.(*webhook.DefaultServer)
 			if !ok {
 				t.Fatalf("Expected WebhookServer to be *webhook.DefaultServer, got %T", options.WebhookServer)
 			}
 
-			// Check if TLSOpts are applied or not based on feature gate
-			if tc.verifyTLSApplied {
-				if len(defaultServer.Options.TLSOpts) == 0 {
-					t.Error("Expected TLSOpts to be applied when feature gate is enabled, but got none")
-				}
-			} else {
-				if len(defaultServer.Options.TLSOpts) > 0 {
-					t.Errorf("Expected TLSOpts NOT to be applied when feature gate is disabled, but got %d options", len(defaultServer.Options.TLSOpts))
-				}
+			if len(defaultServer.Options.TLSOpts) == 0 {
+				t.Error("Expected TLSOpts to be applied, but got none")
 			}
 		})
 	}
@@ -1424,8 +1265,9 @@ func TestEncode(t *testing.T) {
 					"bindPort": int64(8082),
 				},
 				"waitForPodsReady": map[string]any{
-					"blockAdmission":  false,
-					"recoveryTimeout": "30m0s",
+					"blockAdmission":       false,
+					"recoveryTimeout":      "30m0s",
+					"maxTimeoutOnWorkload": "2h0m0s",
 					"requeuingStrategy": map[string]any{
 						"backoffBaseSeconds": int64(60),
 						"backoffMaxSeconds":  int64(3600),
@@ -1501,9 +1343,7 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 
 func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 	multiclusterCRD := &apiextensionsv1.CustomResourceDefinition{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "clusterprofiles.multicluster.x-k8s.io",
-		},
+		Name: "clusterprofiles.multicluster.x-k8s.io",
 	}
 
 	testCases := map[string]struct {
@@ -1541,7 +1381,7 @@ func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 				Cache: defaultControlCacheOptions(configapi.DefaultNamespace),
 			}
 			cfg := &configapi.Configuration{
-				Namespace: ptr.To(configapi.DefaultNamespace),
+				Namespace: new(configapi.DefaultNamespace),
 			}
 
 			var objects []runtime.Object
@@ -1589,9 +1429,7 @@ func TestConfigureClusterProfileCache(t *testing.T) {
 			kubeConfig: &rest.Config{
 				Host:        "https://127.0.0.1:6443",
 				BearerToken: "fake-token",
-				TLSClientConfig: rest.TLSClientConfig{
-					Insecure: true,
-				},
+				Insecure:    true,
 			},
 		},
 	}
@@ -1602,7 +1440,7 @@ func TestConfigureClusterProfileCache(t *testing.T) {
 			opts := &ctrl.Options{
 				Cache: ctrlcache.Options{},
 			}
-			cfg := configapi.Configuration{Namespace: ptr.To(configapi.DefaultNamespace)}
+			cfg := configapi.Configuration{Namespace: new(configapi.DefaultNamespace)}
 			err := ConfigureClusterProfileCache(ctx, log, opts, tc.kubeConfig, cfg)
 
 			if err == nil {
@@ -1642,22 +1480,20 @@ namespace: kueue-system
 	}{
 		"strips managedFields and preserves object data": {
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pod",
-					Namespace: "default",
-					Labels:    map[string]string{"app": "test"},
-					Annotations: map[string]string{
-						"note": "keep-me",
+				Name:      "test-pod",
+				Namespace: "default",
+				Labels:    map[string]string{"app": "test"},
+				Annotations: map[string]string{
+					"note": "keep-me",
+				},
+				ManagedFields: []metav1.ManagedFieldsEntry{
+					{
+						Manager:   "kubectl",
+						Operation: metav1.ManagedFieldsOperationApply,
 					},
-					ManagedFields: []metav1.ManagedFieldsEntry{
-						{
-							Manager:   "kubectl",
-							Operation: metav1.ManagedFieldsOperationApply,
-						},
-						{
-							Manager:   "kube-controller-manager",
-							Operation: metav1.ManagedFieldsOperationUpdate,
-						},
+					{
+						Manager:   "kube-controller-manager",
+						Operation: metav1.ManagedFieldsOperationUpdate,
 					},
 				},
 				Spec: corev1.PodSpec{
@@ -1665,12 +1501,10 @@ namespace: kueue-system
 				},
 			},
 			wantPod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:        "test-pod",
-					Namespace:   "default",
-					Labels:      map[string]string{"app": "test"},
-					Annotations: map[string]string{"note": "keep-me"},
-				},
+				Name:        "test-pod",
+				Namespace:   "default",
+				Labels:      map[string]string{"app": "test"},
+				Annotations: map[string]string{"note": "keep-me"},
 				Spec: corev1.PodSpec{
 					NodeName: "node-1",
 				},
@@ -1678,14 +1512,10 @@ namespace: kueue-system
 		},
 		"no-op when managedFields already nil": {
 			pod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-pod",
-				},
+				Name: "test-pod",
 			},
 			wantPod: &corev1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-pod",
-				},
+				Name: "test-pod",
 			},
 		},
 	}
@@ -1702,6 +1532,67 @@ namespace: kueue-system
 			}
 			if diff := cmp.Diff(tc.wantPod, got); diff != "" {
 				t.Errorf("Unexpected pod after transform (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSetLeaderElectionConfig(t *testing.T) {
+	testCases := map[string]struct {
+		qps       float32
+		burst     int32
+		wantQPS   float32
+		wantBurst int
+	}{
+		"configured qps and burst are kept in a dedicated bucket": {
+			qps:       20,
+			burst:     30,
+			wantQPS:   20,
+			wantBurst: 30,
+		},
+		"negative qps disables client-side throttling for the lease client too": {
+			qps:     -1,
+			burst:   30,
+			wantQPS: -1,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			// Mirror cmd/kueue/main.go: one explicit RateLimiter shared by every controller client.
+			sharedLimiter := flowcontrol.NewTokenBucketRateLimiter(tc.qps, int(tc.burst))
+			kubeConfig := &rest.Config{
+				Host:        "https://kueue.test",
+				RateLimiter: sharedLimiter,
+			}
+			cfg := &configapi.Configuration{
+				ClientConnection: &configapi.ClientConnection{
+					QPS:   new(tc.qps),
+					Burst: new(tc.burst),
+				},
+			}
+			options := ctrl.Options{LeaderElection: true}
+
+			SetLeaderElectionConfig(&options, kubeConfig, cfg)
+
+			got := options.LeaderElectionConfig
+			if got == nil {
+				t.Fatal("LeaderElectionConfig is nil; the lease client would share the manager rest config")
+			}
+			if got == kubeConfig {
+				t.Error("LeaderElectionConfig is the manager rest config, want a copy")
+			}
+			if got.RateLimiter != nil {
+				t.Errorf("LeaderElectionConfig.RateLimiter = %v, want nil so the lease client builds its own limiter", got.RateLimiter)
+			}
+			if got.QPS != tc.wantQPS || got.Burst != tc.wantBurst {
+				t.Errorf("LeaderElectionConfig QPS/Burst = %v/%v, want %v/%v", got.QPS, got.Burst, tc.wantQPS, tc.wantBurst)
+			}
+			if got.Host != kubeConfig.Host {
+				t.Errorf("LeaderElectionConfig.Host = %q, want %q", got.Host, kubeConfig.Host)
+			}
+			if kubeConfig.RateLimiter != sharedLimiter {
+				t.Errorf("manager rest config was modified: %+v", kubeConfig)
 			}
 		})
 	}

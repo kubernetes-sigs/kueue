@@ -47,11 +47,9 @@ func MakeStatefulSet(name, ns string) *StatefulSetWrapper {
 		labelValue = fmt.Sprintf("%s-pod", name)
 	}
 	return &StatefulSetWrapper{appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: appsv1.StatefulSetSpec{
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{
@@ -263,6 +261,12 @@ func (ss *StatefulSetWrapper) RequestAndLimit(r corev1.ResourceName, v string) *
 // TerminationGracePeriod sets terminationGracePeriodSeconds for the pod object
 func (ss *StatefulSetWrapper) TerminationGracePeriod(seconds int64) *StatefulSetWrapper {
 	ss.Spec.Template.Spec.TerminationGracePeriodSeconds = &seconds
+	return ss
+}
+
+// ReadinessProbe sets the readiness probe of the default container.
+func (ss *StatefulSetWrapper) ReadinessProbe(probe *corev1.Probe) *StatefulSetWrapper {
+	ss.Spec.Template.Spec.Containers[0].ReadinessProbe = probe
 	return ss
 }
 

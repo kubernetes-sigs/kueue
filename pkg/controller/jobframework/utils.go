@@ -28,6 +28,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -40,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 )
 
 // PodSetReplicaSize is a minimal representation of a PodSet for the
@@ -108,11 +111,36 @@ func RecordWorkloadCreationLatency(ctx context.Context, job client.Object, jobKi
 	metrics.RecordWorkloadCreationLatency(jobKind, latency, customLabelValues, tracker)
 }
 
+type workloadShouldBeSuspendedOptions struct {
+	deletingObjectTolerance bool
+}
+
+// WorkloadShouldBeSuspendedOption configures WorkloadShouldBeSuspended.
+type WorkloadShouldBeSuspendedOption func(*workloadShouldBeSuspendedOptions)
+
+// WithDeletingObjectTolerance makes WorkloadShouldBeSuspended skip the suspend and
+// ancestry checks for an object that is already being deleted; its ancestry may
+// legitimately be gone already (e.g. during GC teardown). Webhook call sites opt in,
+// while reconciler predicates keep the strict behavior.
+func WithDeletingObjectTolerance(tolerate bool) WorkloadShouldBeSuspendedOption {
+	return func(o *workloadShouldBeSuspendedOptions) {
+		o.deletingObjectTolerance = tolerate
+	}
+}
+
 // WorkloadShouldBeSuspended determines whether jobObj should be default suspended on creation
-func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
-	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector) (bool, error) {
+func (m *IntegrationManager) WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sClient client.Client,
+	manageJobsWithoutQueueName bool, managedJobsNamespaceSelector labels.Selector, opts ...WorkloadShouldBeSuspendedOption) (bool, error) {
+	var options workloadShouldBeSuspendedOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
+	if options.deletingObjectTolerance && skipCheckForDeletedObject(jobObj) {
+		ctrl.LoggerFrom(ctx).V(3).Info("Skipping suspend check for an object that is being deleted", "object", klog.KObj(jobObj))
+		return false, nil
+	}
 	// Do not default suspend a job whose ancestor is already managed by Kueue
-	ancestorJob, err := FindAncestorJobManagedByKueue(ctx, k8sClient, jobObj, manageJobsWithoutQueueName)
+	ancestorJob, err := m.FindAncestorJobManagedByKueue(ctx, k8sClient, jobObj, manageJobsWithoutQueueName)
 	if err != nil || ancestorJob != nil {
 		return false, err
 	}
@@ -124,20 +152,22 @@ func WorkloadShouldBeSuspended(ctx context.Context, jobObj client.Object, k8sCli
 
 	// Logic for managing jobs without queue names.
 	if manageJobsWithoutQueueName {
-		if managedJobsNamespaceSelector != nil {
-			// Default suspend the job if the namespace selector matches
-			ns := corev1.Namespace{}
-			err := k8sClient.Get(ctx, client.ObjectKey{Name: jobObj.GetNamespace()}, &ns)
-			if err != nil {
-				return false, fmt.Errorf("failed to get namespace: %w", err)
-			}
-			return managedJobsNamespaceSelector.Matches(labels.Set(ns.GetLabels())), nil
-		} else {
-			// Namespace filtering is disabled; unconditionally default suspend
-			return true, nil
-		}
+		return namespaceMatchesSelector(ctx, k8sClient, jobObj.GetNamespace(), managedJobsNamespaceSelector)
 	}
 	return false, nil
+}
+
+// namespaceMatchesSelector returns true if the namespace matches the given selector.
+// If the selector is nil, all namespaces are considered matching.
+func namespaceMatchesSelector(ctx context.Context, k8sClient client.Client, namespace string, selector labels.Selector) (bool, error) {
+	if selector == nil {
+		return true, nil
+	}
+	ns := corev1.Namespace{}
+	if err := k8sClient.Get(ctx, client.ObjectKey{Name: namespace}, &ns); err != nil {
+		return false, fmt.Errorf("failed to get namespace: %w", err)
+	}
+	return selector.Matches(labels.Set(ns.GetLabels())), nil
 }
 
 // QueueName extracts and returns the LocalQueueName for the given GenericJob
@@ -188,12 +218,19 @@ func PrebuiltWorkloadNameFor(obj client.Object) string {
 		if name := obj.GetAnnotations()[controllerconstants.PrebuiltWorkloadAnnotation]; name != "" {
 			return name
 		}
+		return obj.GetLabels()[controllerconstants.PrebuiltWorkloadLabel]
 	}
-	return obj.GetLabels()[controllerconstants.PrebuiltWorkloadLabel]
+	if name := obj.GetLabels()[controllerconstants.PrebuiltWorkloadLabel]; name != "" {
+		return name
+	}
+	if name := obj.GetAnnotations()[controllerconstants.PrebuiltWorkloadAnnotation]; len(name) > validation.LabelValueMaxLength {
+		return name
+	}
+	return ""
 }
 
 func SetPrebuiltWorkloadName(obj client.Object, workloadName string) {
-	if features.Enabled(features.WorkloadIdentifierAnnotations) {
+	if features.Enabled(features.WorkloadIdentifierAnnotations) || len(workloadName) > validation.LabelValueMaxLength {
 		annotations := obj.GetAnnotations()
 		if annotations == nil {
 			annotations = make(map[string]string, 1)
@@ -226,17 +263,21 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 // associated object, pod sets, and label keys to copy.
 func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy, annotationsToCopy sets.Set[string]) *kueue.Workload {
 	annotations := admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations())
+	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		annotation := obj.GetAnnotations()[controllerconstants.WaitForPodsReadyAnnotation]
+		if annotation != "" {
+			annotations[controllerconstants.WaitForPodsReadyAnnotation] = annotation
+		}
+	}
 	if features.Enabled(features.CustomMetricLabels) {
 		maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), annotationsToCopy.UnsortedList()))
 	}
 	return &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   obj.GetNamespace(),
-			Labels:      maps.FilterKeys(obj.GetLabels(), labelKeysToCopy.UnsortedList()),
-			Finalizers:  []string{kueue.ResourceInUseFinalizerName},
-			Annotations: annotations,
-		},
+		Name:        name,
+		Namespace:   obj.GetNamespace(),
+		Labels:      maps.FilterKeys(obj.GetLabels(), labelKeysToCopy.UnsortedList()),
+		Finalizers:  []string{kueue.ResourceInUseFinalizerName},
+		Annotations: annotations,
 		Spec: kueue.WorkloadSpec{
 			QueueName:                   QueueNameForObject(obj),
 			PodSets:                     podSets,

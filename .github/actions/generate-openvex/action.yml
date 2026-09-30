@@ -1,0 +1,22 @@
+name: Generate OpenVEX
+description: Generates OpenVEX data and uploads it to the GitHub release.
+
+inputs:
+  tag:
+    description: Release tag (e.g. v0.20.0)
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - uses: openvex/generate-vex@c59881b41451d7ccba5c3b74cd195382b8971fcd
+      name: Run vexctl
+      with:
+        product: pkg:golang/sigs.k8s.io/kueue@${{ inputs.tag }}
+        file: /tmp/kueue.vex.json
+    - name: Upload OpenVEX data
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        TAG: ${{ inputs.tag }}
+      run: gh release upload "$TAG" /tmp/kueue.vex.json

@@ -26,7 +26,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -140,20 +139,18 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 
 			ginkgo.By("Delete the potentially conflicting stateful-set and await for is Pod and workload deletion", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, conflictingStatefulSet, true)
-				conflictingPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+				conflictingPod := &corev1.Pod{
 					Name:      conflictingStatefulSet.Name + "-0",
-					Namespace: ns.Name,
-				}}
+					Namespace: ns.Name}
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, conflictingPod, false, util.LongTimeout)
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, conflictingWorkload, false, util.MediumTimeout)
 			})
 
 			ginkgo.By("Delete the first stateful-set and await for is Pod and workload deletion", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, statefulSet, true)
-				stsPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{
+				stsPod := &corev1.Pod{
 					Name:      statefulSet.Name + "-0",
-					Namespace: ns.Name,
-				}}
+					Namespace: ns.Name}
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, stsPod, false, util.LongTimeout)
 				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.MediumTimeout)
 			})
@@ -241,7 +238,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
-					createdStatefulSet.Spec.Replicas = ptr.To[int32](0)
+					createdStatefulSet.Spec.Replicas = new(int32(0))
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -280,7 +277,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
-					createdStatefulSet.Spec.Replicas = ptr.To[int32](3)
+					createdStatefulSet.Spec.Replicas = new(int32(3))
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -330,7 +327,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
-					createdStatefulSet.Spec.Replicas = ptr.To[int32](0)
+					createdStatefulSet.Spec.Replicas = new(int32(0))
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -348,7 +345,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
-					createdStatefulSet.Spec.Replicas = ptr.To[int32](3)
+					createdStatefulSet.Spec.Replicas = new(int32(3))
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
 				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -428,7 +425,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
-					createdStatefulSet.Spec.Replicas = ptr.To[int32](1)
+					createdStatefulSet.Spec.Replicas = new(int32(1))
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -793,7 +790,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(statefulSet), createdStatefulSet)).To(gomega.Succeed())
-					createdStatefulSet.Spec.Replicas = ptr.To[int32](0)
+					createdStatefulSet.Spec.Replicas = new(int32(0))
 					g.Expect(k8sClient.Update(ctx, createdStatefulSet)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})

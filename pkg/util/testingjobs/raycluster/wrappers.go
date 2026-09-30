@@ -23,7 +23,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -39,17 +38,74 @@ func MakeWorkerGroups(count int) []rayv1.WorkerGroupSpec {
 	return groups
 }
 
+// WorkerGroupWrapper wraps a RayCluster worker group spec, for tests that need more than
+// the single default group the ClusterWrapper and ServiceWrapper setters address.
+type WorkerGroupWrapper struct{ rayv1.WorkerGroupSpec }
+
+// MakeWorkerGroup creates a wrapper for a worker group with the given name and replicas.
+func MakeWorkerGroup(name string, replicas int32) *WorkerGroupWrapper {
+	return &WorkerGroupWrapper{rayv1.WorkerGroupSpec{
+		GroupName:      name,
+		Replicas:       new(replicas),
+		MinReplicas:    new(int32(0)),
+		MaxReplicas:    new(int32(10)),
+		RayStartParams: map[string]string{},
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				NodeSelector: map[string]string{},
+				Containers: []corev1.Container{
+					{
+						Name:    "worker-container",
+						Command: []string{},
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{},
+							Limits:   corev1.ResourceList{},
+						},
+					},
+				},
+			},
+		},
+	}}
+}
+
+// Obj returns the inner WorkerGroupSpec.
+func (w *WorkerGroupWrapper) Obj() *rayv1.WorkerGroupSpec {
+	return &w.WorkerGroupSpec
+}
+
+// MinReplicas sets the group's minReplicas.
+func (w *WorkerGroupWrapper) MinReplicas(replicas int32) *WorkerGroupWrapper {
+	w.WorkerGroupSpec.MinReplicas = new(replicas)
+	return w
+}
+
+// MaxReplicas sets the group's maxReplicas.
+func (w *WorkerGroupWrapper) MaxReplicas(replicas int32) *WorkerGroupWrapper {
+	w.WorkerGroupSpec.MaxReplicas = new(replicas)
+	return w
+}
+
+// Request adds a resource request to the group's default container.
+func (w *WorkerGroupWrapper) Request(r corev1.ResourceName, v string) *WorkerGroupWrapper {
+	w.Template.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
+	return w
+}
+
+// NodeSelector adds a node selector to the group's pod template.
+func (w *WorkerGroupWrapper) NodeSelector(key, value string) *WorkerGroupWrapper {
+	w.Template.Spec.NodeSelector[key] = value
+	return w
+}
+
 // ClusterWrapper wraps a RayCluster.
 type ClusterWrapper struct{ rayv1.RayCluster }
 
 // MakeCluster creates a wrapper for rayCluster
 func MakeCluster(name, ns string) *ClusterWrapper {
 	return &ClusterWrapper{rayv1.RayCluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: rayv1.RayClusterSpec{
 			RayVersion: utiltesting.TestRayVersion(),
 			HeadGroupSpec: rayv1.HeadGroupSpec{
@@ -73,9 +129,9 @@ func MakeCluster(name, ns string) *ClusterWrapper {
 			WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 				{
 					GroupName:      "workers-group-0",
-					Replicas:       ptr.To[int32](1),
-					MinReplicas:    ptr.To[int32](0),
-					MaxReplicas:    ptr.To[int32](10),
+					Replicas:       new(int32(1)),
+					MinReplicas:    new(int32(0)),
+					MaxReplicas:    new(int32(10)),
 					RayStartParams: map[string]string{},
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
@@ -173,8 +229,38 @@ func (j *ClusterWrapper) WithEnableAutoscaling(value *bool) *ClusterWrapper {
 	return j
 }
 
+// SchedulingGate adds a scheduling gate to the head group and every worker group template.
+func (j *ClusterWrapper) SchedulingGate(name string) *ClusterWrapper {
+	gate := corev1.PodSchedulingGate{Name: name}
+	j.Spec.HeadGroupSpec.Template.Spec.SchedulingGates = append(j.Spec.HeadGroupSpec.Template.Spec.SchedulingGates, gate)
+	for i := range j.Spec.WorkerGroupSpecs {
+		wgs := &j.Spec.WorkerGroupSpecs[i]
+		wgs.Template.Spec.SchedulingGates = append(wgs.Template.Spec.SchedulingGates, gate)
+	}
+	return j
+}
+
+func (j *ClusterWrapper) WithAutoscalerOptions(value *rayv1.AutoscalerOptions) *ClusterWrapper {
+	j.Spec.AutoscalerOptions = value
+	return j
+}
+
+func (j *ClusterWrapper) WithHistoryServerOptions(value *rayv1.HistoryServerOptions) *ClusterWrapper {
+	j.Spec.HistoryServerOptions = value
+	return j
+}
+
 func (j *ClusterWrapper) ScaleFirstWorkerGroup(replicas int32) *ClusterWrapper {
 	j.Spec.WorkerGroupSpecs[0].Replicas = &replicas
+	return j
+}
+
+// FirstWorkerGroupReplicas pins replicas, minReplicas and maxReplicas of the first worker group.
+func (j *ClusterWrapper) FirstWorkerGroupReplicas(replicas, minReplicas, maxReplicas int32) *ClusterWrapper {
+	wgs := &j.Spec.WorkerGroupSpecs[0]
+	wgs.Replicas = new(replicas)
+	wgs.MinReplicas = new(minReplicas)
+	wgs.MaxReplicas = new(maxReplicas)
 	return j
 }
 
@@ -324,6 +410,14 @@ func (j *ClusterWrapper) RayStartParam(rayType rayv1.RayNodeType, key, value str
 		j.Spec.WorkerGroupSpecs[0].RayStartParams[key] = value
 	default:
 		panic(fmt.Sprintf("unsupported RayNodeType: %v", rayType))
+	}
+	return j
+}
+
+func (j *ClusterWrapper) TerminationGracePeriod(seconds int64) *ClusterWrapper {
+	j.Spec.HeadGroupSpec.Template.Spec.TerminationGracePeriodSeconds = new(seconds)
+	for i := range j.Spec.WorkerGroupSpecs {
+		j.Spec.WorkerGroupSpecs[i].Template.Spec.TerminationGracePeriodSeconds = new(seconds)
 	}
 	return j
 }

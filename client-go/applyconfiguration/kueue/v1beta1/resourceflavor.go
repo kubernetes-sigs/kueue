@@ -29,7 +29,7 @@ import (
 //
 // ResourceFlavor is the Schema for the resourceflavors API.
 type ResourceFlavorApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration `json:",inline"`
+	v1.TypeMetaApplyConfiguration `json:""`
 	// metadata is the metadata of the ResourceFlavor.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
 	// spec is the specification of the ResourceFlavor.

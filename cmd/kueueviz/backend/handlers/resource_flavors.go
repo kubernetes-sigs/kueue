@@ -22,6 +22,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"k8s.io/api/core/v1"
+	"kueueviz/middleware"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -39,9 +40,10 @@ func (h *Handlers) ResourceFlavorsWebSocketHandler() gin.HandlerFunc {
 func (h *Handlers) ResourceFlavorDetailsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		flavorName := c.Param("flavor_name")
+		identity, _ := middleware.IdentityFromContext(c)
 
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-			return h.fetchResourceFlavorDetails(ctx, flavorName)
+			return h.fetchResourceFlavorDetails(ctx, flavorName, identity)
 		},
 			ResourceFlavorsGVK(),
 			ClusterQueuesGVK(),
@@ -77,7 +79,7 @@ func (h *Handlers) fetchResourceFlavors(ctx context.Context) (any, error) {
 }
 
 // Fetch details for a specific Resource Flavor
-func (h *Handlers) fetchResourceFlavorDetails(ctx context.Context, flavorName string) (map[string]any, error) {
+func (h *Handlers) fetchResourceFlavorDetails(ctx context.Context, flavorName string, identity middleware.Identity) (map[string]any, error) {
 	// Fetch the specified resource flavor details
 	flavor := &kueueapi.ResourceFlavor{}
 	err := h.client.Get(ctx, ctrlclient.ObjectKey{Name: flavorName}, flavor)
@@ -85,50 +87,70 @@ func (h *Handlers) fetchResourceFlavorDetails(ctx context.Context, flavorName st
 		return nil, fmt.Errorf("error fetching resource flavor %s: %v", flavorName, err)
 	}
 
-	// List all cluster queues
-	cql := &kueueapi.ClusterQueueList{}
-	err = h.client.List(ctx, cql)
-	if err != nil {
-		return nil, fmt.Errorf("error listing cluster queues: %v", err)
+	hasClusterQueuesAccess := true
+	if h.authorizer != nil {
+		allowed, err := h.authorizer.Authorize(ctx, identity, middleware.ResourceAccess("list", ClusterQueuesGVR(), "", ""))
+		if err != nil || !allowed {
+			hasClusterQueuesAccess = false
+		}
 	}
 
 	queuesUsingFlavor := []map[string]any{}
+	if hasClusterQueuesAccess {
+		// List all cluster queues
+		cql := &kueueapi.ClusterQueueList{}
+		err = h.client.List(ctx, cql)
+		if err != nil {
+			return nil, fmt.Errorf("error listing cluster queues: %v", err)
+		}
 
-	// Iterate through each cluster queue to find queues using the specified flavor
-	for _, item := range cql.Items {
-		queueName := item.GetName()
-		resourceGroups := item.Spec.ResourceGroups
+		// Iterate through each cluster queue to find queues using the specified flavor
+		for _, item := range cql.Items {
+			queueName := item.GetName()
+			resourceGroups := item.Spec.ResourceGroups
 
-		for _, group := range resourceGroups {
-			for _, fl := range group.Flavors {
-				if string(fl.Name) == flavorName {
-					// Collect resource and quota information
-					quotaInfo := []map[string]any{}
+			for _, group := range resourceGroups {
+				for _, fl := range group.Flavors {
+					if string(fl.Name) == flavorName {
+						// Collect resource and quota information
+						quotaInfo := []map[string]any{}
 
-					for _, res := range fl.Resources {
-						resourceName := string(res.Name)
-						nominalQuota := res.NominalQuota.String()
+						for _, res := range fl.Resources {
+							resourceName := string(res.Name)
+							nominalQuota := res.NominalQuota.String()
 
-						quotaInfo = append(quotaInfo, map[string]any{
-							"resource":     resourceName,
-							"nominalQuota": nominalQuota,
+							quotaInfo = append(quotaInfo, map[string]any{
+								"resource":     resourceName,
+								"nominalQuota": nominalQuota,
+							})
+						}
+
+						queuesUsingFlavor = append(queuesUsingFlavor, map[string]any{
+							"queueName": queueName,
+							"quota":     quotaInfo,
 						})
+						break
 					}
-
-					queuesUsingFlavor = append(queuesUsingFlavor, map[string]any{
-						"queueName": queueName,
-						"quota":     quotaInfo,
-					})
-					break
 				}
 			}
 		}
 	}
 
-	// Retrieve matching nodes for the flavor
-	matchingNodes, err := h.getNodesForFlavor(ctx, flavorName)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching nodes for resource flavor %s: %w", flavorName, err)
+	hasNodesAccess := true
+	if h.authorizer != nil {
+		allowed, err := h.authorizer.Authorize(ctx, identity, middleware.ResourceAccess("list", NodesGVR(), "", ""))
+		if err != nil || !allowed {
+			hasNodesAccess = false
+		}
+	}
+
+	var matchingNodes []map[string]any
+	if hasNodesAccess {
+		// Retrieve matching nodes for the flavor
+		matchingNodes, err = h.getNodesForFlavor(ctx, flavorName)
+		if err != nil {
+			return nil, fmt.Errorf("error fetching nodes for resource flavor %s: %w", flavorName, err)
+		}
 	}
 
 	details := map[string]any{
@@ -136,12 +158,21 @@ func (h *Handlers) fetchResourceFlavorDetails(ctx context.Context, flavorName st
 		"taints":      flavor.Spec.NodeTaints,
 	}
 
+	omittedPanels := []string{}
+	if !hasClusterQueuesAccess {
+		omittedPanels = append(omittedPanels, "queues")
+	}
+	if !hasNodesAccess {
+		omittedPanels = append(omittedPanels, "nodes")
+	}
+
 	// Construct the result
 	result := map[string]any{
-		"name":    flavorName,
-		"details": details,
-		"queues":  queuesUsingFlavor,
-		"nodes":   matchingNodes,
+		"name":          flavorName,
+		"details":       details,
+		"queues":        queuesUsingFlavor,
+		"nodes":         matchingNodes,
+		"omittedPanels": omittedPanels,
 	}
 
 	return result, nil

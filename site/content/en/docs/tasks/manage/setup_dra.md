@@ -158,7 +158,10 @@ auto-discovers the mapping by indexing `DeviceClass` objects.
 ### 2. Add the extended resource to your ClusterQueue
 
 The `coveredResources` must include the extended resource name that matches
-`spec.extendedResourceName` on the `DeviceClass`:
+`spec.extendedResourceName` on the `DeviceClass`. Where a `deviceClassMappings`
+entry remaps that name, only the containers' request moves to the mapped name, so
+cover that one alongside the original, which still carries a chargeable Pod
+overhead or a resource-transformation output written to it.
 
 {{< include "examples/dra/sample-dra-queues.yaml" "yaml" >}}
 
@@ -211,105 +214,6 @@ Configure a `sources` entry in `deviceClassMappings`. Follow the
 ```yaml
 apiVersion: config.kueue.x-k8s.io/v1beta2
 kind: Configuration
-resources:
-  deviceClassMappings:
-  - name: gpu.memory
-    deviceClassNames:
-    - gpu.example.com
-    sources:
-    - counter:
-        name: memory
-        driver: gpu.example.com
-        deviceSelector:
-          cel:
-            expression: "device.driver == 'gpu.example.com'"
-```
-
-The `sources[].counter.name` must match a counter key published by your DRA
-driver in `ResourceSlice` devices. You can inspect these with:
-
-```shell
-kubectl get resourceslices -o jsonpath='{range .items[*]}{.spec.driver}{"\t"}{range .spec.devices[*]}{.name}: {.consumesCounters}{"\n"}{end}{end}'
-```
-
-The output is similar to the following:
-
-```
-gpu.example.com  gpu-0: [{"counterSet":"shared","counters":{"memory":{"value":"10Gi"}}}]
-```
-
-### 2. Add the counter resource to your ClusterQueue
-
-Set the quota in counter units (e.g., `256Mi`) instead of device count (e.g., `1`). When ClusterQueues
-share a cohort, ensure all queues use the same unit scale for counter
-resources. Kueue does not validate unit consistency across ClusterQueues.
-
-{{< include "examples/dra/sample-dra-counter-queues.yaml" "yaml" >}}
-
-```shell
-kubectl apply -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-counter-queues.yaml
-```
-
-### 3. Verify counter-based quota is working
-
-Submit a test workload:
-
-{{< include "examples/dra/sample-dra-counter-job.yaml" "yaml" >}}
-
-```shell
-kubectl create -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-counter-job.yaml
-```
-
-Check the workload's `resourceUsage` to confirm quota was charged by
-counter value:
-
-```shell
-kubectl -n default get workloads.kueue.x-k8s.io -o jsonpath='{range .items[*]}{.metadata.name}: {.status.admission.podSetAssignments[0].resourceUsage}{"\n"}{end}'
-```
-
-The output is similar to the following:
-
-```
-job-sample-dra-counter-job-xxxxx: {"gpu.memory":"85899345920"}
-```
-
-### Troubleshooting counter-based quota
-
-**Workload rejected with "insufficient matching devices"**: Kueue could not
-find enough devices matching the `deviceSelector` CEL expression. This can
-happen if `ResourceSlice` objects are not yet populated (e.g., during driver
-startup or node registration). Verify that ResourceSlices exist and contain
-devices matching your selector.
-
-**Workload rejected with "no consumesCounters entry for counter"**: The
-devices in `ResourceSlice` objects do not have a `consumesCounters` entry
-matching the `name` configured in `sources[].counter.name`. Verify the
-counter name matches what your DRA driver publishes (see step 1).
-
-**Kueue fails to start with "CEL compilation failed"**: The `deviceSelector`
-CEL expression has a syntax or type error. Check the expression against the
-[DRA CEL environment](https://kubernetes.io/docs/concepts/scheduling-eviction/dynamic-resource-allocation/#device-selector).
-
-## Set up counter-based quota (partitionable devices)
-
-{{< feature-state state="alpha" for_version="v0.18" >}}
-
-Use this when your cluster has partitionable devices and you want quota to
-reflect actual device capacity rather than device count. This requires
-Kubernetes 1.35+ with the `DRAPartitionableDevices` feature gate enabled
-and a DRA driver that publishes `consumesCounters` in `ResourceSlice` objects.
-
-### 1. Enable the feature gate and configure counter sources
-
-Install or reconfigure Kueue with the `KueueDRAIntegrationPartitionableDevices`
-feature gate enabled and a `sources` entry in `deviceClassMappings`. Follow the
-[custom configuration installation instructions](/docs/installation/#install-a-custom-configured-released-version).
-
-```yaml
-apiVersion: config.kueue.x-k8s.io/v1beta2
-kind: Configuration
-featureGates:
-  KueueDRAIntegrationPartitionableDevices: true
 resources:
   deviceClassMappings:
   - name: gpu.memory
@@ -503,6 +407,110 @@ name matches what your DRA driver publishes.
 requested amount exceeds the device's `RequestPolicy` limits (e.g., request
 exceeds `ValidRange.Max` or all `ValidValues`). Adjust the workload's
 `capacity.requests` to a value within the device's policy.
+
+## Use Topology-Aware Scheduling with DRA
+
+{{< feature-state state="alpha" for_version="v0.20" >}}
+
+Use this feature when DRA workloads run in a [Topology-Aware Scheduling](/docs/concepts/topology_aware_scheduling/)
+(TAS) flavor and you want Kueue to place each Pod only on nodes that can allocate
+the devices it requests. This requires the `ResourceClaimTemplate` path or the extended
+resource path to be set up as described above. See
+[Topology-Aware Scheduling with DRA](/docs/concepts/dynamic_resource_allocation/#topology-aware-scheduling-with-dra)
+for the prerequisites and limitations.
+
+### 1. Enable the feature gates
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+featureGates:
+  KueueDRADeviceFeasibility: true
+  KueueDRAIntegrationDeviceTaints: true  # optional: honor device taints
+```
+
+`KueueDRADeviceFeasibility` also requires `KueueDRAIntegration`,
+`TopologyAwareScheduling` and `TASNodeFeasibilityForAllLevels`, which are enabled by
+default.
+
+### 2. Create a TAS flavor with the DRA resource
+
+The nodes need the labels that the example `Topology` and flavor below refer to. On
+an existing cluster, label each node with its block and rack, for example:
+
+```shell
+kubectl label node <node-name> cloud.provider.com/node-group=tas-group cloud.provider.com/topology-block=b1 cloud.provider.com/topology-rack=r1
+```
+
+Verify the labels:
+
+```shell
+kubectl get nodes -L cloud.provider.com/topology-block,cloud.provider.com/topology-rack
+```
+
+For more about topology labels, see
+[Setup Topology-Aware Scheduling](/docs/tasks/manage/setup_topology_aware_scheduling/).
+
+The check runs only for workloads assigned a `ResourceFlavor` with a
+`topologyName`. The following example creates a `Topology`, a flavor for the nodes
+labeled `cloud.provider.com/node-group: tas-group`, and a `ClusterQueue` that covers
+`example.com/gpu`, the resource name mapped in `deviceClassMappings` above:
+
+{{< include "examples/dra/sample-dra-tas-queues.yaml" "yaml" >}}
+
+```shell
+kubectl apply -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-tas-queues.yaml
+```
+
+### 3. Verify the check is working
+
+Submit a workload that requests one GPU per Pod:
+
+{{< include "examples/dra/sample-dra-tas-job.yaml" "yaml" >}}
+
+```shell
+kubectl create -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-tas-job.yaml
+```
+
+If you submit the example more than once, `kubectl` reports that the
+`ResourceClaimTemplate` `single-gpu-tas` already exists. The Job is still created.
+
+Check the node the workload was assigned to:
+
+```shell
+kubectl -n default get workloads.kueue.x-k8s.io -o jsonpath='{range .items[*]}{.metadata.name}: {.status.admission.podSetAssignments[0].topologyAssignment}{"\n"}{end}'
+```
+
+The output is similar to the following:
+
+```
+job-sample-dra-tas-job-xxxxx: {"levels":["kubernetes.io/hostname"],"slices":[{"domainCount":1,"podCounts":{"universal":2},"valuesPerLevel":[{"universal":"gpu-node-1"}]}]}
+```
+
+The node is one that publishes `gpu.example.com` devices. You can list those nodes
+with:
+
+```shell
+kubectl get resourceslices -o custom-columns=NODE:.spec.nodeName,DRIVER:.spec.driver,DEVICES:.spec.devices[*].name
+```
+
+When no node in the topology has the devices a Pod requests, for example because their
+devices are in use or, with `KueueDRAIntegrationDeviceTaints`, tainted, the workload
+stays pending. Its `QuotaReserved` condition counts the nodes rejected for devices as
+`draNoFit`:
+
+```shell
+kubectl -n default get workloads.kueue.x-k8s.io -o jsonpath='{range .items[*]}{.metadata.name}: {.status.conditions[?(@.type=="QuotaReserved")].message}{"\n"}{end}'
+```
+
+The output is similar to the following:
+
+```
+job-sample-dra-tas-job-xxxxx: couldn't assign flavors to pod set main: topology "dra-topology" doesn't allow to fit any of 2 pod(s). Total nodes: 2; excluded: draNoFit: 2
+```
+
+If the request also exceeds the quota, the message reports insufficient quota
+instead, because quota is checked first.
 
 ## Path separation
 

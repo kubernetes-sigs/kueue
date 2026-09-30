@@ -128,9 +128,9 @@ func TestSetupControllers(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			manager := integrationManager{}
+			manager := NewIntegrationManager()
 			for name, cbs := range availableIntegrations {
-				err := manager.register(name, cbs)
+				err := manager.RegisterIntegration(name, cbs)
 				if err != nil {
 					t.Fatalf("Unexpected error while registering %q: %s", name, err)
 				}
@@ -164,7 +164,7 @@ func TestSetupControllers(t *testing.T) {
 				t.Fatalf("Failed to setup manager: %v", err)
 			}
 
-			gotError := manager.setupControllers(ctx, mgr, logger, tc.opts...)
+			gotError := manager.SetupControllers(ctx, mgr, logger, tc.opts...)
 			if diff := cmp.Diff(tc.wantError, gotError, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Errorf("Unexpected error from SetupControllers (-want,+got):\n%s", diff)
 			}
@@ -172,7 +172,7 @@ func TestSetupControllers(t *testing.T) {
 			if len(tc.delayedGVKs) > 0 {
 				simulateDelayedIntegration(mgr, tc.delayedGVKs)
 				for _, gvk := range tc.delayedGVKs {
-					testDelayedIntegration(&manager, gvk.Group+"/"+strings.ToLower(gvk.Kind))
+					testDelayedIntegration(manager, gvk.Group+"/"+strings.ToLower(gvk.Kind))
 				}
 			}
 
@@ -206,7 +206,7 @@ func simulateDelayedIntegration(mgr ctrlmgr.Manager, delayedGVKs []*schema.Group
 	}
 }
 
-func testDelayedIntegration(manager *integrationManager, crdName string) {
+func testDelayedIntegration(manager *IntegrationManager, crdName string) {
 	for {
 		_, ok := manager.getEnabledIntegrations()[crdName]
 		if ok {
@@ -260,12 +260,23 @@ func TestSetupIndexes(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			manager := NewIntegrationManager()
+			if err := manager.RegisterIntegration("batch/job", IntegrationCallbacks{
+				NewReconciler: testNewReconciler,
+				SetupWebhook:  testSetupWebhook,
+				JobType:       &batchv1.Job{},
+				SetupIndexes: func(ctx context.Context, indexer client.FieldIndexer) error {
+					return SetupWorkloadOwnerIndex(ctx, indexer, batchv1.SchemeGroupVersion.WithKind("Job"))
+				},
+			}); err != nil {
+				t.Fatalf("Unexpected error while registering batch/job: %s", err)
+			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			ctx, cancel := context.WithCancel(ctx)
 			defer cancel()
 
 			builder := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace(testNamespace))
-			gotIndexerErr := SetupIndexes(ctx, utiltesting.AsIndexer(builder), tc.opts...)
+			gotIndexerErr := manager.SetupIndexes(ctx, utiltesting.AsIndexer(builder), tc.opts...)
 			if diff := cmp.Diff(tc.wantError, gotIndexerErr, cmpopts.EquateErrors()); len(diff) != 0 {
 				t.Fatalf("Unexpected setupIndexer error (-want,+got):\n%s", diff)
 			}

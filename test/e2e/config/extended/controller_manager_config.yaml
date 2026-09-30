@@ -39,11 +39,16 @@ integrations:
   - "deployment"
   - "statefulset"
   - "leaderworkerset.x-k8s.io/leaderworkerset"
+  labelKeysToCopy:
+  # Propagated onto the Workload so a topology-spreading annotation's
+  # workloadLabelSelectors can group Workloads by it.
+  - "spread-group"
 featureGates:
   LocalQueueMetrics: true
   ElasticJobsViaWorkloadSlices: true
   ConcurrentAdmission: true
   MultiKueueManagerQuotaAutomation: true
+  TASTopologySpreading: true
 tls:
   minVersion: "VersionTLS12"
   # this is the default ciphersuite for golang 1.26

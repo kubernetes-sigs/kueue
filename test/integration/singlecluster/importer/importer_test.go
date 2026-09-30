@@ -106,7 +106,7 @@ var _ = ginkgo.Describe("Importer", func() {
 			})
 
 			ginkgo.By("Running the import", func() {
-				mapping, err := importercache.Load(ctx, k8sClient, []string{ns1.Name}, importermapping.RulesForLabel("src.lbl", map[string]string{"src-val": lqName}), nil)
+				mapping, err := importercache.Load(ctx, k8sClient, []string{ns1.Name}, importermapping.RulesForLabel("src.lbl", map[string]string{"src-val": lqName}), nil, nil)
 				gomega.Expect(err).ToNot(gomega.HaveOccurred())
 				gomega.Expect(mapping).ToNot(gomega.BeNil())
 
@@ -185,7 +185,7 @@ var _ = ginkgo.Describe("Importer", func() {
 		var err error
 
 		ginkgo.By("Importing across all namespaces", func() {
-			mapping, err = importercache.Load(ctx, k8sClient, []string{ns1.Name, ns2.Name}, importermapping.RulesForLabel("src.lbl", map[string]string{"src-val": lqName}), nil)
+			mapping, err = importercache.Load(ctx, k8sClient, []string{ns1.Name, ns2.Name}, importermapping.RulesForLabel("src.lbl", map[string]string{"src-val": lqName}), nil, nil)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred())
 			gomega.Expect(mapping).ToNot(gomega.BeNil())
 		})

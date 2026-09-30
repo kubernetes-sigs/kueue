@@ -47,10 +47,15 @@ var (
 )
 
 func TestDefault(t *testing.T) {
+	const (
+		staleWFPR = `{"timeoutSeconds":60,"recoveryTimeoutSeconds":40}`
+		validWFPR = `{"timeoutSeconds":20,"recoveryTimeoutSeconds":20}`
+	)
 	testCases := map[string]struct {
 		deployment     *appsv1.Deployment
 		defaultLqExist bool
 		want           *appsv1.Deployment
+		featureGates   map[featuregate.Feature]bool
 	}{
 		"deployment without queue": {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
@@ -149,12 +154,52 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
 				Obj(),
 		},
+		"shouldn't propagate top-level annotation when no queue is set": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
+				Obj(),
+		},
+		"removes template-only annotation": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				PodTemplateAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				PodTemplateSpecManagedByKueue().
+				Queue("test-queue").
+				PodTemplateSpecQueue("test-queue").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+		},
+		"syncs stale template annotation to updated top-level value": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, validWFPR).
+				PodTemplateAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				PodTemplateSpecManagedByKueue().
+				Queue("test-queue").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, validWFPR).
+				PodTemplateSpecQueue("test-queue").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(constants.WaitForPodsReadyAnnotation, validWFPR).
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
+			integrationManager := newTestIntegrationManager(t)
+			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "pod"))
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
 			cqCache := schdcache.New(client)
@@ -167,8 +212,9 @@ func TestDefault(t *testing.T) {
 				}
 			}
 			w := &Webhook{
-				client: client,
-				queues: queueManager,
+				integrationManager: integrationManager,
+				client:             client,
+				queues:             queueManager,
 			}
 
 			if err := w.Default(ctx, tc.deployment); err != nil {
@@ -357,8 +403,6 @@ func TestValidateCreate(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
-
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
 
@@ -632,8 +676,6 @@ func TestValidateUpdate(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
-
 			builder := utiltesting.NewClientBuilder()
 			client := builder.Build()
 
@@ -650,4 +692,13 @@ func TestValidateUpdate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func newTestIntegrationManager(t *testing.T) *jobframework.IntegrationManager {
+	t.Helper()
+	manager := jobframework.NewIntegrationManager()
+	if err := RegisterIntegration(manager); err != nil {
+		t.Fatalf("RegisterIntegration() error = %v", err)
+	}
+	return manager
 }

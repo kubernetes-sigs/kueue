@@ -26,7 +26,6 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/kubectl/pkg/util/templates"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -76,7 +75,7 @@ func NewLocalQueueCmd(clientGetter clientgetter.ClientGetter, streams genericioo
 		Long:                  lqLong,
 		Example:               lqExample,
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-		ValidArgsFunction:     completion.LocalQueueNameFunc(clientGetter, new(false)),
+		ValidArgsFunction:     completion.SingleArg(completion.LocalQueueNameFunc(clientGetter, new(false))),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
 			err := o.Complete(clientGetter, cmd, args)
@@ -138,7 +137,7 @@ func (o *LocalQueueOptions) Run(ctx context.Context) error {
 	}
 
 	lqOriginal := lq.DeepCopy()
-	lq.Spec.StopPolicy = ptr.To(kueue.None)
+	lq.Spec.StopPolicy = new(kueue.None)
 
 	if o.DryRunStrategy != dryrun.Client {
 		opts := metav1.PatchOptions{}

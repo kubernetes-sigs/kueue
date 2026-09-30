@@ -554,14 +554,12 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 
 	ginkgo.BeforeEach(func() {
 		customCfg := &configapi.Configuration{
-			ControllerManager: configapi.ControllerManager{
-				Metrics: configapi.ControllerMetrics{
-					LocalQueueMetrics: &configapi.LocalQueueMetrics{
-						Enable: true,
-						LocalQueueSelector: &metav1.LabelSelector{
-							MatchLabels: map[string]string{
-								"metrics-test": "true",
-							},
+			Metrics: configapi.ControllerMetrics{
+				LocalQueueMetrics: &configapi.LocalQueueMetrics{
+					Enable: true,
+					LocalQueueSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"metrics-test": "true",
 						},
 					},
 				},

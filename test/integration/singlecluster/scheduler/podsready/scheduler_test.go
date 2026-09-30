@@ -31,8 +31,11 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -74,7 +77,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				RequeuingStrategy: &config.RequeuingStrategy{
 					Timestamp:          new(requeuingTimestamp),
 					BackoffLimitCount:  requeueingBackoffLimitCount,
-					BackoffBaseSeconds: ptr.To[int32](1),
+					BackoffBaseSeconds: new(int32(1)),
 				},
 			},
 		}
@@ -117,6 +120,63 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		podsReadyTimeout = defaultPodsReadyTimeout
 		requeuingTimestamp = defaultRequeuingTimestamp
 		requeueingBackoffLimitCount = defaultRequeuingBackoffLimitCount
+	})
+
+	ginkgo.Context("Per-workload WaitForPodsReady timeout", ginkgo.Label("feature:workloadlevelwaitforpodsready"), func() {
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadLevelWaitForPodsReady, true)
+			// The cluster-level timeout is intentionally large so it can never fire
+			// within the test window: any PodsReady-timeout eviction observed here must
+			// have been driven by the (much smaller) per-workload annotation, not by the
+			// cluster-level configuration.
+			podsReadyTimeout = util.LongTimeout
+		})
+
+		ginkgo.It("Should keep other workloads pending until the blocking workload is evicted by its per-workload timeout", func() {
+			ginkgo.By("creating a workload that is admitted but never reaches PodsReady, with a large per-workload timeout")
+			blockingWl := utiltestingapi.MakeWorkload("blocking-wl", ns.Name).
+				Queue(kueue.LocalQueueName(prodQueue.Name)).
+				Annotation(controllerconsts.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, blockingWl)
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, blockingWl)
+
+			ginkgo.By("creating a second workload that fits within the remaining quota")
+			pendingWl := utiltestingapi.MakeWorkload("pending-wl", ns.Name).
+				Queue(kueue.LocalQueueName(prodQueue.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			util.MustCreate(ctx, k8sClient, pendingWl)
+
+			ginkgo.By("verifying the blocking workload stays not-ready and is not evicted while the large timeout applies")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingWl), blockingWl)).Should(gomega.Succeed())
+				g.Expect(workloadevict.IsEvicted(blockingWl)).Should(gomega.BeFalse())
+				g.Expect(apimeta.IsStatusConditionTrue(blockingWl.Status.Conditions, kueue.WorkloadPodsReady)).Should(gomega.BeFalse())
+			}, util.LongConsistentDuration, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying the second workload stays pending because block admission is enabled")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pendingWl), pendingWl)).Should(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(pendingWl)).Should(gomega.BeFalse())
+			}, util.LongConsistentDuration, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("lowering the blocking workload's per-workload timeout so it is evicted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(blockingWl), blockingWl)).Should(gomega.Succeed())
+				blockingWl.Annotations[controllerconsts.WaitForPodsReadyAnnotation] = `{"timeoutSeconds":1}`
+				g.Expect(k8sClient.Update(ctx, blockingWl)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying the blocking workload is evicted by its per-workload timeout")
+			util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(blockingWl), 0)
+			util.ExpectEvictedWorkloadsOnceTotalMetric(prodClusterQ.Name, kueue.WorkloadEvictedByPodsReadyTimeout, kueue.WorkloadWaitForStart, "", 1)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, blockingWl)
+
+			ginkgo.By("verifying the pending workload gets admitted once the blocking one is evicted")
+			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, pendingWl)
+		})
 	})
 
 	ginkgo.Context("Long PodsReady timeout", func() {
@@ -245,7 +305,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 	var _ = ginkgo.Context("Short PodsReady timeout", func() {
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = util.ShortTimeout
-			requeueingBackoffLimitCount = ptr.To[int32](2)
+			requeueingBackoffLimitCount = new(int32(2))
 		})
 
 		ginkgo.It("Should requeue a workload which exceeded the timeout to reach PodsReady=True", framework.SlowSpec, func() {
@@ -276,7 +336,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl1), prodWl1)).Should(gomega.Succeed())
 				g.Expect(ptr.Deref(prodWl1.Status.RequeueState, kueue.RequeueState{})).Should(gomega.BeComparableTo(kueue.RequeueState{
-					Count: ptr.To[int32](1),
+					Count: new(int32(1)),
 				}, cmpopts.IgnoreFields(kueue.RequeueState{}, "RequeueAt")))
 				g.Expect(prodWl1.Status.RequeueState.RequeueAt).ShouldNot(gomega.BeNil())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed(), "the workload should be evicted after the timeout expires")
@@ -305,7 +365,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("finish the eviction, and the workload is pending by backoff")
 			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
 			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
-				Count: ptr.To[int32](1),
+				Count: new(int32(1)),
 			}, false)
 			// To avoid flakiness, we don't verify if the workload has a QuotaReserved=false with pending reason here.
 
@@ -317,7 +377,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			util.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
 			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
 			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
-				Count: ptr.To[int32](2),
+				Count: new(int32(2)),
 			}, false)
 
 			ginkgo.By("the workload exceeded re-queue backoff limit should be deactivated")
@@ -353,7 +413,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			util.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
 			util.FinishEvictionForWorkloads(ctx, k8sClient, prodWl)
 			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
-				Count: ptr.To[int32](1),
+				Count: new(int32(1)),
 			}, false)
 		})
 	})
@@ -361,7 +421,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 	var _ = ginkgo.Context("Tiny PodsReady timeout", func() {
 		ginkgo.BeforeEach(func() {
 			podsReadyTimeout = util.TinyTimeout
-			requeueingBackoffLimitCount = ptr.To[int32](2)
+			requeueingBackoffLimitCount = new(int32(2))
 		})
 
 		ginkgo.It("Should unblock admission of new workloads in other ClusterQueues once the admitted workload exceeds timeout", func() {
@@ -455,7 +515,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		// We wait 1 second between each workload creation call, including after the last one.
 		// Add this time to the timeout.
 		podsReadyTimeout = util.TinyTimeout + 3*time.Second
-		requeueingBackoffLimitCount = ptr.To[int32](2)
+		requeueingBackoffLimitCount = new(int32(2))
 
 		localQueueName := "eviction-lq"
 
@@ -510,13 +570,13 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			// Here, we focus on verifying if the requeuingTimestamp works well.
 			// So, we don't check if the .status.requeueState.requeueAt is reset.
 			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl1), &kueue.RequeueState{
-				Count: ptr.To[int32](2),
+				Count: new(int32(2)),
 			}, true)
 			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl2), &kueue.RequeueState{
-				Count: ptr.To[int32](1),
+				Count: new(int32(1)),
 			}, true)
 			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl3), &kueue.RequeueState{
-				Count: ptr.To[int32](1),
+				Count: new(int32(1)),
 			}, true)
 		})
 	})
@@ -617,7 +677,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 				RequeuingStrategy: &config.RequeuingStrategy{
 					Timestamp:          new(requeuingTimestamp),
 					BackoffLimitCount:  requeueingBackoffLimitCount,
-					BackoffBaseSeconds: ptr.To[int32](1),
+					BackoffBaseSeconds: new(int32(1)),
 				},
 			},
 		}
@@ -718,7 +778,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 			util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), podsReadyTimeout)
 			util.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(prodWl))
 			util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(prodWl), &kueue.RequeueState{
-				Count: ptr.To[int32](2),
+				Count: new(int32(2)),
 			}, false)
 			gomega.Expect(workload.IsActive(prodWl)).Should(gomega.BeTrue())
 		})
@@ -795,7 +855,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 				// - Count=1 (from the first eviction)
 				// - RequeueAt=nil (cleared after re-admission in nonblocking mode)
 				util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl1), &kueue.RequeueState{
-					Count: ptr.To[int32](1),
+					Count: new(int32(1)),
 				}, false)
 			})
 			ginkgo.By("waiting for the first workload to be evicted again (second eviction)", func() {
@@ -808,10 +868,10 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 				// because in nonblocking mode, after each backoff completes and re-admission happens,
 				// the controller clears RequeueAt to nil while preserving Count.
 				util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl1), &kueue.RequeueState{
-					Count: ptr.To[int32](2),
+					Count: new(int32(2)),
 				}, false)
 				util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl2), &kueue.RequeueState{
-					Count: ptr.To[int32](1),
+					Count: new(int32(1)),
 				}, false)
 				ginkgo.By("wl3 had never been admitted", func() {
 					util.ExpectWorkloadToHaveRequeueState(ctx, k8sClient, client.ObjectKeyFromObject(wl3), nil, false)

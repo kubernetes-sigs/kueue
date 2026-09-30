@@ -6,7 +6,7 @@ description: >
   Setup a default WorkloadPriorityClass to assign a queueing priority to jobs that don't specify one.
 ---
 
-{{< feature-state state="alpha" for_version="v0.18" >}}
+{{< feature-state state="beta" for_version="v0.20" >}}
 
 This page describes how to setup a default WorkloadPriorityClass to ensure that all Kueue-managed workloads receive a consistent queueing priority,
 even if the `kueue.x-k8s.io/priority-class` label is not specified explicitly.
@@ -18,7 +18,9 @@ for workloads that do not have the `kueue.x-k8s.io/priority-class` label.
 
 To use this feature:
 
-- enable the `WorkloadPriorityClassDefaulting` feature gate in the Kueue configuration.
+- the `WorkloadPriorityClassDefaulting` feature gate is enabled by default since
+  v0.20 (Beta). On earlier versions, or if it was explicitly disabled, enable it
+  in the Kueue configuration.
   Check the [Installation](/docs/installation/#change-the-feature-gates-configuration) guide for details on feature gate configuration.
 
 - create a WorkloadPriorityClass with the name `default`:

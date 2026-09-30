@@ -25,12 +25,12 @@ import (
 	gomegatypes "github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -65,7 +65,7 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 			ginkgo.By("Creating a new Workload")
 			// Not using the wrappers to avoid hiding any defaulting.
 			workload := kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: workloadName, Namespace: ns.Name},
+				Name: workloadName, Namespace: ns.Name,
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet("", 1).
@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 			ginkgo.By("Creating a new Workload")
 			// Not using the wrappers to avoid hiding any defaulting.
 			workload := kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{Name: workloadName, Namespace: ns.Name},
+				Name: workloadName, Namespace: ns.Name,
 				Spec: kueue.WorkloadSpec{
 					PodSets: []kueue.PodSet{
 						*utiltestingapi.MakePodSet("", 1).
@@ -252,6 +252,49 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						Obj()
 				},
 				utiltesting.BeForbiddenError()),
+			ginkgo.Entry("should not limit num-pods resource",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*utiltestingapi.MakePodSet("bad", 1).
+								Containers(corev1.Container{
+									Resources: corev1.ResourceRequirements{
+										Limits: corev1.ResourceList{
+											corev1.ResourcePods: resource.MustParse("1"),
+										},
+									},
+								}).
+								Obj(),
+						).
+						Obj()
+				},
+				utiltesting.BeForbiddenError()),
+			ginkgo.Entry("should not allow negative resource requests",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*utiltestingapi.MakePodSet("bad", 1).
+								Containers(
+									utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+										corev1.ResourceCPU: "-1",
+									})...,
+								).
+								Obj(),
+						).
+						Obj()
+				},
+				utiltesting.BeForbiddenError()),
+			ginkgo.Entry("should not allow negative pod-level resource requests",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*utiltestingapi.MakePodSet("bad", 1).
+								PodLevelRequest(corev1.ResourceCPU, "-1").
+								Obj(),
+						).
+						Obj()
+				},
+				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("empty podSetUpdates should be valid since it is optional",
 				func() *kueue.Workload {
 					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
@@ -279,7 +322,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 												Operator:          corev1.TolerationOpEqual,
 												Value:             "t1v",
 												Effect:            corev1.TaintEffectNoExecute,
-												TolerationSeconds: ptr.To[int64](5),
+												TolerationSeconds: new(int64(5)),
 											},
 										},
 										NodeSelector: map[string]string{"type": "first"},
@@ -294,7 +337,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 												Operator:          corev1.TolerationOpEqual,
 												Value:             "t2v",
 												Effect:            corev1.TaintEffectNoExecute,
-												TolerationSeconds: ptr.To[int64](10),
+												TolerationSeconds: new(int64(10)),
 											},
 										},
 										NodeSelector: map[string]string{"type": "second"},
@@ -323,6 +366,24 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						Obj()
 				},
 				utiltesting.BeInvalidError()),
+			ginkgo.Entry("valid podSet minCount (zero with count zero)",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*utiltestingapi.MakePodSet("ps1", 0).SetMinimumCount(0).Obj(),
+						).
+						Obj()
+				},
+				gomega.Succeed()),
+			ginkgo.Entry("valid podSet minCount (zero with count greater than zero)",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*utiltestingapi.MakePodSet("ps1", 3).SetMinimumCount(0).Obj(),
+						).
+						Obj()
+				},
+				gomega.Succeed()),
 			ginkgo.Entry("too many variable count podSets",
 				func() *kueue.Workload {
 					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
@@ -546,6 +607,23 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Delete(ctx, workloadPriorityClass)).To(gomega.Succeed())
 			gomega.Expect(k8sClient.Delete(ctx, priorityClass)).To(gomega.Succeed())
+		})
+
+		ginkgo.It("Should refuse a status update reserving quota with no admission", func() {
+			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionTrue,
+					Reason:             "Admitted",
+					Message:            "admitted",
+					LastTransitionTime: metav1.NewTime(time.Now()),
+				})
+				g.Expect(k8sClient.Status().Update(ctx, wl)).Should(utiltesting.BeForbiddenError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.DescribeTable("Validate Workload on update",
@@ -776,7 +854,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				},
 				false,
 				func(newWL *kueue.Workload) {
-					newWL.Spec.MaximumExecutionTimeSeconds = ptr.To[int32](1)
+					newWL.Spec.MaximumExecutionTimeSeconds = new(int32(1))
 				},
 				gomega.Succeed(),
 			),
@@ -798,7 +876,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				},
 				true,
 				func(newWL *kueue.Workload) {
-					newWL.Spec.MaximumExecutionTimeSeconds = ptr.To[int32](1)
+					newWL.Spec.MaximumExecutionTimeSeconds = new(int32(1))
 				},
 				utiltesting.BeInvalidError(),
 			),
@@ -820,7 +898,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				},
 				false,
 				func(newWL *kueue.Workload) {
-					newWL.Spec.Priority = ptr.To[int32](10)
+					newWL.Spec.Priority = new(int32(10))
 				},
 				gomega.Succeed(),
 			),
@@ -830,7 +908,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				},
 				false,
 				func(newWL *kueue.Workload) {
-					newWL.Spec.Priority = ptr.To[int32](10)
+					newWL.Spec.Priority = new(int32(10))
 				},
 				gomega.Succeed(),
 			),
@@ -843,7 +921,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				},
 				false,
 				func(newWL *kueue.Workload) {
-					newWL.Spec.Priority = ptr.To[int32](10)
+					newWL.Spec.Priority = new(int32(10))
 				},
 				gomega.Succeed(),
 			),
@@ -856,7 +934,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				},
 				false,
 				func(newWL *kueue.Workload) {
-					newWL.Spec.Priority = ptr.To[int32](10)
+					newWL.Spec.Priority = new(int32(10))
 				},
 				gomega.Succeed(),
 			),
@@ -867,7 +945,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				false,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassRef = kueue.NewWorkloadPriorityClassRef("low")
-					newWL.Spec.Priority = ptr.To[int32](100)
+					newWL.Spec.Priority = new(int32(100))
 				},
 				gomega.Succeed(),
 			),
@@ -878,7 +956,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				true,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassRef = kueue.NewWorkloadPriorityClassRef("low")
-					newWL.Spec.Priority = ptr.To[int32](100)
+					newWL.Spec.Priority = new(int32(100))
 				},
 				utiltesting.BeInvalidError(),
 			),
@@ -892,7 +970,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				false,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassRef.Name = "low"
-					newWL.Spec.Priority = ptr.To[int32](100)
+					newWL.Spec.Priority = new(int32(100))
 				},
 				gomega.Succeed(),
 			),
@@ -906,7 +984,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				true,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassRef.Name = "low"
-					newWL.Spec.Priority = ptr.To[int32](100)
+					newWL.Spec.Priority = new(int32(100))
 				},
 				gomega.Succeed(),
 			),
@@ -945,7 +1023,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				false,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassRef = kueue.NewPodPriorityClassRef("low")
-					newWL.Spec.Priority = ptr.To[int32](100)
+					newWL.Spec.Priority = new(int32(100))
 				},
 				gomega.Succeed(),
 			),
@@ -956,7 +1034,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				true,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassRef = kueue.NewPodPriorityClassRef("low")
-					newWL.Spec.Priority = ptr.To[int32](100)
+					newWL.Spec.Priority = new(int32(100))
 				},
 				utiltesting.BeInvalidError(),
 			),
@@ -970,7 +1048,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				false,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassRef.Name = "low"
-					newWL.Spec.Priority = ptr.To[int32](100)
+					newWL.Spec.Priority = new(int32(100))
 				},
 				gomega.Succeed(),
 			),
@@ -984,7 +1062,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				true,
 				func(newWL *kueue.Workload) {
 					newWL.Spec.PriorityClassRef.Name = "low"
-					newWL.Spec.Priority = ptr.To[int32](100)
+					newWL.Spec.Priority = new(int32(100))
 				},
 				utiltesting.BeInvalidError(),
 			),
@@ -1772,126 +1850,206 @@ var _ = ginkgo.Describe("Workload v1beta1 CEL validation", func() {
 		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
 	})
+})
 
-	ginkgo.Context("When updating a Workload via v1beta1 API", func() {
-		ginkgo.DescribeTable("Validate v1beta1 CEL rules for priorityClassSource",
-			func(w func() *kueue.Workload, setQuotaReservation bool, updateWl func(newWL *kueuev1beta1.Workload), matcher gomegatypes.GomegaMatcher) {
-				ginkgo.By("Creating a new Workload via v1beta2")
-				workload := w()
-				util.MustCreate(ctx, k8sClient, workload)
-				if setQuotaReservation {
-					util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cq").Obj())
-					util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
-				}
-				ginkgo.By("Updating the Workload via v1beta1")
-				gomega.Eventually(func(g gomega.Gomega) {
-					var v1beta1WL kueuev1beta1.Workload
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &v1beta1WL)).To(gomega.Succeed())
-					updateWl(&v1beta1WL)
-					g.Expect(k8sClient.Update(ctx, &v1beta1WL)).Should(matcher)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+var _ = ginkgo.Describe("Workload topology-spreading validation", func() {
+	ginkgo.BeforeEach(func() {
+		fwk.StartManager(ctx, cfg, managerSetup)
+		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-spread-")
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.DescribeTable("Validate topology spreading on create",
+		func(w func() *kueue.Workload, matcher gomegatypes.GomegaMatcher) {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASTopologySpreading, true)
+			gomega.Expect(k8sClient.Create(ctx, w())).Should(matcher)
+		},
+		ginkgo.Entry("accepts a valid spreading annotation with required topology",
+			func() *kueue.Workload {
+				return spreadingWorkloadForWebhook("valid-spread", webhookSpreadingJSON)
 			},
-			ginkgo.Entry("can toggle active on workload without priorityClassRef when QuotaReserved=true",
-				func() *kueue.Workload {
-					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
-				},
-				true,
-				func(newWL *kueuev1beta1.Workload) {
-					newWL.Spec.Active = new(false)
-				},
-				gomega.Succeed(),
-			),
-			ginkgo.Entry("can toggle active on workload without priorityClassRef when QuotaReserved=false",
-				func() *kueue.Workload {
-					return utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
-				},
-				false,
-				func(newWL *kueuev1beta1.Workload) {
-					newWL.Spec.Active = new(false)
-				},
-				gomega.Succeed(),
-			),
-			ginkgo.Entry("can toggle active on workload with pod priorityClassRef when QuotaReserved=true",
-				func() *kueue.Workload {
-					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
-						PodPriorityClassRef("default").
-						Priority(0).
-						Obj()
-				},
-				true,
-				func(newWL *kueuev1beta1.Workload) {
-					newWL.Spec.Active = new(false)
-				},
-				gomega.Succeed(),
-			),
-			ginkgo.Entry("can't change priorityClassSource via v1beta1 when QuotaReserved=true",
-				func() *kueue.Workload {
-					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
-						PodPriorityClassRef("default").
-						Priority(0).
-						Obj()
-				},
-				true,
-				func(newWL *kueuev1beta1.Workload) {
-					newWL.Spec.PriorityClassSource = "kueue.x-k8s.io/workloadpriorityclass"
-				},
-				utiltesting.BeInvalidError(),
-			),
-			ginkgo.Entry("can change priorityClassSource via v1beta1 when QuotaReserved=false",
-				func() *kueue.Workload {
-					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
-						PodPriorityClassRef("default").
-						Priority(0).
-						Obj()
-				},
-				false,
-				func(newWL *kueuev1beta1.Workload) {
-					newWL.Spec.PriorityClassSource = "kueue.x-k8s.io/workloadpriorityclass"
-				},
-				gomega.Succeed(),
-			),
-			ginkgo.Entry("can toggle active on workload with workload priorityClassRef when QuotaReserved=true",
-				func() *kueue.Workload {
-					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
-						WorkloadPriorityClassRef("default").
-						Priority(0).
-						Obj()
-				},
-				true,
-				func(newWL *kueuev1beta1.Workload) {
-					newWL.Spec.Active = new(false)
-				},
-				gomega.Succeed(),
-			),
-			ginkgo.Entry("can't change priorityClassName via v1beta1 when QuotaReserved=true and source is pod priorityClass",
-				func() *kueue.Workload {
-					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
-						PodPriorityClassRef("default").
-						Priority(0).
-						Obj()
-				},
-				true,
-				func(newWL *kueuev1beta1.Workload) {
-					newWL.Spec.PriorityClassName = "other"
-				},
-				utiltesting.BeInvalidError(),
-			),
-			ginkgo.Entry("can change priorityClassName via v1beta1 when QuotaReserved=true and source is workloadpriorityclass",
-				func() *kueue.Workload {
-					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
-						WorkloadPriorityClassRef("default").
-						Priority(0).
-						Obj()
-				},
-				true,
-				func(newWL *kueuev1beta1.Workload) {
-					newWL.Spec.PriorityClassName = "other"
-				},
-				gomega.Succeed(),
-			),
-		)
+			gomega.Succeed()),
+		ginkgo.Entry("rejects an invalid spreading annotation",
+			func() *kueue.Workload {
+				return spreadingWorkloadForWebhook("bad-spread", "not-json")
+			},
+			gomega.And(
+				utiltesting.BeForbiddenError(),
+				gomega.MatchError(gomega.ContainSubstring(kueue.PodSetTopologySpreadingAnnotation)),
+			)),
+		ginkgo.Entry("rejects a spreading annotation without a structured required topology",
+			func() *kueue.Workload {
+				return utiltestingapi.MakeWorkload("ann-only", ns.Name).PodSets(
+					*utiltestingapi.MakePodSet("main", 1).
+						Annotations(map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
+							kueue.PodSetTopologySpreadingAnnotation: webhookSpreadingJSON,
+						}).
+						Obj(),
+				).Obj()
+			},
+			gomega.And(
+				utiltesting.BeForbiddenError(),
+				gomega.MatchError(gomega.ContainSubstring("topologyRequest.required")),
+			)),
+		ginkgo.Entry("accepts a matching spreading group with equivalent parsed annotations",
+			groupedSpreadingWorkloadForWebhook,
+			gomega.Succeed()),
+	)
+
+	ginkgo.DescribeTable("Validate topology spreading on update",
+		func(w func() *kueue.Workload, mutate func(*kueue.Workload), matcher gomegatypes.GomegaMatcher) {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASTopologySpreading, true)
+			wl := w()
+			util.MustCreate(ctx, k8sClient, wl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				mutate(wl)
+				g.Expect(k8sClient.Update(ctx, wl)).Should(matcher)
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		},
+		ginkgo.Entry("rejects changing a valid spreading annotation to invalid",
+			func() *kueue.Workload {
+				return spreadingWorkloadForWebhook("valid-spread", webhookSpreadingJSON)
+			},
+			func(wl *kueue.Workload) {
+				wl.Spec.PodSets[0].Template.Annotations[kueue.PodSetTopologySpreadingAnnotation] = "not-json"
+			},
+			gomega.And(
+				utiltesting.BeForbiddenError(),
+				gomega.MatchError(gomega.ContainSubstring(kueue.PodSetTopologySpreadingAnnotation)),
+			)),
+		ginkgo.Entry("rejects a mismatched spreading annotation in a group",
+			groupedSpreadingWorkloadForWebhook,
+			func(wl *kueue.Workload) {
+				wl.Spec.PodSets[1].Template.Annotations[kueue.PodSetTopologySpreadingAnnotation] = webhookOtherSpreadingJSON
+			},
+			gomega.And(
+				utiltesting.BeForbiddenError(),
+				gomega.MatchError(gomega.ContainSubstring(kueue.PodSetTopologySpreadingAnnotation)),
+				gomega.MatchError(gomega.ContainSubstring("spec.podSets[1].template.metadata.annotations["+kueue.PodSetTopologySpreadingAnnotation+"]")),
+			)),
+	)
+
+	ginkgo.It("Should leave spreading unvalidated while the feature gate is disabled and exempt unchanged invalid spreading after enabling it", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASTopologySpreading, false)
+		wl := spreadingWorkloadForWebhook("staged-spread", "not-json")
+		util.MustCreate(ctx, k8sClient, wl)
+
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASTopologySpreading, true)
+
+		ginkgo.By("accepting a spec update that leaves the invalid spreading annotation unchanged")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			wl.Spec.QueueName = "q2"
+			g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("accepting a status update that leaves the invalid spreading annotation unchanged")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			workloadpatching.SetAdmissionCheckState(&wl.Status.AdmissionChecks, kueue.AdmissionCheckState{
+				Name:               "ac1",
+				Message:            "checking",
+				LastTransitionTime: metav1.NewTime(time.Now()),
+				State:              kueue.CheckStatePending,
+			}, util.RealClock)
+			g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("rejecting a change to a different invalid spreading annotation")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			wl.Spec.PodSets[0].Template.Annotations[kueue.PodSetTopologySpreadingAnnotation] = "also-not-json"
+			err := k8sClient.Update(ctx, wl)
+			g.Expect(err).Should(utiltesting.BeForbiddenError())
+			g.Expect(err.Error()).Should(gomega.ContainSubstring(kueue.PodSetTopologySpreadingAnnotation))
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("accepting a repair to a valid spreading annotation")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			wl.Spec.PodSets[0].Template.Annotations[kueue.PodSetTopologySpreadingAnnotation] = webhookSpreadingJSON
+			g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should repair one spreading group without requiring an unchanged invalid group to be fixed", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASTopologySpreading, false)
+		wl := utiltestingapi.MakeWorkload("wl", ns.Name).PodSets(
+			*utiltestingapi.MakePodSet("a1", 1).
+				RequiredTopologyRequest("cloud.com/block").
+				PodSetGroup("g1").
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: webhookSpreadingJSON}).
+				Obj(),
+			*utiltestingapi.MakePodSet("a2", 2).
+				RequiredTopologyRequest("cloud.com/block").
+				PodSetGroup("g1").
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: webhookOtherSpreadingJSON}).
+				Obj(),
+			*utiltestingapi.MakePodSet("b1", 1).
+				RequiredTopologyRequest("cloud.com/block").
+				PodSetGroup("g2").
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: webhookSpreadingJSON}).
+				Obj(),
+			*utiltestingapi.MakePodSet("b2", 2).
+				RequiredTopologyRequest("cloud.com/block").
+				PodSetGroup("g2").
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: webhookOtherSpreadingJSON}).
+				Obj(),
+		).Obj()
+		util.MustCreate(ctx, k8sClient, wl)
+
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASTopologySpreading, true)
+
+		ginkgo.By("repairing only the first group")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			wl.Spec.PodSets[1].Template.Annotations[kueue.PodSetTopologySpreadingAnnotation] = webhookSpreadingJSON
+			g.Expect(k8sClient.Update(ctx, wl)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("leaving the unrepaired group unchanged")
+		created := &kueue.Workload{}
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), created)).To(gomega.Succeed())
+		gomega.Expect(created.Spec.PodSets[2].Template.Annotations[kueue.PodSetTopologySpreadingAnnotation]).To(gomega.Equal(webhookSpreadingJSON))
+		gomega.Expect(created.Spec.PodSets[3].Template.Annotations[kueue.PodSetTopologySpreadingAnnotation]).To(gomega.Equal(webhookOtherSpreadingJSON))
 	})
 })
+
+const (
+	webhookSpreadingJSON           = `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`
+	webhookEquivalentSpreadingJSON = `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45","enforcementMode":"Required"}]}`
+	webhookOtherSpreadingJSON      = `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.5"}]}`
+)
+
+func spreadingWorkloadForWebhook(name, spreading string) *kueue.Workload {
+	return utiltestingapi.MakeWorkload(name, ns.Name).
+		PodSets(*utiltestingapi.MakePodSet("main", 1).
+			RequiredTopologyRequest("cloud.com/block").
+			Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: spreading}).
+			Obj()).
+		Obj()
+}
+
+func groupedSpreadingWorkloadForWebhook() *kueue.Workload {
+	return utiltestingapi.MakeWorkload("wl", ns.Name).PodSets(
+		*utiltestingapi.MakePodSet("leader", 1).
+			RequiredTopologyRequest("cloud.com/block").
+			PodSetGroup("g").
+			Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: webhookSpreadingJSON}).
+			Obj(),
+		*utiltestingapi.MakePodSet("workers", 2).
+			RequiredTopologyRequest("cloud.com/block").
+			PodSetGroup("g").
+			Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: webhookEquivalentSpreadingJSON}).
+			Obj(),
+	).Obj()
+}
 
 func validSliceFor(levels []string, suffix int) kueue.TopologyAssignmentSlice {
 	res := kueue.TopologyAssignmentSlice{

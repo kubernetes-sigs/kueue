@@ -25,7 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	testingclock "k8s.io/utils/clock/testing"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -130,6 +129,95 @@ func TestReconcileEviction(t *testing.T) {
 					EventType: "Warning",
 					Reason:    "AdmissionCheckRejected",
 					Message:   `Deactivated due to AdmissionCheck in Rejected state: "check"`,
+				},
+			},
+		},
+		// The custom check is rejected after an earlier Retry evicted the Workload and reset both checks.
+		"already evicted workload with rejected checks gets deactivated": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmittedAt(true, now).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:    "multikueue",
+						State:   kueue.CheckStatePending,
+						Message: "Reset to Pending after eviction. Previously: Retry",
+					},
+					kueue.AdmissionCheckState{
+						Name:  "custom-check",
+						State: kueue.CheckStateRejected,
+					},
+				).
+				Conditions(
+					metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmittedByTest",
+						Message: "Admitted by ClusterQueue q1",
+					},
+					metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "ByTest",
+						Message: "Admitted by ClusterQueue q1",
+					},
+					metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+						Message: "Evicted due to AdmissionCheck in Retry state",
+					},
+				).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmittedAt(true, now).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:    "multikueue",
+						State:   kueue.CheckStatePending,
+						Message: "Reset to Pending after eviction. Previously: Retry",
+					},
+					kueue.AdmissionCheckState{
+						Name:  "custom-check",
+						State: kueue.CheckStateRejected,
+					},
+				).
+				Conditions(
+					metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmittedByTest",
+						Message: "Admitted by ClusterQueue q1",
+					},
+					metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "ByTest",
+						Message: "Admitted by ClusterQueue q1",
+					},
+					metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+						Message: "Evicted due to AdmissionCheck in Retry state",
+					},
+					metav1.Condition{
+						Type:    kueue.WorkloadDeactivationTarget,
+						Status:  metav1.ConditionTrue,
+						Reason:  "AdmissionCheck",
+						Message: `AdmissionCheck in Rejected state: "custom-check"`,
+					},
+				).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: "Warning",
+					Reason:    "AdmissionCheckRejected",
+					Message:   `Deactivated due to AdmissionCheck in Rejected state: "custom-check"`,
 				},
 			},
 		},
@@ -509,7 +597,7 @@ func TestReconcileEviction(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                    3 * time.Second,
-					requeuingBackoffLimitCount: ptr.To[int32](1),
+					requeuingBackoffLimitCount: new(int32(1)),
 					requeuingBackoffJitter:     0,
 				}),
 			},
@@ -527,7 +615,7 @@ func TestReconcileEviction(t *testing.T) {
 					Message:            "Admitted by ClusterQueue q1",
 				}).
 				AdmittedAt(true, now).
-				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(-1*time.Second).Truncate(time.Second)))).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(-1*time.Second).Truncate(time.Second)))).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
@@ -542,7 +630,7 @@ func TestReconcileEviction(t *testing.T) {
 					Reason:  kueue.WorkloadRequeuingLimitExceeded,
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
-				RequeueState(ptr.To[int32](1), new(metav1.NewTime(now.Add(1*time.Second).Truncate(time.Second)))).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(1*time.Second).Truncate(time.Second)))).
 				Obj(),
 		},
 		"should set the Evicted condition with Deactivated reason when the .spec.active=False": {
@@ -652,7 +740,7 @@ func TestReconcileEviction(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     3 * time.Second,
-					requeuingBackoffLimitCount:  ptr.To[int32](0),
+					requeuingBackoffLimitCount:  new(int32(0)),
 					requeuingBackoffBaseSeconds: 10,
 					requeuingBackoffJitter:      0,
 				}),
@@ -743,7 +831,7 @@ func TestReconcileEviction(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     3 * time.Second,
-					requeuingBackoffLimitCount:  ptr.To[int32](0),
+					requeuingBackoffLimitCount:  new(int32(0)),
 					requeuingBackoffBaseSeconds: 10,
 					requeuingBackoffJitter:      0,
 				}),
@@ -834,7 +922,7 @@ func TestReconcileEviction(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     3 * time.Second,
-					requeuingBackoffLimitCount:  ptr.To[int32](100),
+					requeuingBackoffLimitCount:  new(int32(100)),
 					requeuingBackoffBaseSeconds: 10,
 					requeuingBackoffJitter:      0,
 				}),
@@ -855,7 +943,7 @@ func TestReconcileEviction(t *testing.T) {
 					Reason:  kueue.WorkloadRequeuingLimitExceeded,
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
-				RequeueState(ptr.To[int32](100), nil).
+				RequeueState(new(int32(100)), nil).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
@@ -881,7 +969,7 @@ func TestReconcileEviction(t *testing.T) {
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
-				RequeueState(ptr.To[int32](100), nil).
+				RequeueState(new(int32(100)), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          "Deactivated",
@@ -928,7 +1016,7 @@ func TestReconcileEviction(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWaitForPodsReady(&waitForPodsReadyConfig{
 					timeout:                     3 * time.Second,
-					requeuingBackoffLimitCount:  ptr.To[int32](100),
+					requeuingBackoffLimitCount:  new(int32(100)),
 					requeuingBackoffBaseSeconds: 10,
 					requeuingBackoffJitter:      0,
 				}),
@@ -949,7 +1037,7 @@ func TestReconcileEviction(t *testing.T) {
 					Reason:  kueue.WorkloadRequeuingLimitExceeded,
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
-				RequeueState(ptr.To[int32](100), nil).
+				RequeueState(new(int32(100)), nil).
 				Obj(),
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Active(false).
@@ -975,7 +1063,7 @@ func TestReconcileEviction(t *testing.T) {
 					Message: "exceeding the maximum number of re-queuing retries",
 				}).
 				// The requeueState should be reset in the real cluster, but the fake client doesn't allow us to do it.
-				RequeueState(ptr.To[int32](100), nil).
+				RequeueState(new(int32(100)), nil).
 				SchedulingStatsEviction(
 					kueue.WorkloadSchedulingStatsEviction{
 						Reason:          "Deactivated",
@@ -1039,6 +1127,65 @@ func TestReconcileEviction(t *testing.T) {
 					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
 					Message: "Exceeded the PodsReady timeout ns",
 				}).
+				Obj(),
+		},
+		// Consuming a DeactivationTarget on an already-evicted Workload bypasses Evict, so the
+		// cleanup it performs has to happen on this path or the Rejected check survives.
+		"should reset the checks and clear the deactivation target when the Workload is already evicted": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmittedAt(true, now).
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:    "multikueue",
+						State:   kueue.CheckStatePending,
+						Message: "Reset to Pending after eviction. Previously: Retry",
+					},
+					kueue.AdmissionCheckState{
+						Name:  "custom-check",
+						State: kueue.CheckStateRejected,
+					},
+				).
+				Conditions(
+					metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+						Message: "Evicted due to AdmissionCheck in Retry state",
+					},
+					metav1.Condition{
+						Type:    kueue.WorkloadDeactivationTarget,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByAdmissionCheck,
+						Message: `AdmissionCheck in Rejected state: "custom-check"`,
+					},
+				).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(false).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				AdmittedAt(true, now).
+				AdmissionChecks(
+					kueue.AdmissionCheckState{
+						Name:    "multikueue",
+						State:   kueue.CheckStatePending,
+						Message: "Reset to Pending after eviction. Previously: Retry",
+					},
+					kueue.AdmissionCheckState{
+						Name:    "custom-check",
+						State:   kueue.CheckStatePending,
+						Message: "Reset to Pending after eviction. Previously: Rejected",
+					},
+				).
+				Conditions(
+					metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  "DeactivatedDueToAdmissionCheck",
+						Message: `The workload is deactivated due to AdmissionCheck in Rejected state: "custom-check"`,
+					},
+				).
 				Obj(),
 		},
 		"should set the Evicted condition with ClusterQueueStopped reason when the StopPolicy is HoldAndDrain": {

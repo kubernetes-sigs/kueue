@@ -30,6 +30,7 @@ milestone:
 
 see-also:
   - "/keps/2724-topology-aware-scheduling"
+  - "/keps/12100-partial-scaleup-for-elasticjob"
 
 feature-gates:
   - name: ElasticJobsViaWorkloadSlices

@@ -1,0 +1,21 @@
+# Teaches kustomize that a ClusterRole's rules[].resourceNames can refer to a webhook
+# configuration, so namePrefix rewrites those references along with the objects themselves.
+# Kustomize's built-in reference table covers this path only for ConfigMap, Secret and
+# PersistentVolume, so without this the manager role keeps naming the unprefixed
+# {mutating,validating}-webhook-configuration and the cert rotator is denied the update it
+# needs to inject the CA bundle.
+nameReference:
+  - kind: MutatingWebhookConfiguration
+    group: admissionregistration.k8s.io
+    version: v1
+    fieldSpecs:
+      - path: rules/resourceNames
+        group: rbac.authorization.k8s.io
+        kind: ClusterRole
+  - kind: ValidatingWebhookConfiguration
+    group: admissionregistration.k8s.io
+    version: v1
+    fieldSpecs:
+      - path: rules/resourceNames
+        group: rbac.authorization.k8s.io
+        kind: ClusterRole

@@ -119,6 +119,8 @@ type LeaderWorkerSetSpec struct {
 	//
 	// +optional
 	// +kubebuilder:default=1
+	// +kubebuilder:validation:Minimum=0
+	// +kubebuilder:validation:Maximum=1000000
 	Replicas *int32 `json:"replicas,omitempty"`
 
 	// leaderWorkerTemplate defines the template for leader/worker pods

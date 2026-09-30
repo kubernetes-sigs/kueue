@@ -19,6 +19,14 @@ export GINKGO="$ROOT_DIR"/bin/ginkgo
 export KIND="$ROOT_DIR"/bin/kind
 export YQ="$ROOT_DIR"/bin/yq
 export HELM="$ROOT_DIR"/bin/helm
+
+# GOTRACEBACK=system asks the Go runtime to include runtime-internal goroutines when a
+# subprocess spawned below (e.g. `go vet`/`go build` during `ginkgo run` compilation)
+# hits a fatal runtime error such as a toolchain deadlock. It is silent on success, so
+# it is safe to leave enabled for every run; it only adds diagnostic data if we hit the
+# failure mode again.
+export GOTRACEBACK="${GOTRACEBACK:-system}"
+
 export KUEUE_NAMESPACE="${KUEUE_NAMESPACE:-kueue-system}"
 export KUEUE_DEPLOYMENT_NAME="kueue-controller-manager"
 export KUEUE_WEBHOOK_SERVICE_NAME="${KUEUE_WEBHOOK_SERVICE_NAME:-kueue-webhook-service}"
@@ -43,6 +51,23 @@ export E2E_SKIP_REINSTALL="${E2E_SKIP_REINSTALL:-false}"
 export E2E_SKIP_IMAGE_RELOAD="${E2E_SKIP_IMAGE_RELOAD:-false}"
 
 export KIND_VERSION="${E2E_KIND_VERSION#kindest/node:v}"
+
+# The registry saying the tag will never appear. Kept separate from
+# E2E_NON_RETRIABLE_IMAGE_ERRORS, whose bare `not found` a registry's own 404
+# page also satisfies.
+export E2E_MISSING_IMAGE_ERRORS="no such manifest|manifest (unknown|for .* not found)|repository does not exist"
+
+# Non-retriable: missing image, denied access, or a full disk.
+# Shared by `e2e_image_pull_is_retriable` and `e2e_docker_manifest_available` below.
+export E2E_NON_RETRIABLE_IMAGE_ERRORS="${E2E_MISSING_IMAGE_ERRORS}|not found|pull access denied|unauthorized: authentication required|unauthorized: access to the requested resource is not authorized|denied: requested access|no space left on device"
+
+# Retriable: transport-level failures reaching a git remote.
+# Composed from git's transport error strings; extend it as CI hits new ones.
+export E2E_RETRIABLE_GIT_ERRORS="could not resolve host|connection refused|connection reset by peer|connection timed out|operation timed out|rpc failed|early eof|remote end hung up unexpectedly|gnutls_handshake|ssl_error|tls handshake timeout|500 internal server error|502 bad gateway|503 service unavailable"
+
+# Retriable: registry and module proxy failures during an image build.
+# Duplicates IMAGE_BUILD_RETRIABLE_ERRORS, which Make does not export to this script.
+export E2E_RETRIABLE_IMAGE_BUILD_ERRORS="context deadline exceeded|unexpected status from HEAD request to .*: 401 Unauthorized|unexpected status from POST request to .*: 502 Bad Gateway|connection reset by peer|too ?many ?requests|ref .* locked for .*: unavailable|tls handshake timeout|stream error: stream ID [0-9]+; INTERNAL_ERROR|http2: server sent GOAWAY|500 Internal Server Error|i/o timeout"
 
 function build_kind_node_image {
     if [[ "$E2E_KIND_VERSION" != kindest/node:v* ]]; then
@@ -75,6 +100,34 @@ function e2e_supports_image_volume {
     [[ "$(printf '%s\n' "1.35.0" "${KIND_VERSION#v}" | sort -V | head -n1)" == "1.35.0" ]]
 }
 
+# Returns success when a failed `docker pull` is worth another attempt.
+#
+# $1 file holding the failed attempt's combined output
+# $2 image reference
+function e2e_image_pull_is_retriable {
+    local output_file="$1"
+    local image="$2"
+
+    if grep -qiE "${E2E_NON_RETRIABLE_IMAGE_ERRORS}" "${output_file}"; then
+        return 1
+    fi
+
+    # quay.io answers both a degraded token service and a missing tag with a
+    # bare `unauthorized`; only a manifest lookup tells the two apart.
+    if grep -qiE 'unauthorized' "${output_file}"; then
+        local manifest_error
+        if manifest_error=$(docker manifest inspect "${image}" 2>&1 >/dev/null); then
+            return 0
+        fi
+        if grep -qiE "${E2E_MISSING_IMAGE_ERRORS}" <<<"${manifest_error}"; then
+            echo "Image '${image}' does not exist in the registry: ${manifest_error}" >&2
+            return 1
+        fi
+    fi
+
+    return 0
+}
+
 # $1 image reference
 function e2e_docker_pull_if_needed {
     local image="$1"
@@ -83,12 +136,33 @@ function e2e_docker_pull_if_needed {
         return 0
     fi
 
-    local non_retriable_errors="manifest (unknown|for .* not found)|repository does not exist|not found|pull access denied|unauthorized|denied: requested access|no space left on device"
+    export -f e2e_image_pull_is_retriable
+    # shellcheck disable=SC2016 # E2E_PULL_IMAGE is expanded by retry.sh's continue-if eval
+    E2E_PULL_IMAGE="${image}" "${ROOT_DIR}/hack/testing/retry.sh" \
+        --attempts 7 --delay 2 --exponential --stream \
+        --continue-if 'e2e_image_pull_is_retriable "{output}" "${E2E_PULL_IMAGE}"' \
+        -- docker pull "$image"
+}
 
+# $1 image reference
+function e2e_docker_manifest_available {
+    local image="$1"
+
+    # shellcheck disable=SC2016 # the $1 expansion is evaluated by the inner bash -c
     "${ROOT_DIR}/hack/testing/retry.sh" \
         --attempts 7 --delay 2 --exponential --stream \
-        --continue-if "! grep -qiE '${non_retriable_errors}' {output}" \
-        -- docker pull "$image"
+        --continue-if "! grep -qiE '${E2E_NON_RETRIABLE_IMAGE_ERRORS}' {output}" \
+        -- bash -c 'docker manifest inspect "$1" 2>&1 >/dev/null' _ "$image"
+}
+
+function e2e_download_url {
+    local url="$1"
+
+    # Make HTTP errors retryable instead of passing their response bodies to
+    # kubectl as manifests.
+    "${ROOT_DIR}/hack/testing/retry.sh" \
+        --attempts 7 --delay 2 --exponential -- \
+        curl -fsSL "${url}"
 }
 
 function e2e_kubectl_apply_url {
@@ -97,8 +171,9 @@ function e2e_kubectl_apply_url {
     local extra_args=("$@")
     local manifest
 
-    manifest=$("${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential -- curl -fsSL "${url}") || return 1
-    echo "${manifest}" | kubectl apply --server-side -f - "${extra_args[@]}"
+    manifest=$(e2e_download_url "${url}") || return 1
+    printf '%s\n' "${manifest}" |
+    kubectl apply --server-side -f - "${extra_args[@]}"
 }
 
 function e2e_wait_for_operator_in_install {
@@ -272,6 +347,10 @@ if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$G
     export SPARKOPERATOR_IMAGE="ghcr.io/kubeflow/spark-operator/controller:${SPARKOPERATOR_VERSION#v}"
 fi
 
+if [[ "${GINKGO_ARGS:-}" =~ feature:provisioning || ! "${GINKGO_ARGS:-}" =~ "--label-filter" ]]; then
+    export PROVISIONING_REQUEST_CRDS=${ROOT_DIR}/dep-crds/cluster-autoscaler/
+fi
+
 if [[ -n "${CERTMANAGER_VERSION:-}" ]]; then
     export CERTMANAGER_MANIFEST="https://github.com/cert-manager/cert-manager/releases/download/${CERTMANAGER_VERSION}/cert-manager.yaml"
 fi
@@ -293,17 +372,12 @@ if [[ -n "${PROMETHEUS_OPERATOR_VERSION:-}" ]]; then
     export PROMETHEUS_OPERATOR_BUNDLE="https://github.com/prometheus-operator/prometheus-operator/releases/download/${PROMETHEUS_OPERATOR_VERSION}/bundle.yaml"
     export PROMETHEUS_OPERATOR_IMAGE="quay.io/prometheus-operator/prometheus-operator:${PROMETHEUS_OPERATOR_VERSION}"
     export PROMETHEUS_CONFIG_RELOADER_IMAGE="quay.io/prometheus-operator/prometheus-config-reloader:${PROMETHEUS_OPERATOR_VERSION}"
+    PROMETHEUS_IMAGE_WITH_SHA=$(grep '^FROM' "${SOURCE_DIR}/prometheus/Dockerfile" | awk '{print $2}')
+    export PROMETHEUS_IMAGE=${PROMETHEUS_IMAGE_WITH_SHA%%@*}
 fi
 
 if [[ -n "${DRA_EXAMPLE_DRIVER_VERSION:-}" ]]; then
     export DRA_EXAMPLE_DRIVER_REPO=https://github.com/kubernetes-sigs/dra-example-driver.git
-fi
-
-if [[ -n "${KUEUE_UPGRADE_FROM_VERSION:-}" ]]; then
-    export KUEUE_OLD_VERSION_MANIFEST="https://github.com/kubernetes-sigs/kueue/releases/download/${KUEUE_UPGRADE_FROM_VERSION}/manifests.yaml"
-    # Use the released image from registry.k8s.io (not the staging registry)
-    # so upgrade tests don't break when staging images expire.
-    export KUEUE_OLD_VERSION_IMAGE="registry.k8s.io/kueue/kueue:${KUEUE_UPGRADE_FROM_VERSION}"
 fi
 
 # agnhost image to use for testing.
@@ -528,6 +602,34 @@ apiServer:
     echo "$patched_config"
 }
 
+# run_with_timeout_and_log executes a command with a time limit, redirecting
+# all output to a log file. If the command exceeds the limit and is killed
+# (exit code 124), a unique timeout notification is appended to the log file
+# so that upstream retry scripts (like retry.sh) can accurately detect a hang.
+#
+# Arguments:
+# $1: The timeout duration (e.g., '10m')
+# $2: The absolute path to the log file to pipe output to
+# $@: The remaining arguments constitute the exact command to execute
+function run_with_timeout_and_log {
+    local timeout_duration="$1"
+    local log_file="$2"
+
+    # Pop duration and log file off the stack so $@ contains only the command
+    shift 2
+
+    timeout "$timeout_duration" "$@" > "$log_file" 2>&1
+    local res=$?
+
+    if [ "$res" -ne 0 ]; then
+        if [ "$res" -eq 124 ]; then
+            echo "command timed out after $timeout_duration" >> "$log_file"
+        fi
+        return "$res"
+    fi
+}
+export -f run_with_timeout_and_log
+
 # $1 cluster name
 # $2 cluster kind config
 # $3 kubeconfig
@@ -555,9 +657,13 @@ function cluster_create {
     fi
 
     local log_file="$ARTIFACTS/$cluster-create.log"
-    local create_cmd="$KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 > \"$log_file\" 2>&1"
-    # Retry only known-transient failures so real bugs still fail fast (#11586, #12307, #12984).
-    local retriable_errors="port is already allocated|error execution phase wait-control-plane|could not find a log line that matches"
+    # Include node readiness in each cluster bring-up attempt so transient
+    # readiness delays can reuse the existing cleanup and recreation path.
+    local create_cmd="run_with_timeout_and_log 10m \"$log_file\" $KIND create cluster --name \"$cluster\" --image \"$E2E_KIND_VERSION\" --config \"$kind_config\" --kubeconfig=\"$kubeconfig\" --wait 5m -v 5 && kubectl wait --kubeconfig=\"$kubeconfig\" --for=condition=Ready node --all --timeout=5m >> \"$log_file\" 2>&1"
+    # Retry recognized bring-up failures (#11586, #12307, #12984, #13437). Persistent
+    # failures producing a matching error will exhaust the configured retries
+    # before failing.
+    local retriable_errors="port is already allocated|error execution phase wait-control-plane|could not find a log line that matches|timed out waiting for the condition on nodes/|command timed out after"
     local continue_if="grep -qE '${retriable_errors}' \"$log_file\""
     local cleanup_cmd="if [ -f \"$log_file\" ]; then mv \"$log_file\" \"${log_file}.failed-\$(date +%s)\"; fi; $KIND delete cluster --name \"$cluster\" 2>/dev/null || true"
 
@@ -576,8 +682,6 @@ function cluster_create {
     fi
 
     kubectl config --kubeconfig="$kubeconfig" use-context "kind-$cluster"
-    # wait for nodes to become ready before loading images or deploying components
-    kubectl wait --kubeconfig="$kubeconfig" --for=condition=Ready node --all --timeout=5m
     kubectl get nodes --kubeconfig="$kubeconfig" > "$ARTIFACTS/$cluster-nodes.log" || true
     kubectl describe pods --kubeconfig="$kubeconfig" -n kube-system > "$ARTIFACTS/$cluster-system-pods.log" || true
 }
@@ -594,10 +698,12 @@ function prepare_docker_images {
 
     # When using a pre-built Kueue image (released or staging), ensure it's available for kind load.
     # Check remote first; if not found remotely, use local image if present; otherwise error.
-    if docker manifest inspect "$IMAGE_TAG" >/dev/null 2>&1; then
-        docker pull "$IMAGE_TAG"
+    if e2e_docker_manifest_available "$IMAGE_TAG"; then
+        # E2E_SKIP_IMAGE_RELOAD covers dependency images only: the Kueue image may
+        # have been rebuilt with the same tag, so it is always pulled.
+        E2E_SKIP_IMAGE_RELOAD=false e2e_docker_pull_if_needed "$IMAGE_TAG"
     elif ! docker image inspect "$IMAGE_TAG" >/dev/null 2>&1; then
-        echo "ERROR: Image '$IMAGE_TAG' not found remotely or locally." >&2
+        echo "ERROR: Image '$IMAGE_TAG' is not available remotely or locally." >&2
         return 1
     fi
 
@@ -624,7 +730,7 @@ function prepare_docker_images {
         determine_kuberay_ray_image
         if [[ "${USE_RAY_FOR_TESTS:-}" == "ray" ]]; then
             e2e_docker_pull_if_needed "${KUBERAY_RAY_IMAGE}"
-        elif docker manifest inspect "${KUBERAY_RAY_IMAGE}" >/dev/null 2>&1; then
+        elif e2e_docker_manifest_available "${KUBERAY_RAY_IMAGE}"; then
             e2e_docker_pull_if_needed "${KUBERAY_RAY_IMAGE}"
         else
             echo "Raymini image not available in registry, building locally..."
@@ -634,9 +740,6 @@ function prepare_docker_images {
     if [[ -n ${LEADERWORKERSET_VERSION:-} && ("$GINKGO_ARGS" =~ feature:(leaderworkerset|managejobswithoutqueuename|workloadidentifierannotations) || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${LEADERWORKERSET_IMAGE}"
     fi
-    if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
-        e2e_docker_pull_if_needed "${KUEUE_OLD_VERSION_IMAGE}"
-    fi
     if [[ -n ${SPARKOPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:spark || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${SPARKOPERATOR_IMAGE}"
         e2e_docker_pull_if_needed "${E2E_TEST_SPARK_IMAGE}"
@@ -644,6 +747,7 @@ function prepare_docker_images {
     if [[ -n ${PROMETHEUS_OPERATOR_VERSION:-} && ("$GINKGO_ARGS" =~ feature:prometheus || ! "$GINKGO_ARGS" =~ "--label-filter") ]]; then
         e2e_docker_pull_if_needed "${PROMETHEUS_OPERATOR_IMAGE}"
         e2e_docker_pull_if_needed "${PROMETHEUS_CONFIG_RELOADER_IMAGE}"
+        e2e_docker_pull_if_needed "${PROMETHEUS_IMAGE}"
     fi
     if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
         e2e_docker_pull_if_needed "${CLUSTERPROFILE_PLUGIN_IMAGE}"
@@ -663,9 +767,6 @@ function cluster_kind_load {
         cluster_kind_load_image_impl "$cluster" "$IMAGE_TAG"
     fi
 
-    if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
-        cluster_kind_load_image "$cluster" "${KUEUE_OLD_VERSION_IMAGE}"
-    fi
     if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
         cluster_kind_load_image "$cluster" "${CLUSTERPROFILE_PLUGIN_IMAGE}"
     fi
@@ -719,6 +820,9 @@ function kind_load {
     fi
     if [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
         install_dra_example_driver "${e2e_cluster_name}" "${e2e_kubeconfig}"
+    fi
+    if [[ -n ${PROVISIONING_REQUEST_CRDS:-} && ("${GINKGO_ARGS:-}" =~ feature:provisioning || ! "${GINKGO_ARGS:-}" =~ "--label-filter") ]]; then
+        install_provisioning_request_crds "${e2e_kubeconfig}"
     fi
 }
 
@@ -848,23 +952,17 @@ function wait_for_kueue_controller_operator {
     # shellcheck disable=SC2064 # Intentionally expand now to capture the temp file path
     trap "rm -f '$probe_manifest'" RETURN
     cat >"${probe_manifest}" <<'EOF'
-apiVersion: kueue.x-k8s.io/v1beta1
+apiVersion: kueue.x-k8s.io/v1beta2
 kind: ResourceFlavor
 metadata:
   name: webhook-probe
 EOF
-    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 10 --delay 5 --stream -- \
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream -- \
         kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} create --dry-run=server -f "${probe_manifest}"
 }
 
 # $1 kubeconfig
 function cluster_kueue_deploy {
-    # Handle upgrade test mode
-    if [[ -n ${KUEUE_UPGRADE_FROM_VERSION:-} ]]; then
-        upgrade_test_flow "$1"
-        return
-    fi
-
     if [[ "${E2E_MODE}" == "dev" ]] && e2e_is_truthy "${E2E_SKIP_REINSTALL:-}"; then
         if e2e_deployment_exists "$1" "${KUEUE_NAMESPACE}" "${KUEUE_DEPLOYMENT_NAME}"; then
             echo "Kueue controller already exists in namespace '${KUEUE_NAMESPACE}', skipping reinstall"
@@ -973,6 +1071,25 @@ function install_appwrapper {
     cluster_kind_load_image "${name}" "${APPWRAPPER_IMAGE}"
     kubectl apply --kubeconfig="${kubeconfig}" --server-side -k "${APPWRAPPER_MANIFEST}"
     e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
+}
+
+# $1 kubeconfig option
+function install_provisioning_request_crds {
+    local kubeconfig=${1:-}
+    local -a kubectl_args=()
+    if [[ -n "${kubeconfig}" ]]; then
+        kubectl_args+=(--kubeconfig="${kubeconfig}")
+    fi
+
+    if e2e_crd_exists "${kubeconfig}" "provisioningrequests.autoscaling.x-k8s.io"; then
+        if [[ "${E2E_MODE}" == "dev" ]] && ! e2e_is_truthy "${E2E_ENFORCE_OPERATOR_UPDATE}"; then
+            echo "ProvisioningRequest CRD already installed; skipping install (E2E_MODE=dev)."
+            return 0
+        fi
+    fi
+
+    echo "Installing ProvisioningRequest CRDs from ${PROVISIONING_REQUEST_CRDS}"
+    kubectl ${kubectl_args[@]+"${kubectl_args[@]}"} apply --server-side -f "${PROVISIONING_REQUEST_CRDS}"
 }
 
 # $1 cluster name
@@ -1352,11 +1469,17 @@ function install_prometheus_operator {
 
     cluster_kind_load_image "${name}" "${PROMETHEUS_OPERATOR_IMAGE}"
     cluster_kind_load_image "${name}" "${PROMETHEUS_CONFIG_RELOADER_IMAGE}"
+    cluster_kind_load_image "${name}" "${PROMETHEUS_IMAGE}"
     e2e_kubectl_apply_url "${PROMETHEUS_OPERATOR_BUNDLE}" --kubeconfig="${kubeconfig}"
     kubectl wait deploy/"${deployment_name}" -n "${ns}" \
         --for=condition=available --timeout=5m --kubeconfig="${kubeconfig}"
-    kubectl apply --kubeconfig="${kubeconfig}" --server-side \
-        -f "${ROOT_DIR}/test/e2e/config/prometheus/prometheus-setup.yaml"
+    (
+        prometheus_setup=$(mktemp) && trap 'rm -f "$prometheus_setup"' EXIT
+        cp "${ROOT_DIR}/test/e2e/config/prometheus/prometheus-setup.yaml" "$prometheus_setup"
+        $YQ -i "(select(.kind == \"Prometheus\") | .spec.image) = \"${PROMETHEUS_IMAGE}\"" "$prometheus_setup"
+        $YQ -i "(select(.kind == \"Prometheus\") | .spec.version) = \"${PROMETHEUS_IMAGE##*:}\"" "$prometheus_setup"
+        kubectl apply --kubeconfig="${kubeconfig}" --server-side -f "$prometheus_setup"
+    )
 }
 
 # $1 kubeconfig option
@@ -1412,7 +1535,10 @@ function install_dra_example_driver {
     dra_driver_temp_dir=$(mktemp -d)
     # shellcheck disable=SC2064 # Intentionally expand now to capture the temp dir path
     trap "rm -rf '$dra_driver_temp_dir'" RETURN
-    git clone --depth 1 --branch "${DRA_EXAMPLE_DRIVER_VERSION}" "${DRA_EXAMPLE_DRIVER_REPO}" "$dra_driver_temp_dir"
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream \
+        --continue-if "grep -qiE '${E2E_RETRIABLE_GIT_ERRORS}' {output}" \
+        --cleanup "rm -rf -- '${dra_driver_temp_dir}'" \
+        -- git clone --depth 1 --branch "${DRA_EXAMPLE_DRIVER_VERSION}" "${DRA_EXAMPLE_DRIVER_REPO}" "$dra_driver_temp_dir"
 
     local dra_image_repo="dra-example-driver"
     local dra_image_tag="${expected_version#v}"
@@ -1428,7 +1554,9 @@ function install_dra_example_driver {
     # Patch Makefile to ensure static build with CGO_ENABLED=0
     sed 's/CGO_LDFLAGS_ALLOW/CGO_ENABLED=0 CGO_LDFLAGS_ALLOW/' "$dra_driver_temp_dir/Makefile" > "$dra_driver_temp_dir/Makefile.tmp" \
         && mv "$dra_driver_temp_dir/Makefile.tmp" "$dra_driver_temp_dir/Makefile"
-    docker build -t "${dra_image_repo}:${dra_image_tag}" \
+    "${ROOT_DIR}/hack/testing/retry.sh" --attempts 7 --delay 2 --exponential --stream \
+        --continue-if "grep -qiE '${E2E_RETRIABLE_IMAGE_BUILD_ERRORS}' {output}" \
+        -- docker build -t "${dra_image_repo}:${dra_image_tag}" \
         --build-arg GO_VERSION="${go_version}" \
         --build-arg BASE_IMAGE=gcr.io/distroless/static:latest \
         -f "$dra_driver_temp_dir/deployments/container/Dockerfile" \
@@ -1514,96 +1642,6 @@ EOF
         --cluster="$kind_name" \
         --user="$kind_name"
     fi
-}
-
-# Upgrade test flow: install old version, create resources, upgrade to current
-# $1 kubeconfig
-function upgrade_test_flow {
-    local old_version="${KUEUE_UPGRADE_FROM_VERSION}"
-
-    echo "Upgrade Test: $old_version -> current"
-    echo "Old image: $KUEUE_OLD_VERSION_IMAGE"
-    echo "New image: $IMAGE_TAG"
-    
-    # Step 1: Install old version using the released image from registry.k8s.io
-    echo "Installing $old_version..."
-    echo "  Manifest URL: ${KUEUE_OLD_VERSION_MANIFEST}"
-    echo "  Downloading and modifying manifests..."
-    
-    # Download manifests, rewrite the image reference to match the pre-loaded
-    # image, and set imagePullPolicy to IfNotPresent so kind uses it directly.
-    curl -sL "${KUEUE_OLD_VERSION_MANIFEST}" | \
-      sed "s|registry.k8s.io/kueue/kueue:${old_version}|${KUEUE_OLD_VERSION_IMAGE}|g" | \
-      sed 's|imagePullPolicy: Always|imagePullPolicy: IfNotPresent|g' | \
-      kubectl apply --server-side -f -
-
-    wait_for_kueue_controller_operator "$1"
-    echo "✓ $old_version ready"
-
-    # Step 2: Create test resources
-    echo "Creating test resources..."
-    
-    # Create custom namespace for test resources (idempotent)
-    kubectl apply --kubeconfig="$1" -f - <<EOF_NS
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: kueue-upgrade-test
-EOF_NS
-    
-    # Apply test resources
-    kubectl apply --kubeconfig="$1" -f - <<EOF
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ResourceFlavor
-metadata:
-  name: upgrade-test-flavor
----
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: ClusterQueue
-metadata:
-  name: upgrade-test-cq
-spec:
-  namespaceSelector: {}
-  resourceGroups:
-  - coveredResources: ["cpu", "memory"]
-    flavors:
-    - name: upgrade-test-flavor
-      resources:
-      - name: "cpu"
-        nominalQuota: 10
-      - name: "memory"
-        nominalQuota: 10Gi
----
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: LocalQueue
-metadata:
-  name: upgrade-test-lq
-  namespace: kueue-upgrade-test
-spec:
-  clusterQueue: upgrade-test-cq
-EOF
-    echo "✓ Resources created"
-    
-    # Step 3: Upgrade to current (rolling update)
-    echo "Upgrading to current..."
-    
-    # Apply upgrade - rolling update will replace pods
-    (
-        set_managers_image
-        trap restore_managers_image EXIT
-        
-        local build_output
-        build_output=$($KUSTOMIZE build "${ROOT_DIR}/test/e2e/config/default")
-        # shellcheck disable=SC2001 # bash parameter substitution does not work on macOS
-        build_output=$(echo "$build_output" | sed "s/kueue-system/$KUEUE_NAMESPACE/g")
-        echo "$build_output" | kubectl apply --kubeconfig="$1" --server-side --force-conflicts -f -
-    )
-    
-    # Wait for the rolling update to complete.
-    echo "Waiting for rolling update to complete..."
-    wait_for_kueue_controller_operator "$1"
-    echo "Upgrade complete (rolling update finished)"
-    echo "========================================="
 }
 
 # Run ginkgo e2e tests with extra CLI flags from GINKGO_ARGS.

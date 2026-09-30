@@ -23,6 +23,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/utils/ptr"
@@ -66,22 +67,26 @@ func applyWorkloadSliceSchedulingGate(job *Job) {
 }
 
 type JobWebhook struct {
+	integrationManager           *jobframework.IntegrationManager
 	client                       client.Client
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	queues                       *qcache.Manager
 	cache                        *schdcache.Cache
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 // SetupWebhook configures the webhook for batchJob.
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	options := jobframework.ProcessOptions(opts...)
 	wh := &JobWebhook{
+		integrationManager:           options.IntegrationManager,
 		client:                       mgr.GetClient(),
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
 		cache:                        options.Cache,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &batchv1.Job{}
 	if options.NoopWebhook {
@@ -104,9 +109,13 @@ func (w *JobWebhook) Default(ctx context.Context, obj *batchv1.Job) error {
 	log := ctrl.LoggerFrom(ctx).WithName("job-webhook")
 	log.V(5).Info("Applying defaults")
 
-	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
-	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object())
-	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
+	if err := w.integrationManager.ApplyDefaultLocalQueue(ctx, w.client, job.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
+	if err := w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object(), w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
+	if err := w.integrationManager.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
@@ -134,7 +143,7 @@ func (w *JobWebhook) ValidateCreate(ctx context.Context, obj *batchv1.Job) (admi
 
 func (w *JobWebhook) validateCreate(ctx context.Context, job *Job) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(job)...)
+	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(job, w.maxTimeoutOnWorkload)...)
 	allErrs = append(allErrs, w.validatePartialAdmissionCreate(job)...)
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(job)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
@@ -150,11 +159,11 @@ func (w *JobWebhook) validateCreate(ctx context.Context, job *Job) (field.ErrorL
 func (w *JobWebhook) validatePartialAdmissionCreate(job *Job) field.ErrorList {
 	var allErrs field.ErrorList
 	if strVal, found := job.Annotations[JobMinParallelismAnnotation]; found {
-		v, err := strconv.Atoi(strVal)
+		v, err := strconv.ParseInt(strVal, 10, 32)
 		if err != nil {
 			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, job.Annotations[JobMinParallelismAnnotation], err.Error()))
 		} else if int32(v) >= job.podsCount() || v <= 0 {
-			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, v, fmt.Sprintf("should be between 0 and %d", job.podsCount()-1)))
+			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, int(v), fmt.Sprintf("should be between 0 and %d", job.podsCount()-1)))
 		}
 		if workloadslicing.Enabled(job.Object()) {
 			allErrs = append(allErrs, field.Invalid(minPodsCountAnnotationsPath, strVal, "partial admission and elastic job cannot be used together"))
@@ -180,7 +189,7 @@ func (w *JobWebhook) validateSyncCompletionCreate(job *Job) field.ErrorList {
 					field.Invalid(
 						field.NewPath("spec", "completions"),
 						job.Spec.Completions,
-						fmt.Sprintf("should be equal to parallelism when %s is annotation is true", JobCompletionsEqualParallelismAnnotation),
+						fmt.Sprintf("should be equal to parallelism when %s annotation is true", JobCompletionsEqualParallelismAnnotation),
 					),
 				)
 			}
@@ -204,12 +213,16 @@ func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *batchv1
 
 func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (field.ErrorList, error) {
 	var allErrs field.ErrorList
-	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newJob)...)
+	// Pass a nil maxTimeoutOnWorkload so the create-path validation does not re-reject an
+	// unchanged wait-for-pods-ready annotation that now exceeds a lowered maxTimeoutOnWorkload
+	// (that would block eviction from suspending the Job). The bound is still enforced for a
+	// changed annotation by ValidateJobOnUpdate below, via ValidateWaitForPodsReadyAnnotationOnUpdate.
+	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newJob, nil)...)
 	if newJob.Annotations[JobMinParallelismAnnotation] != oldJob.Annotations[JobMinParallelismAnnotation] {
 		allErrs = append(allErrs, w.validatePartialAdmissionCreate(newJob)...)
 	}
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(newJob)...)
-	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)...)
+	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)...)
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, newJob)

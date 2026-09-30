@@ -26,8 +26,73 @@ import (
 
 type TopologyDomainID string
 
+const topologyDomainIDSeparator = ","
+
 func DomainID(levelValues []string) TopologyDomainID {
-	return TopologyDomainID(strings.Join(levelValues, ","))
+	return TopologyDomainID(strings.Join(levelValues, topologyDomainIDSeparator))
+}
+
+// BelongsTo reports whether d identifies targetDomain itself or one of its
+// descendants.
+func (d TopologyDomainID) BelongsTo(targetDomain TopologyDomainID) bool {
+	if targetDomain == "" {
+		return true
+	}
+	return d == targetDomain || strings.HasPrefix(string(d), string(targetDomain)+topologyDomainIDSeparator)
+}
+
+// NodeNameFromDomainID returns the node name identified by the domain ID. It
+// reports false when the domain does not identify a single node, i.e. when the
+// lowest level of levels is not the hostname label.
+//
+// When the hostname is the lowest level, an assignment is built for that level
+// alone, so the domain ID holds the node name verbatim with no level values
+// concatenated into it.
+func NodeNameFromDomainID(levels []string, domainID TopologyDomainID) (string, bool) {
+	if len(levels) == 0 || !IsLowestLevelHostname(levels) {
+		return "", false
+	}
+	return string(domainID), true
+}
+
+// PodSetGroupKey identifies a group of PodSets that TAS handles as one unit:
+// placed together in a single pass, and counted as 1 by topology spreading,
+// regardless of how many PodSets or pods it contains.
+//
+// It is an in-memory key only - never persisted to a Workload, an API field,
+// or a status - so its format carries no compatibility guarantee.
+type PodSetGroupKey string
+
+// Prefixes distinguishing the two kinds of name a PodSetGroupKey can be built
+// from. They are what makes the key unambiguous: a declared group name and a
+// PodSet's own name live in separate namespaces, and without a prefix the two
+// are indistinguishable strings.
+//
+// They must stay mutually non-prefixing, which these are - they differ at
+// index 6 ('/' vs 'g') - so no group name and no PodSet name, whatever they
+// contain, can ever produce the same key.
+const (
+	podSetGroupKeyPodSetPrefix = "podset/"
+	podSetGroupKeyGroupPrefix  = "podsetgroup/"
+)
+
+// GroupKeyForPodSet returns the PodSetGroupKey for ps: its
+// TopologyRequest.PodSetGroupName if set, otherwise ps.Name. The name (not an
+// index) is used as the fallback so the key is comparable across Workloads -
+// e.g. two JobSets' "prefill" PodSets count against each other with no group
+// name annotation needed.
+//
+// Each kind is prefixed, so a group named "x" and a PodSet named "x" stay
+// distinct. Do not drop the prefixes: merging the namespaces lets a Workload
+// that passes ValidatePodSetGroupingTopology (which enforces exactly 2 members
+// per group, counting only PodSets that declare the name) still form a group
+// of 3, and findLeaderAndWorkers reads only the first two - the third would be
+// admitted with no topology assignment and no failure reason.
+func GroupKeyForPodSet(ps *kueue.PodSet) PodSetGroupKey {
+	if ps.TopologyRequest != nil && ps.TopologyRequest.PodSetGroupName != nil {
+		return PodSetGroupKey(podSetGroupKeyGroupPrefix + *ps.TopologyRequest.PodSetGroupName)
+	}
+	return PodSetGroupKey(podSetGroupKeyPodSetPrefix + string(ps.Name))
 }
 
 func IsTAS(pod *corev1.Pod) bool {
@@ -54,6 +119,18 @@ func IsExplicitTAS(annots map[string]string) bool {
 		return true
 	}
 	return false
+}
+
+// HasTopologyConstraint reports whether the request contains a field that
+// explicitly opts the PodSet into topology-aware scheduling. Derived indexing
+// fields alone don't constitute a topology constraint.
+func HasTopologyConstraint(tr *kueue.PodSetTopologyRequest) bool {
+	return tr != nil && (tr.Unconstrained != nil ||
+		tr.Required != nil ||
+		tr.Preferred != nil ||
+		tr.PodSetSliceRequiredTopology != nil ||
+		tr.PodSetSliceSize != nil ||
+		len(tr.PodsetSliceRequiredTopologyConstraints) > 0)
 }
 
 func NodeLabelsFromKeysAndValues(keys, values []string) map[string]string {

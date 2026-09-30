@@ -21,7 +21,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -33,11 +32,9 @@ type ServiceWrapper struct{ rayv1.RayService }
 // MakeService creates a wrapper for a suspended RayService
 func MakeService(name, ns string) *ServiceWrapper {
 	return &ServiceWrapper{rayv1.RayService{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: rayv1.RayServiceSpec{
 			RayClusterSpec: rayv1.RayClusterSpec{
 				RayVersion: utiltesting.TestRayVersion(),
@@ -63,9 +60,9 @@ func MakeService(name, ns string) *ServiceWrapper {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName:      "workers-group-0",
-						Replicas:       ptr.To[int32](1),
-						MinReplicas:    ptr.To[int32](0),
-						MaxReplicas:    ptr.To[int32](10),
+						Replicas:       new(int32(1)),
+						MinReplicas:    new(int32(0)),
+						MaxReplicas:    new(int32(10)),
 						RayStartParams: map[string]string{},
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
@@ -277,6 +274,12 @@ func (j *ServiceWrapper) RayVersion(rv string) *ServiceWrapper {
 	return j
 }
 
+// UpgradeStrategy sets the RayService upgrade strategy.
+func (j *ServiceWrapper) UpgradeStrategy(upgradeType rayv1.RayServiceUpgradeType) *ServiceWrapper {
+	j.Spec.UpgradeStrategy = &rayv1.RayServiceUpgradeStrategy{Type: &upgradeType}
+	return j
+}
+
 // ManagedBy sets the ManagedBy field on the RayService spec.
 func (j *ServiceWrapper) ManagedBy(c string) *ServiceWrapper {
 	j.Spec.ManagedBy = &c
@@ -292,6 +295,11 @@ func (j *ServiceWrapper) EnableInTreeAutoscaling() *ServiceWrapper {
 		UpscalingMode:      &aggressive,
 		IdleTimeoutSeconds: &idleTimeoutSeconds,
 	}
+	return j
+}
+
+func (j *ServiceWrapper) WithHistoryServerOptions(value *rayv1.HistoryServerOptions) *ServiceWrapper {
+	j.Spec.RayClusterSpec.HistoryServerOptions = value
 	return j
 }
 

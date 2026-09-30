@@ -20,9 +20,7 @@ import (
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltestingjobs "sigs.k8s.io/kueue/pkg/util/testingjobs"
@@ -34,11 +32,9 @@ type TFJobWrapper struct{ kftraining.TFJob }
 // MakeTFJob creates a wrapper for a suspended job with a single container and parallelism=1.
 func MakeTFJob(name, ns string) *TFJobWrapper {
 	return &TFJobWrapper{kftraining.TFJob{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: kftraining.TFJobSpec{
 			RunPolicy: kftraining.RunPolicy{
 				Suspend: new(true),
@@ -74,7 +70,7 @@ func (j *TFJobWrapper) TFReplicaSpecs(replicaSpecs ...TFReplicaSpecRequirement) 
 
 func (j *TFJobWrapper) TFReplicaSpecsDefault() *TFJobWrapper {
 	j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeChief] = &kftraining.ReplicaSpec{
-		Replicas: ptr.To[int32](1),
+		Replicas: new(int32(1)),
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				RestartPolicy: "Never",
@@ -92,7 +88,7 @@ func (j *TFJobWrapper) TFReplicaSpecsDefault() *TFJobWrapper {
 	}
 
 	j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypePS] = &kftraining.ReplicaSpec{
-		Replicas: ptr.To[int32](1),
+		Replicas: new(int32(1)),
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				RestartPolicy: "Never",
@@ -110,7 +106,7 @@ func (j *TFJobWrapper) TFReplicaSpecsDefault() *TFJobWrapper {
 	}
 
 	j.Spec.TFReplicaSpecs[kftraining.TFJobReplicaTypeWorker] = &kftraining.ReplicaSpec{
-		Replicas: ptr.To[int32](1),
+		Replicas: new(int32(1)),
 		Template: corev1.PodTemplateSpec{
 			Spec: corev1.PodSpec{
 				RestartPolicy: "Never",

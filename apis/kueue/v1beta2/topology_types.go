@@ -97,6 +97,21 @@ const (
 	// is a unit flavor assignment and topology domain fitting.
 	PodSetGroupName = "kueue.x-k8s.io/podset-group-name"
 
+	// PodSetTopologySpreadingAnnotation contains a JSON-encoded object
+	// describing how Workloads matching a label selector should be spread
+	// across topology domains. The value carries a list of workload label
+	// selector requirements identifying which Workloads are spread against
+	// each other, and a list of rules, each naming a topology level key and
+	// the maximum share of matching Workloads a domain at that level may hold
+	// for the next PodSet group to still be placed there.
+	//
+	// This annotation must be set alongside PodSetRequiredTopologyAnnotation:
+	// spreading counts a PodSet group as occupying a single domain per rule
+	// level, which only holds for required topology.
+	//
+	// This annotation is alpha-level for the TASTopologySpreading feature gate.
+	PodSetTopologySpreadingAnnotation = "kueue.x-k8s.io/podset-topology-spreading"
+
 	// WorkloadSliceNameAnnotation identifies the original workload name in a slice chain.
 	// It is set on every Workload created in the chain of the workloads, as well as on the Pods
 	// associated with that Workload.
@@ -112,7 +127,7 @@ type TopologySpec struct {
 	// +listType=atomic
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=16
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="field is immutable"
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf || (self[size(self) - 1].nodeLabel == 'kubernetes.io/hostname' && oldSelf[size(oldSelf) - 1].nodeLabel == 'kubernetes.io/hostname')",message="levels are mutable only when kubernetes.io/hostname is the lowest level both before and after the change"
 	// +kubebuilder:validation:XValidation:rule="size(self.filter(i, size(self.filter(j, j == i)) > 1)) == 0",message="must be unique"
 	// +kubebuilder:validation:XValidation:rule="size(self.filter(i, i.nodeLabel == 'kubernetes.io/hostname')) == 0 || self[size(self) - 1].nodeLabel == 'kubernetes.io/hostname'",message="the kubernetes.io/hostname label can only be used at the lowest level of topology"
 	Levels []TopologyLevel `json:"levels,omitempty"`

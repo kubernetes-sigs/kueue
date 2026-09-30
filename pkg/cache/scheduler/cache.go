@@ -37,13 +37,15 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
-	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -74,9 +76,17 @@ func WithPodsReadyTracking(f bool) Option {
 	}
 }
 
-func WithSchedulingSimulator(s simulator.SchedulingSimulator) Option {
+// WithDRABackedResources supplies the extended resources a DeviceClass declares, which
+// placement needs to tell them from ones a device plugin advertises.
+func WithDRABackedResources(cache *dra.ExtendedResourceCache) Option {
 	return func(c *Cache) {
-		c.schedulingSimulator = s
+		c.draBackedResources = cache
+	}
+}
+
+func WithSimulatorFactory(s simulator.Factory) Option {
+	return func(c *Cache) {
+		c.simulatorFactory = s
 	}
 }
 
@@ -96,6 +106,12 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 func WithFairSharing(enabled bool) Option {
 	return func(c *Cache) {
 		c.fairSharingEnabled = enabled
+	}
+}
+
+func WithDeviceTaintRules(served bool) Option {
+	return func(c *Cache) {
+		c.deviceTaintRulesServed = served
 	}
 }
 
@@ -157,6 +173,14 @@ type Cache struct {
 	// Tracks Workload's ClusterQueue assignment throughout its presence in the cache, which is when they reserve quota (`QuotaReserved=True`).
 	workloadAssignedQueues map[workload.Reference]kueue.ClusterQueueReference
 
+	// draBackedResources is the caller's, shared with the queue manager and written
+	// by the DeviceClass handler, which is why it arrives as an option.
+	draBackedResources *dra.ExtendedResourceCache
+	// draSelectorsCache is the Cache's own, built lazily on first use.
+	draSelectorsCache schddra.CELCache
+	// deviceTaintRulesServed is whether the cluster serves DeviceTaintRules, decided at startup.
+	deviceTaintRulesServed bool
+
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
 	tasCache tasCache
@@ -165,7 +189,7 @@ type Cache struct {
 	customLabels *metrics.CustomLabels
 	lqMetrics    *metrics.LocalQueueMetricsConfig
 
-	schedulingSimulator simulator.SchedulingSimulator
+	simulatorFactory simulator.Factory
 }
 
 func New(client client.Client, options ...Option) *Cache {
@@ -177,12 +201,12 @@ func New(client client.Client, options ...Option) *Cache {
 		workloadAssignedQueues: make(map[workload.Reference]kueue.ClusterQueueReference),
 		hm:                     hierarchy.NewManager(newCohort),
 		resourceFormatter:      resourceFormatter,
-		schedulingSimulator:    newDefaultSimulator(),
+		simulatorFactory:       newDefaultSimulatorFactory(),
 	}
 	for _, option := range options {
 		option(cache)
 	}
-	cache.tasCache = NewTASCache(client, cache.schedulingSimulator, resourceFormatter)
+	cache.tasCache = NewTASCache(client, cache.simulatorFactory, resourceFormatter)
 	cache.podsReadyCond.L = &cache.RWMutex
 	return cache
 }
@@ -192,6 +216,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		Name:                kueue.ClusterQueueReference(cq.Name),
 		Workloads:           make(map[workload.Reference]*workload.Info),
 		WorkloadsNotReady:   sets.New[workload.Reference](),
+		NamespaceSelector:   labels.Nothing(),
 		localQueues:         make(map[queue.LocalQueueReference]*LocalQueue),
 		podsReadyTracking:   c.podsReadyTracking,
 		workloadInfoOptions: c.workloadInfoOptions,
@@ -238,6 +263,18 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 			c.podsReadyCond.Wait()
 		}
 	}
+}
+
+// DeviceTaintRulesServed reports whether the cluster serves DeviceTaintRules, as decided
+// once at startup.
+func (c *Cache) DeviceTaintRulesServed() bool {
+	return c.deviceTaintRulesServed
+}
+
+// PodsReadyTracking reports whether the cache maintains each ClusterQueue's
+// admitted-but-not-ready set.
+func (c *Cache) PodsReadyTracking() bool {
+	return c.podsReadyTracking
 }
 
 func (c *Cache) PodsReadyForAllAdmittedWorkloads(log logr.Logger) bool {
@@ -288,16 +325,21 @@ func (c *Cache) updateClusterQueues(log logr.Logger) sets.Set[kueue.ClusterQueue
 	return cqs
 }
 
-func (c *Cache) ActiveClusterQueues() sets.Set[kueue.ClusterQueueReference] {
+// ClusterQueuesForResources returns the names of ClusterQueues whose
+// ResourceGroups cover any of the given resource names.
+func (c *Cache) ClusterQueuesForResources(resourceNames sets.Set[corev1.ResourceName]) sets.Set[kueue.ClusterQueueReference] {
+	if resourceNames.Len() == 0 {
+		return nil
+	}
 	c.RLock()
 	defer c.RUnlock()
-	cqs := sets.New[kueue.ClusterQueueReference]()
+	result := sets.New[kueue.ClusterQueueReference]()
 	for _, cq := range c.hm.ClusterQueues() {
-		if cq.Status == active {
-			cqs.Insert(cq.Name)
+		if resourcegroups.CoversAnyResource(cq.ResourceGroups, resourceNames) {
+			result.Insert(cq.Name)
 		}
 	}
-	return cqs
+	return result
 }
 
 func (c *Cache) TASCache() *tasCache {
@@ -309,7 +351,7 @@ func (c *Cache) AddOrUpdateResourceFlavor(log logr.Logger, rf *kueue.ResourceFla
 	defer c.Unlock()
 	c.resourceFlavors[kueue.ResourceFlavorReference(rf.Name)] = rf
 	if handleTASFlavor(rf) {
-		c.tasCache.AddFlavor(rf)
+		c.tasCache.AddOrUpdateFlavor(rf)
 	}
 	return c.updateClusterQueues(log)
 }
@@ -461,7 +503,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 			key:                qKey,
 			reservingWorkloads: 0,
 			admittedWorkloads:  0,
-			totalReserved:      make(resources.FlavorResourceQuantities),
+			reservedUsage:      make(resources.FlavorResourceQuantities),
 			admittedUsage:      make(resources.FlavorResourceQuantities),
 			labels:             q.GetLabels(),
 			customLabels:       c.customLabels,
@@ -480,7 +522,7 @@ func (c *Cache) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) err
 		if !workload.HasActiveQuotaReservation(&w) {
 			continue
 		}
-		if _, err := c.addOrUpdateWorkloadWithoutLock(log, &workloads.Items[i]); err != nil {
+		if _, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, &workloads.Items[i]); err != nil {
 			log.Error(err, "Workload found to be matching the ClusterQueue but failed to be added to it")
 			return err
 		}
@@ -505,6 +547,7 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 		return err
 	}
 	c.handleParentUpdate(oldParent)
+	c.reportMovedAdmittedActiveWorkloads(oldParent, cqImpl.Parent())
 	for _, qImpl := range cqImpl.localQueues {
 		if qImpl == nil {
 			return errQNotFound
@@ -600,6 +643,14 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 		}
 	}
 
+	// The custom label value cache is keyed by Workload and shared by every
+	// ClusterQueue, so entries for the Workloads this ClusterQueue still holds
+	// would outlive it and never be reclaimed: once the ClusterQueue is gone,
+	// DeleteWorkload can no longer reach them.
+	for wlKey := range curCq.Workloads {
+		c.customLabels.Delete(config.SourceKindWorkload, string(wlKey))
+	}
+
 	parent := curCq.Parent()
 
 	c.hm.DeleteClusterQueue(cqName)
@@ -623,13 +674,23 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	cohortName := kueue.CohortReference(apiCohort.Name)
 	c.hm.AddCohort(cohortName)
 	cohort := c.hm.Cohort(cohortName)
+	wasCyclic := hierarchy.HasCycle(cohort)
 	oldParent := cohort.Parent()
 	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
-	if err := cohort.updateCohort(apiCohort, oldParent); err != nil {
+	err := cohort.updateCohort(apiCohort, oldParent)
+	// The old tree loses this subtree even when the new parent closes a cycle.
+	c.reportMovedAdmittedActiveWorkloads(oldParent, cohort.Parent())
+	if err != nil {
+		if errors.Is(err, ErrCohortHasCycle) {
+			c.updateClusterQueues(ctrl.Log.WithName("cache"))
+		}
 		return err
 	}
 	c.handleParentUpdate(oldParent)
 	c.updateCohortTreeAndInfoMetricsIfNoCycle(cohort)
+	if wasCyclic {
+		c.updateClusterQueues(ctrl.Log.WithName("cache"))
+	}
 
 	return nil
 }
@@ -641,8 +702,9 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	defer c.Unlock()
 
 	var parent *cohort
+	wasCyclic := false
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
-		cohort.updateAdmittedWorkloadsCount(-cohort.admittedWorkloadsCount)
+		wasCyclic = hierarchy.HasCycle(cohort)
 		metrics.ClearCohortAdmittedWorkloadsMetrics(cohort.Name)
 		if features.Enabled(features.MetricsForCohorts) {
 			metrics.ClearCohortInfo(cohort.Name)
@@ -657,6 +719,7 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	// We need to run update algorithm.
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
 		updateCohortResourceNode(cohort)
+		reportTreeAdmittedActiveWorkloads(cohort)
 	}
 
 	if parent != nil {
@@ -664,6 +727,9 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	}
 
 	c.handleParentUpdate(parent)
+	if wasCyclic {
+		c.updateClusterQueues(ctrl.Log.WithName("cache"))
+	}
 }
 
 func (c *Cache) handleParentUpdate(cachedParent *cohort) {
@@ -772,20 +838,20 @@ func (c *Cache) concurrentAdmissionEnabledForWithoutLock(wl *kueue.Workload) boo
 	return cq.ConcurrentAdmissionEnabled()
 }
 
-func (c *Cache) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload) bool {
+func (c *Cache) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) bool {
 	c.Lock()
 	defer c.Unlock()
 	if c.concurrentAdmissionEnabledForWithoutLock(w) && !concurrentadmission.IsVariant(w) {
 		return false
 	}
-	updated, err := c.addOrUpdateWorkloadWithoutLock(log, w)
+	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
 	if err != nil {
 		log.Error(err, "Updating workload in cache")
 	}
 	return updated
 }
 
-func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Workload) (bool, error) {
+func (c *Cache) addOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Logger, wl *kueue.Workload, opts ...workload.InfoOption) (bool, error) {
 	if c.concurrentAdmissionEnabledForWithoutLock(wl) && !concurrentadmission.IsVariant(wl) {
 		return false, nil
 	}
@@ -815,7 +881,8 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(log logr.Logger, wl *kueue.Worklo
 	}
 
 	c.workloadAssignedQueues[wlKey] = cq.Name
-	cq.addOrUpdateWorkload(log, wl)
+	wi := workload.NewInfoFromClient(ctrl.LoggerInto(ctx, log), c.client, wl, append(slices.Clone(c.workloadInfoOptions), opts...)...)
+	cq.addOrUpdateWorkload(log, wi)
 
 	return true, nil
 }
@@ -888,7 +955,7 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 		AdmittedWorkloads:  cq.admittedWorkloadsCount,
 	}
 
-	if c.fairSharingEnabled {
+	if c.fairSharingEnabled && (!cq.HasParent() || !hierarchy.HasCycle(cq.Parent())) {
 		drs := dominantResourceShare(cq, nil)
 		stats.WeightedShare = drs.PreciseWeightedShare()
 	}
@@ -992,13 +1059,12 @@ func (c *Cache) getUsage(frq resources.FlavorResourceQuantities, cq *clusterQueu
 				used := frq[fr]
 				rUsage := kueue.ResourceUsage{
 					Name:  rName,
-					Total: c.resourceFormatter.ResourceQuantity(rName, used.Int64()),
+					Total: c.resourceFormatter.AmountQuantity(rName, used),
 				}
 				// Enforce `borrowed=0` if the clusterQueue doesn't belong to a cohort.
 				if cq.HasParent() {
-					borrowed := used.Sub(rQuota.Nominal).Int64()
-					if borrowed > 0 {
-						rUsage.Borrowed = c.resourceFormatter.ResourceQuantity(rName, borrowed)
+					if borrowed := used.Sub(rQuota.Nominal); borrowed.Sign() > 0 {
+						rUsage.Borrowed = c.resourceFormatter.AmountQuantity(rName, borrowed)
 					}
 				}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, rUsage)
@@ -1034,7 +1100,7 @@ func (c *Cache) LocalQueueUsage(qObj *kueue.LocalQueue) (*LocalQueueUsageStats, 
 	}
 
 	return &LocalQueueUsageStats{
-		ReservedResources:  c.filterLocalQueueUsage(qImpl.totalReserved, cqImpl.ResourceGroups),
+		ReservedResources:  c.filterLocalQueueUsage(qImpl.reservedUsage, cqImpl.ResourceGroups),
 		ReservingWorkloads: qImpl.reservingWorkloads,
 		AdmittedResources:  c.filterLocalQueueUsage(qImpl.admittedUsage, cqImpl.ResourceGroups),
 		AdmittedWorkloads:  qImpl.admittedWorkloads,
@@ -1045,7 +1111,7 @@ func handleTASFlavor(rf *kueue.ResourceFlavor) bool {
 	return features.Enabled(features.TopologyAwareScheduling) && rf.Spec.TopologyName != nil
 }
 
-func (c *Cache) filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGroups []ResourceGroup) []kueue.LocalQueueFlavorUsage {
+func (c *Cache) filterLocalQueueUsage(orig resources.FlavorResourceQuantities, resourceGroups []resourcegroups.ResourceGroup) []kueue.LocalQueueFlavorUsage {
 	qFlvUsages := make([]kueue.LocalQueueFlavorUsage, 0, len(orig))
 	for _, rg := range resourceGroups {
 		for _, fName := range rg.Flavors {
@@ -1057,7 +1123,7 @@ func (c *Cache) filterLocalQueueUsage(orig resources.FlavorResourceQuantities, r
 				fr := resources.FlavorResource{Flavor: fName, Resource: rName}
 				outFlvUsage.Resources = append(outFlvUsage.Resources, kueue.LocalQueueResourceUsage{
 					Name:  rName,
-					Total: c.resourceFormatter.ResourceQuantity(rName, orig[fr].Int64()),
+					Total: c.resourceFormatter.AmountQuantity(rName, orig[fr]),
 				})
 			}
 			// The resourceUsages should be in a stable order to avoid endless creation of update events.
@@ -1111,6 +1177,25 @@ func (c *Cache) ClusterQueuesUsingAdmissionCheck(ac kueue.AdmissionCheckReferenc
 	return cqs
 }
 
+func (c *Cache) ClusterQueuesUsingCohort(cohortName kueue.CohortReference) []kueue.ClusterQueueReference {
+	c.RLock()
+	defer c.RUnlock()
+	var cqs []kueue.ClusterQueueReference
+
+	for _, cq := range c.hm.ClusterQueues() {
+		if !cq.HasParent() {
+			continue
+		}
+		for ancestor := range cq.Parent().PathSelfToRoot() {
+			if ancestor.Name == cohortName {
+				cqs = append(cqs, cq.Name)
+				break
+			}
+		}
+	}
+	return cqs
+}
+
 func (c *Cache) MatchingClusterQueues(nsLabels map[string]string) sets.Set[kueue.ClusterQueueReference] {
 	c.RLock()
 	defer c.RUnlock()
@@ -1152,11 +1237,6 @@ func (c *Cache) ResyncGaugeMetrics(log logr.Logger) {
 	for _, cohortName := range cohortNames {
 		c.ResyncCohortGaugeMetrics(log, cohortName)
 	}
-}
-
-func resourceFloat(formatter *resources.ResourceFormatter, name corev1.ResourceName, v int64) float64 {
-	q := formatter.ResourceQuantity(name, v)
-	return utilresource.QuantityToFloat(&q)
 }
 
 // Key is the key used to index the queue.

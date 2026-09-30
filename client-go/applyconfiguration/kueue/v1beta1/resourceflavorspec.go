@@ -52,6 +52,7 @@ type ResourceFlavorSpecApplyConfiguration struct {
 	// cloud.provider.com/preemptible="true":NoSchedule
 	//
 	// nodeTaints can be up to 8 elements.
+	//
 	NodeTaints []v1.TaintApplyConfiguration `json:"nodeTaints,omitempty"`
 	// tolerations are extra tolerations that will be added to the pods admitted in
 	// the quota associated with this resource flavor.
@@ -60,10 +61,12 @@ type ResourceFlavorSpecApplyConfiguration struct {
 	// cloud.provider.com/preemptible="true":NoSchedule
 	//
 	// tolerations can be up to 8 elements.
+	//
 	Tolerations []v1.TolerationApplyConfiguration `json:"tolerations,omitempty"`
 	// topologyName indicates topology for the TAS ResourceFlavor.
 	// When specified, it enables scraping of the topology information from the
 	// nodes matching to the Resource Flavor node labels.
+	//
 	TopologyName *kueuev1beta1.TopologyReference `json:"topologyName,omitempty"`
 }
 

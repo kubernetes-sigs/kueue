@@ -16,20 +16,55 @@ limitations under the License.
 
 package jobs
 
-// Reference the job framework integration packages to ensure linking.
 import (
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/deployment"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/sparkapplication"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
+	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/appwrapper"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/deployment"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
+	kubeflowjobs "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/sparkapplication"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 )
+
+// NewIntegrationManager creates an integration manager with all built-in job
+// integrations registered.
+func NewIntegrationManager() *jobframework.IntegrationManager {
+	manager := jobframework.NewIntegrationManager()
+	utilruntime.Must(RegisterIntegrations(manager))
+	return manager
+}
+
+// RegisterIntegrations registers all built-in job integrations with manager.
+func RegisterIntegrations(manager *jobframework.IntegrationManager) error {
+	for _, register := range []func(*jobframework.IntegrationManager) error{
+		appwrapper.RegisterIntegration,
+		deployment.RegisterIntegration,
+		job.RegisterIntegration,
+		jobset.RegisterIntegration,
+		kubeflowjobs.RegisterIntegrations,
+		leaderworkerset.RegisterIntegration,
+		mpijob.RegisterIntegration,
+		pod.RegisterIntegration,
+		raycluster.RegisterIntegration,
+		rayjob.RegisterIntegration,
+		rayservice.RegisterIntegration,
+		sparkapplication.RegisterIntegration,
+		statefulset.RegisterIntegration,
+		trainjob.RegisterIntegration,
+	} {
+		if err := register(manager); err != nil {
+			return err
+		}
+	}
+	return nil
+}

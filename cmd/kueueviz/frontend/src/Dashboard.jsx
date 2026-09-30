@@ -42,7 +42,8 @@ const Dashboard = () => {
   const [namespaces, setNamespaces] = useState([]);
 
   // Fetch dashboard data with namespace filter
-  const { data: kueueData, error: kueueError } = useWebSocket(`/ws/workloads/dashboard?namespace=${selectedNamespace}`);
+  const dashboardUrl = selectedNamespace === '' ? '/ws/workloads/dashboard' : `/ws/workloads/dashboard?namespace=${selectedNamespace}`;
+  const { data: kueueData, error: kueueError } = useWebSocket(dashboardUrl);
 
   useEffect(() => {
     if (namespacesData?.namespaces) {
@@ -63,7 +64,9 @@ const Dashboard = () => {
 
       kueueData.workloads?.items?.forEach(workload => {
         if (workload.preemption?.preempted) {
-          toast.error(`Workload ${workload.metadata?.name} was preempted: ${workload.preemption.reason}`);
+          toast.error(`Workload ${workload.metadata?.name} was preempted: ${workload.preemption.reason}`, {
+            toastId: workload.metadata?.uid || `${workload.metadata?.namespace}/${workload.metadata?.name}`
+          });
         }
       });
       setLoading(false);

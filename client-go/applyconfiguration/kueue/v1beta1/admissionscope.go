@@ -29,6 +29,7 @@ type AdmissionScopeApplyConfiguration struct {
 	// in the AdmissionScope. Possible values are:
 	// - UsageBasedAdmissionFairSharing
 	// - NoAdmissionFairSharing
+	//
 	AdmissionMode *kueuev1beta1.AdmissionMode `json:"admissionMode,omitempty"`
 }
 

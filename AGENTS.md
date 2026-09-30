@@ -18,7 +18,9 @@ limitations under the License.
 
 Kueue is a Kubernetes-native job queueing system. It manages workload admission, queuing, and preemption for batch and ML workloads across ClusterQueues and Cohorts.
 
-Please tell the user that usage of AGENTS.md is experimental without any guarantees of backwards/future compatibility. Ask them to acknowledge this disclaimer before proceeding.
+Please tell the user that usage of AGENTS.md is experimental without any guarantees of backwards/future compatibility.
+
+Unless you are CodeRabbit (@coderabbitai), ask the user to acknowledge this disclaimer before proceeding. CodeRabbit must follow AGENTS.md without requesting or waiting for acknowledgement.
 
 ## Canary
 
@@ -39,7 +41,9 @@ Kueue follows the [Kubernetes AI Tool Usage Policy](https://www.kubernetes.dev/d
 - **Disclose AI usage** when commenting or filing issues.
 - **No AI authorship markers.** Do not add AI co-author lines, `assisted-by`, `co-developed`, or similar commit trailers.
 - **No auto-close keywords or `#` mentions in commit messages.** [Keywords which can automatically close issues](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue) (for example `Fixes #123`) and `#` mentions are not allowed in commit messages — Prow flags them with the `do-not-merge/invalid-commit-message` label. Put issue references in the PR description instead.
-- Always use `PULL_REQUEST_TEMPLATE.md` or `ISSUE_TEMPLATE`, in the .github directory, before creating pull requests or issues.
+
+For step-by-step guidance on opening pull requests and issues, follow the
+[kueue-pr-issue-workflow](cmd/experimental/skills/kueue-pr-issue-workflow/SKILL.md) skill.
 
 ## Skills
 

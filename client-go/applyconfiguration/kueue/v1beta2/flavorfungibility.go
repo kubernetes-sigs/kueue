@@ -34,6 +34,7 @@ type FlavorFungibilityApplyConfiguration struct {
 	// - `MayStopSearch` (default): stop the search for candidate flavors if workload
 	// fits or requires borrowing to fit.
 	// - `TryNextFlavor`: try next flavor if workload requires borrowing to fit.
+	//
 	WhenCanBorrow *kueuev1beta2.FlavorFungibilityPolicy `json:"whenCanBorrow,omitempty"`
 	// whenCanPreempt determines whether a workload should try the next flavor
 	// before preempting in current flavor. The possible values are:
@@ -42,6 +43,7 @@ type FlavorFungibilityApplyConfiguration struct {
 	// preemption to fit.
 	// - `TryNextFlavor` (default): try next flavor if workload requires preemption
 	// to fit in current flavor.
+	//
 	WhenCanPreempt *kueuev1beta2.FlavorFungibilityPolicy `json:"whenCanPreempt,omitempty"`
 	// preference guides the choosing of the flavor for admission in case all candidate flavors
 	// require either preemption, borrowing, or both. The possible values are:
@@ -53,6 +55,7 @@ type FlavorFungibilityApplyConfiguration struct {
 	// when such a choice is possible.  More technically it optimizes the preemption mode
 	// (reclaim over preemption within ClusterQueue), and solves tie-breaks by minimizing
 	// the borrowing distance in the cohort tree.
+	//
 	Preference *kueuev1beta2.FlavorFungibilityPreference `json:"preference,omitempty"`
 }
 

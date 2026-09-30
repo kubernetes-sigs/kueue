@@ -24,7 +24,13 @@ import (
 type TASFlavorUsage []TopologyDomainRequests
 type TASUsage map[kueue.ResourceFlavorReference]TASFlavorUsage
 
+// ResourceUsage contains both the assigned resources and the overall requests.
+type ResourceUsage struct {
+	Assigned   resources.FlavorResourceQuantities
+	Unassigned resources.MapRequests
+}
+
 type Usage struct {
-	Quota resources.FlavorResourceQuantities
+	Quota ResourceUsage
 	TAS   TASUsage
 }

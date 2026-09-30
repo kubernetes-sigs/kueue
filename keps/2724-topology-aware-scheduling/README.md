@@ -17,6 +17,7 @@
     - [Story 8](#story-8)
     - [Story 9](#story-9)
     - [Story 10](#story-10)
+    - [Story 11](#story-11)
   - [Notes/Constraints/Caveats (Optional)](#notesconstraintscaveats-optional)
     - [Integration support](#integration-support)
       - [Job](#job)
@@ -39,6 +40,7 @@
   - [User-facing API](#user-facing-api)
   - [Validation](#validation)
     - [PodSet Slice size validation](#podset-slice-size-validation)
+    - [Partial slices](#partial-slices)
   - [Internal APIs](#internal-apis)
     - [Topology assignment representation](#topology-assignment-representation)
       - [Until v1beta1](#until-v1beta1)
@@ -48,6 +50,7 @@
       - [Until v0.13](#until-v013)
       - [Since v0.14](#since-v014)
       - [Sunsetting fixed-time marking (since v0.19)](#sunsetting-fixed-time-marking-since-v019)
+      - [Replacing multiple failed nodes](#replacing-multiple-failed-nodes)
       - [Workloads owned by a single Pod](#workloads-owned-by-a-single-pod)
     - [Tainted nodes treatment](#tainted-nodes-treatment)
       - [User stories](#user-stories-1)
@@ -68,6 +71,7 @@
   - [Support for Elastic Workloads](#support-for-elastic-workloads)
   - [Balanced placement](#balanced-placement)
     - [Example](#example-3)
+  - [Support for topologies without a hostname level](#support-for-topologies-without-a-hostname-level)
   - [Support for Preferred Node Affinity](#support-for-preferred-node-affinity)
     - [Future Vision](#future-vision)
   - [Support for ProvisioningRequests](#support-for-provisioningrequests)
@@ -240,6 +244,14 @@ preferred node affinity. If a workload cannot be scheduled entirely on the
 because this warm-up procedure is highly expensive, I want the scheduler to
 strictly prioritize the preferred node affinity even at the cost of workload
 fragmentation across multiple domains.
+
+#### Story 11
+
+Similar to [Story 9](#story-9), but I want Leader and its Workers to be placed
+together across a multi-layer topology. For example, I want a LeaderWorkerSet
+with 16 pods (15 workers and 1 leader) to be placed onto the same "block", in
+slices of 4 on the same "rack" (3 racks of 4 workers, and 1 rack with 3 workers
+and 1 leader).
 
 ### Notes/Constraints/Caveats (Optional)
 
@@ -937,7 +949,9 @@ the rules is deactivated):
   `kueue.x-k8s.io/podset-slice-size` is also required (unless the Workload type
   specified its own default. See [Slice size validation](#slice-size-validation))
 - the value of `kueue.x-k8s.io/podset-slice-size` has to be a numeric value greater or equal
-  than 1. It has to evenly divide the size of a PodSet.
+  than 1. It has to evenly divide the size of a PodSet, unless the `TASPartialSlices`
+  feature gate is enabled, in which case the trailing pods form one partial
+  slice (see [Partial slices](#partial-slices))
 - multi-layer topology constraints (`kueue.x-k8s.io/podset-slice-required-topology-constraints`):
   - it is mutually exclusive with `kueue.x-k8s.io/podset-slice-required-topology` and `kueue.x-k8s.io/podset-slice-size`
   - it must be ordered from coarsest to finest
@@ -962,6 +976,70 @@ is not defined for JobSet it defaults to `parallelism`.
 For `kueue.x-k8s.io/podset-slice-required-topology-constraints`, each entry in the
 JSON array must specify both `topology` and `size`. No defaulting logic is applied
 here even for JobSet.
+
+#### Partial slices
+
+When the slice size does not evenly divide the PodSet count, behind the
+`TASPartialSlices` feature gate (enabled by default) the trailing pods form one
+partial slice, placed within a single topology domain like any other slice
+(when the gate is disabled, the trailing pods are left out of the topology
+assignment).
+
+The partial slice is placed by the same algorithm that places the whole ones,
+which is told how big it is instead of being made to reason about it as a full
+slice. Exactly one domain at the slice level holds it, so alongside the number of
+whole slices a domain can hold, the capacity roll-up computes the number it can
+hold while it also holds the partial slice:
+
+```text
+at the slice level:  sliceCountWithTail(d) = (podCount(d) − tailSize) / sliceSize
+above:               sliceCountWithTail(d) = sliceCount(d) − min_c tailPenalty(c)
+```
+
+where `tailPenalty(c) = sliceCount(c) − sliceCountWithTail(c)` is what the child
+subtree `c` gives up by taking the partial slice, and the minimum runs over
+the children that can hold it at all. This is the same shape as the leader
+capacity, which is computed in the same pass; a fourth figure covers the domain
+holding both the leader and the partial slice, which may go to one child or to
+two different ones.
+
+Domain selection then compares against these figures, so a set of domains is only
+chosen when the partial slice has a home inside it, and the descent hands the
+partial slice to a domain that already holds whole slices of the PodSet
+whenever one of them has the room, and opens another domain only when none does.
+
+The cost of the partial slice is therefore the pods it actually holds. A
+PodSet is admitted into a topology with exactly as many free slots as it has
+pods, and a domain that cannot hold the partial slice is passed over before
+the whole slices are committed to it, rather than after.
+
+The balanced placement algorithm distributes whole slices only, so a PodSet with
+a partial slice falls back to the default path and does not get the
+spreading. Teaching balanced placement about the partial slice is left as
+follow-up work.
+
+The partial slice is always the last one. Pods are ranked in the order the
+domains appear in the assignment, so a shorter domain anywhere else would make a
+full slice straddle two domains in rank space, even though the pods are
+physically co-located. Domains are otherwise ordered by their level values, which
+says nothing about where the partial slice ends up, so the order is corrected
+before the assignment is published. Which domain holds the partial slice is
+recomputed from the assignment rather than remembered, which makes the correction
+idempotent and stable across the merges done to repair an assignment.
+
+The same invariant lets failed-node replacement tell a damaged slice apart from
+the partial one. Every domain at the slice level holds a multiple of the slice
+size, except the last, which holds the remainder. A single unhealthy node
+perturbs exactly one domain, so the damaged domain is the one whose pod count is
+restored to its expected residue by the missing pods. A replacement that cannot
+keep the slices whole is rejected, and the Workload is rescheduled from scratch.
+
+Partial slices are supported for a single slice layer only: the inner layers
+of `kueue.x-k8s.io/podset-slice-required-topology-constraints` subdivide a slice
+further, and the trailing pods generally do not divide by their sizes.
+
+`ElasticJobsViaWorkloadSlicesWithTAS` is not supported when the slice size does
+not evenly divide the PodSet count.
 
 ### Internal APIs
 
@@ -1484,6 +1562,32 @@ Kueue tries to find a replacement for a failed node until success (or until it g
 evicted by e.g. `waitForPodsReady.recoveryTimeout`). One can limit the number of retries
 to only one, by setting the `TASFailedNodeReplacementFailFast` feature gate to `true`.
 
+##### Replacing multiple failed nodes
+
+Without this feature, a second failed node triggers Workload eviction. Since Kueue v0.20,
+the Alpha `TASReplaceMultipleFailedNodes` feature gate (disabled by default) allows
+up to eight unhealthy nodes per Workload to wait for incremental replacement.
+This fixed limit applies to all TAS Workloads when the gate is enabled and matches
+the API limit on `.status.unhealthyNodes`. This limit requires no annotation or configuration.
+
+`TASFailedNodeReplacementFailFast` remains independent and enabled by default: the
+first unsuccessful replacement attempt triggers eviction, even with multiple unhealthy nodes.
+Set it to `false` to keep retrying while replacement capacity is unavailable.
+A ninth distinct node failure while eight are still unhealthy also triggers eviction.
+Other eviction mechanisms still apply. With `TASReplaceMultipleFailedNodes` disabled, single-node replacement
+and eviction behavior are unchanged. ConfigAPI configuration of the global limit and
+possible per-Workload overrides are deferred to a future release.
+
+In Alpha, Kueue attempts one failed-node replacement per Workload per scheduling cycle,
+in FIFO order. Successful replacement removes only that node from `.status.unhealthyNodes`.
+An unreplaceable head blocks later entries, including those in other PodSets with available
+replacement capacity; they wait until the head can be replaced or the Workload is evicted.
+
+Placement is greedy and may miss feasible solutions for `required` topology requests.
+For example, healthy Pods can pin replacements to a rack without spare capacity even when
+moving the entire PodSet to another rack would fit. Joint replacement planning and skipping
+an unreplaceable head may be revisited for Beta or GA based on user feedback.
+
 ##### Workloads owned by a single Pod
 
 Node replacement assumes the Workload's controller re-creates pods within the same
@@ -1887,6 +1991,42 @@ For a 3-level topology (block, rack, hostname), in the TopologyRequest, the user
 | [[15],[15]] [[15, 15]] | 25 | 1 | [[0],[0]] [[13, 12]] | prefer block where the request fits in a single rack
 | [[15], [15], [15, 15]] | 25|5 |  [[0], [0], [15, 10]] | `podset-slice-required-topology = hostname`
 
+### Support for topologies without a hostname level
+
+Before 0.20, Kueue evaluated capacity and feasibility at the lowest level a Topology
+declares. When that level is not `kubernetes.io/hostname` a domain covers several
+nodes, so the checks answered a question about the domain rather than about any node
+inside it. A rack of CPU-only nodes passed for a Workload requesting devices, and a
+Workload fitting a rack's total capacity was admitted even when no single node could
+hold one of its Pods. Its Pods then stayed Pending, since kube-scheduler places them
+per node.
+
+Behind the `TASNodeFeasibilityForAllLevels` feature gate Kueue appends
+`kubernetes.io/hostname` to such a Topology's levels internally. Every leaf is then
+exactly one node, so node capacity, taints, node selectors and node affinity are
+evaluated per node on every Topology.
+
+The appended level is internal. Leaves are keyed by node name rather than by the
+hostname label, which is neither unique nor immutable, and the level is stripped on
+serialization, so a `TopologyAssignment` still names only the levels the Topology
+declares. Every check which reads the serialized levels, such as failed node
+replacement and the hostname-prefix encoding, is therefore unaffected.
+
+Usage stays recorded against the level the `TopologyAssignment` names, because the node
+inside a domain that holds a Pod is chosen by kube-scheduler after ungating and is never
+reported back. Leaves are evaluated against node capacity alone, and the domain's own
+remaining capacity bounds the count rolled up from its leaves. Usage accounting stays as
+accurate as it is today, while feasibility becomes exact.
+
+Declaring `kubernetes.io/hostname` explicitly still decides several things:
+- the assignment names nodes, so ungated Pods are pinned to them instead of being left
+  for kube-scheduler to place anywhere within the domain
+- `podset-required-topology: kubernetes.io/hostname` is only a valid request on a
+  Topology which declares the level
+- failed node replacement and cross-flavor usage aggregation both need assignments at
+  node granularity
+- usage is attributed exactly, with no domain-level approximation
+
 ### Support for Preferred Node Affinity
 
 In 0.18 we introduce the pilot support for domain affinity based on `preferredDuringSchedulingIgnoredDuringExecution`, behind the 
@@ -1894,7 +2034,9 @@ In 0.18 we introduce the pilot support for domain affinity based on `preferredDu
 When the feature gate is enabled, we compute the "domain affinity scores" at all levels by
 aggregating (summing) the scores from child topology domains.
 Then, the "domain affinity scores" takes precedence over standard placement ordering of domains (based on BestFit or LeastFreeCapacity policies).
-This feature only works when the lowest topology level specified in the Topology CRD is `kubernetes.io/hostname`.
+This feature works when the lowest topology level specified in the Topology CRD is
+`kubernetes.io/hostname`, and on other Topologies when the `TASNodeFeasibilityForAllLevels`
+feature gate is enabled (see [Support for topologies without a hostname level](#support-for-topologies-without-a-hostname-level)).
 
 #### Future Vision
 
@@ -2053,16 +2195,19 @@ The new validations which are for MVP, but likely will be relaxed in the future:
 - re-evaluate the need to support for "preferred/required" preferences at the
   Workload level (see [Story 3](#story-3))
 - re-evaluate the need for the `kueue.x-k8s.io/tas`
-- re-evaluate handling of topologies without `kubernetes.io/hostname` in the lowest
-  level, the main issues are: (a) no check for fragmentation, and (b) no support
-  for node taints. Some options to consider include virtual level as proposed in
-  the [issue](https://github.com/kubernetes-sigs/kueue/issues/3658#issuecomment-2505583333)
-  or explicit level added by webhook.
+- attribute a domain's usage to the node holding each Pod on topologies without
+  `kubernetes.io/hostname` in the lowest level, which needs Pod location tracking
 - re-evaluate the need for admin-facing configuration of the second phase
   requeuing for ProvisioningRequests based on user feedback
 - change how the information about the failed nodes is stored at a Workload from Annotation into a field in workload.Status
 - handle a more comprehensive set of failure scenarios (e.g., including node becoming unschedulable due to a taint)
 - re-evaluate replacing `NodeToReplace` annotation with a status field, to optimize number of requests in scheduler loop. [Discussion](https://github.com/kubernetes-sigs/kueue/issues/5560)
+- re-evaluate the `TASReplaceMultipleFailedNodes` sub-feature (multiple-node hot swap): decide
+  whether the general (multi-node) algorithm subsumes single-node replacement, whether a bounded
+  fallback to eviction is required to preserve guaranteed progress, and whether the
+  eviction-vs-incremental tradeoff is exposed as a per-ClusterQueue/per-Workload policy (see the
+  open questions in [Node failures](#node-failures) and
+  [#6514](https://github.com/kubernetes-sigs/kueue/issues/6514)).
 
 #### Stable
 

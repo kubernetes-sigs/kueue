@@ -21,10 +21,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -41,12 +39,10 @@ type LeaderWorkerSetWrapper struct {
 // MakeLeaderWorkerSet creates a wrapper for a LeaderWorkerSet with a single container.
 func MakeLeaderWorkerSet(name, ns string) *LeaderWorkerSetWrapper {
 	return &LeaderWorkerSetWrapper{leaderworkersetv1.LeaderWorkerSet{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ns,
-		},
+		Name:      name,
+		Namespace: ns,
 		Spec: leaderworkersetv1.LeaderWorkerSetSpec{
-			Replicas:      ptr.To[int32](1),
+			Replicas:      new(int32(1)),
 			StartupPolicy: leaderworkersetv1.LeaderCreatedStartupPolicy,
 			LeaderWorkerTemplate: leaderworkersetv1.LeaderWorkerTemplate{
 				WorkerTemplate: corev1.PodTemplateSpec{
@@ -61,7 +57,7 @@ func MakeLeaderWorkerSet(name, ns string) *LeaderWorkerSetWrapper {
 						NodeSelector: map[string]string{},
 					},
 				},
-				Size: ptr.To[int32](1),
+				Size: new(int32(1)),
 			},
 		},
 	}}

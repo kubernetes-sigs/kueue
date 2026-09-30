@@ -78,6 +78,15 @@ type CohortStatus struct {
 	// The is recorded only when Fair Sharing is enabled in the Kueue configuration.
 	// +optional
 	FairSharing *FairSharingStatus `json:"fairSharing,omitempty"`
+
+	// effectiveQuotas is used for scheduling instead of spec.resourceGroups when
+	// present. It is set by Dynamic Quota Orchestration (DQO), which overrides
+	// the quotas of whole flavors.
+	//
+	// This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
+	// feature gate is disabled.
+	// +optional
+	EffectiveQuotas *EffectiveQuotaStatus `json:"effectiveQuotas,omitempty"`
 }
 
 // +genclient

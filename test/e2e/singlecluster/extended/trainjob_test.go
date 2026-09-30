@@ -24,7 +24,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -205,7 +204,7 @@ var _ = ginkgo.Describe("TrainJob", ginkgo.Label("area:singlecluster", "feature:
 			ginkgo.By("Stopping the ClusterQueue to make the TrainJob be stopped and suspended")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
-				clusterQueue.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
+				clusterQueue.Spec.StopPolicy = new(kueue.HoldAndDrain)
 				g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 

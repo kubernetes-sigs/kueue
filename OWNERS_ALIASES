@@ -1,6 +1,7 @@
 aliases:
   kueue-approvers:
     - mimowo
+    - sohankunkerkar
     - tenzen-y
   kueue-reviewers:
     - mbobrovskyi
@@ -16,12 +17,10 @@ aliases:
   dependency-approvers:
     - mbobrovskyi
     - pbundyra
-    - sohankunkerkar
   test-approvers:
     - mbobrovskyi
     - olekzabl
     - pbundyra
-    - sohankunkerkar
   agent-approvers:
     - amy
     - kannon92

@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -75,7 +76,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			ns = utiltesting.MakeNamespaceWithGenerateName("dra-pd-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			migDeviceClass = utiltesting.MakeDeviceClass("mig.example.com").
+			migDeviceClass = testingdra.MakeDeviceClass("mig.example.com").
 				CELSelector("device.attributes['gpu.example.com'].type == 'mig'").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, migDeviceClass)).To(gomega.Succeed())
@@ -296,7 +297,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
 				)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -316,7 +317,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			})
 
 			ginkgo.By("Creating a DeviceClass for whole GPUs")
-			dc := utiltesting.MakeDeviceClass("gpu.example.com").Obj()
+			dc := testingdra.MakeDeviceClass("gpu.example.com").Obj()
 			gomega.Expect(k8sClient.Create(ctx, dc)).To(gomega.Succeed())
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, dc)).To(gomega.Succeed())
@@ -403,7 +404,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
 				)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -435,7 +436,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
 				)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
@@ -476,7 +477,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			})
 
 			ginkgo.By("Creating a DeviceClass for whole GPUs")
-			dc := utiltesting.MakeDeviceClass("gpu.example.com").Obj()
+			dc := testingdra.MakeDeviceClass("gpu.example.com").Obj()
 			gomega.Expect(k8sClient.Create(ctx, dc)).To(gomega.Succeed())
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(k8sClient.Delete(ctx, dc)).To(gomega.Succeed())
@@ -517,7 +518,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
 
 			ginkgo.By("Creating a DeviceClass with extendedResourceName and counters mapping")
-			dc := utiltesting.MakeDeviceClass("gpu-er-counter.example.com").
+			dc := testingdra.MakeDeviceClass("gpu-er-counter.example.com").
 				ExtendedResourceName("example.com/gpu-counter").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, dc)).To(gomega.Succeed())
@@ -542,7 +543,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
 				)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
@@ -584,7 +585,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Reason:  kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
 					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].exactly.selectors: Internal error: ResourceClaimTemplate mig-nonexistent-obs: insufficient matching devices for CEL selector in DeviceClass mig.example.com: 0 device(s) match in the cluster but 1 requested",
 				},
 				metav1.Condition{
@@ -596,7 +597,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 				metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
 					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadInadmissible,
+					Reason:  kueue.WorkloadDRAResourcesUnresolved,
 					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].exactly.selectors: Internal error: ResourceClaimTemplate mig-nonexistent-obs: insufficient matching devices for CEL selector in DeviceClass mig.example.com: 0 device(s) match in the cluster but 1 requested",
 				},
 			)
@@ -619,7 +620,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices Integration", ginkgo.Ordered,
 			ns = utiltesting.MakeNamespaceWithGenerateName("dra-pd-borrow-")
 			gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 
-			migDeviceClass = utiltesting.MakeDeviceClass("mig.example.com").
+			migDeviceClass = testingdra.MakeDeviceClass("mig.example.com").
 				CELSelector("device.attributes['gpu.example.com'].type == 'mig'").
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, migDeviceClass)).To(gomega.Succeed())

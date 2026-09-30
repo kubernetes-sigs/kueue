@@ -16,6 +16,62 @@ limitations under the License.
 
 package common
 
+import (
+	"fmt"
+
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/util/logging"
+	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
+	"sigs.k8s.io/kueue/pkg/workload"
+)
+
+// Target represents a workload selected for preemption.
+type Target struct {
+	WorkloadInfo *workload.Info
+	Reason       string
+	WorkloadCq   *scheduler.ClusterQueueSnapshot
+
+	// ConfigurablePreemptionReasonData stores data which resulted in eviction.
+	// Specified only when eviction is due to configurable preemption.
+	ConfigurablePreemptionReasonData *ConfigurablePreemptionReasonData
+}
+
+type ConfigurablePreemptionReasonData struct {
+	ConfigName string
+	// RuleNameToSelectorIndexes maps rule names to the indexes of selectors
+	// that the workload satisfies.
+	RuleNameToSelectorIndexes map[string][]int
+}
+
+func (d *ConfigurablePreemptionReasonData) EvictionMessage(preemptor *kueue.Workload) string {
+	return fmt.Sprintf("Preempted by %s because of preemption config %s rule %s",
+		workload.Key(preemptor),
+		d.ConfigName,
+		stringsutils.JoinMap(d.RuleNameToSelectorIndexes, "/", ",", "; "))
+}
+
+type yieldCandidate = func(*Target) bool
+
+// YieldFromSnapshot wraps a candidate (Target) yielder with
+// logic removing the candidate from the provided snapshot.
+func YieldFromSnapshot(snapshot *scheduler.Snapshot, yield yieldCandidate) yieldCandidate {
+	return func(t *Target) bool {
+		snapshot.RemoveWorkload(t.WorkloadInfo)
+		return yield(t)
+	}
+}
+
+// ensures that Target implements ObjectRefProvider interface at compile time
+var _ logging.ObjectRefProvider = (*Target)(nil)
+
+// GetObject implements the ObjectRefProvider interface.
+func (t *Target) GetObject() client.Object {
+	return t.WorkloadInfo.Obj
+}
+
 // PreemptionPossibility represents the result
 // of a preemption simulation.
 type PreemptionPossibility int

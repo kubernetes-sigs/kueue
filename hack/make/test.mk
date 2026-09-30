@@ -19,12 +19,12 @@ endif
 GO_TEST_FLAGS ?= -race
 
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION ?= 1.36
+ENVTEST_K8S_VERSION ?= 1.37
 
-ENVTEST_RETRY_ATTEMPTS ?= 4
-ENVTEST_RETRY_DELAY ?= 5
+ENVTEST_RETRY_ATTEMPTS ?= 7
+ENVTEST_RETRY_DELAY ?= 2
 KUBEBUILDER_ASSETS = $(or \
-	$(shell $(PROJECT_DIR)/hack/testing/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) -- $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path), \
+	$(shell $(PROJECT_DIR)/hack/testing/retry.sh --attempts $(ENVTEST_RETRY_ATTEMPTS) --delay $(ENVTEST_RETRY_DELAY) --exponential -- $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path), \
 	$(error setup-envtest failed to download binaries. KUBEBUILDER_ASSETS is empty))
 
 TEST_LOG_LEVEL ?= -3
@@ -50,7 +50,7 @@ INTEGRATION_API_LOG_LEVEL ?= 0
 
 # Folder where the e2e tests are located.
 E2E_TARGET ?= ./test/e2e/...
-E2E_K8S_VERSIONS ?= 1.34.8 1.35.5 1.36.1
+E2E_K8S_VERSIONS ?= 1.34.11 1.35.8 1.36.4 1.37.0
 E2E_K8S_VERSION ?= 1.36
 E2E_K8S_FULL_VERSION ?= $(filter $(E2E_K8S_VERSION).%,$(E2E_K8S_VERSIONS))
 # Default to E2E_K8S_VERSION.0 if no match is found
@@ -59,8 +59,7 @@ E2E_KIND_VERSION ?= kindest/node:v$(E2E_K8S_FULL_VERSION)
 E2E_USE_HELM ?= false
 E2E_MODE ?= ci
 E2E_SKIP_REINSTALL ?= false
-KUEUE_UPGRADE_FROM_VERSION ?= v0.14.8
-PROMETHEUS_OPERATOR_VERSION ?= v0.89.0
+PROMETHEUS_OPERATOR_VERSION ?= $(shell grep '^FROM' "${TESTING_DIR}/prometheus-operator/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
 # When truthy, force re-installing external operators (MPI, Ray, etc.) on each run, even in E2E_MODE=dev.
 E2E_ENFORCE_OPERATOR_UPDATE ?= false
 
@@ -100,14 +99,31 @@ else
 	export USE_RAY_FOR_TESTS="raymini"
 endif
 
-# When using raymini, exclude tests that require the full ray image (e.g. RayService).
-# Workaround until upstream Ray fixes protobuf 7.35+ compatibility (ray-project/ray#64362).
-FULLRAY_EXCLUDE := $(if $(filter "raymini",$(USE_RAY_FOR_TESTS)), && !requires:fullray)
-
 .PHONY: test
 test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run a specific shard.
 	mkdir -p $(ARTIFACTS)
-	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit$(OPTIONAL_SHARD_SUFFIX).xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(UNIT_TEST_PACKAGES) -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out
+# GORACE log_path makes the race detector write each report to
+# $(ARTIFACTS)/race$(OPTIONAL_SHARD_SUFFIX).<pid> so it is archived as a CI artifact.
+# Otherwise the report only goes to stderr, which gotestsum discards when a package
+# fails under -race without an attributed test failure (kueue issue 13290). The file is
+# written only when a race is actually detected, so green runs stay clean.
+	GORACE="log_path=$(ARTIFACTS)/race$(OPTIONAL_SHARD_SUFFIX)" TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit$(OPTIONAL_SHARD_SUFFIX).xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(UNIT_TEST_PACKAGES) -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out
+
+# Time budget for fuzzing each individual fuzz target.
+# TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.27
+FUZZTIME ?= 1000x
+
+.PHONY: test-fuzz
+test-fuzz: ## Run all fuzz tests with fuzzing enabled, FUZZTIME per target.
+# 'go test -fuzz' expects a bare fuzz function name, but grep emits whole source
+# lines. The sed replacement extracts the name, for example:
+#   "func FuzzSliceRequestsEquivalence(f *testing.F) {" -> "FuzzSliceRequestsEquivalence"
+	@$(GO_CMD) list -f '{{.ImportPath}} {{.Dir}}' ./... | while read -r pkg dir; do \
+		for target in $$(grep -hs '^func Fuzz' $$dir/*_test.go | $(SED) -E 's/^func (Fuzz[A-Za-z0-9_]*).*/\1/'); do \
+			echo "=== fuzzing $$target in $$pkg (budget $(FUZZTIME))"; \
+			$(GO_CMD) test $$pkg $(GOFLAGS) -run='^$$' -fuzz="^$$target$$" -fuzztime=$(FUZZTIME) || exit 1; \
+		done; \
+	done
 
 ## Label Taxonomy:
 ##   Controllers: controller:workload, controller:localqueue, controller:clusterqueue, controller:admissioncheck, controller:resourceflavor, controller:provisioning
@@ -138,6 +154,7 @@ test-integration-run:
 	ARTIFACTS=$(ARTIFACTS) \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
 	GORACE="log_path=$(ARTIFACTS)/race" \
+	GOTRACEBACK=system \
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS) --race --json-report=integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/integration.json > $(ARTIFACTS)/integration-top.yaml
 
@@ -159,6 +176,7 @@ test-multikueue-integration: compile-crd-manifests envtest ginkgo dep-crds ginkg
 	ARTIFACTS=$(ARTIFACTS) \
 	TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) API_LOG_LEVEL=$(INTEGRATION_API_LOG_LEVEL) \
 	GORACE="log_path=$(ARTIFACTS)/race" \
+	GOTRACEBACK=system \
 	$(GINKGO) $(INTEGRATION_FILTERS) $(GINKGO_ARGS) $(GOFLAGS) -procs=$(INTEGRATION_NPROCS_MULTIKUEUE) --race --json-report=multikueue-integration.json --output-interceptor-mode=none --output-dir=$(ARTIFACTS) -v $(INTEGRATION_TARGET_MULTIKUEUE)
 	$(BIN_DIR)/ginkgo-top -i $(ARTIFACTS)/multikueue-integration.json > $(ARTIFACTS)/multikueue-integration-top.yaml
 
@@ -201,9 +219,18 @@ test-multikueue-e2e-extended-shard-0: setup-e2e-env run-test-multikueue-e2e-exte
 
 .PHONY: test-multikueue-e2e-extended-shard-1
 test-multikueue-e2e-extended-shard-1: E2E_NPROCS := 5
-test-multikueue-e2e-extended-shard-1: GINKGO_ARGS=--label-filter='feature:kuberay$(FULLRAY_EXCLUDE)'
+test-multikueue-e2e-extended-shard-1: GINKGO_ARGS=--label-filter=feature:kuberay
 test-multikueue-e2e-extended-shard-1: E2E_CONFIG_FOLDER=multikueue/extended-shard-1
 test-multikueue-e2e-extended-shard-1: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
+
+.PHONY: test-multikueue-e2e-extended-ray-autoscaling
+test-multikueue-e2e-extended-ray-autoscaling: export KUBERAY_VERSION := $(KUBERAY_VERSION)
+test-multikueue-e2e-extended-ray-autoscaling: export RAY_VERSION := $(RAY_VERSION)
+test-multikueue-e2e-extended-ray-autoscaling: export RAYMINI_VERSION := $(RAYMINI_VERSION)
+test-multikueue-e2e-extended-ray-autoscaling: E2E_NPROCS := 3
+test-multikueue-e2e-extended-ray-autoscaling: GINKGO_ARGS=--label-filter=feature:kuberay-multikueue-autoscaling
+test-multikueue-e2e-extended-ray-autoscaling: E2E_CONFIG_FOLDER=multikueue/ray-autoscaling
+test-multikueue-e2e-extended-ray-autoscaling: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the extended MultiKueue Ray autoscaling e2e test suite.
 
 .PHONY: test-multikueue-e2e-sequential
 test-multikueue-e2e-sequential: setup-e2e-env kind-secretreader-plugin-image-build run-test-e2e-multikueue-sequential-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the sequential MultiKueue e2e test suite.
@@ -252,7 +279,7 @@ test-e2e-extended: run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) #
 
 .PHONY: test-e2e-extended-shard-0
 test-e2e-extended-shard-0: E2E_NPROCS := 4
-test-e2e-extended-shard-0: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-a$(FULLRAY_EXCLUDE)'
+test-e2e-extended-shard-0: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-a'
 test-e2e-extended-shard-0: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-extended-shard-1
@@ -262,7 +289,7 @@ test-e2e-extended-shard-1: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSIO
 
 .PHONY: test-e2e-extended-shard-2
 test-e2e-extended-shard-2: E2E_NPROCS := 2
-test-e2e-extended-shard-2: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-b$(FULLRAY_EXCLUDE)'
+test-e2e-extended-shard-2: GINKGO_ARGS=--label-filter='feature:kuberay && shard:kuberay-b'
 test-e2e-extended-shard-2: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 ## Label Taxonomy:
@@ -270,6 +297,7 @@ test-e2e-extended-shard-2: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSIO
 ##
 ## Examples:
 ##   Run only job tests: GINKGO_ARGS="--label-filter=feature:job" make test-e2e-baseline
+##   Run only provisioning tests: GINKGO_ARGS="--label-filter=feature:provisioning" make test-e2e-baseline
 .PHONY: test-e2e-baseline
 test-e2e-baseline: E2E_NPROCS := 4
 test-e2e-baseline: setup-e2e-env kueuectl run-test-e2e-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the baseline e2e test suite on a kind cluster.
@@ -296,30 +324,68 @@ test-tas-e2e-baseline-helm: test-tas-e2e-baseline
 test-tas-e2e-extended-helm: E2E_USE_HELM=true
 test-tas-e2e-extended-helm: test-tas-e2e-extended
 
+# Aliases for TAS e2e tests
+.PHONY: test-e2e-tas-baseline
+test-e2e-tas-baseline: test-tas-e2e-baseline
+
+.PHONY: test-e2e-tas-extended
+test-e2e-tas-extended: test-tas-e2e-extended
+
+.PHONY: test-e2e-tas-extended-shard-0
+test-e2e-tas-extended-shard-0: test-tas-e2e-extended-shard-0
+
+.PHONY: test-e2e-tas-extended-shard-1
+test-e2e-tas-extended-shard-1: test-tas-e2e-extended-shard-1
+
+.PHONY: test-e2e-tas-baseline-helm
+test-e2e-tas-baseline-helm: test-tas-e2e-baseline-helm
+
+.PHONY: test-e2e-tas-extended-helm
+test-e2e-tas-extended-helm: test-tas-e2e-extended-helm
+
 # WAS versions of TAS e2e tests
+.PHONY: test-e2e-was-tas-baseline
+test-e2e-was-tas-baseline: WAS_ENABLED=true
+test-e2e-was-tas-baseline: test-tas-e2e-baseline
+
+.PHONY: test-e2e-was-tas-extended
+test-e2e-was-tas-extended: WAS_ENABLED=true
+test-e2e-was-tas-extended: test-tas-e2e-extended
+
+.PHONY: test-e2e-was-tas-extended-shard-0
+test-e2e-was-tas-extended-shard-0: WAS_ENABLED=true
+test-e2e-was-tas-extended-shard-0: test-tas-e2e-extended-shard-0
+
+.PHONY: test-e2e-was-tas-extended-shard-1
+test-e2e-was-tas-extended-shard-1: WAS_ENABLED=true
+test-e2e-was-tas-extended-shard-1: test-tas-e2e-extended-shard-1
+
+.PHONY: test-e2e-was-tas-baseline-helm
+test-e2e-was-tas-baseline-helm: WAS_ENABLED=true
+test-e2e-was-tas-baseline-helm: test-tas-e2e-baseline-helm
+
+.PHONY: test-e2e-was-tas-extended-helm
+test-e2e-was-tas-extended-helm: WAS_ENABLED=true
+test-e2e-was-tas-extended-helm: test-tas-e2e-extended-helm
+
+# Backwards compatibility aliases for CI/Prow
 .PHONY: test-tas-was-e2e-baseline
-test-tas-was-e2e-baseline: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-baseline: test-tas-e2e-baseline
+test-tas-was-e2e-baseline: test-e2e-was-tas-baseline
 
 .PHONY: test-tas-was-e2e-extended
-test-tas-was-e2e-extended: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-extended: test-tas-e2e-extended
+test-tas-was-e2e-extended: test-e2e-was-tas-extended
 
 .PHONY: test-tas-was-e2e-extended-shard-0
-test-tas-was-e2e-extended-shard-0: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-extended-shard-0: test-tas-e2e-extended-shard-0
+test-tas-was-e2e-extended-shard-0: test-e2e-was-tas-extended-shard-0
 
 .PHONY: test-tas-was-e2e-extended-shard-1
-test-tas-was-e2e-extended-shard-1: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-extended-shard-1: test-tas-e2e-extended-shard-1
+test-tas-was-e2e-extended-shard-1: test-e2e-was-tas-extended-shard-1
 
 .PHONY: test-tas-was-e2e-baseline-helm
-test-tas-was-e2e-baseline-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-baseline-helm: test-tas-e2e-baseline-helm
+test-tas-was-e2e-baseline-helm: test-e2e-was-tas-baseline-helm
 
 .PHONY: test-tas-was-e2e-extended-helm
-test-tas-was-e2e-extended-helm: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true
-test-tas-was-e2e-extended-helm: test-tas-e2e-extended-helm
+test-tas-was-e2e-extended-helm: test-e2e-was-tas-extended-helm
 
 .PHONY: test-e2e-certmanager
 test-e2e-certmanager: setup-e2e-env run-test-e2e-certmanager-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the cert-manager e2e test suite.
@@ -375,14 +441,9 @@ test-e2e-sequential-extended-shard-1: setup-e2e-env run-test-e2e-sequential-exte
 .PHONY: test-e2e-sequential-extended-helm
 test-e2e-sequential-extended-helm: E2E_USE_HELM=true
 test-e2e-sequential-extended-helm: test-e2e-sequential-extended
-.PHONY: test-e2e-upgrade
-test-e2e-upgrade: setup-e2e-env run-test-e2e-upgrade-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the upgrade e2e test suite.
 
-.PHONY: test-e2e-certmanager-upgrade
-test-e2e-certmanager-upgrade: setup-e2e-env run-test-e2e-certmanager-upgrade-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the cert-manager upgrade e2e test suite.
-
-.PHONY: test-e2e-dra
-test-e2e-dra: setup-e2e-env run-test-e2e-dra-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the Dynamic Resource Allocation (DRA) e2e test suite.
+.PHONY: test-e2e-dra-baseline
+test-e2e-dra-baseline: setup-e2e-env run-test-e2e-dra-baseline-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the Dynamic Resource Allocation (DRA) e2e test suite.
 
 .PHONY: test-e2e-multikueue-dra
 test-e2e-multikueue-dra: setup-e2e-env run-test-e2e-multikueue-dra-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the MultiKueue Dynamic Resource Allocation (DRA) e2e test suite.
@@ -453,7 +514,7 @@ run-test-tas-e2e-baseline-%:
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="tas/baseline" \
+		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="singlecluster/tasapi/baseline" \
 		E2E_CONFIG_FOLDER="baseline" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
@@ -468,7 +529,7 @@ run-test-tas-e2e-extended-%:
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
 		USE_RAY_FOR_TESTS=$(USE_RAY_FOR_TESTS) \
-		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="tas/extended" \
+		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="singlecluster/tasapi/extended" \
 		E2E_CONFIG_FOLDER="extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
@@ -517,35 +578,8 @@ run-test-e2e-certmanager-%:
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
-run-test-e2e-upgrade-%: K8S_VERSION = $(@:run-test-e2e-upgrade-%=%)
-run-test-e2e-upgrade-%:
-	@echo Running upgrade e2e for k8s ${K8S_VERSION}
-	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
-		E2E_MODE=$(E2E_MODE) \
-		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
-		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="upgrade" \
-		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
-		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		./hack/testing/e2e-test.sh
-
-run-test-e2e-certmanager-upgrade-%: K8S_VERSION = $(@:run-test-e2e-certmanager-upgrade-%=%)
-run-test-e2e-certmanager-upgrade-%:
-	@echo Running upgrade e2e for k8s ${K8S_VERSION}
-	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
-		E2E_MODE=$(E2E_MODE) \
-		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
-		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="upgrade" \
-		KUEUE_UPGRADE_FROM_VERSION=$(KUEUE_UPGRADE_FROM_VERSION) \
-		CERTMANAGER_VERSION=$(CERTMANAGER_VERSION) \
-		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
-		./hack/testing/e2e-test.sh
-
-run-test-e2e-dra-%: K8S_VERSION = $(@:run-test-e2e-dra-%=%)
-run-test-e2e-dra-%:
+run-test-e2e-dra-baseline-%: K8S_VERSION = $(@:run-test-e2e-dra-baseline-%=%)
+run-test-e2e-dra-baseline-%:
 	@echo Running DRA e2e for k8s ${K8S_VERSION}
 	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
@@ -648,7 +682,39 @@ run-test-e2e-k8s-main-was:
 		LEADERWORKERSET_VERSION=$(LEADERWORKERSET_VERSION) \
 		KUBERAY_VERSION=$(KUBERAY_VERSION) RAY_VERSION=$(RAY_VERSION) RAYMINI_VERSION=$(RAYMINI_VERSION) USE_RAY_FOR_TESTS="ray" \
 		PROMETHEUS_OPERATOR_VERSION=$(PROMETHEUS_OPERATOR_VERSION) \
-		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster" \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/wasapi" \
+		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
+		WAS_ENABLED=true \
+		./hack/testing/e2e-test.sh
+
+# Complements test-e2e-k8s-main-was: that lane tracks k/k main for early warning,
+# this one pins a release to develop WAS features against a stable target.
+# The suite needs an API server that serves scheduling.k8s.io/v1beta1, so the lane
+# defaults to 1.37 instead of the repo-wide default, while still following
+# E2E_K8S_VERSION when a caller picks a version.
+ifeq ($(origin E2E_K8S_VERSION),file)
+E2E_WAS_K8S_VERSION := 1.37
+else
+E2E_WAS_K8S_VERSION := $(E2E_K8S_VERSION)
+endif
+E2E_WAS_K8S_FULL_VERSION := $(or $(filter $(E2E_WAS_K8S_VERSION).%,$(E2E_K8S_VERSIONS)),$(E2E_WAS_K8S_VERSION).0)
+
+.PHONY: test-e2e-was-api
+test-e2e-was-api: setup-e2e-env run-test-e2e-was-api-$(E2E_WAS_K8S_FULL_VERSION) ## Run the WAS API e2e test suite on a kind cluster of a released Kubernetes version (follows E2E_K8S_VERSION, defaults to 1.37).
+
+# Backwards compatibility alias for CI/Prow
+.PHONY: test-e2e-was
+test-e2e-was: test-e2e-was-api
+
+run-test-e2e-was-api-%: K8S_VERSION = $(@:run-test-e2e-was-api-%=%)
+run-test-e2e-was-api-%:
+	@echo Running WAS API e2e for k8s ${K8S_VERSION}
+	E2E_KIND_VERSION="kindest/node:v$(K8S_VERSION)" KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+		ARTIFACTS="$(ARTIFACTS)/$@" IMAGE_TAG=$(IMAGE_TAG) GINKGO_ARGS="$(E2E_GINKGO_ARGS)" \
+		E2E_MODE=$(E2E_MODE) \
+		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
+		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="singlecluster/wasapi" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
 		WAS_ENABLED=true \
@@ -663,6 +729,11 @@ MINIMALKUEUE_RUNNER := $(BIN_DIR)/minimalkueue
 .PHONY: minimalkueue
 minimalkueue:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(MINIMALKUEUE_RUNNER) test/performance/scheduler/minimalkueue/main.go
+
+MULTIKUEUE_PERFORMANCE_RUNNER := $(BIN_DIR)/performance-multikueue
+.PHONY: performance-multikueue-runner
+performance-multikueue-runner:
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(MULTIKUEUE_PERFORMANCE_RUNNER) ./test/performance/multikueue
 
 ifdef SCALABILITY_CPU_PROFILE
 SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
@@ -718,6 +789,40 @@ run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 		--generatorConfig=$(SCALABILITY_GENERATOR_CONFIG) \
 		--qps=1000 --burst=2000 --timeout=15m $(SCALABILITY_SCRAPE_ARGS)
 
+##@ MultiKueue Performance Testing
+
+MULTIKUEUE_PERFORMANCE_CONFIG ?= $(PROJECT_DIR)/test/performance/multikueue/configs/baseline/configuration.yaml
+MULTIKUEUE_PERFORMANCE_EXPECTATIONS ?= $(PROJECT_DIR)/test/performance/multikueue/configs/baseline/expectations.yaml
+
+# The runner lives under ./test/, which 'make test' excludes, so its unit tests need their own
+# target to run anywhere.
+.PHONY: test-performance-multikueue-runner
+test-performance-multikueue-runner: gotestsum
+	mkdir -p $(ARTIFACTS)
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-performance-multikueue-runner.xml -- \
+		$(GOFLAGS) $(GO_TEST_FLAGS) ./test/performance/multikueue/...
+
+.PHONY: run-performance-multikueue
+run-performance-multikueue: envtest performance-multikueue-runner
+	mkdir -p "$(ARTIFACTS)/$@"
+	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
+	$(MULTIKUEUE_PERFORMANCE_RUNNER) \
+		--o "$(ARTIFACTS)/$@" \
+		--crds=$(PROJECT_DIR)/config/components/crd/bases \
+		--config=$(MULTIKUEUE_PERFORMANCE_CONFIG) $(MULTIKUEUE_PERFORMANCE_ARGS)
+
+.PHONY: test-performance-multikueue-once
+test-performance-multikueue-once: test-performance-multikueue-runner run-performance-multikueue
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-performance-multikueue.xml -- \
+		$(GOFLAGS) $(GO_TEST_FLAGS) ./test/performance/multikueue/checker \
+		--summary=$(ARTIFACTS)/run-performance-multikueue/summary.yaml \
+		--config=$(MULTIKUEUE_PERFORMANCE_CONFIG) \
+		--expectations=$(MULTIKUEUE_PERFORMANCE_EXPECTATIONS)
+
+.PHONY: test-performance-multikueue
+test-performance-multikueue:
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-performance-multikueue-once
+
 ##@ Scheduler Performance Testing with TAS
 
 SCALABILITY_TAS_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/tas/generator.yaml
@@ -754,6 +859,33 @@ run-tas-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 		--generatorConfig=$(SCALABILITY_TAS_GENERATOR_CONFIG) \
 		--enableTAS=true \
 		--qps=1000 --burst=2000 --timeout=25m $(SCALABILITY_SCRAPE_ARGS)
+
+##@ Scheduler Performance Testing with TAS and DRA
+
+SCALABILITY_TAS_DRA_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/tas-dra/generator.yaml
+SCALABILITY_TAS_DRA_RANGE_FILE ?= $(PROJECT_DIR)/test/performance/scheduler/configs/tas-dra/rangespec.yaml
+
+.PHONY: run-tas-dra-performance-scheduler
+run-tas-dra-performance-scheduler: envtest performance-scheduler-runner minimalkueue
+	mkdir -p "$(ARTIFACTS)/$@"
+	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
+	$(SCALABILITY_RUNNER) \
+		--o "$(ARTIFACTS)/$@" \
+		--crds=$(PROJECT_DIR)/config/components/crd/bases \
+		--generatorConfig=$(SCALABILITY_TAS_DRA_GENERATOR_CONFIG) \
+		--minimalKueue=$(MINIMALKUEUE_RUNNER) \
+		--enableTAS=true --enableDRA=true --timeout=20m $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
+
+.PHONY: test-tas-dra-performance-scheduler-once
+test-tas-dra-performance-scheduler-once: gotestsum run-tas-dra-performance-scheduler
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
+		--summary=$(ARTIFACTS)/run-tas-dra-performance-scheduler/summary.yaml \
+		--cmdStats=$(ARTIFACTS)/run-tas-dra-performance-scheduler/minimalkueue.stats.yaml \
+		--range=$(SCALABILITY_TAS_DRA_RANGE_FILE)
+
+.PHONY: test-tas-dra-performance-scheduler
+test-tas-dra-performance-scheduler:
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-tas-dra-performance-scheduler-once
 
 ##@ Scheduler Performance Testing - Large Scale
 
@@ -805,14 +937,23 @@ test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz with
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/testing/e2e-kueueviz-local.sh
+	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
+	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/testing/e2e-kueueviz-rbac-bypass.sh
+
+.PHONY: test-kueueviz-backend
+test-kueueviz-backend: ## Run KueueViz backend tests.
+	cd $(PROJECT_DIR)/cmd/kueueviz/backend && $(GO_CMD) test $(GOFLAGS) $(GO_TEST_FLAGS) ./...
 
 .PHONY: test-e2e-kueueviz
-test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
+test-e2e-kueueviz: test-kueueviz-backend setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	@echo Starting kueueviz end to end test in containers
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
 	${PROJECT_DIR}/hack/testing/e2e-kueueviz-backend.sh
+	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
+	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) \
+	${PROJECT_DIR}/hack/testing/e2e-kueueviz-rbac-bypass.sh
 
 .PHONY: verify-ci-build-times
 verify-ci-build-times: ## Verify that CI build times are below threshold.

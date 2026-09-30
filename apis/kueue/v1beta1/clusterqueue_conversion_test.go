@@ -399,6 +399,27 @@ func TestClusterQueueConvertFrom(t *testing.T) {
 				},
 			},
 		},
+		"EffectiveQuotas in v1beta2 status is ignored when converting to v1beta1": {
+			input: &v1beta2.ClusterQueue{
+				ObjectMeta: defaultObjectMeta,
+				Status: v1beta2.ClusterQueueStatus{
+					PendingWorkloads: 3,
+					EffectiveQuotas: &v1beta2.EffectiveQuotaStatus{
+						OrchestratorRef: v1beta2.EffectiveQuotaStatusOrchestratorRef{
+							APIGroup: "kueue.x-k8s.io",
+							Kind:     "DynamicQuotaOrchestrator",
+							Name:     "test-dqo",
+						},
+					},
+				},
+			},
+			expected: &ClusterQueue{
+				ObjectMeta: defaultObjectMeta,
+				Status: ClusterQueueStatus{
+					PendingWorkloads: 3,
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
@@ -420,9 +441,7 @@ func TestClusterQueueConversion_RoundTrip(t *testing.T) {
 	}{
 		"complete ClusterQueue with cohort and FlavorFungibility": {
 			v1beta1Obj: &ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "test-clusterqueue",
-				},
+				Name: "test-clusterqueue",
 				Spec: ClusterQueueSpec{
 					Cohort: "prod-cohort",
 					FlavorFungibility: &FlavorFungibility{
@@ -445,9 +464,7 @@ func TestClusterQueueConversion_RoundTrip(t *testing.T) {
 		},
 		"minimal ClusterQueue": {
 			v1beta1Obj: &ClusterQueue{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "minimal-cq",
-				},
+				Name: "minimal-cq",
 			},
 		},
 	}

@@ -82,7 +82,7 @@ var (
 
 func TestRegister(t *testing.T) {
 	cases := map[string]struct {
-		manager              *integrationManager
+		manager              *IntegrationManager
 		integrationName      string
 		integrationCallbacks IntegrationCallbacks
 		wantError            error
@@ -90,7 +90,7 @@ func TestRegister(t *testing.T) {
 		wantCallbacks        IntegrationCallbacks
 	}{
 		"successful": {
-			manager: &integrationManager{
+			manager: &IntegrationManager{
 				names: []string{"oldFramework"},
 				integrations: map[string]IntegrationCallbacks{
 					"oldFramework": testIntegrationCallbacks,
@@ -103,7 +103,7 @@ func TestRegister(t *testing.T) {
 			wantCallbacks:        testIntegrationCallbacks,
 		},
 		"duplicate name": {
-			manager: &integrationManager{
+			manager: &IntegrationManager{
 				names: []string{"newFramework"},
 				integrations: map[string]IntegrationCallbacks{
 					"newFramework": testIntegrationCallbacks,
@@ -116,7 +116,7 @@ func TestRegister(t *testing.T) {
 			wantCallbacks:        testIntegrationCallbacks,
 		},
 		"missing NewReconciler": {
-			manager:         &integrationManager{},
+			manager:         &IntegrationManager{},
 			integrationName: "newFramework",
 			integrationCallbacks: IntegrationCallbacks{
 				SetupWebhook:          testSetupWebhook,
@@ -129,7 +129,7 @@ func TestRegister(t *testing.T) {
 			wantList:  []string{},
 		},
 		"missing SetupWebhook": {
-			manager:         &integrationManager{},
+			manager:         &IntegrationManager{},
 			integrationName: "newFramework",
 			integrationCallbacks: IntegrationCallbacks{
 				NewReconciler:         testNewReconciler,
@@ -142,7 +142,7 @@ func TestRegister(t *testing.T) {
 			wantList:  []string{},
 		},
 		"missing JobType": {
-			manager:         &integrationManager{},
+			manager:         &IntegrationManager{},
 			integrationName: "newFramework",
 			integrationCallbacks: IntegrationCallbacks{
 				NewReconciler:         testNewReconciler,
@@ -155,7 +155,7 @@ func TestRegister(t *testing.T) {
 			wantList:  []string{},
 		},
 		"missing SetupIndexes": {
-			manager:         &integrationManager{},
+			manager:         &IntegrationManager{},
 			integrationName: "newFramework",
 			integrationCallbacks: IntegrationCallbacks{
 				NewReconciler:         testNewReconciler,
@@ -174,7 +174,7 @@ func TestRegister(t *testing.T) {
 			},
 		},
 		"missing AddToScheme": {
-			manager:         &integrationManager{},
+			manager:         &IntegrationManager{},
 			integrationName: "newFramework",
 			integrationCallbacks: IntegrationCallbacks{
 				NewReconciler:         testNewReconciler,
@@ -193,7 +193,7 @@ func TestRegister(t *testing.T) {
 			},
 		},
 		"missing CanSupportIntegration": {
-			manager:         &integrationManager{},
+			manager:         &IntegrationManager{},
 			integrationName: "newFramework",
 			integrationCallbacks: IntegrationCallbacks{
 				NewReconciler: testNewReconciler,
@@ -255,13 +255,13 @@ func compareCallbacks(x, y any) bool {
 
 func TestRegisterExternal(t *testing.T) {
 	cases := map[string]struct {
-		manager   *integrationManager
+		manager   *IntegrationManager
 		kindArg   string
 		wantError error
 		wantGVK   *schema.GroupVersionKind
 	}{
 		"successful 1": {
-			manager: &integrationManager{
+			manager: &IntegrationManager{
 				names: []string{"oldFramework"},
 				integrations: map[string]IntegrationCallbacks{
 					"oldFramework": testIntegrationCallbacks,
@@ -272,9 +272,9 @@ func TestRegisterExternal(t *testing.T) {
 			wantGVK:   &schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"},
 		},
 		"successful 2": {
-			manager: &integrationManager{
+			manager: &IntegrationManager{
 				externalIntegrations: map[string]runtime.Object{
-					"Job.v1.batch": &batchv1.Job{TypeMeta: metav1.TypeMeta{Kind: "Job", APIVersion: "batch/v1"}},
+					"Job.v1.batch": &batchv1.Job{Kind: "Job", APIVersion: "batch/v1"},
 				},
 			},
 			kindArg:   "AppWrapper.v1beta2.workload.codeflare.dev",
@@ -282,7 +282,7 @@ func TestRegisterExternal(t *testing.T) {
 			wantGVK:   &schema.GroupVersionKind{Group: "workload.codeflare.dev", Version: "v1beta2", Kind: "AppWrapper"},
 		},
 		"malformed kind arg": {
-			manager:   &integrationManager{},
+			manager:   &IntegrationManager{},
 			kindArg:   "batch/job",
 			wantError: errFrameworkNameFormat,
 			wantGVK:   nil,
@@ -329,7 +329,7 @@ func TestForEach(t *testing.T) {
 
 	for tcName, tc := range cases {
 		t.Run(tcName, func(t *testing.T) {
-			manager := integrationManager{}
+			manager := IntegrationManager{}
 			for _, name := range tc.registered {
 				if err := manager.register(name, testIntegrationCallbacks); err != nil {
 					t.Fatalf("unable to register %s, %s", name, err.Error())
@@ -366,26 +366,26 @@ func TestGetJobTypeForOwner(t *testing.T) {
 	manageK1 := func() IntegrationCallbacks {
 		ret := dontManage
 		ret.GVK = schema.GroupVersionKind{Group: "test-group", Version: "v1", Kind: "K1"}
-		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K1", APIVersion: "test-group/v1"}}
+		ret.JobType = &metav1.PartialObjectMetadata{Kind: "K1", APIVersion: "test-group/v1"}
 		return ret
 	}()
 	manageK2 := func() IntegrationCallbacks {
 		ret := dontManage
 		ret.GVK = schema.GroupVersionKind{Group: "test-group", Version: "v1", Kind: "K2"}
-		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K2", APIVersion: "test-group/v1"}}
+		ret.JobType = &metav1.PartialObjectMetadata{Kind: "K2", APIVersion: "test-group/v1"}
 		return ret
 	}()
 	externalK3 := func() runtime.Object {
-		return &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K3", APIVersion: "test-group/v1"}}
+		return &metav1.PartialObjectMetadata{Kind: "K3", APIVersion: "test-group/v1"}
 	}()
 	disabledK4 := func() IntegrationCallbacks {
 		ret := dontManage
 		ret.GVK = schema.GroupVersionKind{Group: "test-group", Version: "v1", Kind: "K4"}
-		ret.JobType = &metav1.PartialObjectMetadata{TypeMeta: metav1.TypeMeta{Kind: "K4", APIVersion: "test-group/v1"}}
+		ret.JobType = &metav1.PartialObjectMetadata{Kind: "K4", APIVersion: "test-group/v1"}
 		return ret
 	}()
 
-	mgr := integrationManager{
+	mgr := IntegrationManager{
 		names: []string{"manageK1", "dontManage", "manageK2", "disabledK4"},
 		integrations: map[string]IntegrationCallbacks{
 			"dontManage": dontManage,
@@ -447,6 +447,35 @@ func TestGetJobTypeForOwner(t *testing.T) {
 	}
 }
 
+func TestIntegrationManagersAreIsolated(t *testing.T) {
+	callbacks := testIntegrationCallbacks
+	callbacks.GVK = corev1.SchemeGroupVersion.WithKind("Pod")
+
+	first := NewIntegrationManager()
+	if err := first.RegisterIntegration("batch/job", callbacks); err != nil {
+		t.Fatalf("RegisterIntegration() error = %v", err)
+	}
+	first.enableIntegration("batch/job")
+
+	second := NewIntegrationManager()
+	if err := second.RegisterIntegration("batch/job", callbacks); err != nil {
+		t.Fatalf("RegisterIntegration() error = %v", err)
+	}
+
+	controller := true
+	pod := &corev1.Pod{OwnerReferences: []metav1.OwnerReference{{
+		APIVersion: corev1.SchemeGroupVersion.String(),
+		Kind:       "Pod",
+		Controller: &controller,
+	}}}
+	if !first.IsOwnerManagedByKueueForObject(pod) {
+		t.Error("first manager did not manage its enabled integration")
+	}
+	if second.IsOwnerManagedByKueueForObject(pod) {
+		t.Error("second manager observed the first manager's enabled integration")
+	}
+}
+
 func TestEnabledIntegrationsDependencies(t *testing.T) {
 	cases := map[string]struct {
 		integrationsDependencies map[string][]string
@@ -483,7 +512,7 @@ func TestEnabledIntegrationsDependencies(t *testing.T) {
 	}
 	for tcName, tc := range cases {
 		t.Run(tcName, func(t *testing.T) {
-			manager := integrationManager{
+			manager := IntegrationManager{
 				integrations: map[string]IntegrationCallbacks{},
 			}
 			for integration, deps := range tc.integrationsDependencies {
@@ -539,7 +568,7 @@ func TestImplicitlyEnabledIntegrations(t *testing.T) {
 	}
 	for tcName, tc := range cases {
 		t.Run(tcName, func(t *testing.T) {
-			mgr := integrationManager{
+			mgr := IntegrationManager{
 				integrations: map[string]IntegrationCallbacks{},
 			}
 			for integration, implicitDeps := range tc.integrationsImplicit {

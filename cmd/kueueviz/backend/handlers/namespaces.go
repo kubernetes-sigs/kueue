@@ -21,6 +21,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"kueueviz/middleware"
 
 	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
@@ -28,13 +29,16 @@ import (
 // NamespacesWebSocketHandler streams namespaces that are related to Kueue
 func (h *Handlers) NamespacesWebSocketHandler() gin.HandlerFunc {
 	// Use LocalQueue informer since namespaces are derived from LocalQueues
-	return h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
-		return h.fetchNamespaces(ctx)
-	}, LocalQueuesGVK())
+	return func(c *gin.Context) {
+		identity, _ := middleware.IdentityFromContext(c)
+		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
+			return h.fetchNamespaces(ctx, identity)
+		}, LocalQueuesGVK())(c)
+	}
 }
 
 // Fetch namespaces that have LocalQueues (Kueue-related namespaces)
-func (h *Handlers) fetchNamespaces(ctx context.Context) (any, error) {
+func (h *Handlers) fetchNamespaces(ctx context.Context, identity middleware.Identity) (any, error) {
 	lql := &kueueapi.LocalQueueList{}
 
 	// First, get all LocalQueues to find namespaces that have them
@@ -46,7 +50,16 @@ func (h *Handlers) fetchNamespaces(ctx context.Context) (any, error) {
 	// Extract unique namespaces from LocalQueues
 	namespaceSet := sets.NewString()
 	for _, lq := range lql.Items {
-		namespaceSet.Insert(lq.GetNamespace())
+		ns := lq.GetNamespace()
+		if !namespaceSet.Has(ns) {
+			if h.authorizer != nil {
+				allowed, err := h.authorizer.Authorize(ctx, identity, middleware.ResourceAccess("list", LocalQueuesGVR(), ns, ""))
+				if err != nil || !allowed {
+					continue
+				}
+			}
+			namespaceSet.Insert(ns)
+		}
 	}
 
 	namespaces := namespaceSet.List()
@@ -54,7 +67,16 @@ func (h *Handlers) fetchNamespaces(ctx context.Context) (any, error) {
 		namespaces = []string{}
 	}
 
+	hasClusterAccess := true
+	if h.authorizer != nil {
+		allowed, err := h.authorizer.Authorize(ctx, identity, middleware.ResourceAccess("list", LocalQueuesGVR(), "", ""))
+		if err != nil || !allowed {
+			hasClusterAccess = false
+		}
+	}
+
 	return map[string]any{
-		"namespaces": namespaces,
+		"namespaces":       namespaces,
+		"hasClusterAccess": hasClusterAccess,
 	}, nil
 }

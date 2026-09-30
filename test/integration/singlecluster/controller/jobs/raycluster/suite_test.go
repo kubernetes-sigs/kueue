@@ -30,15 +30,19 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/controller/concurrentadmission"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/elasticjobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	"sigs.k8s.io/kueue/pkg/controller/unscheduledpods"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
@@ -70,6 +74,8 @@ var _ = ginkgo.AfterSuite(func() {
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
+		integrationManager := jobcontrollers.NewIntegrationManager()
+		opts = append(opts, jobframework.WithIntegrationManager(integrationManager))
 		reconciler, err := raycluster.NewReconciler(
 			ctx,
 			mgr.GetClient(),
@@ -89,13 +95,22 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
-		jobframework.EnableIntegration(rayjob.FrameworkName)
+		integrationManager.EnableIntegration(rayjob.FrameworkName)
 	}
 }
 
 func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	return managerAndSchedulerSetupWithConfig(&config.Configuration{}, opts...)
+}
+
+func managerAndSchedulerSetupWithConfig(configuration *config.Configuration, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
-		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
+		mgr.GetScheme().Default(configuration)
+		var indexerOptions []indexer.Option
+		if waitforpodsready.PodsScheduledTrackingEnabled(configuration.WaitForPodsReady) {
+			indexerOptions = append(indexerOptions, indexer.WithPodWorkloadSliceNameIndex())
+		}
+		err := indexer.Setup(ctx, mgr.GetFieldIndexer(), indexerOptions...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		cCache := schdcache.New(mgr.GetClient())
@@ -108,10 +123,15 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 			mgr,
 			queues,
 			cCache,
-			&config.Configuration{},
+			configuration,
 			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+
+		if features.Enabled(features.ConcurrentAdmission) {
+			failedCtrl, err := concurrentadmission.SetupControllers(mgr, queues, configuration, nil)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+		}
 
 		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
@@ -126,7 +146,12 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
-			failedCtrl, err := elasticjobs.SetupWithManager(mgr, &config.Configuration{}, nil)
+			failedCtrl, err := elasticjobs.SetupWithManager(mgr, &config.Configuration{}, nil, nil)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+		}
+
+		if waitforpodsready.PodsScheduledTrackingEnabled(configuration.WaitForPodsReady) {
+			failedCtrl, err := unscheduledpods.NewTracker(mgr.GetClient(), nil, configuration.WaitForPodsReady).SetupWithManager(mgr, configuration)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
 		}
 

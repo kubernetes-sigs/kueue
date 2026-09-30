@@ -18,8 +18,10 @@ package rayservice
 
 import (
 	"context"
+	"fmt"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -42,14 +44,17 @@ var (
 	headGroupSpecsPath   = field.NewPath("spec", "rayClusterSpec", "headGroupSpec")
 	headGroupMetaPath    = headGroupSpecsPath.Child("template", "metadata")
 	workerGroupSpecsPath = field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs")
+	upgradeStrategyPath  = field.NewPath("spec", "upgradeStrategy", "type")
 )
 
 type RayServiceWebhook struct {
+	integrationManager           *jobframework.IntegrationManager
 	client                       client.Client
 	queues                       *qcache.Manager
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	cache                        *schdcache.Cache
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 func fromObject(obj runtime.Object) *RayService {
@@ -63,11 +68,13 @@ func SetupRayServiceWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error
 		opt(&options)
 	}
 	wh := &RayServiceWebhook{
+		integrationManager:           options.IntegrationManager,
 		client:                       mgr.GetClient(),
 		queues:                       options.Queues,
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		cache:                        options.Cache,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &rayv1.RayService{}
 	if options.NoopWebhook {
@@ -89,9 +96,13 @@ func (w *RayServiceWebhook) Default(ctx context.Context, obj *rayv1.RayService) 
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("rayservice-webhook")
 	log.V(10).Info("Applying defaults")
-	jobframework.ApplyDefaultLocalQueue(job.Object(), w.queues.DefaultLocalQueueExist)
-	jobframework.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object())
-	if err := jobframework.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
+	if err := w.integrationManager.ApplyDefaultLocalQueue(ctx, w.client, job.Object(), w.queues.DefaultLocalQueueExist, w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
+	if err := w.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, w.client, job.Object(), w.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
+	if err := w.integrationManager.ApplyDefaultForSuspend(ctx, job, w.client, w.manageJobsWithoutQueueName, w.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
@@ -118,9 +129,14 @@ var _ admission.Validator[*rayv1.RayService] = &RayServiceWebhook{}
 func (w *RayServiceWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RayService) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("rayservice-webhook")
 	log.V(10).Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, obj)
+	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
+	}
+	// Validated only on create so that existing RayServices remain updatable
+	// (e.g. unsuspend or finalizer removal by Kueue) after an upgrade.
+	if w.manageJobsWithoutQueueName || jobframework.QueueName(fromObject(obj)) != "" {
+		validationErrs = append(validationErrs, validateUpgradeStrategy(obj)...)
 	}
 	return nil, validationErrs.ToAggregate()
 }
@@ -130,7 +146,7 @@ func isAnElasticJob(job *rayv1.RayService) bool {
 	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.GetObjectMeta())
 }
 
-func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RayService) (field.ErrorList, error) {
+func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RayService, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*RayService)(job)
 
@@ -142,9 +158,12 @@ func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RaySe
 		clusterSpecPath := specPath.Child("rayClusterSpec")
 		rayClusterSpecErrors := raycluster.ValidateCreate(job, clusterSpec, clusterSpecPath)
 		allErrors = append(allErrors, rayClusterSpecErrors...)
+		if len(rayClusterSpecErrors) > 0 {
+			return allErrors, nil
+		}
 	}
 
-	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob)...)
+	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob, maxTimeoutOnWorkload)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, job)
 		if err != nil {
@@ -156,6 +175,27 @@ func (w *RayServiceWebhook) validateCreate(ctx context.Context, job *rayv1.RaySe
 	return allErrors, nil
 }
 
+func validateUpgradeStrategy(job *rayv1.RayService) field.ErrorList {
+	if !features.Enabled(features.RayServiceValidateUpgradeStrategy) {
+		return nil
+	}
+	strategy := job.Spec.UpgradeStrategy
+	if strategy != nil && strategy.Type != nil && *strategy.Type == rayv1.RayServiceUpgradeNone {
+		return nil
+	}
+	if isAnElasticJob(job) {
+		return nil
+	}
+	return field.ErrorList{field.Forbidden(
+		upgradeStrategyPath,
+		fmt.Sprintf("zero-downtime upgrades require enabling the %s feature gate and setting the %q annotation to %q, or setting .spec.upgradeStrategy.type to %q to disable zero-downtime upgrades",
+			features.ElasticJobsViaWorkloadSlices,
+			workloadslicing.EnabledAnnotationKey,
+			workloadslicing.EnabledAnnotationValue,
+			rayv1.RayServiceUpgradeNone),
+	)}
+}
+
 func (w *RayServiceWebhook) validateTopologyRequest(ctx context.Context, rayService *rayv1.RayService) (field.ErrorList, error) {
 	job := (*RayService)(rayService)
 	return raycluster.ValidateTopologyRequest(ctx, w.client, job, &rayService.Spec.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath)
@@ -165,18 +205,18 @@ func (w *RayServiceWebhook) validateTopologyRequest(ctx context.Context, rayServ
 func (w *RayServiceWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *rayv1.RayService) (admission.Warnings, error) {
 	oldJob := fromObject(oldObj)
 	newJob := fromObject(newObj)
-	log := ctrl.LoggerFrom(ctx).WithName("rayservice-webhook")
-	if w.manageJobsWithoutQueueName || jobframework.QueueName(newJob) != "" {
-		log.Info("Validating update")
-		allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist)
-		validationErrs, err := w.validateCreate(ctx, newObj)
-		if err != nil {
-			return nil, err
-		}
-		allErrors = append(allErrors, validationErrs...)
-		return nil, allErrors.ToAggregate()
+	if !jobframework.ShouldValidateRayOrSparkJobOnUpdate(oldJob, newJob, w.manageJobsWithoutQueueName) {
+		return nil, nil
 	}
-	return nil, nil
+	log := ctrl.LoggerFrom(ctx).WithName("rayservice-webhook")
+	log.V(5).Info("Validating update")
+	allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
+	validationErrs, err := w.validateCreate(ctx, newObj, nil)
+	if err != nil {
+		return nil, err
+	}
+	allErrors = append(allErrors, validationErrs...)
+	return nil, allErrors.ToAggregate()
 }
 
 // ValidateDelete implements webhook.CustomValidator so a webhook will be registered for the type

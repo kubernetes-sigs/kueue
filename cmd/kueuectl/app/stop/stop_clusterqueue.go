@@ -26,7 +26,6 @@ import (
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	"k8s.io/cli-runtime/pkg/printers"
 	"k8s.io/kubectl/pkg/util/templates"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -73,7 +72,7 @@ func NewClusterQueueCmd(clientGetter clientgetter.ClientGetter, streams generici
 		Long:                  cqLong,
 		Example:               cqExample,
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-		ValidArgsFunction:     completion.ClusterQueueNameFunc(clientGetter, new(true)),
+		ValidArgsFunction:     completion.SingleArg(completion.ClusterQueueNameFunc(clientGetter, new(true))),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cmd.SilenceUsage = true
 			err := o.Complete(clientGetter, cmd, args)
@@ -159,8 +158,8 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 
 func (o *ClusterQueueOptions) stopClusterQueue(cq *kueue.ClusterQueue) {
 	if o.KeepAlreadyRunning {
-		cq.Spec.StopPolicy = ptr.To(kueue.Hold)
+		cq.Spec.StopPolicy = new(kueue.Hold)
 	} else {
-		cq.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
+		cq.Spec.StopPolicy = new(kueue.HoldAndDrain)
 	}
 }

@@ -24,9 +24,8 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -44,13 +43,15 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -64,6 +65,7 @@ type elasticJobUngater struct {
 	clock             clock.Clock
 	expectationsStore *expectations.Store
 	roleTracker       *roletracker.RoleTracker
+	customLabels      *metrics.CustomLabels
 }
 
 var _ reconcile.Reconciler = (*elasticJobUngater)(nil)
@@ -72,26 +74,28 @@ var _ predicate.TypedPredicate[*kueue.Workload] = (*elasticJobUngater)(nil)
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
 
-func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) (string, error) {
+func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker, customLabels *metrics.CustomLabels) (string, error) {
 	r := &elasticJobUngater{
 		client:            mgr.GetClient(),
 		clock:             clock.RealClock{},
 		expectationsStore: expectations.NewStore(ControllerName),
 		roleTracker:       roleTracker,
+		customLabels:      customLabels,
 	}
 	podHandler := elasticPodHandler{
+		client:            r.client,
 		expectationsStore: r.expectationsStore,
 	}
-	// Reconcile by the stable slice-chain key rather than by an individual
-	// workload, so every slice in a chain (and every pod that names any slice in
-	// it) maps to a single reconcile request. Reconcile then resolves the active
-	// slice from that key.
+	// Enqueue the active slice; Reconcile resolves it again in case of a rollover.
 	sliceKeyHandler := handler.TypedEnqueueRequestsFromMapFunc(
-		func(_ context.Context, wl *kueue.Workload) []reconcile.Request {
-			return []reconcile.Request{{NamespacedName: types.NamespacedName{
-				Namespace: wl.Namespace,
-				Name:      workloadslicing.SliceName(wl),
-			}}}
+		func(ctx context.Context, wl *kueue.Workload) []reconcile.Request {
+			active, err := workloadslicing.FindLatestAdmittedWorkload(ctx, r.client, wl, false)
+			if err != nil || active == nil {
+				return nil
+			}
+			return []reconcile.Request{{
+				Namespace: active.Namespace,
+				Name:      active.Name}}
 		},
 	)
 	return ControllerName, builder.TypedControllerManagedBy[reconcile.Request](mgr).
@@ -115,31 +119,20 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile ElasticJobUngater")
 
-	if !r.expectationsStore.Satisfied(log, req.NamespacedName) {
-		return reconcile.Result{}, errPendingUngateOps
-	}
-
-	// req.Name is the stable slice-chain key shared by every slice and pod in the
-	// chain (see workloadslicing.SliceName); it is the name of the chain's root
-	// slice. Load it to find the owning job, then resolve the active (latest
-	// admitted, non-finished) slice from the job's slice chain: it is the only
-	// one whose granted PodSet counts define how many pods may be ungated, so the
-	// cap is always taken from the live slice regardless of which slice (or which
-	// pod's stamped WorkloadAnnotation) triggered the event.
-	root := &kueue.Workload{}
-	if err := r.client.Get(ctx, req.NamespacedName, root); err != nil {
-		return reconcile.Result{}, client.IgnoreNotFound(err)
-	}
-	active, err := r.activeSlice(ctx, root)
-	if err != nil {
+	active, err := workloadslicing.FindActiveWorkload(ctx, r.client, req.NamespacedName, false)
+	if err != nil || active == nil {
 		return reconcile.Result{}, err
 	}
-	if active == nil {
-		// Anomaly: the event was queued for an admitted, non-finished elastic slice
-		// (see shouldUngate), yet the chain has no active slice now — e.g. it just
-		// finished, or the root lost its controller owner between events.
-		log.V(2).Info("no active elastic slice resolved for the chain; skipping ungating", "workload", klog.KObj(root))
+	if !shouldUngate(active) || workloadevict.IsEvicted(active) {
 		return reconcile.Result{}, nil
+	}
+
+	// Expectations are keyed by the stable chain key (the origin slice name shared
+	// by every slice and pod in the chain), not by the rolling active-slice name,
+	// so in-flight ungate expectations survive a scale rollover.
+	sliceKey := types.NamespacedName{Namespace: active.Namespace, Name: workloadslicing.SliceName(active)}
+	if !r.expectationsStore.Satisfied(log, sliceKey) {
+		return reconcile.Result{}, errPendingUngateOps
 	}
 
 	pods, err := r.podsToUngate(ctx, active)
@@ -155,31 +148,112 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 	for i := range pods {
 		uids[i] = pods[i].UID
 	}
-	r.expectationsStore.ExpectUIDs(log, req.NamespacedName, uids)
+	r.expectationsStore.ExpectUIDs(log, sliceKey, uids)
 
 	err = parallelize.Until(ctx, len(pods), func(i int) error {
 		pod := pods[i]
 		var ungated bool
 		e := utilclient.Patch(ctx, r.client, pod, func() (bool, error) {
+			podSetName := kueue.PodSetReference(pod.Labels[constants.PodSetLabel])
+			update, err := admissionUpdateForPodSet(active, podSetName)
+			if err != nil {
+				return false, err
+			}
+			changed, err := refreshPodAdmission(pod, update)
+			if err != nil {
+				return false, err
+			}
 			ungated = utilpod.Ungate(pod, kueue.ElasticJobSchedulingGate)
 			if ungated {
 				log.V(3).Info("ungating elastic pod", "pod", klog.KObj(pod))
 			}
-			return ungated, nil
+			return changed || ungated, nil
 		})
 		if e != nil {
-			r.expectationsStore.ObservedUID(log, req.NamespacedName, pod.UID)
+			r.expectationsStore.ObservedUID(log, sliceKey, pod.UID)
 			log.Error(e, "failed ungating elastic pod", "pod", klog.KObj(pod))
 			return e
 		}
 		if !ungated {
-			r.expectationsStore.ObservedUID(log, req.NamespacedName, pod.UID)
+			r.expectationsStore.ObservedUID(log, sliceKey, pod.UID)
 		} else {
-			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.ElasticJobSchedulingGate, active, false)
+			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.ElasticJobSchedulingGate, active, false, r.customLabels, r.roleTracker)
 		}
 		return nil
 	})
 	return reconcile.Result{}, err
+}
+
+type podAdmissionUpdate struct {
+	annotations  map[string]string
+	nodeSelector map[string]string
+}
+
+func admissionUpdateForPodSet(wl *kueue.Workload, podSetName kueue.PodSetReference) (podAdmissionUpdate, error) {
+	update := podAdmissionUpdate{
+		annotations:  make(map[string]string),
+		nodeSelector: make(map[string]string),
+	}
+	if workloadslicing.IsEnabledForProvisioningRequests(wl) {
+		update.annotations[kueue.WorkloadAnnotation] = wl.Name
+		update.annotations[kueue.WorkloadSliceNameAnnotation] = workloadslicing.SliceName(wl)
+	}
+	for _, check := range wl.Status.AdmissionChecks {
+		for _, psUpdate := range check.PodSetUpdates {
+			if psUpdate.Name != podSetName {
+				continue
+			}
+			// consume-provisioning-request is the only admission annotation that
+			// changes per ProvisioningRequest; everything else reaches the Pod via
+			// the job template.
+			if value, found := psUpdate.Annotations[autoscaling.ProvisioningRequestPodAnnotationKey]; found {
+				if old, exists := update.annotations[autoscaling.ProvisioningRequestPodAnnotationKey]; exists && old != value {
+					return podAdmissionUpdate{}, fmt.Errorf("conflicting %q annotation updates for PodSet %q", autoscaling.ProvisioningRequestPodAnnotationKey, podSetName)
+				}
+				update.annotations[autoscaling.ProvisioningRequestPodAnnotationKey] = value
+			}
+			for key, value := range psUpdate.NodeSelector {
+				if old, exists := update.nodeSelector[key]; exists && old != value {
+					return podAdmissionUpdate{}, fmt.Errorf("conflicting %q node selector updates for PodSet %q", key, podSetName)
+				}
+				update.nodeSelector[key] = value
+			}
+		}
+	}
+	return update, nil
+}
+
+// podAdmissionCompatible reports whether the Pod can still take update. Only the
+// consume-provisioning-request annotation is checked among annotations: it is
+// the Pod's immutable request identity, whereas the workload / slice-name
+// annotations inherited from the template are meant to be overwritten with the
+// active slice. A gated Pod may only gain nodeSelector keys (the API server
+// rejects changing an existing one), so a conflicting value is incompatible.
+func podAdmissionCompatible(pod *corev1.Pod, update podAdmissionUpdate) bool {
+	if wanted, specified := update.annotations[autoscaling.ProvisioningRequestPodAnnotationKey]; specified {
+		if existing, found := pod.Annotations[autoscaling.ProvisioningRequestPodAnnotationKey]; found && existing != wanted {
+			return false
+		}
+	}
+	for key, value := range update.nodeSelector {
+		if existing, found := pod.Spec.NodeSelector[key]; found && existing != value {
+			return false
+		}
+	}
+	return true
+}
+
+func refreshPodAdmission(pod *corev1.Pod, update podAdmissionUpdate) (bool, error) {
+	if !podAdmissionCompatible(pod, update) {
+		return false, fmt.Errorf("pod %s/%s has immutable admission metadata from a different ProvisioningRequest", pod.Namespace, pod.Name)
+	}
+	changed := !utilmaps.Contains(pod.Annotations, update.annotations) ||
+		!utilmaps.Contains(pod.Spec.NodeSelector, update.nodeSelector)
+	if changed {
+		utilmaps.Copy(&pod.Annotations, update.annotations)
+		utilmaps.Copy(&pod.Spec.NodeSelector, update.nodeSelector)
+	}
+	return changed, nil
 }
 
 func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload) ([]*corev1.Pod, error) {
@@ -190,24 +264,35 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	// wl is the chain's active slice (resolved in Reconcile), so its granted
 	// PodSet counts are the right cap for ungating any of them.
 	sliceName := workloadslicing.SliceName(wl)
-	var podList corev1.PodList
-	if err := r.client.List(ctx, &podList,
-		client.InNamespace(wl.Namespace),
-		client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName},
-	); err != nil {
+	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName)
+	if err != nil {
 		return nil, fmt.Errorf("listing pods for workload slice: %w", err)
 	}
 
-	granted := workload.ExtractPodSetCountsFromWorkload(wl)
+	granted := workload.ExtractGrantedPodSetCounts(wl)
 	gatedPerPodSet := make(map[kueue.PodSetReference][]*corev1.Pod)
 	ungatedPerPodSet := make(map[kueue.PodSetReference]int32)
-	for i := range podList.Items {
-		p := &podList.Items[i]
+	admissionUpdates := make(map[kueue.PodSetReference]podAdmissionUpdate)
+	for _, p := range pods {
 		if utilpod.IsTerminated(p) {
 			continue
 		}
 		ps := kueue.PodSetReference(p.Labels[constants.PodSetLabel])
 		if utilpod.HasGate(p, kueue.ElasticJobSchedulingGate) {
+			update, found := admissionUpdates[ps]
+			if !found {
+				var err error
+				update, err = admissionUpdateForPodSet(wl, ps)
+				if err != nil {
+					return nil, err
+				}
+				admissionUpdates[ps] = update
+			}
+			if !podAdmissionCompatible(p, update) {
+				ctrl.LoggerFrom(ctx).Info("leaving elastic pod gated because immutable admission metadata is stale; recycle the pod after its template refreshes",
+					"pod", klog.KObj(p), "podSet", ps)
+				continue
+			}
 			gatedPerPodSet[ps] = append(gatedPerPodSet[ps], p)
 		} else {
 			// Already-ungated pods consume quota too.
@@ -240,21 +325,6 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	return gated, nil
 }
 
-// activeSlice resolves the active (latest admitted, non-finished) workload slice
-// of the chain that anyWl belongs to, or nil if none qualifies. It looks up the
-// chain through the owning job's workload index, reusing the same slice ordering
-// as the rest of the slicing code (workloadslicing.FindLatestActiveWorkload).
-func (r *elasticJobUngater) activeSlice(ctx context.Context, anyWl *kueue.Workload) (*kueue.Workload, error) {
-	owner := metav1.GetControllerOf(anyWl)
-	if owner == nil {
-		return nil, nil
-	}
-	jobObject := &metav1.PartialObjectMetadata{
-		ObjectMeta: metav1.ObjectMeta{Namespace: anyWl.Namespace, Name: owner.Name},
-	}
-	return workloadslicing.FindLatestActiveWorkload(ctx, r.client, jobObject, schema.FromAPIVersionAndKind(owner.APIVersion, owner.Kind))
-}
-
 // Workload predicates
 
 func (r *elasticJobUngater) Create(e event.TypedCreateEvent[*kueue.Workload]) bool {
@@ -268,7 +338,7 @@ func (r *elasticJobUngater) Update(e event.TypedUpdateEvent[*kueue.Workload]) bo
 func shouldUngate(wl *kueue.Workload) bool {
 	return workloadslicing.IsElasticWorkload(wl) &&
 		!workloadfinish.IsFinished(wl) &&
-		(workload.IsAdmitted(wl) || workload.HasQuotaReservation(wl))
+		workload.IsAdmitted(wl)
 }
 
 func (r *elasticJobUngater) Delete(event.TypedDeleteEvent[*kueue.Workload]) bool {
@@ -284,6 +354,7 @@ func (r *elasticJobUngater) Generic(event.TypedGenericEvent[*kueue.Workload]) bo
 var _ handler.EventHandler = (*elasticPodHandler)(nil)
 
 type elasticPodHandler struct {
+	client            client.Client
 	expectationsStore *expectations.Store
 }
 
@@ -307,32 +378,22 @@ func (h *elasticPodHandler) queueReconcileForPod(ctx context.Context, object cli
 	if !isPod {
 		return
 	}
-	// Enqueue by the stable slice-chain key, not the pod's stamped
-	// WorkloadAnnotation. A pod minted after a scale-up still carries the previous
-	// (now Finished) slice's name, but the chain key is shared by every slice, so
-	// Reconcile can always resolve the active slice from it.
-	sliceName := podSliceName(pod)
-	if sliceName == "" {
+	// Expectations are keyed by the stable chain key (the origin slice name the
+	// pod carries), so observations survive scale rollovers.
+	sliceKey := workloadslicing.KeyForPod(pod)
+	if sliceKey == nil {
 		return
-	}
-	key := types.NamespacedName{
-		Name:      sliceName,
-		Namespace: pod.Namespace,
 	}
 	// Mark expectation as observed when the gate has been removed or the pod is deleted.
 	if !utilpod.HasGate(pod, kueue.ElasticJobSchedulingGate) || deleted {
-		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workloadSlice", key.String())
-		h.expectationsStore.ObservedUID(log, key, pod.UID)
+		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workloadSlice", sliceKey.String())
+		h.expectationsStore.ObservedUID(log, *sliceKey, pod.UID)
 	}
-	q.AddAfter(reconcile.Request{NamespacedName: key}, constants.UpdatesBatchPeriod)
-}
-
-// podSliceName returns the slice-chain key for a pod: the WorkloadSliceName
-// annotation if present, otherwise the stamped Workload annotation. Mirrors
-// indexer.IndexPodWorkloadSliceName so the key matches the pod index.
-func podSliceName(pod *corev1.Pod) string {
-	if v, found := pod.Annotations[kueue.WorkloadSliceNameAnnotation]; found {
-		return v
+	active, err := workloadslicing.FindLatestAdmittedWorkloadForSlice(ctx, h.client, sliceKey.Namespace, sliceKey.Name)
+	if err != nil || active == nil {
+		return
 	}
-	return pod.Annotations[kueue.WorkloadAnnotation]
+	q.AddAfter(reconcile.Request{
+		Namespace: active.Namespace,
+		Name:      active.Name}, constants.UpdatesBatchPeriod)
 }

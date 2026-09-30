@@ -23,7 +23,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
-	resourceapi "k8s.io/api/resource/v1beta2"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,6 +31,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -42,7 +42,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			defaultFlavor *kueue.ResourceFlavor
 			gpuFlavor     *kueue.ResourceFlavor
 			ns            *corev1.Namespace
-			deviceClass   *resourceapi.DeviceClass
+			deviceClass   *resourcev1.DeviceClass
 			rct           *resourcev1.ResourceClaimTemplate
 
 			cqs []*kueue.ClusterQueue
@@ -97,11 +97,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-afs-")
 
 			// Create DeviceClass for DRA
-			deviceClass = &resourceapi.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "gpu.example.com",
-				},
-			}
+			deviceClass = testingdra.MakeDeviceClass("gpu.example.com").Obj()
 			util.MustCreate(ctx, k8sClient, deviceClass)
 
 			// Create ResourceClaimTemplate
@@ -297,7 +293,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			defaultFlavor *kueue.ResourceFlavor
 			gpuFlavor     *kueue.ResourceFlavor
 			ns            *corev1.Namespace
-			deviceClass   *resourceapi.DeviceClass
+			deviceClass   *resourcev1.DeviceClass
 			rct           *resourcev1.ResourceClaimTemplate
 
 			cqs []*kueue.ClusterQueue
@@ -330,11 +326,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-afs-")
 
 			// Create DeviceClass for DRA
-			deviceClass = &resourceapi.DeviceClass{
-				ObjectMeta: metav1.ObjectMeta{
-					Name: "gpu.example.com",
-				},
-			}
+			deviceClass = testingdra.MakeDeviceClass("gpu.example.com").Obj()
 			util.MustCreate(ctx, k8sClient, deviceClass)
 
 			// Create ResourceClaimTemplate

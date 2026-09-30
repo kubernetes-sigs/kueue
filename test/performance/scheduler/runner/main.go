@@ -76,6 +76,7 @@ var (
 	logLevel         = flag.Int("withLogsLevel", 2, "set minimalkueue logs level")
 	logToFile        = flag.Bool("logToFile", false, "capture minimalkueue logs to files")
 	enableTAS        = flag.Bool("enableTAS", false, "enable TAS controllers and indexers in minimalkueue")
+	enableDRA        = flag.Bool("enableDRA", false, "enable the DRA device feasibility check in minimalkueue")
 )
 
 var (
@@ -167,7 +168,7 @@ func main() {
 		}
 
 		// start the minimal kueue manager process
-		err = runCommand(ctx, *outputDir, *minimalKueuePath, "kubeconfig", *withCPUProfile, *withMemProfile, *withLogs, *logToFile, *logLevel, *enableTAS, errCh, wg, metricsPort)
+		err = runCommand(ctx, *outputDir, *minimalKueuePath, "kubeconfig", *withCPUProfile, *withMemProfile, *withLogs, *logToFile, *logLevel, *enableTAS, *enableDRA, errCh, wg, metricsPort)
 		if err != nil {
 			log.Error(err, "MinimalKueue start")
 			os.Exit(1)
@@ -267,7 +268,7 @@ func runCommand(
 	workDir, cmdPath, kubeconfig string,
 	withCPUProf, withMemProfile, withLogs, logToFile bool,
 	logLevel int,
-	enableTAS bool,
+	enableTAS, enableDRA bool,
 	errCh chan<- error,
 	wg *sync.WaitGroup,
 	metricsPort int,
@@ -316,6 +317,10 @@ func runCommand(
 
 	if enableTAS {
 		cmd.Args = append(cmd.Args, "--enableTAS")
+	}
+
+	if enableDRA {
+		cmd.Args = append(cmd.Args, "--enableDRA")
 	}
 
 	log.Info("Starting process", "path", cmd.Path, "args", cmd.Args)
