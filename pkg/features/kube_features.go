@@ -366,6 +366,10 @@ const (
 	// buffer do not preempt each other based on LowerOrNewerEqualPriority.
 	SchedulerTimestampPreemptionBuffer featuregate.Feature = "SchedulerTimestampPreemptionBuffer"
 
+	// PodGroupSchedulingShapeOrdering enables ordering PodSets in Pod groups
+	// according to their scheduling shape rather than their role hash.
+	PodGroupSchedulingShapeOrdering featuregate.Feature = "PodGroupSchedulingShapeOrdering"
+
 	// owner: @IrvingMg
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/7066-custom-metric-labels
 	//
@@ -923,6 +927,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	SchedulerTimestampPreemptionBuffer: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha}, // remove in 0.20
+	},
+	PodGroupSchedulingShapeOrdering: {
+		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	CustomMetricLabels: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
