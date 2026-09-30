@@ -660,7 +660,10 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	bestAssignmentMode := worstGranularMode()
 	consideredFlavors := newFlavorAssignmentAttempts(len(resourceGroup.Flavors))
 
-	triedFlavors := a.wl.FlavorScanState.TriedFlavorsForGroup(psIDs, resName, resourceGroup.Flavors)
+	triedFlavors := sets.New[kueue.ResourceFlavorReference]()
+	if probeRequests == nil {
+		triedFlavors = a.wl.FlavorScanState.TriedFlavorsForGroup(psIDs, resName, resourceGroup.Flavors)
+	}
 
 	// We will only check against the flavors' labels for the resource.
 	for _, fName := range resourceGroup.Flavors {
@@ -810,7 +813,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 		}
 		// Check HasAll so a flavor removed from the ClusterQueue between cycles
 		// does not count toward exhaustion.
-		if bestAssignmentMode.preemptionMode <= noPreemptionCandidates || triedFlavors.HasAll(resourceGroup.Flavors...) {
+		if probeRequests != nil || bestAssignmentMode.preemptionMode <= noPreemptionCandidates || triedFlavors.HasAll(resourceGroup.Flavors...) {
 			// we have tried all flavors, try from the first flavor next time
 			triedFlavors = nil
 		}
