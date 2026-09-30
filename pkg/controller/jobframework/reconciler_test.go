@@ -807,7 +807,6 @@ func TestReconcileGenericJob(t *testing.T) {
 		"SchedulerLibraryIntegration adds the workload annotation": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: false,
-				features.TopologyAwareScheduling:            false,
 				features.SchedulerLibraryIntegration:        true,
 			},
 			req:     baseReq,
