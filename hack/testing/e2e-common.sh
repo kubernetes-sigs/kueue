@@ -1002,20 +1002,22 @@ function cluster_kueue_deploy {
 
 # $1 kubeconfig
 # $2 values file
-# $3 kustomization config whose kueue-manager-config is used as the manager
-#    configuration, so that Helm and kustomize installs share it
+# $3 kustomization config whose kueue-manager-config and controller-manager
+#    replicas are used, so that Helm and kustomize installs share them
 function helm_install {
-    local manager_config
+    local manifests manager_config replicas
+    manifests=$($KUSTOMIZE build "$3")
     manager_config=$(mktemp)
     # shellcheck disable=SC2064 # Intentionally expand now to capture the temp file path
     trap "rm -f '$manager_config'" RETURN
-    $KUSTOMIZE build "$3" |
-        $YQ -e 'select(.kind == "ConfigMap" and .metadata.name == "kueue-manager-config") | .data."controller_manager_config.yaml"' \
-        >"$manager_config"
+    $YQ -e 'select(.kind == "ConfigMap" and .metadata.name == "kueue-manager-config") | .data."controller_manager_config.yaml"' \
+        <<<"$manifests" >"$manager_config"
+    replicas=$($YQ -e 'select(.kind == "Deployment" and .metadata.name == "kueue-controller-manager") | .spec.replicas' <<<"$manifests")
 
     $HELM install \
       -f "$2" \
       --set-file "managerConfig.controllerManagerConfigYaml=${manager_config}" \
+      --set "controllerManager.replicas=${replicas}" \
       --set "controllerManager.manager.image.repository=${IMAGE_TAG%:*}" \
       --set "controllerManager.manager.image.tag=${IMAGE_TAG##*:}" \
       --create-namespace \
