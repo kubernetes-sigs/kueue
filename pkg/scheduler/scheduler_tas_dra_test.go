@@ -78,15 +78,15 @@ func TestScheduleForTASDRA(t *testing.T) {
 	// One GPU on each node, in its own pool, so a rule can name either node's devices.
 	devices := []client.Object{
 		testingdra.MakeDeviceClass("gpu.example.com").Obj(),
-		utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
+		testingdra.MakeResourceClaimTemplate("gpu-template", "default").
 			DeviceRequest("gpu", "gpu.example.com", 1).
 			Obj(),
-		utiltesting.MakeResourceClaimTemplate("tolerant-template", "default").
+		testingdra.MakeResourceClaimTemplate("tolerant-template", "default").
 			DeviceRequest("gpu", "gpu.example.com", 1).
 			WithToleration("example.com/maintenance", resourceapi.DeviceTaintEffectNoSchedule).
 			Obj(),
-		utiltesting.MakeResourceSlice("x1-gpus", "gpu.example.com").NodeName("x1").Pool("x1-gpus", 1, 1).Device("gpu-0").Obj(),
-		utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").NodeName("x2").Pool("x2-gpus", 1, 1).Device("gpu-0").Obj(),
+		testingdra.MakeResourceSlice("x1-gpus", "gpu.example.com").NodeName("x1").Pool("x1-gpus", 1, 1).Device("gpu-0").Obj(),
+		testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").NodeName("x2").Pool("x2-gpus", 1, 1).Device("gpu-0").Obj(),
 	}
 	draResources := map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
 		"default/wl": {"main": {"example.com/gpu": resource.MustParse("1")}},

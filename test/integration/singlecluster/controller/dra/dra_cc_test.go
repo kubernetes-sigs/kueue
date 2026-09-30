@@ -108,7 +108,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 
 		ginkgo.It("Should charge explicit capacity request", func() {
 			ginkgo.By("Creating ResourceSlice with capacity dimensions")
-			slice := utiltesting.MakeResourceSlice("cc-explicit-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-explicit-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", nil).
@@ -120,7 +120,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT with explicit capacity.requests")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-explicit", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-explicit", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				WithCapacityRequests(map[string]string{"memory": "20Gi"}).
 				Obj()
@@ -155,7 +155,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 
 		ginkgo.It("Should default to max capacity value when no request specified", func() {
 			ginkgo.By("Creating ResourceSlice with capacity dimensions")
-			slice := utiltesting.MakeResourceSlice("cc-default-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-default-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", nil).
@@ -167,7 +167,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT without capacity.requests (defaults to max capacity)")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-default", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-default", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
@@ -199,7 +199,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 		ginkgo.It("Should default to RequestPolicy.Default when no request specified", func() {
 			ginkgo.By("Creating ResourceSlice with RequestPolicy.Default")
 			defaultQty := resource.MustParse("10Gi")
-			slice := utiltesting.MakeResourceSlice("cc-policy-default-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-policy-default-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
@@ -213,7 +213,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT without capacity.requests")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-policy-default", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-policy-default", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
@@ -245,7 +245,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 		ginkgo.It("Should round up capacity request to ValidValues", func() {
 			ginkgo.By("Creating ResourceSlice with ValidValues policy")
 			defaultQty := resource.MustParse("10Gi")
-			slice := utiltesting.MakeResourceSlice("cc-validvalues-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-validvalues-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
@@ -265,7 +265,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT requesting 15Gi (rounds up to 20Gi)")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-validvalues", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-validvalues", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				WithCapacityRequests(map[string]string{"memory": "15Gi"}).
 				Obj()
@@ -301,7 +301,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			minQty := resource.MustParse("5Gi")
 			maxQty := resource.MustParse("80Gi")
 			stepQty := resource.MustParse("5Gi")
-			slice := utiltesting.MakeResourceSlice("cc-validrange-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-validrange-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
@@ -320,7 +320,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT requesting 3Gi (rounds up to Min=5Gi)")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-validrange", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-validrange", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				WithCapacityRequests(map[string]string{"memory": "3Gi"}).
 				Obj()
@@ -352,7 +352,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 
 		ginkgo.It("Should multiply capacity charge by request count", func() {
 			ginkgo.By("Creating ResourceSlice with multiple allocatable devices")
-			slice := utiltesting.MakeResourceSlice("cc-count-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-count-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", nil).
@@ -367,7 +367,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT with count=2 and 20Gi capacity request")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-count2", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-count2", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 2).
 				WithCapacityRequests(map[string]string{"memory": "20Gi"}).
 				Obj()
@@ -400,7 +400,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 		ginkgo.It("Should mark workload inadmissible when request exceeds ValidValues", framework.SlowSpec, func() {
 			ginkgo.By("Creating ResourceSlice with ValidValues policy")
 			defaultQty := resource.MustParse("10Gi")
-			slice := utiltesting.MakeResourceSlice("cc-exceed-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-exceed-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
@@ -419,7 +419,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT requesting 50Gi (exceeds max valid value 40Gi)")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-exceed", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-exceed", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				WithCapacityRequests(map[string]string{"memory": "50Gi"}).
 				Obj()
@@ -452,7 +452,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 
 		ginkgo.It("Should mark workload inadmissible when no devices have capacity dimension", framework.SlowSpec, func() {
 			ginkgo.By("Creating ResourceSlice without capacity dimensions")
-			slice := utiltesting.MakeResourceSlice("cc-nodim-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-nodim-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				AllowMultipleAllocations(true).
@@ -463,7 +463,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT requesting capacity")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-nodim", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-nodim", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				WithCapacityRequests(map[string]string{"memory": "10Gi"}).
 				Obj()
@@ -496,7 +496,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 
 		ginkgo.It("Should skip device-count charge when capacity sources configured", func() {
 			ginkgo.By("Creating ResourceSlice with capacity")
-			slice := utiltesting.MakeResourceSlice("cc-skipcount-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-skipcount-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", nil).
@@ -508,7 +508,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT with explicit capacity request")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-skipcount", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-skipcount", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				WithCapacityRequests(map[string]string{"memory": "20Gi"}).
 				Obj()
@@ -541,7 +541,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 
 		ginkgo.It("Should requeue inadmissible workload when ResourceSlice appears", framework.SlowSpec, func() {
 			ginkgo.By("Creating RCT with capacity request")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-requeue", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-requeue", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				WithCapacityRequests(map[string]string{"memory": "20Gi"}).
 				Obj()
@@ -571,7 +571,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Creating ResourceSlice — should trigger requeue")
-			slice := utiltesting.MakeResourceSlice("cc-requeue-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-requeue-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", nil).
@@ -597,7 +597,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			ginkgo.By("Creating ResourceSlice with two devices having different Defaults")
 			default40 := resource.MustParse("40Gi")
 			default10 := resource.MustParse("10Gi")
-			slice := utiltesting.MakeResourceSlice("cc-hetdefault-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-hetdefault-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
@@ -616,7 +616,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT without explicit request (uses per-device Default)")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-hetdefault", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-hetdefault", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
@@ -649,7 +649,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 		ginkgo.It("Should mark inadmissible without retry when all policies reject request", framework.SlowSpec, func() {
 			ginkgo.By("Creating ResourceSlice where all devices have ValidValues that reject 50Gi")
 			defaultQty := resource.MustParse("10Gi")
-			slice := utiltesting.MakeResourceSlice("cc-allreject-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-allreject-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
@@ -670,7 +670,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT requesting 50Gi (exceeds all devices' ValidValues)")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-allreject", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-allreject", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				WithCapacityRequests(map[string]string{"memory": "50Gi"}).
 				Obj()
@@ -710,7 +710,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 
 		ginkgo.It("Should use max capacity across multiple devices", func() {
 			ginkgo.By("Creating ResourceSlice with two devices having different capacities")
-			slice := utiltesting.MakeResourceSlice("cc-maxcap-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-maxcap-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "40Gi", nil).
@@ -725,7 +725,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT without explicit request")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-maxcap", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-maxcap", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
