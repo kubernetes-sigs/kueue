@@ -7879,7 +7879,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
-						Message:            "couldn't assign flavors to pod set ps1: insufficient quota for cpu in flavor default, previously considered podsets requests (0) + current podset request (9223372036854775807m) > maximum capacity (10)",
+						Message:            "couldn't assign flavors to pod set ps1: insufficient quota for cpu in flavor default, previously considered podsets requests (0) + current podset request (9223372036854776) > maximum capacity (10)",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -7892,7 +7892,7 @@ func TestSchedule(t *testing.T) {
 					ResourceRequests(kueue.PodSetRequest{
 						Name: "ps1",
 						Resources: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("9223372036854775807m"),
+							corev1.ResourceCPU: resource.MustParse("9223372036854776"),
 						},
 					}).
 					Obj(),

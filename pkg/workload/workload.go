@@ -607,13 +607,13 @@ func (i *Info) ResourceUsage() ResourceUsage {
 	}
 	for _, psReqs := range i.TotalRequests {
 		if psReqs.Requests != nil {
-			psReqs.Requests.ForEach(func(res corev1.ResourceName, q int64) {
+			psReqs.Requests.ForEach(func(res corev1.ResourceName, q resources.Amount) {
 				flv := psReqs.Flavors[res]
 				if flv == "" {
-					ru.Unassigned[res] += q
+					ru.Unassigned[res] = ru.Unassigned[res].Add(q)
 				} else {
 					fr := resources.FlavorResource{Flavor: flv, Resource: res}
-					ru.Assigned[fr] = ru.Assigned[fr].AddInt64(q)
+					ru.Assigned[fr] = ru.Assigned[fr].Add(q)
 				}
 			})
 		}

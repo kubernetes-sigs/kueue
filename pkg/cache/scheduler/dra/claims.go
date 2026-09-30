@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
@@ -201,9 +202,16 @@ func containerRequestsExtendedResource(container *corev1.Container) bool {
 func extendedResourceTotals(spec *corev1.PodSpec) map[corev1.ResourceName]int64 {
 	totals := make(map[corev1.ResourceName]int64)
 	for name, count := range resources.ToMap(resources.NewRequestsFromPodSpec(spec)) {
-		if utilresource.IsExtendedResourceName(name) && count > 0 {
-			totals[name] = count
+		if !utilresource.IsExtendedResourceName(name) || count.Sign() <= 0 {
+			continue
 		}
+		// DeviceRequest.Count is an int64. A Pod's extended-resource total is one
+		// Quantity, which fits; a sum past that bound is reported at the field's ceiling.
+		n, ok := count.Int64()
+		if !ok {
+			n = math.MaxInt64
+		}
+		totals[name] = n
 	}
 	return totals
 }
