@@ -323,7 +323,6 @@ func (r *PodUsageReconciler) pods4Workload(ctx context.Context, wl *kueue.Worklo
 		&pods,
 		client.InNamespace(wl.Namespace),
 		client.MatchingFields{tasindexer.WorkloadNameKey: wl.Name}); err != nil {
-
 		ctrl.LoggerFrom(ctx).Error(err, "Failed to list pods for workload", "workload", klog.KObj(wl))
 
 		// List resource failed, return nil
