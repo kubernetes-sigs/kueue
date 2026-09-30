@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -51,7 +52,10 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 			})
 
 			ginkgo.It("should reject removing the queue name from an unsuspended RayService", func() {
-				service := testingrayservice.MakeService("rayservice", ns.Name).Queue("queue-name").Obj()
+				service := testingrayservice.MakeService("rayservice", ns.Name).
+					Queue("queue-name").
+					UpgradeStrategy(rayv1.RayServiceUpgradeNone).
+					Obj()
 				util.MustCreate(ctx, k8sClient, service)
 
 				lookupKey := types.NamespacedName{Name: service.Name, Namespace: service.Namespace}
@@ -77,7 +81,10 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 			})
 
 			ginkgo.It("should allow removing the queue name from an unsuspended RayService", func() {
-				service := testingrayservice.MakeService("rayservice", ns.Name).Queue("queue-name").Obj()
+				service := testingrayservice.MakeService("rayservice", ns.Name).
+					Queue("queue-name").
+					UpgradeStrategy(rayv1.RayServiceUpgradeNone).
+					Obj()
 				util.MustCreate(ctx, k8sClient, service)
 
 				lookupKey := types.NamespacedName{Name: service.Name, Namespace: service.Namespace}
@@ -92,6 +99,48 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdService)).Should(gomega.Succeed())
 				delete(createdService.Labels, constants.QueueLabel)
 				gomega.Expect(k8sClient.Update(ctx, createdService)).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.When("ElasticJobsViaWorkloadSlices is disabled", func() {
+			ginkgo.BeforeEach(func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, false)
+			})
+
+			ginkgo.It("should reject the default zero-downtime upgrade strategy even with the elastic-job annotation", func() {
+				service := testingrayservice.MakeService("rayservice", ns.Name).
+					Queue("queue-name").
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Obj()
+
+				err := k8sClient.Create(ctx, service)
+				gomega.Expect(err).Should(gomega.HaveOccurred())
+				gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+			})
+		})
+
+		ginkgo.When("ElasticJobsViaWorkloadSlices is enabled", func() {
+			ginkgo.BeforeEach(func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+			})
+
+			ginkgo.It("should reject the default zero-downtime upgrade strategy without the elastic-job annotation", func() {
+				service := testingrayservice.MakeService("rayservice", ns.Name).
+					Queue("queue-name").
+					Obj()
+
+				err := k8sClient.Create(ctx, service)
+				gomega.Expect(err).Should(gomega.HaveOccurred())
+				gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+			})
+
+			ginkgo.It("should allow the default zero-downtime upgrade strategy with the elastic-job annotation", func() {
+				service := testingrayservice.MakeService("rayservice", ns.Name).
+					Queue("queue-name").
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Obj()
+
+				util.MustCreate(ctx, k8sClient, service)
 			})
 		})
 	})
