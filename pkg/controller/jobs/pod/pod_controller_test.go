@@ -1500,9 +1500,10 @@ func TestConstructGroupPodSets(t *testing.T) {
 		Obj()
 
 	testCases := map[string]struct {
-		pods        []corev1.Pod
-		wantPodSets []kueue.PodSet
-		wantErr     error
+		pods         []corev1.Pod
+		wantPodSets  []kueue.PodSet
+		wantErr      error
+		featureGates map[featuregate.Feature]bool
 	}{
 		"folds pods with matching role hash": {
 			pods: []corev1.Pod{
@@ -1544,6 +1545,43 @@ func TestConstructGroupPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(podSetRole, 2).
 					PodSpec(*higherRequestPod.Spec.DeepCopy()).
+					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+					Obj(),
+			},
+		},
+		"PodIntegrationVerifyRoleRequests=false keeps first-pod template without max-merge": {
+			featureGates: map[featuregate.Feature]bool{features.PodIntegrationVerifyRoleRequests: false},
+			pods: []corev1.Pod{
+				*basePod.DeepCopy(),
+				*higherRequestPod.DeepCopy(),
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(podSetRole, 2).
+					PodSpec(*basePod.Spec.DeepCopy()).
+					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+					Obj(),
+			},
+		},
+		"raises limits so merged requests never exceed limits": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-a", "ns").
+					Image("", nil).
+					RequestAndLimit(corev1.ResourceCPU, "1").
+					RoleHash(string(podSetRole)).
+					Obj(),
+				*testingpod.MakePod("pod-b", "ns").
+					Image("", nil).
+					RequestAndLimit(corev1.ResourceCPU, "2").
+					RoleHash(string(podSetRole)).
+					Obj(),
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(podSetRole, 2).
+					PodSpec(testingpod.MakePod("pod", "ns").
+						Image("", nil).
+						RequestAndLimit(corev1.ResourceCPU, "2").
+						RoleHash(string(podSetRole)).
+						Obj().Spec).
 					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 					Obj(),
 			},
@@ -1659,6 +1697,7 @@ func TestConstructGroupPodSets(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			gotPodSets, gotErr := constructGroupPodSets(tc.pods, nil)
 			if tc.wantErr != nil {
 				if !errors.Is(gotErr, tc.wantErr) {
@@ -1676,6 +1715,9 @@ func TestConstructGroupPodSets(t *testing.T) {
 				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
 			}
 
+			if !features.Enabled(features.PodIntegrationVerifyRoleRequests) {
+				return
+			}
 			for i := range tc.pods {
 				gate(&tc.pods[i])
 			}
@@ -1705,6 +1747,7 @@ func TestConstructGroupPodSetsFast(t *testing.T) {
 		wantPodSets     []kueue.PodSet
 		wantErr         error
 		wantErrMessage  string
+		featureGates    map[featuregate.Feature]bool
 	}{
 		"builds pod set from matching pods": {
 			pods: []corev1.Pod{
@@ -1736,6 +1779,53 @@ func TestConstructGroupPodSetsFast(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(podSetRole, 2).
 					PodSpec(*basePod.Spec.DeepCopy()).
+					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+					Obj(),
+			},
+		},
+		"PodIntegrationVerifyRoleRequests=false keeps first-pod template without max-merge": {
+			featureGates: map[featuregate.Feature]bool{features.PodIntegrationVerifyRoleRequests: false},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-2", "ns").
+					Image("", nil).
+					Request(corev1.ResourceCPU, "500m").
+					RoleHash(string(podSetRole)).
+					Obj(),
+				*basePod.DeepCopy(),
+			},
+			groupTotalCount: 2,
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(podSetRole, 2).
+					PodSpec(*testingpod.MakePod("pod-2", "ns").
+						Image("", nil).
+						Request(corev1.ResourceCPU, "500m").
+						RoleHash(string(podSetRole)).
+						Obj().Spec.DeepCopy()).
+					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
+					Obj(),
+			},
+		},
+		"raises limits so merged requests never exceed limits": {
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-a", "ns").
+					Image("", nil).
+					RequestAndLimit(corev1.ResourceCPU, "1").
+					RoleHash(string(podSetRole)).
+					Obj(),
+				*testingpod.MakePod("pod-b", "ns").
+					Image("", nil).
+					RequestAndLimit(corev1.ResourceCPU, "2").
+					RoleHash(string(podSetRole)).
+					Obj(),
+			},
+			groupTotalCount: 2,
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(podSetRole, 2).
+					PodSpec(testingpod.MakePod("pod", "ns").
+						Image("", nil).
+						RequestAndLimit(corev1.ResourceCPU, "2").
+						RoleHash(string(podSetRole)).
+						Obj().Spec).
 					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 					Obj(),
 			},
@@ -1923,6 +2013,7 @@ func TestConstructGroupPodSetsFast(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			gotPodSets, gotErr := constructGroupPodSetsFast(tc.pods, tc.groupTotalCount)
 			if tc.wantErr != nil || tc.wantErrMessage != "" {
 				if gotErr == nil {
@@ -3307,31 +3398,32 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
-		"pod group does not adopt a workload when a fast-admission pod has a different role": {
+		"fast-admission group with an oversized member is not blocked when workload is deleted": {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
 					ManagedByKueueLabel().
 					KueueFinalizer().
-					KueueSchedulingGate().
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
-					RoleHash("role-b").
+					RoleHash("role-a").
+					StatusPhase(corev1.PodRunning).
 					Obj(),
-			},
-			wantPods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
+					Name("oversized").
 					ManagedByKueueLabel().
 					KueueFinalizer().
 					KueueSchedulingGate().
+					Request(corev1.ResourceCPU, "2").
 					GroupNameLabel("test-group").
 					GroupTotalCount("2").
 					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
-					RoleHash("role-b").
+					RoleHash("role-a").
 					Obj(),
 			},
+			wantPods: []corev1.Pod{},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(
@@ -3339,28 +3431,35 @@ func TestReconciler(t *testing.T) {
 							Request(corev1.ResourceCPU, "1").
 							Obj(),
 					).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "oversized", "test-uid").
 					Queue(localUserQueueName).
-					Priority(0).
-					Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(
-						*utiltestingapi.MakePodSet(kueue.NewPodSetReference("role-a"), 2).
-							Request(corev1.ResourceCPU, "1").
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission(clusterQueueName).
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference("role-a")).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+								Count(2).
+								Obj()).
 							Obj(),
+						now,
 					).
-					Queue(localUserQueueName).
-					Priority(0).
+					AdmittedAt(true, now).
 					Obj(),
 			},
-			workloadCmpOpts: defaultWorkloadCmpOpts,
+			workloadCmpOpts: append(defaultWorkloadCmpOpts, cmpopts.IgnoreFields(kueue.Workload{}, "ObjectMeta.DeletionTimestamp")),
+			deleteWorkloads: true,
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
-					EventType: "Warning",
-					Reason:    jobframework.ReasonErrWorkloadCompose,
-					Message:   errFastAdmissionRoleMismatch("pod", "role-b", "role-a").Error(),
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Workload is deleted",
+				},
+				{
+					Key:       types.NamespacedName{Name: "oversized", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Workload is deleted",
 				},
 			},
 		},
@@ -9425,53 +9524,6 @@ func TestPodExceedsRequests(t *testing.T) {
 			reserved := resources.NewRequestsFromPodSpec(&tc.reserved.Spec)
 			if got := podExceedsRequests(tc.pod, reserved); got != tc.want {
 				t.Errorf("podExceedsRequests() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestValidateFastAdmissionSingleRole(t *testing.T) {
-	testCases := map[string]struct {
-		pods         []corev1.Pod
-		expectedRole string
-		wantErr      string
-	}{
-		"empty pods do not error": {
-			expectedRole: "role-a",
-		},
-		"all pods share the expected role": {
-			pods: []corev1.Pod{
-				*testingpod.MakePod("p1", "ns").RoleHash("role-a").Obj(),
-				*testingpod.MakePod("p2", "ns").RoleHash("role-a").Obj(),
-			},
-			expectedRole: "role-a",
-		},
-		"diverging role is unretryable": {
-			pods: []corev1.Pod{
-				*testingpod.MakePod("p1", "ns").RoleHash("role-a").Obj(),
-				*testingpod.MakePod("pod-2", "ns").RoleHash("role-b").Obj(),
-			},
-			expectedRole: "role-a",
-			wantErr:      errFastAdmissionRoleMismatch("pod-2", "role-b", "role-a").Error(),
-		},
-	}
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			gotErr := validateFastAdmissionSingleRole(tc.pods, tc.expectedRole)
-			if tc.wantErr == "" {
-				if gotErr != nil {
-					t.Fatalf("unexpected error: %v", gotErr)
-				}
-				return
-			}
-			if gotErr == nil {
-				t.Fatal("got nil error, want error")
-			}
-			if gotErr.Error() != tc.wantErr {
-				t.Fatalf("error = %q, want %q", gotErr.Error(), tc.wantErr)
-			}
-			if !jobframework.IsUnretryableError(gotErr) {
-				t.Fatalf("error = %v, want unretryable error", gotErr)
 			}
 		})
 	}

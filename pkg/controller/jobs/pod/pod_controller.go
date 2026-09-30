@@ -950,6 +950,26 @@ func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 }
 
 func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.PodSet, error) {
+	if !features.Enabled(features.PodIntegrationVerifyRoleRequests) {
+		for _, podInGroup := range pods {
+			if !isPodRunnableOrSucceeded(&podInGroup) {
+				continue
+			}
+			roleHash, err := getRoleHash(podInGroup)
+			if err != nil {
+				return nil, errRoleHashCalculationForPod(podInGroup.Name, err)
+			}
+			podSets, err := constructPodSets(&podInGroup)
+			if err != nil {
+				return nil, err
+			}
+			podSets[0].Name = kueue.NewPodSetReference(roleHash)
+			podSets[0].Count = int32(groupTotalCount)
+			return podSets, nil
+		}
+		return nil, errors.New("failed to find a runnable pod in the group")
+	}
+
 	var (
 		foundRoleHash string
 		podSets       []kueue.PodSet
@@ -983,11 +1003,12 @@ func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.
 	return podSets, nil
 }
 
-// mergeMaxPodSpecsInto merges resource requests, taking the element-wise maximum.
-// Containers and InitContainers (including sidecars with restartPolicy: Always)
-// are merged by index, and extras on other are appended. Pod-level Resources
-// (KEP-2837) are merged the same way. This matches resourcehelpers.PodRequests,
-// which accounts for all three.
+// mergeMaxPodSpecsInto merges resource requests and limits, taking the
+// element-wise maximum. Containers and InitContainers (including sidecars with
+// restartPolicy: Always) are merged by index, and extras on other are appended.
+// Pod-level Resources (KEP-2837) are merged the same way. This matches
+// resourcehelpers.PodRequests, which accounts for all three. Limits are raised
+// so that no resource ends with requests > limits.
 func mergeMaxPodSpecsInto(template, other *corev1.PodSpec) {
 	if template == nil || other == nil {
 		return
@@ -1001,28 +1022,56 @@ func mergeMaxPodSpecsInto(template, other *corev1.PodSpec) {
 		template.Resources = other.Resources.DeepCopy()
 		return
 	}
-	merged := mergeMaxRequests(
-		resources.NewRequestsFromResourceList(template.Resources.Requests),
-		resources.NewRequestsFromResourceList(other.Resources.Requests),
-	)
-	template.Resources.Requests = merged.ToResourceList(resources.NewResourceFormatter())
+	mergeMaxResourceRequirements(template.Resources, other.Resources)
 }
 
-// mergeMaxContainers merges requests of other into template by index, taking the
-// element-wise maximum, and appends containers present only in other.
+// mergeMaxContainers merges requests and limits of other into template by index,
+// taking the element-wise maximum, and appends containers present only in other.
 func mergeMaxContainers(template, other []corev1.Container) []corev1.Container {
 	for i := range other {
 		if i >= len(template) {
 			template = append(template, *other[i].DeepCopy())
 			continue
 		}
-		merged := mergeMaxRequests(
-			resources.NewRequestsFromResourceList(template[i].Resources.Requests),
-			resources.NewRequestsFromResourceList(other[i].Resources.Requests),
-		)
-		template[i].Resources.Requests = merged.ToResourceList(resources.NewResourceFormatter())
+		mergeMaxResourceRequirements(&template[i].Resources, &other[i].Resources)
 	}
 	return template
+}
+
+// mergeMaxResourceRequirements merges Requests and Limits element-wise, then
+// raises any limit that would otherwise be below its merged request.
+func mergeMaxResourceRequirements(template, other *corev1.ResourceRequirements) {
+	if template == nil || other == nil {
+		return
+	}
+	formatter := resources.NewResourceFormatter()
+	mergedRequests := mergeMaxRequests(
+		resources.NewRequestsFromResourceList(template.Requests),
+		resources.NewRequestsFromResourceList(other.Requests),
+	)
+	mergedLimits := mergeMaxRequests(
+		resources.NewRequestsFromResourceList(template.Limits),
+		resources.NewRequestsFromResourceList(other.Limits),
+	)
+	if mergedRequests != nil {
+		mergedRequests.ForEach(func(name corev1.ResourceName, reqVal int64) {
+			_, hasTemplateLim := template.Limits[name]
+			_, hasOtherLim := other.Limits[name]
+			if !hasTemplateLim && !hasOtherLim {
+				return
+			}
+			if mergedLimits == nil {
+				mergedLimits = resources.NewRequests()
+			}
+			if reqVal > mergedLimits.ResourceValue(name) {
+				mergedLimits.Set(name, reqVal)
+			}
+		})
+	}
+	template.Requests = mergedRequests.ToResourceList(formatter)
+	if mergedLimits != nil && mergedLimits.Len() > 0 {
+		template.Limits = mergedLimits.ToResourceList(formatter)
+	}
 }
 
 // mergeMaxRequests returns the element-wise maximum of two request vectors.
@@ -1042,8 +1091,8 @@ func mergeMaxRequests(base, other resources.Requests) resources.Requests {
 	return result
 }
 
-// podWithMaxRequests returns a pod template whose requests are the element-wise
-// maximum across all pods in the group, per container.
+// podWithMaxRequests returns a pod template whose requests and limits are the
+// element-wise maximum across all pods in the group, per container.
 func podWithMaxRequests(pods []corev1.Pod) *corev1.Pod {
 	if len(pods) == 0 {
 		return nil
@@ -1133,21 +1182,6 @@ func errRoleHashCalculation(errs []error) error {
 	return fmt.Errorf("failed to calculate pod role hash: %w", errors.Join(errs...))
 }
 
-// validateFastAdmissionSingleRole ensures every active pod shares the expected role hash.
-func validateFastAdmissionSingleRole(activePods []corev1.Pod, expectedRole string) error {
-	for i := range activePods {
-		pod := &activePods[i]
-		hash, err := getRoleHash(*pod)
-		if err != nil {
-			return errRoleHashCalculationForPod(pod.Name, err)
-		}
-		if hash != expectedRole {
-			return errFastAdmissionRoleMismatch(pod.Name, hash, expectedRole)
-		}
-	}
-	return nil
-}
-
 type podSetWithShapeHash struct {
 	podSet    kueue.PodSet
 	shapeHash string
@@ -1180,9 +1214,13 @@ func constructGroupPodSets(pods []corev1.Pod, referenceOrder []kueue.PodSetRefer
 	}
 
 	resultPodSets := make([]podSetWithShapeHash, 0, len(roles))
+	maxMerge := features.Enabled(features.PodIntegrationVerifyRoleRequests)
 	for _, roleHash := range roleOrder {
 		info := roles[roleHash]
-		templatePod := podWithMaxRequests(info.pods)
+		templatePod := &info.pods[0]
+		if maxMerge {
+			templatePod = podWithMaxRequests(info.pods)
+		}
 		podSet, err := constructPodSet(templatePod)
 		if err != nil {
 			return nil, err
@@ -1744,17 +1782,6 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 
 	// Cleanup excess pods for each workload pod set (role)
 	activePods, inactivePods := p.partitionPods()
-
-	// Fast admission reserves one role for the group; refuse adoption if an active pod
-	// has a different role rather than silently dropping it.
-	if p.fastAdmission() && len(workload.Spec.PodSets) > 0 {
-		// For pod groups, PodSet.Name is the role hash (NewPodSetReference(roleHash)).
-		expectedRole := string(workload.Spec.PodSets[0].Name)
-		if err := validateFastAdmissionSingleRole(activePods, expectedRole); err != nil {
-			r.Eventf(&p.pod, nil, corev1.EventTypeWarning, jobframework.ReasonErrWorkloadCompose, "ErrWorkloadCompose", api.TruncateEventMessage(err.Error()))
-			return nil, nil, err
-		}
-	}
 
 	var absentPods int
 	var keptPods []corev1.Pod
