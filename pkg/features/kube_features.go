@@ -747,6 +747,11 @@ const (
 	// topology domain just like a full slice. Without this gate the trailing
 	// pods are dropped from the assignment.
 	TASPartialSlices featuregate.Feature = "TASPartialSlices"
+
+	// owner: @olekzabl
+	//
+	// Increases max parallelism for batch operations within a single reconcile thread from 8 to 32.
+	HighMaxParallelismWithinReconcile featuregate.Feature = "HighMaxParallelismWithinReconcile"
 )
 
 func init() {
@@ -1132,6 +1137,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	TASPartialSlices: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	HighMaxParallelismWithinReconcile: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
