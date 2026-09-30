@@ -1090,12 +1090,14 @@ func (m *Manager) DeleteSecondPassWithoutLock(wlKey workload.Reference) {
 
 // QueueSecondPassIfNeeded queues for the second pass of scheduling with exponential
 // delay. The pass re-reads the live Workload when the delay elapses.
+// On true, the second-pass queue owns the Workload, which still holds its quota
+// reservation, so the caller must neither requeue it nor release that reservation.
 func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload, iteration int) bool {
 	log := ctrl.LoggerFrom(ctx)
 	wlKey := workload.Key(w)
 	if workload.NeedsSecondPass(w) {
 		if !m.secondPassQueue.prequeueIfAbsent(w) {
-			return false
+			return true
 		}
 		iteration++
 		delay := m.secondPassQueue.nextDelay(iteration)
