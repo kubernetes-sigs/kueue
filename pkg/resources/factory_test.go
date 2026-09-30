@@ -119,11 +119,87 @@ func TestPodRequests(t *testing.T) {
 				corev1.ResourceMemory: resource.MustParse("8Gi"),
 			},
 		},
+		"a negative sidecar does not spend what a container asked for": {
+			podSpec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{
+					RestartPolicy: &restartAlways,
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-3")},
+					},
+				}},
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+				}}},
+			},
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+		},
+		"a negative sidecar is read at zero for the ordinary init container after it": {
+			podSpec: corev1.PodSpec{
+				InitContainers: []corev1.Container{
+					{RestartPolicy: &restartAlways, Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{"example.com/credit": resource.MustParse("-3")},
+					}},
+					{Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{"example.com/credit": resource.MustParse("8")},
+					}},
+				},
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{"example.com/credit": resource.MustParse("1")},
+				}}},
+			},
+			want: corev1.ResourceList{"example.com/credit": resource.MustParse("8")},
+		},
+		"a negative ordinary init container is read at zero": {
+			podSpec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-3")},
+				}}},
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+				}}},
+			},
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+		},
+		"a negative pod-level request leaves the container aggregate standing": {
+			podSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+				}}},
+				Resources: &corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-3")},
+				},
+			},
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+		},
+		"a negative pod-level request no container asked for is kept at zero": {
+			podSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+				}}},
+				Resources: &corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("-1Gi")},
+				},
+			},
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8"), corev1.ResourceMemory: resource.Quantity{}},
+		},
+		"a negative overhead cannot take back the container's request": {
+			podSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+				}}},
+				Overhead: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-3")},
+			},
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			before := tc.podSpec.DeepCopy()
 			got := PodRequests(&tc.podSpec)
+			if diff := cmp.Diff(before, &tc.podSpec); diff != "" {
+				t.Errorf("PodRequests() wrote to the spec it was given (-before,+after):\n%s", diff)
+			}
 			if diff := cmp.Diff(tc.want, got, cmp.Comparer(func(a, b resource.Quantity) bool {
 				return a.Cmp(b) == 0
 			})); diff != "" {
