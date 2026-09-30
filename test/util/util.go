@@ -1863,3 +1863,17 @@ func ExpectWorkloadToHaveConditions(
 		}
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload conditions did not match expectations", wl))
 }
+
+// GetTopologyDomainByNode returns a map from the name of every node that
+// carries the given topology level label to its value at that level, e.g. the
+// block the node belongs to.
+func GetTopologyDomainByNode(ctx context.Context, c client.Client, levelLabel string) map[string]string {
+	ginkgo.GinkgoHelper()
+	nodes := &corev1.NodeList{}
+	gomega.Expect(c.List(ctx, nodes, client.HasLabels{levelLabel})).To(gomega.Succeed())
+	domains := make(map[string]string, len(nodes.Items))
+	for _, node := range nodes.Items {
+		domains[node.Name] = node.Labels[levelLabel]
+	}
+	return domains
+}
