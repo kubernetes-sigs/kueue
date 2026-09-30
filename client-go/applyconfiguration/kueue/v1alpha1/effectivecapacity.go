@@ -21,7 +21,10 @@ package v1alpha1
 // EffectiveCapacityApplyConfiguration represents a declarative configuration of the EffectiveCapacity type for use
 // with apply.
 type EffectiveCapacityApplyConfiguration struct {
-	// flavors contains capacity per flavor and resource.
+	// flavors contains the total capacity for each flavor and resource.
+	// It includes all flavors listed in spec.orchestratedFlavors of the
+	// referenced providers. The list is never empty.
+	// An empty resources map means zero capacity for all resources of the flavor.
 	//
 	Flavors []EffectiveCapacityFlavorApplyConfiguration `json:"flavors,omitempty"`
 }

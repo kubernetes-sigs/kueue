@@ -538,6 +538,12 @@ func (b *ResourceClaimSpecBuilder) FirstAvailableRequest(requestName, deviceClas
 	return b
 }
 
+// DeviceRequests appends requests built elsewhere, such as with the DRA test wrappers.
+func (b *ResourceClaimSpecBuilder) DeviceRequests(requests ...resourcev1.DeviceRequest) *ResourceClaimSpecBuilder {
+	b.spec.Devices.Requests = append(b.spec.Devices.Requests, requests...)
+	return b
+}
+
 // Build returns the built ResourceClaimSpec
 func (b *ResourceClaimSpecBuilder) Build() resourcev1.ResourceClaimSpec {
 	return b.spec
@@ -638,6 +644,12 @@ func (r *ResourceClaimTemplateWrapper) FirstAvailableRequest(requestName, device
 	builder.spec = r.Spec.Spec
 	builder.FirstAvailableRequest(requestName, deviceClassName)
 	r.Spec.Spec = builder.Build()
+	return r
+}
+
+// DeviceRequests appends requests built elsewhere, such as with the DRA test wrappers.
+func (r *ResourceClaimTemplateWrapper) DeviceRequests(requests ...resourcev1.DeviceRequest) *ResourceClaimTemplateWrapper {
+	r.Spec.Spec.Devices.Requests = append(r.Spec.Spec.Devices.Requests, requests...)
 	return r
 }
 

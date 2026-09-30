@@ -25,26 +25,18 @@ import (
 // CapacityProviderStatusApplyConfiguration represents a declarative configuration of the CapacityProviderStatus type for use
 // with apply.
 type CapacityProviderStatusApplyConfiguration struct {
-	// capacity is the normalized capacity published by the provider.
-	//
-	Capacity *CapacityProviderNormalizedCapacityApplyConfiguration `json:"capacity,omitempty"`
 	// conditions represents the current state of this provider.
 	//
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
+	// capacity is the normalized capacity published by the provider.
+	//
+	Capacity *CapacityProviderNormalizedCapacityApplyConfiguration `json:"capacity,omitempty"`
 }
 
 // CapacityProviderStatusApplyConfiguration constructs a declarative configuration of the CapacityProviderStatus type for use with
 // apply.
 func CapacityProviderStatus() *CapacityProviderStatusApplyConfiguration {
 	return &CapacityProviderStatusApplyConfiguration{}
-}
-
-// WithCapacity sets the Capacity field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the Capacity field is set to the value of the last call.
-func (b *CapacityProviderStatusApplyConfiguration) WithCapacity(value *CapacityProviderNormalizedCapacityApplyConfiguration) *CapacityProviderStatusApplyConfiguration {
-	b.Capacity = value
-	return b
 }
 
 // WithConditions adds the given value to the Conditions field in the declarative configuration
@@ -57,5 +49,13 @@ func (b *CapacityProviderStatusApplyConfiguration) WithConditions(values ...*v1.
 		}
 		b.Conditions = append(b.Conditions, *values[i])
 	}
+	return b
+}
+
+// WithCapacity sets the Capacity field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Capacity field is set to the value of the last call.
+func (b *CapacityProviderStatusApplyConfiguration) WithCapacity(value *CapacityProviderNormalizedCapacityApplyConfiguration) *CapacityProviderStatusApplyConfiguration {
+	b.Capacity = value
 	return b
 }

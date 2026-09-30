@@ -708,7 +708,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, lowWlKey, workerLowWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerLowWorkload)).To(gomega.BeTrue())
-					g.Expect(workerLowWorkload.Spec).To(gomega.BeComparableTo(managerLowWl.Spec))
+					util.ExpectRemoteWorkloadSpec(g, workerLowWorkload, managerLowWl)
 					g.Expect(k8sWorker2Client.Get(ctx, lowWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -739,7 +739,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, highWlKey, workerHighWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerHighWorkload)).To(gomega.BeTrue())
-					g.Expect(workerHighWorkload.Spec).To(gomega.BeComparableTo(managerHighWl.Spec))
+					util.ExpectRemoteWorkloadSpec(g, workerHighWorkload, managerHighWl)
 					g.Expect(k8sWorker2Client.Get(ctx, highWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -785,7 +785,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue())
-					g.Expect(workerWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+					util.ExpectRemoteWorkloadSpec(g, workerWorkload, managerWl)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk(ctx, "Workload not admitted in worker1", wlKey, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 			})
 
@@ -834,7 +834,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker2Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue())
-					g.Expect(workerWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+					util.ExpectRemoteWorkloadSpec(g, workerWorkload, managerWl)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsgForMk(ctx, "Workload not Admitted in worker2", wlKey, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 			})
 
@@ -875,7 +875,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, lowWlKey, workerLowWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerLowWorkload)).To(gomega.BeTrue())
-					g.Expect(workerLowWorkload.Spec).To(gomega.BeComparableTo(managerLowWl.Spec))
+					util.ExpectRemoteWorkloadSpec(g, workerLowWorkload, managerLowWl)
 					g.Expect(k8sWorker2Client.Get(ctx, lowWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -909,7 +909,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker2Client.Get(ctx, highWlKey, workerHighWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerHighWorkload)).To(gomega.BeTrue())
-					g.Expect(workerHighWorkload.Spec).To(gomega.BeComparableTo(managerHighWl.Spec))
+					util.ExpectRemoteWorkloadSpec(g, workerHighWorkload, managerHighWl)
 					g.Expect(k8sWorker1Client.Get(ctx, highWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -967,7 +967,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker2Client.Get(ctx, lowWlKey, workerLowWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerLowWorkload)).To(gomega.BeTrue())
-					g.Expect(workerLowWorkload.Spec).To(gomega.BeComparableTo(managerLowWl.Spec))
+					util.ExpectRemoteWorkloadSpec(g, workerLowWorkload, managerLowWl)
 					g.Expect(k8sWorker1Client.Get(ctx, lowWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -1009,7 +1009,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker2Client.Get(ctx, highWlKey, workerHighWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerHighWorkload)).To(gomega.BeTrue())
-					g.Expect(workerHighWorkload.Spec).To(gomega.BeComparableTo(managerHighWl.Spec))
+					util.ExpectRemoteWorkloadSpec(g, workerHighWorkload, managerHighWl)
 					g.Expect(k8sWorker1Client.Get(ctx, highWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -1084,7 +1084,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, wl1Key, workerWl1)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWl1)).To(gomega.BeTrue())
-					g.Expect(workerWl1.Spec).To(gomega.BeComparableTo(managerWl1.Spec))
+					util.ExpectRemoteWorkloadSpec(g, workerWl1, managerWl1)
 					g.Expect(k8sWorker2Client.Get(ctx, wl1Key, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -1130,7 +1130,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(k8sManagerClient.Get(ctx, wl2Key, managerWl2)).To(gomega.Succeed())
 					g.Expect(k8sWorker2Client.Get(ctx, wl2Key, workerWl2)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWl2)).To(gomega.BeTrue())
-					g.Expect(workerWl2.Spec).To(gomega.BeComparableTo(managerWl2.Spec))
+					util.ExpectRemoteWorkloadSpec(g, workerWl2, managerWl2)
 					g.Expect(k8sWorker1Client.Get(ctx, wl2Key, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -1185,7 +1185,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWl)).To(gomega.BeTrue())
-					g.Expect(workerWl.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+					util.ExpectRemoteWorkloadSpec(g, workerWl, managerWl)
 					g.Expect(k8sWorker2Client.Get(ctx, wlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
@@ -1227,7 +1227,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWl)).To(gomega.BeTrue())
-					g.Expect(workerWl.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+					util.ExpectRemoteWorkloadSpec(g, workerWl, managerWl)
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 		})

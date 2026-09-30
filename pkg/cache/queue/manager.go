@@ -332,7 +332,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	if afs.Enabled(m.admissionFairSharingConfig) {
 		afsUsageLedger = m.AfsUsageLedger
 	}
-	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.customLabels, m.workloadOrdering, m.admissionFairSharingConfig, afsUsageLedger)
+	cqImpl, err := newClusterQueue(ctx, cq, m.customLabels, m.workloadOrdering, m.admissionFairSharingConfig, afsUsageLedger)
 	if err != nil {
 		return err
 	}
@@ -1083,7 +1083,7 @@ func (m *Manager) ClusterQueueFromLocalQueue(localQueueKey queue.LocalQueueRefer
 }
 
 // DeleteSecondPassWithoutLock deletes the pending workload from the second
-// pass queue.
+// pass queue. The caller must hold the manager lock.
 func (m *Manager) DeleteSecondPassWithoutLock(wlKey workload.Reference) {
 	m.secondPassQueue.deleteByKey(wlKey)
 }

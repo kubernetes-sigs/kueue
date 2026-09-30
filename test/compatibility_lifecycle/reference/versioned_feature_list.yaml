@@ -179,6 +179,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: HighMaxParallelismWithinReconcile
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: KueueDRADeviceFeasibility
   versionedSpecs:
   - default: false
@@ -223,6 +229,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: KueueDRAIntegrationPrioritizedList
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: KueueDRARejectWorkloadsWhenDRADisabled
   versionedSpecs:
   - default: true
@@ -337,6 +349,10 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: MultiKueueRayInTreeAutoscaling
   versionedSpecs:
   - default: false
@@ -365,6 +381,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
+- name: PodGroupSchedulingShapeOrdering
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: PodIntegrationCountSucceededPodsAsReady
   versionedSpecs:
   - default: true
@@ -405,6 +427,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: RayServiceValidateUpgradeStrategy
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: ReclaimablePods
   versionedSpecs:
   - default: true
@@ -597,6 +625,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.20"
+- name: TASReplaceMultipleFailedNodes
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: TASReplaceNodeDueToNotReadyOverFixedTime
   versionedSpecs:
   - default: true
@@ -699,6 +733,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.9"
+- name: WaitForPodsReadyMaxNotReady
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: WaitForPodsReadyUnscheduledTimeout
   versionedSpecs:
   - default: false

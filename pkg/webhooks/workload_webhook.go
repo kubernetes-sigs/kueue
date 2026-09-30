@@ -122,6 +122,8 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 		}
 	}
 
+	allErrs = append(allErrs, validateTopologySpreading(obj, oldObj)...)
+
 	// KEP-12100: elastic partial scale-up allows elastic Workloads to use minCount podSets,
 	// so both checks below are skipped for them.
 	elasticPartialScaleUp := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&

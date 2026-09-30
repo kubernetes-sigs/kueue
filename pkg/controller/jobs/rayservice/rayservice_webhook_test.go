@@ -44,6 +44,11 @@ import (
 
 func TestValidateCreate(t *testing.T) {
 	tooManyWorkerGroups := testingraycluster.MakeWorkerGroups(jobframework.MaxPodSets)
+	upgradeNone := rayv1.RayServiceUpgradeNone
+	strategyWithoutType := testingrayservice.MakeService("rayservice", "ns").
+		Queue("queue").
+		Obj()
+	strategyWithoutType.Spec.UpgradeStrategy = &rayv1.RayServiceUpgradeStrategy{}
 
 	testCases := map[string]struct {
 		service      *rayv1.RayService
@@ -59,6 +64,7 @@ func TestValidateCreate(t *testing.T) {
 					constants.QueueLabel: "queue",
 				},
 				Spec: rayv1.RayServiceSpec{
+					UpgradeStrategy: &rayv1.RayServiceUpgradeStrategy{Type: &upgradeNone},
 					RayClusterSpec: rayv1.RayClusterSpec{
 						HeadGroupSpec: rayv1.HeadGroupSpec{
 							Template: corev1.PodTemplateSpec{
@@ -82,6 +88,70 @@ func TestValidateCreate(t *testing.T) {
 			},
 			manageAll: false,
 			wantErr:   false,
+		},
+		"unmanaged rayservice can use the default upgrade strategy": {
+			service: testingrayservice.MakeService("rayservice", "ns").Obj(),
+		},
+		"default strategy requires workload slicing": {
+			service: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				Obj(),
+			wantErr: true,
+		},
+		"default strategy is allowed when validation is disabled": {
+			service: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.RayServiceValidateUpgradeStrategy: false},
+		},
+		"default strategy allows workload slicing": {
+			service: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+		},
+		"strategy without a type requires workload slicing": {
+			service: strategyWithoutType,
+			wantErr: true,
+		},
+		"None allows workload slicing to be disabled": {
+			service: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
+				Obj(),
+		},
+		"NewCluster requires the feature gate": {
+			service: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				UpgradeStrategy(rayv1.RayServiceNewCluster).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			wantErr: true,
+		},
+		"NewCluster requires the annotation": {
+			service: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				UpgradeStrategy(rayv1.RayServiceNewCluster).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			wantErr:      true,
+		},
+		"NewCluster allows workload slicing": {
+			service: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				UpgradeStrategy(rayv1.RayServiceNewCluster).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+		},
+		"NewClusterWithIncrementalUpgrade allows workload slicing": {
+			service: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				UpgradeStrategy(rayv1.RayServiceNewClusterWithIncrementalUpgrade).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
 		"too many worker groups": {
 			service: &rayv1.RayService{
@@ -159,6 +229,8 @@ func TestValidateCreate(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, false)
+			features.SetFeatureGateDuringTest(t, features.RayServiceValidateUpgradeStrategy, true)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			webhook := &RayServiceWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
@@ -185,6 +257,19 @@ func TestValidateUpdate(t *testing.T) {
 	}{
 		"valid update": {
 			oldService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
+				Queue("queue").
+				Suspend(true).
+				Obj(),
+			newService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
+				Queue("queue").
+				Suspend(false).
+				Obj(),
+			wantErr: nil,
+		},
+		"default upgrade strategy is not validated on update": {
+			oldService: testingrayservice.MakeService("rayservice", "ns").
 				Queue("queue").
 				Suspend(true).
 				Obj(),
@@ -196,10 +281,12 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"queue name unchanged while unsuspended": {
 			oldService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Queue("queue").
 				Suspend(false).
 				Obj(),
 			newService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Queue("queue").
 				Suspend(false).
 				Label("test-label", "test-value").
@@ -208,10 +295,12 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"queue name should not change while unsuspended": {
 			oldService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Queue("queue").
 				Suspend(false).
 				Obj(),
 			newService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Queue("queue2").
 				Suspend(false).
 				Obj(),
@@ -221,10 +310,12 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"queue name can change while suspended": {
 			oldService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Queue("queue").
 				Suspend(true).
 				Obj(),
 			newService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Queue("queue2").
 				Suspend(true).
 				Obj(),
@@ -232,10 +323,12 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"queue name removal is rejected when the job is unsuspended and ValidateRayAndSparkJobUpdates is enabled": {
 			oldService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Queue("queue").
 				Suspend(false).
 				Obj(),
 			newService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Suspend(false).
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
@@ -245,10 +338,12 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"queue name removal is allowed when the job is unsuspended and ValidateRayAndSparkJobUpdates is disabled": {
 			oldService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Queue("queue").
 				Suspend(false).
 				Obj(),
 			newService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Suspend(false).
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: false},
@@ -256,10 +351,12 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"queue name removal is rejected when the job is suspended in a namespace with a default queue and ValidateRayAndSparkJobUpdates is enabled": {
 			oldService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Queue(string(constants.DefaultLocalQueueName)).
 				Suspend(true).
 				Obj(),
 			newService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Suspend(true).
 				Obj(),
 			defaultLqExist: true,
@@ -270,10 +367,12 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"queue name removal is allowed when the job is suspended in a namespace with a default queue and ValidateRayAndSparkJobUpdates is disabled": {
 			oldService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Queue(string(constants.DefaultLocalQueueName)).
 				Suspend(true).
 				Obj(),
 			newService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Suspend(true).
 				Obj(),
 			defaultLqExist: true,
@@ -282,10 +381,12 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"queue name removal is allowed when the job is suspended in a namespace without a default queue and ValidateRayAndSparkJobUpdates is enabled": {
 			oldService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Queue("queue").
 				Suspend(true).
 				Obj(),
 			newService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Suspend(true).
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
@@ -293,10 +394,12 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"prebuilt workload name change is not validated when the job is unmanaged and ValidateRayAndSparkJobUpdates is enabled": {
 			oldService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Suspend(false).
 				PrebuiltWorkloadLabel("wl1").
 				Obj(),
 			newService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Suspend(false).
 				PrebuiltWorkloadLabel("wl2").
 				Obj(),
@@ -305,9 +408,11 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
 			oldService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Queue("queue").
 				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
 			newService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Queue("queue").
 				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
 			wantErr:              nil,
@@ -316,9 +421,11 @@ func TestValidateUpdate(t *testing.T) {
 		},
 		"changed wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected on update": {
 			oldService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Queue("queue").
 				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
 			newService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 				Queue("queue").
 				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
 			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},

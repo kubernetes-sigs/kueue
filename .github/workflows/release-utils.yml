@@ -19,6 +19,7 @@ jobs:
       (contains(github.event.comment.body, '/sync-release-notes') ||
        contains(github.event.comment.body, '/create-release-candidate') ||
        contains(github.event.comment.body, '/create-release-branch') ||
+       contains(github.event.comment.body, '/create-devel-tag') ||
        contains(github.event.comment.body, '/tag-release') ||
        contains(github.event.comment.body, '/create-draft-release') ||
        contains(github.event.comment.body, '/wait-for-images') ||
@@ -38,6 +39,7 @@ jobs:
         run: |
           REQUIRED_ITEMS=(
             ".github/actions/authorize-release-actor/action.yml"
+            ".github/actions/create-devel-tag/action.yml"
             ".github/actions/create-draft-release/action.yml"
             ".github/actions/create-release-tag/action.yml"
             ".github/actions/generate-openvex/action.yml"
@@ -132,6 +134,8 @@ jobs:
             COMMAND="create-release-candidate"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/create-release-branch[[:space:]]*$'; then
             COMMAND="create-release-branch"
+          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/create-devel-tag[[:space:]]*$'; then
+            COMMAND="create-devel-tag"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/tag-release[[:space:]]*$'; then
             COMMAND="tag-release"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/create-draft-release[[:space:]]*$'; then
@@ -169,13 +173,19 @@ jobs:
           RELEASE_STATE=$(gh release view "$VERSION" --repo "$TARGET_REPO" --json isDraft \
             --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "")
 
-          if [ "$RELEASE_STATE" = "published" ] && [ "$COMMAND" != "merge-main-into-website" ]; then
+          # Commands that can only run after the release has been published.
+          case "$COMMAND" in
+            merge-main-into-website|create-devel-tag) POST_PUBLISH=true ;;
+            *) POST_PUBLISH=false ;;
+          esac
+
+          if [ "$RELEASE_STATE" = "published" ] && [ "$POST_PUBLISH" = "false" ]; then
             echo "error_message=❌ Release \`$VERSION\` has already been published. No further commands are allowed." >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
-          if [ "$RELEASE_STATE" != "published" ] && [ "$COMMAND" = "merge-main-into-website" ]; then
-            echo "error_message=❌ Release \`$VERSION\` must be published before running \`/merge-main-into-website\`." >> "$GITHUB_OUTPUT"
+          if [ "$RELEASE_STATE" != "published" ] && [ "$POST_PUBLISH" = "true" ]; then
+            echo "error_message=❌ Release \`$VERSION\` must be published before running \`/$COMMAND\`." >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
@@ -428,6 +438,43 @@ jobs:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.push.outputs.message || '❌ Command failed.' }}
 
+  create-devel-tag:
+    name: Create Devel Tag
+    runs-on: ubuntu-latest
+    needs: authorize
+    timeout-minutes: 10
+    if: ${{ needs.authorize.outputs.command == 'create-devel-tag' }}
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: main
+          persist-credentials: false
+
+      - name: Create and Push Devel Tag
+        id: devel
+        uses: $/.github/actions/create-devel-tag
+        with:
+          version: ${{ needs.authorize.outputs.version }}
+
+      - name: Report Success
+        if: ${{ success() }}
+        uses: $/.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.devel.outputs.message }}
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: $/.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.devel.outputs.message || '❌ Failed to create devel tag.' }}
+          
   wait-for-images:
     name: Wait for Images
     runs-on: ubuntu-latest

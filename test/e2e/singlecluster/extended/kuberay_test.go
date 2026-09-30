@@ -663,6 +663,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
 			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+			TerminationGracePeriod(1).
 			Obj()
 
 		ginkgo.By("Creating the RayCluster", func() {
@@ -706,6 +707,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
 			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
 			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+			TerminationGracePeriod(1).
 			Obj()
 
 		ginkgo.By("Creating the RayCluster", func() {
@@ -834,6 +836,7 @@ app = HelloWorld.bind()`,
 		rayService := testingrayservice.MakeService("rayservice-hello", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
+			UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "600m").
 			Image(rayv1.HeadNode, kuberayTestImage).
@@ -923,6 +926,7 @@ app = HelloWorld.bind()`,
 		rayService := testingrayservice.MakeService("rayservice-gcs-ft", ns.Name).
 			Suspend(true).
 			Queue(localQueueName).
+			UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 			GCSFaultTolerance("redis:6379").
 			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "600m").

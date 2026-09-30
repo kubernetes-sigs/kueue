@@ -99,7 +99,7 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-test-performance-multikueue-runner verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-skills-lint
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-test-performance-multikueue-runner verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-skills-lint
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -173,6 +173,10 @@ PYTHONPATH=$(PROJECT_DIR)/hack/releasing "$$venv_dir/bin/python" -m unittest dis
 	-p '*_test.py'
 endef
 
+define _milestone_pull_test_recipe
+bash $(PROJECT_DIR)/hack/testing/milestone_pull_test.sh
+endef
+
 define _helm_verify_recipe
 $(HELM) lint charts/kueue
 $(HELM) template charts/kueue > /dev/null
@@ -199,6 +203,10 @@ endef
 define _kustomize_build_verify_recipe
 $(KUSTOMIZE) build config/alpha-enabled > /dev/null
 $(KUSTOMIZE) build config/components/crd/alpha > /dev/null
+endef
+
+define _rbac_role_coverage_verify_recipe
+YQ=$(YQ) $(PROJECT_DIR)/hack/testing/rbac/verify.sh
 endef
 
 # Validates skills against https://agentskills.io/specification
@@ -241,6 +249,10 @@ verify-e2e-common-test: verify-tree-prereqs ## e2e-common shell helper tests aft
 verify-release-utils-test: verify-tree-prereqs ## Release utility Python unit tests after generation
 	$(_release_utils_test_recipe)
 
+.PHONY: verify-milestone-pull-test
+verify-milestone-pull-test: verify-tree-prereqs ## milestone_pull shell tests after generation
+	$(_milestone_pull_test_recipe)
+
 .PHONY: verify-test-performance-multikueue-runner
 verify-test-performance-multikueue-runner: verify-tree-prereqs ## MultiKueue performance runner unit tests after generation
 	$(MAKE) test-performance-multikueue-runner
@@ -260,6 +272,10 @@ verify-npm-depcheck: verify-tree-prereqs prepare-release-branch ## Depcheck afte
 .PHONY: verify-kustomize-build
 verify-kustomize-build: verify-tree-prereqs kustomize ## Verify alpha-enabled manifests render after generation
 	$(_kustomize_build_verify_recipe)
+
+.PHONY: verify-rbac-role-coverage
+verify-rbac-role-coverage: verify-tree-prereqs yq ## Verify every resource granted to the manager has editor and viewer ClusterRoles after generation
+	$(_rbac_role_coverage_verify_recipe)
 
 .PHONY: verify-skills-lint
 verify-skills-lint: ## Lint agent skills with skillsaw
@@ -307,6 +323,10 @@ e2e-common-test: ## Run e2e-common shell helper tests.
 release-utils-test: ## Run release utility Python unit tests.
 	$(_release_utils_test_recipe)
 
+.PHONY: milestone-pull-test
+milestone-pull-test: ## Run milestone_pull shell tests.
+	$(_milestone_pull_test_recipe)
+
 .PHONY: helm-verify
 helm-verify: helm helm-lint ## Validate Helm chart rendering with various configuration combinations.
 	$(_helm_verify_recipe)
@@ -322,6 +342,10 @@ npm-depcheck: ## Verify frontend and e2e npm dependencies.
 .PHONY: kustomize-build-verify
 kustomize-build-verify: kustomize ## Validate alpha-enabled manifests render.
 	$(_kustomize_build_verify_recipe)
+
+.PHONY: rbac-role-coverage-verify
+rbac-role-coverage-verify: yq ## Validate every resource granted to the manager has editor and viewer ClusterRoles.
+	$(_rbac_role_coverage_verify_recipe)
 
 .PHONY: skills-lint
 skills-lint: ## Lint agent skills with skillsaw.

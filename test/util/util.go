@@ -553,7 +553,8 @@ func ExpectWorkloadsToBeInadmissibleByKeys(ctx context.Context, k8sClient client
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if cond != nil && cond.Status == metav1.ConditionFalse && (cond.Reason == kueue.WorkloadInadmissible || cond.Reason == kueue.WorkloadQuotaReservedReasonMisconfigured) {
+			if cond != nil && cond.Status == metav1.ConditionFalse &&
+				(cond.Reason == kueue.WorkloadInadmissible || cond.Reason == kueue.WorkloadQuotaReservedReasonMisconfigured || cond.Reason == kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved) {
 				inadmissible = append(inadmissible, wlKey)
 			}
 			wlObjects[i] = wl
@@ -587,6 +588,21 @@ func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, w
 	ginkgo.GinkgoHelper()
 	wlKeys := workloadKeys(wls)
 	ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKeys...)
+}
+
+func ExpectAdmittedWorkloadWithUnhealthyNodes(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, nodeNames ...string) {
+	ginkgo.GinkgoHelper()
+	expected := make([]kueue.UnhealthyNode, len(nodeNames))
+	for i, name := range nodeNames {
+		expected[i].Name = name
+	}
+	gomega.Eventually(func(g gomega.Gomega) {
+		updatedWl := &kueue.Workload{}
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).To(gomega.Succeed())
+		g.Expect(workload.IsAdmitted(updatedWl)).To(gomega.BeTrue())
+		g.Expect(apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeNil())
+		g.Expect(updatedWl.Status.UnhealthyNodes).To(gomega.Equal(expected))
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectWorkloadsToBeAdmittedByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {

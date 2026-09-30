@@ -197,11 +197,21 @@ func (p *Preemptor) buildContext(
 
 // Resolved once per attempt: both algorithms evaluate several triggers, and the
 // PreemptionConfig must not be re-read for each of them.
-func (p *Preemptor) newConfigurableEvaluator(ctx context.Context, log logr.Logger, cq *schdcache.ClusterQueueSnapshot) (evaluator *configurable.PreemptionEvaluator) {
-	if features.Enabled(features.ConfigurablePreemptions) {
-		evaluator = configurable.NewEvaluatorForClusterQueue(ctx, log, p.clock, p.client, cq)
+// Returns nil if the ConfigurablePreemptions feature is disabled, or the ClusterQueue
+// references no PreemptionConfig.
+func (p *Preemptor) newConfigurableEvaluator(ctx context.Context, log logr.Logger, cq *schdcache.ClusterQueueSnapshot) *configurable.PreemptionEvaluator {
+	if !features.Enabled(features.ConfigurablePreemptions) || cq == nil || cq.PreemptionConfigName == nil {
+		return nil
 	}
-	return
+	return configurable.NewEvaluatorForPreemptionConfig(ctx, log, p.clock, p.client, *cq.PreemptionConfigName, p.candidatesOrdering(log, cq.Name))
+}
+
+// candidatesOrdering returns the order in which the preemption candidates are
+// considered for a preemptor of the given ClusterQueue.
+func (p *Preemptor) candidatesOrdering(log logr.Logger, cq kueue.ClusterQueueReference) func(a, b *workload.Info) int {
+	return func(a, b *workload.Info) int {
+		return preemptioncommon.CandidatesOrdering(log, p.enabledAfs, a, b, cq, p.clock.Now())
+	}
 }
 
 var HumanReadablePreemptionReasons = map[string]string{
@@ -277,11 +287,12 @@ func (p *Preemptor) IssuePreemptions(
 
 		p.preemptionExpectations.ExpectUIDs(log, targetKey, []types.UID{target.WorkloadInfo.Obj.UID})
 
-		message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
+		message, underlyingCause := messageAndUnderlyingCause(log, target, preemptor, preemptorPath, preempteePath)
+
 		wlCopy := target.WorkloadInfo.Obj.DeepCopy()
 		exposeLqMetrics := cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
 		err := workloadevict.Evict(
-			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, "", p.clock, exposeLqMetrics, p.roleTracker, p.customLabels,
+			ctx, p.client, p.recorder, wlCopy, kueue.WorkloadEvictedByPreemption, message, underlyingCause, p.clock, exposeLqMetrics, p.roleTracker, p.customLabels,
 			workloadevict.WithCustomPrepare(func(wl *kueue.Workload) {
 				workload.SetPreemptedCondition(wl, p.clock.Now(), target.Reason, message)
 			}),
@@ -311,6 +322,30 @@ func (p *Preemptor) IssuePreemptions(
 		successfullyPreempted.Add(1)
 	})
 	return int(successfullyPreempted.Load()), int(preemptionErrors.Load()), errCh.ReceiveError()
+}
+
+func messageAndUnderlyingCause(
+	log logr.Logger,
+	target *Target,
+	preemptor *workload.Info,
+	preemptorPath string,
+	preempteePath string,
+) (string, kueue.EvictionUnderlyingCause) {
+	if target.Reason == kueue.ConfigurablePreemptionReason {
+		if target.ConfigurablePreemptionReasonData != nil {
+			message := target.ConfigurablePreemptionReasonData.EvictionMessage(preemptor.Obj)
+			underlyingCause := kueue.EvictionUnderlyingCause(target.ConfigurablePreemptionReasonData.ConfigName)
+
+			return message, underlyingCause
+		}
+		log.Error(nil, "ConfigurablePreemptionReasonData is nil",
+			"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
+			"preemptingWorkload", klog.KObj(preemptor.Obj))
+		// fallback to default behavior
+	}
+
+	message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
+	return message, ""
 }
 
 type preemptionAttemptOpts struct {

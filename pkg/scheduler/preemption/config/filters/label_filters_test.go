@@ -76,9 +76,9 @@ func TestWorkloadLabelFilter_Matches(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			filter, ok := buildWorkloadLabelFilter(log, tc.selector)
-			if !ok || filter == nil {
-				t.Fatalf("buildWorkloadLabelFilter failed unexpectedly")
+			filter, err := buildWorkloadLabelFilter(tc.selector)
+			if err != nil || filter == nil {
+				t.Fatalf("buildWorkloadLabelFilter failed unexpectedly: %v", err)
 			}
 			if got := filter.Matches(tc.candidate); got != tc.wantMatch {
 				t.Errorf("Matches(candidate) = %v, want %v", got, tc.wantMatch)

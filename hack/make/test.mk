@@ -227,7 +227,7 @@ test-multikueue-e2e-extended-shard-1: setup-e2e-env run-test-multikueue-e2e-exte
 test-multikueue-e2e-extended-ray-autoscaling: export KUBERAY_VERSION := $(KUBERAY_VERSION)
 test-multikueue-e2e-extended-ray-autoscaling: export RAY_VERSION := $(RAY_VERSION)
 test-multikueue-e2e-extended-ray-autoscaling: export RAYMINI_VERSION := $(RAYMINI_VERSION)
-test-multikueue-e2e-extended-ray-autoscaling: E2E_NPROCS := 5
+test-multikueue-e2e-extended-ray-autoscaling: E2E_NPROCS := 3
 test-multikueue-e2e-extended-ray-autoscaling: GINKGO_ARGS=--label-filter=feature:kuberay-multikueue-autoscaling
 test-multikueue-e2e-extended-ray-autoscaling: E2E_CONFIG_FOLDER=multikueue/ray-autoscaling
 test-multikueue-e2e-extended-ray-autoscaling: setup-e2e-env run-test-multikueue-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the extended MultiKueue Ray autoscaling e2e test suite.
@@ -860,6 +860,33 @@ run-tas-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 		--enableTAS=true \
 		--qps=1000 --burst=2000 --timeout=25m $(SCALABILITY_SCRAPE_ARGS)
 
+##@ Scheduler Performance Testing with TAS and DRA
+
+SCALABILITY_TAS_DRA_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/tas-dra/generator.yaml
+SCALABILITY_TAS_DRA_RANGE_FILE ?= $(PROJECT_DIR)/test/performance/scheduler/configs/tas-dra/rangespec.yaml
+
+.PHONY: run-tas-dra-performance-scheduler
+run-tas-dra-performance-scheduler: envtest performance-scheduler-runner minimalkueue
+	mkdir -p "$(ARTIFACTS)/$@"
+	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
+	$(SCALABILITY_RUNNER) \
+		--o "$(ARTIFACTS)/$@" \
+		--crds=$(PROJECT_DIR)/config/components/crd/bases \
+		--generatorConfig=$(SCALABILITY_TAS_DRA_GENERATOR_CONFIG) \
+		--minimalKueue=$(MINIMALKUEUE_RUNNER) \
+		--enableTAS=true --enableDRA=true --timeout=20m $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
+
+.PHONY: test-tas-dra-performance-scheduler-once
+test-tas-dra-performance-scheduler-once: gotestsum run-tas-dra-performance-scheduler
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
+		--summary=$(ARTIFACTS)/run-tas-dra-performance-scheduler/summary.yaml \
+		--cmdStats=$(ARTIFACTS)/run-tas-dra-performance-scheduler/minimalkueue.stats.yaml \
+		--range=$(SCALABILITY_TAS_DRA_RANGE_FILE)
+
+.PHONY: test-tas-dra-performance-scheduler
+test-tas-dra-performance-scheduler:
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-tas-dra-performance-scheduler-once
+
 ##@ Scheduler Performance Testing - Large Scale
 
 SCALABILITY_LARGE_SCALE_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/large-scale/generator.yaml
@@ -913,8 +940,12 @@ test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz with
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
 	KIND_CLUSTER_FILE="kind-cluster.yaml" IMAGE_TAG=$(IMAGE_TAG) ${PROJECT_DIR}/hack/testing/e2e-kueueviz-rbac-bypass.sh
 
+.PHONY: test-kueueviz-backend
+test-kueueviz-backend: ## Run KueueViz backend tests.
+	cd $(PROJECT_DIR)/cmd/kueueviz/backend && $(GO_CMD) test $(GOFLAGS) $(GO_TEST_FLAGS) ./...
+
 .PHONY: test-e2e-kueueviz
-test-e2e-kueueviz: setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
+test-e2e-kueueviz: test-kueueviz-backend setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
 	@echo Starting kueueviz end to end test in containers
 	CYPRESS_SCREENSHOTS_FOLDER=$(ARTIFACTS)/cypress/screenshots CYPRESS_VIDEOS_FOLDER=$(ARTIFACTS)/cypress/videos \
 	ARTIFACTS=$(ARTIFACTS) KIND_CLUSTER_NAME=$(KIND_CLUSTER_NAME) PROJECT_DIR=$(PROJECT_DIR)/ \
