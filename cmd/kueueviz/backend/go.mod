@@ -6,6 +6,7 @@ require (
 	github.com/bep/debounce v1.2.1
 	github.com/gin-contrib/cors v1.7.7
 	github.com/gin-gonic/gin v1.12.0
+	github.com/google/go-cmp v0.7.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	k8s.io/api v0.36.2
 	k8s.io/apimachinery v0.36.2
