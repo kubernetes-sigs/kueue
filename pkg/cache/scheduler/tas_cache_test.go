@@ -9902,7 +9902,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// workers: 25, sliceSize: 8, required: block, slices at the rack level
 			//
 			// r1 takes 2 whole slices (16 pods) and still has room for the 1-pod
-			// partial slice (sliceCountWithTail = 2). For the remaining 1 whole
+			// partial slice (sliceCount[obligationTail] = 2). For the remaining 1 whole
 			// slice, best-fit should pick r2 (8 pods) rather than r3 (15 pods), and
 			// place the partial slice in r1 (17 pods total, moved last).
 			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
@@ -9955,9 +9955,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// workers: 10, sliceSize: 4, required: block, slices at the rack level
 			//
 			// Both blocks hold 2 whole slices alongside the 2-pod partial
-			// slice (sliceCountWithTail = 2), and b1 sorts first because it
-			// holds 3 whole slices without the tail (sliceCount = 3 > 2). Best
-			// fit must prefer b2 (10 pods, 2 whole slices) over b1 (12 pods, 3
+			// slice (sliceCount[obligationTail] = 2), and b1 sorts first because it
+			// holds 3 whole slices without the tail (sliceCount[obligationNone] = 3 > 2).
+			// Best fit must prefer b2 (10 pods, 2 whole slices) over b1 (12 pods, 3
 			// whole slices).
 			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
 			nodes: []corev1.Node{
