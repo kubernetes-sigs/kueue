@@ -123,7 +123,6 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Named(controllerName).
 		Watches(&kueue.Workload{}, &lwsWorkloadHandler{}).
 		Watches(&corev1.Pod{}, &lwsPodHandler{}).
-		Watches(&appsv1.StatefulSet{}, &lwsStsHandler{}).
 		WithOptions(controller.Options{
 			LogConstructor: roletracker.NewLogConstructor(r.roleTracker, "leaderworkerset-reconciler"),
 		}).
@@ -521,9 +520,10 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 	}
 	log.V(2).Info("Reconcile LeaderWorkerSet Pod")
 
-	if lws == nil || utilstatefulset.ShouldUngatePod(sts, pod) {
+	// Kueue stops managing the Pods of a deleted LeaderWorkerSet or StatefulSet, so it releases them.
+	if lws == nil || sts == nil {
 		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-			if utilstatefulset.UngatePod(sts, pod, lws == nil) {
+			if utilstatefulset.UngatePod(pod) {
 				log.V(3).Info("Ungating LeaderWorkerSet Pod")
 				return true, nil
 			}
@@ -738,72 +738,6 @@ func (h *lwsPodHandler) enqueue(ctx context.Context, obj client.Object, q workqu
 	q.AddAfter(
 		reconcile.Request{
 			Namespace: pod.Namespace,
-			Name:      lwsName,
-		},
-		constants.UpdatesBatchPeriod,
-	)
-}
-
-// lwsStsHandler watches for StatefulSet update events and triggers reconciliation
-// of the owning LeaderWorkerSet.
-// Subscribe to StatefulSet updates and watch .Status.CurrentRevision and .Status.UpdateRevision
-// to remove Pod scheduling gates when a new revision appears.
-type lwsStsHandler struct{}
-
-var _ handler.EventHandler = (*lwsStsHandler)(nil)
-
-func (h *lwsStsHandler) Create(_ context.Context, _ event.CreateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *lwsStsHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	h.enqueue(ctx, e.ObjectNew, q)
-}
-
-func (h *lwsStsHandler) Delete(_ context.Context, _ event.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-func (h *lwsStsHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-// enqueue adds a reconcile request for the LeaderWorkerSet owning the given StatefulSet to the provided workqueue.
-func (h *lwsStsHandler) enqueue(ctx context.Context, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	sts, ok := obj.(*appsv1.StatefulSet)
-	if !ok {
-		return
-	}
-
-	log := ctrl.LoggerFrom(ctx).WithValues(
-		"statefulset", klog.KObj(sts),
-		"currentRevision", sts.Status.CurrentRevision,
-		"updateRevision", sts.Status.UpdateRevision,
-	)
-	log.V(3).Info("Enqueue LeaderWorkerSet StatefulSet")
-
-	// Handle only a rollout, since that is when the Pod scheduling gates come off.
-	if sts.Status.CurrentRevision == "" || sts.Status.UpdateRevision == "" ||
-		sts.Status.CurrentRevision == sts.Status.UpdateRevision {
-		return
-	}
-
-	// Handle only StatefulSets suspended by LeaderWorkerSet.
-	if sts.Spec.Template.Annotations[podconstants.SuspendedByParentAnnotation] != FrameworkName {
-		log.V(3).Info("StatefulSet is not suspended by parent")
-		return
-	}
-
-	lwsName, ok := sts.Labels[leaderworkersetv1.SetNameLabelKey]
-	if !ok {
-		log.V(3).Info("StatefulSet doesn't have LeaderWorkerSet name label")
-		return
-	}
-
-	log.V(3).Info("Queueing reconcile for owning LeaderWorkerSet",
-		"leaderworkerset", klog.ObjectRef{Namespace: sts.Namespace, Name: lwsName},
-	)
-
-	q.AddAfter(
-		reconcile.Request{
-			Namespace: sts.Namespace,
 			Name:      lwsName,
 		},
 		constants.UpdatesBatchPeriod,

@@ -145,11 +145,11 @@ func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlN
 			log.V(3).Info("Updating pod in group")
 			updated = true
 		}
-		if utilstatefulset.UngatePod(sts, pod, false) {
+		// Kueue stops managing the Pods of a deleted StatefulSet, so it releases them.
+		if sts == nil && utilstatefulset.UngatePod(pod) {
 			log.V(3).Info("Ungating pod in group")
 			updated = true
 		}
-		// Runs after ungating so that a pod ungated by this patch is seen as ungated.
 		if r.syncQueueLabel(sts, pod) {
 			log.V(3).Info("Syncing queue label")
 			updated = true
