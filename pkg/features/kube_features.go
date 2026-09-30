@@ -713,6 +713,13 @@ const (
 	SkipAncestorCheckForDeletedWorkloads featuregate.Feature = "SkipAncestorCheckForDeletedWorkloads"
 
 	// owner: @kevin85421
+	// kep: https://github.com/kubernetes-sigs/kueue/pull/16370
+	//
+	// Leaves managed child job suspension to the ancestor's controller.
+	// Disable to restore suspension based on the ancestor Workload's state.
+	SkipChildJobSuspension featuregate.Feature = "SkipChildJobSuspension"
+
+	// owner: @kevin85421
 	//
 	// Enables MultiKueue to forward manager-side spec changes (currently a RayService
 	// serveConfigV2 edit) onto the worker copy after admission, and to watch the manager
@@ -1217,6 +1224,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	SkipAncestorCheckForDeletedWorkloads: {
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	SkipChildJobSuspension: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
