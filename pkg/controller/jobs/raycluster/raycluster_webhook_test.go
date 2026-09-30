@@ -182,7 +182,7 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Forbidden(
 					field.NewPath("spec", "enableInTreeAutoscaling"),
-					fmt.Sprintf("in-tree autoscaling for a MultiKueue-managed elastic RayCluster requires enabling the %s feature gate", features.MultiKueueRayInTreeAutoscaling),
+					fmt.Sprintf("in-tree autoscaling for a MultiKueue-managed elastic job requires enabling the %s feature gate", features.MultiKueueRayInTreeAutoscaling),
 				),
 			}.ToAggregate(),
 		},

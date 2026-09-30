@@ -51,11 +51,10 @@ func TestValidateCreate(t *testing.T) {
 	strategyWithoutType.Spec.UpgradeStrategy = &rayv1.RayServiceUpgradeStrategy{}
 
 	testCases := map[string]struct {
-		service            *rayv1.RayService
-		manageAll          bool
-		elasticFeatureGate bool
-		disableValidation  bool
-		wantErr            bool
+		service      *rayv1.RayService
+		manageAll    bool
+		featureGates map[featuregate.Feature]bool
+		wantErr      bool
 	}{
 		"valid rayservice": {
 			service: &rayv1.RayService{
@@ -103,14 +102,14 @@ func TestValidateCreate(t *testing.T) {
 			service: testingrayservice.MakeService("rayservice", "ns").
 				Queue("queue").
 				Obj(),
-			disableValidation: true,
+			featureGates: map[featuregate.Feature]bool{features.RayServiceValidateUpgradeStrategy: false},
 		},
 		"default strategy allows workload slicing": {
 			service: testingrayservice.MakeService("rayservice", "ns").
 				Queue("queue").
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
-			elasticFeatureGate: true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
 		"strategy without a type requires workload slicing": {
 			service: strategyWithoutType,
@@ -135,8 +134,8 @@ func TestValidateCreate(t *testing.T) {
 				Queue("queue").
 				UpgradeStrategy(rayv1.RayServiceNewCluster).
 				Obj(),
-			elasticFeatureGate: true,
-			wantErr:            true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			wantErr:      true,
 		},
 		"NewCluster allows workload slicing": {
 			service: testingrayservice.MakeService("rayservice", "ns").
@@ -144,7 +143,7 @@ func TestValidateCreate(t *testing.T) {
 				UpgradeStrategy(rayv1.RayServiceNewCluster).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
-			elasticFeatureGate: true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
 		"NewClusterWithIncrementalUpgrade allows workload slicing": {
 			service: testingrayservice.MakeService("rayservice", "ns").
@@ -152,7 +151,7 @@ func TestValidateCreate(t *testing.T) {
 				UpgradeStrategy(rayv1.RayServiceNewClusterWithIncrementalUpgrade).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj(),
-			elasticFeatureGate: true,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 		},
 		"too many worker groups": {
 			service: &rayv1.RayService{
@@ -200,12 +199,39 @@ func TestValidateCreate(t *testing.T) {
 			manageAll: false,
 			wantErr:   true,
 		},
+		"unsupported MultiKueue autoscaling with its feature gate disabled": {
+			service: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				EnableInTreeAutoscaling().
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:   true,
+				features.MultiKueueRayInTreeAutoscaling: false,
+			},
+			wantErr: true,
+		},
+		"unsupported MultiKueue autoscaling with its feature gate enabled": {
+			service: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				EnableInTreeAutoscaling().
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:   true,
+				features.MultiKueueRayInTreeAutoscaling: true,
+			},
+			wantErr: true,
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, tc.elasticFeatureGate)
-			features.SetFeatureGateDuringTest(t, features.RayServiceValidateUpgradeStrategy, !tc.disableValidation)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, false)
+			features.SetFeatureGateDuringTest(t, features.RayServiceValidateUpgradeStrategy, true)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			webhook := &RayServiceWebhook{
 				manageJobsWithoutQueueName: tc.manageAll,
 			}
