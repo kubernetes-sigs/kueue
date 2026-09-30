@@ -361,7 +361,30 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 	})
 
 	ginkgo.It("should keep StatefulSet workload PodsReady when not-ready pods stay within max count and evict when exceeding max count", func() {
+		const notReadyMarkerFile = "/tmp/not-ready"
 		var sts *appsv1.StatefulSet
+
+		// makeNotReady persistently fails the readiness probe of the given Pod,
+		// so that its unreadiness does not depend on how quickly it is replaced.
+		makeNotReady := func(podName string) {
+			ginkgo.GinkgoHelper()
+			_, stderr, err := util.KExecute(ctx, cfg, restClient, ns.Name, podName, sts.Spec.Template.Spec.Containers[0].Name,
+				[]string{"touch", notReadyMarkerFile})
+			gomega.Expect(err).To(gomega.Succeed(), string(stderr))
+		}
+
+		waitForPodNotReady := func(podName string) {
+			ginkgo.GinkgoHelper()
+			gomega.Eventually(func(g gomega.Gomega) {
+				pod := &corev1.Pod{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Namespace: ns.Name, Name: podName}, pod)).To(gomega.Succeed())
+				g.Expect(pod.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", corev1.PodReady),
+					gomega.HaveField("Status", corev1.ConditionFalse),
+				)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}
+
 		ginkgo.By("creating a StatefulSet with 3 replicas and pod-group-max-not-ready-count=1 in the Pod template", func() {
 			sts = statefulsettesting.MakeStatefulSet("sts-max-not-ready", ns.Name).
 				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
@@ -370,6 +393,15 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 				Replicas(3).
 				Queue(lq.Name).
 				PodTemplateAnnotation(podconstants.GroupMaxNotReadyCountAnnotation, "1").
+				ReadinessProbe(&corev1.Probe{
+					Exec: &corev1.ExecAction{
+						Command: []string{"/bin/sh", "-c", "test ! -e " + notReadyMarkerFile},
+					},
+					PeriodSeconds:    1,
+					TimeoutSeconds:   1,
+					FailureThreshold: 1,
+					SuccessThreshold: 1,
+				}).
 				Obj()
 			util.MustCreate(ctx, k8sClient, sts)
 		})
@@ -389,11 +421,12 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("terminating 1 pod (sts-max-not-ready-2) while 1 pod is not ready (<= max not-ready count of 1)", func() {
-			util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 1, client.MatchingLabels{appsv1.PodIndexLabel: "2"})
+		ginkgo.By("making 1 pod (sts-max-not-ready-2) not ready (<= max not-ready count of 1)", func() {
+			makeNotReady(sts.Name + "-2")
+			waitForPodNotReady(sts.Name + "-2")
 		})
 
-		ginkgo.By("verifying the workload stays PodsReady without eviction while the 3rd pod recovers", func() {
+		ginkgo.By("verifying the workload stays PodsReady without eviction while 1 pod is not ready", func() {
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
 				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPodsReady))
@@ -402,18 +435,10 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 					g.Expect(wl.Status.SchedulingStats.Evictions).To(gomega.BeEmpty())
 				}
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
-
-			gomega.Eventually(func(g gomega.Gomega) {
-				createdSts := &appsv1.StatefulSet{}
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSts)).To(gomega.Succeed())
-				g.Expect(createdSts.Status.ReadyReplicas).To(gomega.Equal(int32(3)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.By("deleting 2 pods (sts-max-not-ready-1 and sts-max-not-ready-2) so not-ready pods reach 2 (> max not-ready count of 1)", func() {
-			for _, podName := range []string{sts.Name + "-1", sts.Name + "-2"} {
-				gomega.Expect(k8sClient.Delete(ctx, testingjobspod.MakePod(podName, ns.Name).Obj())).To(gomega.Succeed())
-			}
+		ginkgo.By("making another pod (sts-max-not-ready-1) not ready so not-ready pods reach 2 (> max not-ready count of 1)", func() {
+			makeNotReady(sts.Name + "-1")
 		})
 
 		ginkgo.By("verifying that the workload is evicted due to recovery timeout", func() {

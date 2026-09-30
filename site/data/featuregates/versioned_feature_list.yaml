@@ -95,6 +95,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: ElasticJobsViaWorkloadSlicesFlavorChangeFromZero
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: ElasticJobsViaWorkloadSlicesForProvisioningRequests
   versionedSpecs:
   - default: false
@@ -179,6 +185,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: HighMaxParallelismWithinReconcile
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: KueueDRADeviceFeasibility
   versionedSpecs:
   - default: false
@@ -223,6 +235,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: KueueDRAIntegrationPrioritizedList
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: KueueDRARejectWorkloadsWhenDRADisabled
   versionedSpecs:
   - default: true
@@ -415,6 +433,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: RayServiceValidateUpgradeStrategy
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: ReclaimablePods
   versionedSpecs:
   - default: true
@@ -478,6 +502,12 @@
     preRelease: Alpha
     version: "0.17"
 - name: SkipAncestorCheckForDeletedWorkloads
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
+- name: SkipChildJobSuspension
   versionedSpecs:
   - default: true
     lockToDefault: false

@@ -17,7 +17,6 @@ limitations under the License.
 package statefulset
 
 import (
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -25,16 +24,10 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
-func UngatePod(sts *appsv1.StatefulSet, pod *corev1.Pod, force bool) bool {
-	if force || ShouldUngatePod(sts, pod) {
-		removedSchedulingGate := utilpod.Ungate(pod, podconstants.SchedulingGateName)
-		removedTopologyGate := utilpod.Ungate(pod, kueue.TopologySchedulingGate)
-		return removedSchedulingGate || removedTopologyGate
-	}
-	return false
-}
-
-func ShouldUngatePod(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
-	return sts == nil || sts.Status.CurrentRevision != sts.Status.UpdateRevision &&
-		sts.Status.CurrentRevision == pod.Labels[appsv1.ControllerRevisionHashLabelKey]
+// UngatePod removes the Kueue scheduling gates from the Pod without applying a
+// Workload admission, which only suits Pods that Kueue stops managing.
+func UngatePod(pod *corev1.Pod) bool {
+	removedSchedulingGate := utilpod.Ungate(pod, podconstants.SchedulingGateName)
+	removedTopologyGate := utilpod.Ungate(pod, kueue.TopologySchedulingGate)
+	return removedSchedulingGate || removedTopologyGate
 }

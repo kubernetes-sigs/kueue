@@ -197,11 +197,21 @@ func (p *Preemptor) buildContext(
 
 // Resolved once per attempt: both algorithms evaluate several triggers, and the
 // PreemptionConfig must not be re-read for each of them.
-func (p *Preemptor) newConfigurableEvaluator(ctx context.Context, log logr.Logger, cq *schdcache.ClusterQueueSnapshot) (evaluator *configurable.PreemptionEvaluator) {
-	if features.Enabled(features.ConfigurablePreemptions) {
-		evaluator = configurable.NewEvaluatorForClusterQueue(ctx, log, p.clock, p.client, cq)
+// Returns nil if the ConfigurablePreemptions feature is disabled, or the ClusterQueue
+// references no PreemptionConfig.
+func (p *Preemptor) newConfigurableEvaluator(ctx context.Context, log logr.Logger, cq *schdcache.ClusterQueueSnapshot) *configurable.PreemptionEvaluator {
+	if !features.Enabled(features.ConfigurablePreemptions) || cq == nil || cq.PreemptionConfigName == nil {
+		return nil
 	}
-	return
+	return configurable.NewEvaluatorForPreemptionConfig(ctx, log, p.clock, p.client, *cq.PreemptionConfigName, p.candidatesOrdering(log, cq.Name))
+}
+
+// candidatesOrdering returns the order in which the preemption candidates are
+// considered for a preemptor of the given ClusterQueue.
+func (p *Preemptor) candidatesOrdering(log logr.Logger, cq kueue.ClusterQueueReference) func(a, b *workload.Info) int {
+	return func(a, b *workload.Info) int {
+		return preemptioncommon.CandidatesOrdering(log, p.enabledAfs, a, b, cq, p.clock.Now())
+	}
 }
 
 var HumanReadablePreemptionReasons = map[string]string{

@@ -419,7 +419,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// if this is a non-toplevel job, suspend the job if its ancestor's workload is not found or not admitted.
+	// By default, leave child job lifecycle management to the ancestor's controller.
 	if !isTopLevelJob {
 		if shouldSuspend, err := r.shouldSuspendChildJob(ctx, job, ancestorJob); err != nil {
 			return ctrl.Result{}, err
@@ -865,6 +865,9 @@ func QueueNameChange(ctx context.Context, c client.Client, job GenericJob, wl *k
 }
 
 func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob GenericJob, ancestorJob client.Object) (bool, error) {
+	if features.Enabled(features.SkipChildJobSuspension) {
+		return false, nil
+	}
 	log := ctrl.LoggerFrom(ctx).WithValues("childJob", childJob.Object().GetName(), "gvk", childJob.GVK(), "ancestorJob", ancestorJob.GetName())
 	_, _, finished := childJob.Finished(ctx)
 	if !finished && !childJob.IsSuspended() {

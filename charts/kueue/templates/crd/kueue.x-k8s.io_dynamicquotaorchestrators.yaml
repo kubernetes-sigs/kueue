@@ -197,10 +197,18 @@ spec:
                     - type
                   x-kubernetes-list-type: map
                 effectiveCapacity:
-                  description: effectiveCapacity is the capacity aggregated from the referenced providers.
+                  description: |-
+                    effectiveCapacity is the combined capacity from the referenced providers.
+                    Each provider's capacity is multiplied by its effectiveCapacityMultiplier.
+                    DQO clears this field if any referenced provider is missing or does not
+                    have CapacitySynchronized=True.
                   properties:
                     flavors:
-                      description: flavors contains capacity per flavor and resource.
+                      description: |-
+                        flavors contains the total capacity for each flavor and resource.
+                        It includes all flavors listed in spec.orchestratedFlavors of the
+                        referenced providers. The list is never empty.
+                        An empty resources map means zero capacity for all resources of the flavor.
                       items:
                         properties:
                           name:
