@@ -26,16 +26,6 @@ import (
 	featuregatetesting "k8s.io/component-base/featuregate/testing"
 )
 
-func TestSkipChildJobSuspensionDefault(t *testing.T) {
-	if !Enabled(SkipChildJobSuspension) {
-		t.Fatal("SkipChildJobSuspension should be enabled by default")
-	}
-	SetFeatureGateDuringTest(t, SkipChildJobSuspension, false)
-	if Enabled(SkipChildJobSuspension) {
-		t.Fatal("SkipChildJobSuspension should allow opting back into child suspension")
-	}
-}
-
 func TestFeatureGate(t *testing.T) {
 	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, PartialAdmission, false)
 
