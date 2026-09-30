@@ -180,7 +180,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"statefulset with update revision": {
+		"statefulset with update revision keeps gates on pods of both revisions": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -216,6 +216,7 @@ func TestReconciler(t *testing.T) {
 				*testingjobspod.MakePod("pod1", "ns").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					Gate(podconstants.SchedulingGateName).
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
@@ -791,6 +792,7 @@ func TestReconciler(t *testing.T) {
 					Queue("new-queue").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					Gate(podconstants.SchedulingGateName).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
