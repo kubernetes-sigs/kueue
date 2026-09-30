@@ -34,7 +34,6 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -271,7 +270,6 @@ func withAfsUsageLedger(ledger *queueafs.AfsUsageLedger) clusterQueueOption {
 
 func newClusterQueue(
 	ctx context.Context,
-	client client.Client,
 	cq *kueue.ClusterQueue,
 	wo workload.Ordering,
 	afsConfig *config.AdmissionFairSharing,
@@ -280,7 +278,6 @@ func newClusterQueue(
 	enableAdmissionFs, fsResWeights := afs.ResourceWeights(cq.Spec.AdmissionScope, afsConfig)
 	cqImpl := newClusterQueueImpl(
 		ctx,
-		client,
 		wo,
 		realClock,
 		withFSResWeights(fsResWeights),
@@ -294,7 +291,7 @@ func newClusterQueue(
 	return cqImpl, nil
 }
 
-func newClusterQueueImpl(ctx context.Context, _ client.Client, wo workload.Ordering, clock clock.Clock, opts ...clusterQueueOption) *ClusterQueue {
+func newClusterQueueImpl(ctx context.Context, wo workload.Ordering, clock clock.Clock, opts ...clusterQueueOption) *ClusterQueue {
 	options := &clusterQueueOptions{}
 	for _, opt := range opts {
 		opt(options)
