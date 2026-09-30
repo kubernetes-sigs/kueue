@@ -81,15 +81,37 @@ func TestBuildCandidateOrderEntry(t *testing.T) {
 	n1 := evictedInfo(t, "n1", false)
 	n2 := evictedInfo(t, "n2", false)
 
-	// Insertion order is intentionally unsorted to prove the entry sorts it.
-	cq := cqWith("cq", n2, e2, n1, e1)
-	e := buildCandidateOrderEntry(cq, orderCmp)
-
-	if got, want := names(e.sorted), []string{"e1", "e2", "n1", "n2"}; !slices.Equal(got, want) {
-		t.Errorf("sorted names = %v, want %v", got, want)
+	cases := map[string]struct {
+		cq          *ClusterQueueSnapshot
+		wantSorted  []string
+		wantEvicted int
+	}{
+		"mixed evicted and non-evicted are sorted with evicted prefix": {
+			cq:          cqWith("cq", n2, e2, n1, e1),
+			wantSorted:  []string{"e1", "e2", "n1", "n2"},
+			wantEvicted: 2,
+		},
+		"only non-evicted workloads produce zero evicted prefix": {
+			cq:          cqWith("cq", n2, n1),
+			wantSorted:  []string{"n1", "n2"},
+			wantEvicted: 0,
+		},
+		"only evicted workloads produce full-length evicted prefix": {
+			cq:          cqWith("cq", e2, e1),
+			wantSorted:  []string{"e1", "e2"},
+			wantEvicted: 2,
+		},
 	}
-	if got, want := e.evictedCount, 2; got != want {
-		t.Errorf("evictedCount = %d, want %d", got, want)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			e := buildCandidateOrderEntry(tc.cq, orderCmp)
+			if got := names(e.sorted); !slices.Equal(got, tc.wantSorted) {
+				t.Errorf("sorted names = %v, want %v", got, tc.wantSorted)
+			}
+			if e.evictedCount != tc.wantEvicted {
+				t.Errorf("evictedCount = %d, want %d", e.evictedCount, tc.wantEvicted)
+			}
+		})
 	}
 }
 
@@ -100,19 +122,24 @@ func TestGetBuildsThenReuses(t *testing.T) {
 	cache := newCandidateOrderCache()
 	cq := cqWith("cq", evictedInfo(t, "n1", false), evictedInfo(t, "e1", true))
 
-	first, evicted := cache.Get(cq, orderCmp)
-	if got, want := names(first), []string{"e1", "n1"}; !slices.Equal(got, want) {
-		t.Fatalf("first Get names = %v, want %v", got, want)
-	}
-	if evicted != 1 {
-		t.Fatalf("first Get evictedCount = %d, want 1", evicted)
-	}
+	var first []*workload.Info
+	t.Run("miss builds and returns sorted order", func(t *testing.T) {
+		var evicted int
+		first, evicted = cache.Get(cq, orderCmp)
+		if got, want := names(first), []string{"e1", "n1"}; !slices.Equal(got, want) {
+			t.Fatalf("Get names = %v, want %v", got, want)
+		}
+		if evicted != 1 {
+			t.Fatalf("Get evictedCount = %d, want 1", evicted)
+		}
+	})
 
-	second, _ := cache.Get(cq, orderCmp)
-	// A cache hit must reuse the stored slice, not rebuild it.
-	if &first[0] != &second[0] {
-		t.Errorf("second Get rebuilt the entry; want the cached slice reused")
-	}
+	t.Run("hit reuses cached slice without rebuilding", func(t *testing.T) {
+		second, _ := cache.Get(cq, orderCmp)
+		if &first[0] != &second[0] {
+			t.Errorf("second Get rebuilt the entry; want the cached slice reused")
+		}
+	})
 }
 
 // TestGetInvalidatesOnMembershipChange verifies that once a CQ's workload set
@@ -141,24 +168,33 @@ func TestGetInvalidatesOnMembershipChange(t *testing.T) {
 func TestMatches(t *testing.T) {
 	n1 := evictedInfo(t, "n1", false)
 	n2 := evictedInfo(t, "n2", false)
-	cq := cqWith("cq", n1, n2)
-	e := buildCandidateOrderEntry(cq, orderCmp)
-
-	if !matches(e, cq) {
-		t.Errorf("matches() = false for the entry's own CQ, want true")
-	}
-
-	// Length differs: a workload was removed.
-	shorter := cqWith("cq", n1)
-	if matches(e, shorter) {
-		t.Errorf("matches() = true after removal, want false")
-	}
-
-	// Same length, different membership: one key was swapped out.
 	n3 := evictedInfo(t, "n3", false)
-	swapped := cqWith("cq", n1, n3)
-	if matches(e, swapped) {
-		t.Errorf("matches() = true after key swap, want false")
+	base := cqWith("cq", n1, n2)
+	e := buildCandidateOrderEntry(base, orderCmp)
+
+	cases := map[string]struct {
+		cq   *ClusterQueueSnapshot
+		want bool
+	}{
+		"same membership matches": {
+			cq:   base,
+			want: true,
+		},
+		"shorter CQ after removal does not match": {
+			cq:   cqWith("cq", n1),
+			want: false,
+		},
+		"same length but different key does not match": {
+			cq:   cqWith("cq", n1, n3),
+			want: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := matches(e, tc.cq); got != tc.want {
+				t.Errorf("matches() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -169,22 +205,26 @@ func TestWarm(t *testing.T) {
 	cqA := cqWith("a", evictedInfo(t, "n1", false), evictedInfo(t, "e1", true))
 	cqB := cqWith("b", evictedInfo(t, "n2", false))
 
-	cache.Warm([]*ClusterQueueSnapshot{cqA, cqB}, orderCmp)
+	t.Run("populates entries for all CQs", func(t *testing.T) {
+		cache.Warm([]*ClusterQueueSnapshot{cqA, cqB}, orderCmp)
 
-	entryA, okA := cache.entries[cqA.Name]
-	_, okB := cache.entries[cqB.Name]
-	if !okA || !okB {
-		t.Fatalf("Warm did not populate both entries: a=%v b=%v", okA, okB)
-	}
-	if got, want := names(entryA.sorted), []string{"e1", "n1"}; !slices.Equal(got, want) {
-		t.Errorf("warmed a sorted = %v, want %v", got, want)
-	}
+		entryA, okA := cache.entries[cqA.Name]
+		_, okB := cache.entries[cqB.Name]
+		if !okA || !okB {
+			t.Fatalf("Warm did not populate both entries: a=%v b=%v", okA, okB)
+		}
+		if got, want := names(entryA.sorted), []string{"e1", "n1"}; !slices.Equal(got, want) {
+			t.Errorf("warmed a sorted = %v, want %v", got, want)
+		}
+	})
 
-	// A second Warm over an unchanged CQ must reuse the existing entry.
-	cache.Warm([]*ClusterQueueSnapshot{cqA}, orderCmp)
-	if cache.entries[cqA.Name] != entryA {
-		t.Errorf("Warm rebuilt an unchanged entry; want it reused")
-	}
+	t.Run("does not rebuild an unchanged entry on second Warm", func(t *testing.T) {
+		entryA := cache.entries[cqA.Name]
+		cache.Warm([]*ClusterQueueSnapshot{cqA}, orderCmp)
+		if cache.entries[cqA.Name] != entryA {
+			t.Errorf("Warm rebuilt an unchanged entry; want it reused")
+		}
+	})
 }
 
 // TestEvictedPrefixLen covers the boundary the cache computes once per sort and

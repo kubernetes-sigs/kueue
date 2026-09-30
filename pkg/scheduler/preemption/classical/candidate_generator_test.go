@@ -58,7 +58,7 @@ func segmentBucket(sorted []*workload.Info, advantage bool) *bucket {
 	}
 }
 
-func drainIter(it *candidateIterator, borrow bool) []string {
+func drainIter(it *cacheCandidateIterator, borrow bool) []string {
 	var got []string
 	for {
 		wl, _ := it.Next(borrow)
@@ -70,81 +70,103 @@ func drainIter(it *candidateIterator, borrow bool) []string {
 	return got
 }
 
-func TestIteratorMergesBucketsInOrder(t *testing.T) {
-	ctx := preemptorCtx(t, 10, kueue.PreemptionPolicyAny, kueue.PreemptionPolicyNever, nil)
-	// All within the preemptor CQ -> WithinCQ, so none is filtered out.
+func TestCacheIterator(t *testing.T) {
+	// shared workloads
 	a := candidateInfo(t, "a", preemptorCQName, 1)
 	b := candidateInfo(t, "b", preemptorCQName, 1)
 	c := candidateInfo(t, "c", preemptorCQName, 1)
 	d := candidateInfo(t, "d", preemptorCQName, 1)
-
-	var segs [numSegments][]*bucket
-	segs[0] = []*bucket{
-		segmentBucket([]*workload.Info{a, c}, false),
-		segmentBucket([]*workload.Info{b, d}, false),
-	}
-	it := &candidateIterator{segments: segs, cmp: byName, hierarchicalReclaimCtx: ctx}
-
-	if got := drainIter(it, false); !slices.Equal(got, []string{"a", "b", "c", "d"}) {
-		t.Errorf("merge order = %v, want [a b c d]", got)
-	}
-}
-
-func TestIteratorSegmentPrecedenceOverridesOrder(t *testing.T) {
-	ctx := preemptorCtx(t, 10, kueue.PreemptionPolicyAny, kueue.PreemptionPolicyNever, nil)
-	// "z" sits in an earlier segment than "a"; segment order must win over cmp.
 	z := candidateInfo(t, "z", preemptorCQName, 1)
-	a := candidateInfo(t, "a", preemptorCQName, 1)
-
-	var segs [numSegments][]*bucket
-	segs[2] = []*bucket{segmentBucket([]*workload.Info{z}, false)}
-	segs[3] = []*bucket{segmentBucket([]*workload.Info{a}, false)}
-	it := &candidateIterator{segments: segs, cmp: byName, hierarchicalReclaimCtx: ctx}
-
-	if got := drainIter(it, false); !slices.Equal(got, []string{"z", "a"}) {
-		t.Errorf("segment precedence = %v, want [z a] (earlier segment first)", got)
-	}
-}
-
-func TestIteratorSkipsNeverCandidates(t *testing.T) {
-	ctx := preemptorCtx(t, 10, kueue.PreemptionPolicyAny, kueue.PreemptionPolicyNever, nil)
 	real1 := candidateInfo(t, "real1", preemptorCQName, 1)
 	real2 := candidateInfo(t, "real2", preemptorCQName, 1)
-	// fake requests nothing under the contested flavor -> classifies as Never.
 	fake := candidateInfo(t, "fake", preemptorCQName, 1)
 	for i := range fake.TotalRequests {
 		fake.TotalRequests[i].Flavors = nil
 	}
-
-	var segs [numSegments][]*bucket
-	segs[0] = []*bucket{segmentBucket([]*workload.Info{real1, fake, real2}, false)}
-	it := &candidateIterator{segments: segs, cmp: byName, hierarchicalReclaimCtx: ctx}
-
-	if got := drainIter(it, false); !slices.Equal(got, []string{"real1", "real2"}) {
-		t.Errorf("Never candidate not skipped: got %v, want [real1 real2]", got)
-	}
-}
-
-func TestIteratorBorrowFilterAndReset(t *testing.T) {
-	// reclaim=Any, borrow forbidden (nil) -> other-CQ candidates without
-	// hierarchical advantage classify as ReclaimWithoutBorrowing.
-	ctx := preemptorCtx(t, 10, kueue.PreemptionPolicyNever, kueue.PreemptionPolicyAny, nil)
 	c1 := candidateInfo(t, "c1", otherCQName, 1)
 	c2 := candidateInfo(t, "c2", otherCQName, 1)
 
-	var segs [numSegments][]*bucket
-	segs[0] = []*bucket{segmentBucket([]*workload.Info{c1, c2}, false)}
-	it := &candidateIterator{segments: segs, cmp: byName, hierarchicalReclaimCtx: ctx}
+	// ctxWithin: reclaim=Never, so cross-CQ candidates are not filtered by
+	// policy; used for pure iteration-order cases.
+	ctxWithin := preemptorCtx(t, 10, kueue.PreemptionPolicyAny, kueue.PreemptionPolicyNever, nil)
+	// ctxReclaim: reclaim=Any but borrow forbidden; other-CQ candidates
+	// classify as ReclaimWithoutBorrowing and are skipped on a borrow run.
+	ctxReclaim := preemptorCtx(t, 10, kueue.PreemptionPolicyNever, kueue.PreemptionPolicyAny, nil)
 
-	// Borrowing run: ReclaimWithoutBorrowing candidates are skipped element-wise.
-	if got := drainIter(it, true); len(got) != 0 {
-		t.Errorf("borrow run should skip ReclaimWithoutBorrowing, got %v", got)
+	cases := map[string]struct {
+		ctx      *HierarchicalPreemptionCtx
+		segments [numSegments][]*bucket
+		// first pass
+		borrow bool
+		want   []string // nil means expect no results
+		// optional Reset + second pass
+		doReset        bool
+		resetBorrow    bool
+		wantAfterReset []string
+	}{
+		"merges buckets from the same segment in comparator order": {
+			ctx: ctxWithin,
+			segments: func() [numSegments][]*bucket {
+				var s [numSegments][]*bucket
+				s[0] = []*bucket{
+					segmentBucket([]*workload.Info{a, c}, false),
+					segmentBucket([]*workload.Info{b, d}, false),
+				}
+				return s
+			}(),
+			borrow: false,
+			want:   []string{"a", "b", "c", "d"},
+		},
+		"earlier segment always precedes a later segment regardless of element order": {
+			// "z" sits in segment 2, "a" in segment 3: segment index must win over cmp.
+			ctx: ctxWithin,
+			segments: func() [numSegments][]*bucket {
+				var s [numSegments][]*bucket
+				s[2] = []*bucket{segmentBucket([]*workload.Info{z}, false)}
+				s[3] = []*bucket{segmentBucket([]*workload.Info{a}, false)}
+				return s
+			}(),
+			borrow: false,
+			want:   []string{"z", "a"},
+		},
+		"Never candidates are silently skipped": {
+			// fake uses no contested flavor -> classifies as Never; real1/real2 pass.
+			ctx: ctxWithin,
+			segments: func() [numSegments][]*bucket {
+				var s [numSegments][]*bucket
+				s[0] = []*bucket{segmentBucket([]*workload.Info{real1, fake, real2}, false)}
+				return s
+			}(),
+			borrow: false,
+			want:   []string{"real1", "real2"},
+		},
+		"borrow run skips ReclaimWithoutBorrowing; non-borrow run after Reset sees them": {
+			ctx: ctxReclaim,
+			segments: func() [numSegments][]*bucket {
+				var s [numSegments][]*bucket
+				s[0] = []*bucket{segmentBucket([]*workload.Info{c1, c2}, false)}
+				return s
+			}(),
+			borrow:         true,
+			want:           nil,
+			doReset:        true,
+			resetBorrow:    false,
+			wantAfterReset: []string{"c1", "c2"},
+		},
 	}
-
-	// Reset must rewind the drained cursors so the non-borrowing run sees them.
-	it.Reset()
-	if got := drainIter(it, false); !slices.Equal(got, []string{"c1", "c2"}) {
-		t.Errorf("non-borrow run after reset = %v, want [c1 c2]", got)
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			it := &cacheCandidateIterator{segments: tc.segments, cmp: byName, hierarchicalReclaimCtx: tc.ctx}
+			if got := drainIter(it, tc.borrow); !slices.Equal(got, tc.want) {
+				t.Errorf("first pass = %v, want %v", got, tc.want)
+			}
+			if tc.doReset {
+				it.Reset()
+				if got := drainIter(it, tc.resetBorrow); !slices.Equal(got, tc.wantAfterReset) {
+					t.Errorf("after Reset = %v, want %v", got, tc.wantAfterReset)
+				}
+			}
+		})
 	}
 }
 
@@ -217,33 +239,55 @@ func TestBuildBuckets(t *testing.T) {
 	cqB := &schdcache.ClusterQueueSnapshot{Name: "cqB"}
 	cqEmpty := &schdcache.ClusterQueueSnapshot{Name: "cqEmpty"}
 
-	classes := []classifiedClusterQueue{
-		// cqA has both an evicted prefix (evictedCount=1) and a non-evicted tail.
-		// buildBuckets splits at the cache-computed evictedCount, not by re-probing
-		// the workload conditions.
-		{cq: cqA, sorted: []*workload.Info{e, n1}, evictedCount: 1},
-		// cqB has only a non-evicted workload.
-		{cq: cqB, sorted: []*workload.Info{n2}, evictedCount: 0},
-		// cqEmpty contributes nothing.
-		{cq: cqEmpty, sorted: nil},
+	cases := map[string]struct {
+		classes       []classifiedClusterQueue
+		wantEvicted   int
+		wantNonEvicted int
+		wantEvictedCQ   string
+		wantEvictedTop  string
+		wantNonEvictedCQs []string
+	}{
+		"evicted bucket, non-evicted bucket, empty CQ skipped": {
+			classes: []classifiedClusterQueue{
+				// cqA has both an evicted prefix (evictedCount=1) and a non-evicted tail.
+				// buildBuckets splits at the cache-computed evictedCount, not by re-probing
+				// the workload conditions.
+				{cq: cqA, sorted: []*workload.Info{e, n1}, evictedCount: 1},
+				// cqB has only a non-evicted workload.
+				{cq: cqB, sorted: []*workload.Info{n2}, evictedCount: 0},
+				// cqEmpty contributes nothing.
+				{cq: cqEmpty, sorted: nil},
+			},
+			wantEvicted:       1,
+			wantNonEvicted:    2,
+			wantEvictedCQ:     "cqA",
+			wantEvictedTop:    "e",
+			wantNonEvictedCQs: []string{"cqA", "cqB"},
+		},
 	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			evicted, nonEvicted := buildBuckets(tc.classes)
 
-	evicted, nonEvicted := buildBuckets(classes)
+			if len(evicted) != tc.wantEvicted {
+				t.Fatalf("evicted buckets = %d, want %d", len(evicted), tc.wantEvicted)
+			}
+			if tc.wantEvicted > 0 {
+				if evicted[0].cq.Name != kueue.ClusterQueueReference(tc.wantEvictedCQ) || evicted[0].top().Obj.Name != tc.wantEvictedTop {
+					t.Errorf("evicted bucket = (%q, %q), want (%q, %q)", evicted[0].cq.Name, evicted[0].top().Obj.Name, tc.wantEvictedCQ, tc.wantEvictedTop)
+				}
+			}
 
-	// Only cqA produces an evicted bucket.
-	if len(evicted) != 1 {
-		t.Fatalf("evicted buckets = %d, want 1", len(evicted))
-	}
-	if evicted[0].cq.Name != "cqA" || evicted[0].top().Obj.Name != "e" {
-		t.Errorf("evicted bucket = (%q, %q), want (cqA, e)", evicted[0].cq.Name, evicted[0].top().Obj.Name)
-	}
-
-	// cqA (non-evicted tail) and cqB produce non-evicted buckets; cqEmpty is skipped.
-	if len(nonEvicted) != 2 {
-		t.Fatalf("non-evicted buckets = %d, want 2", len(nonEvicted))
-	}
-	gotCQs := []string{string(nonEvicted[0].cq.Name), string(nonEvicted[1].cq.Name)}
-	if !slices.Equal(gotCQs, []string{"cqA", "cqB"}) {
-		t.Errorf("non-evicted bucket CQs = %v, want [cqA cqB]", gotCQs)
+			if len(nonEvicted) != tc.wantNonEvicted {
+				t.Fatalf("non-evicted buckets = %d, want %d", len(nonEvicted), tc.wantNonEvicted)
+			}
+			gotCQs := make([]string, len(nonEvicted))
+			for i, b := range nonEvicted {
+				gotCQs[i] = string(b.cq.Name)
+			}
+			if !slices.Equal(gotCQs, tc.wantNonEvictedCQs) {
+				t.Errorf("non-evicted bucket CQs = %v, want %v", gotCQs, tc.wantNonEvictedCQs)
+			}
+		})
 	}
 }

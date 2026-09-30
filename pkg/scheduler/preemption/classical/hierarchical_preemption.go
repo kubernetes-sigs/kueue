@@ -203,6 +203,89 @@ func collectSubtreeCQs(
 	}
 }
 
+func collectSameQueueCandidates(ctx *HierarchicalPreemptionCtx) []*candidateElem {
+	if ctx.Cq.Preemption.WithinClusterQueue == kueue.PreemptionPolicyNever {
+		return []*candidateElem{}
+	}
+	return getCandidatesFromCQ(ctx.Cq, nil, ctx, false)
+}
+
+func getCandidatesFromCQ(cq *schdcache.ClusterQueueSnapshot, lca *schdcache.CohortSnapshot, ctx *HierarchicalPreemptionCtx, hasHiearchicalAdvantage bool) []*candidateElem {
+	candidates := []*candidateElem{}
+	for _, candidateWl := range cq.Workloads {
+		preemptionVariant := classifyPreemptionVariant(ctx, candidateWl, hasHiearchicalAdvantage)
+		if preemptionVariant == Never {
+			continue
+		}
+		candidates = append(candidates,
+			&candidateElem{
+				wl:                candidateWl,
+				lca:               lca,
+				preemptionVariant: preemptionVariant,
+			})
+	}
+	return candidates
+}
+
+func collectCandidatesForHierarchicalReclaim(ctx *HierarchicalPreemptionCtx) ([]*candidateElem, []*candidateElem) {
+	hierarchyCandidates := []*candidateElem{}
+	priorityCandidates := []*candidateElem{}
+	if !ctx.Cq.HasParent() || ctx.Cq.Preemption.ReclaimWithinCohort == kueue.PreemptionPolicyNever {
+		return hierarchyCandidates, priorityCandidates
+	}
+	var previousSubtreeRoot *schdcache.CohortSnapshot
+	var candidateList *[]*candidateElem
+	var fits bool
+	hasHierarchicalAdvantage, remainingRequests := schdcache.QuantitiesFitInQuota(ctx.Cq, ctx.Requests)
+	for currentSubtreeRoot := range ctx.Cq.PathParentToRoot() {
+		if hasHierarchicalAdvantage {
+			candidateList = &hierarchyCandidates
+		} else {
+			candidateList = &priorityCandidates
+		}
+		collectCandidatesInSubtree(ctx, currentSubtreeRoot, currentSubtreeRoot, previousSubtreeRoot, hasHierarchicalAdvantage, candidateList)
+		fits, remainingRequests = schdcache.QuantitiesFitInQuota(currentSubtreeRoot, remainingRequests)
+		// Once we find a subtree sT that fits the requests, we will look for workloads that use quota
+		// of that subtree. The preemptor will have hierarchical advantage over all such workloads
+		// because it belongs to subtree sT. For that reason variable hasHierarchicalAdvantage
+		// remains true in subsequent iterations of the loop.
+		hasHierarchicalAdvantage = hasHierarchicalAdvantage || fits
+		previousSubtreeRoot = currentSubtreeRoot
+	}
+	return hierarchyCandidates, priorityCandidates
+}
+
+// visit the nodes in the hierarchy and collect the ones that exceed quota
+// avoid subtrees that are within quota and the skipped subtree
+func collectCandidatesInSubtree(
+	ctx *HierarchicalPreemptionCtx,
+	currentCohort *schdcache.CohortSnapshot,
+	subtreeRoot *schdcache.CohortSnapshot,
+	skipSubtree *schdcache.CohortSnapshot,
+	hasHierarchicalAdvantage bool,
+	result *[]*candidateElem,
+) {
+	for _, childCohort := range currentCohort.ChildCohorts() {
+		// we already processed this subtree
+		if childCohort == skipSubtree {
+			continue
+		}
+		// don't look for candidates in subtrees that are not exceeding their quotas
+		if schdcache.IsWithinNominalInResources(childCohort, ctx.FrsNeedPreemption) {
+			continue
+		}
+		collectCandidatesInSubtree(ctx, childCohort, subtreeRoot, skipSubtree, hasHierarchicalAdvantage, result)
+	}
+	for _, childCq := range currentCohort.ChildCQs() {
+		if childCq == ctx.Cq {
+			continue
+		}
+		if !schdcache.IsWithinNominalInResources(childCq, ctx.FrsNeedPreemption) {
+			*result = append(*result, getCandidatesFromCQ(childCq, subtreeRoot, ctx, hasHierarchicalAdvantage)...)
+		}
+	}
+}
+
 // getNodeHeight calculates the distance to the furthest leaf
 func getNodeHeight(node *schdcache.CohortSnapshot) int {
 	maxHeight := min(node.ChildCount(), 1)
