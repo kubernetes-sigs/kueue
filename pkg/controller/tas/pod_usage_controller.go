@@ -359,7 +359,7 @@ func (r *PodUsageReconciler) SetupWithManager(mgr ctrl.Manager) (string, error) 
 			handler.TypedEnqueueRequestsFromMapFunc(r.pods4Workload),
 		)).
 		WithOptions(controller.Options{
-			NeedLeaderElection:      new(false),
+			NeedLeaderElection:      new(bool),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[corev1.SchemeGroupVersion.WithKind("Pod").GroupKind().String()],
 		}).
 		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, "tas-pod-usage-reconciler")).

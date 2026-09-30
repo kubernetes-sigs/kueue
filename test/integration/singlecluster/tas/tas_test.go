@@ -1251,7 +1251,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			ginkgo.By("deactivating the workload and releasing its reservation while the pod is still bound", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
-					wl1.Spec.Active = ptr.To(false)
+					wl1.Spec.Active = new(bool)
 					g.Expect(k8sClient.Update(ctx, wl1)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -1268,12 +1268,10 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					Queue("local-queue").Request(corev1.ResourceCPU, "1").Obj()
 
 				util.MustCreate(ctx, k8sClient, wl2)
-
 			})
 
 			// verify wl2.
 			ginkgo.By("verifying another TAS workload that needs the same physical capacity", func() {
-
 				// comment, use gomega check. when old pod exist, wl2 pod must be pending, and not admitted.
 				// util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 				gomega.Consistently(func(g gomega.Gomega) {
@@ -9019,7 +9017,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						existingWl := utiltestingapi.MakeWorkload(fmt.Sprintf("existing-tas-workload-%d", i+1), ns.Name).
 							Queue(kueue.LocalQueueName(localQueue.Name)).
 							PodSets(*utiltestingapi.MakePodSet("worker", 1).
-								Request("nvidia.com/gpu", "7").                // Single pod needs 7 GPUs
+								Request("nvidia.com/gpu", "7"). // Single pod needs 7 GPUs
 								RequiredTopologyRequest(corev1.LabelHostname). // Require hostname topology
 								Obj()).
 							Obj()
@@ -9393,7 +9391,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						existingWl := utiltestingapi.MakeWorkload(fmt.Sprintf("existing-7gpu-workload-%d", i+1), ns.Name).
 							Queue(kueue.LocalQueueName(localQueue.Name)).
 							PodSets(*utiltestingapi.MakePodSet("worker", 1).
-								Request("nvidia.com/gpu", "7").                // Single pod needs 7 GPUs
+								Request("nvidia.com/gpu", "7"). // Single pod needs 7 GPUs
 								RequiredTopologyRequest(corev1.LabelHostname). // Require hostname topology
 								Obj()).
 							Obj()
