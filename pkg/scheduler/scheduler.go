@@ -1215,7 +1215,11 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 		return
 	}
 
-	s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "Admitted", "Admitted", "Admitted by ClusterQueue %s, wait time since reservation was 0s", admission.ClusterQueue)
+	quotaReservedWaitTime := workload.QuotaReservedWaitTime(newWorkload, s.clock)
+
+	s.recorder.Eventf(newWorkload, nil, corev1.EventTypeNormal, "Admitted", "Admitted",
+		"Admitted by ClusterQueue %s, wait time since reservation was %.0fs",
+		admission.ClusterQueue, quotaReservedWaitTime.Seconds())
 
 	priorityClassName := workload.PriorityClassName(newWorkload)
 	cqCustomLabels := s.customLabels.CQGet(admission.ClusterQueue)
