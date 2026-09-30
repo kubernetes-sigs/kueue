@@ -820,6 +820,39 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 			})
 		})
+
+		// Ownership is still taken, so Finished is the thing to read: this block
+		// has no ClusterQueue and the Job stays suspended either way.
+		ginkgo.It("Should finish a prebuilt workload that does not name the job's RuntimeClass", func() {
+			container := corev1.Container{
+				Name:  "c",
+				Image: "pause",
+			}
+			testingjob.SetContainerDefaults(&container)
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Containers(*container.DeepCopy()).
+					Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			job := testingjob.MakeJob("job", ns.Name).
+				Queue("main").
+				PrebuiltWorkloadLabel("wl").
+				Containers(*container.DeepCopy()).
+				RuntimeClassName("kata").
+				Obj()
+			util.MustCreate(ctx, k8sClient, job)
+
+			ginkgo.By("Check the job adopts it and then finishes it as out of sync", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWl := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+					util.MustHaveOwnerReference(g, createdWl.OwnerReferences, job, k8sClient.Scheme())
+					g.Expect(createdWl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonOutOfSync))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
 	})
 
 	ginkgo.When("WorkloadIdentifierAnnotations feature gate is enabled", func() {

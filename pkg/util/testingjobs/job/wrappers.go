@@ -165,6 +165,12 @@ func (j *JobWrapper) Queue(queue kueue.LocalQueueName) *JobWrapper {
 	return j.Label(constants.QueueLabel, string(queue))
 }
 
+// RuntimeClassName sets the RuntimeClass of the Job's pod template.
+func (j *JobWrapper) RuntimeClassName(name string) *JobWrapper {
+	j.Spec.Template.Spec.RuntimeClassName = &name
+	return j
+}
+
 // PrebuiltWorkloadLabel updates PrebuiltWorkloadLabel of the job
 func (j *JobWrapper) PrebuiltWorkloadLabel(prebuiltWorkload string) *JobWrapper {
 	return j.Label(constants.PrebuiltWorkloadLabel, prebuiltWorkload)
