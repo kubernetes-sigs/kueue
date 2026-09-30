@@ -500,7 +500,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 				g.Expect(parentWorkload.Spec.QueueName).Should(gomega.Equal(jobQueueName))
 			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
-
 	})
 
 	ginkgo.When("The referenced WorkloadPriorityClass does not exist", func() {
