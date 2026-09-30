@@ -20,6 +20,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 )
 
 func TestLoadConfig_StandardScheduler(t *testing.T) {
@@ -324,5 +327,26 @@ cohorts:
 	}
 	if wl.PodCount != 16 {
 		t.Errorf("expected podCount 16, got %d", wl.PodCount)
+	}
+}
+
+func TestGenerateNodesRecursive_UniqueHostnames(t *testing.T) {
+	levels := []TopologyLevel{
+		{Name: "block", Count: 1, NodeLabel: "cloud.provider.com/topology-block"},
+		{Name: "rack", Count: 10, NodeLabel: "cloud.provider.com/topology-rack"},
+		{Name: "node", Count: 64, NodeLabel: corev1.LabelHostname},
+	}
+	var nodes []corev1.Node
+	generateNodesRecursive(levels, 0, []string{}, "96", "256Gi", &nodes)
+
+	hostnames := sets.New[string]()
+	for _, node := range nodes {
+		if got := node.Labels[corev1.LabelHostname]; got != node.Name {
+			t.Fatalf("node %s: expected hostname label %q, got %q", node.Name, node.Name, got)
+		}
+		hostnames.Insert(node.Labels[corev1.LabelHostname])
+	}
+	if hostnames.Len() != 640 {
+		t.Errorf("expected 640 distinct hostnames, got %d", hostnames.Len())
 	}
 }
