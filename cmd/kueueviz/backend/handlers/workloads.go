@@ -114,7 +114,7 @@ func (h *Handlers) fetchWorkloadDetails(ctx context.Context, namespace, workload
 		res.ClusterQueueName = "Unknown"
 	}
 
-	return w, nil
+	return res, nil
 }
 
 func (h *Handlers) WorkloadEventsWebSocketHandler() gin.HandlerFunc {
