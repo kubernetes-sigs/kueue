@@ -50,13 +50,13 @@ func TestAssignFlavorsZeroCountRetry(t *testing.T) {
 			firstQuota: "2", secondQuota: "0", lastTried: 0,
 			wantFlavor: "first", wantMode: Fit, wantTriedFlavorIdx: -1,
 		},
-		"wrapped probe exhausts the scan when another PodSet still waits": {
+		"probe does not request another retry while another PodSet waits": {
 			firstQuota: "2", secondQuota: "0", lastTried: 0, otherPodSetBlocked: true,
 			wantFlavor: "first", wantMode: Preempt, wantTriedFlavorIdx: -1,
 		},
-		"probe keeps the next suitable flavor": {
+		"probe prefers the first suitable flavor even with saved progress": {
 			firstQuota: "2", secondQuota: "2", lastTried: 0,
-			wantFlavor: "second", wantMode: Fit, wantTriedFlavorIdx: -1,
+			wantFlavor: "first", wantMode: Fit, wantTriedFlavorIdx: -1,
 		},
 		"probe still falls back when neither flavor fits": {
 			firstQuota: "0", secondQuota: "0", lastTried: 0,
@@ -68,7 +68,7 @@ func TestAssignFlavorsZeroCountRetry(t *testing.T) {
 		},
 		"fresh probe prefers the first suitable flavor": {
 			firstQuota: "2", secondQuota: "2", lastTried: -1,
-			wantFlavor: "first", wantMode: Fit,
+			wantFlavor: "first", wantMode: Fit, wantTriedFlavorIdx: -1,
 		},
 		"positive count continues without revisiting earlier flavors": {
 			count: 1, firstQuota: "2", secondQuota: "0", lastTried: 0,
@@ -135,7 +135,7 @@ func TestAssignFlavorsZeroCountRetry(t *testing.T) {
 				}
 			}
 			if tc.otherPodSetBlocked && assignment.FlavorScanState.PendingFlavors() {
-				t.Error("exhausted probe must not keep a blocked workload immediately retrying")
+				t.Error("zero-count probe must not keep a blocked workload immediately retrying")
 			}
 			if tc.count == 0 && !tc.otherPodSetBlocked {
 				for fr, usage := range assignment.Usage.Quota.Assigned {

@@ -2370,9 +2370,8 @@ func TestAssignFlavors(t *testing.T) {
 				NoFitReason: "ExceedsMaxQuota",
 			},
 		},
-		// A third flavor keeps the recorded index off the end of the list, so the
-		// assertion distinguishes the index of the flavor the probe settled on from
-		// the index of the last flavor the scan looked at.
+		// A successful zero-count probe does not retain retry progress, even when
+		// it selects a flavor before the end of the list.
 		"zero-count PodSet retains its probe with explicit counts": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 0).
@@ -2390,7 +2389,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
-						"example.com/gpu": {Name: "two", Mode: Fit, TriedFlavorIdx: 1},
+						"example.com/gpu": {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("0")},
 				}},
@@ -2399,10 +2398,7 @@ func TestAssignFlavors(t *testing.T) {
 				}}},
 			},
 		},
-		// The second pass of the case above: resuming after the flavor the probe
-		// settled on must land on "three" and then wrap to -1, so the flavor the probe
-		// skipped is reachable again rather than excluded for good.
-		"zero-count PodSet resumes the flavor scan after a probe skip": {
+		"zero-count PodSet ignores saved progress and prefers the first suitable flavor": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 0).
 					Request("example.com/gpu", "1").Obj(),
@@ -2422,12 +2418,12 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
-						"example.com/gpu": {Name: "three", Mode: Fit, TriedFlavorIdx: -1},
+						"example.com/gpu": {Name: "two", Mode: Fit, TriedFlavorIdx: -1},
 					},
 					Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("0")},
 				}},
 				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
-					{Flavor: "three", Resource: "example.com/gpu"}: resources.NewAmount(0),
+					{Flavor: "two", Resource: "example.com/gpu"}: resources.NewAmount(0),
 				}}},
 			},
 		},
