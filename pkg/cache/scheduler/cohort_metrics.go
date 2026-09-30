@@ -252,5 +252,27 @@ func (c *Cache) updateCohortTreeAndInfoMetricsIfNoCycle(cohort *cohort) {
 	if !hierarchy.HasCycle(cohort) {
 		root := cohort.getRootUnsafe()
 		c.updateCohortResourceAndInfoMetrics(root, root)
+		reportTreeAdmittedActiveWorkloads(root)
+	}
+}
+
+// Hierarchy changes move admitted Workloads between Cohorts without the
+// workload event that normally reports the subtree gauge.
+func reportTreeAdmittedActiveWorkloadsIfNoCycle(cohort *cohort) {
+	if cohort != nil && !hierarchy.HasCycle(cohort) {
+		reportTreeAdmittedActiveWorkloads(cohort.getRootUnsafe())
+	}
+}
+
+// The gauge carries each ClusterQueue's custom labels, so a Cohort has a
+// series per ClusterQueue below it. Clearing from the root down before
+// reporting drops the series of ClusterQueues that have moved away.
+func reportTreeAdmittedActiveWorkloads(cohort *cohort) {
+	metrics.ClearCohortSubtreeAdmittedActiveWorkloads(cohort.Name)
+	for _, child := range cohort.ChildCohorts() {
+		reportTreeAdmittedActiveWorkloads(child)
+	}
+	for _, cq := range cohort.ChildCQs() {
+		cq.reportCohortSubtreeAdmittedActiveWorkloads()
 	}
 }
