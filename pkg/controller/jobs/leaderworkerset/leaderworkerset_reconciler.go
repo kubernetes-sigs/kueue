@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
@@ -220,7 +221,10 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 		return err
 	}
 
-	toCreate, toUpdate, toDelete := r.filterWorkloads(lws, wlList.Items)
+	toCreate, toUpdate, toDelete, err := r.filterWorkloads(lws, wlList.Items)
+	if err != nil {
+		return err
+	}
 
 	// The branches hold disjoint sets of Workloads, so one failing is no reason
 	// to abandon the others. A derived context would cancel them, and
@@ -260,7 +264,7 @@ func (r *Reconciler) reconcileWorkloads(ctx context.Context, lws *leaderworkerse
 //
 // During rolling updates with maxSurge, status.Replicas may temporarily exceed spec.Replicas.
 // This function ensures workloads exist for all groups including surge replicas.
-func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]workloadToCreate, []*kueue.Workload, []*kueue.Workload) {
+func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, existingWorkloads []kueue.Workload) ([]workloadToCreate, []*kueue.Workload, []*kueue.Workload, error) {
 	var (
 		toCreate []workloadToCreate
 		toUpdate []*kueue.Workload
@@ -272,8 +276,14 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 
 	// During normal scale-down, status.Replicas lags behind spec.Replicas,
 	// which prevents excess workloads from being moved to toDelete on time.
-	if lws.Status.Replicas > replicas && isRollingUpdateWithSurge(lws) {
-		replicas = lws.Status.Replicas
+	if lws.Status.Replicas > replicas {
+		surging, err := isRollingUpdateWithSurge(lws)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if surging {
+			replicas = lws.Status.Replicas
+		}
 	}
 
 	_, isMultiKueueRemote := lws.Labels[kueue.MultiKueueOriginLabel]
@@ -289,15 +299,22 @@ func (r *Reconciler) filterWorkloads(lws *leaderworkersetv1.LeaderWorkerSet, exi
 		}
 	}
 
-	return toCreate, toUpdate, slices.Collect(maps.Values(toDelete))
+	return toCreate, toUpdate, slices.Collect(maps.Values(toDelete)), nil
 }
 
-func isRollingUpdateWithSurge(lws *leaderworkersetv1.LeaderWorkerSet) bool {
+// isRollingUpdateWithSurge reports whether the LeaderWorkerSet is rolling out
+// with room for surge replicas. A percentage maxSurge is scaled against the
+// replicas the update started from, rounding up as the LeaderWorkerSet API does.
+func isRollingUpdateWithSurge(lws *leaderworkersetv1.LeaderWorkerSet) (bool, error) {
 	if lws.Spec.RolloutStrategy.RollingUpdateConfiguration == nil {
-		return false
+		return false, nil
 	}
-	maxSurge := int32(lws.Spec.RolloutStrategy.RollingUpdateConfiguration.MaxSurge.IntValue())
-	return maxSurge > 0 && lws.Status.UpdatedReplicas < ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
+	replicas := ptr.Deref(lws.Spec.Replicas, defaultLeaderWorkerSetReplicas)
+	maxSurge, err := intstr.GetScaledValueFromIntOrPercent(&lws.Spec.RolloutStrategy.RollingUpdateConfiguration.MaxSurge, int(replicas), true)
+	if err != nil {
+		return false, fmt.Errorf("%w: %w", errInvalidMaxSurge, err)
+	}
+	return maxSurge > 0 && lws.Status.UpdatedReplicas < replicas, nil
 }
 
 func (r *Reconciler) createWorkload(ctx context.Context, lws *leaderworkersetv1.LeaderWorkerSet, workloadName string, index int) error {
