@@ -506,31 +506,27 @@ func (r *Reconciler) reconcilePod(ctx context.Context, lws *leaderworkersetv1.Le
 	}
 	log.V(2).Info("Reconcile LeaderWorkerSet Pod")
 
-	if lws == nil || utilstatefulset.ShouldFinalizePod(sts, pod) {
-		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-			if utilstatefulset.UngateAndFinalizePod(sts, pod, lws == nil) {
-				log.V(3).Info("Finalizing LeaderWorkerSet Pod")
-				return true, nil
-			}
-			log.V(3).Info("Skipping finalizing LeaderWorkerSet Pod")
-			return false, nil
-		})
-		if client.IgnoreNotFound(err) != nil {
-			log.Error(err, "Failed to finalize Pod")
-			return err
+	// Kueue stops managing the Pods of a deleted LeaderWorkerSet or StatefulSet, so it releases them.
+	unmanaged := lws == nil || sts == nil
+	err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
+		var updated bool
+		if unmanaged && utilstatefulset.UngatePod(pod) {
+			log.V(3).Info("Ungating LeaderWorkerSet Pod")
+			updated = true
 		}
-	} else {
-		err := clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
-			updated := r.setDefault(lws, pod)
-			if updated {
-				log.V(3).Info("Setting default values")
-			}
-			return updated, nil
-		})
-		if client.IgnoreNotFound(err) != nil {
-			log.Error(err, "Failed to set default values")
-			return err
+		if utilstatefulset.FinalizePod(sts, pod, unmanaged) {
+			log.V(3).Info("Finalizing LeaderWorkerSet Pod")
+			updated = true
 		}
+		if !unmanaged && !utilpod.IsTerminated(pod) && pod.DeletionTimestamp == nil && r.setDefault(lws, pod) {
+			log.V(3).Info("Setting default values")
+			updated = true
+		}
+		return updated, nil
+	})
+	if client.IgnoreNotFound(err) != nil {
+		log.Error(err, "Failed to reconcile Pod")
+		return err
 	}
 
 	return nil
@@ -736,7 +732,7 @@ func (h *lwsPodHandler) enqueue(ctx context.Context, obj client.Object, q workqu
 // lwsStsHandler watches for StatefulSet update events and triggers reconciliation
 // of the owning LeaderWorkerSet.
 // Subscribe to StatefulSet updates and watch .Status.CurrentRevision and .Status.UpdateRevision
-// to finalize Pods and remove scheduling gates when a new revision appears.
+// to finalize Pods when a new revision appears.
 type lwsStsHandler struct{}
 
 var _ handler.EventHandler = (*lwsStsHandler)(nil)
@@ -769,8 +765,7 @@ func (h *lwsStsHandler) enqueue(ctx context.Context, obj client.Object, q workqu
 	log.V(3).Info("Enqueue LeaderWorkerSet StatefulSet")
 
 	// Handle only when .Status.CurrentRevision != .Status.UpdateRevision.
-	// This ensures that Pods are finalized and scheduling gates are removed
-	// when the revision changes.
+	// This ensures that Pods are finalized when the revision changes.
 	if sts.Status.CurrentRevision == "" || sts.Status.UpdateRevision == "" ||
 		sts.Status.CurrentRevision == sts.Status.UpdateRevision {
 		return

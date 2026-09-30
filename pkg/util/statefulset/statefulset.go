@@ -26,27 +26,25 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 )
 
-func UngateAndFinalizePod(sts *appsv1.StatefulSet, pod *corev1.Pod, force bool) bool {
-	var updated bool
-
-	if force || shouldUngatePod(sts, pod) {
-		updated = utilpod.Ungate(pod, podconstants.SchedulingGateName) || utilpod.Ungate(pod, kueue.TopologySchedulingGate)
-	}
-
-	// TODO (#8571): As discussed in https://github.com/kubernetes-sigs/kueue/issues/8571,
-	// this check should be removed in v0.20.
-	if (force || ShouldFinalizePod(sts, pod)) && controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer) {
-		updated = true
-	}
-
-	return updated
+// UngatePod removes the Kueue scheduling gates from the Pod without applying a
+// Workload admission, which only suits Pods that Kueue stops managing.
+func UngatePod(pod *corev1.Pod) bool {
+	removedSchedulingGate := utilpod.Ungate(pod, podconstants.SchedulingGateName)
+	removedTopologyGate := utilpod.Ungate(pod, kueue.TopologySchedulingGate)
+	return removedSchedulingGate || removedTopologyGate
 }
 
-func ShouldFinalizePod(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
-	return shouldUngatePod(sts, pod) || utilpod.IsTerminated(pod) || pod.DeletionTimestamp != nil
+// TODO (#8571): As discussed in https://github.com/kubernetes-sigs/kueue/issues/8571,
+// this check should be removed in v0.20.
+func FinalizePod(sts *appsv1.StatefulSet, pod *corev1.Pod, force bool) bool {
+	return (force || shouldFinalizePod(sts, pod)) && controllerutil.RemoveFinalizer(pod, podconstants.PodFinalizer)
 }
 
-func shouldUngatePod(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
-	return sts == nil || sts.Status.CurrentRevision != sts.Status.UpdateRevision &&
+func shouldFinalizePod(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
+	return sts == nil || isCurrentRevisionDuringRollout(sts, pod) || utilpod.IsTerminated(pod) || pod.DeletionTimestamp != nil
+}
+
+func isCurrentRevisionDuringRollout(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
+	return sts.Status.CurrentRevision != sts.Status.UpdateRevision &&
 		sts.Status.CurrentRevision == pod.Labels[appsv1.ControllerRevisionHashLabelKey]
 }
