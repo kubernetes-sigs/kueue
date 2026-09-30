@@ -80,6 +80,7 @@ type Configuration struct {
 
 	// ClientConnection provides additional configuration options for Kubernetes
 	// API server client.
+	// +optional
 	ClientConnection *ClientConnection `json:"clientConnection,omitempty"`
 
 	// Integrations provide configuration options for AI/ML/Batch frameworks
@@ -551,9 +552,13 @@ type ClientConnection struct {
 	// connection.
 	//
 	// Setting this to a negative value will disable client-side ratelimiting.
+	// Zero is not allowed. Defaults to 1000.
+	// +optional
 	QPS *float32 `json:"qps,omitempty"`
 
 	// Burst allows extra queries to accumulate when a client is exceeding its rate.
+	// Must be greater than 0 unless QPS is negative. Defaults to 1000.
+	// +optional
 	Burst *int32 `json:"burst,omitempty"`
 }
 

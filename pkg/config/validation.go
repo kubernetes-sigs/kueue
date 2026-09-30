@@ -82,6 +82,8 @@ var (
 	visibilityServerBindPortPath          = field.NewPath("visibilityServer", "bindPort")
 	customLabelsPath                      = field.NewPath("metrics", "customLabels")
 	resourceQuotaCheckStrategyPath        = field.NewPath("resources", "quotaCheckStrategy")
+	clientConnectionQPSPath               = field.NewPath("clientConnection", "qps")
+	clientConnectionBurstPath             = field.NewPath("clientConnection", "burst")
 	// Values in this map should never exceed metrics.MaxCustomLabelsForSourceKind.
 	maxCustomLabelsPerSourceKind = map[configapi.SourceKind]int{
 		configapi.SourceKindWorkload:     min(2, metrics.MaxCustomLabelsForSourceKind),
@@ -99,6 +101,7 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme, integrationMan
 	allErrs = append(allErrs, validateMultiKueue(c, integrationManager)...)
 	allErrs = append(allErrs, validateFairSharing(c)...)
 	allErrs = append(allErrs, validateAdmissionFairSharing(c)...)
+	allErrs = append(allErrs, validateClientConnection(c)...)
 	allErrs = append(allErrs, validateInternalCertManagement(c)...)
 	allErrs = append(allErrs, validateResourceTransformations(c)...)
 	allErrs = append(allErrs, validateDeviceClassMappings(c)...)
@@ -477,6 +480,27 @@ func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
 			allErrs = append(allErrs, field.Invalid(afsResourceWeightsPath.Key(string(resName)),
 				weight, apimachineryvalidation.IsNegativeErrorMsg))
 		}
+	}
+	return allErrs
+}
+
+func validateClientConnection(c *configapi.Configuration) field.ErrorList {
+	cc := c.ClientConnection
+	if cc == nil || cc.QPS == nil {
+		return nil
+	}
+	// A negative QPS turns client-side rate limiting off, and Burst is unused.
+	// Otherwise the manager's token bucket refuses every request when Burst is
+	// not positive, and stops refilling when QPS is 0.
+	if *cc.QPS < 0 {
+		return nil
+	}
+	var allErrs field.ErrorList
+	if *cc.QPS == 0 {
+		allErrs = append(allErrs, field.Invalid(clientConnectionQPSPath, *cc.QPS, "must be greater than 0, or negative to disable client-side rate limiting"))
+	}
+	if cc.Burst != nil && *cc.Burst <= 0 {
+		allErrs = append(allErrs, field.Invalid(clientConnectionBurstPath, *cc.Burst, "must be greater than 0 when client-side rate limiting is enabled"))
 	}
 	return allErrs
 }
