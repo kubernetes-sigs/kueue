@@ -510,6 +510,64 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
+	ginkgo.When("SkipChildJobSuspension feature gate is disabled", func() {
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SkipChildJobSuspension, false)
+		})
+
+		ginkgo.It("Should suspend a job if the parent's workload does not exist or is not admitted", func() {
+			ginkgo.By("Creating the parent job which has a queue name")
+			parentJob := testingmpijob.MakeMPIJob(parentJobName, ns.Name).
+				Queue("test").
+				Suspend(false).
+				Obj()
+			util.MustCreate(ctx, k8sClient, parentJob)
+
+			ginkgo.By("Creating the child job")
+			childJob := testingjob.MakeJob(childJobName, ns.Name).
+				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
+				Suspend(false).
+				Obj()
+			gomega.Expect(ctrl.SetControllerReference(parentJob, childJob, k8sClient.Scheme())).To(gomega.Succeed())
+			util.MustCreateWithRetry(ctx, k8sClient, childJob)
+
+			ginkgo.By("checking that the child job is suspended")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, childLookupKey, childJob)).Should(gomega.Succeed())
+				g.Expect(childJob.Spec.Suspend).Should(gomega.Equal(new(true)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("SkipChildJobSuspension feature gate is enabled", func() {
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SkipChildJobSuspension, true)
+		})
+
+		ginkgo.It("Should not suspend a job if the parent's workload does not exist or is not admitted", func() {
+			ginkgo.By("Creating the parent job which has a queue name")
+			parentJob := testingmpijob.MakeMPIJob(parentJobName, ns.Name).
+				Queue("test").
+				Suspend(false).
+				Obj()
+			util.MustCreate(ctx, k8sClient, parentJob)
+
+			ginkgo.By("Creating the child job")
+			childJob := testingjob.MakeJob(childJobName, ns.Name).
+				OwnerReference(parentJobName, kfmpi.SchemeGroupVersionKind).
+				Suspend(false).
+				Obj()
+			gomega.Expect(ctrl.SetControllerReference(parentJob, childJob, k8sClient.Scheme())).To(gomega.Succeed())
+			util.MustCreateWithRetry(ctx, k8sClient, childJob)
+
+			ginkgo.By("checking that the child job is not suspended")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, childLookupKey, childJob)).Should(gomega.Succeed())
+				g.Expect(childJob.Spec.Suspend).Should(gomega.Equal(new(false)))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("Should not suspend a child job if the parent job doesn't have a queue name", func() {
 		ginkgo.By("Creating the parent job which doesn't have a queue name")
 		parentJob := testingmpijob.MakeMPIJob(parentJobName, ns.Name).
