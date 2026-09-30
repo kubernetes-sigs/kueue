@@ -547,12 +547,7 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 		return err
 	}
 	c.handleParentUpdate(oldParent)
-	if oldParent != cqImpl.Parent() {
-		if oldParent != nil {
-			reportTreeAdmittedActiveWorkloadsIfNoCycle(c.hm.Cohort(oldParent.Name))
-		}
-		reportTreeAdmittedActiveWorkloadsIfNoCycle(cqImpl.Parent())
-	}
+	c.reportMovedAdmittedActiveWorkloads(oldParent, cqImpl.Parent())
 	for _, qImpl := range cqImpl.localQueues {
 		if qImpl == nil {
 			return errQNotFound
@@ -684,9 +679,7 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
 	err := cohort.updateCohort(apiCohort, oldParent)
 	// The old tree loses this subtree even when the new parent closes a cycle.
-	if oldParent != nil && oldParent != cohort.Parent() {
-		reportTreeAdmittedActiveWorkloadsIfNoCycle(c.hm.Cohort(oldParent.Name))
-	}
+	c.reportMovedAdmittedActiveWorkloads(oldParent, cohort.Parent())
 	if err != nil {
 		if errors.Is(err, ErrCohortHasCycle) {
 			c.updateClusterQueues(ctrl.Log.WithName("cache"))
