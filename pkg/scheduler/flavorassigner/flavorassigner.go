@@ -1237,13 +1237,14 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 						continue
 					}
 
-					// Enforce consistent resource flavor assignment between slices, but only
-					// while the replaced slice still has pods in this PodSet. A PodSet scaled
-					// to zero has nothing running on the old flavor, so the new slice may pick
-					// any flavor (E.g. fall through to a flex flavor when the reserved one is
-					// full) without splitting one PodSet across flavors. The old slice's
-					// requests are zero in that case, so the usage delta below stays correct.
-					if preemptWorkloadRequests.Count == 0 {
+					// Enforce consistent resource flavor assignment between slices, but,
+					// when the feature gate is enabled, only while the replaced slice still
+					// has pods in this PodSet. A PodSet scaled to zero has nothing running
+					// on the old flavor, so the new slice may pick any flavor (E.g. fall
+					// through to a flex flavor when the reserved one is full) without
+					// splitting one PodSet across flavors. The old slice's requests are
+					// zero in that case, so the usage delta below stays correct.
+					if features.Enabled(features.ElasticJobsViaWorkloadSlicesFlavorChangeFromZero) && preemptWorkloadRequests.Count == 0 {
 						continue
 					}
 					if originalFlavor := preemptWorkloadRequests.Flavors[rName]; originalFlavor != fName {

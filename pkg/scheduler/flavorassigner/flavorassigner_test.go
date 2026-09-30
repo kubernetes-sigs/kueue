@@ -4286,7 +4286,10 @@ func TestAssignFlavors(t *testing.T) {
 		"workload slice replacing a zero-count PodSet may change resource flavor": {
 			// The replaced slice was scaled to zero on flavor "one"; nothing runs there,
 			// so the scale-up is free to fall through to flavor "two" when "one" is full.
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                     true,
+				features.ElasticJobsViaWorkloadSlicesFlavorChangeFromZero: true,
+			},
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
 					Request(corev1.ResourceCPU, "1").
@@ -4336,6 +4339,69 @@ func TestAssignFlavors(t *testing.T) {
 				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "two", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
 				}}},
+			},
+		},
+		"workload slice replacing a zero-count PodSet keeps resource flavor when gate is disabled": {
+			// Same scenario, but without ElasticJobsViaWorkloadSlicesFlavorChangeFromZero
+			// the replacement slice stays pinned to flavor "one" and does not fit.
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                     true,
+				features.ElasticJobsViaWorkloadSlicesFlavorChangeFromZero: false,
+			},
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "2").
+						Obj(),
+					*utiltestingapi.MakeFlavorQuotas("two").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				).
+				Obj(),
+			preemptWorkloadSlice: &workload.Info{
+				TotalRequests: []workload.PodSetResources{
+					{
+						Name:     "main",
+						Count:    0,
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 0}),
+						Flavors:  map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "one"},
+					},
+				},
+			},
+			wantRepMode: NoFit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("3"),
+					},
+					Count: 3,
+					Status: *NewStatus(
+						"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)",
+						"could not assign two flavor since the original workload is assigned: one",
+					),
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:      "one",
+							Mode:        NoFit,
+							Reasons:     []string{"insufficient quota for cpu in flavor one, previously considered podsets requests (0) + current podset request (3) > maximum capacity (2)"},
+							NoFitReason: "ExceedsMaxQuota",
+						},
+						{
+							Flavor:      "two",
+							Mode:        NoFit,
+							Reasons:     []string{"could not assign two flavor since the original workload is assigned: one"},
+							NoFitReason: "NoMatchingFlavor",
+						},
+					},
+				}},
+				Usage:       workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
+				NoFitReason: "ExceedsMaxQuota",
 			},
 		},
 		"multi-podset, one fits and another fails, fitting podset attempts skipped in resolveNoFitReason": {
