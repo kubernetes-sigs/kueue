@@ -419,7 +419,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// By default, leave child job lifecycle management to the ancestor's controller.
+	// if this is a non-toplevel job, suspend the job if its ancestor's workload is not found or not admitted,
+	// unless SkipChildJobSuspension is enabled, in which case child job lifecycle management is left to the ancestor's controller.
 	if !isTopLevelJob {
 		if shouldSuspend, err := r.shouldSuspendChildJob(ctx, job, ancestorJob); err != nil {
 			return ctrl.Result{}, err

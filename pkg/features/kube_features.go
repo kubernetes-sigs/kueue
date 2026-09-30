@@ -725,7 +725,7 @@ const (
 	// kep: https://github.com/kubernetes-sigs/kueue/pull/16370
 	//
 	// Leaves managed child job suspension to the ancestor's controller.
-	// Disable to restore suspension based on the ancestor Workload's state.
+	// When disabled, child jobs are suspended based on the ancestor Workload's state.
 	SkipChildJobSuspension featuregate.Feature = "SkipChildJobSuspension"
 
 	// owner: @kevin85421
@@ -1241,7 +1241,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	SkipChildJobSuspension: {
-		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	MultiKueueRemoteSpecSync: {
