@@ -210,7 +210,7 @@ func (u *unadmittedWorkloads) updateUnadmittedWorkloadMetric(
 				lqCustomLabels,
 				m.roleTracker,
 			)
-		} else {
+		} else if lq := m.localQueues[lqRefKey]; lq != nil && m.lqMetrics.ShouldExposeLocalQueueMetrics(lq.labels) {
 			log.V(4).Info("Reporting LQ unadmitted workload metric", "localQueue", lqRefKey, "status", status, "count", countLQ)
 			metrics.ReportLocalQueueUnadmittedWorkload(
 				lqRef,
