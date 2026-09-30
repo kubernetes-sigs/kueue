@@ -9,7 +9,6 @@ controllerManager:
       capabilities:
         drop:
           - ALL
-  replicas: 2
   imagePullSecrets: []
   readinessProbe:
     initialDelaySeconds: 5
