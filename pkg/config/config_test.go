@@ -54,8 +54,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
-
-	_ "sigs.k8s.io/kueue/pkg/controller/jobs"
 )
 
 var defaultWaitForPodsReady = &configapi.WaitForPodsReady{
