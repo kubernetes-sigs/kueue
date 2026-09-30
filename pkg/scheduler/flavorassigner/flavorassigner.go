@@ -1179,8 +1179,15 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 
 	// We will only check against the flavors' labels for the resource.
 	attemptedFlavorIdx := -1
-	idx := a.wl.FlavorScanState.NextFlavorToTryForPodSetResource(psIDs[0], resName)
-	for ; idx < len(resourceGroup.Flavors); idx++ {
+	startIdx := a.wl.FlavorScanState.NextFlavorToTryForPodSetResource(psIDs[0], resName)
+	flavorsToTry := len(resourceGroup.Flavors) - startIdx
+	if probeRequests != nil {
+		// Check the skipped flavors too before falling back to zero requests.
+		// A previous attempt may have found a suitable flavor but waited on another PodSet.
+		flavorsToTry = len(resourceGroup.Flavors)
+	}
+	for offset := range flavorsToTry {
+		idx := (startIdx + offset) % len(resourceGroup.Flavors)
 		attemptedFlavorIdx = idx
 		fName := resourceGroup.Flavors[idx]
 		if a.shouldRespectNominationMapping() && a.shouldSkipBasedOnNominationMapping(log, fName, psIDs, resName) {
@@ -1315,8 +1322,9 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 
 	if features.Enabled(features.FlavorFungibility) {
 		for _, assignment := range bestAssignment {
-			if attemptedFlavorIdx == len(resourceGroup.Flavors)-1 {
-				// we have reach the last flavor, try from the first flavor next time
+			if attemptedFlavorIdx == len(resourceGroup.Flavors)-1 || attemptedFlavorIdx < startIdx {
+				// Reaching the end or wrapping completes the forward scan. Do not
+				// keep a blocked Workload retrying just because the probe wrapped.
 				assignment.TriedFlavorIdx = -1
 			} else {
 				assignment.TriedFlavorIdx = attemptedFlavorIdx
