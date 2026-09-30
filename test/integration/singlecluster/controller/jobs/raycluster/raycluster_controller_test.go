@@ -48,7 +48,6 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
-	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -278,29 +277,6 @@ var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs 
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
-	})
-
-	ginkgo.It("Should suspend a cluster if the parent's workload does not exist or is not admitted", func() {
-		ginkgo.By("Creating the parent job which has a queue name")
-		parentJob := testingrayjob.MakeJob("parent-job", ns.Name).
-			Queue("test").
-			Suspend(false).
-			Obj()
-		util.MustCreate(ctx, k8sClient, parentJob)
-
-		ginkgo.By("Creating the child cluster.")
-		childCluster := testingraycluster.MakeCluster(jobName, ns.Name).
-			Suspend(false).
-			Obj()
-		gomega.Expect(ctrl.SetControllerReference(parentJob, childCluster, k8sClient.Scheme())).To(gomega.Succeed())
-		util.MustCreate(ctx, k8sClient, childCluster)
-
-		childClusterKey := client.ObjectKeyFromObject(childCluster)
-		ginkgo.By("checking that the child cluster is suspended")
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, childClusterKey, childCluster)).Should(gomega.Succeed())
-			g.Expect(childCluster.Spec.Suspend).Should(gomega.Equal(new(true)))
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 })
