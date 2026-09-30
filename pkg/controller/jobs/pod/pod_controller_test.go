@@ -563,70 +563,8 @@ func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testi
 		t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
 	}
 }
-func TestConstructGroupPodSetsSameShapeUsesRoleHashTieBreaker(t *testing.T) {
-	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-		features.PodGroupSchedulingShapeOrdering: true,
-	})
 
-	leader := corev1.Pod{
-		Name: "leader",
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "aaaa",
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "leader",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
-					},
-				},
-			}},
-		},
-	}
-
-	worker := corev1.Pod{
-		Name: "worker",
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "zzzz",
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "worker",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
-					},
-				},
-			}},
-		},
-	}
-
-	got, err := constructGroupPodSets([]corev1.Pod{worker, leader}, nil)
-	if err != nil {
-		t.Fatalf("constructGroupPodSets() error = %v", err)
-	}
-
-	if len(got) != 2 {
-		t.Fatalf("constructGroupPodSets() returned %d PodSets, want 2", len(got))
-	}
-
-	gotOrder := []string{
-		string(got[0].Name),
-		string(got[1].Name),
-	}
-
-	wantOrder := []string{
-		string(kueue.NewPodSetReference("aaaa")),
-		string(kueue.NewPodSetReference("zzzz")),
-	}
-
-	if diff := cmp.Diff(wantOrder, gotOrder); diff != "" {
-		t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
-	}
-}
-
-func TestConstructGroupPodSetsSameShapeUsesCountTieBreaker(t *testing.T) {
+func TestConstructGroupPodSetsSameShapeOrdering(t *testing.T) {
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 		features.PodGroupSchedulingShapeOrdering: true,
 	})
@@ -650,72 +588,81 @@ func TestConstructGroupPodSetsSameShapeUsesCountTieBreaker(t *testing.T) {
 		}
 	}
 
-	smallPods := []corev1.Pod{
-		makePod("small-1", "zzzz"),
-		makePod("small-2", "zzzz"),
+	testCases := map[string]struct {
+		pods         []corev1.Pod
+		reversedPods []corev1.Pod
+		wantOrder    []string
+	}{
+		"same shape and count uses PodSet name as tie-breaker": {
+			pods: []corev1.Pod{
+				makePod("worker", "zzzz"),
+				makePod("leader", "aaaa"),
+			},
+			wantOrder: []string{
+				string(kueue.NewPodSetReference("aaaa")),
+				string(kueue.NewPodSetReference("zzzz")),
+			},
+		},
+		"same shape uses count before PodSet name": {
+			pods: []corev1.Pod{
+				makePod("small-1", "zzzz"),
+				makePod("small-2", "zzzz"),
+				makePod("large-1", "aaaa"),
+				makePod("large-2", "aaaa"),
+				makePod("large-3", "aaaa"),
+			},
+			reversedPods: []corev1.Pod{
+				makePod("large-1", "aaaa"),
+				makePod("large-2", "aaaa"),
+				makePod("large-3", "aaaa"),
+				makePod("small-1", "zzzz"),
+				makePod("small-2", "zzzz"),
+			},
+			wantOrder: []string{
+				string(kueue.NewPodSetReference("zzzz")),
+				string(kueue.NewPodSetReference("aaaa")),
+			},
+		},
 	}
 
-	largePods := []corev1.Pod{
-		makePod("large-1", "aaaa"),
-		makePod("large-2", "aaaa"),
-		makePod("large-3", "aaaa"),
-	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got, err := constructGroupPodSets(tc.pods, nil)
+			if err != nil {
+				t.Fatalf("constructGroupPodSets() error = %v", err)
+			}
 
-	got, err := constructGroupPodSets(
-		append(smallPods, largePods...),
-		nil,
-	)
-	if err != nil {
-		t.Fatalf("constructGroupPodSets() error = %v", err)
-	}
+			if len(got) != len(tc.wantOrder) {
+				t.Fatalf("constructGroupPodSets() returned %d PodSets, want %d", len(got), len(tc.wantOrder))
+			}
 
-	if len(got) != 2 {
-		t.Fatalf("constructGroupPodSets() returned %d PodSets, want 2", len(got))
-	}
+			gotOrder := make([]string, len(got))
+			for i := range got {
+				gotOrder[i] = string(got[i].Name)
+			}
 
-	// Both PodSets have the same scheduling shape, so count must be
-	// the next tie-breaker before PodSet name.
-	gotNames := []string{
-		string(got[0].Name),
-		string(got[1].Name),
-	}
+			if diff := cmp.Diff(tc.wantOrder, gotOrder); diff != "" {
+				t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
+			}
 
-	wantNames := []string{
-		string(kueue.NewPodSetReference("zzzz")),
-		string(kueue.NewPodSetReference("aaaa")),
-	}
+			if tc.reversedPods == nil {
+				return
+			}
 
-	if diff := cmp.Diff(wantNames, gotNames); diff != "" {
-		t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
-	}
+			gotReversed, err := constructGroupPodSets(tc.reversedPods, nil)
+			if err != nil {
+				t.Fatalf("constructGroupPodSets() with reversed input error = %v", err)
+			}
 
-	gotCounts := []int32{
-		got[0].Count,
-		got[1].Count,
-	}
+			gotReversedOrder := make([]string, len(gotReversed))
+			for i := range gotReversed {
+				gotReversedOrder[i] = string(gotReversed[i].Name)
+			}
 
-	wantCounts := []int32{2, 3}
-
-	if diff := cmp.Diff(wantCounts, gotCounts); diff != "" {
-		t.Errorf("PodSet counts mismatch (-want, +got):\n%s", diff)
-	}
-
-	// Reversing the input pod order must produce the same PodSet order.
-	reversed := append([]corev1.Pod{}, largePods...)
-	reversed = append(reversed, smallPods...)
-
-	gotReversed, err := constructGroupPodSets(reversed, nil)
-	if err != nil {
-		t.Fatalf("constructGroupPodSets() with reversed input error = %v", err)
-	}
-
-	gotReversedNames := []string{
-		string(gotReversed[0].Name),
-		string(gotReversed[1].Name),
-	}
-
-	if diff := cmp.Diff(gotNames, gotReversedNames); diff != "" {
-		t.Errorf("PodSet order depends on input pod order (-first, +second):\n%s", diff)
+			if diff := cmp.Diff(gotOrder, gotReversedOrder); diff != "" {
+				t.Errorf("PodSet order depends on input pod order (-first, +second):\n%s", diff)
+			}
+		})
 	}
 }
 
