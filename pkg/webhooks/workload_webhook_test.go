@@ -408,7 +408,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: field.ErrorList{
 				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "unconstrained"), false, ""),
-			}.ToAggregate(),
+			},
 		},
 		"should accept false unconstrained topology when TASRejectFalseUnconstrainedTopology is disabled": {
 			featureGates: map[featuregate.Feature]bool{
