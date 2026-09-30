@@ -4275,6 +4275,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Status:             corev1.ConditionFalse,
 						LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
 					})
+					util.TaintNodeNotReady(ctx, k8sClient, nodeToUpdate)
 				})
 
 				ginkgo.By("verify the workload is evicted due to no replacement possible", func() {
@@ -5813,6 +5814,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Status:             corev1.ConditionFalse,
 							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
 						})
+						util.TaintNodeNotReady(ctx, k8sClient, nodeToUpdate)
 					})
 
 					ginkgo.By("verifying the failed node is replaced and UnhealthyNodes is cleared", func() {
