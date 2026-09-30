@@ -827,7 +827,7 @@ const (
 	// pods are dropped from the assignment.
 	TASPartialSlices featuregate.Feature = "TASPartialSlices"
 
-	// owner: @olekz
+	// owner: @olekzabl
 	//
 	// Increases max parallelism for batch operations within a single reconcile thread from 8 to 32.
 	HighMaxParallelismWithinReconcile featuregate.Feature = "HighMaxParallelismWithinReconcile"
