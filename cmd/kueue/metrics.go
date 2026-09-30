@@ -18,6 +18,7 @@ package main
 
 import (
 	"crypto/tls"
+	"errors"
 	"flag"
 	"fmt"
 	"net/netip"
@@ -30,20 +31,28 @@ import (
 
 type metricsOptions struct {
 	authentication bool
+	secure         bool
 }
 
 func (o *metricsOptions) bindFlags(fs *flag.FlagSet) {
 	fs.BoolVar(&o.authentication, "metrics-authentication", true,
 		"Authenticate and authorize metrics requests using the Kubernetes API. "+
-			"Disabling requires metrics.bindAddress to be an explicit loopback IP and port; HTTPS is always enabled.")
+			"Disabling requires metrics.bindAddress to be an explicit loopback IP and port.")
+	fs.BoolVar(&o.secure, "metrics-secure", true,
+		"Serve metrics over HTTPS. Disabling requires --metrics-authentication=false and an explicit loopback IP and port.")
 }
 
 func (o *metricsOptions) serverOptions(bindAddress string) (metricsserver.Options, error) {
 	options := metricsserver.Options{
 		BindAddress:   bindAddress,
-		SecureServing: true,
+		SecureServing: o.secure,
 	}
 	if o.authentication {
+		if !o.secure && bindAddress != "0" {
+			return metricsserver.Options{}, errors.New(
+				"--metrics-secure=false requires --metrics-authentication=false; use --metrics-secure=true to authenticate metrics requests over HTTPS",
+			)
+		}
 		options.FilterProvider = filters.WithAuthenticationAndAuthorization
 	} else if bindAddress != "0" {
 		// Validate before controller-runtime can default an empty address to a wildcard.
@@ -56,7 +65,7 @@ func (o *metricsOptions) serverOptions(bindAddress string) (metricsserver.Option
 		}
 		if !address.Addr().IsLoopback() {
 			return metricsserver.Options{}, fmt.Errorf(
-				"--metrics-authentication=false requires a loopback metrics.bindAddress (for example 127.0.0.1:8443 or [::1]:8443), got %q; use --metrics-authentication=true for other addresses",
+				"--metrics-authentication=false requires a loopback metrics.bindAddress (for example 127.0.0.1:8443 or [::1]:8443), got %q; use --metrics-authentication=true and --metrics-secure=true for other addresses",
 				bindAddress,
 			)
 		}
@@ -65,6 +74,9 @@ func (o *metricsOptions) serverOptions(bindAddress string) (metricsserver.Option
 }
 
 func setupMetricsCertWatcher(options *metricsserver.Options, certPath string) (*certwatcher.CertWatcher, error) {
+	if !options.SecureServing {
+		return nil, nil
+	}
 	watcher, err := certwatcher.New(filepath.Join(certPath, "tls.crt"), filepath.Join(certPath, "tls.key"))
 	if err != nil {
 		return nil, err

@@ -198,7 +198,7 @@ func main() {
 	}
 
 	// Apply TLS configuration from config
-	if parsedTLSConfig != nil {
+	if metricsServerOptions.SecureServing && parsedTLSConfig != nil {
 		tlsOpts := tlsconfig.BuildTLSOptions(parsedTLSConfig)
 		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, tlsOpts...)
 	}
@@ -211,14 +211,15 @@ func main() {
 	var metricsCertWatcher *certwatcher.CertWatcher
 	if cfg.InternalCertManagement == nil || !*cfg.InternalCertManagement.Enable {
 		metricsCertPath := "/etc/kueue/metrics/certs"
-		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
-			"metrics-cert-path", metricsCertPath)
-
 		var err error
 		metricsCertWatcher, err = setupMetricsCertWatcher(&metricsServerOptions, metricsCertPath)
 		if err != nil {
 			setupLog.Error(err, "Unable to initialize metrics certificate watcher")
 			os.Exit(1)
+		}
+		if metricsCertWatcher != nil {
+			setupLog.Info("Initialized metrics certificate watcher using provided certificates",
+				"metrics-cert-path", metricsCertPath)
 		}
 	}
 	options.Metrics = metricsServerOptions

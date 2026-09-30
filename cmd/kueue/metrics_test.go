@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -48,57 +49,49 @@ func TestMetricsServerOptions(t *testing.T) {
 		args       []string
 		address    string
 		wantFilter bool
-		wantError  bool
+		wantHTTP   bool
+		wantError  string
 	}{
 		"default authentication":           {address: ":8443", wantFilter: true},
 		"explicit authentication":          {args: []string{"--metrics-authentication=true"}, address: ":8443", wantFilter: true},
+		"explicit HTTPS":                   {args: []string{"--metrics-secure=true"}, address: ":8443", wantFilter: true},
 		"authenticated hostname unchanged": {address: "localhost:8443", wantFilter: true},
 		"authenticated empty unchanged":    {wantFilter: true},
-		"disabled authenticated metrics":   {address: "0", wantFilter: true},
-		"disabled unauthenticated metrics": {args: []string{"--metrics-authentication=false"}, address: "0"},
-		"IPv4 loopback":                    {args: []string{"--metrics-authentication=false"}, address: "127.0.0.1:8443"},
-		"IPv4 loopback subnet":             {args: []string{"--metrics-authentication=false"}, address: "127.23.45.67:8443"},
-		"IPv6 loopback":                    {args: []string{"--metrics-authentication=false"}, address: "[::1]:8443"},
-		"expanded IPv6 loopback":           {args: []string{"--metrics-authentication=false"}, address: "[0:0:0:0:0:0:0:1]:8443"},
-		"mapped IPv4 loopback":             {args: []string{"--metrics-authentication=false"}, address: "[::ffff:127.0.0.1]:8443"},
-		"ephemeral loopback port":          {args: []string{"--metrics-authentication=false"}, address: "127.0.0.1:0"},
-		"highest port":                     {args: []string{"--metrics-authentication=false"}, address: "127.0.0.1:65535"},
+		"HTTP with default authentication": {args: []string{"--metrics-secure=false"}, address: "127.0.0.1:8443", wantError: "--metrics-secure=false requires --metrics-authentication=false"},
+		"HTTP with explicit authentication": {
+			args:      []string{"--metrics-secure=false", "--metrics-authentication=true"},
+			address:   "[::1]:8443",
+			wantError: "--metrics-secure=false requires --metrics-authentication=false",
+		},
 	}
-	for name, address := range map[string]string{
-		"empty": "", "unspecified host": ":8443", "IPv4 wildcard": "0.0.0.0:8443",
-		"IPv6 wildcard": "[::]:8443", "IPv4 non-loopback": "192.0.2.1:8443",
-		"IPv6 non-loopback": "[2001:db8::1]:8443", "mapped non-loopback": "[::ffff:192.0.2.1]:8443",
-		"localhost hostname": "localhost:8443", "DNS hostname": "metrics.example.test:8443",
-		"missing port": "127.0.0.1", "empty port": "127.0.0.1:", "named port": "127.0.0.1:https",
-		"negative port": "127.0.0.1:-1", "out of range port": "127.0.0.1:65536",
-		"unbracketed IPv6": "::1:8443", "extra port": "127.0.0.1:8443:8443",
-		"URL": "https://127.0.0.1:8443", "whitespace": " 127.0.0.1:8443",
-		"invalid IP": "127.0.0.999:8443", "short IPv4": "127.1:8443",
-	} {
-		cases[name] = struct {
-			args       []string
-			address    string
-			wantFilter bool
-			wantError  bool
-		}{
-			args: []string{"--metrics-authentication=false"}, address: address, wantError: true,
+	for _, secure := range []bool{true, false} {
+		for _, authentication := range []bool{true, false} {
+			args := []string{fmt.Sprintf("--metrics-secure=%t", secure), fmt.Sprintf("--metrics-authentication=%t", authentication)}
+			name := fmt.Sprintf("disabled metrics secure=%t authentication=%t", secure, authentication)
+			cases[name] = struct {
+				args       []string
+				address    string
+				wantFilter bool
+				wantHTTP   bool
+				wantError  string
+			}{args: args, address: "0", wantFilter: authentication, wantHTTP: !secure}
 		}
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			o := parseMetricsOptions(t, tc.args)
 			options, err := o.serverOptions(tc.address)
-			if tc.wantError {
-				if err == nil || !strings.Contains(err.Error(), "--metrics-authentication=false") || !strings.Contains(err.Error(), "metrics.bindAddress") {
-					t.Fatalf("expected actionable configuration error, got %v", err)
+			if tc.wantError != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+					t.Fatalf("expected error containing %q, got %v", tc.wantError, err)
 				}
 				return
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !options.SecureServing {
-				t.Error("HTTPS must remain enabled")
+			if options.SecureServing == tc.wantHTTP {
+				t.Errorf("secure serving = %t, want %t", options.SecureServing, !tc.wantHTTP)
 			}
 			if options.BindAddress != tc.address {
 				t.Errorf("bind address = %q, want %q", options.BindAddress, tc.address)
@@ -116,11 +109,62 @@ func TestMetricsServerOptions(t *testing.T) {
 	}
 }
 
+func TestMetricsUnauthenticatedBindAddress(t *testing.T) {
+	cases := map[string]struct {
+		address   string
+		wantError bool
+	}{
+		"IPv4 loopback":           {address: "127.0.0.1:8443"},
+		"IPv4 loopback subnet":    {address: "127.23.45.67:8443"},
+		"IPv6 loopback":           {address: "[::1]:8443"},
+		"expanded IPv6 loopback":  {address: "[0:0:0:0:0:0:0:1]:8443"},
+		"mapped IPv4 loopback":    {address: "[::ffff:127.0.0.1]:8443"},
+		"ephemeral loopback port": {address: "127.0.0.1:0"},
+		"highest port":            {address: "127.0.0.1:65535"},
+	}
+	for name, address := range map[string]string{
+		"empty": "", "unspecified host": ":8443", "IPv4 wildcard": "0.0.0.0:8443",
+		"IPv6 wildcard": "[::]:8443", "IPv4 non-loopback": "192.0.2.1:8443",
+		"IPv6 non-loopback": "[2001:db8::1]:8443", "mapped non-loopback": "[::ffff:192.0.2.1]:8443",
+		"localhost hostname": "localhost:8443", "DNS hostname": "metrics.example.test:8443",
+		"missing port": "127.0.0.1", "empty port": "127.0.0.1:", "named port": "127.0.0.1:https",
+		"negative port": "127.0.0.1:-1", "out of range port": "127.0.0.1:65536",
+		"unbracketed IPv6": "::1:8443", "extra port": "127.0.0.1:8443:8443",
+		"URL": "https://127.0.0.1:8443", "whitespace": " 127.0.0.1:8443",
+		"invalid IP": "127.0.0.999:8443", "short IPv4": "127.1:8443",
+	} {
+		cases[name] = struct {
+			address   string
+			wantError bool
+		}{address: address, wantError: true}
+	}
+	for _, secure := range []bool{true, false} {
+		for name, tc := range cases {
+			t.Run(fmt.Sprintf("secure=%t/%s", secure, name), func(t *testing.T) {
+				o := parseMetricsOptions(t, []string{"--metrics-authentication=false", fmt.Sprintf("--metrics-secure=%t", secure)})
+				options, err := o.serverOptions(tc.address)
+				if tc.wantError {
+					if err == nil || !strings.Contains(err.Error(), "--metrics-authentication=false") || !strings.Contains(err.Error(), "metrics.bindAddress") {
+						t.Fatalf("expected actionable configuration error, got %v", err)
+					}
+					return
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+				if options.SecureServing != secure || options.BindAddress != tc.address || options.FilterProvider != nil {
+					t.Errorf("unexpected options: %+v", options)
+				}
+			})
+		}
+	}
+}
+
 // Run the actual entry point in a subprocess to verify rejection before certificate or Kubernetes setup.
 func TestMetricsManagerStartup(t *testing.T) {
 	if configFile := os.Getenv("KUEUE_TEST_METRICS_CONFIG"); configFile != "" {
 		flag.CommandLine = flag.NewFlagSet("manager", flag.ExitOnError)
-		os.Args = []string{"manager", "--config=" + configFile, "--metrics-authentication=false"}
+		os.Args = append([]string{"manager", "--config=" + configFile}, strings.Fields(os.Getenv("KUEUE_TEST_METRICS_FLAGS"))...)
 		main()
 		return
 	}
@@ -128,33 +172,38 @@ func TestMetricsManagerStartup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, address := range map[string]string{
-		"default wildcard": "", "IPv4 wildcard": "0.0.0.0:8443", "IPv6 wildcard": "[::]:8443",
-		"non-loopback": "192.0.2.1:8443", "hostname": "localhost:8443", "malformed": "127.0.0.1",
-	} {
-		t.Run(name, func(t *testing.T) {
-			configFile := filepath.Join(t.TempDir(), "config.yaml")
-			config := "apiVersion: config.kueue.x-k8s.io/v1beta2\nkind: Configuration\ninternalCertManagement:\n  enable: false\nmetrics:\n  bindAddress: " + `"` + address + `"` + "\n"
-			if err := os.WriteFile(configFile, []byte(config), 0600); err != nil {
-				t.Fatal(err)
+	for _, flags := range []string{"--metrics-authentication=false", "--metrics-authentication=false --metrics-secure=false", "--metrics-secure=false"} {
+		for name, address := range map[string]string{
+			"loopback": "127.0.0.1:8443", "default wildcard": "", "IPv4 wildcard": "0.0.0.0:8443", "IPv6 wildcard": "[::]:8443",
+			"non-loopback": "192.0.2.1:8443", "hostname": "localhost:8443", "malformed": "127.0.0.1",
+		} {
+			if name == "loopback" && flags != "--metrics-secure=false" {
+				continue
 			}
-			ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
-			defer cancel()
-			cmd := exec.CommandContext(ctx, binary, "-test.run=^TestMetricsManagerStartup$")
-			cmd.Env = append(os.Environ(), "KUEUE_TEST_METRICS_CONFIG="+configFile)
-			output, err := cmd.CombinedOutput()
-			var exitErr *exec.ExitError
-			if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
-				t.Fatalf("expected startup exit 1, got %v: %s", err, output)
-			}
-			if !strings.Contains(string(output), "Unable to configure metrics server") || !strings.Contains(string(output), "--metrics-authentication=false") {
-				t.Fatalf("startup did not reject unsafe metrics configuration: %s", output)
-			}
-		})
+			t.Run(flags+"/"+name, func(t *testing.T) {
+				configFile := filepath.Join(t.TempDir(), "config.yaml")
+				config := "apiVersion: config.kueue.x-k8s.io/v1beta2\nkind: Configuration\ninternalCertManagement:\n  enable: false\nmetrics:\n  bindAddress: " + `"` + address + `"` + "\n"
+				if err := os.WriteFile(configFile, []byte(config), 0600); err != nil {
+					t.Fatal(err)
+				}
+				ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+				defer cancel()
+				cmd := exec.CommandContext(ctx, binary, "-test.run=^TestMetricsManagerStartup$")
+				cmd.Env = append(os.Environ(), "KUEUE_TEST_METRICS_CONFIG="+configFile, "KUEUE_TEST_METRICS_FLAGS="+flags)
+				output, err := cmd.CombinedOutput()
+				var exitErr *exec.ExitError
+				if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+					t.Fatalf("expected startup exit 1, got %v: %s", err, output)
+				}
+				if !strings.Contains(string(output), "Unable to configure metrics server") || !strings.Contains(string(output), "--metrics-authentication=false") {
+					t.Fatalf("startup did not reject unsafe metrics configuration: %s", output)
+				}
+			})
+		}
 	}
 }
 
-func TestMetricsHTTPSAuthentication(t *testing.T) {
+func TestMetricsServing(t *testing.T) {
 	certPEM, keyPEM := metricsTestCertificate(t)
 	roots := x509.NewCertPool()
 	roots.AppendCertsFromPEM(certPEM)
@@ -163,10 +212,13 @@ func TestMetricsHTTPSAuthentication(t *testing.T) {
 		address            string
 		wantAuthentication bool
 	}{
-		"default":       {address: "127.0.0.1:0", wantAuthentication: true},
-		"explicit true": {args: []string{"--metrics-authentication=true"}, address: "127.0.0.1:0", wantAuthentication: true},
-		"false IPv4":    {args: []string{"--metrics-authentication=false"}, address: "127.0.0.1:0"},
-		"false IPv6":    {args: []string{"--metrics-authentication=false"}, address: "[::1]:0"},
+		"default":        {address: "127.0.0.1:0", wantAuthentication: true},
+		"explicit true":  {args: []string{"--metrics-authentication=true"}, address: "127.0.0.1:0", wantAuthentication: true},
+		"false IPv4":     {args: []string{"--metrics-authentication=false"}, address: "127.0.0.1:0"},
+		"false IPv6":     {args: []string{"--metrics-authentication=false"}, address: "[::1]:0"},
+		"explicit HTTPS": {args: []string{"--metrics-secure=true", "--metrics-authentication=false"}, address: "127.0.0.1:0"},
+		"HTTP IPv4":      {args: []string{"--metrics-secure=false", "--metrics-authentication=false"}, address: "127.0.0.1:0"},
+		"HTTP IPv6":      {args: []string{"--metrics-secure=false", "--metrics-authentication=false"}, address: "[::1]:0"},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -212,12 +264,21 @@ func TestMetricsHTTPSAuthentication(t *testing.T) {
 				t.Fatal(err)
 			}
 			certDir := t.TempDir()
-			writeMetricsCertificate(t, certDir, certPEM, keyPEM)
+			if options.SecureServing {
+				writeMetricsCertificate(t, certDir, certPEM, keyPEM)
+			}
 			watcher, err := setupMetricsCertWatcher(&options, certDir)
 			if err != nil {
 				t.Fatal(err)
 			}
-			startMetricsRunnable(t, watcher.Start)
+			if options.SecureServing {
+				if watcher == nil {
+					t.Fatal("HTTPS did not create a certificate watcher")
+				}
+				startMetricsRunnable(t, watcher.Start)
+			} else if watcher != nil || len(options.TLSOpts) != 0 {
+				t.Fatal("HTTP configured a certificate watcher or TLS options")
+			}
 			url := startMetricsTestServer(t, options, &rest.Config{Host: api.URL}, api.Client())
 			client := metricsTestClient(t, roots, "metrics.example.test")
 			for _, token := range []string{"", "invalid", "denied", "allowed"} {
@@ -262,6 +323,9 @@ func TestMetricsHTTPSAuthentication(t *testing.T) {
 				}
 			} else if tokenReviews.Load() != 0 || accessReviews.Load() != 0 {
 				t.Errorf("unauthenticated scraping called review APIs: (%d, %d)", tokenReviews.Load(), accessReviews.Load())
+			}
+			if !options.SecureServing {
+				return
 			}
 			for name, tlsClient := range map[string]*http.Client{
 				"untrusted CA": metricsTestClient(t, x509.NewCertPool(), "metrics.example.test"),
@@ -419,5 +483,9 @@ func startMetricsTestServer(t *testing.T, options metricsserver.Options, cfg *re
 	}); err != nil {
 		t.Fatalf("metrics server did not bind: %v", err)
 	}
-	return "https://" + address.GetBindAddr()
+	scheme := "http://"
+	if options.SecureServing {
+		scheme = "https://"
+	}
+	return scheme + address.GetBindAddr()
 }
