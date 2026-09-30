@@ -179,6 +179,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: HighMaxParallelismWithinReconcile
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: KueueDRADeviceFeasibility
   versionedSpecs:
   - default: false
