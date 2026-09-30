@@ -17,13 +17,13 @@ limitations under the License.
 package preemption
 
 import (
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -40,7 +40,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
-	configurable "sigs.k8s.io/kueue/pkg/scheduler/preemption/config"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -54,11 +53,32 @@ import (
 // configurableSnapCmpOpts extends snapCmpOpts for the TAS-enabled cases of this
 // table. TASFlavorSnapshot holds an unexported logr.Logger (and other unexported
 // helper types) which cmp cannot traverse, so the whole field is skipped; the TAS
-// state is exercised through the preemption targets instead.
+// state is compared separately, through tasFreeCapacityPerDomain.
 var configurableSnapCmpOpts = append(
 	append(cmp.Options{}, snapCmpOpts...),
 	cmpopts.IgnoreFields(schdcache.ClusterQueueSnapshot{}, "TASFlavors"),
 )
+
+// tasFreeCapacityPerDomain returns the serialized free capacity per domain of the
+// TAS flavors of each ClusterQueue in the snapshot, so that the TAS state skipped by
+// configurableSnapCmpOpts can still be compared.
+func tasFreeCapacityPerDomain(t *testing.T, snapshot *schdcache.Snapshot) map[kueue.ClusterQueueReference]map[kueue.ResourceFlavorReference]string {
+	t.Helper()
+	state := make(map[kueue.ClusterQueueReference]map[kueue.ResourceFlavorReference]string)
+	for cqName, cq := range snapshot.ClusterQueues() {
+		for flavor, tasFlavor := range cq.TASFlavors {
+			serialized, err := tasFlavor.SerializeFreeCapacityPerDomain()
+			if err != nil {
+				t.Fatalf("Failed to serialize the TAS flavor %q of ClusterQueue %q: %v", flavor, cqName, err)
+			}
+			if state[cqName] == nil {
+				state[cqName] = make(map[kueue.ResourceFlavorReference]string)
+			}
+			state[cqName][flavor] = serialized
+		}
+	}
+	return state
+}
 
 func TestConfigurablePreemptions(t *testing.T) {
 	now := time.Now()
@@ -208,8 +228,6 @@ func TestConfigurablePreemptions(t *testing.T) {
 		topologies                     []*kueue.Topology
 		nodes                          []corev1.Node
 		config                         kueuealpha.PreemptionConfig
-		workloadPriorityClasses        []kueue.WorkloadPriorityClass
-		priorityClasses                []schedulingv1.PriorityClass
 		admitted                       []kueue.Workload
 		incoming                       *kueue.Workload
 		assignment                     flavorassigner.Assignment
@@ -444,8 +462,11 @@ func TestConfigurablePreemptions(t *testing.T) {
 				// reclamation rules.
 				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
 			},
-			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
-			targetCQ:      "a",
+			incoming: unitWl.Clone().Name("a_incoming").Obj(),
+			targetCQ: "a",
+			// a1 and b1 are both selected by the WithinParentCohort rule, and the
+			// candidate ordering considers the workloads of other ClusterQueues
+			// first. Preempting b1 frees quota that a can borrow, so a1 is spared.
 			wantPreempted: sets.New("/b1"),
 			wantReasons: map[string]string{
 				"/b1": kueue.ConfigurablePreemptionReason,
@@ -630,10 +651,12 @@ func TestConfigurablePreemptions(t *testing.T) {
 			},
 			config: anyClusterQueueConfig,
 			admitted: []kueue.Workload{
-				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
-				// b belongs to another Cohort, so preempting b1 doesn't free any quota
-				// for the incoming workload.
-				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
+				*unitWl.Clone().Name("a1").Priority(100).SimpleReserveQuota("a", "default", now).Obj(),
+				// b1 is considered first by the candidate ordering, as it belongs to
+				// another ClusterQueue and has a lower priority. However, b belongs to
+				// another Cohort, so preempting b1 doesn't free any quota for the
+				// incoming workload, and b1 is given back once a1 is preempted.
+				*unitWl.Clone().Name("b1").Priority(10).SimpleReserveQuota("b", "default", now).Obj(),
 			},
 			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
 			targetCQ:      "a",
@@ -677,12 +700,18 @@ func TestConfigurablePreemptions(t *testing.T) {
 			config:      withinParentCohortConfig,
 			fairSharing: &config.FairSharing{},
 			admitted: []kueue.Workload{
+				// a doesn't allow preemption within the ClusterQueue, so a1 is not a
+				// Fair Sharing candidate.
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
-				// b is not borrowing, so the Fair Sharing ordering prunes it.
+				// when default preemption policies (Never) are set and Fair Sharing is enabled,
+				// only the configurable preemption candidates are returned
 				*unitWl.Clone().Name("b1").SimpleReserveQuota("b", "default", now).Obj(),
 			},
-			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
-			targetCQ:      "a",
+			incoming: unitWl.Clone().Name("a_incoming").Obj(),
+			targetCQ: "a",
+			// a1 and b1 are both selected by the WithinParentCohort rule, and the
+			// candidate ordering considers the workloads of other ClusterQueues
+			// first. Preempting b1 frees quota that a can borrow, so a1 is spared.
 			wantPreempted: sets.New("/b1"),
 			wantReasons: map[string]string{
 				"/b1": kueue.ConfigurablePreemptionReason,
@@ -840,12 +869,16 @@ func TestConfigurablePreemptions(t *testing.T) {
 			clusterQueues: baseCQs,
 			config:        multiTriggerConfig,
 			admitted: []kueue.Workload{
+				// a1 belongs to a lower tier, so it is selected by the Always rule,
+				// while a2 is only selected by the InsufficientQuota rule. The candidate
+				// ordering prefers a2, as it has a lower priority, so it would be
+				// preempted instead of a1 if the triggers were considered at once.
 				*unitWl.Clone().Name("a1").
-					Priority(10).
+					Priority(100).
 					Label("preemption-tier", "1").
 					SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").
-					Priority(100).
+					Priority(10).
 					SimpleReserveQuota("a", "default", now).Obj(),
 			},
 			incoming: unitWl.Clone().Name("a_incoming").
@@ -946,8 +979,6 @@ func TestConfigurablePreemptions(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
 				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
 				WithLists(&kueuealpha.PreemptionConfigList{Items: []kueuealpha.PreemptionConfig{tc.config}}).
-				WithLists(&kueue.WorkloadPriorityClassList{Items: tc.workloadPriorityClasses}).
-				WithLists(&schedulingv1.PriorityClassList{Items: tc.priorityClasses}).
 				WithLists(&corev1.NodeList{Items: tc.nodes}).
 				Build()
 
@@ -991,14 +1022,12 @@ func TestConfigurablePreemptions(t *testing.T) {
 				assignment = defaultAssignment
 			}
 			targets := preemptor.GetTargets(ctx, *wlInfo, assignment, snapshotWorkingCopy)
-			gotTargetsList := utilslices.Map(targets, func(t **Target) string {
+			// The targets are compared as a sorted list, rather than as a set, so that
+			// duplicated targets are reported as well.
+			gotTargets := slices.Sorted(slices.Values(utilslices.Map(targets, func(t **Target) string {
 				return string(workload.Key((*t).WorkloadInfo.Obj))
-			})
-			gotTargets := sets.New(gotTargetsList...)
-			if len(targets) != len(gotTargets) {
-				t.Errorf("Targets contain duplicates: %v", gotTargetsList)
-			}
-			if diff := cmp.Diff(tc.wantPreempted, gotTargets, cmpopts.EquateEmpty()); diff != "" {
+			})))
+			if diff := cmp.Diff(sets.List(tc.wantPreempted), gotTargets, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Issued preemptions (-want,+got):\n%s", diff)
 			}
 			if tc.wantReasons != nil {
@@ -1020,275 +1049,11 @@ func TestConfigurablePreemptions(t *testing.T) {
 				}
 			}
 
+			if diff := cmp.Diff(tasFreeCapacityPerDomain(t, beforeSnapshot), tasFreeCapacityPerDomain(t, snapshotWorkingCopy)); diff != "" {
+				t.Errorf("TAS snapshot was modified (-initial,+end):\n%s", diff)
+			}
 			if diff := cmp.Diff(beforeSnapshot, snapshotWorkingCopy, configurableSnapCmpOpts); diff != "" {
 				t.Errorf("Snapshot was modified (-initial,+end):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestFindConfigurableCandidates(t *testing.T) {
-	now := time.Now()
-	unitWl := *utiltestingapi.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "1")
-	defaultAssignment := singlePodSetAssignment(flavorassigner.ResourceAssignment{
-		corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
-			Name: "default", Mode: flavorassigner.Preempt,
-		},
-	})
-
-	baseCQs := []*kueue.ClusterQueue{
-		utiltestingapi.MakeClusterQueue("a").
-			Cohort("all").
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
-				Resource(corev1.ResourceCPU, "3").Obj()).
-			Annotation(kueuealpha.PreemptionConfigNameAnnotation, "default-config").
-			Obj(),
-	}
-
-	multiTriggerConfig := *utiltestingalpha.MakePreemptionConfig("default-config").
-		Rule("tier-rule", kueuealpha.Always,
-			utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
-				NumericLabels(kueuealpha.PreemptionConfigNumericLabelConstraint{
-					Key:        "preemption-tier",
-					Comparison: ptr.To(kueuealpha.LessThan),
-				}).Obj(),
-		).
-		Rule("within-cluster-queue-rule", kueuealpha.InsufficientQuota,
-			utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
-		).Obj()
-
-	// TopologyAwareScheduling fixtures: a hostname topology over three nodes of
-	// 1 CPU each, so an incoming workload requiring 2 pods on the same node never
-	// gets a topology assignment, regardless of how much quota is freed.
-	tasTopology := utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
-	tasFlavor := utiltestingapi.MakeResourceFlavor("tas-default").
-		NodeLabel("tas-node", "true").
-		TopologyName("tas-single-level").
-		Obj()
-	tasNode := func(name string) corev1.Node {
-		return *testingnode.MakeNode(name).
-			Label("tas-node", "true").
-			Label(corev1.LabelHostname, name).
-			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:  resource.MustParse("1"),
-				corev1.ResourcePods: resource.MustParse("10"),
-			}).
-			Ready().
-			Obj()
-	}
-	tasAdmittedWl := func(name, node string) *utiltestingapi.WorkloadWrapper {
-		return utiltestingapi.MakeWorkload(name, "").
-			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-				Request(corev1.ResourceCPU, "1").
-				PreferredTopologyRequest(corev1.LabelHostname).
-				Obj()).
-			ReserveQuotaAt(
-				utiltestingapi.MakeAdmission("a").
-					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Assignment(corev1.ResourceCPU, "tas-default", "1").
-						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
-							Domain(utiltas.TopologyDomainAssignment{Count: 1, Values: []string{node}}).
-							Obj()).
-						Obj()).
-					Obj(),
-				now,
-			)
-	}
-	tasAssignment := flavorassigner.Assignment{
-		PodSets: []flavorassigner.PodSetAssignment{{
-			Name: kueue.DefaultPodSetName,
-			Flavors: flavorassigner.ResourceAssignment{
-				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
-					Name: "tas-default", Mode: flavorassigner.Preempt,
-				},
-			},
-			Count: 2,
-		}},
-	}
-
-	cases := map[string]struct {
-		clusterQueues   []*kueue.ClusterQueue
-		resourceFlavors []*kueue.ResourceFlavor
-		topologies      []*kueue.Topology
-		nodes           []corev1.Node
-		config          *kueuealpha.PreemptionConfig
-		admitted        []kueue.Workload
-		incoming        *kueue.Workload
-		assignment      flavorassigner.Assignment
-		wantInterrupted bool
-		wantTargets     []string
-	}{
-		"yields no targets when no rules configured": {
-			clusterQueues: []*kueue.ClusterQueue{
-				utiltestingapi.MakeClusterQueue("a").
-					Cohort("all").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
-						Resource(corev1.ResourceCPU, "2").Obj()).
-					Obj(),
-			},
-			admitted: []kueue.Workload{
-				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
-			},
-			incoming:    unitWl.Clone().Name("a_incoming").Request(corev1.ResourceCPU, "1").Obj(),
-			wantTargets: nil,
-		},
-		"stops immediately interrupt": {
-			clusterQueues: baseCQs,
-			config:        &multiTriggerConfig,
-			admitted: []kueue.Workload{
-				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
-			},
-			incoming:        unitWl.Clone().Name("a_incoming").Label("preemption-tier", "5").Request(corev1.ResourceCPU, "3").Obj(),
-			wantInterrupted: true,
-			wantTargets:     []string{"/a1"},
-		},
-		"yields candidates across triggers and does not return candidate matched by multiple triggers twice": {
-			clusterQueues: baseCQs,
-			config:        &multiTriggerConfig,
-			admitted: []kueue.Workload{
-				*unitWl.Clone().Name("a1").Label("preemption-tier", "1").SimpleReserveQuota("a", "default", now).Obj(),
-				*unitWl.Clone().Name("a2").Label("preemption-tier", "1").SimpleReserveQuota("a", "default", now).Obj(),
-				*unitWl.Clone().Name("a3").SimpleReserveQuota("a", "default", now).Obj(),
-			},
-			// Needs 3 CPUs: Always removes a1 and a2 (2 CPUs), then InsufficientQuota
-			// selects from WithinClusterQueue where a1 and a2 are already gone from snapshot,
-			// so only a3 is added.
-			incoming:        unitWl.Clone().Name("a_incoming").Label("preemption-tier", "5").Request(corev1.ResourceCPU, "3").Obj(),
-			wantInterrupted: true,
-			wantTargets:     []string{"/a1", "/a2", "/a3"},
-		},
-		"stops after Always trigger when it frees enough quota": {
-			clusterQueues: []*kueue.ClusterQueue{
-				utiltestingapi.MakeClusterQueue("a").
-					Cohort("all").
-					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
-						Resource(corev1.ResourceCPU, "3").Obj()).
-					Annotation(kueuealpha.PreemptionConfigNameAnnotation, "default-config").
-					Obj(),
-			},
-			resourceFlavors: []*kueue.ResourceFlavor{tasFlavor},
-			topologies:      []*kueue.Topology{tasTopology},
-			nodes:           []corev1.Node{tasNode("x1"), tasNode("x2"), tasNode("x3")},
-			config:          &multiTriggerConfig,
-			admitted: []kueue.Workload{
-				*tasAdmittedWl("a1", "x1").Label("preemption-tier", "1").Obj(),
-				*tasAdmittedWl("a2", "x2").Label("preemption-tier", "1").Obj(),
-				*tasAdmittedWl("a3", "x3").Obj(),
-			},
-			// Needs 2 CPUs out of the fully used quota of 3: the Always trigger yields
-			// a1 and a2, which frees enough quota, but the 2 pods require the same
-			// node and every node has only 1 CPU, so the workload never fits.
-			// As the quota fits, the InsufficientQuota trigger is not reached, and
-			// a3 is not yielded even though the workload still doesn't fit.
-			incoming: utiltestingapi.MakeWorkload("a_incoming", "").
-				Label("preemption-tier", "5").
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
-					Request(corev1.ResourceCPU, "1").
-					RequiredTopologyRequest(corev1.LabelHostname).
-					Obj()).
-				Obj(),
-			assignment:      tasAssignment,
-			wantInterrupted: false,
-			wantTargets:     []string{"/a1", "/a2"},
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			// Given
-			features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, true)
-			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, len(tc.topologies) > 0)
-			ctx, log := utiltesting.ContextWithLog(t)
-			for i := range tc.admitted {
-				tc.admitted[i].UID = types.UID(tc.admitted[i].Name)
-			}
-
-			clientBuilder := utiltesting.NewClientBuilder().
-				WithLists(&kueue.WorkloadList{Items: tc.admitted}).
-				WithLists(&corev1.NodeList{Items: tc.nodes})
-			if tc.config != nil {
-				clientBuilder = clientBuilder.WithLists(&kueuealpha.PreemptionConfigList{Items: []kueuealpha.PreemptionConfig{*tc.config}})
-			}
-			cl := clientBuilder.Build()
-
-			cqCache := schdcache.New(cl)
-			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
-			for _, flavor := range tc.resourceFlavors {
-				cqCache.AddOrUpdateResourceFlavor(log, flavor)
-			}
-			for _, topology := range tc.topologies {
-				cqCache.AddOrUpdateTopology(log, topology)
-			}
-			for i := range tc.nodes {
-				cqCache.TASCache().SyncNode(&tc.nodes[i])
-			}
-			for _, cq := range tc.clusterQueues {
-				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
-					t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
-				}
-			}
-
-			snapshot, err := cqCache.Snapshot(ctx)
-			if err != nil {
-				t.Fatalf("unexpected error while building snapshot: %v", err)
-			}
-
-			assignment := tc.assignment
-			if len(assignment.PodSets) == 0 {
-				assignment = defaultAssignment
-			}
-			wlInfo := workload.NewInfo(log, tc.incoming)
-			wlInfo.ClusterQueue = "a"
-			preemptorCQ := snapshot.ClusterQueue("a")
-			var tasRequests schdcache.WorkloadTASRequests
-			if features.Enabled(features.TopologyAwareScheduling) {
-				tasRequests = assignment.WorkloadsTopologyRequests(log, wlInfo, preemptorCQ)
-			}
-			preemptionCtx := &preemptionCtx{
-				clock:             clocktesting.NewFakeClock(now),
-				preemptor:         *wlInfo,
-				preemptorCQ:       preemptorCQ,
-				snapshot:          snapshot,
-				tasRequests:       tasRequests,
-				frsNeedPreemption: flavorResourcesNeedPreemption(assignment),
-				workloadUsage: workload.Usage{
-					Quota: workload.ResourceUsage{
-						Assigned: assignment.TotalRequestsFor(log, wlInfo),
-					},
-					TAS: wlInfo.TASUsage(),
-				},
-			}
-			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, preemptionCtx.clock, nil, preemptexpectations.New(), nil)
-			preemptionCtx.configurableEvaluator = configurable.NewEvaluatorForClusterQueue(ctx, log, preemptionCtx.clock, cl, preemptionCtx.preemptorCQ)
-
-			// When
-			// The yield func we provide will interrupt FindCandidates when it finds a fit.
-			// This means FindCandidates will return false when we find a fit.
-			var gotTargets []*preemptioncommon.Target
-			yield := func(t *preemptioncommon.Target) bool {
-				gotTargets = append(gotTargets, t)
-				return !workloadFits(ctx, preemptionCtx, true)
-			}
-			gotInterrupted := preemptionCtx.configurableEvaluator.FindCandidates(
-				preemptionCtx.snapshot,
-				&preemptionCtx.preemptor,
-				preemptionCtx.frsNeedPreemption,
-				func(a, b *workload.Info) int {
-					return preemptioncommon.CandidatesOrdering(log, preemptor.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, preemptor.clock.Now())
-				},
-				func() bool { return workloadQuotaFits(preemptionCtx, true) },
-				yield,
-			)
-
-			// Then
-			if gotInterrupted != tc.wantInterrupted {
-				t.Errorf("FindCandidates() got interrupted = %v, want %v", gotInterrupted, tc.wantInterrupted)
-			}
-			gotTargetKeys := utilslices.Map(gotTargets, func(target **Target) string {
-				return string(workload.Key((*target).WorkloadInfo.Obj))
-			})
-			if diff := cmp.Diff(tc.wantTargets, gotTargetKeys, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("FindCandidates() targets (-want,+got):\n%s", diff)
 			}
 		})
 	}
