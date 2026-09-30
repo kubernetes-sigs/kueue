@@ -167,14 +167,12 @@ func TestReconcile(t *testing.T) {
 				*utiltestingapi.MakeWorkload("wl-variant-spot-c405a", "default").
 					Queue("lq").
 					AllowedFlavors("spot").
-					PreemptionGates(caGate()).
-					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl", "").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-on-demand-cba55", "default").
 					Queue("lq").
 					AllowedFlavors("on-demand").
-					PreemptionGates(caGate()).
-					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl", "").
+					ControllerReference(kueue.GroupVersion.WithKind("Workload"), "wl", "").
 					Obj(),
 			},
 			wantEvents: []utiltesting.EventRecord{
