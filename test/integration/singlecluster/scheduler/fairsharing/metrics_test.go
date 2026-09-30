@@ -815,13 +815,14 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				}
 			})
 
-			ginkgo.By("Checking that metrics cleared", func() {
+			ginkgo.By("Checking metrics after Cohort deletion", func() {
 				util.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 5)
 				util.ExpectAdmittedActiveWorkloadsGaugeMetric("cq1", 5)
 				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("ch1", "", 0)
 				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root", "", 0)
 				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root", 0)
-				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 0)
+				// ch1 is still an implicit Cohort holding cq1.
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 5)
 			})
 
 			ginkgo.By("Deleting Workloads", func() {
@@ -1106,8 +1107,10 @@ var _ = ginkgo.Describe("Cohorts", func() {
 				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("ch1", 3)
 				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root1", "", 0)
 				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root1", 0)
+				// The counter only counts admissions, so it does not follow ch1,
+				// while the gauge reports the Workloads currently in the subtree.
 				util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric("root2", "", 2)
-				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root2", 2)
+				util.ExpectCohortSubtreeAdmittedActiveWorkloadsGaugeMetric("root2", 5)
 			})
 		})
 

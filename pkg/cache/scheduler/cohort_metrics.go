@@ -252,5 +252,40 @@ func (c *Cache) updateCohortTreeAndInfoMetricsIfNoCycle(cohort *cohort) {
 	if !hierarchy.HasCycle(cohort) {
 		root := cohort.getRootUnsafe()
 		c.updateCohortResourceAndInfoMetrics(root, root)
+		reportTreeAdmittedActiveWorkloads(root)
+	}
+}
+
+// Moving a node to another parent takes its admitted Workloads from the old
+// tree to the new one without the workload event that normally reports the
+// subtree gauge.
+func (c *Cache) reportMovedAdmittedActiveWorkloads(oldParent, newParent *cohort) {
+	if oldParent != nil {
+		// An implicit old parent is deleted, or recreated, when its last child detaches.
+		oldParent = c.hm.Cohort(oldParent.Name)
+	}
+	if oldParent == newParent {
+		return
+	}
+	reportTreeAdmittedActiveWorkloadsIfNoCycle(oldParent)
+	reportTreeAdmittedActiveWorkloadsIfNoCycle(newParent)
+}
+
+func reportTreeAdmittedActiveWorkloadsIfNoCycle(cohort *cohort) {
+	if cohort != nil && !hierarchy.HasCycle(cohort) {
+		reportTreeAdmittedActiveWorkloads(cohort.getRootUnsafe())
+	}
+}
+
+// The gauge carries each ClusterQueue's custom labels, so a Cohort has a
+// series per ClusterQueue below it. Clearing from the root down before
+// reporting drops the series of ClusterQueues that have moved away.
+func reportTreeAdmittedActiveWorkloads(cohort *cohort) {
+	metrics.ClearCohortSubtreeAdmittedActiveWorkloads(cohort.Name)
+	for _, child := range cohort.ChildCohorts() {
+		reportTreeAdmittedActiveWorkloads(child)
+	}
+	for _, cq := range cohort.ChildCQs() {
+		cq.reportCohortSubtreeAdmittedActiveWorkloads()
 	}
 }

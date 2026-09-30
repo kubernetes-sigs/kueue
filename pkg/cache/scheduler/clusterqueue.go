@@ -529,11 +529,15 @@ func (c *clusterQueue) deleteWorkload(log logr.Logger, wlKey workload.Reference)
 }
 
 func (c *clusterQueue) reportActiveWorkloads() {
+	c.reportCohortSubtreeAdmittedActiveWorkloads()
+	metrics.ReportAdmittedActiveWorkloads(c.Name, c.admittedWorkloadsCount, c.customMetricLabelValues, c.roleTracker)
+	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), c.customMetricLabelValues, c.roleTracker)
+}
+
+func (c *clusterQueue) reportCohortSubtreeAdmittedActiveWorkloads() {
 	for ancestor := range c.Parent().PathSelfToRoot() {
 		metrics.ReportCohortSubtreeAdmittedActiveWorkloads(ancestor.Name, ancestor.admittedWorkloadsCount, c.customMetricLabelValues, c.roleTracker)
 	}
-	metrics.ReportAdmittedActiveWorkloads(c.Name, c.admittedWorkloadsCount, c.customMetricLabelValues, c.roleTracker)
-	metrics.ReportReservingActiveWorkloads(c.Name, len(c.Workloads), c.customMetricLabelValues, c.roleTracker)
 }
 
 func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
