@@ -2605,3 +2605,30 @@ func TestCreateVariantsAlreadyExists(t *testing.T) {
 		t.Fatalf("pre-existing variant should still exist: %v", err)
 	}
 }
+
+// A variant is a create, so the webhook refuses overhead the parent may still carry.
+func TestGenerateVariant(t *testing.T) {
+	parent := utiltestingapi.MakeWorkload("parent-wl", "default").
+		Queue("lq").
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, "1").
+			PodOverHead(corev1.ResourceList{
+				corev1.ResourcePods: resource.MustParse("1"),
+				corev1.ResourceCPU:  resource.MustParse("-1"),
+				"example.com/keep":  resource.MustParse("2"),
+			}).
+			Obj()).
+		Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+		Obj()
+	parentOverhead := parent.Spec.PodSets[0].Template.Spec.Overhead.DeepCopy()
+
+	variant := generateVariant(parent, "spot")
+
+	want := corev1.ResourceList{"example.com/keep": resource.MustParse("2")}
+	if diff := cmp.Diff(want, variant.Spec.PodSets[0].Template.Spec.Overhead); diff != "" {
+		t.Errorf("variant overhead (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(parentOverhead, parent.Spec.PodSets[0].Template.Spec.Overhead); diff != "" {
+		t.Errorf("generating the variant changed the parent's overhead (-want +got):\n%s", diff)
+	}
+}

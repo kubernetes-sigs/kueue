@@ -284,6 +284,32 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 						Obj()
 				},
 				utiltesting.BeForbiddenError()),
+			ginkgo.Entry("should not allow a negative pod overhead",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*utiltestingapi.MakePodSet("bad", 1).
+								PodOverHead(corev1.ResourceList{
+									corev1.ResourceCPU: resource.MustParse("-1"),
+								}).
+								Obj(),
+						).
+						Obj()
+				},
+				utiltesting.BeForbiddenError()),
+			ginkgo.Entry("should not allow the reserved pods name in a pod overhead",
+				func() *kueue.Workload {
+					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
+						PodSets(
+							*utiltestingapi.MakePodSet("bad", 1).
+								PodOverHead(corev1.ResourceList{
+									corev1.ResourcePods: resource.MustParse("1"),
+								}).
+								Obj(),
+						).
+						Obj()
+				},
+				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("should not allow negative pod-level resource requests",
 				func() *kueue.Workload {
 					return utiltestingapi.MakeWorkload(workloadName, ns.Name).
@@ -1130,6 +1156,52 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(workload), &wl)).To(gomega.Succeed())
 				wl.Spec.QueueName = "" // omitempty omits the field → has(self.spec.queueName)==false
 				g.Expect(k8sClient.Update(ctx, &wl)).Should(utiltesting.BeInvalidError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		// A Workload that predates the webhook must stay operable; every path that releases it is an update.
+		ginkgo.It("Should let a workload that already carries a refused overhead keep going", func() {
+			ginkgo.By("Creating a workload with a negative overhead while the gate is off")
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadValidateResourcesAreNonNegative, false)
+			wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
+				PodSets(
+					*utiltestingapi.MakePodSet("main", 1).
+						PodOverHead(corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("-1"),
+						}).
+						Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("Turning the gate back on")
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadValidateResourcesAreNonNegative, true)
+
+			ginkgo.By("Refusing an update that changes the overhead to another refused value")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updated kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updated)).To(gomega.Succeed())
+				updated.Spec.PodSets[0].Template.Spec.Overhead = corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("-2"),
+				}
+				g.Expect(k8sClient.Update(ctx, &updated)).Should(utiltesting.BeForbiddenError())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Allowing an update that leaves the overhead as it was")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updated kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updated)).To(gomega.Succeed())
+				updated.Labels = map[string]string{"example.com/test": "ratcheting"}
+				g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Deactivating it once it holds a quota reservation")
+			util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), utiltestingapi.MakeAdmission("cq").Obj())
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updated kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updated)).To(gomega.Succeed())
+				updated.Spec.Active = new(false)
+				g.Expect(k8sClient.Update(ctx, &updated)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 

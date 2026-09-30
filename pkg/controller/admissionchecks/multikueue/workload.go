@@ -53,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
@@ -515,7 +516,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 			// For elastic workloads detect a scale-down event and propagate changes to the remote.
 			if group.IsElasticWorkload() && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(remWl), workload.ExtractPodSetCountsFromWorkload(group.local)) {
-				remWl.Spec = group.local.Spec
+				remWl.Spec = specWithChargeableOverhead(&group.local.Spec)
 				updateRemote = true
 			}
 
@@ -676,11 +677,24 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 }
 
 func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
+	local = specWithChargeableOverhead(&local)
+	remote = specWithChargeableOverhead(&remote)
 	// Preemption gates should be treated independently on the remotes and manager,
 	// so any differences should not be considered as out-of-sync.
 	local.PreemptionGates = nil
 	remote.PreemptionGates = nil
 	return !equality.Semantic.DeepEqual(local, remote)
+}
+
+// specWithChargeableOverhead is a deep copy of src with the overhead a worker's
+// webhook would refuse on a create taken off every PodSet.
+func specWithChargeableOverhead(src *kueue.WorkloadSpec) kueue.WorkloadSpec {
+	var dst kueue.WorkloadSpec
+	src.DeepCopyInto(&dst)
+	for i := range dst.PodSets {
+		dst.PodSets[i].Template.Spec.Overhead = resources.ChargeableOverhead(dst.PodSets[i].Template.Spec.Overhead)
+	}
+	return dst
 }
 
 func (w *wlReconciler) listComponentWorkloads(ctx context.Context, wl *kueue.Workload) (*kueue.WorkloadList, error) {
@@ -1422,7 +1436,7 @@ func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *
 		remoteWl.Labels = make(map[string]string, 1)
 	}
 	remoteWl.Labels[kueue.MultiKueueOriginLabel] = origin
-	orig.Spec.DeepCopyInto(&remoteWl.Spec)
+	remoteWl.Spec = specWithChargeableOverhead(&orig.Spec)
 
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) && preemptionGated {
 		// Preemption gates should be treated independently on the remotes and manager,

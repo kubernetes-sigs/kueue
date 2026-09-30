@@ -48,6 +48,7 @@ import (
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -367,10 +368,14 @@ func generateVariant(parent *kueue.Workload, flavor kueue.ResourceFlavorReferenc
 		Labels:        parent.Labels,
 		Annotations:   parent.Annotations,
 		ManagedFields: parent.ManagedFields,
-		Spec:          parent.Spec,
 		Status:        parent.Status,
 	}
-	variant.Spec.PreemptionGates = slices.Clone(variant.Spec.PreemptionGates)
+	// A create has no earlier state, so the webhook refuses overhead the parent may still carry.
+	parent.Spec.DeepCopyInto(&variant.Spec)
+	for i := range variant.Spec.PodSets {
+		variant.Spec.PodSets[i].Template.Spec.Overhead =
+			resources.ChargeableOverhead(variant.Spec.PodSets[i].Template.Spec.Overhead)
+	}
 	workload.EnsurePreemptionGateOnSpec(variant, controllerconsts.ConcurrentAdmissionPreemptionGate)
 	delete(variant.Labels, controllerconsts.ConcurrentAdmissionParentLabelKey)
 	metav1.SetMetaDataAnnotation(&variant.ObjectMeta, controllerconsts.WorkloadAllowedResourceFlavorAnnotation, string(flavor))

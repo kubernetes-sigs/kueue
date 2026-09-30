@@ -17,7 +17,10 @@ limitations under the License.
 package resources
 
 import (
+	"maps"
+
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	resourcehelpers "k8s.io/component-helpers/resource"
 
 	"sigs.k8s.io/kueue/pkg/features"
@@ -88,7 +91,18 @@ func PodRequests(podSpec *corev1.PodSpec) corev1.ResourceList {
 	requests := resourcehelpers.PodRequests(pod, resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
 	containerRequests := resourcehelpers.AggregateContainerRequests(pod, resourcehelpers.PodResourcesOptions{})
 	requests = utilresource.MergeResourceListKeepMax(requests, containerRequests)
-	return utilresource.MergeResourceListKeepSum(requests, podSpec.Overhead)
+	return utilresource.MergeResourceListKeepSum(requests, ChargeableOverhead(podSpec.Overhead))
+}
+
+// ChargeableOverhead returns overhead without the entries Kueue does not
+// charge: the reserved pods key and negative quantities.
+// TODO: remove ~2 releases after WorkloadValidateResourcesAreNonNegative locks to GA.
+func ChargeableOverhead(overhead corev1.ResourceList) corev1.ResourceList {
+	charged := maps.Clone(overhead)
+	maps.DeleteFunc(charged, func(name corev1.ResourceName, q resource.Quantity) bool {
+		return name == corev1.ResourcePods || q.Sign() < 0
+	})
+	return charged
 }
 
 // ToMap converts any Requests instance into a MapRequests map.
