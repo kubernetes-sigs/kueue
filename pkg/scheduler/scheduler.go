@@ -1045,10 +1045,20 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			}
 			return
 		}
-		// Ignore errors because the workload or clusterQueue could have been deleted
-		// by an event.
-		_ = s.cache.DeleteWorkload(log, workload.Key(cacheWl))
-		s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
+		if apierrors.IsConflict(err) && workload.NeedsSecondPass(e.Obj) {
+			// The workload still holds its reservation, so deleting it from the cache would drop live usage.
+			log.V(3).Info("Skipped admission write for a workload whose state changed during scheduling")
+			s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "OutdatedScheduleCycle", "OutdatedScheduleCycle",
+				api.TruncateEventMessage("Skipped admission write because the workload changed while it was being scheduled"))
+		} else {
+			// Ignore errors because the workload or clusterQueue could have been deleted
+			// by an event.
+			_ = s.cache.DeleteWorkload(log, workload.Key(cacheWl))
+			s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
+			if !apierrors.IsNotFound(err) {
+				log.Error(err, errCouldNotAdmitWL)
+			}
+		}
 		if s.shouldApplyEntryPenalty(e) {
 			s.updateEntryPenalty(log, e, subtract)
 		}
@@ -1056,8 +1066,6 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			log.V(2).Info("Workload not admitted because it was deleted")
 			return
 		}
-
-		log.Error(err, errCouldNotAdmitWL)
 		s.requeueAndUpdate(ctx, *e)
 	})
 
@@ -1076,6 +1084,10 @@ func (s *Scheduler) patchWorkloadAdmission(
 		workloadpatching.WithRetryOnConflict(),
 		workloadpatching.WithLooseOnApply(),
 	}
+	if workload.NeedsSecondPass(wl) {
+		// Keep the workload's resourceVersion so a write based on an outdated copy fails with Conflict instead of overwriting newer state.
+		patchOptions = nil
+	}
 	return workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 		s.prepareWorkload(log, wl, cq, admission)
 		updateUnhealthyNodesAfterTASReplacement(log, wl, replacedNodeName)
@@ -1088,8 +1100,7 @@ func updateUnhealthyNodesAfterTASReplacement(log logr.Logger, wl *kueue.Workload
 		return
 	}
 	if features.Enabled(features.TASReplaceMultipleFailedNodes) && replacedNodeName != "" {
-		// Remove only the node replaced by this admission. A retry on conflict may
-		// observe additional failures appended after the entry was queued.
+		// Remove only the node replaced by this admission. The remaining unhealthy nodes are left for later passes.
 		wl.Status.UnhealthyNodes = slices.DeleteFunc(wl.Status.UnhealthyNodes, func(n kueue.UnhealthyNode) bool {
 			return n.Name == replacedNodeName
 		})
