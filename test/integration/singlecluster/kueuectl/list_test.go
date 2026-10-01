@@ -32,7 +32,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/list"
+	kueuectlutil "sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
@@ -46,7 +46,7 @@ var _ = ginkgo.Describe("Kueuectl List", func() {
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		os.Unsetenv(list.KueuectlListRequestLimitEnvName)
+		os.Unsetenv(kueuectlutil.KueuectlListRequestLimitEnvName)
 	})
 
 	ginkgo.When("List LocalQueue", func() {
@@ -144,7 +144,7 @@ lq2    very-long-cluster-queue-name   0                   0                    f
 			executeTime := time.Now()
 			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
 
-			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
+			os.Setenv(kueuectlutil.KueuectlListRequestLimitEnvName, "1")
 			kueuectl.SetArgs([]string{"list", "localqueue", "--namespace", ns.Name})
 
 			err := kueuectl.Execute()
@@ -269,7 +269,7 @@ cq1             0                   0                    true     %s
 			executeTime := time.Now()
 			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
 
-			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
+			os.Setenv(kueuectlutil.KueuectlListRequestLimitEnvName, "1")
 			kueuectl.SetArgs([]string{"list", "clusterqueue"})
 			err := kueuectl.Execute()
 
@@ -329,7 +329,7 @@ wl1                          lq1                         PENDING                
 			executeTime := time.Now()
 			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
 
-			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
+			os.Setenv(kueuectlutil.KueuectlListRequestLimitEnvName, "1")
 			kueuectl.SetArgs([]string{"list", "workload", "--namespace", ns.Name})
 			err := kueuectl.Execute()
 
@@ -486,7 +486,7 @@ rf1                  %s
 				Clock:       testingclock.NewFakeClock(executeTime),
 			})
 
-			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
+			os.Setenv(kueuectlutil.KueuectlListRequestLimitEnvName, "1")
 			kueuectl.SetArgs([]string{"list", "resourceflavor"})
 			err := kueuectl.Execute()
 
