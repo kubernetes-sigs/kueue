@@ -2308,6 +2308,68 @@ func TestAssignFlavors(t *testing.T) {
 				}}},
 			},
 		},
+		// 3 Pods x 4e18 overflow to the MaxInt64 saturation value. Dividing that
+		// total by 3 would let 1 Pod fit at MaxInt64/3 and 2 Pods at 2*MaxInt64/3,
+		// so the reduced count has to be charged by the per-Pod request instead.
+		"partial admission charges the reduced count by its per-Pod request when the total saturated": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					Request("example.com/gpu", "4000000000000000000").Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").Resource("example.com/gpu", "7000000000000000000").Obj(),
+				).Obj(),
+			counts:      []int32{1},
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						"example.com/gpu": {Name: "default", Mode: Fit, TriedFlavorIdx: -1},
+					},
+					Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("4000000000000000000")},
+					Count:    1,
+				}},
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(4_000_000_000_000_000_000),
+				}}},
+			},
+		},
+		"partial admission refuses the reduced count whose per-Pod requests exceed the quota": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					Request("example.com/gpu", "4000000000000000000").Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").Resource("example.com/gpu", "7000000000000000000").Obj(),
+				).Obj(),
+			counts:      []int32{2},
+			wantRepMode: NoFit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name:     kueue.DefaultPodSetName,
+					Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("8000000000000000000")},
+					Status: *NewStatus(
+						"insufficient quota for example.com/gpu in flavor default, previously considered podsets requests (0) + current podset request (8E) > maximum capacity (7E)",
+					),
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor: "default",
+							Mode:   NoFit,
+							Reasons: []string{
+								"insufficient quota for example.com/gpu in flavor default, previously considered podsets requests (0) + current podset request (8E) > maximum capacity (7E)",
+							},
+							NoFitReason: "ExceedsMaxQuota",
+						},
+					},
+					Count: 2,
+				}},
+				Usage:       workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
+				NoFitReason: "ExceedsMaxQuota",
+			},
+		},
 		// A third flavor keeps the recorded index off the end of the list, so the
 		// assertion distinguishes the index of the flavor the probe settled on from
 		// the index of the last flavor the scan looked at.
