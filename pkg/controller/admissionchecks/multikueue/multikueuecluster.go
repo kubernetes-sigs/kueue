@@ -177,6 +177,7 @@ type remoteClient struct {
 	adapters     map[string]jobframework.MultiKueueAdapter
 
 	watchEstablishing atomic.Bool
+	resyncPending     bool
 
 	connState connectionState
 
@@ -324,6 +325,18 @@ func (rc *remoteClient) resetFailedConnAttempt() {
 	rc.retryConnNextAttempt = metav1.Time{}
 }
 
+func (rc *remoteClient) isResyncPending() bool {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	return rc.resyncPending
+}
+
+func (rc *remoteClient) setResyncPending(value bool) {
+	rc.mu.Lock()
+	defer rc.mu.Unlock()
+	rc.resyncPending = value
+}
+
 func (rc *remoteClient) increaseFailedConnAttempt() *time.Duration {
 	rc.mu.Lock()
 	defer rc.mu.Unlock()
@@ -347,6 +360,12 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 	configChanged := !equality.Semantic.DeepEqual(config, rc.config)
 	connected := rc.connState.isConnected()
 	if !configChanged && connected {
+		if rc.isResyncPending() {
+			if retryAfter := rc.requeueWorkloadsForCluster(watchCtx); retryAfter != nil {
+				return retryAfter, nil
+			}
+			rc.setResyncPending(false)
+		}
 		return nil, nil
 	}
 
@@ -425,19 +444,24 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		startWatcher()
 	}
 
-	if isReconnect {
-		rc.requeueWorkloadsForCluster(watchCtx)
+	if isReconnect || rc.isResyncPending() {
+		if retryAfter := rc.requeueWorkloadsForCluster(watchCtx); retryAfter != nil {
+			rc.setResyncPending(true)
+			return retryAfter, nil
+		}
+		rc.setResyncPending(false)
 	}
 
 	rc.resetFailedConnAttempt()
 	return nil, nil
 }
 
-func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) {
+func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) *time.Duration {
 	wls := &kueue.WorkloadList{}
 	if err := rc.localClient.List(ctx, wls); err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "listing manager workloads for resync after reconnect")
-		return
+		retryAfter := retryIncrement
+		return &retryAfter
 	}
 	for i := range wls.Items {
 		if ptr.Deref(wls.Items[i].Status.ClusterName, "") == rc.clusterName ||
@@ -445,6 +469,7 @@ func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) {
 			rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(&wls.Items[i]))
 		}
 	}
+	return nil
 }
 
 // cancelOnStopWatcher carries the establishment context's cancel func so it

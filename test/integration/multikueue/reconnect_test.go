@@ -132,11 +132,18 @@ var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", 
 			gomega.Expect(apimeta.FindStatusCondition(managerWl.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeNil())
 		})
 
+		ginkgo.By("waiting for the worker-loss fallback while disconnected", func() {
+			util.ExpectAdmissionCheckState(
+				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
+				f.multiKueueAC.Name, kueue.CheckStateRetry,
+			)
+		})
+
 		ginkgo.By("restoring connection to worker1", func() {
 			restoreConnectionToWorker1()
 		})
 
-		ginkgo.By("verifying manager workload receives Finished state after reconnect", func() {
+		ginkgo.By("verifying manager workload receives Finished state promptly after reconnect", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				managerWl := &kueue.Workload{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
@@ -146,7 +153,7 @@ var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", 
 					Reason:  kueue.WorkloadFinishedReasonSucceeded,
 					Message: finishJobReason,
 				}, util.IgnoreConditionTimestampsAndObservedGeneration))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, testingWorkerLostTimeout*2/3, util.Interval).Should(gomega.Succeed())
 		})
 	})
 })
