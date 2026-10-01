@@ -52,12 +52,6 @@ var (
 	// A Quantity holds at most MaxInt64 in magnitude in the unit it reports,
 	// and it reports CPU in cores, so this is that ceiling in milli.
 	maxCPUAmount = new(big.Int).Mul(maxQuantityInt, thousandInt)
-
-	// The largest values Quantity.Value and MilliValue can return without the
-	// overflow those methods document. A larger quantity stays on the decimal
-	// path, which keeps the exact amount or the Quantity cap.
-	maxInt64Quantity = *resource.NewQuantity(math.MaxInt64, resource.DecimalSI)
-	maxMilliQuantity = *resource.NewMilliQuantity(math.MaxInt64, resource.DecimalSI)
 )
 
 // maxQuantityDigits is how many decimal digits maxQuantityInt has.
@@ -89,43 +83,22 @@ func (a Amount) big() *big.Int {
 }
 
 // AmountFromQuantity converts q into the unit name is accounted in, milli for
-// CPU, capped at the magnitude AmountQuantity can report back. A value that
-// fits an int64 stays on that path. Past it, the decimal path keeps the exact
-// amount or the Quantity cap.
+// CPU, capped at the magnitude AmountQuantity can report back. A non-negative
+// quantity up to the limit stays on Value or MilliValue, which cannot overflow
+// there and round up as scaledBig does. Past it, and for a negative quantity,
+// the decimal path keeps the exact amount or the Quantity cap.
 func AmountFromQuantity(name corev1.ResourceName, q resource.Quantity) Amount {
-	if a, ok := amountWithinInt64(name, q); ok {
-		return a
+	limit := int64(math.MaxInt64)
+	if name == corev1.ResourceCPU {
+		limit = math.MaxInt64 / 1000
+	}
+	if q.Sign() >= 0 && q.CmpInt64(limit) <= 0 {
+		if name == corev1.ResourceCPU {
+			return NewAmount(q.MilliValue())
+		}
+		return NewAmount(q.Value())
 	}
 	return fromBig(scaledBig(name, q))
-}
-
-// amountWithinInt64 reports q in the unit name is accounted in when that
-// value fits an int64. Value and MilliValue round a positive remainder away
-// from zero the way scaledBig does. A negative quantity stays on the decimal
-// path: there, a negative remainder rounds toward +inf, and MilliValue
-// overflows to zero at the most negative int64 milli.
-func amountWithinInt64(name corev1.ResourceName, q resource.Quantity) (Amount, bool) {
-	if q.Sign() < 0 {
-		return Amount{}, false
-	}
-	var v int64
-	if name == corev1.ResourceCPU {
-		if q.Cmp(maxMilliQuantity) > 0 {
-			return Amount{}, false
-		}
-		v = q.MilliValue()
-	} else {
-		if q.Cmp(maxInt64Quantity) > 0 {
-			return Amount{}, false
-		}
-		v = q.Value()
-	}
-	// Either accessor overflows to zero for a non-zero quantity at the edge
-	// of int64, which would read as no resources at all.
-	if v == 0 && !q.IsZero() {
-		return Amount{}, false
-	}
-	return Amount{small: v}, true
 }
 
 // scaledBig returns the quantity in the unit the resource is accounted in,
