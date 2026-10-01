@@ -34,6 +34,8 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
+	kueuectlutil "sigs.k8s.io/kueue/cmd/kueuectl/app/util"
+
 )
 
 var (
@@ -117,7 +119,7 @@ func NewLocalQueueCmd(clientGetter clientgetter.ClientGetter, streams genericioo
 func (o *LocalQueueOptions) Complete(clientGetter clientgetter.ClientGetter) error {
 	var err error
 
-	o.Limit, err = listRequestLimit()
+	o.Limit, err = kueuectlutil.ListRequestLimit()
 	if err != nil {
 		return err
 	}
