@@ -1868,3 +1868,32 @@ func (w *ManagedJobsNamespaceSelectorWrapper) MatchExpressions(matchExpressions 
 func (w *ManagedJobsNamespaceSelectorWrapper) Obj() *metav1.LabelSelector {
 	return &w.selector
 }
+
+// MatchExpressionWrapper wraps a LabelSelectorRequirement.
+type MatchExpressionWrapper struct {
+	metav1.LabelSelectorRequirement
+}
+
+func MakeMatchExpression() *MatchExpressionWrapper {
+	return &MatchExpressionWrapper{}
+}
+
+func (w *MatchExpressionWrapper) Key(key string) *MatchExpressionWrapper {
+	w.LabelSelectorRequirement.Key = key
+	return w
+}
+
+func (w *MatchExpressionWrapper) Operator(operator metav1.LabelSelectorOperator) *MatchExpressionWrapper {
+	w.LabelSelectorRequirement.Operator = operator
+	return w
+}
+
+func (w *MatchExpressionWrapper) Values(values ...string) *MatchExpressionWrapper {
+	w.LabelSelectorRequirement.Values = values
+	return w
+}
+
+// Obj returns the built LabelSelectorRequirement.
+func (w *MatchExpressionWrapper) Obj() metav1.LabelSelectorRequirement {
+	return w.LabelSelectorRequirement
+}

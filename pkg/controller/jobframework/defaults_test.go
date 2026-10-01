@@ -45,11 +45,13 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
 	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
 	parent := utiltestingjob.MakeJob("parent", managedNamespace.Name).UID("parent").Queue("default").Obj()
-	ls := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(metav1.LabelSelectorRequirement{
-		Key:      corev1.LabelMetadataName,
-		Operator: metav1.LabelSelectorOpNotIn,
-		Values:   []string{unmanagedNamespace.Name},
-	}).Obj()
+	ls := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(
+		utiltestingapi.MakeMatchExpression().
+			Key(corev1.LabelMetadataName).
+			Operator(metav1.LabelSelectorOpNotIn).
+			Values(unmanagedNamespace.Name).
+			Obj(),
+	).Obj()
 	namespaceSelector, _ := metav1.LabelSelectorAsSelector(ls)
 
 	cases := map[string]struct {
@@ -243,11 +245,13 @@ func TestApplyDefaultLocalQueueWithManagedJobsNamespaceSelectorSkipsNamespaceRea
 func TestApplyDefaultLocalQueueWithManagedJobsNamespaceSelector(t *testing.T) {
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
 	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
-	ls := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(metav1.LabelSelectorRequirement{
-		Key:      corev1.LabelMetadataName,
-		Operator: metav1.LabelSelectorOpNotIn,
-		Values:   []string{unmanagedNamespace.Name},
-	}).Obj()
+	ls := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(
+		utiltestingapi.MakeMatchExpression().
+			Key(corev1.LabelMetadataName).
+			Operator(metav1.LabelSelectorOpNotIn).
+			Values(unmanagedNamespace.Name).
+			Obj(),
+	).Obj()
 	namespaceSelector, _ := metav1.LabelSelectorAsSelector(ls)
 
 	cases := map[string]struct {
@@ -368,11 +372,13 @@ func TestApplyDefaultWorkloadPriorityClassWithManagedJobsNamespaceSelector(t *te
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
 	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
 	parent := utiltestingjob.MakeJob("parent", managedNamespace.Name).UID("parent").Queue("default").Obj()
-	unmanagedNsSelector := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(metav1.LabelSelectorRequirement{
-		Key:      corev1.LabelMetadataName,
-		Operator: metav1.LabelSelectorOpNotIn,
-		Values:   []string{unmanagedNamespace.Name},
-	}).Obj()
+	unmanagedNsSelector := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(
+		utiltestingapi.MakeMatchExpression().
+			Key(corev1.LabelMetadataName).
+			Operator(metav1.LabelSelectorOpNotIn).
+			Values(unmanagedNamespace.Name).
+			Obj(),
+	).Obj()
 
 	defaultWPC := &kueue.WorkloadPriorityClass{
 		ObjectMeta: metav1.ObjectMeta{Name: constants.DefaultWorkloadPriorityClassName},
