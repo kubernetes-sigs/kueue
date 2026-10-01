@@ -17,6 +17,8 @@ limitations under the License.
 package baseline
 
 import (
+	"fmt"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -24,6 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -59,6 +62,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", ginkgo.Label(ut
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-flavor").
 						Resource(extraResource, "8").
+						Resource(corev1.ResourceCPU, "2").
 						Obj(),
 				).
 				Obj()
@@ -175,6 +179,90 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", ginkgo.Label(ut
 					"kind-worker4",
 				}
 				gomega.Expect(wantAssignment).Should(gomega.ConsistOf(gotAssignment))
+			})
+		})
+
+		ginkgo.It("Should spread multiple pod groups across blocks with topology spreading", func() {
+			// Every pod carries the spread-group label, which labelKeysToCopy
+			// copies onto each pod group's Workload, so workloadLabelSelectors
+			// spreads the 4 groups against each other. With a 0.5 per-block
+			// allowance they must end up 2 and 2; at 10m CPU all groups would
+			// otherwise fit in a single block.
+			const (
+				numGroups        = 4
+				podsPerGroup     = 2
+				spreadGroupLabel = "spread-group"
+				spreadGroupValue = "pod-group-topology-spreading"
+			)
+			spreadingAnnotation := fmt.Sprintf(
+				`{"workloadLabelSelectors":[{"key":%q,"operator":"In","values":[%q]}],`+
+					`"rules":[{"topologyKey":%q,"maxShareAllowingPlacement":"0.5","enforcementMode":"Required"}]}`,
+				spreadGroupLabel, spreadGroupValue, utiltesting.DefaultBlockTopologyLevel,
+			)
+
+			basePod := testingpod.MakePod("group", ns.Name).
+				Queue("test-queue").
+				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				RequestAndLimit(corev1.ResourceCPU, "10m").
+				Label(spreadGroupLabel, spreadGroupValue).
+				Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+				Annotation(kueue.PodSetTopologySpreadingAnnotation, spreadingAnnotation).
+				TerminationGracePeriod(1)
+
+			ginkgo.By("Creating 4 pod groups with 2 pods each", func() {
+				for i := range numGroups {
+					podGroup := basePod.Clone().Name(fmt.Sprintf("group-%d", i)).MakeGroup(podsPerGroup)
+					for _, pod := range podGroup {
+						util.MustCreate(ctx, k8sClient, pod)
+					}
+				}
+			})
+
+			pods := &corev1.PodList{}
+			ginkgo.By("Ensure all pods are scheduled", func() {
+				listOpts := &client.ListOptions{
+					FieldSelector: fields.OneTermNotEqualSelector("spec.nodeName", ""),
+				}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
+					g.Expect(pods.Items).Should(gomega.HaveLen(numGroups * podsPerGroup))
+				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify every pod group's Workload is labelled with the spread group", func() {
+				workloads := &kueue.WorkloadList{}
+				gomega.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				gomega.Expect(workloads.Items).To(gomega.HaveLen(numGroups))
+				for _, wl := range workloads.Items {
+					gomega.Expect(wl.Labels).To(gomega.HaveKeyWithValue(spreadGroupLabel, spreadGroupValue), "workload %s", wl.Name)
+				}
+			})
+
+			ginkgo.By("Verify each pod group lands in a single block, and each block holds exactly 2 of the 4 groups", func() {
+				blockOfNode := util.GetTopologyDomainByNode(ctx, k8sClient, utiltesting.DefaultBlockTopologyLevel)
+				blockByGroup := make(map[string]string, numGroups)
+				for _, pod := range pods.Items {
+					group := pod.Labels[podconstants.GroupNameLabel]
+					block, found := blockOfNode[pod.Spec.NodeName]
+					gomega.Expect(found).To(gomega.BeTrue(), "pod %s landed on unexpected node %s", pod.Name, pod.Spec.NodeName)
+					if existing, ok := blockByGroup[group]; ok {
+						gomega.Expect(block).To(gomega.Equal(existing),
+							"pod group %s has pods split across blocks %s and %s", group, existing, block)
+					} else {
+						blockByGroup[group] = block
+					}
+				}
+				gomega.Expect(blockByGroup).To(gomega.HaveLen(numGroups))
+
+				groupsPerBlock := make(map[string]int, 2)
+				for _, block := range blockByGroup {
+					groupsPerBlock[block]++
+				}
+				wantGroupsPerBlock := map[string]int{
+					"b1": 2,
+					"b2": 2,
+				}
+				gomega.Expect(groupsPerBlock).To(gomega.BeComparableTo(wantGroupsPerBlock))
 			})
 		})
 	})
