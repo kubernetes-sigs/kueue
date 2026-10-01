@@ -1458,9 +1458,9 @@ func (a *FlavorAssigner) fitsMaxCapacity(fr resources.FlavorResource, assumedUsa
 		"insufficient quota for %s in flavor %s, previously considered podsets requests (%s) + current podset request (%s) > maximum capacity (%s)",
 		fr.Resource,
 		fr.Flavor,
-		a.resourceFormatter.AmountQuantityString(fr.Resource, assumedUsage),
-		a.resourceFormatter.AmountQuantityString(fr.Resource, requestUsage),
-		a.resourceFormatter.AmountQuantityString(fr.Resource, maxCapacity),
+		a.resourceFormatter.ExactAmountString(fr.Resource, assumedUsage),
+		a.resourceFormatter.ExactAmountString(fr.Resource, requestUsage),
+		a.resourceFormatter.ExactAmountString(fr.Resource, maxCapacity),
 	)
 	return status
 }
@@ -1496,7 +1496,7 @@ func (a *FlavorAssigner) fitsResourceQuota(
 
 	// Preempt
 	status.appendf("insufficient unused quota for %s in flavor %s, %s more needed",
-		fr.Resource, fr.Flavor, a.resourceFormatter.AmountQuantityString(fr.Resource, val.Sub(available)))
+		fr.Resource, fr.Flavor, a.resourceFormatter.ExactAmountString(fr.Resource, val.Sub(available)))
 
 	if rQuota.Nominal.Cmp(val) >= 0 || mayReclaimInHierarchy || a.canPreemptWhileBorrowing() {
 		preemptionPossiblity, borrowAfterPreemptions := a.oracle.SimulatePreemption(ctx, a.cq, *a.wl, fr, val)
