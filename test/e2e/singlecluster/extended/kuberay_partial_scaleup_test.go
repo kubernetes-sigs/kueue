@@ -290,7 +290,7 @@ var _ = ginkgo.Describe("KubeRay partial replica scale-up", ginkgo.Label("area:s
 		// updated in place to carry the new target instead of a second probe being created.
 		probeKey := client.ObjectKeyFromObject(probe)
 		ginkgo.By("Scaling worker group 0 to 4 replicas while the probe is pending", func() {
-			util.SetRayClusterWorkerGroupReplicas(ctx, k8sClient, rayClusterKey, string(partialScaleUpWorkerGroup0), 4, false)
+			util.SetRayClusterWorkerGroupsReplicas(ctx, k8sClient, rayClusterKey, map[string]int32{string(partialScaleUpWorkerGroup0): 4}, false)
 		})
 
 		ginkgo.By("Updating the pending probe in place rather than adding another slice", func() {

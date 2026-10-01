@@ -134,7 +134,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		// up to the available quota (KEP wl-B).
 		// -------------------------------------------------------------------------------------
 		ginkgo.By("scaling the worker group to 10 replicas")
-		util.SetRayClusterWorkerReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), 10, false)
+		util.SetRayClusterWorkerGroupsReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), map[string]int32{workersGroupName: 10}, false)
 
 		ginkgo.By("a new workload slice replaces the admitted one, requesting the full 10 workers")
 		partialSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
@@ -172,7 +172,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		probeKey := client.ObjectKeyFromObject(probe)
 
 		ginkgo.By("scaling the worker group to 12 replicas while the probe is pending")
-		util.SetRayClusterWorkerReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), 12, false)
+		util.SetRayClusterWorkerGroupsReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), map[string]int32{workersGroupName: 12}, false)
 
 		ginkgo.By("the existing probe workload is updated in place to the full 12 workers")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -402,7 +402,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		// preemption and partial admission together: had the full request been satisfiable by
 		// preemption alone, the scheduler would have admitted it whole and never reduced it.
 		ginkgo.By("scaling the worker group to 10 replicas")
-		util.SetRayClusterWorkerReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), 10, false)
+		util.SetRayClusterWorkerGroupsReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), map[string]int32{workersGroupName: 10}, false)
 
 		ginkgo.By("the lower-priority workload is preempted")
 		util.ExpectWorkloadsToBePreempted(ctx, k8sClient, victim)
@@ -441,7 +441,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, workersGroupName, 5)
 
 		ginkgo.By("scaling to 10 workers, of which only 6 fit")
-		util.SetRayClusterWorkerReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), 10, false)
+		util.SetRayClusterWorkerGroupsReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), map[string]int32{workersGroupName: 10}, false)
 		partialSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
 		gomega.Expect(partialSlice.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(5))))
 		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 6)
@@ -514,7 +514,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, workersGroupName, 5)
 
 		ginkgo.By("scaling to 10 workers, of which only 6 fit")
-		util.SetRayClusterWorkerReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), 10, false)
+		util.SetRayClusterWorkerGroupsReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), map[string]int32{workersGroupName: 10}, false)
 		partialSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
 		gomega.Expect(partialSlice.Spec.PodSets[workersPodSetIdx].MinCount).Should(gomega.Equal(new(int32(5))))
 		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 6)
@@ -584,7 +584,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, workersGroupName, 5)
 
 		ginkgo.By("scaling to 10 workers, of which only 6 fit")
-		util.SetRayClusterWorkerReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), 10, false)
+		util.SetRayClusterWorkerGroupsReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), map[string]int32{workersGroupName: 10}, false)
 		partialSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
 		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 6)
 		expectPodsUsage(7)
@@ -654,7 +654,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, workersGroupName, 5)
 
 		ginkgo.By("scaling to 10 workers, of which only 6 fit")
-		util.SetRayClusterWorkerReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), 10, false)
+		util.SetRayClusterWorkerGroupsReplicas(ctx, k8sClient, client.ObjectKeyFromObject(testRayCluster), map[string]int32{workersGroupName: 10}, false)
 		partialSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
 		util.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 6)
 		expectPodsUsage(7)

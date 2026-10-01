@@ -169,64 +169,36 @@ func GetRayClusterWorkerPods(ctx context.Context, c client.Client, rayClusterKey
 	return filteredPods, nil
 }
 
-// SetRayClusterWorkerReplicas sets the first worker group's replica count on the RayCluster.
-// When pinFloor is true, MinReplicas is also raised to replicas to prevent the in-tree autoscaler
-// from scaling down below this value.
-func SetRayClusterWorkerReplicas(ctx context.Context, c client.Client, rayClusterKey client.ObjectKey, replicas int32, pinFloor bool) {
-	ginkgo.GinkgoHelper()
-	gomega.Eventually(func(g gomega.Gomega) {
-		rayCluster := &rayv1.RayCluster{}
-		g.Expect(c.Get(ctx, rayClusterKey, rayCluster)).To(gomega.Succeed())
-		g.Expect(rayCluster.Spec.WorkerGroupSpecs).NotTo(gomega.BeEmpty())
-		rayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(replicas)
-		if pinFloor {
-			rayCluster.Spec.WorkerGroupSpecs[0].MinReplicas = new(replicas)
-		}
-		g.Expect(c.Update(ctx, rayCluster)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed())
-}
-
 // SetRayClusterWorkerGroupsReplicas sets replica counts for the specified worker groups on the RayCluster.
 // When pinFloor is true, MinReplicas is also raised to replicas to prevent the in-tree autoscaler
 // from scaling down below this value.
+// An empty group name ("") targets the first worker group.
 func SetRayClusterWorkerGroupsReplicas(ctx context.Context, c client.Client, rayClusterKey client.ObjectKey, replicasByGroup map[string]int32, pinFloor bool) {
 	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		rayCluster := &rayv1.RayCluster{}
 		g.Expect(c.Get(ctx, rayClusterKey, rayCluster)).To(gomega.Succeed())
+		found := make(map[string]bool, len(replicasByGroup))
 		for i := range rayCluster.Spec.WorkerGroupSpecs {
-			groupName := rayCluster.Spec.WorkerGroupSpecs[i].GroupName
-			if rep, ok := replicasByGroup[groupName]; ok {
-				rayCluster.Spec.WorkerGroupSpecs[i].Replicas = new(rep)
+			spec := &rayCluster.Spec.WorkerGroupSpecs[i]
+			rep, ok := replicasByGroup[spec.GroupName]
+			if !ok && i == 0 {
+				rep, ok = replicasByGroup[""]
+			}
+			if ok {
+				spec.Replicas = new(rep)
 				if pinFloor {
-					rayCluster.Spec.WorkerGroupSpecs[i].MinReplicas = new(rep)
+					spec.MinReplicas = new(rep)
+				}
+				found[spec.GroupName] = true
+				if _, hasEmpty := replicasByGroup[""]; hasEmpty {
+					found[""] = true
 				}
 			}
 		}
-		g.Expect(c.Update(ctx, rayCluster)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed())
-}
-
-// SetRayClusterWorkerGroupReplicas sets a specific worker group's replica count on the RayCluster.
-// When pinFloor is true, MinReplicas is also raised to replicas to prevent the in-tree autoscaler
-// from scaling down below this value.
-func SetRayClusterWorkerGroupReplicas(ctx context.Context, c client.Client, rayClusterKey client.ObjectKey, groupName string, replicas int32, pinFloor bool) {
-	ginkgo.GinkgoHelper()
-	gomega.Eventually(func(g gomega.Gomega) {
-		rayCluster := &rayv1.RayCluster{}
-		g.Expect(c.Get(ctx, rayClusterKey, rayCluster)).To(gomega.Succeed())
-		found := false
-		for i := range rayCluster.Spec.WorkerGroupSpecs {
-			if rayCluster.Spec.WorkerGroupSpecs[i].GroupName == groupName {
-				rayCluster.Spec.WorkerGroupSpecs[i].Replicas = new(replicas)
-				if pinFloor {
-					rayCluster.Spec.WorkerGroupSpecs[i].MinReplicas = new(replicas)
-				}
-				found = true
-				break
-			}
+		for groupName := range replicasByGroup {
+			g.Expect(found[groupName]).To(gomega.BeTrue(), "worker group not found: "+groupName)
 		}
-		g.Expect(found).To(gomega.BeTrue(), "worker group not found: "+groupName)
 		g.Expect(c.Update(ctx, rayCluster)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
 }

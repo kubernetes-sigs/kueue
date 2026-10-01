@@ -758,15 +758,15 @@ func ExpectWorkloadResourceUsage(ctx context.Context, k8sClient client.Client, w
 
 // ClusterQueueResourceUsage returns the total resource usage across all flavors for the given resource.
 func ClusterQueueResourceUsage(cq *kueue.ClusterQueue, resourceName corev1.ResourceName) int64 {
-	var total int64
+	total := resource.Quantity{}
 	for _, fu := range cq.Status.FlavorsUsage {
 		for _, r := range fu.Resources {
 			if r.Name == resourceName {
-				total += r.Total.Value()
+				total.Add(r.Total)
 			}
 		}
 	}
-	return total
+	return total.Value()
 }
 
 // ExpectClusterQueueResourceUsage waits until the ClusterQueue reports the given resource usage.
