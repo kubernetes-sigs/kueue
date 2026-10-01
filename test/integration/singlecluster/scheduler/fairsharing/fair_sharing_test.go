@@ -533,6 +533,53 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		})
 	})
 
+	ginkgo.When("A ClusterQueue with a small weight borrows far more than its Cohort can lend", func() {
+		var cqA *kueue.ClusterQueue
+		ginkgo.BeforeEach(func() {
+			createCohort(utiltestingapi.MakeCohort("top-cohort").Obj())
+
+			cqA = createQueue(utiltestingapi.MakeClusterQueue("small-weight-cq-a-" + ns.Name).
+				Cohort("top-cohort").
+				FairWeight(resource.MustParse("2n")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "30000").Obj(),
+				).Obj())
+			createQueue(utiltestingapi.MakeClusterQueue("lending-cq-b-" + ns.Name).
+				Cohort("top-cohort").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "1m").Obj(),
+				).Obj())
+		})
+
+		// 30000 CPU borrowed against 1m lendable is 3e10 per thousand, and
+		// 3e10 / 2e-9 = 1.5e19 is past the int64 range.
+		ginkgo.It("should report the maximum weighted share once its nominal quota is withdrawn", func() {
+			ginkgo.By("Admitting a workload within the nominal quota of cqA")
+			wlA1 := createWorkloadWithPriority(cqA.Name, "30000", 100)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA1)
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdCqA := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqA), createdCqA)).Should(gomega.Succeed())
+				g.Expect(createdCqA.Status.FairSharing).Should(gomega.BeComparableTo(&kueue.FairSharingStatus{WeightedShare: 0}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Withdrawing the nominal quota of cqA while the workload stays admitted")
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdCqA := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqA), createdCqA)).Should(gomega.Succeed())
+				createdCqA.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("0")
+				g.Expect(k8sClient.Update(ctx, createdCqA)).Should(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Checking the weighted share of cqA")
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdCqA := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqA), createdCqA)).Should(gomega.Succeed())
+				g.Expect(createdCqA.Status.FairSharing).Should(gomega.BeComparableTo(&kueue.FairSharingStatus{WeightedShare: math.MaxInt64}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("RecomputeAssignmentUponPreemptionTargetsOverlap with multiple flavors", func() {
 		var (
 			cqHero *kueue.ClusterQueue
