@@ -2821,15 +2821,12 @@ func TestBuildPodRequirements(t *testing.T) {
 			if diff := cmp.Diff(wantPodSet, tc.podSet); diff != "" {
 				t.Errorf("buildPodRequirements() modified the PodSet (-want,+got):\n%s", diff)
 			}
+			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("unexpected error (-want,+got):\n%s", diff)
+			}
 			if tc.wantErr != nil {
-				if !errors.Is(gotErr, tc.wantErr) {
-					t.Errorf("buildPodRequirements() error = %v, want error wrapping %v", gotErr, tc.wantErr)
-				}
 				// The callers drop the PodRequirements that come with an error.
 				return
-			}
-			if gotErr != nil {
-				t.Errorf("buildPodRequirements() error = %v, want no error", gotErr)
 			}
 			wantPodRequirements := tc.wantPodRequirements
 			if tc.wantNodeAffinity != nil {
