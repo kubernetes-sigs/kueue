@@ -290,6 +290,7 @@ type PodSetResources struct {
 	// Requests incorporates the requests from all pods in the podset.
 	Requests resources.Requests
 	// PerPodRequests preserves the processed, unscaled requests derived from the PodSet.
+	// It is nil when the requests come from status.admission.
 	PerPodRequests resources.Requests
 	// Count indicates how many pods are in the podset.
 	Count int32
@@ -346,7 +347,12 @@ func (p *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 	}
 
 	if p.Count != 0 && p.Count != newCount {
-		if ret.Requests != nil {
+		switch {
+		case p.PerPodRequests != nil:
+			// The total over all Pods may have saturated, so a pending PodSet
+			// is rebuilt from its per-Pod request rather than divided down.
+			ret.Requests = p.PerPodRequests.ScaledUp(int64(newCount))
+		case ret.Requests != nil:
 			ret.Requests.Divide(int64(ret.Count))
 			ret.Requests.Mul(int64(newCount))
 		}
@@ -418,7 +424,9 @@ func sameHashedRequests(prev, current []PodSetResources) bool {
 		return false
 	}
 	for i := range prev {
-		if prev[i].Count != current[i].Count || !resources.Equal(prev[i].Requests, current[i].Requests) {
+		if prev[i].Count != current[i].Count ||
+			!resources.Equal(prev[i].Requests, current[i].Requests) ||
+			!resources.Equal(prev[i].PerPodRequests, current[i].PerPodRequests) {
 			return false
 		}
 	}
@@ -450,7 +458,8 @@ func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
 
 // computeSchedulingHash returns a deterministic hash of the workload's
 // scheduling-relevant shape: effective workload priority, pod spec (via
-// SpecShape), effective count, minCount, and topologyRequest per PodSet.
+// SpecShape), effective count, total and per-Pod requests, minCount, and
+// topologyRequest per PodSet.
 func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []PodSetResources) EquivalenceHash {
 	if !features.Enabled(features.SchedulingEquivalenceHashing) {
 		return SchedulingHashUnknown
@@ -459,15 +468,17 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	podSetShapes := make([]map[string]any, 0, len(wl.Spec.PodSets))
 	for i, ps := range wl.Spec.PodSets {
 		effectiveCount := ps.Count
-		var effectiveRequests resources.Requests
+		var effectiveRequests, perPodRequests resources.Requests
 		if i < len(totalRequests) {
 			effectiveCount = totalRequests[i].Count
 			effectiveRequests = totalRequests[i].Requests
+			perPodRequests = totalRequests[i].PerPodRequests
 		}
 		podSetShape := map[string]any{
 			"spec":            utilpod.SpecShape(&ps.Template.Spec),
 			"count":           effectiveCount,
 			"requests":        resources.ToMap(effectiveRequests),
+			"perPodRequests":  resources.ToMap(perPodRequests),
 			"minCount":        ps.MinCount,
 			"topologyRequest": ps.TopologyRequest,
 		}
