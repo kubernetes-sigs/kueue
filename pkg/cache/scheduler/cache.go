@@ -851,6 +851,30 @@ func (c *Cache) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kue
 	return updated
 }
 
+// UpdateWorkloadIfUnchanged replaces the cached workload only if the cache holds it with the same resourceVersion as w.
+// It returns false, leaving the cache untouched, if the workload is not cached or the cache holds another version.
+func (c *Cache) UpdateWorkloadIfUnchanged(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) bool {
+	c.Lock()
+	defer c.Unlock()
+	wlKey := workload.Key(w)
+	cqName, assigned := c.workloadAssignedQueues[wlKey]
+	if !assigned {
+		return false
+	}
+	cq := c.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return false
+	}
+	if cached, found := cq.Workloads[wlKey]; !found || cached.Obj.ResourceVersion != w.ResourceVersion {
+		return false
+	}
+	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
+	if err != nil {
+		log.Error(err, "Updating workload in cache")
+	}
+	return updated
+}
+
 func (c *Cache) addOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Logger, wl *kueue.Workload, opts ...workload.InfoOption) (bool, error) {
 	if c.concurrentAdmissionEnabledForWithoutLock(wl) && !concurrentadmission.IsVariant(wl) {
 		return false, nil

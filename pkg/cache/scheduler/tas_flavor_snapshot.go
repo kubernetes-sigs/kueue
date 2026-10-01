@@ -1068,8 +1068,8 @@ func (s *TASFlavorSnapshot) replacementIgnoreNodes(
 	}
 
 	// A node can fail after this replacement attempt was queued. Treat any other
-	// missing node-level domain as pending replacement; the admission patch
-	// preserves failures added after the recorded head.
+	// missing node-level domain as pending replacement; a later pass picks it up
+	// once the failure is recorded on the Workload.
 	for _, domain := range existingAssignment.Domains {
 		if _, found := s.leaves[utiltas.DomainID(domain.Values)]; !found {
 			ignoreNodes.Insert(domain.Values[len(domain.Values)-1])
