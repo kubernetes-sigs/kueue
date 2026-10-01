@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/cmd/kueuectl/app/list"
+	kueuectlutil "sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
@@ -45,7 +45,7 @@ var _ = ginkgo.Describe("Kueuectl List", func() {
 
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		os.Unsetenv(list.KueuectlListRequestLimitEnvName)
+		os.Unsetenv(kueuectlutil.KueuectlListRequestLimitEnvName)
 	})
 
 	ginkgo.When("List LocalQueue", func() {
@@ -118,7 +118,7 @@ lq2    very-long-cluster-queue-name   0                   0                    f
 		// Simple client set that are using on unit tests not allow paging.
 		ginkgo.It("Should print local queues list with paging", func() {
 			executeTime := time.Now()
-			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
+			os.Setenv(kueuectlutil.KueuectlListRequestLimitEnvName, "1")
 			output, errOutput := executeKueuectl(cfg, []string{"list", "localqueue", "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(executeTime)))
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 
@@ -216,7 +216,7 @@ cq1             0                   0                    true     %s
 		// Simple client set that are using on unit tests not allow paging.
 		ginkgo.It("Should print cluster queues list with paging", func() {
 			executeTime := time.Now()
-			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
+			os.Setenv(kueuectlutil.KueuectlListRequestLimitEnvName, "1")
 			output, errOutput := executeKueuectl(cfg, []string{"list", "clusterqueue"}, withClock(testingclock.NewFakeClock(executeTime)))
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                           COHORT   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
@@ -262,7 +262,7 @@ wl1                          lq1                         PENDING                
 		// Simple client set that are using on unit tests not allow paging.
 		ginkgo.It("Should print workloads list with paging", func() {
 			executeTime := time.Now()
-			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
+			os.Setenv(kueuectlutil.KueuectlListRequestLimitEnvName, "1")
 			output, errOutput := executeKueuectl(cfg, []string{"list", "workload", "--namespace", ns.Name}, withClock(testingclock.NewFakeClock(executeTime)))
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).
@@ -374,7 +374,7 @@ rf1                  %s
 		// Simple client set that are using on unit tests not allow paging.
 		ginkgo.It("Should print resource flavor list with paging", func() {
 			executeTime := time.Now()
-			os.Setenv(list.KueuectlListRequestLimitEnvName, "1")
+			os.Setenv(kueuectlutil.KueuectlListRequestLimitEnvName, "1")
 			output, errOutput := executeKueuectl(cfg, []string{"list", "resourceflavor"}, withClock(testingclock.NewFakeClock(executeTime)))
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                             NODE LABELS   AGE
