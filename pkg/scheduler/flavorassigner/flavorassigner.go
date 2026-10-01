@@ -924,12 +924,10 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 			psAssignment.reason(failure.Reason)
 			mode := Preempt
 			if unhealthyReplacement {
-				// This workload is already looking for a replacement for one
-				// of its failed nodes. That is a targeted repair, not a
-				// capacity problem, so a placement miss must leave it
-				// pending instead of triggering a preemption search. Forcing
-				// NoFit here (never Preempt) also means the Preempt branch
-				// below never re-runs this exact same non-simulated search.
+				// A node replacement miss must leave the workload pending,
+				// not trigger a preemption search. Forcing NoFit here (never
+				// Preempt) also means the Preempt branch below never re-runs
+				// this exact same non-simulated search.
 				mode = NoFit
 				if features.Enabled(features.UnadmittedWorkloadsObservability) {
 					psAssignment.markFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
@@ -946,18 +944,12 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 		return
 	}
 	if unhealthyReplacement {
-		// Reaching here with mode still Preempt means the Fit branch above
-		// never ran (it only forces NoFit, never leaves Preempt, for an
-		// unhealthy-node replacement) - so this is a fresh entry already in
-		// Preempt, from ordinary ClusterQueue quota pressure on an
-		// already-admitted workload. This workload is already looking for a
-		// replacement for one of its failed nodes. That is a targeted
-		// repair, not a capacity problem, so it must not trigger preemption
-		// of unrelated workloads just to make room. Only look at capacity
-		// that's genuinely free right now (no simulated preemption): if
-		// that's not enough, this workload isn't placeable yet and has to
-		// stay pending rather than being pushed through with no topology
-		// assignment at all.
+		// Mode is Preempt here from ordinary ClusterQueue quota pressure on
+		// an already-admitted workload, not from the Fit branch above (which
+		// only ever leaves this case as NoFit). A node replacement must not
+		// preempt unrelated workloads to make room, so search only genuinely
+		// free capacity (no simulated preemption); if that's not enough,
+		// leave it pending.
 		result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(a.wl))
 		if failure := result.Failure(); failure != nil {
 			psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
@@ -967,22 +959,10 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 			assignment.updateMode(failure.PodSetName, NoFit)
 		} else {
 			assignment.UpdateForTASResult(log, a.cq, a.wl, result)
-			// Every PodSet just got a genuine, non-simulated TAS placement,
-			// but mode is Preempt here because ordinary ClusterQueue quota
-			// also demands it - not because of anything TAS-specific. This
-			// whole branch exists so a failed-node replacement never
-			// preempts an unrelated workload to get room; a successful
-			// placement doesn't change that. Force NoFit so processEntry
-			// doesn't run issuePreemptions on the back of a placement that
-			// only "fit" topologically while quota still says otherwise.
+			// Mode is still Preempt from ordinary quota pressure, not TAS -
+			// force NoFit so processEntry doesn't preempt anyone over a
+			// placement that only fits topologically.
 			if features.Enabled(features.UnadmittedWorkloadsObservability) {
-				// markFlavorAttempt records a granular reason for the
-				// QuotaReserved condition. Skipping this when the gate is on
-				// leaves that reason empty - and unlike the fallback used
-				// when the gate is off (see UnadmittedWorkloadReasonWithFallback),
-				// an empty reason isn't replaced with anything, so the
-				// condition update would be rejected the same way the
-				// free-text reason earlier in this fix was.
 				for flavor, reqs := range tasRequests {
 					for _, req := range reqs {
 						if psAssignment := assignment.podSetAssignmentByName(req.PodSet.Name); psAssignment != nil {
@@ -993,13 +973,9 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 			}
 			assignment.updateModeForTASRequests(tasRequests, NoFit)
 		}
-		// A result with neither a Failure nor an assignment for a PodSet is
-		// possible when there's simply no free capacity to place it in at
-		// all (as opposed to considering some and rejecting it), so
-		// Failure() alone isn't a reliable signal here. Check explicitly:
-		// this is the one path in this function that deliberately doesn't
-		// fall back to simulating preemption on a miss, so it must not
-		// leave a PodSet half-assigned.
+		// Failure() alone isn't reliable here: no free capacity can leave a
+		// PodSet with neither a failure nor an assignment. Check explicitly
+		// so none is left half-assigned.
 		for flavor, reqs := range tasRequests {
 			for _, req := range reqs {
 				if psAssignment := assignment.podSetAssignmentByName(req.PodSet.Name); psAssignment != nil && psAssignment.TopologyAssignment == nil {
