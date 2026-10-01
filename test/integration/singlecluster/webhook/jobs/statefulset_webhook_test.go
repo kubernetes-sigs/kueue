@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -113,6 +114,36 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 					gomega.MatchError(gomega.ContainSubstring("must not contain more than one topology annotation")),
 				))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should allow updating a ready StatefulSet created before the default WorkloadPriorityClass", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadPriorityClassDefaulting, true)
+
+			sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Obj()
+			util.MustCreate(ctx, k8sClient, sts)
+
+			ginkgo.By("Marking the StatefulSet as ready")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
+				sts.Status.Replicas = 1
+				sts.Status.ReadyReplicas = 1
+				g.Expect(k8sClient.Status().Update(ctx, sts)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating the default WorkloadPriorityClass")
+			defaultWPC := utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
+			util.MustCreate(ctx, k8sClient, defaultWPC)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultWPC, true)
+			})
+
+			ginkgo.By("Updating the StatefulSet")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
+				metav1.SetMetaDataAnnotation(&sts.ObjectMeta, "example.com/touched", "true")
+				g.Expect(k8sClient.Update(ctx, sts)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			gomega.Expect(sts.Labels).NotTo(gomega.HaveKey(constants.WorkloadPriorityClassLabel))
 		})
 
 		// Regression test for GC teardown deadlock:
