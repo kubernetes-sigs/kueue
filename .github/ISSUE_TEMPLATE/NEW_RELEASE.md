@@ -38,6 +38,7 @@ Please do not remove items from the checklist
   - [ ] Use `/wait-for-prod-images` to verify that the promoted images are available.
 - [ ] Use `/publish-release` to publish the release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- RELEASE_LINK --> <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
+- [ ] For the latest published release, run ChatOps command `/update-krew-index` on this issue to submit the krew plugin release.
 - [ ] Update the `main` branch :
   - [ ] Run `./hack/releasing/prepare_pull.sh --target main $VERSION` locally.
         *Note: The script automatically detects if a newer version is already out and skips version updates if so. Specifying `--skip-version-updates` is not necessary in a default workflow.*
