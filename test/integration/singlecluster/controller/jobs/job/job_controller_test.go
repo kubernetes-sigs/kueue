@@ -2484,6 +2484,48 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 			})
 		})
+
+		ginkgo.It("should bring the workload back to the class value after the class is changed and changed back", func() {
+			job := testingjob.MakeJob(jobName, ns.Name).
+				WorkloadPriorityClass(dynamicWorkloadPriorityClass.Name).
+				Queue(kueue.LocalQueueName(devLocalQ.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			ginkgo.By("creating the Job", func() {
+				behavioral.MustCreate(ctx, k8sClient, job)
+			})
+
+			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+			ginkgo.By("checking that the workload takes the class value", func() {
+				behavioral.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, dynamicWorkloadPriorityClass.Name, highPrio, wlLookupKey)
+			})
+
+			ginkgo.By("changing the class value to low", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					wpc := &kueue.WorkloadPriorityClass{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dynamicWorkloadPriorityClass), wpc)).Should(gomega.Succeed())
+					wpc.Value = lowPrio
+					g.Expect(k8sClient.Update(ctx, wpc)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking that the workload follows the class", func() {
+				behavioral.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, dynamicWorkloadPriorityClass.Name, lowPrio, wlLookupKey)
+			})
+
+			ginkgo.By("changing the class value back to high", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					wpc := &kueue.WorkloadPriorityClass{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dynamicWorkloadPriorityClass), wpc)).Should(gomega.Succeed())
+					wpc.Value = highPrio
+					g.Expect(k8sClient.Update(ctx, wpc)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking that the workload is back at the class value", func() {
+				behavioral.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, dynamicWorkloadPriorityClass.Name, highPrio, wlLookupKey)
+			})
+		})
 	})
 
 	ginkgo.When("Re-create a WorkloadPriorityClass", func() {
