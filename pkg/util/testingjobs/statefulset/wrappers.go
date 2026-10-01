@@ -264,6 +264,12 @@ func (ss *StatefulSetWrapper) TerminationGracePeriod(seconds int64) *StatefulSet
 	return ss
 }
 
+// ReadinessProbe sets the readiness probe of the default container.
+func (ss *StatefulSetWrapper) ReadinessProbe(probe *corev1.Probe) *StatefulSetWrapper {
+	ss.Spec.Template.Spec.Containers[0].ReadinessProbe = probe
+	return ss
+}
+
 // WorkloadPriorityClass sets workloadpriorityclass.
 func (ss *StatefulSetWrapper) WorkloadPriorityClass(wpc string) *StatefulSetWrapper {
 	return ss.Label(controllerconstants.WorkloadPriorityClassLabel, wpc)

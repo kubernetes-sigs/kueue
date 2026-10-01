@@ -95,6 +95,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: ElasticJobsViaWorkloadSlicesFlavorChangeFromZero
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: ElasticJobsViaWorkloadSlicesForProvisioningRequests
   versionedSpecs:
   - default: false
@@ -277,6 +283,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.21"
 - name: MetricsForCohorts
   versionedSpecs:
   - default: true
@@ -506,6 +516,12 @@
   - default: true
     lockToDefault: false
     preRelease: Beta
+    version: "0.20"
+- name: SkipChildJobSuspension
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
     version: "0.20"
 - name: SkipReassignmentForPodOwnedWorkloads
   versionedSpecs:

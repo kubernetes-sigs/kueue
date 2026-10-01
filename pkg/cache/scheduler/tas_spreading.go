@@ -114,24 +114,24 @@ func (s *TASFlavorSnapshot) bannedBySpreading(d *domain, rules map[int]utiltas.S
 	return false
 }
 
-// filterOutBannedDomains drops the domains banned by a Required rule - a hard
-// "never this domain for this Workload" removal, not a signal to try a
-// coarser level. Callers must handle an empty result: if spreading leaves
-// nothing, the Workload waits rather than violating the rule.
-func (s *TASFlavorSnapshot) filterOutBannedDomains(domains []*domain, rules map[int]utiltas.SpreadingRule) []*domain {
+// filterOutBannedDomains splits domains into the ones a Required rule allows
+// and the ones it bans - a hard "never this domain for this Workload" removal,
+// not a signal to try a coarser level. Callers must handle an empty allowed
+// result: if spreading leaves nothing, the Workload waits rather than violating
+// the rule.
+func (s *TASFlavorSnapshot) filterOutBannedDomains(domains []*domain, rules map[int]utiltas.SpreadingRule) (allowed, banned []*domain) {
 	if len(rules) == 0 {
-		return domains
+		return domains, nil
 	}
-	result := make([]*domain, 0, len(domains))
+	allowed = make([]*domain, 0, len(domains))
 	for _, d := range domains {
-		if !s.bannedBySpreading(d, rules) {
-			result = append(result, d)
+		if s.bannedBySpreading(d, rules) {
+			banned = append(banned, d)
+		} else {
+			allowed = append(allowed, d)
 		}
 	}
-	if len(result) == 0 && len(domains) > 0 {
-		s.log.V(4).Info("Topology spreading excluded every candidate domain", "topology", s.topologyName, "excludedDomains", len(domains))
-	}
-	return result
+	return allowed, banned
 }
 
 // spreadTier ranks ds's domain by topology-spreading usage, low to high:

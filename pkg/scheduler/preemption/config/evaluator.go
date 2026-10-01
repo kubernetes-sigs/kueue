@@ -103,6 +103,7 @@ func (p *PreemptionEvaluator) HasRules() bool {
 // FindCandidates evaluates candidates across applicable PreemptionConfig
 // triggers and yields them.
 // Returns (interrupted = true) if at any point the yield method returns false.
+// An evaluation error is logged and stops evaluation of subsequent triggers.
 //
 // Triggers are applied as a fallback in the order the API defines them: the Always
 // trigger first, as a baseline, then InsufficientQuota while the quota is not sufficient,
@@ -125,11 +126,11 @@ func (p *PreemptionEvaluator) FindCandidates(
 		return
 	}
 
-	if iterateOverCandidates(
-		snapshot,
-		p.orderedCandidates(snapshot, preemptor, frsNeedPreemption, kueuealpha.Always),
-		yield,
-	) {
+	candidates, err := p.orderedCandidates(snapshot, preemptor, frsNeedPreemption, kueuealpha.Always)
+	if err != nil {
+		return
+	}
+	if iterateOverCandidates(snapshot, candidates, yield) {
 		return true
 	}
 
@@ -139,23 +140,27 @@ func (p *PreemptionEvaluator) FindCandidates(
 		return
 	}
 
-	if !workloadQuotaFits() && iterateOverCandidates(
-		snapshot,
-		p.orderedCandidates(snapshot, preemptor, frsNeedPreemption, kueuealpha.InsufficientQuota),
-		yield,
-	) {
-		return true
+	if !workloadQuotaFits() {
+		candidates, err = p.orderedCandidates(snapshot, preemptor, frsNeedPreemption, kueuealpha.InsufficientQuota)
+		if err != nil {
+			return
+		}
+		if iterateOverCandidates(snapshot, candidates, yield) {
+			return true
+		}
 	}
 
 	// The topology trigger requires a feasible quota, so it is only applied once
 	// the quota fits while the workload still doesn't fit (meaning topology is
 	// what keeps the workload out).
-	if workloadQuotaFits() && iterateOverCandidates(
-		snapshot,
-		p.orderedCandidates(snapshot, preemptor, frsNeedPreemption, kueuealpha.QuotaFeasibleAndInsufficientTopology),
-		yield,
-	) {
-		return true
+	if workloadQuotaFits() {
+		candidates, err = p.orderedCandidates(snapshot, preemptor, frsNeedPreemption, kueuealpha.QuotaFeasibleAndInsufficientTopology)
+		if err != nil {
+			return
+		}
+		if iterateOverCandidates(snapshot, candidates, yield) {
+			return true
+		}
 	}
 
 	return
@@ -215,21 +220,22 @@ type configurableCandidate struct {
 // preferred one.
 // Only the candidates still admitted in the snapshot are returned, so a trigger
 // evaluated after some workloads have been preempted never returns those again.
+// Returns an error if a matching rule cannot be evaluated.
 func (p *PreemptionEvaluator) orderedCandidates(
 	snapshot *schdcache.Snapshot,
 	preemptor *workload.Info,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
 	trigger kueuealpha.PreemptionConfigActivationTrigger,
-) []*configurableCandidate {
+) ([]*configurableCandidate, error) {
 	candidates, err := p.candidatesFor(snapshot, preemptor, frsNeedPreemption, trigger)
 	if err != nil {
 		p.log.Error(err, "Failed to get candidates for preemption", "trigger", trigger)
-		return nil
+		return nil, err
 	}
 	slices.SortFunc(candidates, func(a, b *configurableCandidate) int {
 		return p.candidatesOrdering(a.WlInfo, b.WlInfo)
 	})
-	return candidates
+	return candidates, nil
 }
 
 // candidatesFor returns the workloads selected as preemption candidates by the rules of the

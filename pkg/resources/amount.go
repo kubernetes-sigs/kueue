@@ -83,8 +83,21 @@ func (a Amount) big() *big.Int {
 }
 
 // AmountFromQuantity converts q into the unit name is accounted in, milli for
-// CPU, capped at the magnitude AmountQuantity can report back.
+// CPU, capped at the magnitude AmountQuantity can report back. A non-negative
+// quantity up to the limit stays on Value or MilliValue, which cannot overflow
+// there and round up as scaledBig does. Past it, and for a negative quantity,
+// the decimal path keeps the exact amount or the Quantity cap.
 func AmountFromQuantity(name corev1.ResourceName, q resource.Quantity) Amount {
+	limit := int64(math.MaxInt64)
+	if name == corev1.ResourceCPU {
+		limit = math.MaxInt64 / 1000
+	}
+	if q.Sign() >= 0 && q.CmpInt64(limit) <= 0 {
+		if name == corev1.ResourceCPU {
+			return NewAmount(q.MilliValue())
+		}
+		return NewAmount(q.Value())
+	}
 	return fromBig(scaledBig(name, q))
 }
 

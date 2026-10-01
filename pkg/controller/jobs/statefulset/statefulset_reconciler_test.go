@@ -198,7 +198,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"statefulset with update revision": {
+		"statefulset with update revision keeps gates on pods of both revisions": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -238,6 +238,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					Gate(podconstants.SchedulingGateName).
 					KueueFinalizer().
 					Obj(),
 				*testingjobspod.MakePod("pod2", "ns").
@@ -1251,9 +1252,10 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 				*testingjobspod.MakePod("pod3", "ns").
 					OwnerReferenceWithUID("sts", gvk, "sts-uid").
-					Queue("old-queue").
+					Queue("new-queue").
 					GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
 					Label(appsv1.ControllerRevisionHashLabelKey, "1").
+					Gate(podconstants.SchedulingGateName).
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
@@ -1513,14 +1515,11 @@ func TestReconcileDoesNotCancelTheWorkloadBranch(t *testing.T) {
 		UID("sts-uid").
 		Queue("lq").
 		WorkloadPriorityClass("wpc").
-		CurrentRevision("1").
-		UpdateRevision("2").
 		Obj()
 	pod := testingjobspod.MakePod("pod1", "ns").
 		OwnerReferenceWithUID("sts", gvk, "sts-uid").
 		GroupNameLabel(GetWorkloadName("sts-uid", "sts")).
-		Label(appsv1.ControllerRevisionHashLabelKey, "1").
-		Queue("lq").
+		Queue("old-lq").
 		Gate(podconstants.SchedulingGateName).
 		KueueFinalizer().
 		Obj()
