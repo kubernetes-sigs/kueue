@@ -116,34 +116,31 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.DescribeTable("Should apply the default WorkloadPriorityClass on update only when the label can be set",
-			func(hasLabel, ready, wantLabel bool) {
+		ginkgo.When("The default WorkloadPriorityClass is created after the StatefulSet", func() {
+			ginkgo.BeforeEach(func() {
 				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadPriorityClassDefaulting, true)
+			})
 
-				stsWrapper := testingstatefulset.MakeStatefulSet("sts", ns.Name)
-				if hasLabel {
-					stsWrapper.Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName)
-				}
-				sts := stsWrapper.Obj()
-				util.MustCreate(ctx, k8sClient, sts)
+			markReady := func(sts *appsv1.StatefulSet) {
+				ginkgo.By("Marking the StatefulSet as ready")
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
+					sts.Status.Replicas = 1
+					sts.Status.ReadyReplicas = 1
+					g.Expect(k8sClient.Status().Update(ctx, sts)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}
 
-				if ready {
-					ginkgo.By("Marking the StatefulSet as ready")
-					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
-						sts.Status.Replicas = 1
-						sts.Status.ReadyReplicas = 1
-						g.Expect(k8sClient.Status().Update(ctx, sts)).To(gomega.Succeed())
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				}
-
+			createDefaultWPC := func() {
 				ginkgo.By("Creating the default WorkloadPriorityClass")
 				defaultWPC := utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
 				util.MustCreate(ctx, k8sClient, defaultWPC)
 				ginkgo.DeferCleanup(func() {
 					util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultWPC, true)
 				})
+			}
 
+			updateWithoutPriorityClassLabel := func(sts *appsv1.StatefulSet) {
 				ginkgo.By("Updating the StatefulSet without the priority class label")
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
@@ -151,16 +148,39 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 					metav1.SetMetaDataAnnotation(&sts.ObjectMeta, "example.com/touched", "true")
 					g.Expect(k8sClient.Update(ctx, sts)).To(gomega.Succeed())
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				if wantLabel {
-					gomega.Expect(sts.Labels).To(gomega.HaveKeyWithValue(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName))
-				} else {
-					gomega.Expect(sts.Labels).NotTo(gomega.HaveKey(constants.WorkloadPriorityClassLabel))
-				}
-			},
-			ginkgo.Entry("ready StatefulSet without the label is not labeled", false, true, false),
-			ginkgo.Entry("not ready StatefulSet without the label is labeled", false, false, true),
-			ginkgo.Entry("ready StatefulSet whose update drops the label is labeled again", true, true, true),
-		)
+			}
+
+			ginkgo.It("Should not add the label to a ready StatefulSet that does not have it", func() {
+				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Obj()
+				util.MustCreate(ctx, k8sClient, sts)
+				markReady(sts)
+				createDefaultWPC()
+
+				updateWithoutPriorityClassLabel(sts)
+				gomega.Expect(sts.Labels).NotTo(gomega.HaveKey(constants.WorkloadPriorityClassLabel))
+			})
+
+			ginkgo.It("Should add the label to a not ready StatefulSet that does not have it", func() {
+				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Obj()
+				util.MustCreate(ctx, k8sClient, sts)
+				createDefaultWPC()
+
+				updateWithoutPriorityClassLabel(sts)
+				gomega.Expect(sts.Labels).To(gomega.HaveKeyWithValue(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName))
+			})
+
+			ginkgo.It("Should add the label back to a ready StatefulSet whose update drops it", func() {
+				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).
+					Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
+					Obj()
+				util.MustCreate(ctx, k8sClient, sts)
+				markReady(sts)
+				createDefaultWPC()
+
+				updateWithoutPriorityClassLabel(sts)
+				gomega.Expect(sts.Labels).To(gomega.HaveKeyWithValue(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName))
+			})
+		})
 
 		// Regression test for GC teardown deadlock:
 		// When foreground and background deletion are mixed in the same ownership chain,
