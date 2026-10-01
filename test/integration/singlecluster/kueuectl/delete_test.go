@@ -27,6 +27,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -64,6 +65,39 @@ var _ = ginkgo.Describe("Kueuectl Delete", func() {
 
 			ginkgo.By("Verify the workload is removed from the cluster", func() {
 				util.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+			})
+		})
+
+		ginkgo.It("Should delete the owner Job without orphaning its dependents", func() {
+			jobGVK := schema.GroupVersionKind{Group: "batch", Version: "v1", Kind: "Job"}
+			job := testingjob.MakeJob("job-owner", ns.Name).Obj()
+
+			ginkgo.By("Create a Job", func() {
+				util.MustCreate(ctx, k8sClient, job)
+			})
+
+			wl := utiltestingapi.MakeWorkload("wl-owned", ns.Name).OwnerReference(jobGVK, job.Name, string(job.UID)).Obj()
+
+			ginkgo.By("Create a workload owned by the Job", func() {
+				util.MustCreate(ctx, k8sClient, wl)
+			})
+
+			ginkgo.By("Run kueuectl delete workload with --yes", func() {
+				streams, _, output, _ := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl.SetOut(output)
+				kueuectl.SetErr(output)
+
+				kueuectl.SetArgs([]string{"delete", "workload", wl.Name, "--namespace", ns.Name, "--yes"})
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			})
+
+			ginkgo.By("Verify the Job is removed from the cluster", func() {
+				// envtest runs no garbage collector, so an orphaning delete would leave
+				// the Job stuck with the orphan finalizer instead of removing it.
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, job, false)
 			})
 		})
 
