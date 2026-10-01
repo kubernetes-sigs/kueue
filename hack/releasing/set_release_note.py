@@ -41,7 +41,7 @@ def _match_fence(line: str) -> re.Match[str] | None:
 def parse_release_note(comment: str) -> str:
     """Parse and validate the release note from a ChatOps comment."""
     lines = comment.replace("\r\n", "\n").splitlines()
-    if not lines or lines[0] != COMMAND:
+    if not lines or lines[0].rstrip() != COMMAND:
         raise ValueError(f"{COMMAND} must be the first line of the comment.")
 
     release_note = "\n".join(lines[1:]).strip()
