@@ -280,27 +280,62 @@ var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs 
 		}, util.Timeout, util.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("Should suspend a cluster if the parent's workload does not exist or is not admitted", func() {
-		ginkgo.By("Creating the parent job which has a queue name")
-		parentJob := testingrayjob.MakeJob("parent-job", ns.Name).
-			Queue("test").
-			Suspend(false).
-			Obj()
-		util.MustCreate(ctx, k8sClient, parentJob)
+	ginkgo.When("SkipChildJobSuspension feature gate is disabled", func() {
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SkipChildJobSuspension, false)
+		})
 
-		ginkgo.By("Creating the child cluster.")
-		childCluster := testingraycluster.MakeCluster(jobName, ns.Name).
-			Suspend(false).
-			Obj()
-		gomega.Expect(ctrl.SetControllerReference(parentJob, childCluster, k8sClient.Scheme())).To(gomega.Succeed())
-		util.MustCreate(ctx, k8sClient, childCluster)
+		ginkgo.It("Should suspend a cluster if the parent's workload does not exist or is not admitted", func() {
+			ginkgo.By("Creating the parent job which has a queue name")
+			parentJob := testingrayjob.MakeJob("parent-job", ns.Name).
+				Queue("test").
+				Suspend(false).
+				Obj()
+			util.MustCreate(ctx, k8sClient, parentJob)
 
-		childClusterKey := client.ObjectKeyFromObject(childCluster)
-		ginkgo.By("checking that the child cluster is suspended")
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, childClusterKey, childCluster)).Should(gomega.Succeed())
-			g.Expect(childCluster.Spec.Suspend).Should(gomega.Equal(new(true)))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			ginkgo.By("Creating the child cluster.")
+			childCluster := testingraycluster.MakeCluster(jobName, ns.Name).
+				Suspend(false).
+				Obj()
+			gomega.Expect(ctrl.SetControllerReference(parentJob, childCluster, k8sClient.Scheme())).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, childCluster)
+
+			childClusterKey := client.ObjectKeyFromObject(childCluster)
+			ginkgo.By("checking that the child cluster is suspended")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, childClusterKey, childCluster)).Should(gomega.Succeed())
+				g.Expect(childCluster.Spec.Suspend).Should(gomega.Equal(new(true)))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.When("SkipChildJobSuspension feature gate is enabled", func() {
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SkipChildJobSuspension, true)
+		})
+
+		ginkgo.It("Should not suspend a cluster if the parent's workload does not exist or is not admitted", func() {
+			ginkgo.By("Creating the parent job which has a queue name")
+			parentJob := testingrayjob.MakeJob("parent-job", ns.Name).
+				Queue("test").
+				Suspend(false).
+				Obj()
+			util.MustCreate(ctx, k8sClient, parentJob)
+
+			ginkgo.By("Creating the child cluster.")
+			childCluster := testingraycluster.MakeCluster(jobName, ns.Name).
+				Suspend(false).
+				Obj()
+			gomega.Expect(ctrl.SetControllerReference(parentJob, childCluster, k8sClient.Scheme())).To(gomega.Succeed())
+			util.MustCreate(ctx, k8sClient, childCluster)
+
+			childClusterKey := client.ObjectKeyFromObject(childCluster)
+			ginkgo.By("checking that the child cluster is not suspended")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, childClusterKey, childCluster)).Should(gomega.Succeed())
+				g.Expect(childCluster.Spec.Suspend).Should(gomega.Equal(new(false)))
+			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		})
 	})
 })
 
