@@ -914,7 +914,7 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 		defer restore()
 	}
 	tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
-	unhealthyReplacement := workload.HasUnhealthyNodes(a.wl.Obj)
+	unhealthyReplacement := workload.HasTopologyAssignmentWithUnhealthyNode(a.wl.Obj)
 
 	if assignment.RepresentativeMode() == Fit {
 		result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(a.wl))

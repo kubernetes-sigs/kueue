@@ -7980,16 +7980,11 @@ func TestAssignTopology(t *testing.T) {
 			wantPlan:          false,
 			wantAttemptReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
 		},
-		// Verifies that the !HasUnhealthyNodes check prevents demoting an
-		// unhealthy node replacement from Preempt to NoFit.
-		// - The workload must be admitted because TAS node replacement reads existing
-		//   placement from wl.Status.Admission.
-		// - We request 5 CPU against node-1's 4 CPU to ensure placement fails.
-		//   In this test fixture, node-1 is still marked Ready in the TAS snapshot
-		//   (only wl.Status.UnhealthyNodes was set), so a smaller request would
-		//   just be re-placed on node-1 (leading to Fit), which would obscure
-		//   a missing !HasUnhealthyNodes check.
-		"a replacement for an unhealthy node is not demoted": {
+		// A node replacement must never fall back to preempting an unrelated
+		// workload: if no free capacity exists for it, it stays NoFit instead
+		// of Preempt. We request 5 CPU against node-1's 4 CPU so the
+		// non-simulated search fails.
+		"a replacement for an unhealthy node is demoted to NoFit instead of preempting": {
 			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
 				cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
 				plan := utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
@@ -8029,8 +8024,9 @@ func TestAssignTopology(t *testing.T) {
 					assignment: &Assignment{PodSets: []PodSetAssignment{ps}},
 				}
 			},
-			wantMode: Preempt,
-			wantPlan: true,
+			wantMode:          NoFit,
+			wantPlan:          true,
+			wantAttemptReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
 		},
 		// An elastic slice replaces its predecessor, so the predecessor's usage has to be
 		// simulated away before the replacement is placed. Without that, the old slice's
