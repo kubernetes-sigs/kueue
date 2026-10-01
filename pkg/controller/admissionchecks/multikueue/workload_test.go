@@ -3339,3 +3339,69 @@ func TestRemoveRemoteObjects_ClearsStuckQuotaReservation(t *testing.T) {
 		})
 	}
 }
+
+// TestRemoveRemoteObjects_WaitsForConfirmedDeletion covers a remote Workload
+// that survives Delete because a finalizer other than the one MultiKueue
+// manages is still present: it is left Terminating, not actually gone. Quota
+// must not be cleared on this pass - only once a later reconcile rebuilds
+// remotes from a fresh Get and observes it NotFound.
+func TestRemoveRemoteObjects_WaitsForConfirmedDeletion(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now().Truncate(time.Second)
+
+	local := utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").Obj(), now).
+		AdmittedAt(true, now).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadEvicted,
+			Status:             metav1.ConditionTrue,
+			Reason:             kueue.WorkloadEvictedByAdmissionCheck,
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		Obj()
+	remote := utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		Finalizers(kueue.ResourceInUseFinalizerName, "test.kueue.io/keep-alive").
+		Obj()
+
+	managerBuilder := getClientBuilder(ctx).WithObjects(local).WithStatusSubresource(local)
+	managerClient := managerBuilder.Build()
+	workerBuilder := getClientBuilder(ctx).WithObjects(remote)
+	workerClient := workerBuilder.Build()
+
+	group := &wlGroup{
+		local:       local,
+		localClient: managerClient,
+		remotes:     map[string]*kueue.Workload{"worker1": remote},
+		remoteClients: map[string]*remoteClient{
+			"worker1": {client: NewNeverCachingClient(workerClient), origin: defaultOrigin},
+		},
+		jobAdapter:    &deferredSyncStubAdapter{},
+		controllerKey: types.NamespacedName{Name: "job1", Namespace: TestNamespace},
+	}
+
+	if err := group.RemoveRemoteObjects(ctx, "worker1"); err != nil {
+		t.Fatalf("RemoveRemoteObjects returned unexpected error: %v", err)
+	}
+
+	updatedLocal := &kueue.Workload{}
+	if err := managerClient.Get(ctx, client.ObjectKeyFromObject(local), updatedLocal); err != nil {
+		t.Fatalf("failed to get updated local workload: %v", err)
+	}
+	if updatedLocal.Status.Admission == nil {
+		t.Error("quota reservation was cleared before the remote object was confirmed gone")
+	}
+
+	updatedRemote := &kueue.Workload{}
+	if err := workerClient.Get(ctx, client.ObjectKeyFromObject(remote), updatedRemote); err != nil {
+		t.Fatalf("remote workload should still exist while a non-MultiKueue finalizer remains: %v", err)
+	}
+	if updatedRemote.DeletionTimestamp == nil {
+		t.Error("remote workload should have a deletion timestamp set")
+	}
+	if slices.Contains(updatedRemote.Finalizers, kueue.ResourceInUseFinalizerName) {
+		t.Error("MultiKueue's own finalizer should have been removed")
+	}
+	if !slices.Contains(updatedRemote.Finalizers, "test.kueue.io/keep-alive") {
+		t.Error("the unrelated finalizer should still be present")
+	}
+}

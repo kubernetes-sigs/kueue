@@ -26,6 +26,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -176,12 +177,20 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 		}
 	}
 
-	err := remoteClient.Delete(ctx, remWl)
-	if client.IgnoreNotFound(err) != nil {
+	switch err := remoteClient.Delete(ctx, remWl); {
+	case apierrors.IsNotFound(err):
+		g.remotes[cluster] = nil
+		return g.clearStuckQuotaReservation(ctx)
+	case err != nil:
 		return fmt.Errorf("deleting remote workload: %w", err)
+	default:
+		// Delete succeeding doesn't mean the object is actually gone yet - a
+		// finalizer other than the one just removed above could still be
+		// holding it in Terminating. Don't clear quota on this pass; remotes
+		// is rebuilt from a fresh Get every reconcile, so a later pass that
+		// observes it NotFound will take the remWl == nil branch above.
+		return nil
 	}
-	g.remotes[cluster] = nil
-	return g.clearStuckQuotaReservation(ctx)
 }
 
 // clearStuckQuotaReservation releases the local Workload's quota reservation
