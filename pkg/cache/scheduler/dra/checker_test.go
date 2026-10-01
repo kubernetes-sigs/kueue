@@ -184,7 +184,7 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 
 	// Tolerates the taint that the DeviceTaintRule cases apply, so the same devices
 	// stay allocatable for it.
-	tolerantTemplate := utiltesting.MakeResourceClaimTemplate("tolerant-template", "default").
+	tolerantTemplate := testingdra.MakeResourceClaimTemplate("tolerant-template", "default").
 		DeviceRequest("gpu", "gpu.example.com", 1).
 		WithToleration("example.com/maintenance", resourceapi.DeviceTaintEffectNoSchedule).
 		Obj()
@@ -232,13 +232,13 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 			Devices: []resourceapi.Device{{Name: "slice-0"}},
 		},
 	}
-	fallbackOneTemplate := utiltesting.MakeResourceClaimTemplate("fallback-template", "default").
+	fallbackOneTemplate := testingdra.MakeResourceClaimTemplate("fallback-template", "default").
 		DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
 			testingdra.MakeDeviceSubRequest("full", "full.example.com", 1).Obj(),
 			testingdra.MakeDeviceSubRequest("slice", "slice.example.com", 1).Obj(),
 		).Obj()).
 		Obj()
-	fallbackTwoTemplate := utiltesting.MakeResourceClaimTemplate("fallback-template", "default").
+	fallbackTwoTemplate := testingdra.MakeResourceClaimTemplate("fallback-template", "default").
 		DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
 			testingdra.MakeDeviceSubRequest("full", "full.example.com", 2).Obj(),
 			testingdra.MakeDeviceSubRequest("slice", "slice.example.com", 2).Obj(),

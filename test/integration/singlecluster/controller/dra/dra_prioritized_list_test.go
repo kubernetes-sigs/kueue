@@ -28,7 +28,6 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -98,7 +97,7 @@ var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, gink
 
 		ginkgo.It("Should charge the count the alternatives share once", func() {
 			ginkgo.By("Creating a ResourceClaimTemplate asking for two A100s or else two whole-card MIG slices")
-			rct := utiltesting.MakeResourceClaimTemplate("two-a100-or-two-slices", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("two-a100-or-two-slices", ns.Name).
 				DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
 					testingdra.MakeDeviceSubRequest("a100", "a100.example.com", 2).Obj(),
 					testingdra.MakeDeviceSubRequest("slice", "a100-mig.example.com", 2).Obj(),
@@ -130,7 +129,7 @@ var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, gink
 
 		ginkgo.It("Should reject alternatives with different counts", func() {
 			ginkgo.By("Creating a ResourceClaimTemplate asking for one A100 or else two whole-card MIG slices")
-			rct := utiltesting.MakeResourceClaimTemplate("one-a100-or-two-slices", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("one-a100-or-two-slices", ns.Name).
 				DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
 					testingdra.MakeDeviceSubRequest("a100", "a100.example.com", 1).Obj(),
 					testingdra.MakeDeviceSubRequest("slice", "a100-mig.example.com", 2).Obj(),
@@ -166,7 +165,7 @@ var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, gink
 
 		ginkgo.It("Should reject alternatives that resolve to different logical resources", func() {
 			ginkgo.By("Creating a ResourceClaimTemplate whose alternatives map to gpu and res-1")
-			rct := utiltesting.MakeResourceClaimTemplate("a100-or-res-1", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("a100-or-res-1", ns.Name).
 				DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
 					testingdra.MakeDeviceSubRequest("a100", "a100.example.com", 1).Obj(),
 					testingdra.MakeDeviceSubRequest("other", "test-deviceclass-1", 1).Obj(),

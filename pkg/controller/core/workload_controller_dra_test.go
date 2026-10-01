@@ -60,7 +60,7 @@ func TestReconcileDRA(t *testing.T) {
 					Obj()).
 				Obj(),
 			resourceClaims: []*resourcev1.ResourceClaim{
-				utiltesting.MakeResourceClaim("rc1", "ns").
+				testingdra.MakeResourceClaim("rc1", "ns").
 					DeviceRequest("", "gpu.example.com", 1).
 					Obj(),
 			},
@@ -198,7 +198,7 @@ func TestReconcileDRA(t *testing.T) {
 					Obj()).
 				Obj(),
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
-				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+				testingdra.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
 					Obj(),
 			},
@@ -256,7 +256,7 @@ func TestReconcileDRA(t *testing.T) {
 				}).
 				Obj(),
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
-				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+				testingdra.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
 					Obj(),
 			},
@@ -319,7 +319,7 @@ func TestReconcileDRA(t *testing.T) {
 				}).
 				Obj(),
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
-				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+				testingdra.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
 					Obj(),
 			},
@@ -370,7 +370,7 @@ func TestReconcileDRA(t *testing.T) {
 				RequeueState(new(int32(1)), new(metav1.NewTime(fakeClock.Now().Add(time.Hour)))).
 				Obj(),
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
-				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+				testingdra.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
 					Obj(),
 			},
@@ -412,7 +412,7 @@ func TestReconcileDRA(t *testing.T) {
 				RequeueState(new(int32(1)), new(metav1.NewTime(fakeClock.Now().Add(-time.Hour)))).
 				Obj(),
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
-				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+				testingdra.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
 					Obj(),
 			},
@@ -497,7 +497,7 @@ func TestReconcileDRA(t *testing.T) {
 					Obj()).
 				Obj(),
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
-				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+				testingdra.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "gpu.example.com", 2).
 					Obj(),
 			},
@@ -542,7 +542,7 @@ func TestReconcileDRA(t *testing.T) {
 					Obj()).
 				Obj(),
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
-				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+				testingdra.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
 						testingdra.MakeDeviceSubRequest("a", "gpu.example.com", 2).Obj(),
 						testingdra.MakeDeviceSubRequest("b", "gpu-class", 2).Obj(),
@@ -588,7 +588,7 @@ func TestReconcileDRA(t *testing.T) {
 					Obj()).
 				Obj(),
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
-				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+				testingdra.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
 						testingdra.MakeDeviceSubRequest("a", "gpu.example.com", 1).Obj(),
 						testingdra.MakeDeviceSubRequest("b", "gpu-class", 2).Obj(),
@@ -639,7 +639,7 @@ func TestReconcileDRA(t *testing.T) {
 					Obj()).
 				Obj(),
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
-				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+				testingdra.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "unmapped.example.com", 1).
 					Obj(),
 			},
@@ -784,7 +784,7 @@ func TestReconcileDRA(t *testing.T) {
 					Obj()).
 				Obj(),
 			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
-				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+				testingdra.MakeResourceClaimTemplate("gpu-template", "ns").
 					DeviceRequest("gpu-request", "gpu.example.com", 1).
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),

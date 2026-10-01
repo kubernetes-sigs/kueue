@@ -120,7 +120,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT with explicit capacity.requests")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-explicit", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-explicit", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				WithCapacityRequests(map[string]string{"memory": "20Gi"}).
 				Obj()
@@ -167,7 +167,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT without capacity.requests (defaults to max capacity)")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-default", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-default", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
@@ -213,7 +213,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT without capacity.requests")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-policy-default", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-policy-default", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
@@ -265,7 +265,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT requesting 15Gi (rounds up to 20Gi)")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-validvalues", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-validvalues", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				WithCapacityRequests(map[string]string{"memory": "15Gi"}).
 				Obj()
@@ -320,7 +320,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT requesting 3Gi (rounds up to Min=5Gi)")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-validrange", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-validrange", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				WithCapacityRequests(map[string]string{"memory": "3Gi"}).
 				Obj()
@@ -367,7 +367,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT with count=2 and 20Gi capacity request")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-count2", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-count2", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 2).
 				WithCapacityRequests(map[string]string{"memory": "20Gi"}).
 				Obj()
@@ -419,7 +419,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT requesting 50Gi (exceeds max valid value 40Gi)")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-exceed", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-exceed", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				WithCapacityRequests(map[string]string{"memory": "50Gi"}).
 				Obj()
@@ -463,7 +463,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT requesting capacity")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-nodim", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-nodim", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				WithCapacityRequests(map[string]string{"memory": "10Gi"}).
 				Obj()
@@ -508,7 +508,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT with explicit capacity request")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-skipcount", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-skipcount", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				WithCapacityRequests(map[string]string{"memory": "20Gi"}).
 				Obj()
@@ -541,7 +541,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 
 		ginkgo.It("Should requeue inadmissible workload when ResourceSlice appears", framework.SlowSpec, func() {
 			ginkgo.By("Creating RCT with capacity request")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-requeue", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-requeue", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				WithCapacityRequests(map[string]string{"memory": "20Gi"}).
 				Obj()
@@ -616,7 +616,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT without explicit request (uses per-device Default)")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-hetdefault", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-hetdefault", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())
@@ -670,7 +670,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT requesting 50Gi (exceeds all devices' ValidValues)")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-allreject", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-allreject", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				WithCapacityRequests(map[string]string{"memory": "50Gi"}).
 				Obj()
@@ -725,7 +725,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			})
 
 			ginkgo.By("Creating RCT without explicit request")
-			rct := utiltesting.MakeResourceClaimTemplate("cc-maxcap", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("cc-maxcap", ns.Name).
 				DeviceRequest("gpu", "vgpu.example.com", 1).
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, rct)).To(gomega.Succeed())

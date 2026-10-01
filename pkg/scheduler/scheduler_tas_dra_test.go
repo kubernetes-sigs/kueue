@@ -78,10 +78,10 @@ func TestScheduleForTASDRA(t *testing.T) {
 	// One GPU on each node, in its own pool, so a rule can name either node's devices.
 	devices := []client.Object{
 		testingdra.MakeDeviceClass("gpu.example.com").Obj(),
-		utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
+		testingdra.MakeResourceClaimTemplate("gpu-template", "default").
 			DeviceRequest("gpu", "gpu.example.com", 1).
 			Obj(),
-		utiltesting.MakeResourceClaimTemplate("tolerant-template", "default").
+		testingdra.MakeResourceClaimTemplate("tolerant-template", "default").
 			DeviceRequest("gpu", "gpu.example.com", 1).
 			WithToleration("example.com/maintenance", resourceapi.DeviceTaintEffectNoSchedule).
 			Obj(),

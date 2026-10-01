@@ -25,8 +25,8 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
@@ -73,7 +73,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 
 		ginkgo.It("Should admit partition workload with counter-based gpu.memory charge", func() {
 			ginkgo.By("Creating ResourceClaimTemplate for a GPU partition")
-			rct := utiltesting.MakeResourceClaimTemplate("partition-template", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("partition-template", ns.Name).
 				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				WithCELSelectors("device.capacity[\"gpu.example.com\"].memory.compareTo(quantity(\"20Gi\")) == 0").
 				Obj()
@@ -103,7 +103,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 
 		ginkgo.It("Should multiply counter charge by request count", func() {
 			ginkgo.By("Creating ResourceClaimTemplate for 2 GPU partitions")
-			rct := utiltesting.MakeResourceClaimTemplate("partition-count2-template", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("partition-count2-template", ns.Name).
 				DeviceRequest("gpu-request", util.DRAExampleDriverName, 2).
 				WithCELSelectors("device.capacity[\"gpu.example.com\"].memory.compareTo(quantity(\"20Gi\")) == 0").
 				Obj()
@@ -131,7 +131,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 
 		ginkgo.It("Should charge largest counter value when CEL matches multiple device types", func() {
 			ginkgo.By("Creating ResourceClaimTemplate matching partitions (20Gi) and full GPUs (80Gi)")
-			rct := utiltesting.MakeResourceClaimTemplate("broad-template", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("broad-template", ns.Name).
 				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				WithCELSelectors("device.capacity[\"gpu.example.com\"].memory.compareTo(quantity(\"20Gi\")) >= 0").
 				Obj()
@@ -159,7 +159,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 
 		ginkgo.It("Should admit full GPU workload with counter charge", func() {
 			ginkgo.By("Creating ResourceClaimTemplate for full GPU (no CEL selector)")
-			rct := utiltesting.MakeResourceClaimTemplate("fullgpu-template", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("fullgpu-template", ns.Name).
 				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rct)
@@ -186,12 +186,12 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 
 		ginkgo.It("Should admit unified workload with full GPU and partition charges", func() {
 			ginkgo.By("Creating ResourceClaimTemplates for full GPU and partition")
-			rctFull := utiltesting.MakeResourceClaimTemplate("unified-full-template", ns.Name).
+			rctFull := testingdra.MakeResourceClaimTemplate("unified-full-template", ns.Name).
 				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				Obj()
 			util.MustCreate(ctx, k8sClient, rctFull)
 
-			rctPartition := utiltesting.MakeResourceClaimTemplate("unified-partition-template", ns.Name).
+			rctPartition := testingdra.MakeResourceClaimTemplate("unified-partition-template", ns.Name).
 				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				WithCELSelectors("device.capacity[\"gpu.example.com\"].memory.compareTo(quantity(\"20Gi\")) == 0").
 				Obj()
@@ -222,7 +222,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 
 		ginkgo.It("Should not admit workload when counter charge exceeds quota", func() {
 			ginkgo.By("Creating ResourceClaimTemplate requesting 10 partitions (200Gi > 160Gi quota)")
-			rct := utiltesting.MakeResourceClaimTemplate("toomany-template", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("toomany-template", ns.Name).
 				DeviceRequest("gpu-request", util.DRAExampleDriverName, 10).
 				WithCELSelectors("device.capacity[\"gpu.example.com\"].memory.compareTo(quantity(\"20Gi\")) == 0").
 				Obj()
@@ -257,7 +257,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 
 		ginkgo.It("Should admit multiple workloads sharing counter quota", func() {
 			ginkgo.By("Creating ResourceClaimTemplate for partition")
-			rct := utiltesting.MakeResourceClaimTemplate("share-template", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("share-template", ns.Name).
 				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				WithCELSelectors("device.capacity[\"gpu.example.com\"].memory.compareTo(quantity(\"20Gi\")) == 0").
 				Obj()
@@ -301,7 +301,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 
 		ginkgo.It("Should mark workload inadmissible when CEL matches no devices", func() {
 			ginkgo.By("Creating ResourceClaimTemplate with nonexistent capacity selector")
-			rct := utiltesting.MakeResourceClaimTemplate("nomatch-template", ns.Name).
+			rct := testingdra.MakeResourceClaimTemplate("nomatch-template", ns.Name).
 				DeviceRequest("gpu-request", util.DRAExampleDriverName, 1).
 				WithCELSelectors("device.capacity[\"gpu.example.com\"].memory.compareTo(quantity(\"30Gi\")) == 0").
 				Obj()

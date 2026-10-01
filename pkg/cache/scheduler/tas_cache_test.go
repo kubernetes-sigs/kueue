@@ -1729,7 +1729,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			levels: defaultOneLevel,
 			draObjects: []client.Object{
 				testingdra.MakeDeviceClass("gpu.example.com").Obj(),
-				utiltesting.MakeResourceClaimTemplate("gpu-claim", "ns").
+				testingdra.MakeResourceClaimTemplate("gpu-claim", "ns").
 					DeviceRequest("gpu", "gpu.example.com", 1).
 					Obj(),
 				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").

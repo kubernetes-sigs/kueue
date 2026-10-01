@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
 // The slices come from the client's cache, so a taint must land on a copy or it would
@@ -169,7 +170,7 @@ func TestDeviceTaintRulesAreNotListed(t *testing.T) {
 
 	node := &corev1.Node{Name: "gpu-node"}
 	deviceClass := &resourceapi.DeviceClass{Name: "gpu.example.com"}
-	claimTemplate := utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
+	claimTemplate := testingdra.MakeResourceClaimTemplate("gpu-template", "default").
 		DeviceRequest("gpu", "gpu.example.com", 1).Obj()
 	slice := utiltesting.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
 		NodeName("gpu-node").Pool("gpu-pool", 1, 1).Device("gpu-0").Obj()
