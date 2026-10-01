@@ -13,3 +13,4 @@ integrations:
 featureGates:
   ElasticJobsViaWorkloadSlices: true
   MultiKueueRayInTreeAutoscaling: true
+  SkipChildJobSuspension: false
