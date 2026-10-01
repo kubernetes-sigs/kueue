@@ -1045,19 +1045,14 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			}
 			return
 		}
-		if apierrors.IsConflict(err) && workload.NeedsSecondPass(e.Obj) {
-			// The workload still holds its reservation, so deleting it from the cache would drop live usage.
-			log.V(3).Info("Skipped admission write for a workload whose state changed during scheduling")
-			s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "OutdatedScheduleCycle", "OutdatedScheduleCycle",
-				api.TruncateEventMessage("Skipped admission write because the workload changed while it was being scheduled"))
-		} else {
+		if !workload.NeedsSecondPass(e.Obj) || apierrors.IsNotFound(err) {
 			// Ignore errors because the workload or clusterQueue could have been deleted
 			// by an event.
 			_ = s.cache.DeleteWorkload(log, workload.Key(cacheWl))
 			s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
-			if !apierrors.IsNotFound(err) {
-				log.Error(err, errCouldNotAdmitWL)
-			}
+		} else {
+			// The workload still holds its reservation, so put back the version this pass read; this is skipped if an event already replaced or removed the entry.
+			s.cache.UpdateWorkloadIfUnchanged(ctx, log, e.Obj.DeepCopy(), workload.WithEffectivePodSpecs(e.EffectivePodSpecs))
 		}
 		if s.shouldApplyEntryPenalty(e) {
 			s.updateEntryPenalty(log, e, subtract)
@@ -1065,6 +1060,14 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		if apierrors.IsNotFound(err) {
 			log.V(2).Info("Workload not admitted because it was deleted")
 			return
+		}
+
+		if apierrors.IsConflict(err) && workload.NeedsSecondPass(e.Obj) {
+			log.V(3).Info("Skipped admission write for a workload whose state changed during scheduling")
+			s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "OutdatedScheduleCycle", "OutdatedScheduleCycle",
+				api.TruncateEventMessage("Skipped admission write because the workload changed while it was being scheduled"))
+		} else {
+			log.Error(err, errCouldNotAdmitWL)
 		}
 		s.requeueAndUpdate(ctx, *e)
 	})
@@ -1124,7 +1127,12 @@ func (s *Scheduler) prepareWorkload(log logr.Logger, wl *kueue.Workload, cq *sch
 func (s *Scheduler) assumeWorkload(ctx context.Context, log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) (*kueue.Workload, error) {
 	cacheWl := e.Obj.DeepCopy()
 	s.prepareWorkload(log, cacheWl, cq, admission)
-	if added := s.cache.AddOrUpdateWorkload(ctx, log, cacheWl, workload.WithEffectivePodSpecs(e.EffectivePodSpecs)); !added {
+	if workload.NeedsSecondPass(e.Obj) {
+		// A missing cache entry or another resourceVersion means the cache and this pass saw different versions, so retry the pass instead of overwriting the entry.
+		if !s.cache.UpdateWorkloadIfUnchanged(ctx, log, cacheWl, workload.WithEffectivePodSpecs(e.EffectivePodSpecs)) {
+			return nil, errors.New("the workload changed while it was being scheduled")
+		}
+	} else if added := s.cache.AddOrUpdateWorkload(ctx, log, cacheWl, workload.WithEffectivePodSpecs(e.EffectivePodSpecs)); !added {
 		return nil, fmt.Errorf("workload %s/%s could not be added to the cache", cacheWl.Namespace, cacheWl.Name)
 	}
 
