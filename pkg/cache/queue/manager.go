@@ -1122,6 +1122,11 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 func (m *Manager) queueSecondPass(ctx context.Context, nsName client.ObjectKey, iteration int) {
 	m.Lock()
 	defer m.Unlock()
+	// A request that finds a pass pending leaves ownership to it, so the pass must
+	// see that request's update. The informer stores updates before calling
+	// handlers, so holding the queue lock until the decision guarantees this.
+	m.secondPassQueue.Lock()
+	defer m.secondPassQueue.Unlock()
 
 	log := ctrl.LoggerFrom(ctx)
 	wlKey := workload.NewReference(nsName.Namespace, nsName.Name)
@@ -1130,11 +1135,11 @@ func (m *Manager) queueSecondPass(ctx context.Context, nsName client.ObjectKey, 
 	if err := m.client.Get(ctx, nsName, &w); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.V(3).Info("Workload not found when queuing for second pass; dropping the request", "workload", wlKey)
-			m.secondPassQueue.deleteByKey(wlKey)
+			m.secondPassQueue.deleteByKeyLocked(wlKey)
 			return
 		}
 		if ctx.Err() != nil {
-			m.secondPassQueue.deleteByKey(wlKey)
+			m.secondPassQueue.deleteByKeyLocked(wlKey)
 			return
 		}
 		// Keep ownership of the pass: a transient read error retries after backoff.
@@ -1144,7 +1149,7 @@ func (m *Manager) queueSecondPass(ctx context.Context, nsName client.ObjectKey, 
 	}
 	wInfo := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
 	wInfo.SecondPassIteration = iteration
-	if m.secondPassQueue.queue(wInfo) {
+	if m.secondPassQueue.queueLocked(wInfo) {
 		log.V(3).Info("Workload queued for second pass of scheduling", "workload", wlKey)
 		m.Broadcast()
 	}
