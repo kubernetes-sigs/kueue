@@ -180,8 +180,10 @@ func TestAmountFromQuantity(t *testing.T) {
 	}{
 		"whole cores in milli":      {name: corev1.ResourceCPU, qty: "2", want: "2000"},
 		"a fraction of a core":      {name: corev1.ResourceCPU, qty: "1.5", want: "1500"},
+		"a negative fraction":       {name: corev1.ResourceCPU, qty: "-1.5", want: "-1500"},
 		"a milli":                   {name: corev1.ResourceCPU, qty: "500m", want: "500"},
 		"below a milli rounds up":   {name: corev1.ResourceCPU, qty: "500u", want: "1"},
+		"below a milli rounds down": {name: corev1.ResourceCPU, qty: "-500u", want: "-1"},
 		"1E of cpu is not infinite": {name: corev1.ResourceCPU, qty: "1E", want: "1000000000000000000000"},
 		"10P of cpu is exact":       {name: corev1.ResourceCPU, qty: "10P", want: "10000000000000000000"},
 		"the largest int64 milli":   {name: corev1.ResourceCPU, qty: "9223372036854775807m", want: "9223372036854775807"},
@@ -213,6 +215,50 @@ func TestAmountFromQuantity(t *testing.T) {
 			got := AmountFromQuantity(tc.name, resource.MustParse(tc.qty))
 			if got.String() != tc.want {
 				t.Errorf("AmountFromQuantity(%s, %s) = %s, want %s", tc.name, tc.qty, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAmountFromQuantityInRangeDoesNotAllocate(t *testing.T) {
+	cases := map[string]struct {
+		name corev1.ResourceName
+		qty  string
+	}{
+		"cpu milli": {name: corev1.ResourceCPU, qty: "100m"},
+		"whole cpu": {name: corev1.ResourceCPU, qty: "2"},
+		"memory":    {name: corev1.ResourceMemory, qty: "1Gi"},
+		"a device":  {name: "example.com/gpu", qty: "8"},
+		"zero cpu":  {name: corev1.ResourceCPU, qty: "0"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			q := resource.MustParse(tc.qty)
+			allocs := testing.AllocsPerRun(100, func() {
+				AmountFromQuantity(tc.name, q)
+			})
+			if allocs != 0 {
+				t.Errorf("AmountFromQuantity(%s) allocated %v times, want 0", tc.qty, allocs)
+			}
+		})
+	}
+}
+
+func BenchmarkAmountFromQuantity(b *testing.B) {
+	cases := []struct {
+		name corev1.ResourceName
+		qty  string
+	}{
+		{name: corev1.ResourceCPU, qty: "100m"},
+		{name: corev1.ResourceCPU, qty: "1"},
+		{name: corev1.ResourceMemory, qty: "1Gi"},
+		{name: "example.com/gpu", qty: "1"},
+	}
+	for _, tc := range cases {
+		q := resource.MustParse(tc.qty)
+		b.Run(tc.qty, func(b *testing.B) {
+			for b.Loop() {
+				AmountFromQuantity(tc.name, q)
 			}
 		})
 	}
