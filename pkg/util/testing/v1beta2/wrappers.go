@@ -1657,6 +1657,18 @@ func (p *WorkloadPriorityClassWrapper) PriorityValue(v int32) *WorkloadPriorityC
 	return p
 }
 
+// UID sets the UID of the WorkloadPriorityClass.
+func (p *WorkloadPriorityClassWrapper) UID(uid types.UID) *WorkloadPriorityClassWrapper {
+	p.WorkloadPriorityClass.UID = uid
+	return p
+}
+
+// Generation sets the generation of the WorkloadPriorityClass.
+func (p *WorkloadPriorityClassWrapper) Generation(num int64) *WorkloadPriorityClassWrapper {
+	p.ObjectMeta.Generation = num
+	return p
+}
+
 // Obj returns the inner WorkloadPriorityClass.
 func (p *WorkloadPriorityClassWrapper) Obj() *kueue.WorkloadPriorityClass {
 	return &p.WorkloadPriorityClass
