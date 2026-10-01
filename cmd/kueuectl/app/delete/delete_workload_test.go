@@ -352,6 +352,9 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 					} else if preconditions == nil || preconditions.UID == nil || *preconditions.UID != wantUID {
 						t.Errorf("Unexpected delete UID precondition for %q: %v", deleteAction.GetName(), preconditions)
 					}
+					if diff := cmp.Diff(new(metav1.DeletePropagationBackground), deleteAction.GetDeleteOptions().PropagationPolicy); diff != "" {
+						t.Errorf("Unexpected delete propagation policy for %q (-want/+got)\n%s", deleteAction.GetName(), diff)
+					}
 					// SimpleDynamicClient still don't have DryRun option on delete Reactor.
 					if slices.Contains(tc.args, "--dry-run") {
 						handled = true
