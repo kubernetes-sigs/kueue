@@ -23,10 +23,8 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
@@ -56,10 +54,15 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 		wantErr        error
 		remoteClusters []string
 		clusters       []kueue.MultiKueueCluster
+		// wantRoundStartTimeCleared starts a nomination round for the Workload
+		// before Reconcile, and expects Reconcile to clear it.
+		wantRoundStartTimeCleared bool
 	}{
+		// A NotFound never succeeds on retry, and controller-runtime requeues
+		// every request that returns an error, so Reconcile must not return it.
 		"workload not found": {
-			workload: nil,
-			wantErr:  apierrors.NewNotFound(schema.GroupResource{Group: kueue.SchemeGroupVersion.Group, Resource: "workloads"}, workloadName),
+			workload:                  nil,
+			wantRoundStartTimeCleared: true,
 		},
 		"workload deleted": {
 			workload: baseWorkload.Clone().DeletionTimestamp(now).Finalizers("kubernetes").Obj(),
@@ -159,10 +162,18 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 			}
 
 			req := ctrl.Request{Namespace: metav1.NamespaceDefault, Name: workloadName}
+			if tc.wantRoundStartTimeCleared {
+				rec.setRoundStartTime(req.NamespacedName, now.Add(-time.Minute))
+			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			_, gotErr := rec.Reconcile(ctx, req)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
+			}
+			if tc.wantRoundStartTimeCleared {
+				if _, found := rec.getRoundStartTime(req.NamespacedName); found {
+					t.Error("Round start time was not cleared")
+				}
 			}
 		})
 	}
