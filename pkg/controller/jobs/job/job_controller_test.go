@@ -3615,13 +3615,11 @@ func TestReconciler(t *testing.T) {
 				Suspend(false).
 				Obj(),
 		},
-		"non-standalone job is suspended if its parent workload is not found; SkipChildJobSuspension disabled": {
+		"non-standalone job is suspended if its parent workload is not found": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:                     false,
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
-
-				features.AssignQueueLabelsForPods: true,
-				features.SkipChildJobSuspension:   false,
+				features.AssignQueueLabelsForPods:                    true,
 			},
 			job: baseJobWrapper.
 				Clone().
@@ -3645,31 +3643,6 @@ func TestReconciler(t *testing.T) {
 					Reason:    "Suspended",
 					Message:   "Kueue managed child job suspended",
 				},
-			},
-		},
-		"non-standalone job is not suspended if its parent workload is not found; SkipChildJobSuspension enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:                     false,
-				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
-
-				features.AssignQueueLabelsForPods: true,
-				features.SkipChildJobSuspension:   true,
-			},
-			job: baseJobWrapper.
-				Clone().
-				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
-				Suspend(false).
-				Obj(),
-			wantJob: *baseJobWrapper.
-				Clone().
-				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
-				Suspend(false).
-				Obj(),
-			otherJobs: []batchv1.Job{
-				*utiltestingjob.MakeJob("parent", "ns").
-					UID("parent").
-					Queue("queue").
-					Obj(),
 			},
 		},
 		"non-standalone job is not suspended if its parent workload is admitted": {
@@ -3715,13 +3688,11 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"non-standalone job is suspended if its parent workload is found and not admitted; SkipChildJobSuspension disabled": {
+		"non-standalone job is suspended if its parent workload is found and not admitted": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling:                     false,
 				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
-
-				features.AssignQueueLabelsForPods: true,
-				features.SkipChildJobSuspension:   false,
+				features.AssignQueueLabelsForPods:                    true,
 			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
@@ -3763,49 +3734,6 @@ func TestReconciler(t *testing.T) {
 					Reason:    "Suspended",
 					Message:   "Kueue managed child job suspended",
 				},
-			},
-		},
-		"non-standalone job is not suspended if its parent workload is found and not admitted; SkipChildJobSuspension enabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling:                     false,
-				features.ManagedJobsNamespaceSelectorAlwaysRespected: false,
-
-				features.AssignQueueLabelsForPods: true,
-				features.SkipChildJobSuspension:   true,
-			},
-			reconcilerOptions: []jobframework.Option{
-				jobframework.WithManageJobsWithoutQueueName(true),
-				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
-			},
-			job: baseJobWrapper.
-				Clone().
-				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
-				Suspend(false).
-				Obj(),
-			wantJob: *baseJobWrapper.
-				Clone().
-				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
-				Suspend(false).
-				Obj(),
-			otherJobs: []batchv1.Job{
-				*utiltestingjob.MakeJob("parent", "ns").
-					Queue("queue").
-					UID("parent").
-					Obj(),
-			},
-			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("parent-workload", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
-					Obj(),
-			},
-			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("parent-workload", "ns").
-					Finalizers(kueue.ResourceInUseFinalizerName).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
-					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
-					Obj(),
 			},
 		},
 		"non-standalone job is not suspended if its parent workload is admitted and queue name is set": {
