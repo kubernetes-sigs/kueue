@@ -134,8 +134,7 @@ func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *Resour
 		if dc == "" {
 			continue
 		}
-		// Counts are user-controlled up to MaxInt64. The sum is exact, so two
-		// maximum counts stay distinguishable from one.
+		// Counts are user-controlled up to MaxInt64, and the sum is exact.
 		charges.perDeviceClass.Set(dc, charges.perDeviceClass.ResourceValue(dc).AddInt64(q))
 	}
 	return charges, nil
