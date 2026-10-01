@@ -133,10 +133,13 @@ var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", 
 		})
 
 		ginkgo.By("waiting for the worker-loss fallback while disconnected", func() {
-			util.ExpectAdmissionCheckState(
-				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
-				f.multiKueueAC.Name, kueue.CheckStateRetry,
-			)
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerWl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+				quotaReserved := apimeta.FindStatusCondition(managerWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(quotaReserved).NotTo(gomega.BeNil())
+				g.Expect(quotaReserved.Message).To(gomega.ContainSubstring("Admitting remote lost"))
+			}, testingWorkerLostTimeout*2, util.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("restoring connection to worker1", func() {
