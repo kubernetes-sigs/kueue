@@ -23,6 +23,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 func TestLoadConfig_StandardScheduler(t *testing.T) {
@@ -555,5 +557,43 @@ func TestValidateDevices(t *testing.T) {
 				t.Fatalf("validateDevices() error = %v, want %q", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestLoadConfigNestedCohorts(t *testing.T) {
+	content := `cohorts:
+- className: root
+  count: 1
+  children:
+  - className: child
+    count: 2
+    queuesSets:
+    - className: cq
+      count: 1
+      nominalQuota: 10
+      borrowingLimit: 10
+      lendingLimit: 5
+      borrowWithinCohort:
+        policy: LowerPriority
+      workloadsSets:
+      - count: 1
+        initialDelayMs: 100
+        workloads:
+        - className: wl
+          request: 1
+`
+	file := filepath.Join(t.TempDir(), "nested.yaml")
+	if err := os.WriteFile(file, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadConfig(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue := got.Cohorts[0].Children[0].QueuesSets[0]
+	if got.Cohorts[0].Children[0].Count != 2 || queue.LendingLimit != "5" ||
+		queue.BorrowWithinCohort == nil || queue.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyLowerPriority ||
+		queue.WorkloadsSets[0].InitialDelayMs != 100 {
+		t.Fatalf("unexpected nested config: %#v", got.Cohorts)
 	}
 }
