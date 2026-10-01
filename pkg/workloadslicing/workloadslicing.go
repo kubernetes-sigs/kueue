@@ -308,21 +308,8 @@ func EnsureWorkloadSlices(
 		return nil, true, fmt.Errorf("failed to find active workload slices: %w", err)
 	}
 
-	// An evicted slice can still own running Pods. Return it to the job
-	// reconciler until its reservation is released, unless an admitted
-	// replacement has already taken ownership of those Pods.
-	for i := range workloads {
-		wl := &workloads[i]
-		if !workloadevict.IsEvicted(wl) || !workload.HasQuotaReservation(wl) {
-			continue
-		}
-		replaced := slices.ContainsFunc(workloads, func(candidate kueue.Workload) bool {
-			key := ReplacementForKey(&candidate)
-			return key != nil && *key == workload.Key(wl) && workload.IsAdmitted(&candidate) && !workloadevict.IsEvicted(&candidate)
-		})
-		if !replaced {
-			return wl, true, nil
-		}
+	if wl := retainedEvictedSlice(workloads); wl != nil {
+		return wl, true, nil
 	}
 
 	switch len(workloads) {
@@ -397,6 +384,41 @@ func EnsureWorkloadSlices(
 		// Scale-up on admitted selected workload — create a new slice.
 		return nil, true, nil
 	}
+}
+
+// EnsurePrebuiltWorkloadSlices normalizes a prebuilt workload's slice chain
+// without changing PodSets or creating slices, which remain managed remotely.
+func EnsurePrebuiltWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clock, wl *kueue.Workload) error {
+	list := &kueue.WorkloadList{}
+	if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace),
+		client.MatchingFields{indexer.WorkloadSliceNameKey: SliceName(wl)}); err != nil {
+		return fmt.Errorf("failed to find prebuilt workload slices: %w", err)
+	}
+	workloads := sortAndFilterNotFinishedWorkloads(list.Items)
+	if len(workloads) < 2 || retainedEvictedSlice(workloads) != nil {
+		return nil
+	}
+	_, err := normalizeActiveSlices(ctx, clnt, clk, workloads)
+	return err
+}
+
+// An evicted slice can still own running Pods. Retain it until its reservation
+// is released or an admitted replacement has taken over.
+func retainedEvictedSlice(workloads []kueue.Workload) *kueue.Workload {
+	for i := range workloads {
+		wl := &workloads[i]
+		if !workloadevict.IsEvicted(wl) || !workload.HasQuotaReservation(wl) {
+			continue
+		}
+		replaced := slices.ContainsFunc(workloads, func(candidate kueue.Workload) bool {
+			key := ReplacementForKey(&candidate)
+			return key != nil && *key == workload.Key(wl) && workload.IsAdmitted(&candidate) && !workloadevict.IsEvicted(&candidate)
+		})
+		if !replaced {
+			return wl
+		}
+	}
+	return nil
 }
 
 // normalizeActiveSlices enforces the workload slice invariant:
