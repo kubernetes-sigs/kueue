@@ -116,35 +116,51 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 		})
 
-		ginkgo.It("Should allow updating a ready StatefulSet created before the default WorkloadPriorityClass", func() {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadPriorityClassDefaulting, true)
+		ginkgo.DescribeTable("Should apply the default WorkloadPriorityClass on update only when the label can be set",
+			func(hasLabel, ready, wantLabel bool) {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadPriorityClassDefaulting, true)
 
-			sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Obj()
-			util.MustCreate(ctx, k8sClient, sts)
+				stsWrapper := testingstatefulset.MakeStatefulSet("sts", ns.Name)
+				if hasLabel {
+					stsWrapper.Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName)
+				}
+				sts := stsWrapper.Obj()
+				util.MustCreate(ctx, k8sClient, sts)
 
-			ginkgo.By("Marking the StatefulSet as ready")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
-				sts.Status.Replicas = 1
-				sts.Status.ReadyReplicas = 1
-				g.Expect(k8sClient.Status().Update(ctx, sts)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				if ready {
+					ginkgo.By("Marking the StatefulSet as ready")
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
+						sts.Status.Replicas = 1
+						sts.Status.ReadyReplicas = 1
+						g.Expect(k8sClient.Status().Update(ctx, sts)).To(gomega.Succeed())
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}
 
-			ginkgo.By("Creating the default WorkloadPriorityClass")
-			defaultWPC := utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
-			util.MustCreate(ctx, k8sClient, defaultWPC)
-			ginkgo.DeferCleanup(func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultWPC, true)
-			})
+				ginkgo.By("Creating the default WorkloadPriorityClass")
+				defaultWPC := utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
+				util.MustCreate(ctx, k8sClient, defaultWPC)
+				ginkgo.DeferCleanup(func() {
+					util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultWPC, true)
+				})
 
-			ginkgo.By("Updating the StatefulSet")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
-				metav1.SetMetaDataAnnotation(&sts.ObjectMeta, "example.com/touched", "true")
-				g.Expect(k8sClient.Update(ctx, sts)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			gomega.Expect(sts.Labels).NotTo(gomega.HaveKey(constants.WorkloadPriorityClassLabel))
-		})
+				ginkgo.By("Updating the StatefulSet without the priority class label")
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
+					delete(sts.Labels, constants.WorkloadPriorityClassLabel)
+					metav1.SetMetaDataAnnotation(&sts.ObjectMeta, "example.com/touched", "true")
+					g.Expect(k8sClient.Update(ctx, sts)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				if wantLabel {
+					gomega.Expect(sts.Labels).To(gomega.HaveKeyWithValue(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName))
+				} else {
+					gomega.Expect(sts.Labels).NotTo(gomega.HaveKey(constants.WorkloadPriorityClassLabel))
+				}
+			},
+			ginkgo.Entry("ready StatefulSet without the label is not labeled", false, true, false),
+			ginkgo.Entry("not ready StatefulSet without the label is labeled", false, false, true),
+			ginkgo.Entry("ready StatefulSet whose update drops the label is labeled again", true, true, true),
+		)
 
 		// Regression test for GC teardown deadlock:
 		// When foreground and background deletion are mixed in the same ownership chain,
