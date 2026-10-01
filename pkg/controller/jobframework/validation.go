@@ -261,12 +261,16 @@ func validatedUpdateForEnabledWorkloadSlice(oldJob, newJob GenericJob) field.Err
 	return nil
 }
 
+// CanSetWorkloadPriorityClassName reports whether an update can leave the
+// WorkloadPriorityClass label set. The label cannot be added to a non-suspended
+// (running) workload that did not have it before the update.
+func CanSetWorkloadPriorityClassName(isSuspended bool, oldObj client.Object) bool {
+	return isSuspended || !IsWorkloadPriorityClassNameEmpty(oldObj)
+}
+
 func ValidateUpdateForWorkloadPriorityClassName(isSuspended bool, oldObj, newObj client.Object) field.ErrorList {
-	// Cannot ADD a priority class to a NON-suspended (running) workload && wpc is empty
-	if !isSuspended && IsWorkloadPriorityClassNameEmpty(oldObj) {
-		if !IsWorkloadPriorityClassNameEmpty(newObj) {
-			return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be added to a non-suspended workload")}
-		}
+	if !CanSetWorkloadPriorityClassName(isSuspended, oldObj) && !IsWorkloadPriorityClassNameEmpty(newObj) {
+		return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be added to a non-suspended workload")}
 	}
 	// Cannot REMOVE a priority class from a workload (regardless of suspended/running)
 	if IsWorkloadPriorityClassNameEmpty(newObj) {

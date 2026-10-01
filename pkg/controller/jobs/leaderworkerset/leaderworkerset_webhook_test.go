@@ -51,9 +51,11 @@ var (
 
 func TestDefault(t *testing.T) {
 	testCases := map[string]struct {
+		oldLWS                     *leaderworkersetv1.LeaderWorkerSet
 		lws                        *leaderworkersetv1.LeaderWorkerSet
 		manageJobsWithoutQueueName bool
 		defaultLqExist             bool
+		defaultWPCExist            bool
 		enableIntegrations         []string
 		want                       *leaderworkersetv1.LeaderWorkerSet
 		wantErr                    error
@@ -121,6 +123,39 @@ func TestDefault(t *testing.T) {
 				Obj(),
 			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Obj(),
+		},
+		"create sets the default WorkloadPriorityClass": {
+			defaultWPCExist: true,
+			lws:             testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").Obj(),
+			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				WorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).
+				Obj(),
+		},
+		"update of a not ready LeaderWorkerSet sets the default WorkloadPriorityClass": {
+			defaultWPCExist: true,
+			oldLWS:          testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").Obj(),
+			lws:             testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").Obj(),
+			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				WorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).
+				Obj(),
+		},
+		"update of a ready LeaderWorkerSet without the priority class label does not set the default WorkloadPriorityClass": {
+			defaultWPCExist: true,
+			oldLWS:          testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").ReadyReplicas(1).Obj(),
+			lws:             testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").ReadyReplicas(1).Obj(),
+			want:            testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").ReadyReplicas(1).Obj(),
+		},
+		"update of a ready LeaderWorkerSet that drops the priority class label sets the default WorkloadPriorityClass": {
+			defaultWPCExist: true,
+			oldLWS: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				WorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).
+				ReadyReplicas(1).
+				Obj(),
+			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").ReadyReplicas(1).Obj(),
+			want: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				WorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).
+				ReadyReplicas(1).
 				Obj(),
 		},
 		"worker-only LWS (no leader template), no offset annotation": {
@@ -192,8 +227,14 @@ func TestDefault(t *testing.T) {
 			integrationManager := newTestIntegrationManager(t)
 			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, tc.enableIntegrations...))
 			ctx, _ := utiltesting.ContextWithLog(t)
+			if tc.oldLWS != nil {
+				ctx = utiltesting.ContextWithUpdateRequest(ctx, t, tc.oldLWS)
+			}
 
 			builder := utiltesting.NewClientBuilder()
+			if tc.defaultWPCExist {
+				builder = builder.WithObjects(utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj())
+			}
 			cli := builder.Build()
 			cqCache := schdcache.New(cli)
 			queueManager := qcache.NewManagerForUnitTests(cli, cqCache)
