@@ -875,7 +875,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASRecomputeAssignmentWithinSchedulingCycle:         {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesWithTAS:                 {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesFlavorChangeFromZero:    {ElasticJobsViaWorkloadSlices},
-	MultiKueueRayInTreeAutoscaling:                      {MultiKueue, ElasticJobsViaWorkloadSlices},
+	MultiKueueRayInTreeAutoscaling:                      {MultiKueue, ElasticJobsViaWorkloadSlices, SkipChildJobSuspension},
 	KueueDRAIntegrationExtendedResource:                 {KueueDRAIntegration},
 	KueueDRAIntegrationPartitionableDevices:             {KueueDRAIntegration},
 	KueueDRAIntegrationConsumableCapacity:               {KueueDRAIntegration},
