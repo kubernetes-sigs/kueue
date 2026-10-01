@@ -786,6 +786,86 @@ func TestDominantResourceShare(t *testing.T) {
 				},
 			},
 		},
+		// The Cohort lends nothing of the resource, so the ratio stays 0 while
+		// cq borrows 1 above its nominal quota.
+		"zero weight borrowing only a resource with nothing lendable": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(3),
+			},
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("0")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("2").LendingLimit("0").Append().
+						Obj(),
+				).Obj(),
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("64").LendingLimit("0").Append().
+						Obj(),
+				).Obj(),
+			want: []fairSharingResult{
+				{Name: "cq", NodeType: nodeTypeCq, DrValue: math.MaxInt64, Borrowing: true},
+				{Name: "lending-cq", NodeType: nodeTypeCq},
+				{Name: "test-cohort", NodeType: nodeTypeCohort},
+			},
+		},
+		"positive weight borrowing only a resource with nothing lendable": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(3),
+			},
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("2").LendingLimit("0").Append().
+						Obj(),
+				).Obj(),
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("64").LendingLimit("0").Append().
+						Obj(),
+				).Obj(),
+			want: []fairSharingResult{
+				{Name: "cq", NodeType: nodeTypeCq, Borrowing: true},
+				{Name: "lending-cq", NodeType: nodeTypeCq},
+				{Name: "test-cohort", NodeType: nodeTypeCohort},
+			},
+		},
+		"zero weight cohort borrowing only a resource with nothing lendable": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(1),
+			},
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Cohort("child-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("0").Append().
+						Obj(),
+				).Obj(),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("child-cohort").FairWeight(resource.MustParse("0")).Parent("root").Obj(),
+				utiltestingapi.MakeCohort("root").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("0").Append().
+						Obj(),
+				).Obj(),
+			},
+			want: []fairSharingResult{
+				{Name: "cq", NodeType: nodeTypeCq, Borrowing: true},
+				{Name: "child-cohort", NodeType: nodeTypeCohort, DrValue: math.MaxInt64, Borrowing: true},
+				{Name: "root", NodeType: nodeTypeCohort},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1044,7 +1124,11 @@ func TestZeroWeightBorrows(t *testing.T) {
 		want bool
 	}{
 		"zero weight and borrowing returns true": {
-			drs:  DRS{fairWeight: 0, unweightedRatio: 100},
+			drs:  DRS{fairWeight: 0, unweightedRatio: 100, borrowing: true},
+			want: true,
+		},
+		"zero weight and borrowing with a zero ratio returns true": {
+			drs:  DRS{fairWeight: 0, unweightedRatio: 0, borrowing: true},
 			want: true,
 		},
 		"zero weight and not borrowing returns false": {
@@ -1052,7 +1136,7 @@ func TestZeroWeightBorrows(t *testing.T) {
 			want: false,
 		},
 		"non-zero weight and borrowing returns false": {
-			drs:  DRS{fairWeight: 1, unweightedRatio: 100},
+			drs:  DRS{fairWeight: 1, unweightedRatio: 100, borrowing: true},
 			want: false,
 		},
 	}
@@ -1071,7 +1155,11 @@ func TestPreciseWeightedShareSerialized(t *testing.T) {
 		want string
 	}{
 		"zero weight returning Inf": {
-			drs:  DRS{fairWeight: 0, unweightedRatio: 100},
+			drs:  DRS{fairWeight: 0, unweightedRatio: 100, borrowing: true},
+			want: "+Inf",
+		},
+		"zero weight borrowing with a zero ratio returns Inf": {
+			drs:  DRS{fairWeight: 0, unweightedRatio: 0, borrowing: true},
 			want: "+Inf",
 		},
 		"zero unweighted ratio returns 0": {
@@ -1092,6 +1180,44 @@ func TestPreciseWeightedShareSerialized(t *testing.T) {
 			got := tc.drs.PreciseWeightedShareSerialized()
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected string output (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestCompareDRS(t *testing.T) {
+	cases := map[string]struct {
+		a, b DRS
+		want int
+	}{
+		"zero weight borrowing with a zero ratio has a larger share than a finite share": {
+			a:    DRS{fairWeight: 0, borrowing: true},
+			b:    DRS{fairWeight: 1, unweightedRatio: 1000, borrowing: true},
+			want: 1,
+		},
+		"zero weight borrowing with a zero ratio has a larger share than not borrowing": {
+			a:    DRS{fairWeight: 0, borrowing: true},
+			b:    DRS{fairWeight: 0},
+			want: 1,
+		},
+		"zero weight borrowers compare by ratio": {
+			a:    DRS{fairWeight: 0, borrowing: true},
+			b:    DRS{fairWeight: 0, unweightedRatio: 100, borrowing: true},
+			want: -1,
+		},
+		"zero weight borrowers with equal ratios tie": {
+			a:    DRS{fairWeight: 0, borrowing: true},
+			b:    DRS{fairWeight: 0, borrowing: true},
+			want: 0,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := CompareDRS(tc.a, tc.b); got != tc.want {
+				t.Errorf("CompareDRS(a, b) = %d, want %d", got, tc.want)
+			}
+			if got := CompareDRS(tc.b, tc.a); got != -tc.want {
+				t.Errorf("CompareDRS(b, a) = %d, want %d", got, -tc.want)
 			}
 		})
 	}
