@@ -1615,6 +1615,68 @@ func TestAssignFlavors(t *testing.T) {
 				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
 			},
 		},
+		"same-queue preemption with no oracle candidates within nominal is preempt": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "4").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				).
+				Cohort("test-cohort").
+				Obj(),
+			clusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
+			},
+			secondaryClusterQueue: utiltestingapi.MakeClusterQueue("test-secondary-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("one").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				).
+				Cohort("test-cohort").
+				Obj(),
+			secondaryClusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
+			},
+			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 1},
+			},
+			wantRepMode: Preempt,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Flavors: ResourceAssignment{
+						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
+					},
+					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 2 more needed"),
+					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
+						{
+							Flavor:                "one",
+							Mode:                  Preempt,
+							PreemptionPossibility: new(preemptioncommon.NoCandidates),
+							Borrow:                1,
+							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 2 more needed"},
+						},
+					},
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU: resource.MustParse("4"),
+					},
+					Count: 1,
+				}},
+				Borrowing: 1,
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
+				}}},
+			},
+		},
 		"fair sharing with cohort reclaim keeps no oracle candidates as preempt": {
 			enableFairSharing: true,
 			wlPods: []kueue.PodSet{
