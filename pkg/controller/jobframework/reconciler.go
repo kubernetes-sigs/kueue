@@ -1108,6 +1108,12 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, err
 		}
 
+		if workloadslicing.Enabled(object) {
+			if err := workloadslicing.FinishReplacedSlices(ctx, r.client, r.clock, wl); err != nil {
+				return nil, err
+			}
+		}
+
 		// Skip the in-sync check for ElasticJob workloads if the workload is a
 		// newly scaled-up replacement. This prevents premature removal of remote
 		// objects for a Job that has not yet been synced after scale-up.

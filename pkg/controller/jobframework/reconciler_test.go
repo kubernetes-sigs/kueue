@@ -74,6 +74,47 @@ import (
 	. "sigs.k8s.io/kueue/pkg/controller/jobframework"
 )
 
+func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now().Truncate(time.Second)
+	gvk := batchv1.SchemeGroupVersion.WithKind("Job")
+	obj := testingjob.MakeJob("job", "ns").UID("job-uid").Queue("q").Suspend(false).
+		PrebuiltWorkloadLabel("new").
+		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).Obj()
+	old := utiltestingapi.MakeWorkload("old", "ns").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj()
+	replacement := utiltestingapi.MakeWorkload("new", "ns").Queue("q").
+		ControllerReference(gvk, obj.Name, string(obj.UID)).
+		Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+		Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj()
+	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), obj, old, replacement).
+		WithStatusSubresource(&kueue.Workload{}).
+		WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+		}).Build()
+	mgj := mocks.NewMockGenericJob(gomock.NewController(t))
+	mgj.EXPECT().Object().Return(obj).AnyTimes()
+	mgj.EXPECT().GVK().Return(gvk).AnyTimes()
+	mgj.EXPECT().IsSuspended().Return(false).AnyTimes()
+	mgj.EXPECT().IsActive().Return(true).AnyTimes()
+	mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+	mgj.EXPECT().PodsReady(gomock.Any(), gomock.Any()).Return(false).AnyTimes()
+	reconciler := NewReconciler(cl, &utiltesting.EventRecorder{})
+	if _, err := reconciler.ReconcileGenericJob(ctx, controllerruntime.Request{NamespacedName: client.ObjectKeyFromObject(obj)}, mgj); err != nil {
+		t.Fatal(err)
+	}
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(old), old); err != nil {
+		t.Fatal(err)
+	}
+	if !workloadslicing.IsReplaced(old.Status) {
+		t.Errorf("Old prebuilt slice was not finished: %v", old.Status.Conditions)
+	}
+}
+
 func TestReconcileGenericJob(t *testing.T) {
 	var (
 		testJobName        = "test-job"

@@ -26,6 +26,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -54,6 +55,79 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
+
+func TestFinishReplacedSlices(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cases := map[string]struct {
+		admitted     bool
+		conflict     bool
+		evicted      bool
+		replaced     bool
+		wantFinished bool
+	}{
+		"admitted replacement finishes predecessor":         {admitted: true, wantFinished: true},
+		"pending replacement retains predecessor":           {},
+		"conflict is retried on next reconcile":             {admitted: true, conflict: true, wantFinished: true},
+		"evicted replacement retains predecessor":           {admitted: true, evicted: true},
+		"superseded replacement still replaces predecessor": {admitted: true, replaced: true, wantFinished: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			old := utiltestingapi.MakeWorkload("old", "ns").
+				Annotation(kueue.WorkloadSliceNameAnnotation, "chain").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+				AdmittedAt(true, now).Obj()
+			replacement := utiltestingapi.MakeWorkload("new", "ns").
+				Annotation(kueue.WorkloadSliceNameAnnotation, "chain").
+				Annotation(WorkloadSliceReplacementFor, "ns/old")
+			if tc.admitted {
+				replacement.ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now)
+			}
+			if tc.evicted {
+				replacement.EvictedAt(now)
+			}
+			if tc.replaced {
+				replacement.Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: kueue.WorkloadSliceReplaced})
+			}
+			unrelated := utiltestingapi.MakeWorkload("unrelated", "ns").
+				Annotation(kueue.WorkloadSliceNameAnnotation, "other-chain").Obj()
+			conflict := tc.conflict
+			cl := utiltesting.NewClientBuilder().WithObjects(old, replacement.Obj(), unrelated).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: func(ctx context.Context, c client.Client, subResource string, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+						if conflict {
+							conflict = false
+							return apierrors.NewConflict(schema.GroupResource{Group: kueue.SchemeGroupVersion.Group, Resource: "workloads"}, "old", errors.New("concurrent update"))
+						}
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResource, obj, opts...)
+					},
+				}).Build()
+			clk := testingclock.NewFakeClock(now)
+			if tc.conflict {
+				if err := FinishReplacedSlices(ctx, cl, clk, replacement.Obj()); !apierrors.IsConflict(err) {
+					t.Fatalf("Expected conflict, got %v", err)
+				}
+			}
+			for range 2 {
+				if err := FinishReplacedSlices(ctx, cl, clk, replacement.Obj()); err != nil {
+					t.Fatalf("FinishReplacedSlices() error: %v", err)
+				}
+			}
+			for _, wl := range []*kueue.Workload{old, replacement.Obj(), unrelated} {
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), wl); err != nil {
+					t.Fatal(err)
+				}
+				want := (wl.Name == "old" && tc.wantFinished) || (wl.Name == "new" && tc.replaced)
+				if got := workloadfinish.IsFinished(wl); got != want {
+					t.Errorf("Workload %s Finished = %v, want %v", wl.Name, got, want)
+				}
+			}
+		})
+	}
+}
 
 func TestEnabled(t *testing.T) {
 	type args struct {

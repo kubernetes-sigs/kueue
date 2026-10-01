@@ -399,6 +399,37 @@ func EnsureWorkloadSlices(
 	}
 }
 
+// FinishReplacedSlices recovers failed scheduler replacements for prebuilt
+// workloads, which do not go through EnsureWorkloadSlices. Pending replacements
+// must retain their predecessors' quota until they are admitted.
+func FinishReplacedSlices(ctx context.Context, clnt client.Client, clk clock.Clock, wl *kueue.Workload) error {
+	workloads := &kueue.WorkloadList{}
+	if err := clnt.List(ctx, workloads, client.InNamespace(wl.Namespace),
+		client.MatchingFields{indexer.WorkloadSliceNameKey: SliceName(wl)}); err != nil {
+		return err
+	}
+	replaced := make(map[workload.Reference]struct{})
+	for i := range workloads.Items {
+		replacement := &workloads.Items[i]
+		if workload.IsAdmitted(replacement) && !workloadevict.IsEvicted(replacement) &&
+			(!workloadfinish.IsFinished(replacement) || IsReplaced(replacement.Status)) {
+			if key := ReplacementForKey(replacement); key != nil {
+				replaced[*key] = struct{}{}
+			}
+		}
+	}
+	for i := range workloads.Items {
+		old := &workloads.Items[i]
+		if _, found := replaced[workload.Key(old)]; !found || workloadfinish.IsFinished(old) {
+			continue
+		}
+		if err := workloadfinish.Finish(ctx, clnt, old, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice", clk); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // normalizeActiveSlices enforces the workload slice invariant:
 //   - One non-evicted admitted workload (latestWithQuotaReservation)
 //   - At most one non-evicted pending replacement that directly replaces it
