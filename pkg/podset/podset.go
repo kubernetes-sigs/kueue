@@ -88,7 +88,15 @@ func FromAssignment(ctx context.Context, client client.Client, assignment *kueue
 			return info, err
 		}
 		if err := utilmaps.HaveConflict(info.NodeSelector, flv.Spec.NodeLabels); err != nil {
-			return info, fmt.Errorf("flavor %s for resource %s: node label conflict with another assigned flavor: %w", flvRef, resName, err)
+			// The flavors of the different resource groups are selected
+			// independently and their node labels are not cross-checked at
+			// assignment time, so a conflicting combination cannot be caught
+			// earlier: it is first detected here, when starting the Job (after
+			// admission). A permanent error makes the Job fail fast
+			// (FailedToStart) and release the reserved quota instead of
+			// retrying while holding it.
+			return info, BadPodSetsUpdateError("nodeSelector",
+				fmt.Errorf("flavor %s for resource %s: node label conflict with another assigned flavor: %w", flvRef, resName, err))
 		}
 		utilmaps.Copy(&info.NodeSelector, flv.Spec.NodeLabels)
 		info.Tolerations = append(info.Tolerations, flv.Spec.Tolerations...)

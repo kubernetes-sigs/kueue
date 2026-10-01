@@ -17,6 +17,7 @@ limitations under the License.
 package podset
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -720,6 +721,9 @@ func TestFromAssignmentNodeLabelConflict(t *testing.T) {
 		_, err := FromAssignment(ctx, client, assignment, &podSet)
 		if err == nil {
 			t.Fatalf("run %d: expected a conflict error, got none", i)
+		}
+		if !errors.Is(err, ErrInvalidPodSetUpdate) {
+			t.Fatalf("run %d: expected a permanent podset update error, got: %v", i, err)
 		}
 		if !strings.Contains(err.Error(), "topology.kubernetes.io/zone") {
 			t.Fatalf("run %d: error should name the conflicting key, got: %v", i, err)
