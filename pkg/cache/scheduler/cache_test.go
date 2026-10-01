@@ -3206,6 +3206,95 @@ func TestIsAddedCheckWorkload(t *testing.T) {
 	}
 }
 
+func TestUpdateWorkloadIfUnchanged(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "10").Obj(),
+		).
+		Obj()
+	makeWorkload := func(rv string, flavor kueue.ResourceFlavorReference) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			ResourceVersion(rv).
+			PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment("main").
+					Assignment(corev1.ResourceCPU, flavor, "1").
+					Obj()).
+				Obj(), now).
+			Obj()
+	}
+
+	cases := map[string]struct {
+		cached      *kueue.Workload
+		update      *kueue.Workload
+		wantUpdated bool
+		wantRV      string
+		wantUsage   resources.FlavorResourceQuantities
+	}{
+		"same resourceVersion replaces the cached workload": {
+			cached:      makeWorkload("1", "on-demand"),
+			update:      makeWorkload("1", "spot"),
+			wantUpdated: true,
+			wantRV:      "1",
+			wantUsage: resources.FlavorResourceQuantities{
+				{Flavor: "spot", Resource: corev1.ResourceCPU}: resources.NewAmount(1000),
+			},
+		},
+		"different resourceVersion leaves the cached workload unchanged": {
+			cached:      makeWorkload("2", "on-demand"),
+			update:      makeWorkload("1", "spot"),
+			wantUpdated: false,
+			wantRV:      "2",
+			wantUsage: resources.FlavorResourceQuantities{
+				{Flavor: "on-demand", Resource: corev1.ResourceCPU}: resources.NewAmount(1000),
+			},
+		},
+		"workload not in the cache is not added": {
+			update:      makeWorkload("1", "spot"),
+			wantUpdated: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cache := New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+				t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+			}
+			if tc.cached != nil && !cache.AddOrUpdateWorkload(ctx, log, tc.cached) {
+				t.Fatal("Failed to seed the workload in the cache")
+			}
+
+			if got := cache.UpdateWorkloadIfUnchanged(ctx, log, tc.update); got != tc.wantUpdated {
+				t.Errorf("UpdateWorkloadIfUnchanged() = %t, want %t", got, tc.wantUpdated)
+			}
+
+			cachedCQ := cache.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
+			cachedWl, found := cachedCQ.Workloads[workload.Key(tc.update)]
+			if tc.cached == nil {
+				if found {
+					t.Error("UpdateWorkloadIfUnchanged added a workload that was not in the cache")
+				}
+				if _, assigned := cache.workloadAssignedQueues[workload.Key(tc.update)]; assigned {
+					t.Error("UpdateWorkloadIfUnchanged assigned a ClusterQueue to a workload that was not in the cache")
+				}
+				return
+			}
+			if !found {
+				t.Fatal("The workload is missing from the cache")
+			}
+			if cachedWl.Obj.ResourceVersion != tc.wantRV {
+				t.Errorf("Cached workload has resourceVersion %q, want %q", cachedWl.Obj.ResourceVersion, tc.wantRV)
+			}
+			if diff := cmp.Diff(tc.wantUsage, cachedCQ.resourceNode.Usage, cmp.Comparer(equalFlavorResourceQuantitiesIgnoringZero)); diff != "" {
+				t.Errorf("Unexpected ClusterQueue usage (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func equalFlavorResourceQuantitiesIgnoringZero(a, b resources.FlavorResourceQuantities) bool {
 	if len(b) > len(a) {
 		a, b = b, a

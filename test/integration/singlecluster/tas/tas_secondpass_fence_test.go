@@ -35,6 +35,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
@@ -118,7 +119,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass admission wr
 		gomega.Expect(forceDeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
-	ginkgo.It("rejects a stale second-pass admission write and keeps the workload's reservation", func() {
+	runStaleWriteScenario := func(useMergePatch bool) {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadRequestUseMergePatch, useMergePatch)
+		fired.Store(false)
 		wlKey.Store(&types.NamespacedName{Namespace: ns.Name, Name: "wl"})
 
 		newWorkload := func(name string) *kueue.Workload {
@@ -196,6 +199,14 @@ var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass admission wr
 		ginkgo.By("the competing workload is still pending", func() {
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 		})
+	}
+
+	ginkgo.It("rejects a stale second-pass admission write and keeps the workload's reservation with server-side apply", func() {
+		runStaleWriteScenario(false)
+	})
+
+	ginkgo.It("rejects a stale second-pass admission write and keeps the workload's reservation with merge patch", func() {
+		runStaleWriteScenario(true)
 	})
 })
 
@@ -218,7 +229,6 @@ type bumpWriter struct {
 
 // Status writes go through SSA apply by default, so the extra write lands just before the apply.
 func (w *bumpWriter) Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
-	p := w.parent
 	target, ok := obj.(interface {
 		GetName() string
 		GetNamespace() string
@@ -226,24 +236,40 @@ func (w *bumpWriter) Apply(ctx context.Context, obj runtime.ApplyConfiguration, 
 	if !ok {
 		return w.SubResourceWriter.Apply(ctx, obj, opts...)
 	}
-	key := types.NamespacedName{Namespace: target.GetNamespace(), Name: target.GetName()}
-	if wlKey := p.wlKey.Load(); wlKey != nil && key == *wlKey && !p.fired.Load() {
-		var probe kueue.Workload
-		if err := p.plain.Get(ctx, key, &probe); err != nil {
-			return err
-		}
-		// In this spec only the second-pass write runs while wl lists an unhealthy node.
-		if len(probe.Status.UnhealthyNodes) > 0 && p.fired.CompareAndSwap(false, true) {
-			// A merge patch without an optimistic lock cannot conflict, so any Conflict comes from the scheduler's write.
-			patch := client.MergeFrom(probe.DeepCopy())
-			if probe.Annotations == nil {
-				probe.Annotations = map[string]string{}
-			}
-			probe.Annotations["fence-test/bump"] = fmt.Sprintf("fired-%d", time.Now().UnixNano())
-			if err := p.plain.Patch(ctx, &probe, patch); err != nil {
-				return err
-			}
-		}
+	if err := w.parent.bumpOnce(ctx, types.NamespacedName{Namespace: target.GetNamespace(), Name: target.GetName()}); err != nil {
+		return err
 	}
 	return w.SubResourceWriter.Apply(ctx, obj, opts...)
+}
+
+// With WorkloadRequestUseMergePatch, status writes go through a merge patch, so the extra write lands just before the patch.
+func (w *bumpWriter) Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+	if _, ok := obj.(*kueue.Workload); ok {
+		if err := w.parent.bumpOnce(ctx, client.ObjectKeyFromObject(obj)); err != nil {
+			return err
+		}
+	}
+	return w.SubResourceWriter.Patch(ctx, obj, patch, opts...)
+}
+
+// bumpOnce lands one extra write on the target workload the first time it is written while it lists an unhealthy node.
+func (c *secondPassBumpClient) bumpOnce(ctx context.Context, key types.NamespacedName) error {
+	if wlKey := c.wlKey.Load(); wlKey == nil || key != *wlKey || c.fired.Load() {
+		return nil
+	}
+	var probe kueue.Workload
+	if err := c.plain.Get(ctx, key, &probe); err != nil {
+		return err
+	}
+	// In this spec only the second-pass write runs while wl lists an unhealthy node.
+	if len(probe.Status.UnhealthyNodes) > 0 && c.fired.CompareAndSwap(false, true) {
+		// A merge patch without an optimistic lock cannot conflict, so any Conflict comes from the scheduler's write.
+		patch := client.MergeFrom(probe.DeepCopy())
+		if probe.Annotations == nil {
+			probe.Annotations = map[string]string{}
+		}
+		probe.Annotations["fence-test/bump"] = fmt.Sprintf("fired-%d", time.Now().UnixNano())
+		return c.plain.Patch(ctx, &probe, patch)
+	}
+	return nil
 }
