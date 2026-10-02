@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -55,6 +56,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -2380,6 +2382,162 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	}
 	if err == nil {
 		t.Fatal("worker2 workload should have been deleted after second reconcile")
+	}
+}
+
+// A LeaderWorkerSet creates one Workload per group, but all of them share a single remote
+// LeaderWorkerSet on the worker. Removing the remote objects of a group must keep that
+// LeaderWorkerSet while another group is still on the worker, and delete it with the last group.
+func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
+	lwsGVK := leaderworkersetv1.SchemeGroupVersion.WithKind("LeaderWorkerSet")
+	now := time.Now().Truncate(time.Second)
+
+	groupWorkload := func(name, index string) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(name, TestNamespace).
+			OwnerReference(lwsGVK, "lws1", "lws1-uid").
+			Annotation(constants.JobOwnerGVKAnnotation, lwsGVK.String()).
+			Annotation(constants.JobOwnerNameAnnotation, "lws1").
+			Annotation(constants.ComponentWorkloadIndexAnnotation, index)
+	}
+	admittedGroupWorkload := func(name, index string) *utiltestingapi.WorkloadWrapper {
+		return groupWorkload(name, index).
+			AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+			ClusterName("worker1")
+	}
+	remoteGroupWorkload := func(name, index string) kueue.Workload {
+		return *groupWorkload(name, index).
+			Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+			AdmittedAt(true, now).
+			Obj()
+	}
+
+	cases := map[string]struct {
+		managerWorkloads []kueue.Workload
+		// deletedWorkloads were just deleted from the manager.
+		deletedWorkloads []kueue.Workload
+		// worker1Workloads all share the remote LeaderWorkerSet on worker1.
+		worker1Workloads []kueue.Workload
+		// reconcile names the Workloads to reconcile, in order.
+		reconcile []string
+
+		wantWorker1Workloads      []string
+		wantRemoteLeaderWorkerSet bool
+	}{
+		"a finished group keeps the remote LeaderWorkerSet of a running group": {
+			managerWorkloads:          []kueue.Workload{*admittedGroupWorkload("wl1", "1").Finished().Obj()},
+			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
+			reconcile:                 []string{"wl1"},
+			wantWorker1Workloads:      []string{"wl0"},
+			wantRemoteLeaderWorkerSet: true,
+		},
+		"a preempted group keeps the remote LeaderWorkerSet of a running group": {
+			managerWorkloads: []kueue.Workload{*groupWorkload("wl1", "1").
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+				EvictedAt(now).
+				Obj()},
+			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
+			reconcile:                 []string{"wl1"},
+			wantWorker1Workloads:      []string{"wl0"},
+			wantRemoteLeaderWorkerSet: true,
+		},
+		"a group removed by a scale down keeps the remote LeaderWorkerSet of a running group": {
+			deletedWorkloads:          []kueue.Workload{*admittedGroupWorkload("wl1", "1").Obj()},
+			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
+			reconcile:                 []string{"wl1"},
+			wantWorker1Workloads:      []string{"wl0"},
+			wantRemoteLeaderWorkerSet: true,
+		},
+		"the last finished group deletes the remote LeaderWorkerSet": {
+			managerWorkloads: []kueue.Workload{*admittedGroupWorkload("wl1", "1").Finished().Obj()},
+			worker1Workloads: []kueue.Workload{remoteGroupWorkload("wl1", "1")},
+			reconcile:        []string{"wl1"},
+		},
+		"the last of the deleted groups deletes the remote LeaderWorkerSet": {
+			deletedWorkloads: []kueue.Workload{*admittedGroupWorkload("wl0", "0").Obj(), *admittedGroupWorkload("wl1", "1").Obj()},
+			worker1Workloads: []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
+			reconcile:        []string{"wl0", "wl1"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			managerClient := getClientBuilder(ctx).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				}).
+				WithLists(&kueue.WorkloadList{Items: tc.managerWorkloads}).
+				WithStatusSubresource(utilslices.Map(tc.managerWorkloads, func(w *kueue.Workload) client.Object { return w })...).
+				WithObjects(
+					testingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).UID("lws1-uid").Replicas(2).Obj(),
+					utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
+					utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
+						Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
+						Obj(),
+				).
+				Build()
+
+			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("leaderworkerset.x-k8s.io/leaderworkerset"))
+			cRec := newClustersReconciler(managerClient, TestNamespace, withAdapters(adapters))
+
+			worker1Client := NewNeverCachingClient(getClientBuilder(ctx).
+				WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}).
+				WithObjects(testingleaderworkerset.MakeLeaderWorkerSet("lws1", TestNamespace).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Annotation(kueue.MultiKueueOriginUIDAnnotation, "lws1-uid").
+					Replicas(2).
+					Obj()).
+				WithStatusSubresource(&kueue.Workload{}).
+				Build())
+			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker1", adapters)
+			w1remoteClient.client = worker1Client
+			w1remoteClient.connState.markConnected()
+			cRec.remoteClients["worker1"] = w1remoteClient
+
+			helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
+			reconciler := newWlReconciler(
+				managerClient,
+				helper,
+				cRec,
+				defaultOrigin,
+				&utiltesting.EventRecorder{},
+				defaultWorkerLostTimeout,
+				time.Second,
+				adapters,
+				config.MultiKueueDispatcherModeAllAtOnce,
+				nil,
+			)
+			for i := range tc.deletedWorkloads {
+				reconciler.Delete(event.DeleteEvent{Object: &tc.deletedWorkloads[i]})
+			}
+
+			for _, wlName := range tc.reconcile {
+				if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: wlName, Namespace: TestNamespace}); err != nil {
+					t.Fatalf("unexpected reconcile error for %q: %v", wlName, err)
+				}
+			}
+
+			gotWorker1Workloads := &kueue.WorkloadList{}
+			if err := worker1Client.List(ctx, gotWorker1Workloads); err != nil {
+				t.Fatalf("unexpected list worker1 workloads error: %v", err)
+			}
+			gotNames := utilslices.Map(gotWorker1Workloads.Items, func(w *kueue.Workload) string { return w.Name })
+			if diff := cmp.Diff(tc.wantWorker1Workloads, gotNames, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+				t.Errorf("unexpected worker1 workloads (-want/+got):\n%s", diff)
+			}
+
+			err := worker1Client.Get(ctx, types.NamespacedName{Name: "lws1", Namespace: TestNamespace}, &leaderworkersetv1.LeaderWorkerSet{})
+			if client.IgnoreNotFound(err) != nil {
+				t.Fatalf("unexpected get remote LeaderWorkerSet error: %v", err)
+			}
+			if gotRemoteLeaderWorkerSet := err == nil; gotRemoteLeaderWorkerSet != tc.wantRemoteLeaderWorkerSet {
+				t.Errorf("unexpected remote LeaderWorkerSet presence: want %v, got %v", tc.wantRemoteLeaderWorkerSet, gotRemoteLeaderWorkerSet)
+			}
+		})
 	}
 }
 
