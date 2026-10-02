@@ -1521,6 +1521,41 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		})
 	})
 
+	ginkgo.When("A ClusterQueue with a weight near the float64 limit borrows a little", func() {
+		var cqA *kueue.ClusterQueue
+		ginkgo.BeforeEach(func() {
+			createCohort(utiltestingapi.MakeCohort("top-cohort").Obj())
+
+			cqA = createQueue(utiltestingapi.MakeClusterQueue("large-weight-cq-a-" + ns.Name).
+				Cohort("top-cohort").
+				FairWeight(resource.MustParse("1e308")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj())
+			createQueue(utiltestingapi.MakeClusterQueue("lending-cq-b-" + ns.Name).
+				Cohort("top-cohort").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "9000000000000000").Obj(),
+				).Obj())
+		})
+
+		// 1m borrowed against 9e15 lendable CPU gives a per-thousand ratio of
+		// 1000 / 9e18, and dividing it by 1e308 gives about 1.1e-324, which
+		// float64 rounds to 0.
+		ginkgo.It("should report a positive weighted share", func() {
+			ginkgo.By("Admitting a workload that borrows 1m of CPU")
+			wlA := createWorkload(cqA.Name, "1m")
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+
+			ginkgo.By("Checking the weighted share of cqA")
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdCqA := &kueue.ClusterQueue{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqA), createdCqA)).Should(gomega.Succeed())
+				g.Expect(createdCqA.Status.FairSharing).Should(gomega.BeComparableTo(&kueue.FairSharingStatus{WeightedShare: 1}))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("Preemption is enabled in fairsharing and there are best effort and guaranteed workloads", func() {
 		var (
 			bestEffortCQA *kueue.ClusterQueue

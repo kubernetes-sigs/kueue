@@ -866,6 +866,87 @@ func TestDominantResourceShare(t *testing.T) {
 				{Name: "root", NodeType: nodeTypeCohort},
 			},
 		},
+		// 1 * 1000 / 9e18 / 1e308 is about 1.1e-324, which float64 rounds to 0.
+		"share below the smallest float64 stays positive": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1),
+			},
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("1e308")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("0").Append().
+						Obj(),
+				).Obj(),
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("9000000000000000").Append().
+						Obj(),
+				).Obj(),
+			want: []fairSharingResult{
+				{Name: "cq", NodeType: nodeTypeCq, DrName: corev1.ResourceCPU, DrValue: 1, Borrowing: true},
+				{Name: "lending-cq", NodeType: nodeTypeCq},
+				{Name: "test-cohort", NodeType: nodeTypeCohort},
+			},
+		},
+		// 1e400 is +Inf as a float64, and 1000 / +Inf is 0.
+		"share with a weight past float64 stays positive": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1_000),
+			},
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("1e400")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("0").Append().
+						Obj(),
+				).Obj(),
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("1").Append().
+						Obj(),
+				).Obj(),
+			want: []fairSharingResult{
+				{Name: "cq", NodeType: nodeTypeCq, DrName: corev1.ResourceCPU, DrValue: 1, Borrowing: true},
+				{Name: "lending-cq", NodeType: nodeTypeCq},
+				{Name: "test-cohort", NodeType: nodeTypeCohort},
+			},
+		},
+		// child-cohort borrows 1m from root: 1 * 1000 / 9e18 / 1e308 rounds to 0.
+		"cohort share below the smallest float64 stays positive": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(1),
+			},
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Cohort("child-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("0").Append().
+						Obj(),
+				).Obj(),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("child-cohort").FairWeight(resource.MustParse("1e308")).Parent("root").Obj(),
+				utiltestingapi.MakeCohort("root").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("cpu").NominalQuota("9000000000000000").Append().
+						Obj(),
+				).Obj(),
+			},
+			want: []fairSharingResult{
+				{Name: "cq", NodeType: nodeTypeCq, DrName: corev1.ResourceCPU, DrValue: 1, Borrowing: true},
+				{Name: "child-cohort", NodeType: nodeTypeCohort, DrName: corev1.ResourceCPU, DrValue: 1, Borrowing: true},
+				{Name: "root", NodeType: nodeTypeCohort},
+			},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1016,6 +1097,41 @@ func TestSnapshotCarriesLendable(t *testing.T) {
 	}})
 	if diff := cmp.Diff(before, snapshot.Cohort("mid").ResourceNode.Lendable, cmp.Comparer(resources.Equal)); diff != "" {
 		t.Errorf("Lendable changed after a usage change (-before,+after):\n%s", diff)
+	}
+}
+
+func TestPreciseWeightedShare(t *testing.T) {
+	cases := map[string]struct {
+		drs  DRS
+		want float64
+	}{
+		"a share float64 rounds to zero is floored": {
+			drs:  DRS{fairWeight: 1e308, unweightedRatio: 1000.0 / 9e18, borrowing: true},
+			want: math.SmallestNonzeroFloat64,
+		},
+		"a weight past the float64 range is floored": {
+			drs:  DRS{fairWeight: math.Inf(1), unweightedRatio: 1000, borrowing: true},
+			want: math.SmallestNonzeroFloat64,
+		},
+		"a small share float64 holds is kept": {
+			drs:  DRS{fairWeight: math.Ldexp(1, 1000), unweightedRatio: 1, borrowing: true},
+			want: math.Ldexp(1, -1000),
+		},
+		"a zero ratio stays zero": {
+			drs:  DRS{fairWeight: 1, borrowing: true},
+			want: 0,
+		},
+		"the negative sentinel is unchanged": {
+			drs:  NegativeDRS(),
+			want: -1,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := tc.drs.PreciseWeightedShare(); got != tc.want {
+				t.Errorf("PreciseWeightedShare() = %g, want %g", got, tc.want)
+			}
+		})
 	}
 }
 
@@ -1208,6 +1324,21 @@ func TestCompareDRS(t *testing.T) {
 		"zero weight borrowers with equal ratios tie": {
 			a:    DRS{fairWeight: 0, borrowing: true},
 			b:    DRS{fairWeight: 0, borrowing: true},
+			want: 0,
+		},
+		"a floored share is above a node that does not borrow": {
+			a:    DRS{fairWeight: 1e308, unweightedRatio: 1000.0 / 9e18, borrowing: true},
+			b:    DRS{fairWeight: 1},
+			want: 1,
+		},
+		"a floored share is below a small share float64 holds": {
+			a:    DRS{fairWeight: 1e308, unweightedRatio: 1000.0 / 9e18, borrowing: true},
+			b:    DRS{fairWeight: 1e20, unweightedRatio: 1, borrowing: true},
+			want: -1,
+		},
+		"two floored shares tie": {
+			a:    DRS{fairWeight: 1e308, unweightedRatio: 1000.0 / 9e18, borrowing: true},
+			b:    DRS{fairWeight: math.Inf(1), unweightedRatio: 1000, borrowing: true},
 			want: 0,
 		},
 	}
