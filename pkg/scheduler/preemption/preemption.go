@@ -45,8 +45,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/priority"
@@ -287,7 +287,7 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 		Requests:          preemptionCtx.workloadUsage.Quota,
 		WorkloadOrdering:  p.workloadOrdering,
 	}
-	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, p.enabledAfs, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, preemptioncommon.CandidatesOrdering)
+	candidatesGenerator := classical.NewCandidateIterator(hierarchicalReclaimCtx, p.enabledAfs, preemptionCtx.frsNeedPreemption, preemptionCtx.snapshot, p.clock, policy.CandidatesOrdering)
 	var attemptPossibleOpts []preemptionAttemptOpts
 	borrowWithinCohortForbidden, _ := classical.IsBorrowingWithinCohortForbidden(preemptionCtx.preemptorCQ)
 	// We have three types of candidates:
@@ -536,7 +536,7 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 		return nil
 	}
 	slices.SortFunc(candidates, func(a, b *workload.Info) int {
-		return preemptioncommon.CandidatesOrdering(preemptionCtx.log, p.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, p.clock.Now())
+		return policy.CandidatesOrdering(preemptionCtx.log, p.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, p.clock.Now())
 	})
 	if logV := preemptionCtx.log.V(5); logV.Enabled() {
 		logV.Info(
@@ -625,18 +625,18 @@ func findCandidatesForPolicy(
 	log logr.Logger,
 	wl *kueue.Workload,
 	workloadsToFilter map[workload.Reference]*workload.Info,
-	policy kueue.PreemptionPolicy,
+	preemptionPolicy kueue.PreemptionPolicy,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
 	workloadOrdering workload.Ordering,
 ) []*workload.Info {
 	var candidates []*workload.Info
 	for _, candidateWl := range workloadsToFilter {
-		if !preemptioncommon.SatisfiesPreemptionPolicy(
+		if !policy.SatisfiesPreemptionPolicy(
 			log,
 			wl,
 			candidateWl.Obj,
 			workloadOrdering,
-			policy) {
+			preemptionPolicy) {
 			continue
 		}
 
