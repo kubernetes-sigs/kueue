@@ -26,7 +26,7 @@ If your repo has certain guidelines for contribution, put them here ahead of the
 ## Contact Information
 
 - [Slack](https://kubernetes.slack.com/messages/sig-scheduling)
-- [Mailing List](https://groups.google.com/forum/#!forum/kubernetes-sig-scheduling)
+- [Mailing List](https://groups.google.com/g/kubernetes-sig-scheduling)
 
 ## Local verification (`make verify`)
 
