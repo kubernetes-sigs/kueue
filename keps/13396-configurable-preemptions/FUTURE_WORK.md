@@ -45,7 +45,7 @@
 
 ## Configurable Candidate Ordering
 
-In the initial iteration of `PreemptionConfig`, candidate workloads are ordered strictly by reusing the default ordering rules from classical preemption and fair sharing (as defined in `pkg/scheduler/preemption/common/ordering.go`):
+In the initial iteration of `PreemptionConfig`, candidate workloads are ordered strictly by reusing the default ordering rules from classical preemption and fair sharing (as defined in `pkg/scheduler/preemption/policy/ordering.go`):
 
 0. Workloads already marked for preemption first (`isEvicted`).
 1. Workloads from other ClusterQueues in the cohort before the ones in the same ClusterQueue as the preemptor.
