@@ -458,7 +458,6 @@ func normalizeActiveSlices(
 	workloads []kueue.Workload,
 ) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
-	replacedWorkloads := replacedUnfinishedWorkloads(workloads)
 
 	// Index replacements by the workload they replace. On duplicate claims
 	// (race-created forks), prefer the admitted one.
@@ -488,7 +487,7 @@ func normalizeActiveSlices(
 			continue
 		}
 		// Skip if replaced by another admitted workload.
-		if slices.Contains(replacedWorkloads, wl) {
+		if repl, ok := replacements[workload.Key(wl)]; ok && workload.HasQuotaReservation(repl) {
 			continue
 		}
 		latestWithQuotaReservation = wl
