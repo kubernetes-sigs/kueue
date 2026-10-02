@@ -147,7 +147,7 @@ func ValidateAdmissibility(
 	wi *Info,
 	cqNamespaceSelector labels.Selector,
 ) error {
-	if wi.AdjustmentErr != nil {
+	if wi.AdjustmentErr != nil && !HasQuotaReservation(wi.Obj) {
 		return wi.AdjustmentErr
 	}
 
