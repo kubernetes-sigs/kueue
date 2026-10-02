@@ -1,115 +1,254 @@
 ---
 name: kueue-flake-debugger
-description: Debug Kueue CI flakes. Use when a user asks to debug a flake, investigate a test failure, a test timeout, or a CI flake. Analyzes Prow build logs, kube-scheduler logs, kubelet logs, and test code to identify root causes.
+description: Debug Kueue CI flakes. Use when a user asks to debug a flake, investigate a test failure, a test timeout, or a CI flake. Analyzes Prow build logs, CI Pod resources, Prometheus metrics, envtest lifecycle, kube-scheduler logs, kubelet logs, and test code to identify root causes.
 license: Apache-2.0
 metadata:
   copyright: The Kubernetes Authors
 ---
 
-You are an expert in Kueue which is the project for Workload orchestration.
+You are an expert in Kueue, the Kubernetes workload orchestration system.
 
 ## Flake debugging
 
-### Step one - initial build-log analysis
+Follow the steps below in order. Keep confirmed facts separate from hypotheses. Do not call a
+failure an OOM unless the Pod status or OOM metrics support that conclusion.
 
-When asked to debug a flake with the given link to Github issue then identify the prow link to the failure.
+### Step 1 - identify the Prow build and download the primary log
 
-Please report the list of all prow links. Try using `gh` first, if available,
-otherwise fallback to other tools you have, for example curl:
-
-```sh
-# Note: If the issue context is already provided or visible, you can skip this automated curl and manually identify the Prow link from the issue description.
-curl -Lv https://github.com/kubernetes-sigs/kueue/issues/ABCD 2>/dev/null | grep -e "href=\"https://prow\.k8s\.io/view/gs/kubernetes-ci-logs/pr-logs/pull"
-```
-
-Then, extract the links.
-
-Choose the first, let call it PROW_LOG, eg:
+When given a GitHub issue, first collect all Prow links from the issue and its comments:
 
 ```sh
-BASE_PROW_LOG=https://gcsweb.k8s.io/gcs/kubernetes-ci-logs/pr-logs/pull/kubernetes-sigs_kueue/9617/pull-kueue-test-e2e-main-1-33/2028383367677874176
+gh issue view ISSUE --repo kubernetes-sigs/kueue --comments --json comments,url
 ```
 
-Then appenend "/build-log.txt", down load using curl, say
+If `gh` is unavailable, use the public issue page:
 
 ```sh
-curl -Lv ${BASE_PROW_LOG}/build-log.txt -obuild-logs/build-log.txt
+curl -fsSL https://github.com/kubernetes-sigs/kueue/issues/ISSUE \
+  | rg -o 'https://prow\.k8s\.io/view/gs/kubernetes-ci-logs/pr-logs/pull[^" ]+'
 ```
-Note, always put all artifacts under the `build-logs/` folder.
 
-Then grep the build-log around the failing lines, for example:
+List all matching builds. Choose the relevant failed build and preserve its exact artifact base
+path from the Prow page; do not reconstruct the PR-number path by hand.
 
 ```sh
-cat build-logs/build-log.txt | grep -ab40 "FAILED"
+PROW_BUILD='https://prow.k8s.io/view/gs/kubernetes-ci-logs/pr-logs/pull/.../.../...'
+GCS_BUILD='https://gcsweb.k8s.io/gcs/kubernetes-ci-logs/pr-logs/pull/.../.../...'
+mkdir -p build-logs
+curl -fsSL "${GCS_BUILD}/build-log.txt" -o build-logs/build-log.txt
+curl -fsSL "${GCS_BUILD}/podinfo.json" -o build-logs/podinfo.json
+curl -fsSL "${GCS_BUILD}/prowjob.json" -o build-logs/prowjob.json
 ```
-Output the lines, summarize the failure line, the name of the failed test and the namespace name.
 
-### Step 2 - identify the artifacts location with worker and control-plane Pods
-
-To do that fetch the URL: "${BASE_PROW_LOG}/artifacts/", you will find a URL with the suffix like `FAILED_SUITE=run-test-e2e-singlecluster-1.33.7`
-then identify the BASE_ARTIFACTS directory, for example:
+Search around the failure and report the failing spec, source location, and exact error:
 
 ```sh
-BASE_ARTIFACTS=${BASE_PROW_LOG}/${FAILED_SUITE}
+rg -n -i -C 30 'FAILED|failure|error|timeout|INTERNAL_ERROR|OOM|killed|panic' \
+  build-logs/build-log.txt
 ```
-For example: `BASE_ARTIFACTS=https://gcsweb.k8s.io/gcs/kubernetes-ci-logs/pr-logs/pull/kubernetes-sigs_kueue/9617/pull-kueue-test-e2e-main-1-33/2028383367677874176/artifacts/run-test-e2e-singlecluster-1.33.7`
 
-### Step 3 - identify names of control-plane Pods
+The raw artifact host is usually also available as:
 
-The next important steps of debugging is to identify location of the relevant Pods.
+```text
+https://storage.googleapis.com/kubernetes-ci-logs/<same-path>/build-log.txt
+```
 
-This requires checking what are the control-plane Pods, but fetching: "${BASE_ARTIFACTS}/kind-control-plane/pods/"
+Use the `gcsweb` listing when discovering artifact names and the `storage.googleapis.com` URL when
+downloading a raw file. Keep downloaded artifacts under `build-logs/`.
 
-*Tip: When curling GCS bucket directories, ensure you include the trailing slash to receive an HTML directory listing, which you can then parse using `grep href` to find the exact subdirectory.*
+### Step 2 - inspect the CI Pod and distinguish OOM from ordinary failure
 
-There you will find names for the control-plane logs, for example for Kube-scheduler you may find `KUBE_SCHEDULER_POD=kube-system_scheduler-kind-control-plane_3d2cfc9019893b83637280170b3fd08f`
-
-### Step 4 - analyze kube-scheduler logs
-
-Analyze the kube-scheduler logs which you find under the link.
-
-First fetch the kube-scheduler log names from:
+`podinfo.json` is the source of truth for the test container resource limit and termination reason:
 
 ```sh
-KUBE_SCHEDULER_LOGS=${BASE_ARTIFACTS}/kind-control-plane/pods/${KUBE_SCHEDULER_POD}/kube-scheduler/
+jq '.pod.metadata | {name,namespace,creationTimestamp}' build-logs/podinfo.json
+jq '.pod.spec.containers[] | {name,resources}' build-logs/podinfo.json
+jq '.pod.status.containerStatuses[] |
+  {name,reason:.state.terminated.reason,exitCode:.state.terminated.exitCode,
+   startedAt:.state.terminated.startedAt,finishedAt:.state.terminated.finishedAt}' \
+  build-logs/podinfo.json
 ```
-You will find there the list of files, for exampl 0.log. So the final kube-scheduler log might look like: `${KUBE_SCHEDULER_LOGS}/0.log`.
 
-Now, identify the placement of relevant Pods:
+Interpret the result as follows:
 
-1. find placement of the kueue-controller-manager Pods around the test failure.
+- `reason: OOMKilled` is direct Pod-level evidence of an OOM kill.
+- `container_oom_events_total` increasing is direct cAdvisor evidence of an OOM event.
+- `reason: Error` plus no OOM events means the process failed, but does not prove why.
+- A memory peak near the limit proves resource pressure, not an OOM kill.
+- Use the `test` container value and its limit. Do not compare the aggregate Pod working set with a
+  single container limit without accounting for sidecars and pause containers.
 
-2. find the placement of Pods by the namespace corresponding to the failed test.
+### Step 3 - query Prow Prometheus for resource evidence
 
-You are looking for text anchors like "Successfully bound pod to node", for example: "2026-03-02T08:28:59.236232048Z stderr F I0302 08:28:59.235983       1 schedule_one.go:314] "Successfully bound pod to node" pod="kueue-system/kueue-controller-manager-787d6db649-sfhqv" node="kind-worker2" evaluatedNodes=3 feasibleNodes=2" means the Kueue pod was placed on kind-worker2.
+The Grafana UI at `https://monitoring-eks.prow.k8s.io` may require login. The Prow datasource
+proxy API can expose the required public metrics without using the UI. The datasource UID used by
+the repository's metrics helper is `PA553F4D380FC2FA5`; verify it in
+`hack/infra/stats/fetch_prow_metrics.py` if the monitoring setup changes. Do not bypass
+authentication if the endpoint changes or becomes private.
 
-### Step 5 - analyze kubelet logs
+Set the Pod name from `podinfo.json` and use a time range covering the test container lifetime:
 
-Once you know the placement of all relevant Pods, please to the the kubelet Pods
-for each of them. For example, for the link for the failed suite for kubelet
-on the (eg `KIND_WORKER=kind-worker2`) might be found under teh link:
+```sh
+PROM_API='https://monitoring-eks.prow.k8s.io/api/datasources/proxy/uid/PA553F4D380FC2FA5/api/v1'
+POD=$(jq -r '.pod.metadata.name' build-logs/podinfo.json)
+START=START_UNIX_TIME
+END=END_UNIX_TIME
 
-`${BASE_ARTIFACTS}/${KIND_WORKER}/kubelet.log`
+curl -fsS --get "${PROM_API}/query_range" \
+  --data-urlencode "query=container_memory_working_set_bytes{namespace=\"test-pods\",pod=\"${POD}\",container=\"test\"}" \
+  --data-urlencode "start=${START}" \
+  --data-urlencode "end=${END}" \
+  --data-urlencode 'step=30' \
+  -o build-logs/memory.json
 
-It is useful to check Kubelet logs from all workers, so often also `kind-worker2` etc.
+curl -fsS --get "${PROM_API}/query_range" \
+  --data-urlencode "query=container_oom_events_total{namespace=\"test-pods\",pod=\"${POD}\",container=\"test\"}" \
+  --data-urlencode "start=${START}" \
+  --data-urlencode "end=${END}" \
+  --data-urlencode 'step=30' \
+  -o build-logs/oom.json
 
-Summarize what you can find relevant in the kubelet logs. *Tip: Kubelet logs are notoriously noisy. To find relevant signals, `grep` explicitly for the namespace, pod name, or pod UID discovered in the previous steps.*
+curl -fsS --get "${PROM_API}/query_range" \
+  --data-urlencode "query=rate(container_cpu_usage_seconds_total{namespace=\"test-pods\",pod=\"${POD}\",container=\"test\"}[2m])" \
+  --data-urlencode "start=${START}" \
+  --data-urlencode "end=${END}" \
+  --data-urlencode 'step=30' \
+  -o build-logs/cpu.json
+```
 
-### Step 6 - match the failed test to the test code
+Extract the relevant values:
 
-Now, read the test code around the failure. for example, if the failed test indicates
-`/home/prow/go/src/sigs.k8s.io/kueue/test/e2e/singlecluster/job_test.go:535` then read the `test/e2e/singlecluster/job_test.go`
-around the failed line. Read at least 100 lines before the failed line to understand the BeforeEach, BeforeAll etc.
+```sh
+jq '[.data.result[]?.values[]?[1] | tonumber] | {max:(max // 0)}' build-logs/memory.json
+jq '[.data.result[]?.values[]?[1] | tonumber] | {max:(max // 0)}' build-logs/oom.json
+jq '[.data.result[]?.values[]?[1] | tonumber] | {max:(max // 0)}' build-logs/cpu.json
+```
 
-Summarize your findings.
+Record the units explicitly. For example, `12,871,102,464` bytes is about `11.987 GiB`, while a
+`12 GiB` limit is `12,884,901,888` bytes. A result at 99% of the limit supports a resource-pressure
+hypothesis but does not establish an OOM kill.
 
-### Step 7 - reason about the failure
+### Step 4 - inspect envtest parallelism and lifecycle
 
-Now, think about the possible reason for the failure. Combine the findings from
-all the previous steps.
+For an envtest or apiserver failure, inspect the test command and suite setup:
 
-### Step 8 - recommendations and final summary
+```sh
+rg -n 'INTEGRATION_NPROCS|--procs|BeforeSuite|AfterSuite|SynchronizedBeforeSuite|SynchronizedAfterSuite' \
+  hack/make test test/integration
+```
 
-Suggest recommendations to fix.
+Determine how many control planes exist at the same time. Ginkgo runs `BeforeSuite` in every
+parallel process unless the suite uses synchronized suite callbacks. Multiply the number of
+processes by the number of envtest clusters created in `BeforeSuite`.
 
-In the final summary when you are making a statement, you must back that statement up with evidence and citations. The citations could be a log file, a source code file, documentation etc. When citing file you should include it in human readable way, to make verification of your claims quick and easy, for e.g. filepath:linenumber. For every point, when evidence available, provide a link (clickable when rendered in markdown) to the log file supporting the claim.
+For each cluster, inspect the manager stop and envtest teardown path. A typical lifecycle is:
+
+```text
+cancel manager context
+wait for manager
+cancel client context
+envtest.Stop()
+wait for kube-apiserver and etcd
+```
+
+An `[AfterSuite] timeout waiting for process kube-apiserver to stop` is a teardown/lifecycle
+symptom. It does not by itself identify whether the server was blocked by memory pressure, an etcd
+dependency, a process leak, or another control-plane failure.
+
+### Step 5 - enable and collect apiserver logs when they are missing
+
+Check whether CI disables envtest apiserver output:
+
+```sh
+rg -n 'INTEGRATION_API_LOG_LEVEL|API_LOG_LEVEL|GetAPIServer\(\).*Out|GetAPIServer\(\).*Err' \
+  hack/make/test.mk test/integration/framework
+```
+
+If the log level is `0`, apiserver stdout/stderr is not included in the test log. For a reproducer or
+follow-up CI run, use a positive level such as:
+
+```sh
+INTEGRATION_API_LOG_LEVEL=2 make test-multikueue-integration
+```
+
+Do not treat the absence of server logs as proof of OOM. It is an evidence gap. Capture apiserver
+and etcd logs before deciding whether to add retries or change teardown behavior.
+
+### Step 6 - analyze control-plane and node artifacts
+
+For kind or e2e artifacts, list the artifact directory with a trailing slash and locate the control
+plane and worker logs:
+
+```sh
+curl -fsSL "${GCS_BUILD}/artifacts/" | rg 'href='
+```
+
+For scheduler logs, locate the Pod directory and inspect the relevant `0.log` file. Look for the
+placement of Kueue controller Pods and Pods in the failed test namespace:
+
+```text
+Successfully bound pod to node
+Failed to bind pod
+Preempted
+Insufficient memory
+```
+
+For kubelet logs, inspect every worker that hosted a relevant Pod. Search by namespace, Pod name,
+Pod UID, `OOM`, `evict`, `pressure`, `failed`, and `cgroup` rather than reading the entire noisy log.
+
+### Step 7 - match the failure to test and framework code
+
+Read the test source around the reported line, including at least 100 lines before the failure to
+understand `BeforeEach`, `BeforeSuite`, cleanup callbacks, contexts, and `Eventually` timeouts.
+
+For controller-runtime or envtest failures, also inspect the framework helpers that create managers,
+clients, contexts, and control planes. Cite the exact source lines in the final report.
+
+Treat these errors differently:
+
+- A failed assertion is the primary test failure.
+- `Eventually` returning an apiserver `INTERNAL_ERROR` is an API availability failure.
+- `http2: client connection lost` during suite teardown is often a secondary symptom.
+- A normal `context canceled` from watches during teardown is expected and is not sufficient evidence
+  of the original failure.
+
+### Step 8 - reason about retries and resource changes
+
+Check whether the failing operation is already inside `Eventually` or another retry loop. Retrying a
+read does not repair an apiserver that is stopping or an envtest process that cannot exit.
+
+Use this decision order:
+
+1. If `OOMKilled` or an increasing OOM counter is present, fix the memory limit or workload shape.
+2. If memory is near the limit but no OOM is observed, report resource pressure and consider adding
+   headroom. Do not label it a confirmed OOM.
+3. If an apiserver stop timeout is primary and resource pressure is plausible, inspect teardown
+   ordering and parallel envtest ownership.
+4. If resource usage is normal, prioritize apiserver/etcd logs and process lifecycle evidence.
+5. Add retries only when the error is transient and the apiserver remains healthy; do not use retries
+   to hide teardown failures.
+
+### Step 9 - recommendations and final report
+
+Separate the final report into three categories:
+
+```text
+Confirmed facts:
+- exact Prow build and failing log line
+- Pod resource limits and termination reason
+- observed memory/CPU/OOM metric values
+- relevant test and framework code paths
+
+Likely contributors:
+- resource pressure near the container limit
+- too many envtest control planes per parallel process
+- teardown ordering or ownership across Ginkgo processes
+
+Not confirmed:
+- an OOM kill without OOMKilled status or OOM metrics
+- the exact apiserver-side cause without apiserver/etcd logs
+```
+
+Every conclusion must cite its evidence: the Prow build log, `podinfo.json`, Prometheus query
+results, and source code paths. Recommend the smallest evidence-backed fix first, then list longer
+term lifecycle changes separately.
