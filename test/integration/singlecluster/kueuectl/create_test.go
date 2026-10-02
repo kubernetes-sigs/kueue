@@ -383,6 +383,46 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 			})
 		})
 
+		ginkgo.It("Should create a cluster queue when flavors list resources in different order", func() {
+			ginkgo.By("Create a cluster queue with flavors listing resources in different order", func() {
+				streams, _, output, _ := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				// Setting default namespace
+				configFlags.Namespace = new(ns.Name)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl.SetOut(output)
+				kueuectl.SetErr(output)
+
+				kueuectl.SetArgs([]string{"create", "cq", cqName,
+					"--nominal-quota", "alpha:cpu=1;memory=1,beta:memory=2;cpu=2",
+				})
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			})
+
+			ginkgo.By("Check that the cluster queue successfully created", func() {
+				var createdQueue kueue.ClusterQueue
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: cqName, Namespace: ns.Name}, &createdQueue)).To(gomega.Succeed())
+					g.Expect(createdQueue.Spec.ResourceGroups).Should(gomega.Equal([]kueue.ResourceGroup{
+						{
+							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
+							Flavors: []kueue.FlavorQuotas{
+								*utiltestingapi.MakeFlavorQuotas("alpha").
+									Resource(corev1.ResourceCPU, "1").
+									Resource(corev1.ResourceMemory, "1").
+									Obj(),
+								*utiltestingapi.MakeFlavorQuotas("beta").
+									Resource(corev1.ResourceCPU, "2").
+									Resource(corev1.ResourceMemory, "2").
+									Obj(),
+							},
+						},
+					}))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+		})
+
 		ginkgo.It("Should create a cluster queue with nominal quota, multiple resource groups and multiple flavors", func() {
 			ginkgo.By("Create a cluster queue with default values", func() {
 				streams, _, output, _ := genericiooptions.NewTestIOStreams()

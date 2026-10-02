@@ -172,8 +172,28 @@ func TestParseResourceQuotas(t *testing.T) {
 							Resource("memory", "1").
 							Obj(),
 						*utiltestingapi.MakeFlavorQuotas("beta").
-							Resource("memory", "2").
 							Resource("cpu", "2").
+							Resource("memory", "2").
+							Obj(),
+					},
+				},
+			},
+		},
+		"should keep borrowingLimit and lendingLimit on their resources when flavors list resources in different order": {
+			quotaArgs:     []string{"alpha:cpu=1;memory=1", "beta:memory=2;cpu=2"},
+			borrowingArgs: []string{"beta:cpu=1"},
+			lendingArgs:   []string{"beta:memory=1"},
+			wantResourceGroups: []kueue.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
+							Resource("cpu", "1").
+							Resource("memory", "1").
+							Obj(),
+						*utiltestingapi.MakeFlavorQuotas("beta").
+							Resource("cpu", "2", "1").
+							Resource("memory", "2", "", "1").
 							Obj(),
 					},
 				},
