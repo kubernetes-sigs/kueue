@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -849,6 +850,72 @@ func TestResyncGaugeMetrics_ReportsHierarchyInfoWithFairSharing(t *testing.T) {
 	if got := len(utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.CohortWeightedShare, weightedShareLabels)); got != 1 {
 		t.Fatalf("expected one weighted-share metric for child cohort, got=%d", got)
 	}
+}
+
+func TestResyncCohortGaugeMetrics_ZeroWeightBorrowingReportsNaN(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	cache := New(utiltesting.NewFakeClient(), WithFairSharing(true))
+
+	clearCohortMetricsForTest(t, "root", "child")
+	clearClusterQueueInfoMetricsForTest(t, "cq1")
+
+	setupRecordMetricsHierarchy(ctx, t, log, cache,
+		[]*kueue.ResourceFlavor{
+			utiltestingapi.MakeResourceFlavor("default").Obj(),
+		},
+		[]*kueue.Cohort{
+			utiltestingapi.MakeCohort("root").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "4").Obj()).
+				Obj(),
+			utiltestingapi.MakeCohort("child").
+				Parent("root").
+				FairWeight(resource.MustParse("0")).
+				Obj(),
+		},
+		[]*kueue.ClusterQueue{
+			utiltestingapi.MakeClusterQueue("cq1").
+				Cohort("child").
+				FairWeight(resource.MustParse("0")).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "0").Obj()).
+				Obj(),
+		},
+	)
+
+	now := time.Now()
+	wl := utiltestingapi.MakeWorkload("wl1", "ns").
+		Request(corev1.ResourceCPU, "2").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "default", "2").
+				Obj()).
+			Obj(), now).
+		AdmittedAt(true, now).
+		Obj()
+	if !cache.AddOrUpdateWorkload(ctx, log, wl) {
+		t.Fatal("expected workload to be added to cache")
+	}
+
+	cache.ResyncCohortGaugeMetrics(log, "child")
+
+	weightedShareLabels := map[string]string{
+		"cohort":       "child",
+		"replica_role": "standalone",
+	}
+	dps := utiltestingmetrics.CollectFilteredGaugeVec(kueuemetrics.CohortWeightedShare, weightedShareLabels)
+	if len(dps) != 1 {
+		t.Fatalf("expected one weighted-share metric for child cohort, got=%d", len(dps))
+	}
+	if !math.IsNaN(dps[0].Value) {
+		t.Fatalf("expected NaN weighted-share metric for zero-weight borrowing cohort, got=%v", dps[0].Value)
+	}
+
+	if err := cache.DeleteWorkload(log, workload.Key(wl)); err != nil {
+		t.Fatalf("unexpected error deleting workload from cache: %v", err)
+	}
+	cache.ResyncCohortGaugeMetrics(log, "child")
+	expectGaugeValue(t, kueuemetrics.CohortWeightedShare, weightedShareLabels, 0)
 }
 
 func TestResyncGaugeMetrics_SkipsCohortInfoForCycle(t *testing.T) {
