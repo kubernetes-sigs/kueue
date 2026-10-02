@@ -246,7 +246,7 @@ func TestCandidateVirtualPodsForPodSet_MetadataAndStatus(t *testing.T) {
 
 	wantPods := []*corev1.Pod{
 		{
-			ObjectMeta: metav1.ObjectMeta{
+			ObjectMeta: {
 				Name:      pods[0].Name,
 				Namespace: "test-ns",
 				UID:       types.UID("virtual-wl-uid-workers-0"),
