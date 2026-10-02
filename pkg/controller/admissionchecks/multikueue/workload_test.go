@@ -2562,6 +2562,7 @@ func TestRemoveObjectsOnPreviousCluster(t *testing.T) {
 
 		wantWorker1Objects       bool
 		wantPreviousClusterNames int
+		wantRequeueAfter         time.Duration
 	}{
 		"remote objects on a cluster removed from the config are deleted after the eviction": {
 			configClusters:      []string{"worker2"},
@@ -2577,6 +2578,7 @@ func TestRemoveObjectsOnPreviousCluster(t *testing.T) {
 			worker1Disconnected:      true,
 			wantWorker1Objects:       true,
 			wantPreviousClusterNames: 1,
+			wantRequeueAfter:         defaultWorkerLostTimeout,
 		},
 		"a previous cluster without a MultiKueueCluster is forgotten": {
 			configClusters:      []string{"worker2"},
@@ -2658,8 +2660,12 @@ func TestRemoveObjectsOnPreviousCluster(t *testing.T) {
 				ObjectNew: managerWl,
 			})
 
-			if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "wl1", Namespace: TestNamespace}); err != nil {
+			gotResult, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "wl1", Namespace: TestNamespace})
+			if err != nil {
 				t.Fatalf("unexpected reconcile error: %v", err)
+			}
+			if gotResult.RequeueAfter != tc.wantRequeueAfter {
+				t.Errorf("unexpected RequeueAfter: want %v, got %v", tc.wantRequeueAfter, gotResult.RequeueAfter)
 			}
 
 			gotWlErr := worker1Client.Get(ctx, client.ObjectKeyFromObject(remoteWl), &kueue.Workload{})
