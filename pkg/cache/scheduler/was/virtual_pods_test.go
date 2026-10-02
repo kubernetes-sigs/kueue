@@ -236,44 +236,61 @@ func TestCandidateVirtualPodsForPodSet_MetadataAndStatus(t *testing.T) {
 				Containers: []corev1.Container{{Name: "c"}},
 			},
 		},
-		Count: 3,
+		Count: 1,
 	}
 
-	pods, err := CandidateVirtualPodsForPodSet(wl, ps, 3, CandidatePodOptions{})
+	pods, err := CandidateVirtualPodsForPodSet(wl, ps, 1, CandidatePodOptions{})
 	if err != nil {
 		t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error: %v", err)
 	}
-	if len(pods) != 3 {
-		t.Fatalf("len(pods) = %d, want 3", len(pods))
-	}
 
-	pod := pods[2]
-	if pod.Status.Phase != corev1.PodPending {
-		t.Errorf("pod.Status.Phase = %v, want %v", pod.Status.Phase, corev1.PodPending)
+	wantPods := []*corev1.Pod{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      pods[0].Name,
+				Namespace: "test-ns",
+				UID:       types.UID("virtual-wl-uid-workers-0"),
+				Labels: map[string]string{
+					"app":                 "train",
+					constants.PodSetLabel: "workers",
+				},
+				Annotations: map[string]string{
+					"user":                   "alice",
+					kueue.WorkloadAnnotation: "wl",
+				},
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{{Name: "c"}},
+			},
+			Status: corev1.PodStatus{
+				Phase: corev1.PodPending,
+			},
+		},
 	}
-	if pod.Spec.NodeName != "" {
-		t.Errorf("pod.Spec.NodeName = %q, want empty", pod.Spec.NodeName)
+	if diff := cmp.Diff(wantPods, pods); diff != "" {
+		t.Errorf("unexpected virtualization result (-want +got):\n%s", diff)
 	}
-	if pod.Namespace != "test-ns" {
-		t.Errorf("pod.Namespace = %q, want %q", pod.Namespace, "test-ns")
+}
+
+func TestCandidateVirtualPodsForPodSet_EffectivePodSpec(t *testing.T) {
+	wl := utiltestingapi.MakeWorkload("wl", "default").Obj()
+	ps := &kueue.PodSet{
+		Name: "main",
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{{Name: "orig"}},
+			},
+		},
 	}
-	wantUID := types.UID("virtual-wl-uid-workers-2")
-	if pod.UID != wantUID {
-		t.Errorf("pod.UID = %q, want %q", pod.UID, wantUID)
+	effectiveSpec := &corev1.PodSpec{
+		Containers: []corev1.Container{{Name: "effective"}},
 	}
-	wantLabels := map[string]string{
-		"app":                 "train",
-		constants.PodSetLabel: "workers",
+	pods, err := CandidateVirtualPodsForPodSet(wl, ps, 1, CandidatePodOptions{PodSpec: effectiveSpec})
+	if err != nil {
+		t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error: %v", err)
 	}
-	if diff := cmp.Diff(wantLabels, pod.Labels); diff != "" {
-		t.Errorf("Unexpected labels (-want +got):\n%s", diff)
-	}
-	wantAnnotations := map[string]string{
-		"user":                   "alice",
-		kueue.WorkloadAnnotation: "wl",
-	}
-	if diff := cmp.Diff(wantAnnotations, pod.Annotations); diff != "" {
-		t.Errorf("Unexpected annotations (-want +got):\n%s", diff)
+	if pods[0].Spec.Containers[0].Name != "effective" {
+		t.Errorf("pod Spec container name = %q, want %q", pods[0].Spec.Containers[0].Name, "effective")
 	}
 }
 
@@ -289,28 +306,28 @@ func TestCandidateVirtualPodsForPodSet_NodeSelector(t *testing.T) {
 	}{
 		"merge nodeSelector from PodSet, PodSetUpdate, and Flavor": {
 			podSetSelector:   map[string]string{"arch": "amd64"},
-			updateSelector:   map[string]string{"zone": "us-central1-a"},
+			updateSelector:   map[string]string{"zone": "zone-a"},
 			flavorNodeLabels: map[string]string{"instance-type": "a2"},
 			wantSelector: map[string]string{
 				"arch":          "amd64",
-				"zone":          "us-central1-a",
+				"zone":          "zone-a",
 				"instance-type": "a2",
 			},
 		},
 		"conflict between PodSet and PodSetUpdate returns error": {
 			podSetSelector: map[string]string{"arch": "amd64"},
 			updateSelector: map[string]string{"arch": "arm64"},
-			wantErr:        "nodeSelector conflict between PodSet and PodSetUpdate",
+			wantErr:        "failed to merge PodSetUpdate",
 		},
 		"conflict between PodSet and Flavor returns error": {
 			podSetSelector:   map[string]string{"gpu": "a100"},
 			flavorNodeLabels: map[string]string{"gpu": "t4"},
-			wantErr:          "nodeSelector conflict between PodSet and ResourceFlavor",
+			wantErr:          "failed to merge ResourceFlavor",
 		},
 		"conflict between PodSetUpdate and Flavor returns error": {
 			updateSelector:   map[string]string{"tier": "standard"},
 			flavorNodeLabels: map[string]string{"tier": "premium"},
-			wantErr:          "nodeSelector conflict between PodSet and ResourceFlavor",
+			wantErr:          "failed to merge PodSetUpdate",
 		},
 	}
 

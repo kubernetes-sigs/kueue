@@ -18,6 +18,7 @@ package flavorassigner
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -910,7 +911,7 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 
 	if features.Enabled(features.SchedulerLibraryIntegration) {
 		// Building errors (e.g., metadata conflicts or missing snapshots) will be propagated in a follow-up when wiring the simulator.
-		candidatePods, err := assignment.CandidateVirtualPods(a.wl, a.cq)
+		candidatePods, err := assignment.candidateVirtualPods(a.wl, a.cq)
 		if err != nil {
 			log.Error(err, "Failed to build candidate virtual pods for workload", "workload", a.wl.Obj.Name)
 		}
@@ -1555,9 +1556,9 @@ func (a *FlavorAssigner) shouldSkipBasedOnNominationMapping(log logr.Logger,
 	return true
 }
 
-// CandidateVirtualPods builds candidate virtual pods for all PodSets in the assignment
+// candidateVirtualPods builds candidate virtual pods for all PodSets in the assignment
 // using the assigned flavor's node labels, tolerations, and admission check updates.
-func (a *Assignment) CandidateVirtualPods(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot) ([]*corev1.Pod, error) {
+func (a *Assignment) candidateVirtualPods(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot) ([]*corev1.Pod, error) {
 	var allPods []*corev1.Pod
 	for _, psAssignment := range a.PodSets {
 		if psAssignment.Status.IsError() {
@@ -1568,13 +1569,19 @@ func (a *Assignment) CandidateVirtualPods(wl *workload.Info, cq *schdcache.Clust
 			return nil, fmt.Errorf("podSet %q not found in workload %s", psAssignment.Name, wl.Obj.Name)
 		}
 
+		var flavorNodeLabels map[string]string
+		var flavorTolerations []corev1.Toleration
+
 		tasFlavor, err := onlyTASFlavor(psAssignment.Flavors, cq.TASFlavors)
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrNoTASFlavorAssigned) {
 			return nil, fmt.Errorf("failed to get TAS flavor for PodSet %q: %w", psAssignment.Name, err)
-		}
-		flavorSnapshot := cq.TASFlavors[*tasFlavor]
-		if flavorSnapshot == nil {
-			return nil, fmt.Errorf("TAS flavor snapshot for flavor %q not found in ClusterQueue %s", *tasFlavor, cq.Name)
+		} else if tasFlavor != nil {
+			flavorSnapshot := cq.TASFlavors[*tasFlavor]
+			if flavorSnapshot == nil {
+				return nil, fmt.Errorf("TAS flavor snapshot for flavor %q not found in ClusterQueue %s", *tasFlavor, cq.Name)
+			}
+			flavorNodeLabels = flavorSnapshot.NodeLabels()
+			flavorTolerations = flavorSnapshot.Tolerations()
 		}
 
 		// Gather ready PodSetUpdates from admission checks
@@ -1591,8 +1598,9 @@ func (a *Assignment) CandidateVirtualPods(wl *workload.Info, cq *schdcache.Clust
 		}
 
 		opts := was.CandidatePodOptions{
-			FlavorNodeLabels:  flavorSnapshot.NodeLabels(),
-			FlavorTolerations: flavorSnapshot.Tolerations(),
+			PodSpec:           wl.PodSpecByName(psAssignment.Name),
+			FlavorNodeLabels:  flavorNodeLabels,
+			FlavorTolerations: flavorTolerations,
 			PodSetUpdates:     podSetUpdates,
 		}
 

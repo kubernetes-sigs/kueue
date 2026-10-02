@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
@@ -29,10 +30,9 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
-	"sigs.k8s.io/kueue/pkg/util/podset"
+	"sigs.k8s.io/kueue/pkg/podset"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
-	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 	"sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
@@ -107,7 +107,7 @@ func VirtualPodsForWorkload(wl *kueue.Workload) (virtualPods []*corev1.Pod) {
 			continue
 		}
 
-		ps := podset.FindPodSetByName(wl.Spec.PodSets, psa.Name)
+		ps := utilpodset.FindPodSetByName(wl.Spec.PodSets, psa.Name)
 		if ps == nil {
 			continue
 		}
@@ -135,6 +135,7 @@ func VirtualPodsForWorkload(wl *kueue.Workload) (virtualPods []*corev1.Pod) {
 
 // CandidatePodOptions holds the options for creating a candidate pod.
 type CandidatePodOptions struct {
+	PodSpec           *corev1.PodSpec
 	FlavorNodeLabels  map[string]string
 	FlavorTolerations []corev1.Toleration
 	PodSetUpdates     []kueue.PodSetUpdate
@@ -147,57 +148,38 @@ func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count i
 		return nil, errors.New("workload and podset must be non-nil")
 	}
 
-	nodeSelector := maps.Clone(ps.Template.Spec.NodeSelector)
-	for _, u := range opts.PodSetUpdates {
-		var err error
-		if nodeSelector, err = mergeWithConflictCheck(nodeSelector, u.NodeSelector); err != nil {
-			return nil, fmt.Errorf("nodeSelector conflict between PodSet and PodSetUpdate: %w", err)
-		}
-	}
-	if len(opts.FlavorNodeLabels) > 0 {
-		var err error
-		if nodeSelector, err = mergeWithConflictCheck(nodeSelector, opts.FlavorNodeLabels); err != nil {
-			return nil, fmt.Errorf("nodeSelector conflict between PodSet and ResourceFlavor: %w", err)
-		}
+	info := podset.FromPodSet(ps)
+	baseSpec := &ps.Template.Spec
+	if opts.PodSpec != nil {
+		baseSpec = opts.PodSpec
+		info.NodeSelector = maps.Clone(baseSpec.NodeSelector)
+		info.Tolerations = slices.Clone(baseSpec.Tolerations)
 	}
 
-	tolerations := utiltolerations.Merge(ps.Template.Spec.Tolerations, opts.FlavorTolerations)
-	for _, u := range opts.PodSetUpdates {
-		tolerations = utiltolerations.Merge(tolerations, u.Tolerations)
-	}
-
-	labels := maps.Clone(ps.Template.Labels)
-	for _, u := range opts.PodSetUpdates {
-		var err error
-		if labels, err = mergeWithConflictCheck(labels, u.Labels); err != nil {
-			return nil, fmt.Errorf("labels conflict between PodSet and PodSetUpdate: %w", err)
+	if len(opts.FlavorNodeLabels) > 0 || len(opts.FlavorTolerations) > 0 {
+		flavorInfo := podset.PodSetInfo{
+			NodeSelector: opts.FlavorNodeLabels,
+			Tolerations:  opts.FlavorTolerations,
+		}
+		if err := info.Merge(flavorInfo); err != nil {
+			return nil, fmt.Errorf("failed to merge ResourceFlavor for PodSet %s: %w", ps.Name, err)
 		}
 	}
 
-	annotations := maps.Clone(ps.Template.Annotations)
 	for _, u := range opts.PodSetUpdates {
-		var err error
-		if annotations, err = mergeWithConflictCheck(annotations, u.Annotations); err != nil {
-			return nil, fmt.Errorf("annotations conflict between PodSet and PodSetUpdate: %w", err)
+		if err := info.Merge(podset.FromUpdate(&u)); err != nil {
+			return nil, fmt.Errorf("failed to merge PodSetUpdate for PodSet %s: %w", ps.Name, err)
 		}
 	}
 
-	spec := ps.Template.Spec.DeepCopy()
-	spec.NodeSelector = nodeSelector
-	spec.Tolerations = tolerations
+	spec := baseSpec.DeepCopy()
+	spec.NodeSelector = info.NodeSelector
+	spec.Tolerations = info.Tolerations
 
 	pods := make([]*corev1.Pod, 0, count)
 	for replicaIdx := range int(count) {
-		pod := newVirtualPod(wl, string(ps.Name), replicaIdx, labels, annotations, spec, corev1.PodPending)
+		pod := newVirtualPod(wl, string(ps.Name), replicaIdx, info.Labels, info.Annotations, spec, corev1.PodPending)
 		pods = append(pods, pod)
 	}
 	return pods, nil
-}
-
-func mergeWithConflictCheck(target, source map[string]string) (map[string]string, error) {
-	if err := utilmaps.HaveConflict(target, source); err != nil {
-		return nil, err
-	}
-	utilmaps.Copy(&target, source)
-	return target, nil
 }
