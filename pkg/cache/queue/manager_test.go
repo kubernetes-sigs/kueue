@@ -2326,6 +2326,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 		wantUpdateQueued *bool
 		passTime         time.Duration
 		wantReady        sets.Set[workload.Reference]
+		wantNoTimers     bool
 	}{
 		"single queued workload checked immediately": {
 			workloads: []*kueue.Workload{
@@ -2396,7 +2397,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			passTime:         time.Second,
 			wantReady:        sets.New(workload.NewReference("default", "second")),
 		},
-		"one workload gets queued twice, don't queue if already in present in queue": {
+		"workload already prequeued is reported as queued without a second timer": {
 			workloads: []*kueue.Workload{
 				baseWorkloadNeedingSecondPass.Clone().Obj(),
 			},
@@ -2404,9 +2405,10 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				baseWorkloadNeedingSecondPass.Clone().Obj(),
 			},
 			updateWorkload:   baseWorkloadNeedingSecondPass.Clone().Obj(),
-			wantUpdateQueued: new(false),
+			wantUpdateQueued: new(true),
 			passTime:         time.Second,
 			wantReady:        sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
+			wantNoTimers:     true,
 		},
 	}
 
@@ -2437,6 +2439,9 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			}
 
 			fakeClock.Step(tc.passTime)
+			if tc.wantNoTimers && fakeClock.HasWaiters() {
+				t.Error("Unexpected pending second-pass timer")
+			}
 
 			gotReady := sets.New[workload.Reference]()
 			for _, head := range manager.secondPassQueue.takeAllReady() {
