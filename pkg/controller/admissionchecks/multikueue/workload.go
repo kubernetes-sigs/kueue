@@ -158,18 +158,43 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 // RemoveRemoteObjects deletes the remote controller object and workload for a cluster.
 // The controller object is deleted first to handle cases where GC has already removed
 // the remote workload.
+//
+// A job with several workloads (e.g. a LeaderWorkerSet with a workload per group) has a
+// single remote controller object shared by all of them, so it is deleted only once no
+// other workload of the job is left on the cluster. The remote workload is deleted before
+// that check, so among workloads removed concurrently, the last one to check deletes it.
 func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
-	remoteClient := g.remoteClients[cluster].getClient()
-	origin := g.remoteClients[cluster].origin
-	if err := jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, remoteClient, g.jobAdapter, g.controllerKey, origin); err != nil {
-		return fmt.Errorf("deleting remote controller object: %w", err)
+	rc := g.remoteClients[cluster]
+	if _, ok := g.jobAdapter.(jobframework.MultiKueueMultiWorkloadAdapter); ok {
+		if err := g.removeRemoteWorkload(ctx, cluster); err != nil {
+			return err
+		}
+		if shared, err := g.hasOtherRemoteWorkloads(ctx, rc); err != nil || shared {
+			return err
+		}
+		return g.removeRemoteControllerObject(ctx, rc)
 	}
 
+	if err := g.removeRemoteControllerObject(ctx, rc); err != nil {
+		return err
+	}
+	return g.removeRemoteWorkload(ctx, cluster)
+}
+
+func (g *wlGroup) removeRemoteControllerObject(ctx context.Context, rc *remoteClient) error {
+	if err := jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, rc.getClient(), g.jobAdapter, g.controllerKey, rc.origin); err != nil {
+		return fmt.Errorf("deleting remote controller object: %w", err)
+	}
+	return nil
+}
+
+func (g *wlGroup) removeRemoteWorkload(ctx context.Context, cluster string) error {
 	remWl := g.remotes[cluster]
 	if remWl == nil {
 		return nil
 	}
 
+	remoteClient := g.remoteClients[cluster].getClient()
 	if controllerutil.RemoveFinalizer(remWl, kueue.ResourceInUseFinalizerName) {
 		if err := remoteClient.Update(ctx, remWl); err != nil {
 			return fmt.Errorf("removing remote workloads finalizer: %w", err)
@@ -182,6 +207,25 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 	}
 	g.remotes[cluster] = nil
 	return nil
+}
+
+// hasOtherRemoteWorkloads reports whether the cluster has a remote workload, not being
+// deleted, of another component of the same job.
+func (g *wlGroup) hasOtherRemoteWorkloads(ctx context.Context, rc *remoteClient) (bool, error) {
+	remoteWls := &kueue.WorkloadList{}
+	if err := rc.getClient().List(ctx, remoteWls, client.InNamespace(g.local.Namespace), client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin}); err != nil {
+		return false, fmt.Errorf("listing remote workloads: %w", err)
+	}
+	ownerGVK := g.jobAdapter.GVK().String()
+	for i := range remoteWls.Items {
+		remWl := &remoteWls.Items[i]
+		if remWl.Name != g.local.Name && remWl.DeletionTimestamp.IsZero() &&
+			remWl.Annotations[constants.JobOwnerGVKAnnotation] == ownerGVK &&
+			remWl.Annotations[constants.JobOwnerNameAnnotation] == g.controllerKey.Name {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
