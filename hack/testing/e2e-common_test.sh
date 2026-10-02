@@ -26,6 +26,7 @@ export ROOT_DIR
 export SOURCE_DIR="${ROOT_DIR}/hack/testing"
 export GINKGO_ARGS="--label-filter=feature:trainjob"
 export E2E_KIND_VERSION="kindest/node:v1.36.1"
+export E2E_BIN_DIR="${test_dir}"
 export PATH="${test_dir}:$PATH"
 
 cat >"${test_dir}/kubectl" <<'EOF'
@@ -167,6 +168,16 @@ printf 'unexpected docker call: %s\n' "$*" >&2
 exit 1
 EOF
 chmod +x "${test_dir}/docker"
+
+cat >"${test_dir}/yq" <<'EOF'
+#!/usr/bin/env bash
+set -o errexit
+set -o nounset
+set -o pipefail
+
+printf 'registry.example.com/kueue:test\n'
+EOF
+chmod +x "${test_dir}/yq"
 
 # shellcheck source=hack/testing/e2e-common.sh
 source "${ROOT_DIR}/hack/testing/e2e-common.sh"
