@@ -8078,7 +8078,7 @@ func TestCandidateVirtualPods(t *testing.T) {
 		Obj()
 	wlInfo := workload.NewInfo(log, wl)
 
-	conflictWL := utiltestingapi.MakeWorkload("wl-conflict", "default").
+	conflictWl := utiltestingapi.MakeWorkload("wl-conflict", "default").
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 			Request(corev1.ResourceCPU, "1").
 			NodeSelector(map[string]string{"arch": "amd64"}).
@@ -8096,7 +8096,7 @@ func TestCandidateVirtualPods(t *testing.T) {
 			},
 		).
 		Obj()
-	conflictInfo := workload.NewInfo(log, conflictWL)
+	conflictInfo := workload.NewInfo(log, conflictWl)
 
 	cases := map[string]struct {
 		workload           *workload.Info
