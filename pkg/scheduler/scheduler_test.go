@@ -531,6 +531,93 @@ func TestSchedule(t *testing.T) {
 		*utiltestingapi.MakeLocalQueue("lend-a-queue", "lend").ClusterQueue("lend-a").Obj(),
 		*utiltestingapi.MakeLocalQueue("lend-b-queue", "lend").ClusterQueue("lend-b").Obj(),
 	}
+	sliceClusterQueue := func(name, nominal, borrowingLimit string) kueue.ClusterQueue {
+		return *utiltestingapi.MakeClusterQueue(name).Cohort("slice-cohort").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, nominal, borrowingLimit).Obj()).
+			Obj()
+	}
+	sliceLocalQueues := []kueue.LocalQueue{
+		*utiltestingapi.MakeLocalQueue("lq-a", "default").ClusterQueue("cq-a").Obj(),
+		*utiltestingapi.MakeLocalQueue("lq-b", "default").ClusterQueue("cq-b").Obj(),
+	}
+	sliceAdmission := func(cq string, pods int32) *kueue.Admission {
+		return utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq)).PodSets(
+			utiltestingapi.MakePodSetAssignment("one").
+				Assignment(corev1.ResourceCPU, "default", resource.NewQuantity(int64(pods), resource.DecimalSI).String()).
+				Count(pods).
+				Obj(),
+		).Obj()
+	}
+	sliceWorkload := func(name, lq string, pods int, creation time.Time) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(name, "default").
+			Queue(kueue.LocalQueueName(lq)).
+			Creation(creation).
+			PodSets(*utiltestingapi.MakePodSet("one", pods).Request(corev1.ResourceCPU, "1").Obj())
+	}
+	sliceOld := func(pods int32) *utiltestingapi.WorkloadWrapper {
+		return sliceWorkload("old", "lq-a", int(pods), now.Add(-4*time.Minute)).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			ReserveQuotaAt(sliceAdmission("cq-a", pods), now.Add(-4*time.Minute))
+	}
+	sliceGrow := func(pods int) *utiltestingapi.WorkloadWrapper {
+		return sliceWorkload("grow", "lq-a", pods, now.Add(-3*time.Minute)).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old")
+	}
+	sliceWaiting := func(w *utiltestingapi.WorkloadWrapper, cpu string) kueue.Workload {
+		return *w.
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadQuotaReserved,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+				Message:            "Workload no longer fits after processing another workload",
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadAdmitted,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+				Message:            "The workload has no reservation",
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			ResourceRequests(kueue.PodSetRequest{
+				Name:      "one",
+				Resources: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(cpu)},
+			}).
+			Obj()
+	}
+	sliceAdmitted := func(w *utiltestingapi.WorkloadWrapper, cq string, pods int32) kueue.Workload {
+		return *w.
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadQuotaReserved,
+				Status:             metav1.ConditionTrue,
+				Reason:             "QuotaReserved",
+				Message:            "Quota reserved in ClusterQueue " + cq,
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadAdmitted,
+				Status:             metav1.ConditionTrue,
+				Reason:             "Admitted",
+				Message:            "The workload is admitted",
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			Admission(sliceAdmission(cq, pods)).
+			Obj()
+	}
+	sliceReplaced := func(w *utiltestingapi.WorkloadWrapper) kueue.Workload {
+		return *w.
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadFinished,
+				Status:             metav1.ConditionTrue,
+				Reason:             kueue.WorkloadSliceReplaced,
+				Message:            "Replaced to accommodate a workload (UID: , JobUID: ) due to workload slice aggregation",
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			Obj()
+	}
+
 	cases := map[string]scheduleTestCase{
 		"use second flavor when the first has no preemption candidates; WhenCanPreempt: MayStopSearch": {
 			featureGates: map[featuregate.Feature]bool{features.PartialAdmission: true},
@@ -6915,6 +7002,115 @@ func TestSchedule(t *testing.T) {
 						Count(4).
 						Obj()).
 					Obj(),
+			},
+		},
+		// cq-b only borrows, so the replacement is processed first and b1
+		// must see the 2 CPUs the cohort really has left.
+		"workload-slice replacement: a later entry does not reuse the replaced slice's quota": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				sliceClusterQueue("cq-a", "10", ""),
+				sliceClusterQueue("cq-b", "0", "10"),
+			},
+			additionalLocalQueues: sliceLocalQueues,
+			workloads: []kueue.Workload{
+				*sliceOld(6).Obj(),
+				*sliceGrow(8).Obj(),
+				*sliceWorkload("b1", "lq-b", 4, now.Add(-2*time.Minute)).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				sliceWaiting(sliceWorkload("b1", "lq-b", 4, now.Add(-2*time.Minute)), "4"),
+				sliceAdmitted(sliceGrow(8), "cq-a", 8),
+				sliceReplaced(sliceOld(6)),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/old":  *sliceAdmission("cq-a", 6),
+				"default/grow": *sliceAdmission("cq-a", 8),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-b": {"default/b1"},
+			},
+		},
+		"workload-slice replacement control: a later entry after an ordinary workload of the same net size": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				sliceClusterQueue("cq-a", "10", ""),
+				sliceClusterQueue("cq-b", "0", "10"),
+			},
+			additionalLocalQueues: sliceLocalQueues,
+			workloads: []kueue.Workload{
+				*sliceOld(6).Obj(),
+				*sliceWorkload("grow", "lq-a", 2, now.Add(-3*time.Minute)).Obj(),
+				*sliceWorkload("b1", "lq-b", 4, now.Add(-2*time.Minute)).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				sliceWaiting(sliceWorkload("b1", "lq-b", 4, now.Add(-2*time.Minute)), "4"),
+				sliceAdmitted(sliceWorkload("grow", "lq-a", 2, now.Add(-3*time.Minute)), "cq-a", 2),
+				*sliceOld(6).Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/old":  *sliceAdmission("cq-a", 6),
+				"default/grow": *sliceAdmission("cq-a", 2),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-b": {"default/b1"},
+			},
+		},
+		// b1 fits within cq-b's nominal quota, so it is processed first and
+		// the replacement's own fit check sees a cohort with no room left.
+		"workload-slice replacement: the replacement's own fit does not reuse the replaced slice's quota": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				sliceClusterQueue("cq-a", "6", ""),
+				sliceClusterQueue("cq-b", "4", "10"),
+			},
+			additionalLocalQueues: sliceLocalQueues,
+			workloads: []kueue.Workload{
+				*sliceOld(6).Obj(),
+				*sliceGrow(8).Obj(),
+				*sliceWorkload("b1", "lq-b", 4, now.Add(-2*time.Minute)).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				sliceAdmitted(sliceWorkload("b1", "lq-b", 4, now.Add(-2*time.Minute)), "cq-b", 4),
+				sliceWaiting(sliceGrow(8), "8"),
+				*sliceOld(6).Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/old": *sliceAdmission("cq-a", 6),
+				"default/b1":  *sliceAdmission("cq-b", 4),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-a": {"default/grow"},
+			},
+		},
+		// ClusterQueues are ranked by their share after admission: cq-a would
+		// borrow 2 for grow's increase and cq-b 3 for b1, so grow goes first
+		// and b1 no longer fits.
+		"workload-slice replacement: fair sharing ranks the replacement by its increase": {
+			featureGates:      map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			enableFairSharing: true,
+			additionalClusterQueues: []kueue.ClusterQueue{
+				sliceClusterQueue("cq-a", "4", ""),
+				sliceClusterQueue("cq-b", "3", ""),
+				sliceClusterQueue("cq-c", "3", ""),
+			},
+			additionalLocalQueues: sliceLocalQueues,
+			workloads: []kueue.Workload{
+				*sliceOld(4).Obj(),
+				*sliceGrow(6).Obj(),
+				*sliceWorkload("b1", "lq-b", 6, now.Add(-5*time.Minute)).Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				sliceWaiting(sliceWorkload("b1", "lq-b", 6, now.Add(-5*time.Minute)), "6"),
+				sliceAdmitted(sliceGrow(6), "cq-a", 6),
+				sliceReplaced(sliceOld(4)),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/old":  *sliceAdmission("cq-a", 4),
+				"default/grow": *sliceAdmission("cq-a", 6),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq-b": {"default/b1"},
 			},
 		},
 		"pending admission check with nofit and fit flavors": {
