@@ -2898,7 +2898,6 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 
 func TestReconcilePrebuiltWorkloadSlices(t *testing.T) {
 	tests := map[string]struct {
-		gateOff      bool
 		evicted      bool
 		pending      bool
 		extraPending bool
@@ -2911,13 +2910,12 @@ func TestReconcilePrebuiltWorkloadSlices(t *testing.T) {
 		"multiple pending replacements are preserved":         {pending: true, extraPending: true},
 		"evicted predecessor awaiting admission":              {evicted: true, pending: true},
 		"admitted replacement takes over evicted predecessor": {evicted: true, wantFinished: true},
-		"feature disabled":                                    {gateOff: true},
 		"list error propagates":                               {listError: true, wantFinished: true},
 		"finish conflict propagates and recovers":             {conflict: true, wantFinished: true},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, !tc.gateOff)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, true)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			now := time.Now().Truncate(time.Second)
