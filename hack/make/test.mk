@@ -60,6 +60,8 @@ E2E_USE_HELM ?= false
 E2E_MODE ?= ci
 E2E_SKIP_REINSTALL ?= false
 KUEUE_UPGRADE_FROM_VERSION ?= v0.14.8
+E2E_BIN_DIR ?= $(abspath $(BIN_DIR))
+export E2E_BIN_DIR
 PROMETHEUS_OPERATOR_VERSION ?= $(shell grep '^FROM' "${TESTING_DIR}/prometheus-operator/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
 # When truthy, force re-installing external operators (MPI, Ray, etc.) on each run, even in E2E_MODE=dev.
 E2E_ENFORCE_OPERATOR_UPDATE ?= false
@@ -891,7 +893,7 @@ ginkgo-top:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/ginkgo-top ./ginkgo-top
 
 .PHONY: setup-e2e-env
-setup-e2e-env: kustomize yq dep-crds kind helm ginkgo ginkgo-top ## Setup environment for e2e tests without running tests.
+setup-e2e-env: kustomize yq dep-crds kind helm ginkgo ginkgo-top kubectl ## Setup environment for e2e tests without running tests.
 	@echo "Setting up environment for e2e tests"
 
 .PHONY: test-e2e-kueueviz-local
