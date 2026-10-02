@@ -851,8 +851,8 @@ func (c *Cache) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kue
 	return updated
 }
 
-// UpdateWorkloadIfUnchanged replaces the cached workload only if the cache holds it with the same resourceVersion as w.
-// It returns false, leaving the cache untouched, if the workload is not cached or the cache holds another version.
+// UpdateWorkloadIfUnchanged applies w like AddOrUpdateWorkload, but only if the cache holds it with the same resourceVersion.
+// It returns true if it stored w; otherwise false, after removing the workload if w holds no active quota reservation.
 func (c *Cache) UpdateWorkloadIfUnchanged(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) bool {
 	c.Lock()
 	defer c.Unlock()
