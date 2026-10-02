@@ -47,13 +47,18 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 	)
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
-
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-freshness-")
+
+		limitRange = utiltesting.MakeLimitRange("limits", ns.Name).
+			WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
+		util.MustCreate(ctx, k8sClient, limitRange)
+
 		smallFlavor = utiltestingapi.MakeResourceFlavor("small").Obj()
 		util.MustCreate(ctx, k8sClient, smallFlavor)
 		largeFlavor = utiltestingapi.MakeResourceFlavor("large").Obj()
 		util.MustCreate(ctx, k8sClient, largeFlavor)
+
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 		// The small flavor fits only effective requests of up to 2 CPU in
 		// total; the large one has room for everything.
 		clusterQueue = utiltestingapi.MakeClusterQueue("cq-hash-freshness").
@@ -71,10 +76,6 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 		localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.MustCreate(ctx, k8sClient, localQueue)
 		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueue)
-
-		limitRange = utiltesting.MakeLimitRange("limits", ns.Name).
-			WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
-		util.MustCreate(ctx, k8sClient, limitRange)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -148,10 +149,16 @@ var _ = ginkgo.Describe("Pending scheduling hashes under differing LimitRange de
 	)
 
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
-
 		nsSmall = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-small-")
 		nsLarge = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-large-")
+
+		util.MustCreate(ctx, k8sClient, utiltesting.MakeLimitRange("limits", nsSmall.Name).
+			WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj())
+		util.MustCreate(ctx, k8sClient, utiltesting.MakeLimitRange("limits", nsLarge.Name).
+			WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj())
+
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+
 		flavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		util.MustCreate(ctx, k8sClient, flavor)
 		// Zero quota keeps both workloads pending as inadmissible.
@@ -166,11 +173,6 @@ var _ = ginkgo.Describe("Pending scheduling hashes under differing LimitRange de
 		lqLarge = utiltestingapi.MakeLocalQueue("queue", nsLarge.Name).ClusterQueue(clusterQueue.Name).Obj()
 		util.MustCreate(ctx, k8sClient, lqLarge)
 		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lqSmall, lqLarge)
-
-		util.MustCreate(ctx, k8sClient, utiltesting.MakeLimitRange("limits", nsSmall.Name).
-			WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj())
-		util.MustCreate(ctx, k8sClient, utiltesting.MakeLimitRange("limits", nsLarge.Name).
-			WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj())
 	})
 
 	ginkgo.AfterEach(func() {
