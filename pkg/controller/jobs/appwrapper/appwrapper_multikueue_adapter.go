@@ -86,6 +86,10 @@ func (b *multiKueueAdapter) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
+func (b *multiKueueAdapter) FrameworkName() string {
+	return FrameworkName
+}
+
 func (b *multiKueueAdapter) IsJobManagedByKueue(ctx context.Context, c client.Client, key types.NamespacedName) (bool, string, error) {
 	aw := awv1beta2.AppWrapper{}
 	err := c.Get(ctx, key, &aw)

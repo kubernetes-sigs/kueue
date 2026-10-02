@@ -40,13 +40,19 @@ import (
 // Adapter implements the MultiKueueAdapter interface for external frameworks
 // with hardcoded default behavior as specified in the KEP.
 type Adapter struct {
-	gvk schema.GroupVersionKind
+	gvk           schema.GroupVersionKind
+	frameworkName string
 }
 
 var (
 	_ jobframework.MultiKueueAdapter = (*Adapter)(nil)
 	_ jobframework.MultiKueueWatcher = (*Adapter)(nil)
 )
+
+// FrameworkName returns the name used to configure this external framework.
+func (a *Adapter) FrameworkName() string {
+	return a.frameworkName
+}
 
 // SyncJob synchronizes a job resource between the local and remote clusters.
 // It ensures that the remote cluster has a corresponding object for the local job,
