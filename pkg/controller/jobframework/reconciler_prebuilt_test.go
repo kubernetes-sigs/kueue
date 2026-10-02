@@ -49,12 +49,16 @@ func TestReconcilePrebuiltWorkloadSlices(t *testing.T) {
 		gateOff      bool
 		evicted      bool
 		pending      bool
+		extraPending bool
+		variant      bool
 		listError    bool
 		conflict     bool
 		wantFinished bool
 	}{
 		"admitted replacement without owner":                  {wantFinished: true},
 		"pending replacement":                                 {pending: true},
+		"multiple pending replacements are preserved":         {pending: true, extraPending: true},
+		"admitted variant does not finish predecessor":        {pending: true, variant: true},
 		"evicted predecessor awaiting admission":              {evicted: true, pending: true},
 		"admitted replacement takes over evicted predecessor": {evicted: true, wantFinished: true},
 		"feature disabled":                                    {gateOff: true},
@@ -90,7 +94,21 @@ func TestReconcilePrebuiltWorkloadSlices(t *testing.T) {
 				injected = apierrors.NewConflict(schema.GroupResource{Group: kueue.SchemeGroupVersion.Group, Resource: "workloads"}, "old", errors.New("stale resource version"))
 			}
 			fail := tc.listError || tc.conflict
-			cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), obj, old.Obj(), replacement.Obj()).
+			workloads := []*kueue.Workload{old.Obj(), replacement.Obj()}
+			if tc.extraPending {
+				workloads = append(workloads, replacement.Clone().Name("newer").Creation(now.Add(time.Minute)).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/new").Obj())
+			}
+			if tc.variant {
+				workloads = append(workloads, replacement.Clone().Name("variant").
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "new", "new-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj())
+			}
+			objects := []client.Object{utiltesting.MakeNamespace("ns"), obj}
+			for _, wl := range workloads {
+				objects = append(objects, wl)
+			}
+			cl := utiltesting.NewClientBuilder().WithObjects(objects...).
 				WithStatusSubresource(&kueue.Workload{}).
 				WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
 				WithInterceptorFuncs(interceptor.Funcs{
@@ -133,10 +151,10 @@ func TestReconcilePrebuiltWorkloadSlices(t *testing.T) {
 			if err := cl.List(ctx, list); err != nil {
 				t.Fatal(err)
 			}
-			if len(list.Items) != 2 {
-				t.Fatalf("workload count = %d, want 2", len(list.Items))
+			if len(list.Items) != len(workloads) {
+				t.Fatalf("workload count = %d, want %d", len(list.Items), len(workloads))
 			}
-			for _, before := range []*kueue.Workload{old.Obj(), replacement.Obj()} {
+			for _, before := range workloads {
 				got := &kueue.Workload{}
 				if err := cl.Get(ctx, client.ObjectKeyFromObject(before), got); err != nil {
 					t.Fatal(err)

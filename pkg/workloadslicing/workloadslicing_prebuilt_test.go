@@ -40,7 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
-func TestEnsurePrebuiltWorkloadSlices(t *testing.T) {
+func TestFinishReplacedWorkloadSlices(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, true)
 	now := time.Now().Truncate(time.Second)
 	old := utiltestingapi.MakeWorkload("old", "ns").Creation(now.Add(-time.Minute)).
@@ -63,16 +63,51 @@ func TestEnsurePrebuiltWorkloadSlices(t *testing.T) {
 		"single slice":                            {workloads: []*kueue.Workload{old.Obj()}},
 		"admitted ownerless replacement":          {workloads: []*kueue.Workload{old.Obj(), admitted.Obj()}, wantFinished: true},
 		"pending replacement retains predecessor": {workloads: []*kueue.Workload{old.Obj(), replacement.Obj()}},
+		"quota reservation is sufficient before full admission": {
+			workloads:    []*kueue.Workload{old.Obj(), replacement.Clone().ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).Obj()},
+			wantFinished: true,
+		},
+		"multiple pending generations are preserved": {
+			workloads: []*kueue.Workload{old.Obj(), replacement.Obj(), replacement.Clone().Name("newer").
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/new").Creation(now.Add(time.Minute)).Obj()},
+		},
+		"reserved slice without replacement relationship is preserved": {
+			workloads: []*kueue.Workload{old.Obj(), utiltestingapi.MakeWorkload("unlinked", "ns").
+				Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).Obj()},
+		},
+		"variant is not replacement evidence": {
+			workloads: []*kueue.Workload{old.Obj(), replacement.Obj(), admitted.Clone().Name("variant").
+				ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "new", "new-uid").Obj()},
+		},
+		"variant predecessor is not finished": {
+			workloads: []*kueue.Workload{old.Clone().
+				ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "parent-uid").Obj(), admitted.Obj()},
+		},
+		"finished replacement preserves evidence after releasing quota": {
+			workloads: []*kueue.Workload{old.Obj(), replacement.Clone().
+				Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: kueue.WorkloadSliceReplaced, LastTransitionTime: metav1.NewTime(now)}).Obj(),
+				admitted.Clone().Name("newer").Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/new").Obj()},
+			wantFinished: true,
+		},
+		"failed replacement is not evidence": {
+			workloads: []*kueue.Workload{old.Obj(), admitted.Clone().
+				Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: kueue.WorkloadFinishedReasonFailed, LastTransitionTime: metav1.NewTime(now)}).Obj()},
+		},
+		"self reference does not finish a slice": {
+			workloads: []*kueue.Workload{old.Clone().Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").Obj()},
+		},
 		"already finished predecessor": {
 			workloads: []*kueue.Workload{
-				old.Clone().Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: kueue.WorkloadSliceReplaced}).Obj(),
+				old.Clone().Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: kueue.WorkloadSliceReplaced, LastTransitionTime: metav1.NewTime(now)}).Obj(),
 				admitted.Obj(),
 			},
 			wantFinished: true,
 		},
 		"evicted predecessor retained until replacement admitted": {workloads: []*kueue.Workload{old.Clone().EvictedAt(now).Obj(), replacement.Obj()}},
-		"evicted predecessor retained with quota-only replacement": {
-			workloads: []*kueue.Workload{old.Clone().EvictedAt(now).Obj(), replacement.Clone().ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).Obj()},
+		"quota-only replacement takes over evicted predecessor": {
+			workloads:    []*kueue.Workload{old.Clone().EvictedAt(now).Obj(), replacement.Clone().ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).Obj()},
+			wantFinished: true,
 		},
 		"evicted replacement does not take over":              {workloads: []*kueue.Workload{old.Clone().EvictedAt(now).Obj(), admitted.Clone().EvictedAt(now).Obj()}},
 		"admitted replacement takes over evicted predecessor": {workloads: []*kueue.Workload{old.Clone().EvictedAt(now).Obj(), admitted.Obj()}, wantFinished: true},
@@ -113,7 +148,7 @@ func TestEnsurePrebuiltWorkloadSlices(t *testing.T) {
 					},
 				}).Build()
 			clk := testingclock.NewFakeClock(now)
-			err := workloadslicing.EnsurePrebuiltWorkloadSlices(ctx, cl, clk, old.Obj())
+			err := workloadslicing.FinishReplacedWorkloadSlices(ctx, cl, clk, old.Obj())
 			wantErr := tc.listError
 			if tc.finishError != nil {
 				wantErr = tc.finishError
@@ -135,7 +170,7 @@ func TestEnsurePrebuiltWorkloadSlices(t *testing.T) {
 			}
 			// A retry after an error, and repeated successful calls, must both be safe.
 			for range 2 {
-				if err := workloadslicing.EnsurePrebuiltWorkloadSlices(ctx, cl, clk, old.Obj()); err != nil {
+				if err := workloadslicing.FinishReplacedWorkloadSlices(ctx, cl, clk, old.Obj()); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -158,9 +193,17 @@ func TestEnsurePrebuiltWorkloadSlices(t *testing.T) {
 				if diff := cmp.Diff(want.OwnerReferences, got.OwnerReferences); diff != "" {
 					t.Errorf("ownership changed: %s", diff)
 				}
-				finished := got.Namespace == "ns" && got.Name == "old" && tc.wantFinished
+				finished := workloadfinish.IsFinished(want) || (got.Namespace == "ns" && got.Name == "old" && tc.wantFinished)
 				if workloadfinish.IsFinished(got) != finished {
 					t.Errorf("%s: Finished = %v, want %v", got.Name, workloadfinish.IsFinished(got), finished)
+				}
+				if got.Name == "old" && tc.wantFinished && !workloadslicing.IsReplaced(got.Status) {
+					t.Errorf("predecessor was not finished with WorkloadSliceReplaced: %v", got.Status.Conditions)
+				}
+				if !finished || workloadfinish.IsFinished(want) {
+					if diff := cmp.Diff(want.Status, got.Status, cmpopts.EquateEmpty()); diff != "" {
+						t.Errorf("%s status changed unexpectedly: %s", got.Name, diff)
+					}
 				}
 			}
 		})
