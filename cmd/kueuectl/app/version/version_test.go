@@ -43,12 +43,11 @@ func TestVersionCmd(t *testing.T) {
 
 	testCases := map[string]struct {
 		deployments []*appsv1.Deployment
-		// failVerb makes the fake clientset fail this verb on Deployments with errForbidden.
-		failVerb   string
-		args       []string
-		wantOut    string
-		wantOutErr string
-		wantErr    error
+		listErr     error
+		args        []string
+		wantOut     string
+		wantOutErr  string
+		wantErr     error
 	}{
 		"should print client version": {
 			args:    []string{},
@@ -56,8 +55,9 @@ func TestVersionCmd(t *testing.T) {
 		},
 		"should print client and server versions": {
 			deployments: []*appsv1.Deployment{{
-				Name:      kueueControllerManagerName,
+				Name:      "kueue-controller-manager",
 				Namespace: kueueNamespace,
+				Labels:    controllerManagerLabels,
 				Spec: appsv1.DeploymentSpec{
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
@@ -78,8 +78,9 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0
 		},
 		"should look up the controller manager in --namespace": {
 			deployments: []*appsv1.Deployment{{
-				Name:      kueueControllerManagerName,
+				Name:      "kueue-controller-manager",
 				Namespace: "custom-kueue",
+				Labels:    controllerManagerLabels,
 				Spec: appsv1.DeploymentSpec{
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
@@ -100,8 +101,9 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0-custom
 		},
 		"should ignore a controller manager outside --namespace": {
 			deployments: []*appsv1.Deployment{{
-				Name:      kueueControllerManagerName,
+				Name:      "kueue-controller-manager",
 				Namespace: kueueNamespace,
+				Labels:    controllerManagerLabels,
 				Spec: appsv1.DeploymentSpec{
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
@@ -165,35 +167,6 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0-helm
 			args:    []string{},
 			wantOut: "Client Version: v0.0.0-main\n",
 		},
-		"should prefer the default Deployment name over the controller manager labels": {
-			deployments: []*appsv1.Deployment{
-				{
-					Name:      kueueControllerManagerName,
-					Namespace: kueueNamespace,
-					Spec: appsv1.DeploymentSpec{
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{
-									{
-										Name:  "manager",
-										Image: "registry.k8s.io/kueue/kueue:v0.0.0",
-									},
-								},
-							},
-						},
-					},
-				},
-				{
-					Name:      "foo-kueue-controller-manager",
-					Namespace: kueueNamespace,
-					Labels:    controllerManagerLabels,
-				},
-			},
-			args: []string{},
-			wantOut: `Client Version: v0.0.0-main
-Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0
-`,
-		},
 		"should fail when multiple Deployments have the controller manager labels": {
 			deployments: []*appsv1.Deployment{
 				{
@@ -211,17 +184,11 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0
 			wantOut: "Client Version: v0.0.0-main\n",
 			wantErr: errMultipleControllerManagers,
 		},
-		"should return a Get error other than NotFound": {
-			failVerb: "get",
-			args:     []string{},
-			wantOut:  "Client Version: v0.0.0-main\n",
-			wantErr:  errForbidden,
-		},
-		"should return a List error after the default name is not found": {
-			failVerb: "list",
-			args:     []string{},
-			wantOut:  "Client Version: v0.0.0-main\n",
-			wantErr:  errForbidden,
+		"should return a List error": {
+			listErr: errForbidden,
+			args:    []string{},
+			wantOut: "Client Version: v0.0.0-main\n",
+			wantErr: errForbidden,
 		},
 	}
 
@@ -234,9 +201,9 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0
 				objs = append(objs, d)
 			}
 			clientset := k8sfake.NewClientset(objs...)
-			if tc.failVerb != "" {
-				clientset.PrependReactor(tc.failVerb, "deployments", func(kubetesting.Action) (bool, runtime.Object, error) {
-					return true, nil, errForbidden
+			if tc.listErr != nil {
+				clientset.PrependReactor("list", "deployments", func(kubetesting.Action) (bool, runtime.Object, error) {
+					return true, nil, tc.listErr
 				})
 			}
 			tcg := cmdtesting.NewTestClientGetter().WithK8sClientset(clientset)
