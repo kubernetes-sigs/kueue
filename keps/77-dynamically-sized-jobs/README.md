@@ -18,6 +18,7 @@
   - [Processing of Workload Slices](#processing-of-workload-slices)
     - [Creation](#creation)
       - [Naming](#naming)
+    - [Job Scale-Up](#job-scale-up)
     - [Scheduling and Preemption](#scheduling-and-preemption)
       - [Preemption Disambiguation.](#preemption-disambiguation)
       - [Resource Flavors](#resource-flavors)
@@ -202,6 +203,19 @@ uid: 78d1e61a-c399-4c09-800f-a0bbfb5fe71e
 will result in a Workload name similar to: `job-demo-slice-75e0c`
 Whereas, changing `generation: 2`: will result in a different name similar to: `job-demo-slice-e7080`
 
+#### Job Scale-Up
+
+Kueue derives a Job's PodSet count from `.spec.parallelism`. When `.spec.completions` is
+set, the PodSet count is capped at that value.
+
+For a `NonIndexed` Job with `.spec.completions` set, increasing `.spec.parallelism` can
+increase the requested Pod count only up to that fixed completion target; the target
+cannot be increased on the existing Job. If `.spec.completions` is omitted, Kubernetes
+uses `.spec.parallelism` as the completion target, so increasing parallelism also
+increases the total target. For an `Indexed` Job, scaling beyond the current index range
+requires changing `.spec.completions` and `.spec.parallelism` together, keeping them
+equal before and after the update.
+
 #### Scheduling and Preemption
 Kueue’s scheduler and preemptor components will be augmented to support workload slice processing, specifically by enforcing 
 preemption of the old workload slice regardless of queue capacity to make room for the new slice. 
@@ -338,6 +352,8 @@ This section captures all known limitations and incompatibilities introduced by,
 
 A given Job instance cannot have both `PartialAdmission` and `ElasticJob` enabled. This is a **per-Job limitation**, not a global feature-level conflict. It is entirely valid to have both features enabled in the system, just not simultaneously on the same Job.
 
+This limitation applies to the `kueue.x-k8s.io/job-min-parallelism` mechanism. Partial scale-up via `kueue.x-k8s.io/elastic-job-scale-up-strategy: partial` (see [KEP-12100](../12100-partial-scaleup-for-elasticjob/README.md)) does not mutate `.spec.parallelism` and is compatible with `ElasticJob`.
+
 **Rationale**
 
 * `PartialAdmission` depends on the static nature of a workload. Specifically, it assumes, reasonably, given the current model, that workloads are immutable in terms of `podSets[].count`. Based on this assumption, it adjusts the Job’s spec to reflect the minimum allowed parallelism at scheduling time. This value is fixed and will not change, even if the ClusterQueue’s capacity increases later.
@@ -354,7 +370,7 @@ To avoid delayed or implicit validation errors, any Kueue-integrated Job that su
 
 ```yaml
 annotations:
-  kueue.x-k8s.io/dynamically-sized-job: "true"
+  kueue.x-k8s.io/elastic-job: "true"
   kueue.x-k8s.io/job-min-parallelism: "1"
 ```
 
@@ -376,9 +392,12 @@ Scaling up and down for `batch/v1.Job` will be the initial phase of the MVP, as 
 
 1. Create a `batch/v1.Job` with workload-slice enablement and an initial `parallelism` value greater than 0.
 2. Verify that a corresponding `Workload` is created and admitted, and that the Job’s pods are in the `Running` state, matching the specified parallelism.
-3. Increase the Job’s `parallelism` value to trigger a scale-up event.
+3. Increase the Job's desired Pod count as described in [Job Scale-Up](#job-scale-up).
 4. Confirm that a new `Workload` slice is created and admitted, reflecting the increased pod count, while the previous slice is marked as `Finished`.
 5. Observe that the total number of running pods increases to match the updated parallelism, with the original pods continuing to run without disruption.
+
+Partial admission of a replacement slice when quota is insufficient is covered in
+[KEP-12100](../12100-partial-scaleup-for-elasticjob/README.md).
 
 ### Phase 2 – RayCluster WorkloadSlice Support in Single-Cluster Configuration
 This phase mirrors the steps from Phase 1 but is adapted specifically for RayCluster workloads, taking into account their autoscaling behavior and internal lifecycle management.
