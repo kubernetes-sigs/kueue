@@ -11524,6 +11524,152 @@ func TestSecondPassAdmissionWriteFailureKeepsReservation(t *testing.T) {
 	}
 }
 
+func TestSecondPassAdmissionWriteNotFoundDropsWorkload(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	ns := utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).Obj()
+	topology := utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
+	rf := utiltestingapi.MakeResourceFlavor("tas-default").
+		NodeLabel("tas-node", "true").
+		TopologyName(topology.Name).
+		Obj()
+	cq := utiltestingapi.MakeClusterQueue("tas-main").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+			Resource(corev1.ResourceCPU, "50").Obj()).
+		Obj()
+	lq := utiltestingapi.MakeLocalQueue("tas-main", ns.Name).ClusterQueue(cq.Name).Obj()
+	makeNode := func(name string) corev1.Node {
+		return *testingnode.MakeNode(name).
+			Label("tas-node", "true").
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj()
+	}
+	nodes := []corev1.Node{makeNode("x1"), makeNode("x2")}
+	wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+		Queue("tas-main").
+		UnhealthyNodes("x1").
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("tas-main").
+				PodSets(utiltestingapi.MakePodSetAssignment("one").
+					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj()).
+				Obj(),
+			now,
+		).
+		AdmittedAt(true, now).
+		Obj()
+
+	for _, useMergePatch := range []bool{false, true} {
+		t.Run(fmt.Sprintf("when the WorkloadRequestUseMergePatch feature is %t", useMergePatch), func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			var statusWrites int
+			// Every status write answers NotFound, as if the Workload was deleted while the pass ran.
+			notFound := apierrors.NewNotFound(kueue.Resource("workloads"), wl.Name)
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithObjects(ns.DeepCopy(), topology.DeepCopy(), rf.DeepCopy(), cq.DeepCopy(), lq.DeepCopy(), wl.DeepCopy()).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" {
+							statusWrites++
+							return notFound
+						}
+						return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+					},
+					SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+						if subResourceName == "status" {
+							statusWrites++
+							return notFound
+						}
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
+					},
+				})
+			_ = tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder))
+			cl := clientBuilder.Build()
+			storedWl := &kueue.Workload{}
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), storedWl); err != nil {
+				t.Fatalf("Getting workload %s: %v", wl.Name, err)
+			}
+			recorder := &utiltesting.EventRecorder{}
+			fakeClock := testingclock.NewFakeClock(now)
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
+			for _, node := range nodes {
+				cqCache.TASCache().SyncNode(&node)
+			}
+			cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
+			cqCache.AddOrUpdateTopology(log, topology.DeepCopy())
+			if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+				t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+			}
+			if err := qManager.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+				t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+			}
+			if err := qManager.AddLocalQueue(ctx, lq.DeepCopy()); err != nil {
+				t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
+			}
+			cqCache.AddOrUpdateWorkload(t.Context(), log, storedWl.DeepCopy())
+			if !qManager.QueueSecondPassIfNeeded(ctx, storedWl, 0) {
+				t.Fatal("expected the workload to be queued for a second pass")
+			}
+			fakeClock.Step(time.Second)
+			watcher := &workloadUpdateWatcherRecorder{}
+			qManager.AddWorkloadUpdateWatcher(watcher)
+
+			scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+			wg := sync.WaitGroup{}
+			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+				func() { wg.Add(1) },
+				func() { wg.Done() },
+			))
+
+			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+			defer cancel()
+			go cqCache.CleanUpOnContext(ctx)
+			go qManager.CleanUpOnContext(ctx)
+
+			scheduler.schedule(ctx)
+			wg.Wait()
+
+			if statusWrites != 1 {
+				t.Errorf("got %d workload status writes, want 1: the deleted workload must not be written again", statusWrites)
+			}
+			if !cqCache.ClusterQueueEmpty(kueue.ClusterQueueReference(cq.Name)) {
+				t.Error("the deleted workload is still in the ClusterQueue cache")
+			}
+			if watcher.oldWl == nil || watcher.newWl != nil {
+				t.Errorf("workload update watchers got old=%v, new=%v; want the workload's removal", watcher.oldWl != nil, watcher.newWl != nil)
+			}
+			if diff := cmp.Diff([]utiltesting.EventRecord(nil), recorder.RecordedEvents, cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")); diff != "" {
+				t.Errorf("unexpected events (-want,+got):\n%s", diff)
+			}
+
+			// A deleted workload must not be requeued, so no later pass writes it again.
+			fakeClock.Step(time.Minute)
+			scheduler.schedule(ctx)
+			wg.Wait()
+
+			if statusWrites != 1 {
+				t.Errorf("got %d workload status writes, want 1: the deleted workload was requeued", statusWrites)
+			}
+		})
+	}
+}
+
 func TestSecondPassRestoreKeepsNewerCacheState(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
