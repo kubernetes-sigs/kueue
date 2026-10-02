@@ -419,7 +419,6 @@ func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk c
 		if !replaced.Has(workload.Key(predecessor)) {
 			continue
 		}
-		// Finish is a no-op for an already finished slice.
 		if err := workloadfinish.Finish(ctx, clnt, predecessor, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice", clk); err != nil {
 			return err
 		}
