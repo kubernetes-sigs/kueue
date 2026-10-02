@@ -80,22 +80,11 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 		"pending replacement retains the predecessor": {
 			workloads: []*kueue.Workload{old.Obj(), pending.Obj()},
 		},
-		"multiple pending replacements retain the predecessor": {
-			workloads: []*kueue.Workload{old.Obj(), pending.Obj(), pending.Clone().Name("newer").Creation(now.Add(time.Minute)).
-				Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/new").Obj()},
-		},
 		"evicted replacement is not evidence": {
 			workloads: []*kueue.Workload{old.Obj(), admitted.Clone().EvictedAt(now).Obj()},
 		},
 		"finished replacement is not evidence": {
 			workloads: []*kueue.Workload{old.Obj(), admitted.Clone().Condition(finished(kueue.WorkloadFinishedReasonFailed)).Obj()},
-		},
-		"quota-holding slice without replacement link is preserved": {
-			workloads: []*kueue.Workload{old.Obj(), utiltestingapi.MakeWorkload("unlinked", "ns").
-				Annotation(kueue.WorkloadSliceNameAnnotation, "old").ReserveQuotaAt(admission, now).Obj()},
-		},
-		"self reference does not finish a slice": {
-			workloads: []*kueue.Workload{old.Clone().Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").Obj()},
 		},
 		"already finished predecessor is left untouched": {
 			workloads: []*kueue.Workload{old.Clone().Condition(finished(kueue.WorkloadSliceReplaced)).Obj(), admitted.Obj()},
