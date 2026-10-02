@@ -58,10 +58,8 @@ func NegativeDRS() DRS {
 	return DRS{unweightedRatio: -1, dominantResource: "", fairWeight: defaultWeight}
 }
 
-// IsZero returns whether the DRS unweighted ratio is 0.
-// In the current implementation, DRS unweighted ratio is zero
-// if and only if it is not borrowing any resources.
-// This may change in the future if the DRS implementation changes.
+// IsZero returns whether the DRS unweighted ratio is 0, which is also the
+// case for a node borrowing only what its Cohort has nothing lendable for.
 func (d DRS) IsZero() bool {
 	return d.unweightedRatio == 0
 }
@@ -88,11 +86,11 @@ func (d DRS) isWeightZero() bool {
 }
 
 func (d DRS) PreciseWeightedShare() float64 {
+	if d.ZeroWeightBorrows() {
+		return math.Inf(1)
+	}
 	if d.IsZero() {
 		return 0.0
-	}
-	if d.isWeightZero() {
-		return math.Inf(1)
 	}
 	return d.unweightedRatio / d.fairWeight
 }
@@ -140,11 +138,10 @@ func (d DRS) roundedWeightedShare() (int64, corev1.ResourceName) {
 	return weightedShare, d.dominantResource
 }
 
-// ZeroWeightBorrows returns whether this DRS represents a
-// borrowing state for a ClusterQueue/Cohort with a zero weight.
-// This is equivalent to PreciseWeightedShare returning +Inf.
+// ZeroWeightBorrows returns whether a ClusterQueue/Cohort with a zero
+// weight borrows, which makes its PreciseWeightedShare +Inf.
 func (d DRS) ZeroWeightBorrows() bool {
-	return d.isWeightZero() && !d.IsZero()
+	return d.isWeightZero() && d.IsBorrowing()
 }
 
 func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities) DRS {
