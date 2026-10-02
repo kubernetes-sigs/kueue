@@ -287,6 +287,14 @@ func (w *ResourceSliceWrapper) DeviceTaint(key string, effect resourcev1.DeviceT
 	return w
 }
 
+func (w *ResourceSliceWrapper) BindingConditions(conditions ...string) *ResourceSliceWrapper {
+	if len(w.Spec.Devices) > 0 {
+		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
+		last.BindingConditions = append(last.BindingConditions, conditions...)
+	}
+	return w
+}
+
 func (w *ResourceSliceWrapper) NodeName(name string) *ResourceSliceWrapper {
 	w.Spec.NodeName = &name
 	return w

@@ -44,14 +44,11 @@ import (
 // The slices come from the client's cache, so a taint must land on a copy or it would
 // persist into every later scheduling cycle.
 func TestApplyRulesToSliceLeavesItsInputAlone(t *testing.T) {
-	slice := &resourceapi.ResourceSlice{
-		Name: "gpu-node-slice",
-		Spec: resourceapi.ResourceSliceSpec{
-			Driver:  "gpu.example.com",
-			Pool:    resourceapi.ResourcePool{Name: "gpu-pool", ResourceSliceCount: 1},
-			Devices: []resourceapi.Device{{Name: "gpu-0"}, {Name: "gpu-1"}},
-		},
-	}
+	slice := testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+		Pool("gpu-pool", 1, 1).
+		Device("gpu-0").
+		Device("gpu-1").
+		Obj()
 	want := slice.DeepCopy()
 	rules := []*resourceapi.DeviceTaintRule{{
 		Name: "maintenance",
