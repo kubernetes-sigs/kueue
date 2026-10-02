@@ -7879,7 +7879,7 @@ func TestSchedule(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
-						Message:            "couldn't assign flavors to pod set ps1: insufficient quota for cpu in flavor default, previously considered podsets requests (0) + current podset request (9223372036854775807m) > maximum capacity (10)",
+						Message:            "couldn't assign flavors to pod set ps1: insufficient quota for cpu in flavor default, previously considered podsets requests (0) + current podset request (9223372036854776) > maximum capacity (10)",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -7892,7 +7892,7 @@ func TestSchedule(t *testing.T) {
 					ResourceRequests(kueue.PodSetRequest{
 						Name: "ps1",
 						Resources: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("9223372036854775807m"),
+							corev1.ResourceCPU: resource.MustParse("9223372036854776"),
 						},
 					}).
 					Obj(),
@@ -7903,6 +7903,122 @@ func TestSchedule(t *testing.T) {
 			eventCmpOpts: ignoreEventMessageCmpOpts,
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "vuln-wl", kueue.WorkloadQuotaReservedReasonExceedsMaxQuota, corev1.EventTypeWarning).Obj(),
+			},
+		},
+		// 7 x 1.4e18 is 9.8e18. The old int64 total saturated at MaxInt64, which
+		// equals this quota, so the workload was admitted. The exact total does not fit.
+		"a podset total past int64 stays pending against a MaxInt64 quota": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("overflow-cq").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource("example.com/gpu", "9223372036854775807").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("overflow-queue", "default").ClusterQueue("overflow-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("overflow-wl", "default").
+					Queue("overflow-queue").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 7).
+						Request("example.com/gpu", "1400000000000000000").Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("overflow-wl", "default").
+					Queue("overflow-queue").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 7).
+						Request("example.com/gpu", "1400000000000000000").Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+						Message:            "couldn't assign flavors to pod set main: insufficient quota for example.com/gpu in flavor default, previously considered podsets requests (0) + current podset request (9800000000000000000) > maximum capacity (9223372036854775807)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: kueue.DefaultPodSetName,
+						Resources: corev1.ResourceList{
+							"example.com/gpu": resource.MustParse("9223372036854775807"),
+						},
+					}).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"overflow-cq": {"default/overflow-wl"},
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "overflow-wl", kueue.WorkloadQuotaReservedReasonExceedsMaxQuota, corev1.EventTypeWarning).Obj(),
+			},
+		},
+		// 7 x (MaxInt64/7) is exactly MaxInt64, so a total on the ceiling is still admitted.
+		"a podset total of exactly MaxInt64 is admitted": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("overflow-cq").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource("example.com/gpu", "9223372036854775807").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("overflow-queue", "default").ClusterQueue("overflow-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("exact-wl", "default").
+					Queue("overflow-queue").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 7).
+						Request("example.com/gpu", "1317624576693539401").Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/exact-wl": {
+					ClusterQueue: "overflow-cq",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment("example.com/gpu", "default", "9223372036854775807").
+							Count(7).
+							Obj(),
+					},
+				},
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("exact-wl", "default").
+					Queue("overflow-queue").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 7).
+						Request("example.com/gpu", "1317624576693539401").Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue overflow-cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("overflow-cq").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment("example.com/gpu", "default", "9223372036854775807").
+							Count(7).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "exact-wl", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "exact-wl", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
 		// The scheduler pops one head per ClusterQueue per cycle, so only wl-head is

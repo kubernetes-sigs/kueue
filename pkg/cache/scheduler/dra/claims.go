@@ -201,9 +201,14 @@ func containerRequestsExtendedResource(container *corev1.Container) bool {
 func extendedResourceTotals(spec *corev1.PodSpec) map[corev1.ResourceName]int64 {
 	totals := make(map[corev1.ResourceName]int64)
 	for name, count := range resources.ToMap(resources.NewRequestsFromPodSpec(spec)) {
-		if utilresource.IsExtendedResourceName(name) && count > 0 {
-			totals[name] = count
+		if !utilresource.IsExtendedResourceName(name) || count.Sign() <= 0 {
+			continue
 		}
+		// NewRequestsFromPodSpec builds this through AmountFromQuantity, which
+		// caps a non-CPU value at MaxInt64 on the way in, so the count fits
+		// DeviceRequest.Count.
+		n, _ := count.Int64()
+		totals[name] = n
 	}
 	return totals
 }

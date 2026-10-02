@@ -957,7 +957,7 @@ func TestPreemptionEvaluatorFindCandidates(t *testing.T) {
 			preemptor.ClusterQueue = "a"
 			requestedCPU := preemptor.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU)
 			quotaFits := func() bool {
-				return snapshot.ClusterQueue("a").Available(fr).CmpInt64(requestedCPU) >= 0
+				return snapshot.ClusterQueue("a").Available(fr).Cmp(requestedCPU) >= 0
 			}
 
 			// When
