@@ -527,12 +527,7 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 			if errors.Is(err, workload.ErrInternal) && ctx.Err() == nil {
 				log.Error(err, "Failed to resolve effective resources for workload in queue; will retry", "workload", klog.KObj(&w))
 				delete(m.workloadAssignedQueues, workload.Key(&w))
-				wlCopy := w.DeepCopy()
-				go m.clock.AfterFunc(initialBackoff, func() {
-					if err := m.AddOrUpdateWorkload(context.Background(), log, wlCopy); err != nil {
-						log.Error(err, "Failed to retry adding workload to queue after internal error", "workload", klog.KObj(wlCopy))
-					}
-				})
+				m.retryWorkloadAfterLocalQueueCreation(ctrl.LoggerInto(context.Background(), log), client.ObjectKeyFromObject(&w))
 				continue
 			}
 			log.Error(err, "Failed to resolve effective resources for workload in queue", "workload", klog.KObj(&w))
@@ -556,6 +551,45 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 	}
 
 	return draWorkloads, nil
+}
+
+// retryWorkloadAfterLocalQueueCreation re-reads a workload before retrying a
+// transient lookup failure while seeding a newly created LocalQueue.
+func (m *Manager) retryWorkloadAfterLocalQueueCreation(ctx context.Context, nsName client.ObjectKey) {
+	go m.clock.AfterFunc(initialBackoff, func() {
+		log := ctrl.LoggerFrom(ctx)
+		var w kueue.Workload
+		if err := m.client.Get(ctx, nsName, &w); err != nil {
+			if !apierrors.IsNotFound(err) {
+				log.Error(err, "Failed to re-read workload after LocalQueue creation; will retry", "workload", nsName)
+				m.retryWorkloadAfterLocalQueueCreation(ctx, nsName)
+			}
+			return
+		}
+		if !workload.IsAdmissible(&w) {
+			return
+		}
+		wInfo, err := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
+		if errors.Is(err, workload.ErrInternal) {
+			log.Error(err, "Failed to resolve effective resources after LocalQueue creation; will retry", "workload", klog.KObj(&w))
+			m.retryWorkloadAfterLocalQueueCreation(ctx, nsName)
+			return
+		}
+		if dra.NeedsDRAReconcile(wInfo, m.draBackedResources) {
+			if features.Enabled(features.KueueDRAIntegration) {
+				m.draReconcileChannel <- event.TypedGenericEvent[*kueue.Workload]{Object: &w}
+			}
+			return
+		}
+		if err := m.AddOrUpdateWorkload(ctx, log, &w); err != nil {
+			if errors.Is(err, workload.ErrInternal) {
+				log.Error(err, "Failed to resolve effective resources while adding workload to queue; will retry", "workload", klog.KObj(&w))
+				m.retryWorkloadAfterLocalQueueCreation(ctx, nsName)
+			} else if !errors.Is(err, errWorkloadIsInadmissible) && !errors.Is(err, ErrLocalQueueDoesNotExistOrInactive) {
+				log.Error(err, "Failed to add workload to queue after LocalQueue creation", "workload", klog.KObj(&w))
+			}
+		}
+	})
 }
 
 func (m *Manager) AddLocalQueue(ctx context.Context, q *kueue.LocalQueue) error {
@@ -1170,16 +1204,24 @@ func (m *Manager) queueSecondPass(ctx context.Context, nsName client.ObjectKey, 
 		m.retrySecondPassRead(ctx, nsName, iteration+1)
 		return
 	}
+	if !workload.NeedsSecondPass(&w) {
+		m.secondPassQueue.deleteByKeyLocked(wlKey)
+		return
+	}
 	wInfo, err := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
 	if err != nil {
+		if ctx.Err() != nil {
+			m.secondPassQueue.deleteByKeyLocked(wlKey)
+			return
+		}
 		if errors.Is(err, workload.ErrInternal) {
 			log.Error(err, "Failed to resolve effective resources for second pass; will retry", "workload", wlKey)
 			m.retrySecondPassRead(ctx, nsName, iteration+1)
 			return
 		}
 		log.Error(err, "Failed to resolve effective resources for second pass", "workload", wlKey)
-		m.secondPassQueue.deleteByKey(wlKey)
-		return
+		// Quota-reserved workloads use the existing admission's resource usage.
+		// Keep their second pass even when defaults cannot be resolved.
 	}
 	wInfo.SecondPassIteration = iteration
 	if m.secondPassQueue.queueLocked(wInfo) {
