@@ -1658,6 +1658,70 @@ func TestPodSetResourcesScaledToZeroPreservesPerPodRequests(t *testing.T) {
 	}
 }
 
+func TestPodSetResourcesScaledTo(t *testing.T) {
+	const gpu = corev1.ResourceName("example.com/gpu")
+	cases := map[string]struct {
+		podSet   PodSetResources
+		newCount int32
+		want     PodSetResources
+	}{
+		// 3 Pods x 4e18 overflow, so the total is the MaxInt64 saturation value;
+		// dividing it would charge 1 Pod MaxInt64/3 instead of 4e18.
+		"pending PodSet whose total saturated is rebuilt from the per-Pod request": {
+			podSet: PodSetResources{
+				Name:           kueue.DefaultPodSetName,
+				Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{gpu: math.MaxInt64}),
+				PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{gpu: 4_000_000_000_000_000_000}),
+				Count:          3,
+			},
+			newCount: 1,
+			want: PodSetResources{
+				Name:           kueue.DefaultPodSetName,
+				Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{gpu: 4_000_000_000_000_000_000}),
+				PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{gpu: 4_000_000_000_000_000_000}),
+				Count:          1,
+			},
+		},
+		"pending PodSet is scaled up from the per-Pod request": {
+			podSet: PodSetResources{
+				Name:           kueue.DefaultPodSetName,
+				Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{gpu: 6}),
+				PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{gpu: 2}),
+				Count:          3,
+			},
+			newCount: 5,
+			want: PodSetResources{
+				Name:           kueue.DefaultPodSetName,
+				Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{gpu: 10}),
+				PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{gpu: 2}),
+				Count:          5,
+			},
+		},
+		// 7 x MaxInt64/7 is MaxInt64 with no overflow, and an admitted PodSet has no
+		// per-Pod request, so the remaining Pod must be charged its exact share.
+		"admitted PodSet whose total is exactly MaxInt64 is divided": {
+			podSet: PodSetResources{
+				Name:     kueue.DefaultPodSetName,
+				Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{gpu: math.MaxInt64}),
+				Count:    7,
+			},
+			newCount: 1,
+			want: PodSetResources{
+				Name:     kueue.DefaultPodSetName,
+				Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{gpu: math.MaxInt64 / 7}),
+				Count:    1,
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if diff := cmp.Diff(&tc.want, tc.podSet.ScaledTo(tc.newCount), cmp.Comparer(resources.Equal)); diff != "" {
+				t.Errorf("ScaledTo(%d) (-want,+got):\n%s", tc.newCount, diff)
+			}
+		})
+	}
+}
+
 func TestUpdateWithRebuild(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
@@ -3936,6 +4000,8 @@ func TestSchedulingHash(t *testing.T) {
 	cases := map[string]struct {
 		wl1          *kueue.Workload
 		wl2          *kueue.Workload
+		infoOptions1 []InfoOption
+		infoOptions2 []InfoOption
 		wantSame     bool
 		featureGates map[featuregate.Feature]bool
 	}{
@@ -3956,6 +4022,29 @@ func TestSchedulingHash(t *testing.T) {
 				Request(corev1.ResourceCPU, "2").Obj(),
 			wantSame:     false,
 			featureGates: map[featuregate.Feature]bool{features.SchedulingEquivalenceHashing: true},
+		},
+		// 3 Pods x 4e18 and 3 Pods x 5e18 both saturate to MaxInt64, so only the
+		// per-Pod requests tell the two Workloads apart.
+		"DRA charges whose totals saturate to the same value": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			infoOptions1: []InfoOption{WithPreprocessedDRAResources(
+				map[kueue.PodSetReference]corev1.ResourceList{
+					kueue.DefaultPodSetName: {"example.com/gpu": resource.MustParse("4E")},
+				}, nil)},
+			infoOptions2: []InfoOption{WithPreprocessedDRAResources(
+				map[kueue.PodSetReference]corev1.ResourceList{
+					kueue.DefaultPodSetName: {"example.com/gpu": resource.MustParse("5E")},
+				}, nil)},
+			wantSame: false,
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing: true,
+				features.KueueDRAIntegration:          true,
+			},
 		},
 		"different pod counts": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
@@ -4092,9 +4181,9 @@ func TestSchedulingHash(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			info1 := NewInfo(log, tc.wl1)
+			info1 := NewInfo(log, tc.wl1, tc.infoOptions1...)
 			info1.updateDerivedFields(log)
-			info2 := NewInfo(log, tc.wl2)
+			info2 := NewInfo(log, tc.wl2, tc.infoOptions2...)
 			info2.updateDerivedFields(log)
 			if info1.SchedulingHash == "" {
 				t.Error("SchedulingHash should not be empty")
@@ -4274,6 +4363,21 @@ func TestSameHashedRequests(t *testing.T) {
 		"a PodSet was added":   {prev: []PodSetResources{podSet(1, 1000)}, current: []PodSetResources{podSet(1, 1000), podSet(1, 1000)}},
 		"a PodSet was dropped": {prev: []PodSetResources{podSet(1, 1000), podSet(1, 1000)}, current: []PodSetResources{podSet(1, 1000)}},
 		"requests appeared":    {prev: []PodSetResources{{Name: kueue.DefaultPodSetName, Count: 1}}, current: []PodSetResources{podSet(1, 1000)}},
+		// Both totals saturate to MaxInt64, so only the per-Pod requests differ.
+		"different per-Pod requests": {
+			prev: []PodSetResources{{
+				Name:           kueue.DefaultPodSetName,
+				Count:          3,
+				Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"example.com/gpu": math.MaxInt64}),
+				PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"example.com/gpu": 4_000_000_000_000_000_000}),
+			}},
+			current: []PodSetResources{{
+				Name:           kueue.DefaultPodSetName,
+				Count:          3,
+				Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"example.com/gpu": math.MaxInt64}),
+				PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"example.com/gpu": 5_000_000_000_000_000_000}),
+			}},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
