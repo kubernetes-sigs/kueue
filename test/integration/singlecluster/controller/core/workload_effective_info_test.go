@@ -72,7 +72,7 @@ var _ = ginkgo.Describe("Effective resources in queued Info", ginkgo.Label("cont
 			gomega.Eventually(func(g gomega.Gomega) {
 				infos := qManager.PendingWorkloadsInfo(kueue.ClusterQueueReference(cq.Name))
 				g.Expect(infos).To(gomega.HaveLen(1))
-				g.Expect(infos[0].TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU)).To(gomega.Equal(cpu))
+				g.Expect(infos[0].TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU).CmpInt64(cpu)).To(gomega.Equal(0))
 				g.Expect(infos[0].Obj.Spec).To(gomega.Equal(wl.Spec))
 				if changedHash {
 					g.Expect(infos[0].SchedulingHash).NotTo(gomega.Equal(initialHash))

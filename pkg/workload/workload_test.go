@@ -294,9 +294,15 @@ func TestNewInfo(t *testing.T) {
 					{
 						Name:  kueue.DefaultPodSetName,
 						Count: 2147483647,
-						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
-							corev1.ResourceCPU: 9223372036854775807,
-						}),
+						// 4300000 cores is 4_300_000_000 milli. Times MaxInt32 pods
+						// is past int64, and the total is kept exact.
+						Requests: func() resources.Requests {
+							total := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+								corev1.ResourceCPU: 4_300_000_000,
+							})
+							total.Mul(2147483647)
+							return total
+						}(),
 						PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 							corev1.ResourceCPU: 4_300_000_000,
 						}),
@@ -1646,7 +1652,7 @@ func TestPodSetResourcesScaledToZeroPreservesPerPodRequests(t *testing.T) {
 	}
 
 	// Changing the scaled copy must not change the original PodSet's requests.
-	scaled.PerPodRequests.Set(corev1.ResourceCPU, 1_000)
+	scaled.PerPodRequests.Set(corev1.ResourceCPU, resources.NewAmount(1_000))
 	wantOriginal := &PodSetResources{
 		Name:           kueue.DefaultPodSetName,
 		Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 6_000}),
@@ -2266,8 +2272,8 @@ func TestResourceUsage(t *testing.T) {
 			want: ResourceUsage{
 				Assigned: resources.FlavorResourceQuantities{},
 				Unassigned: resources.MapRequests{
-					"cpu":             1_000,
-					"example.com/gpu": 3,
+					"cpu":             resources.NewAmount(1_000),
+					"example.com/gpu": resources.NewAmount(3),
 				},
 			},
 		},
