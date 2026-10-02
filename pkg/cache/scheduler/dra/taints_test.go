@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
 // The slices come from the client's cache, so a taint must land on a copy or it would
@@ -76,9 +77,9 @@ func TestApplyRulesToSliceLeavesItsInputAlone(t *testing.T) {
 // upstream rule fails here. Taint order is not compared: the tracker's is undefined.
 func TestDeviceTaintsMatchUpstreamTracker(t *testing.T) {
 	deviceSlices := []*resourceapi.ResourceSlice{
-		utiltesting.MakeResourceSlice("gpu-slice", "gpu.example.com").
+		testingdra.MakeResourceSlice("gpu-slice", "gpu.example.com").
 			Pool("gpu-pool", 1, 1).Device("gpu-0").Device("gpu-1").Obj(),
-		utiltesting.MakeResourceSlice("other-slice", "other.example.com").
+		testingdra.MakeResourceSlice("other-slice", "other.example.com").
 			Pool("other-pool", 1, 1).Device("acc-0").Obj(),
 	}
 	// A taint the driver already published, which the rules add to rather than replace.
@@ -171,7 +172,7 @@ func TestDeviceTaintRulesAreNotListed(t *testing.T) {
 	deviceClass := &resourceapi.DeviceClass{Name: "gpu.example.com"}
 	claimTemplate := utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
 		DeviceRequest("gpu", "gpu.example.com", 1).Obj()
-	slice := utiltesting.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+	slice := testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
 		NodeName("gpu-node").Pool("gpu-pool", 1, 1).Device("gpu-0").Obj()
 
 	cases := map[string]struct {
