@@ -400,8 +400,8 @@ func EnsureWorkloadSlices(
 	}
 }
 
-// FinishReplacedWorkloadSlices retries predecessor finishes missed by the scheduler.
-// It follows explicit replacement links without normalizing the chain or changing PodSets.
+// FinishReplacedWorkloadSlices finds the workload slices that should have been
+// replaced and finishes them.
 func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clock, wl *kueue.Workload) error {
 	list := &kueue.WorkloadList{}
 	if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace),
