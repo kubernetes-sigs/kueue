@@ -9017,7 +9017,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						existingWl := utiltestingapi.MakeWorkload(fmt.Sprintf("existing-tas-workload-%d", i+1), ns.Name).
 							Queue(kueue.LocalQueueName(localQueue.Name)).
 							PodSets(*utiltestingapi.MakePodSet("worker", 1).
-								Request("nvidia.com/gpu", "7"). // Single pod needs 7 GPUs
+								Request("nvidia.com/gpu", "7").                // Single pod needs 7 GPUs
 								RequiredTopologyRequest(corev1.LabelHostname). // Require hostname topology
 								Obj()).
 							Obj()
@@ -9391,7 +9391,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						existingWl := utiltestingapi.MakeWorkload(fmt.Sprintf("existing-7gpu-workload-%d", i+1), ns.Name).
 							Queue(kueue.LocalQueueName(localQueue.Name)).
 							PodSets(*utiltestingapi.MakePodSet("worker", 1).
-								Request("nvidia.com/gpu", "7"). // Single pod needs 7 GPUs
+								Request("nvidia.com/gpu", "7").                // Single pod needs 7 GPUs
 								RequiredTopologyRequest(corev1.LabelHostname). // Require hostname topology
 								Obj()).
 							Obj()
