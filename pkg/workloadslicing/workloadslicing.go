@@ -410,13 +410,7 @@ func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk c
 	replaced := make(map[workload.Reference]struct{}, len(list.Items))
 	for i := range list.Items {
 		candidate := &list.Items[i]
-		if concurrentadmission.IsVariant(candidate) {
-			continue
-		}
-		// Match the scheduler's quota-reservation boundary, not full admission.
-		// A finished replacement must remain evidence even after it releases quota.
-		if !IsReplaced(candidate.Status) &&
-			(!workload.HasQuotaReservation(candidate) || workloadevict.IsEvicted(candidate) || workloadfinish.IsFinished(candidate)) {
+		if !isEffectiveReplacement(candidate) {
 			continue
 		}
 		if key := ReplacementForKey(candidate); key != nil && *key != workload.Key(candidate) {
@@ -436,6 +430,13 @@ func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk c
 		}
 	}
 	return nil
+}
+
+// isEffectiveReplacement uses the scheduler's quota-reservation boundary, not full admission.
+// A replacement that was itself replaced remains evidence after releasing its quota.
+func isEffectiveReplacement(wl *kueue.Workload) bool {
+	return !concurrentadmission.IsVariant(wl) &&
+		(IsReplaced(wl.Status) || (workload.HasQuotaReservation(wl) && !workloadevict.IsEvicted(wl) && !workloadfinish.IsFinished(wl)))
 }
 
 // normalizeActiveSlices enforces the workload slice invariant:
@@ -458,7 +459,7 @@ func normalizeActiveSlices(
 	for i := range workloads {
 		wl := &workloads[i]
 		if replKey := ReplacementForKey(wl); replKey != nil && !workloadevict.IsEvicted(wl) {
-			if existing, ok := replacements[*replKey]; !ok || (!workload.HasQuotaReservation(existing) && workload.HasQuotaReservation(wl)) {
+			if existing, ok := replacements[*replKey]; !ok || (!isEffectiveReplacement(existing) && isEffectiveReplacement(wl)) {
 				replacements[*replKey] = wl
 			}
 		}
@@ -480,7 +481,7 @@ func normalizeActiveSlices(
 			continue
 		}
 		// Skip if replaced by another admitted workload.
-		if repl, ok := replacements[workload.Key(wl)]; ok && workload.HasQuotaReservation(repl) {
+		if repl, ok := replacements[workload.Key(wl)]; ok && isEffectiveReplacement(repl) {
 			continue
 		}
 		latestWithQuotaReservation = wl
@@ -488,7 +489,7 @@ func normalizeActiveSlices(
 
 	if latestWithQuotaReservation != nil {
 		if repl, ok := replacements[workload.Key(latestWithQuotaReservation)]; ok {
-			if !workload.HasQuotaReservation(repl) {
+			if !isEffectiveReplacement(repl) {
 				pendingReplacement = repl
 			}
 		}
