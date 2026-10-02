@@ -171,7 +171,7 @@ func buildPriorityFilter(
 	priority *kueuealpha.PreemptionConfigPriorityConstraint,
 	preemptor *workload.Info,
 ) (WorkloadFilter, *FilterBuildError) {
-	if priority == nil {
+	if priority == nil || (priority.Mode == nil && priority.Comparison == nil && len(priority.MatchNames) == 0 && len(priority.NotMatchNames) == 0) {
 		return nil, nil
 	}
 	return NewPriorityFilter(log, *priority, preemptor)

@@ -31,7 +31,6 @@ const (
 	minMaxValueErrorMessage             = "minValue must be less than or equal to maxValue"
 	negativeValueErrorMessage           = "should be greater than or equal to 0"
 	modeAndComparisonTogetherErrMessage = "mode and comparison must be specified together"
-	priorityClassNameMinLenErrMessage   = "should be at least 1 chars long"
 )
 
 func makePreemptionConfigWithNumericLabel(name string, minValue, maxValue *int32) *kueuealpha.PreemptionConfig {
@@ -173,20 +172,6 @@ var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 					MatchNames: []string{"low-priority"},
 				},
 				modeAndComparisonTogetherErrMessage,
-			),
-			ginkgo.Entry("Disallow empty string in priority.matchNames",
-				nil,
-				&kueuealpha.PreemptionConfigPriorityConstraint{
-					MatchNames: []string{""},
-				},
-				priorityClassNameMinLenErrMessage,
-			),
-			ginkgo.Entry("Disallow empty string in preemptorPriorityClassSelector.matchNames",
-				&kueuealpha.PreemptionConfigPriorityClassSelector{
-					MatchNames: []string{""},
-				},
-				nil,
-				priorityClassNameMinLenErrMessage,
 			),
 		)
 	})

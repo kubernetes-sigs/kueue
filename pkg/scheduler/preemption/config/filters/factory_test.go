@@ -249,7 +249,6 @@ func TestNewCandidateFilters(t *testing.T) {
 						preemptorVal: ptr.To[int32](8),
 					},
 					&priorityFilter{
-						mode:              new(kueuealpha.Base),
 						comparison:        new(kueuealpha.LessThan),
 						preemptorPriority: 100,
 					},
@@ -271,10 +270,21 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 				WLFilters: []WorkloadFilter{
 					&priorityFilter{
-						mode:              new(kueuealpha.Base),
 						comparison:        new(kueuealpha.LessThan),
 						preemptorPriority: 100,
 					},
+				},
+			},
+		},
+		"WithinClusterQueue with empty Priority produces no extra WorkloadFilters": {
+			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope:    kueuealpha.WithinClusterQueue,
+				Priority: &kueuealpha.PreemptionConfigPriorityConstraint{},
+			},
+			preemptor: preemptor,
+			wantFilters: CandidateFilters{
+				CQFilters: []ClusterQueueFilter{
+					&withinClusterQueueFilter{preemptorCQ: "cq1"},
 				},
 			},
 		},

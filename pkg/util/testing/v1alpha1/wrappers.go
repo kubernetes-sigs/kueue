@@ -350,15 +350,6 @@ func (r *PreemptionRuleWrapper) PreemptorPriorityClassMatchNames(names ...string
 	return r
 }
 
-// PreemptorPriorityClassNotMatchNames sets NotMatchNames on the rule's PreemptorPriorityClassSelector.
-func (r *PreemptionRuleWrapper) PreemptorPriorityClassNotMatchNames(names ...string) *PreemptionRuleWrapper {
-	if r.PreemptorPriorityClassSelector == nil {
-		r.PreemptorPriorityClassSelector = &kueuealpha.PreemptionConfigPriorityClassSelector{}
-	}
-	r.PreemptorPriorityClassSelector.NotMatchNames = names
-	return r
-}
-
 // Obj returns the inner PreemptionConfigPreemptionRule.
 func (r *PreemptionRuleWrapper) Obj() kueuealpha.PreemptionConfigPreemptionRule {
 	return r.PreemptionConfigPreemptionRule
@@ -404,15 +395,6 @@ func (w *CandidateSelectorWrapper) PriorityMatchNames(names ...string) *Candidat
 		w.PreemptionConfigPreemptionCandidateSelector.Priority = &kueuealpha.PreemptionConfigPriorityConstraint{}
 	}
 	w.PreemptionConfigPreemptionCandidateSelector.Priority.MatchNames = names
-	return w
-}
-
-// PriorityNotMatchNames sets notMatchNames on the candidate priority constraint.
-func (w *CandidateSelectorWrapper) PriorityNotMatchNames(names ...string) *CandidateSelectorWrapper {
-	if w.PreemptionConfigPreemptionCandidateSelector.Priority == nil {
-		w.PreemptionConfigPreemptionCandidateSelector.Priority = &kueuealpha.PreemptionConfigPriorityConstraint{}
-	}
-	w.PreemptionConfigPreemptionCandidateSelector.Priority.NotMatchNames = names
 	return w
 }
 

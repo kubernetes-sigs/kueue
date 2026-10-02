@@ -34,7 +34,6 @@ type priorityGetter func(log logr.Logger, wl *workload.Info) int64
 
 type priorityFilter struct {
 	log               logr.Logger
-	mode              *kueuealpha.PreemptionConfigPriorityMode
 	comparison        *kueuealpha.NumericComparison
 	classSelector     kueuealpha.PreemptionConfigPriorityClassSelector
 	priorityFn        priorityGetter
@@ -67,7 +66,6 @@ func NewPriorityFilter(log logr.Logger, constraint kueuealpha.PreemptionConfigPr
 
 	if constraint.Mode == nil && constraint.Comparison == nil {
 		return &priorityFilter{
-			log:           log.WithValues("filter", "Priority"),
 			classSelector: constraint.PreemptionConfigPriorityClassSelector,
 		}, nil
 	}
@@ -105,7 +103,6 @@ func NewPriorityFilter(log logr.Logger, constraint kueuealpha.PreemptionConfigPr
 
 	return &priorityFilter{
 		log:               filterLog,
-		mode:              constraint.Mode,
 		comparison:        constraint.Comparison,
 		classSelector:     constraint.PreemptionConfigPriorityClassSelector,
 		priorityFn:        priorityFn,
