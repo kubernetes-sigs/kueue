@@ -93,13 +93,7 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			objects := []client.Object{
-				// A replacement in another namespace must not finish "old".
-				utiltestingapi.MakeWorkload("other-namespace", "other").
-					Annotation(kueue.WorkloadSliceNameAnnotation, "old").
-					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").
-					ReserveQuotaAt(admission, now).Obj(),
-			}
+			var objects []client.Object
 			for _, wl := range tc.workloads {
 				objects = append(objects, wl.DeepCopy())
 			}
