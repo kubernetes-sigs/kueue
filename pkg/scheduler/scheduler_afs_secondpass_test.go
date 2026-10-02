@@ -126,7 +126,9 @@ func TestSecondPassDoesNotRepushEntryPenalty(t *testing.T) {
 			&kueue.LocalQueueList{Items: []kueue.LocalQueue{lq}}).
 		WithObjects(utiltesting.MakeNamespace("default"), &provCheck).
 		WithStatusSubresource(&kueue.Workload{}).
-		WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+		})
 	if err := tasindexer.SetupIndexes(ctx, utiltesting.AsIndexer(clientBuilder)); err != nil {
 		t.Fatalf("setting up TAS indexes: %v", err)
 	}
@@ -150,7 +152,7 @@ func TestSecondPassDoesNotRepushEntryPenalty(t *testing.T) {
 		t.Fatalf("inserting localQueue in manager: %v", err)
 	}
 	// The reserved workload contributes its usage to the cache, mirroring production.
-	cqCache.AddOrUpdateWorkload(log, &wl)
+	cqCache.AddOrUpdateWorkload(t.Context(), log, &wl)
 	if !qManager.QueueSecondPassIfNeeded(ctx, &wl, 0) {
 		t.Fatal("expected the workload to be queued for a second pass")
 	}

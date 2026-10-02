@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -46,15 +47,19 @@ import (
 	"sigs.k8s.io/yaml"
 
 	kueuecmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
+	"sigs.k8s.io/kueue/pkg/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
 type podTestCase struct {
-	name             string
-	job              runtime.Object
-	pods             []corev1.Pod
-	mapperGVKs       []schema.GroupVersionKind
-	args             []string
+	name       string
+	job        runtime.Object
+	pods       []corev1.Pod
+	mapperGVKs []schema.GroupVersionKind
+	args       []string
+	// wantPodsQuery, when set, is compared against the query of the pods list request.
+	wantPodsQuery    map[string]string
 	wantOut          string
 	wantPodListNames []string
 	podListFormat    string
@@ -71,15 +76,11 @@ func TestPodCmd(t *testing.T) {
 		{
 			name: "list pods of batch/job with wide output",
 			job: &batchv1.Job{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "Job",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						batchv1.JobNameLabel: "test-job",
-					},
+				Kind:      "Job",
+				Name:      "test-job",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					batchv1.JobNameLabel: "test-job",
 				},
 			},
 			pods: []corev1.Pod{
@@ -111,15 +112,11 @@ valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 		}, {
 			name: "list pods of batch/job with json output",
 			job: &batchv1.Job{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "Job",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						batchv1.JobNameLabel: "test-job",
-					},
+				Kind:      "Job",
+				Name:      "test-job",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					batchv1.JobNameLabel: "test-job",
 				},
 			},
 			pods: []corev1.Pod{
@@ -149,15 +146,11 @@ valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 		}, {
 			name: "list pods of batch/job with yaml output",
 			job: &batchv1.Job{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "Job",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						batchv1.JobNameLabel: "test-job",
-					},
+				Kind:      "Job",
+				Name:      "test-job",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					batchv1.JobNameLabel: "test-job",
 				},
 			},
 			pods: []corev1.Pod{
@@ -185,17 +178,140 @@ valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 			wantPodListNames: []string{"valid-pod-1", "valid-pod-2"},
 			podListFormat:    "yaml",
 		}, {
+			name: "list pods of a pod group",
+			job: &corev1.Pod{
+				Kind:      "Pod",
+				Name:      "group-pod-1",
+				Namespace: metav1.NamespaceDefault,
+				Labels:    map[string]string{podconstants.GroupNameLabel: "test-group"},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("group-pod-1").Label(podconstants.GroupNameLabel, "test-group").Obj(),
+				*basePod.Clone().Name("group-pod-2").Label(podconstants.GroupNameLabel, "test-group").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/group-pod-1"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": podconstants.GroupNameLabel + "=test-group",
+				"fieldSelector": "",
+			},
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+group-pod-1   1/1     Running   0          <unknown>
+group-pod-2   1/1     Running   0          <unknown>
+`,
+		}, {
+			name: "list pods of a pod group identified by annotation is not treated as standalone",
+			job: &corev1.Pod{
+				Kind:        "Pod",
+				Name:        "group-pod-1",
+				Namespace:   metav1.NamespaceDefault,
+				Annotations: map[string]string{podconstants.GroupNameAnnotation: "test-group"},
+			},
+			// The API server cannot select on annotations, so it returns every pod in the
+			// namespace and the non-members are dropped client-side.
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("group-pod-1").GroupNameAnnotation("test-group").Obj(),
+				*basePod.Clone().Name("group-pod-2").GroupNameAnnotation("test-group").Obj(),
+				*basePod.Clone().Name("other-group-pod").GroupNameAnnotation("other-group").Obj(),
+				*basePod.Clone().Name("standalone-pod").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/group-pod-1"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": "",
+				"fieldSelector": "",
+			},
+			wantOut: `NAME          READY   STATUS    RESTARTS   AGE
+group-pod-1   1/1     Running   0          <unknown>
+group-pod-2   1/1     Running   0          <unknown>
+`,
+		}, {
+			name: "list pods of a pod group identified by annotation with json output",
+			job: &corev1.Pod{
+				Kind:        "Pod",
+				Name:        "group-pod-1",
+				Namespace:   metav1.NamespaceDefault,
+				Annotations: map[string]string{podconstants.GroupNameAnnotation: "test-group"},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("group-pod-1").GroupNameAnnotation("test-group").Obj(),
+				*basePod.Clone().Name("other-group-pod").GroupNameAnnotation("other-group").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/group-pod-1", "-o", "json"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": "",
+				"fieldSelector": "",
+			},
+			wantPodListNames: []string{"group-pod-1"},
+			podListFormat:    "json",
+		}, {
+			name: "no pods of a pod group identified by annotation",
+			job: &corev1.Pod{
+				Kind:        "Pod",
+				Name:        "group-pod-1",
+				Namespace:   metav1.NamespaceDefault,
+				Annotations: map[string]string{podconstants.GroupNameAnnotation: "test-group"},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("other-group-pod").GroupNameAnnotation("other-group").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/group-pod-1"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": "",
+				"fieldSelector": "",
+			},
+			wantOut: "",
+			wantOutErr: `No resources found in default namespace.
+`,
+		}, {
+			name: "list a standalone pod by name",
+			job: &corev1.Pod{
+				Kind:      "Pod",
+				Name:      "single-pod",
+				Namespace: metav1.NamespaceDefault,
+				Labels:    map[string]string{constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue},
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("single-pod").Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/single-pod"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": "",
+				"fieldSelector": "metadata.namespace=default,metadata.name=single-pod",
+			},
+			wantOut: `NAME         READY   STATUS    RESTARTS   AGE
+single-pod   1/1     Running   0          <unknown>
+`,
+		}, {
+			name: "list a standalone pod by name merged with user selectors",
+			job: &corev1.Pod{
+				Kind:      "Pod",
+				Name:      "single-pod",
+				Namespace: metav1.NamespaceDefault,
+			},
+			pods: []corev1.Pod{
+				*basePod.Clone().Name("single-pod").Obj(),
+			},
+			mapperGVKs: []schema.GroupVersionKind{{Group: "", Version: "v1", Kind: "Pod"}},
+			args:       []string{"--for", "pod/single-pod", "--field-selector", "status.phase=Running", "--selector", "app=foo"},
+			wantPodsQuery: map[string]string{
+				"labelSelector": "app=foo",
+				"fieldSelector": "status.phase=Running,metadata.namespace=default,metadata.name=single-pod",
+			},
+			wantOut: `NAME         READY   STATUS    RESTARTS   AGE
+single-pod   1/1     Running   0          <unknown>
+`,
+		}, {
 			name: "list pods with JSONPath containing wide",
 			job: &batchv1.Job{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "Job",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						batchv1.JobNameLabel: "test-job",
-					},
+				Kind:      "Job",
+				Name:      "test-job",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					batchv1.JobNameLabel: "test-job",
 				},
 			},
 			pods: []corev1.Pod{
@@ -221,15 +337,11 @@ valid-pod-2   1/1     Running   0          <unknown>   <none>   <none>   <none> 
 		}, {
 			name: "list pods for valid batch/job type",
 			job: &batchv1.Job{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "Job",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						batchv1.JobNameLabel: "test-job",
-					},
+				Kind:      "Job",
+				Name:      "test-job",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					batchv1.JobNameLabel: "test-job",
 				},
 			},
 			pods: []corev1.Pod{
@@ -261,15 +373,11 @@ valid-pod-2   1/1     Running   0          <unknown>
 		}, {
 			name: "no valid pods for batch/job type in current namespace",
 			job: &batchv1.Job{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "Job",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						batchv1.JobNameLabel: "test-job",
-					},
+				Kind:      "Job",
+				Name:      "test-job",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					batchv1.JobNameLabel: "test-job",
 				},
 			},
 			pods: []corev1.Pod{},
@@ -291,15 +399,11 @@ valid-pod-2   1/1     Running   0          <unknown>
 		}, {
 			name: "no valid pods for batch/job type in all namespaces",
 			job: &batchv1.Job{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "Job",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						batchv1.JobNameLabel: "test-job",
-					},
+				Kind:      "Job",
+				Name:      "test-job",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					batchv1.JobNameLabel: "test-job",
 				},
 			},
 			pods: []corev1.Pod{},
@@ -321,15 +425,11 @@ valid-pod-2   1/1     Running   0          <unknown>
 		}, {
 			name: "valid pods for batch/job type in all namespaces",
 			job: &batchv1.Job{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "Job",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "sample-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						batchv1.JobNameLabel: "sample-job",
-					},
+				Kind:      "Job",
+				Name:      "sample-job",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					batchv1.JobNameLabel: "sample-job",
 				},
 			},
 			pods: []corev1.Pod{
@@ -363,16 +463,12 @@ dev-team-b   valid-pod-2   1/1     Running   0          <unknown>
 		}, {
 			name: "list pods for kubeflow.org/PyTorchJob type",
 			job: &kftraining.PyTorchJob{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "PyTorchJob",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						kftraining.OperatorNameLabel: "pytorchjob-controller",
-						kftraining.JobNameLabel:      "test-job",
-					},
+				Kind:      "PyTorchJob",
+				Name:      "test-job",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					kftraining.OperatorNameLabel: "pytorchjob-controller",
+					kftraining.JobNameLabel:      "test-job",
 				},
 			},
 			pods: []corev1.Pod{
@@ -400,16 +496,12 @@ valid-pod-1   1/1     Running   0          <unknown>
 		}, {
 			name: "list pods for kubeflow.org/paddlejob type",
 			job: &kftraining.PaddleJob{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "PaddleJob",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						kftraining.OperatorNameLabel: "paddlejob-controller",
-						kftraining.JobNameLabel:      "test-job",
-					},
+				Kind:      "PaddleJob",
+				Name:      "test-job",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					kftraining.OperatorNameLabel: "paddlejob-controller",
+					kftraining.JobNameLabel:      "test-job",
 				},
 			},
 			pods: []corev1.Pod{
@@ -437,16 +529,12 @@ valid-pod-1   1/1     Running   0          <unknown>
 		}, {
 			name: "list pods for kubeflow.org/tfjob type",
 			job: &kftraining.TFJob{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "TFJob",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						kftraining.OperatorNameLabel: "tfjob-controller",
-						kftraining.JobNameLabel:      "test-job",
-					},
+				Kind:      "TFJob",
+				Name:      "test-job",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					kftraining.OperatorNameLabel: "tfjob-controller",
+					kftraining.JobNameLabel:      "test-job",
 				},
 			},
 			pods: []corev1.Pod{
@@ -474,16 +562,12 @@ valid-pod-1   1/1     Running   0          <unknown>
 		}, {
 			name: "list pods for kubeflow.org/mpijob type",
 			job: &kftraining.MPIJob{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "MPIJob",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						kftraining.OperatorNameLabel: "mpijob-controller",
-						kftraining.JobNameLabel:      "test-job",
-					},
+				Kind:      "MPIJob",
+				Name:      "test-job",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					kftraining.OperatorNameLabel: "mpijob-controller",
+					kftraining.JobNameLabel:      "test-job",
 				},
 			},
 			pods: []corev1.Pod{
@@ -511,16 +595,12 @@ valid-pod-1   1/1     Running   0          <unknown>
 		}, {
 			name: "list pods for kubeflow.org/xgboostjob type",
 			job: &kftraining.XGBoostJob{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "XGBoostJob",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						kftraining.OperatorNameLabel: "xgboostjob-controller",
-						kftraining.JobNameLabel:      "test-job",
-					},
+				Kind:      "XGBoostJob",
+				Name:      "test-job",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					kftraining.OperatorNameLabel: "xgboostjob-controller",
+					kftraining.JobNameLabel:      "test-job",
 				},
 			},
 			pods: []corev1.Pod{
@@ -548,15 +628,11 @@ valid-pod-1   1/1     Running   0          <unknown>
 		}, {
 			name: "list pods for ray.io/rayjob type",
 			job: &rayv1.RayJob{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "RayJob",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						batchv1.JobNameLabel: "test-job",
-					},
+				Kind:      "RayJob",
+				Name:      "test-job",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					batchv1.JobNameLabel: "test-job",
 				},
 				Status: rayv1.RayJobStatus{RayClusterName: "test-cluster"},
 			},
@@ -584,15 +660,11 @@ valid-pod-1   1/1     Running   0          <unknown>
 		}, {
 			name: "list pods for ray.io/raycluster type",
 			job: &rayv1.RayCluster{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "RayCluster",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-cluster",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						rayutils.RayClusterLabelKey: "test-cluster",
-					},
+				Kind:      "RayCluster",
+				Name:      "test-cluster",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					rayutils.RayClusterLabelKey: "test-cluster",
 				},
 			},
 			pods: []corev1.Pod{
@@ -619,15 +691,11 @@ valid-pod-1   1/1     Running   0          <unknown>
 		}, {
 			name: "list pods for jobset.x-k8s.io/jobset type",
 			job: &jobsetapi.JobSet{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "JobSet",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						jobsetapi.JobSetNameKey: "test-job",
-					},
+				Kind:      "JobSet",
+				Name:      "test-job",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					jobsetapi.JobSetNameKey: "test-job",
 				},
 			},
 			pods: []corev1.Pod{
@@ -654,15 +722,11 @@ valid-pod-1   1/1     Running   0          <unknown>
 		}, {
 			name: "list pods with api-group filter",
 			job: &jobsetapi.JobSet{
-				TypeMeta: metav1.TypeMeta{
-					Kind: "JobSet",
-				},
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-job",
-					Namespace: metav1.NamespaceDefault,
-					Labels: map[string]string{
-						jobsetapi.JobSetNameKey: "test-job",
-					},
+				Kind:      "JobSet",
+				Name:      "test-job",
+				Namespace: metav1.NamespaceDefault,
+				Labels: map[string]string{
+					jobsetapi.JobSetNameKey: "test-job",
 				},
 			},
 			pods: []corev1.Pod{
@@ -708,7 +772,8 @@ valid-pod-1   1/1     Running   0          <unknown>
 
 			codec := serializer.NewCodecFactory(scheme).LegacyCodec(scheme.PrioritizedVersionsAllGroups()...)
 
-			restClient, err := mockRESTClient(codec, tc)
+			var gotPodsQuery url.Values
+			restClient, err := mockRESTClient(codec, tc, &gotPodsQuery)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -766,6 +831,16 @@ valid-pod-1   1/1     Running   0          <unknown>
 			if diff := cmp.Diff(tc.wantOutErr, gotOutErr); diff != "" {
 				t.Errorf("Unexpected output (-want/+got)\n%s", diff)
 			}
+
+			if tc.wantPodsQuery != nil {
+				gotQuery := make(map[string]string, len(tc.wantPodsQuery))
+				for key := range tc.wantPodsQuery {
+					gotQuery[key] = gotPodsQuery.Get(key)
+				}
+				if diff := cmp.Diff(tc.wantPodsQuery, gotQuery); diff != "" {
+					t.Errorf("Unexpected pods list query (-want/+got)\n%s", diff)
+				}
+			}
 		})
 	}
 }
@@ -793,7 +868,11 @@ func buildTestRuntimeScheme() (*runtime.Scheme, error) {
 	return scheme, nil
 }
 
-func mockRESTClient(codec runtime.Codec, tc podTestCase) (*restfake.RESTClient, error) {
+// mockRESTClient serves the --for object and the pod list. The two requests
+// share a path when --for is a Pod, so the pod list is recognized by the
+// Table content negotiation that only the list request performs. The query
+// of the pod list request is stored in gotPodsQuery.
+func mockRESTClient(codec runtime.Codec, tc podTestCase, gotPodsQuery *url.Values) (*restfake.RESTClient, error) {
 	podList := &corev1.PodList{Items: tc.pods}
 
 	reqPathPrefix := fmt.Sprintf("/namespaces/%s", metav1.NamespaceDefault)
@@ -807,14 +886,18 @@ func mockRESTClient(codec runtime.Codec, tc podTestCase) (*restfake.RESTClient, 
 	mockRestClient := &restfake.RESTClient{
 		NegotiatedSerializer: resource.UnstructuredPlusDefaultContentConfig().NegotiatedSerializer,
 		Client: restfake.CreateHTTPClient(func(request *http.Request) (*http.Response, error) {
-			switch request.URL.Path {
-			case fmt.Sprintf("%s/%s", reqPathPrefix, reqJobKind):
+			// When --for points to a Pod both requests share a path, so they are told
+			// apart by the metadata.name field selector only the --for lookup sends.
+			isForObjectRequest := request.URL.Query().Get("fieldSelector") == fmt.Sprintf("metadata.name=%s", tc.job.(metav1.Object).GetName())
+			switch {
+			case isForObjectRequest && request.URL.Path == fmt.Sprintf("%s/%s", reqPathPrefix, reqJobKind):
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Header:     getDefaultHeader(),
 					Body:       io.NopCloser(strings.NewReader(runtime.EncodeOrDie(codec, tc.job))),
 				}, nil
-			case fmt.Sprintf("%s/pods", reqPathPrefix):
+			case request.URL.Path == fmt.Sprintf("%s/pods", reqPathPrefix):
+				*gotPodsQuery = request.URL.Query()
 				var podRespBody io.ReadCloser
 				if strings.Contains(request.Header.Get("Accept"), "as=Table") {
 					if len(podList.Items) == 0 {
@@ -861,7 +944,7 @@ var podColumns = []metav1.TableColumnDefinition{
 // podTableObjBody builds a table with the given list of pods
 func podTableObjBody(codec runtime.Codec, pods ...corev1.Pod) io.ReadCloser {
 	table := &metav1.Table{
-		TypeMeta:          metav1.TypeMeta{APIVersion: "meta.k8s.io/v1", Kind: "Table"},
+		APIVersion: "meta.k8s.io/v1", Kind: "Table",
 		ColumnDefinitions: podColumns,
 	}
 

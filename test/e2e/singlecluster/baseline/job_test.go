@@ -142,10 +142,8 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 
 		ginkgo.It("Should allow to schedule Jobs via CronJob", func() {
 			cronJob := &batchv1.CronJob{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-cronjob",
-					Namespace: ns.Name,
-				},
+				Name:      "test-cronjob",
+				Namespace: ns.Name,
 				Spec: batchv1.CronJobSpec{
 					Schedule:          "* * * * *",
 					ConcurrencyPolicy: batchv1.ForbidConcurrent,

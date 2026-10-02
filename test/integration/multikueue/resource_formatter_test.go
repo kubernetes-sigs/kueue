@@ -85,7 +85,7 @@ func workerResourceUsageStrings(c cluster, resources ...corev1.ResourceName) map
 		utiltestingapi.MakeAdmission(clusterQueueName).PodSets(podSetAssignment.Obj()).Obj(),
 		time.Now(),
 	).Obj()
-	gomega.Expect(c.schedulerCache.AddOrUpdateWorkload(log, workerWorkload)).To(gomega.BeTrue())
+	gomega.Expect(c.schedulerCache.AddOrUpdateWorkload(c.ctx, log, workerWorkload)).To(gomega.BeTrue())
 	ginkgo.DeferCleanup(func() {
 		gomega.Expect(c.schedulerCache.DeleteWorkload(log, workload.Key(workerWorkload))).To(gomega.Succeed())
 	})

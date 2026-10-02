@@ -19,6 +19,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -895,6 +896,100 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 		})
 	})
 
+	ginkgo.When("Cohort hierarchy contains a cycle", func() {
+		var (
+			flavor       *kueue.ResourceFlavor
+			cohortA      *kueue.Cohort
+			cohortB      *kueue.Cohort
+			cqWithCohort *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			flavor = utiltestingapi.MakeResourceFlavor("cycle-test-flavor").Obj()
+			util.MustCreate(ctx, k8sClient, flavor)
+
+			cohortA = utiltestingapi.MakeCohort("cycle-cohort-a").Obj()
+			cohortB = utiltestingapi.MakeCohort("cycle-cohort-b").Parent("cycle-cohort-a").Obj()
+			util.MustCreate(ctx, k8sClient, cohortA)
+			util.MustCreate(ctx, k8sClient, cohortB)
+
+			cqWithCohort = utiltestingapi.MakeClusterQueue("cq-cycle-test").
+				Cohort("cycle-cohort-b").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("cycle-test-flavor").
+						Resource(corev1.ResourceCPU, "10", "10").Obj(),
+				).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cqWithCohort)
+		})
+
+		ginkgo.AfterEach(func() {
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqWithCohort, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohortB, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohortA, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		})
+
+		ginkgo.It("Should mark ClusterQueue inactive when its Cohort hierarchy contains a cycle, and restore active when resolved", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCQ kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqWithCohort), &updatedCQ)).To(gomega.Succeed())
+				g.Expect(updatedCQ.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
+					{
+						Type:    kueue.ClusterQueueActive,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Ready",
+						Message: "Can admit new workloads",
+					},
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating a cycle: setting cycle-cohort-a parent to cycle-cohort-b")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var cohort kueue.Cohort
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohortA), &cohort)).To(gomega.Succeed())
+				cohort.Spec.ParentName = "cycle-cohort-b"
+				g.Expect(k8sClient.Update(ctx, &cohort)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying ClusterQueue becomes inactive with CohortCycleDetected reason")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCQ kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqWithCohort), &updatedCQ)).To(gomega.Succeed())
+				g.Expect(updatedCQ.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
+					{
+						Type:    kueue.ClusterQueueActive,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.ClusterQueueActiveReasonCohortCycleDetected,
+						Message: `Can't admit new workloads: Cohort "cycle-cohort-b" has a cycle in hierarchy.`,
+					},
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Resolving the cycle: removing parent from cycle-cohort-a")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var cohort kueue.Cohort
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohortA), &cohort)).To(gomega.Succeed())
+				cohort.Spec.ParentName = ""
+				g.Expect(k8sClient.Update(ctx, &cohort)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying ClusterQueue becomes active again")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCQ kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqWithCohort), &updatedCQ)).To(gomega.Succeed())
+				g.Expect(updatedCQ.Status.Conditions).Should(gomega.BeComparableTo([]metav1.Condition{
+					{
+						Type:    kueue.ClusterQueueActive,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Ready",
+						Message: "Can admit new workloads",
+					},
+				}, util.IgnoreConditionTimestampsAndObservedGeneration))
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("ReclaimablePods feature gate is off and clusterQueue usage status is reconciled", func() {
 		var (
 			clusterQueue *kueue.ClusterQueue
@@ -1220,21 +1315,24 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			ctx, cancel := context.WithTimeout(ginkgo.GinkgoTB().Context(), util.MediumTimeout)
 			defer cancel() // Stop goroutines.
 
-			setClusterStatusPending := func() {
+			setClusterStatusPending := func(id int) {
 				defer ginkgo.GinkgoRecover()
 
-				for {
+				for i := 0; ; i++ {
 					var updatedCq kueue.ClusterQueue
 					err := k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)
 					if errors.Is(err, context.Canceled) {
 						return // Test is over, exit quietly
 					}
 					gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+					// Use a distinct message for every write so that each update is a real change.
+					// Identical writes are dropped by the API server as no-ops, and then the
+					// reconciler's corrective status updates would never race against them.
 					apimeta.SetStatusCondition(&updatedCq.Status.Conditions, metav1.Condition{
 						Type:    kueue.ClusterQueueActive,
 						Status:  metav1.ConditionFalse,
 						Reason:  "ByTest",
-						Message: "by test",
+						Message: fmt.Sprintf("by test goroutine %d iteration %d", id, i),
 					})
 					err = k8sClient.Status().Update(ctx, &updatedCq)
 					if errors.Is(err, context.Canceled) {
@@ -1251,8 +1349,8 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 				}
 			}
 
-			for range nGoroutines {
-				wg.Go(setClusterStatusPending)
+			for i := range nGoroutines {
+				wg.Go(func() { setClusterStatusPending(i) })
 			}
 
 			gomega.Eventually(func(g gomega.Gomega) {

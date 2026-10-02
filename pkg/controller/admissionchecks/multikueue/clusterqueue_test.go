@@ -476,7 +476,7 @@ func TestCQReconcile(t *testing.T) {
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(c)
 			reconciler := newCQReconciler(c, helper, cRec, nil, 100*time.Millisecond)
 
-			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.cq.Name}})
+			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{Name: tc.cq.Name})
 			if gotErr != nil {
 				t.Errorf("unexpected reconcile error: %v", gotErr)
 			}
@@ -547,6 +547,33 @@ func TestCQReconciler_UpdateQuotaAutomationCondition(t *testing.T) {
 	}
 	if diff := cmp.Diff(api.TruncateConditionMessage(message), gotCondition.Message); diff != "" {
 		t.Errorf("unexpected condition message (-want/+got):\n%s", diff)
+	}
+}
+
+func TestCQReconciler_UpdateQuotaAutomationConditionUpdatesObservedGeneration(t *testing.T) {
+	cq := utiltestingapi.MakeClusterQueue("cq1").
+		Generation(2).
+		Condition(kueue.MultiKueueManagerQuotaAutomation, metav1.ConditionFalse, "UnsupportedConfiguration", "The referenced MultiKueueConfig was not found.").
+		Obj()
+	cq.Status.Conditions[0].ObservedGeneration = 1
+	c := utiltesting.NewClientBuilder().WithObjects(cq).WithStatusSubresource(cq).Build()
+	reconciler := &cqReconciler{client: c}
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	if err := reconciler.updateQuotaAutomationCondition(ctx, cq, metav1.ConditionFalse, "UnsupportedConfiguration", "The referenced MultiKueueConfig was not found."); err != nil {
+		t.Fatalf("updating quota automation condition: %v", err)
+	}
+
+	gotCQ := &kueue.ClusterQueue{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(cq), gotCQ); err != nil {
+		t.Fatalf("getting ClusterQueue: %v", err)
+	}
+	gotCondition := apimeta.FindStatusCondition(gotCQ.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
+	if gotCondition == nil {
+		t.Fatal("expected quota automation condition")
+	}
+	if gotCondition.ObservedGeneration != cq.Generation {
+		t.Errorf("expected observedGeneration %d, got %d", cq.Generation, gotCondition.ObservedGeneration)
 	}
 }
 

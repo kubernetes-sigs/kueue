@@ -20,6 +20,11 @@ of its Pods are ready (meaning scheduled, running, and passing the
 optional readiness probe). If not all pods of the workload are ready
 within the configured timeout, then the workload is evicted and requeued.
 
+Starting from Kueue 0.20 version, the alpha `WorkloadLevelWaitForPodsReady`
+feature gate lets you set the `waitForPodsReady` timeouts per Kueue-managed
+resource, like Job, statefulset, etc. This allows the user to tune
+the timeouts of resources to more realistic values.
+
 This page describes the `waitForPodsReady` configuration, which
 is a simple implementation of the all-or-nothing scheduling.
 The intended audience for this page are [batch administrators](/docs/tasks#batch-administrator).
@@ -42,7 +47,7 @@ install a release version and customize the default `waitForPodsReady` configura
 ```yaml
     waitForPodsReady:
       timeout: 30m
-      recoveryTimeout: 30m
+      recoveryTimeout: 5m
       blockAdmission: false
       requeuingStrategy:
         timestamp: Eviction | Creation
@@ -64,10 +69,10 @@ kubectl delete pods --all -n kueue-system
 The `timeout` (`waitForPodsReady.timeout`) is an optional parameter, defaulting to
 30 minutes.
 
-When the `timeout` expires for an admitted Workload, and the workload's
-pods are not all scheduled yet (i.e., the Workload condition remains
-`PodsReady=False`), then the Workload's admission is
-cancelled, the corresponding job is suspended and the Workload is re-queued.
+When the `timeout` expires for an admitted Workload and its Pods are not
+all ready yet (that is, the Workload condition remains `PodsReady=False`),
+the Workload's admission is cancelled, the corresponding Job is suspended,
+and the Workload is requeued.
 
 `recoveryTimeout` is an optional parameter used for
 workloads that are already running but have one or more Pods in a not-ready state
@@ -81,6 +86,91 @@ recovery timeout checking.
 The `blockAdmission` (`waitForPodsReady.blockAdmission`) is an optional parameter.
 When enabled, then the workloads are admitted sequentially to prevent deadlock
 situations as demonstrated in the example below.
+
+### Unscheduled timeout
+
+{{< feature-state state="alpha" for_version="v0.20" >}}
+
+Use `unscheduledTimeout` to requeue a Workload sooner when its Pods cannot be
+scheduled, without shortening the time allowed for image pulls and other startup
+tasks. Enable the `WaitForPodsReadyUnscheduledTimeout`
+[feature gate](/docs/installation/#change-the-feature-gates-configuration), which is
+disabled by default:
+
+```yaml
+featureGates:
+  WaitForPodsReadyUnscheduledTimeout: true
+waitForPodsReady:
+  timeout: 30m
+  unscheduledTimeout: 5m
+```
+
+The optional `unscheduledTimeout` starts at Workload admission. If a current-admission
+observation shows required Pods remain unscheduled after it expires, Kueue suspends
+the Job and requeues its Workload using the configured `requeuingStrategy`.
+The regular `timeout`, measured from admission, remains the
+overall limit for the Pods to become ready. Once the Workload has been ready,
+`recoveryTimeout` applies instead. Late Pod creation or observation does not extend
+either initial deadline.
+
+The value must be non-negative and no greater than `timeout`. If omitted or set
+to `0s`, this feature does nothing: no scheduling observation, propagation, extra
+annotations/index, scheduling timeout or scheduling-history reset. Existing scheduling
+conditions are retained but ignored, and ordinary readiness behavior is unchanged.
+With the feature gate enabled and a positive timeout, Workloads waiting for
+scheduling report `PodsReady=False` with reason `WaitForScheduling`.
+
+Remove `unscheduledTimeout` from the configuration before disabling the feature
+gate. This feature cannot be used together with `DisableWaitForPodsReady`.
+
+### Per-workload timeouts
+
+{{< feature-state state="alpha" for_version="v0.20" >}}
+
+Use the `kueue.x-k8s.io/wait-for-pods-ready` annotation to define custom `timeoutSeconds`
+and `recoveryTimeoutSeconds` per Kueue-managed resource, overriding the cluster-wide configuration for
+that workload. To enable per-workload timeouts, set the `WorkloadLevelWaitForPodsReady`
+[feature gate](/docs/getting-started/installation/#change-the-feature-gates-configuration) to `true`, which is
+`false` by default.
+
+Set the annotation on your kueue-managed resource with the following format:
+
+```yaml
+annotations:
+  kueue.x-k8s.io/wait-for-pods-ready: |
+    {
+      "timeoutSeconds": 20,
+      "recoveryTimeoutSeconds": 40
+    }
+```
+
+{{% alert title="Note" color="primary" %}}
+For the Deployment the metadata annotation is copied to the Template metadata
+and propagated to Pods and workload, any changes to it causes a rollout. The template's annotation
+is removed from the template if it's only specified there and not on the Deployment annotation.
+{{% /alert %}}
+
+You can cap the maximum value allowed for `timeoutSeconds` and `recoveryTimeoutSeconds`
+using the `maxTimeoutOnWorkload` field under the `waitForPodsReady` in the Kueue config,
+which defaults to 2 hours. When combined with `blockAdmission: true`, the `maxTimeoutOnWorkload`
+is also the longest a single workload can keep admission blocked for the whole cluster,
+so set it to what you can tolerate.
+
+```yaml
+waitForPodsReady:
+  maxTimeoutOnWorkload: 1h
+```
+
+When the annotation is set, its `timeoutSeconds` and `recoveryTimeoutSeconds` values take
+priority over the cluster-wide `waitForPodsReady.timeout` and `waitForPodsReady.recoveryTimeout`
+for that workload. If the annotation is absent, the cluster-wide values apply. If the annotation
+is present without `recoveryTimeoutSeconds`, it defaults to the cluster-wide `waitForPodsReady.recoveryTimeout`.
+
+The `timeoutSeconds` field is required and must be a positive integer (greater than 0) less
+than or equal to `maxTimeoutOnWorkload`. The `recoveryTimeoutSeconds` field is optional; if
+set, it must also be a positive integer less than or equal to `maxTimeoutOnWorkload`.
+
+This feature cannot be used together with `DisableWaitForPodsReady`.
 
 ### Requeuing Strategy
 

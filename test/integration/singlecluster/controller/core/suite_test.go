@@ -48,6 +48,10 @@ var (
 	ctx       context.Context
 	fwk       *framework.Framework
 	qManager  *qcache.Manager
+	// customMetricLabels is the instance handed to the controllers, caches and
+	// scheduler by managerAndControllerSetup. Tests read it to assert that the
+	// cached label values of deleted objects are dropped.
+	customMetricLabels *metrics.CustomLabels
 )
 
 func TestAPIs(t *testing.T) {
@@ -116,12 +120,14 @@ func managerAndControllerSetup(
 
 		controllersCfg.Metrics.EnableClusterQueueResources = true
 
-		lqMetrics := metrics.NewLocalQueueMetricsConfig(controllersCfg.Metrics.LocalQueueMetrics)
+		lqMetrics, err := metrics.NewLocalQueueMetricsConfig(controllersCfg.Metrics.LocalQueueMetrics)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		var customLabels *metrics.CustomLabels
 		if features.Enabled(features.CustomMetricLabels) && len(controllersCfg.Metrics.CustomLabels) > 0 {
 			customLabels = metrics.NewCustomLabels(controllersCfg.Metrics.CustomLabels)
 		}
+		customMetricLabels = customLabels
 
 		cacheOpts := []schdcache.Option{
 			schdcache.WithResourceMetrics(controllersCfg.Metrics.EnableClusterQueueResources),

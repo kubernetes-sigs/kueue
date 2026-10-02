@@ -105,7 +105,7 @@ var _ = ginkgo.SynchronizedBeforeSuite(
 			util.WaitForAppWrapperAvailability(ctx, k8sWorker2Client)
 		}
 
-		if ginkgo.Label("feature:kuberay").MatchesLabelFilter(labelFilter) {
+		if ginkgo.Label("feature:kuberay", "feature:kuberay-multikueue-autoscaling").MatchesLabelFilter(labelFilter) {
 			util.WaitForKubeRayOperatorAvailability(ctx, k8sManagerClient)
 			util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker1Client)
 			util.WaitForKubeRayOperatorAvailability(ctx, k8sWorker2Client)

@@ -180,6 +180,17 @@ func (cl *CustomLabels) Delete(kind configapi.SourceKind, ref string) {
 	cl.m[kind].delete(ref)
 }
 
+// StoredRefsForTest returns the object references currently held in the
+// in-memory label value cache for kind, in unspecified order. Exported only
+// for testing, so that packages driving the caches and controllers can assert
+// that cached label values are dropped once the source object is deleted.
+func (cl *CustomLabels) StoredRefsForTest(kind configapi.SourceKind) []string {
+	if !cl.enabled() || cl.m[kind] == nil {
+		return nil
+	}
+	return cl.m[kind].values.Keys()
+}
+
 func (cl *CustomLabels) enabled() bool {
 	return cl != nil && features.Enabled(features.CustomMetricLabels)
 }

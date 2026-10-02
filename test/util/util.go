@@ -86,6 +86,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
@@ -552,7 +553,8 @@ func ExpectWorkloadsToBeInadmissibleByKeys(ctx context.Context, k8sClient client
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if cond != nil && cond.Status == metav1.ConditionFalse && (cond.Reason == kueue.WorkloadInadmissible || cond.Reason == kueue.WorkloadQuotaReservedReasonMisconfigured) {
+			if cond != nil && cond.Status == metav1.ConditionFalse &&
+				(cond.Reason == kueue.WorkloadInadmissible || cond.Reason == kueue.WorkloadQuotaReservedReasonMisconfigured || cond.Reason == kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved) {
 				inadmissible = append(inadmissible, wlKey)
 			}
 			wlObjects[i] = wl
@@ -586,6 +588,21 @@ func ExpectWorkloadsToBeAdmitted(ctx context.Context, k8sClient client.Client, w
 	ginkgo.GinkgoHelper()
 	wlKeys := workloadKeys(wls)
 	ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKeys...)
+}
+
+func ExpectAdmittedWorkloadWithUnhealthyNodes(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, nodeNames ...string) {
+	ginkgo.GinkgoHelper()
+	expected := make([]kueue.UnhealthyNode, len(nodeNames))
+	for i, name := range nodeNames {
+		expected[i].Name = name
+	}
+	gomega.Eventually(func(g gomega.Gomega) {
+		updatedWl := &kueue.Workload{}
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updatedWl)).To(gomega.Succeed())
+		g.Expect(workload.IsAdmitted(updatedWl)).To(gomega.BeTrue())
+		g.Expect(apimeta.FindStatusCondition(updatedWl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeNil())
+		g.Expect(updatedWl.Status.UnhealthyNodes).To(gomega.Equal(expected))
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 func ExpectWorkloadsToBeAdmittedByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
@@ -1466,6 +1483,13 @@ func ExpectWorkloadsInNamespace(ctx context.Context, k8sClient client.Client, na
 //     non-nil if the function succeeds; otherwise, the test fails before returning.
 func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWorkload *kueue.Workload) (newWorkload *kueue.Workload) {
 	ginkgo.GinkgoHelper()
+	return ExpectNewWorkloadSliceWithTimeout(ctx, k8sClient, oldWorkload, Timeout)
+}
+
+// ExpectNewWorkloadSliceWithTimeout is like ExpectNewWorkloadSlice, but allows
+// callers to specify how long to wait for the replacement Workload.
+func ExpectNewWorkloadSliceWithTimeout(ctx context.Context, k8sClient client.Client, oldWorkload *kueue.Workload, timeout time.Duration) (newWorkload *kueue.Workload) {
+	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		// Reset newWorkload each iteration to ensure the returned value is from
 		// the current poll, not a stale pointer from a previous retry attempt.
@@ -1480,7 +1504,7 @@ func ExpectNewWorkloadSlice(ctx context.Context, k8sClient client.Client, oldWor
 			}
 		}
 		g.Expect(newWorkload).ShouldNot(gomega.BeNil())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("No replacement workload slice found for old workload", oldWorkload))
+	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("No replacement workload slice found for old workload", oldWorkload))
 	return newWorkload
 }
 
@@ -1493,6 +1517,27 @@ func FindNonFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {
 		}
 	}
 	return active
+}
+
+// FindConcurrentAdmissionVariants returns the subset of workloads that are Concurrent Admission variants.
+func FindConcurrentAdmissionVariants(workloads []kueue.Workload) []kueue.Workload {
+	var variants []kueue.Workload
+	for i := range workloads {
+		if concurrentadmission.IsVariant(&workloads[i]) {
+			variants = append(variants, workloads[i])
+		}
+	}
+	return variants
+}
+
+// FindConcurrentAdmissionParent returns the first non-variant workload, or nil, assuming a ClusterQueue with Concurrent Admission enabled.
+func FindConcurrentAdmissionParent(workloads []kueue.Workload) *kueue.Workload {
+	for i := range workloads {
+		if !concurrentadmission.IsVariant(&workloads[i]) {
+			return &workloads[i]
+		}
+	}
+	return nil
 }
 
 // DeleteWorkloadSliceAndAwaitDeletion deletes the named workload slice and waits
@@ -1817,4 +1862,18 @@ func ExpectWorkloadToHaveConditions(
 			g.Expect(*cond).To(gomega.BeComparableTo(wantCond, opts...))
 		}
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload conditions did not match expectations", wl))
+}
+
+// GetTopologyDomainByNode returns a map from the name of every node that
+// carries the given topology level label to its value at that level, e.g. the
+// block the node belongs to.
+func GetTopologyDomainByNode(ctx context.Context, c client.Client, levelLabel string) map[string]string {
+	ginkgo.GinkgoHelper()
+	nodes := &corev1.NodeList{}
+	gomega.Expect(c.List(ctx, nodes, client.HasLabels{levelLabel})).To(gomega.Succeed())
+	domains := make(map[string]string, len(nodes.Items))
+	for _, node := range nodes.Items {
+		domains[node.Name] = node.Labels[levelLabel]
+	}
+	return domains
 }

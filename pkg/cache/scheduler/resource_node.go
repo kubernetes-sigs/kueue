@@ -19,6 +19,7 @@ package scheduler
 import (
 	"maps"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
@@ -33,14 +34,25 @@ type resourceNode struct {
 	Quotas map[resources.FlavorResource]ResourceQuota
 	// SubtreeQuota is the sum of the node's quota, as well as
 	// resources available from its children, constrained by
-	// LendingLimits. It uses Amount because individual quotas (or their
-	// aggregation) may saturate to Unlimited.
+	// LendingLimits. It uses Amount because individual quotas, and more so
+	// their aggregation, can leave the int64 range.
 	SubtreeQuota resources.FlavorResourceQuantities
 	// Usage is the quantity which counts against this node's
 	// SubtreeQuota. For ClusterQueues, this is simply its
 	// usage. For Cohorts, this is the sum of childrens'
 	// usages past childrens' localQuota.
 	Usage resources.FlavorResourceQuantities
+	// Lendable is the capacity this node can lend, per resource, derived from
+	// SubtreeQuota and the tree shape. updateCohortLendable rebuilds it in the
+	// same pass that rebuilds SubtreeQuota, so the two cannot disagree.
+	//
+	// Set for Cohorts only. dominantResourceShare reads it from a node's parent,
+	// which is always a Cohort, so a ClusterQueue's stays nil.
+	//
+	// Replaced rather than mutated, like SubtreeQuota, so a snapshot holding the
+	// previous map never observes a change. Served directly to callers, which
+	// must not mutate it.
+	Lendable map[corev1.ResourceName]resources.Amount
 }
 
 func NewResourceNode() resourceNode {
@@ -52,12 +64,13 @@ func NewResourceNode() resourceNode {
 }
 
 // Clone clones the mutable field Usage, while returning copies to
-// Quota and SubtreeQuota (these are replaced with new maps upon update).
+// Quota, SubtreeQuota and Lendable (these are replaced with new maps upon update).
 func (r resourceNode) Clone() resourceNode {
 	return resourceNode{
 		Quotas:       r.Quotas,
 		SubtreeQuota: r.SubtreeQuota,
 		Usage:        maps.Clone(r.Usage),
+		Lendable:     r.Lendable,
 	}
 }
 
@@ -111,7 +124,7 @@ func available(node hierarchicalResourceNode, fr resources.FlavorResource) resou
 	parentAvailable := available(node.parentHRN(), fr)
 
 	if borrowingLimit := r.Quotas[fr].BorrowingLimit; borrowingLimit != nil {
-		// All of these can be Unlimited; Amount methods propagate that.
+		// Any of these can be past int64; Amount arithmetic stays exact.
 		lq := r.localQuota(fr)
 		storedInParent := r.SubtreeQuota[fr].Sub(lq)
 		usedInParent := resources.MaxAmount(resources.NewAmount(0), r.Usage[fr].Sub(lq))
@@ -124,8 +137,8 @@ func available(node hierarchicalResourceNode, fr resources.FlavorResource) resou
 // potentialAvailable returns the maximum capacity available to this node,
 // assuming no usage, while respecting BorrowingLimits.
 //
-// Uses saturating arithmetic so sums of large (potentially MaxAmount) quotas
-// from this node and its ancestors never wrap around int64.
+// The sum over this node and its ancestors is exact, so quotas past int64 add
+// up to the number they are rather than to a ceiling.
 func potentialAvailable(node hierarchicalResourceNode, fr resources.FlavorResource) resources.Amount {
 	r := node.getResourceNode()
 	if !node.HasParent() {
@@ -184,12 +197,13 @@ func updateCohortTreeResources(cohort *cohort) error {
 }
 
 // updateCohortResourceNode traverses the Cohort tree to accumulate
-// SubtreeQuota and Usage. It should usually be called via
-// updateCohortTree, which starts at the root and includes
-// a cycle check.
+// SubtreeQuota, Usage and admittedWorkloadsCount, then refreshes Lendable.
+// It should usually be called via updateCohortTreeResources, which starts at
+// the root and includes a cycle check.
 func updateCohortResourceNode(cohort *cohort) {
 	cohort.resourceNode.SubtreeQuota = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.SubtreeQuota))
 	cohort.resourceNode.Usage = make(resources.FlavorResourceQuantities, len(cohort.resourceNode.Usage))
+	cohort.admittedWorkloadsCount = 0
 
 	for fr, quota := range cohort.resourceNode.Quotas {
 		cohort.resourceNode.SubtreeQuota[fr] = quota.Nominal
@@ -197,10 +211,33 @@ func updateCohortResourceNode(cohort *cohort) {
 	for _, child := range cohort.ChildCohorts() {
 		updateCohortResourceNode(child)
 		accumulateFromChild(cohort, child)
+		cohort.admittedWorkloadsCount += child.admittedWorkloadsCount
 	}
 	for _, child := range cohort.ChildCQs() {
 		updateClusterQueueResourceNode(child)
 		accumulateFromChild(cohort, child)
+		cohort.admittedWorkloadsCount += child.admittedWorkloadsCount
+	}
+	// Lendable reads the root's SubtreeQuota, so it cannot be computed until the
+	// accumulation above has finished for the whole tree. The recursive calls
+	// above all have a parent, so this runs once, at the end of the outermost
+	// call.
+	if !cohort.HasParent() {
+		updateCohortLendable(cohort)
+	}
+}
+
+// updateCohortLendable rebuilds Lendable for every Cohort in the subtree, top
+// down. Keeping it in the same pass as SubtreeQuota is what lets
+// dominantResourceShare read the value instead of recomputing it per preemption
+// candidate: the two cannot disagree, because nothing writes SubtreeQuota
+// outside updateCohortResourceNode and accumulateFromChild.
+//
+// ClusterQueues are skipped. Only a Cohort's Lendable is ever read.
+func updateCohortLendable(cohort *cohort) {
+	cohort.resourceNode.Lendable = computeLendable(cohort)
+	for _, child := range cohort.ChildCohorts() {
+		updateCohortLendable(child)
 	}
 }
 
@@ -217,7 +254,8 @@ func updateCohortTreeResourcesIfNoCycle(cohort *cohort) {
 func accumulateFromChild(parent *cohort, child flatResourceNode) {
 	for fr, childQuota := range child.getResourceNode().SubtreeQuota {
 		delta := childQuota.Sub(child.getResourceNode().localQuota(fr))
-		// Add saturates at MaxInt64 on overflow, so large children never wrap the parent SubtreeQuota negative.
+		// Amount addition stays exact past int64, so accumulating large
+		// children cannot wrap the parent's SubtreeQuota negative.
 		parent.resourceNode.SubtreeQuota[fr] = parent.resourceNode.SubtreeQuota[fr].Add(delta)
 	}
 	for fr, childUsage := range child.getResourceNode().Usage {

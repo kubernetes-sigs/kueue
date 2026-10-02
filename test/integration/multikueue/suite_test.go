@@ -479,6 +479,7 @@ func managerAndMultiKueueSetup(
 	gcInterval time.Duration,
 	enabledIntegrations sets.Set[string],
 	dispatcherName string,
+	extraOptions ...multikueue.SetupOption,
 ) {
 	integrationManager := setupManager(ctx, mgr)
 
@@ -488,13 +489,15 @@ func managerAndMultiKueueSetup(
 	adapters, err := integrationManager.GetMultiKueueAdapters(enabledIntegrations)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name,
+	controllerOptions := []multikueue.SetupOption{
 		multikueue.WithGCInterval(gcInterval),
 		multikueue.WithWorkerLostTimeout(testingWorkerLostTimeout),
-		multikueue.WithEventsBatchPeriod(250*time.Millisecond),
+		multikueue.WithEventsBatchPeriod(250 * time.Millisecond),
 		multikueue.WithAdapters(adapters),
 		multikueue.WithDispatcherName(dispatcherName),
-	)
+	}
+	controllerOptions = append(controllerOptions, extraOptions...)
+	err = multikueue.SetupControllers(mgr, managersConfigNamespace.Name, controllerOptions...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	configuration := &config.Configuration{

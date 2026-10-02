@@ -25,7 +25,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"go.uber.org/mock/gomock"
 	batchv1 "k8s.io/api/batch/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -43,7 +42,7 @@ func TestValidateRemoteObjectOwnership(t *testing.T) {
 	gvk := batchv1.SchemeGroupVersion.WithKind("Job")
 
 	makeJob := func(labels map[string]string) *batchv1.Job {
-		return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace, Labels: labels}}
+		return &batchv1.Job{Name: key.Name, Namespace: key.Namespace, Labels: labels}
 	}
 
 	tests := map[string]struct {
@@ -114,7 +113,7 @@ func TestValidateRemoteObjectOwnership(t *testing.T) {
 
 func TestDeleteRemoteObjectIfOwned(t *testing.T) {
 	makeJob := func(key types.NamespacedName, labels map[string]string) *batchv1.Job {
-		return &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Name: key.Name, Namespace: key.Namespace, Labels: labels}}
+		return &batchv1.Job{Name: key.Name, Namespace: key.Namespace, Labels: labels}
 	}
 
 	key := types.NamespacedName{Name: "test-job", Namespace: "default"}

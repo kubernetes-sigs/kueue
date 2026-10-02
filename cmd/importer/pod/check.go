@@ -49,11 +49,9 @@ type checkedWorkload struct {
 
 func Check(ctx context.Context, c client.Client, importCache *cache.ImportCache, jobs uint) error {
 	ch := make(chan corev1.Pod)
+	listErrCh := make(chan error, 1)
 	go func() {
-		err := ListPods(ctx, c, importCache.Namespaces, ch)
-		if err != nil {
-			ctrl.LoggerFrom(ctx).Error(err, "Listing pods")
-		}
+		listErrCh <- ListPods(ctx, c, importCache.Namespaces, ch)
 	}()
 	summary := ProcessConcurrently(ch, jobs, func(p *corev1.Pod) (bool, error) {
 		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(p))
@@ -79,7 +77,7 @@ func Check(ctx context.Context, c client.Client, importCache *cache.ImportCache,
 	for e, pods := range summary.ErrorsForPods {
 		log.Info("Validation failed for Pods", "err", e, "occurrences", len(pods), "observedFirstIn", pods[0])
 	}
-	return errors.Join(summary.Errors...)
+	return errors.Join(append(summary.Errors, <-listErrCh)...)
 }
 
 // resolveQueues resolves the Pod to its LocalQueue and ClusterQueue.

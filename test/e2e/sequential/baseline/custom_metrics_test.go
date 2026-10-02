@@ -34,7 +34,7 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "feature:pod"), func() {
+var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "feature:pod", util.Shard0), func() {
 	var (
 		ns             *corev1.Namespace
 		onDemandRF     *kueue.ResourceFlavor
@@ -55,7 +55,6 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 
 	ginkgo.When("Custom metric labels enabled", ginkgo.Ordered, func() {
 		var (
-			defaultKueueCfg  *config.Configuration
 			kindClusterName  = os.Getenv("KIND_CLUSTER_NAME")
 			cq               *kueue.ClusterQueue
 			lq               *kueue.LocalQueue
@@ -63,7 +62,6 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 		)
 
 		ginkgo.BeforeAll(func() {
-			defaultKueueCfg = util.GetKueueConfiguration(ctx, k8sClient)
 			util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 				cfg.FeatureGates = map[string]bool{
 					string(features.CustomMetricLabels): true,

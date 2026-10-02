@@ -81,11 +81,60 @@ var _ = ginkgo.Describe("Kueuectl List", func() {
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 
-			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-lq1    cq1            0                   0                    %s
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+lq1    cq1            0                   0                    false    %s
 `,
 				duration.HumanDuration(executeTime.Sub(lq1.CreationTimestamp.Time)),
 			)))
+		})
+
+		ginkgo.It("Should print local queues list filtered by active status", func() {
+			cq1 := utiltestingapi.MakeClusterQueue("cq1").Obj()
+			util.MustCreate(ctx, k8sClient, cq1)
+			ginkgo.DeferCleanup(func() {
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
+			})
+			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq1, lq3)
+
+			ginkgo.By("Listing active local queues", func() {
+				streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				executeTime := time.Now()
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
+
+				kueuectl.SetArgs([]string{"list", "localqueue", "--active=true", "--namespace", ns.Name})
+
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+
+				gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                         CLUSTERQUEUE   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+lq1                          cq1            0                   0                    true     %s
+very-long-local-queue-name   cq1            0                   0                    true     %s
+`,
+					duration.HumanDuration(executeTime.Sub(lq1.CreationTimestamp.Time)),
+					duration.HumanDuration(executeTime.Sub(lq3.CreationTimestamp.Time)),
+				)))
+			})
+
+			ginkgo.By("Listing inactive local queues", func() {
+				streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				executeTime := time.Now()
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(executeTime)})
+
+				kueuectl.SetArgs([]string{"list", "localqueue", "--active=false", "--namespace", ns.Name})
+
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+				gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+
+				gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME   CLUSTERQUEUE                   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+lq2    very-long-cluster-queue-name   0                   0                    false    %s
+`,
+					duration.HumanDuration(executeTime.Sub(lq2.CreationTimestamp.Time)),
+				)))
+			})
 		})
 
 		// Simple client set that are using on unit tests not allow paging.
@@ -102,10 +151,10 @@ lq1    cq1            0                   0                    %s
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
 			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
 
-			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                         CLUSTERQUEUE                   PENDING WORKLOADS   ADMITTED WORKLOADS   AGE
-lq1                          cq1                            0                   0                    %s
-lq2                          very-long-cluster-queue-name   0                   0                    %s
-very-long-local-queue-name   cq1                            0                   0                    %s
+			gomega.Expect(output.String()).Should(gomega.Equal(fmt.Sprintf(`NAME                         CLUSTERQUEUE                   PENDING WORKLOADS   ADMITTED WORKLOADS   ACTIVE   AGE
+lq1                          cq1                            0                   0                    false    %s
+lq2                          very-long-cluster-queue-name   0                   0                    false    %s
+very-long-local-queue-name   cq1                            0                   0                    false    %s
 `,
 				duration.HumanDuration(executeTime.Sub(lq1.CreationTimestamp.Time)),
 				duration.HumanDuration(executeTime.Sub(lq2.CreationTimestamp.Time)),

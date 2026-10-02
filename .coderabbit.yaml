@@ -7,12 +7,12 @@ knowledge_base:
     filePatterns:
       - "AGENTS.md"
 
+tone_instructions: |
+  Before opening an issue, read and follow the instructions in AGENTS.md.
+  Keep issue title and description concise.
+
 reviews:
   request_changes_workflow: false
-
-  tone_instructions: >-
-    Before opening an issue, read and follow the instructions in AGENTS.md.
-    Keep issue title and description concise.
 
   high_level_summary_instructions: |
     Keep the PR summary concise. Name the section "AI summary".
@@ -96,9 +96,10 @@ reviews:
 
     - path: "test/integration/**/*.go"
       instructions: |
-        Verify tests use envtest and follow the existing table-driven test
-        patterns with Ginkgo/Gomega. Ensure new test cases cover both
-        positive and negative scenarios.
+        Verify tests use envtest and follow the existing Ginkgo/Gomega
+        patterns. Each scenario belongs in its own `ginkgo.It`; do not suggest
+        `ginkgo.DescribeTable`. Ensure new test cases cover both positive and
+        negative scenarios.
 
     - path: "test/e2e/**/*.go"
       instructions: |
@@ -119,8 +120,10 @@ reviews:
 
     - path: "**/*_test.go"
       instructions: |
-        Ensure tests follow the existing Ginkgo/Gomega patterns in the
-        project. Prefer table-driven tests for multiple scenarios.
+        Unit tests use the standard `testing` package with map-based
+        table-driven cases. Ginkgo/Gomega tests (integration and e2e) cover
+        each scenario in its own `ginkgo.It`; do not suggest
+        `ginkgo.DescribeTable`.
 
   auto_review:
     enabled: true

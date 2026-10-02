@@ -18,11 +18,11 @@ package core
 
 import (
 	"context"
+	"errors"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -42,6 +42,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
+
+type CohortUpdateWatcher interface {
+	NotifyCohortUpdate(oldCohort, newCohort *kueue.Cohort)
+}
 
 type CohortReconcilerOptions struct {
 	FairSharingEnabled bool
@@ -78,6 +82,7 @@ type CohortReconciler struct {
 	cache              *schdcache.Cache
 	qManager           *qcache.Manager
 	cqUpdateCh         chan event.GenericEvent
+	watchers           []CohortUpdateWatcher
 	fairSharingEnabled bool
 	roleTracker        *roletracker.RoleTracker
 	customLabels       *metrics.CustomLabels
@@ -103,6 +108,16 @@ func NewCohortReconciler(
 		fairSharingEnabled: options.FairSharingEnabled,
 		roleTracker:        options.roleTracker,
 		customLabels:       options.customLabels,
+	}
+}
+
+func (r *CohortReconciler) AddUpdateWatcher(watchers ...CohortUpdateWatcher) {
+	r.watchers = append(r.watchers, watchers...)
+}
+
+func (r *CohortReconciler) notifyWatchers(oldCohort, newCohort *kueue.Cohort) {
+	for _, w := range r.watchers {
+		w.NotifyCohortUpdate(oldCohort, newCohort)
 	}
 }
 
@@ -184,6 +199,7 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			r.cache.ClearCohortMetrics(log, kueue.CohortReference(req.Name))
 			r.cache.DeleteCohort(kueue.CohortReference(req.Name))
 			r.qManager.DeleteCohort(kueue.CohortReference(req.Name))
+			r.notifyWatchers(&kueue.Cohort{Name: req.Name}, nil)
 			metrics.ClearCohortMetrics(kueue.CohortReference(req.Name))
 			if features.Enabled(features.CustomMetricLabels) {
 				r.customLabels.CohortDelete(kueue.CohortReference(req.Name))
@@ -204,12 +220,19 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		"resources", resourcegroups.EffectiveCohortResourceGroups(&cohort),
 		"usesEffectiveQuotas", features.Enabled(features.DynamicQuotaOrchestration) && cohort.Status.EffectiveQuotas != nil,
 	)
-	if err := r.cache.AddOrUpdateCohort(&cohort); err != nil {
-		log.V(2).Error(err, "Error adding or updating cohort in the cache")
-		// Fail fast to avoid queue/status updates from a stale cache state.
-		return ctrl.Result{}, err
+	addErr := r.cache.AddOrUpdateCohort(&cohort)
+	if errors.Is(addErr, schdcache.ErrCohortHasCycle) {
+		// Skip consumers that require a valid tree, but notify ClusterQueues so they
+		// can report the cycle as their inactive reason.
+		r.notifyWatchers(nil, &cohort)
+		return ctrl.Result{}, nil
+	}
+	if addErr != nil {
+		log.V(2).Error(addErr, "Error adding or updating cohort in the cache")
+		return ctrl.Result{}, addErr
 	}
 	r.qManager.AddOrUpdateCohort(ctx, &cohort)
+	r.notifyWatchers(nil, &cohort)
 	if labelsUpdated {
 		metrics.ClearCohortMetrics(kueue.CohortReference(req.Name))
 		r.cache.ResyncCohortGaugeMetrics(log, kueue.CohortReference(req.Name))
@@ -221,6 +244,8 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	return ctrl.Result{}, client.IgnoreNotFound(err)
 }
 
+// updateCohortStatusIfChanged recomputes the Cohort status from the cache and writes it to the
+// API server only when it differs from the current status.
 func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, cohort *kueue.Cohort) error {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -242,7 +267,7 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 		cohort.Status.FairSharing = nil
 	}
 
-	if !equality.Semantic.DeepEqual(cohort.Status, oldStatus) {
+	if !equality.Semantic.DeepEqual(&cohort.Status, oldStatus) {
 		return r.client.Status().Update(ctx, cohort)
 	}
 
@@ -284,6 +309,6 @@ func (h *cohortCqHandler) Generic(ctx context.Context, e event.GenericEvent, q w
 		log.Error(err, "Failed getting ancestors for cohort", "cohort", cq.Spec.CohortName)
 	}
 	for _, ancestor := range ancestors {
-		q.Add(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(ancestor)}})
+		q.Add(reconcile.Request{Name: string(ancestor)})
 	}
 }

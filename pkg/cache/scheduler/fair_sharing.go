@@ -168,10 +168,12 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	drs.borrowing = true
 	drs.borrowedFRs = borrowedFRs
 
-	lendable := calculateLendable(node.parentHRN())
+	// Maintained by updateCohortLendable alongside SubtreeQuota. The parent is
+	// always a Cohort, because of the early return above.
+	lendable := node.parentHRN().getResourceNode().Lendable
 	for rName, b := range borrowing {
 		if lr := lendable[rName]; lr.CmpInt64(0) > 0 {
-			ratio := float64(b.Int64()) * 1000.0 / float64(lr.Int64())
+			ratio := b.PerThousandOf(lr)
 			// Use alphabetical order to get a deterministic resource name.
 			if ratio > drs.unweightedRatio || (ratio == drs.unweightedRatio && rName < drs.dominantResource) {
 				drs.unweightedRatio = ratio
@@ -182,9 +184,10 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	return drs
 }
 
-// calculateLendable aggregates capacity for resources across all
-// FlavorResources.
-func calculateLendable(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
+// computeLendable derives lendable capacity from the Cohort tree. Callers in the
+// scheduling path read resourceNode.Lendable instead, which updateCohortLendable
+// keeps in step with SubtreeQuota.
+func computeLendable(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
 	// walk to root
 	root := node
 	for root.HasParent() {

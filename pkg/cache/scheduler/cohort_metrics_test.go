@@ -18,19 +18,26 @@ package scheduler
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"math"
+	"slices"
 	"testing"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestRecordCohortMetrics_Guards(t *testing.T) {
@@ -175,8 +182,8 @@ func TestApplyCohortMetricPointReportsUnlimitedAsInf(t *testing.T) {
 	cache.applyCohortMetricPoint(cohortMetricPoint{
 		cohortName:      cohortName,
 		flavorResource:  fr,
-		quotaQty:        resources.Unlimited,
-		reservationsQty: resources.Unlimited,
+		quotaQty:        resources.NewAmount(math.MaxInt64),
+		reservationsQty: resources.NewAmount(math.MaxInt64),
 	})
 
 	expectGaugeValue(t, kueuemetrics.CohortSubtreeQuota, labels, math.Inf(1))
@@ -864,4 +871,321 @@ func TestResyncGaugeMetrics_SkipsCohortInfoForCycle(t *testing.T) {
 
 	expectGaugeCount(t, kueuemetrics.CohortInfo, 0, map[string]string{"cohort": "cohort-a"})
 	expectGaugeCount(t, kueuemetrics.CohortInfo, 0, map[string]string{"cohort": "cohort-b"})
+}
+
+func TestCohortAdmittedWorkloadsFollowHierarchyChanges(t *testing.T) {
+	admittedWorkloads := func(cq kueue.ClusterQueueReference, n int) []*kueue.Workload {
+		now := time.Now()
+		wls := make([]*kueue.Workload, 0, n)
+		for i := range n {
+			wls = append(wls, utiltestingapi.MakeWorkload(fmt.Sprintf("%s-wl-%d", cq, i), "ns").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission(cq).
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Obj()).
+					Obj(), now).
+				AdmittedAt(true, now).
+				Obj())
+		}
+		return wls
+	}
+	clusterQueue := func(name kueue.ClusterQueueReference, cohort kueue.CohortReference) *kueue.ClusterQueue {
+		return utiltestingapi.MakeClusterQueue(string(name)).
+			Cohort(cohort).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
+			Obj()
+	}
+	cohort := func(name, parent kueue.CohortReference) *kueue.Cohort {
+		return utiltestingapi.MakeCohort(name).Parent(parent).Obj()
+	}
+	// A Cohort closing a cycle is rejected but stays in the hierarchy.
+	addCohortMayCycle := func(t *testing.T, cache *Cache, ch *kueue.Cohort) {
+		t.Helper()
+		if err := cache.AddOrUpdateCohort(ch); err != nil && !errors.Is(err, ErrCohortHasCycle) {
+			t.Fatal(err)
+		}
+	}
+	gaugeLabels := func(cohort kueue.CohortReference) map[string]string {
+		return map[string]string{"cohort": string(cohort), "replica_role": "standalone"}
+	}
+
+	cases := map[string]struct {
+		cohorts   []*kueue.Cohort
+		cqs       []*kueue.ClusterQueue
+		workloads []*kueue.Workload
+		change    func(t *testing.T, log logr.Logger, cache *Cache)
+		// want is each Cohort's count and gauge after change, except that
+		// Cohorts in wantNoGauge have no gauge series.
+		want        map[kueue.CohortReference]int
+		wantNoGauge []kueue.CohortReference
+	}{
+		"cohort reconciled with unchanged parent keeps implicit root count": {
+			cohorts:   []*kueue.Cohort{cohort("ch1", "root1")},
+			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "ch1")},
+			workloads: admittedWorkloads("cq1", 3),
+			change: func(t *testing.T, _ logr.Logger, cache *Cache) {
+				if err := cache.AddOrUpdateCohort(cohort("ch1", "root1")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: map[kueue.CohortReference]int{"ch1": 3, "root1": 3},
+		},
+		"cluster queue updated with unchanged implicit parent keeps its count": {
+			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "implicit")},
+			workloads: admittedWorkloads("cq1", 3),
+			change: func(t *testing.T, log logr.Logger, cache *Cache) {
+				if err := cache.UpdateClusterQueue(log, clusterQueue("cq1", "implicit")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: map[kueue.CohortReference]int{"implicit": 3},
+		},
+		"cluster queue moved to another cohort": {
+			cohorts:   []*kueue.Cohort{cohort("a", ""), cohort("b", "")},
+			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "a")},
+			workloads: admittedWorkloads("cq1", 3),
+			change: func(t *testing.T, log logr.Logger, cache *Cache) {
+				if err := cache.UpdateClusterQueue(log, clusterQueue("cq1", "b")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want:        map[kueue.CohortReference]int{"a": 0, "b": 3},
+			wantNoGauge: []kueue.CohortReference{"a"},
+		},
+		"cohort moved to another root": {
+			cohorts: []*kueue.Cohort{cohort("root1", ""), cohort("root2", ""), cohort("ch1", "root1")},
+			cqs:     []*kueue.ClusterQueue{clusterQueue("cq1", "ch1"), clusterQueue("cq2", "root2")},
+			workloads: append(admittedWorkloads("cq1", 3),
+				admittedWorkloads("cq2", 2)...),
+			change: func(t *testing.T, _ logr.Logger, cache *Cache) {
+				if err := cache.AddOrUpdateCohort(cohort("ch1", "root2")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want:        map[kueue.CohortReference]int{"root1": 0, "root2": 5, "ch1": 3},
+			wantNoGauge: []kueue.CohortReference{"root1"},
+		},
+		"explicit cohort with children deleted": {
+			cohorts:   []*kueue.Cohort{cohort("root", ""), cohort("mid", "root")},
+			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "mid")},
+			workloads: admittedWorkloads("cq1", 3),
+			change: func(_ *testing.T, _ logr.Logger, cache *Cache) {
+				cache.DeleteCohort("mid")
+			},
+			want:        map[kueue.CohortReference]int{"root": 0, "mid": 3},
+			wantNoGauge: []kueue.CohortReference{"root"},
+		},
+		"workloads admitted while the hierarchy has a cycle": {
+			cohorts:   []*kueue.Cohort{cohort("x", "y"), cohort("y", "x")},
+			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "x")},
+			workloads: admittedWorkloads("cq1", 3),
+			change: func(t *testing.T, _ logr.Logger, cache *Cache) {
+				if err := cache.AddOrUpdateCohort(cohort("y", "")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: map[kueue.CohortReference]int{"x": 3, "y": 3},
+		},
+		"workloads finished while the hierarchy has a cycle": {
+			cohorts:   []*kueue.Cohort{cohort("x", "y"), cohort("y", "")},
+			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "x")},
+			workloads: admittedWorkloads("cq1", 3),
+			change: func(t *testing.T, log logr.Logger, cache *Cache) {
+				addCohortMayCycle(t, cache, cohort("y", "x"))
+				for _, wl := range admittedWorkloads("cq1", 3) {
+					if err := cache.DeleteWorkload(log, workload.Key(wl)); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := cache.AddOrUpdateCohort(cohort("y", "")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: map[kueue.CohortReference]int{"x": 0, "y": 0},
+		},
+		"cluster queue deleted while holding workloads": {
+			cohorts:   []*kueue.Cohort{cohort("a", "")},
+			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "a")},
+			workloads: admittedWorkloads("cq1", 3),
+			change: func(_ *testing.T, _ logr.Logger, cache *Cache) {
+				cache.DeleteClusterQueue(clusterQueue("cq1", "a"))
+			},
+			want:        map[kueue.CohortReference]int{"a": 0},
+			wantNoGauge: []kueue.CohortReference{"a"},
+		},
+		"cohort moved into a cycle": {
+			cohorts:   []*kueue.Cohort{cohort("p", ""), cohort("a", "p"), cohort("b", "a")},
+			cqs:       []*kueue.ClusterQueue{clusterQueue("cq0", "p"), clusterQueue("cq1", "a")},
+			workloads: admittedWorkloads("cq1", 3),
+			change: func(t *testing.T, _ logr.Logger, cache *Cache) {
+				if err := cache.AddOrUpdateCohort(cohort("a", "b")); !errors.Is(err, ErrCohortHasCycle) {
+					t.Fatalf("got error %v, want %v", err, ErrCohortHasCycle)
+				}
+			},
+			want: map[kueue.CohortReference]int{"p": 0},
+		},
+		"cohort moved into a cycle and out of it again": {
+			cohorts:   []*kueue.Cohort{cohort("p", ""), cohort("a", "p"), cohort("b", "a")},
+			cqs:       []*kueue.ClusterQueue{clusterQueue("cq0", "p"), clusterQueue("cq1", "a")},
+			workloads: admittedWorkloads("cq1", 3),
+			change: func(t *testing.T, _ logr.Logger, cache *Cache) {
+				addCohortMayCycle(t, cache, cohort("a", "b"))
+				if err := cache.AddOrUpdateCohort(cohort("a", "")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want:        map[kueue.CohortReference]int{"p": 0, "a": 3, "b": 0},
+			wantNoGauge: []kueue.CohortReference{"b"},
+		},
+		"cohort moved into a cycle leaves explicit root without cluster queues": {
+			cohorts:   []*kueue.Cohort{cohort("p", ""), cohort("a", "p"), cohort("b", "a")},
+			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "a")},
+			workloads: admittedWorkloads("cq1", 3),
+			change: func(t *testing.T, _ logr.Logger, cache *Cache) {
+				addCohortMayCycle(t, cache, cohort("a", "b"))
+				if err := cache.AddOrUpdateCohort(cohort("a", "")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want:        map[kueue.CohortReference]int{"p": 0, "a": 3},
+			wantNoGauge: []kueue.CohortReference{"p"},
+		},
+		"cycle resolved by deleting a cohort": {
+			cohorts:   []*kueue.Cohort{cohort("x", "y"), cohort("y", "x")},
+			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "x")},
+			workloads: admittedWorkloads("cq1", 3),
+			change: func(_ *testing.T, _ logr.Logger, cache *Cache) {
+				cache.DeleteCohort("y")
+			},
+			want: map[kueue.CohortReference]int{"x": 3, "y": 3},
+		},
+		"cycle of three resolved by deleting a cohort": {
+			cohorts:   []*kueue.Cohort{cohort("x", "y"), cohort("y", "z"), cohort("z", "x")},
+			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "x"), clusterQueue("cq2", "z")},
+			workloads: append(admittedWorkloads("cq1", 3), admittedWorkloads("cq2", 2)...),
+			change: func(_ *testing.T, _ logr.Logger, cache *Cache) {
+				cache.DeleteCohort("x")
+			},
+			want:        map[kueue.CohortReference]int{"x": 5, "y": 0, "z": 2},
+			wantNoGauge: []kueue.CohortReference{"y"},
+		},
+		"cohort added with a parent after its cluster queue has workloads": {
+			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "c")},
+			workloads: admittedWorkloads("cq1", 3),
+			change: func(t *testing.T, _ logr.Logger, cache *Cache) {
+				if err := cache.AddOrUpdateCohort(cohort("c", "p")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want: map[kueue.CohortReference]int{"c": 3, "p": 3},
+		},
+		"cluster queue moved into a cycle that is then resolved": {
+			cohorts:   []*kueue.Cohort{cohort("a", ""), cohort("x", "y"), cohort("y", "x")},
+			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "a")},
+			workloads: admittedWorkloads("cq1", 3),
+			change: func(t *testing.T, log logr.Logger, cache *Cache) {
+				if err := cache.UpdateClusterQueue(log, clusterQueue("cq1", "x")); err != nil {
+					t.Fatal(err)
+				}
+				if err := cache.AddOrUpdateCohort(cohort("y", "")); err != nil {
+					t.Fatal(err)
+				}
+			},
+			want:        map[kueue.CohortReference]int{"a": 0, "x": 3, "y": 3},
+			wantNoGauge: []kueue.CohortReference{"a"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			kueuemetrics.CohortSubtreeAdmittedActiveWorkloads.Reset()
+			t.Cleanup(kueuemetrics.CohortSubtreeAdmittedActiveWorkloads.Reset)
+			fixture := newCohortMetricsFixture(t)
+			ctx, log, cache := fixture.ctx, fixture.log, fixture.cache
+
+			for _, ch := range tc.cohorts {
+				addCohortMayCycle(t, cache, ch)
+			}
+			for _, cq := range tc.cqs {
+				if err := cache.AddClusterQueue(ctx, cq); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, wl := range tc.workloads {
+				if !cache.AddOrUpdateWorkload(ctx, log, wl) {
+					t.Fatalf("workload %s not added", wl.Name)
+				}
+			}
+
+			tc.change(t, log, cache)
+
+			for name, want := range tc.want {
+				got := 0
+				if ch := cache.hm.Cohort(name); ch != nil {
+					got = ch.admittedWorkloadsCount
+				}
+				if got != want {
+					t.Errorf("cohort %s admittedWorkloadsCount = %d, want %d", name, got, want)
+				}
+				if !slices.Contains(tc.wantNoGauge, name) {
+					expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, gaugeLabels(name), float64(want))
+				}
+			}
+			for _, name := range tc.wantNoGauge {
+				expectGaugeCount(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, 0, gaugeLabels(name))
+			}
+		})
+	}
+}
+
+func TestCohortAdmittedWorkloadsDropsSeriesOfMovedClusterQueueCustomLabels(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	defer kueuemetrics.InitMetricVectors(nil)
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+
+	customLabels := kueuemetrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
+	cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels))
+
+	for _, name := range []kueue.CohortReference{"a", "b"} {
+		if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort(name).Obj()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	clusterQueue := func(name string, cohort kueue.CohortReference, team string) *kueue.ClusterQueue {
+		return utiltestingapi.MakeClusterQueue(name).
+			Cohort(cohort).
+			Label("team", team).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
+			Obj()
+	}
+	now := time.Now()
+	for _, cq := range []*kueue.ClusterQueue{clusterQueue("cq1", "a", "alpha"), clusterQueue("cq2", "a", "beta")} {
+		customLabels.CQStore(kueue.ClusterQueueReference(cq.Name), cq.Labels, cq.Annotations)
+		if err := cache.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatal(err)
+		}
+		wl := utiltestingapi.MakeWorkload(cq.Name+"-wl", "ns").
+			Request(corev1.ResourceCPU, "1").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "1").
+					Obj()).
+				Obj(), now).
+			AdmittedAt(true, now).
+			Obj()
+		if !cache.AddOrUpdateWorkload(ctx, log, wl) {
+			t.Fatalf("workload %s not added", wl.Name)
+		}
+	}
+
+	if err := cache.UpdateClusterQueue(log, clusterQueue("cq1", "b", "alpha")); err != nil {
+		t.Fatal(err)
+	}
+
+	gaugeLabels := func(cohort kueue.CohortReference, team string) map[string]string {
+		return map[string]string{"cohort": string(cohort), "custom_team": team}
+	}
+	expectGaugeCount(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, 0, gaugeLabels("a", "alpha"))
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, gaugeLabels("a", "beta"), 1)
+	expectGaugeValue(t, kueuemetrics.CohortSubtreeAdmittedActiveWorkloads, gaugeLabels("b", "alpha"), 1)
 }

@@ -38,11 +38,9 @@ type JobWrapper struct{ batchv1.Job }
 // MakeJob creates a wrapper for a suspended job with a single container and parallelism=1.
 func MakeJob(name, ns string) *JobWrapper {
 	return &JobWrapper{batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: batchv1.JobSpec{
 			Parallelism: new(int32(1)),
 			Suspend:     new(true),
@@ -262,6 +260,12 @@ func (j *JobWrapper) RequestAndLimit(r corev1.ResourceName, v string) *JobWrappe
 // SuccessPolicy sets the successPolicy
 func (j *JobWrapper) SuccessPolicy(policy *batchv1.SuccessPolicy) *JobWrapper {
 	j.Spec.SuccessPolicy = policy
+	return j
+}
+
+// Scheduling sets the workload-aware scheduling configuration
+func (j *JobWrapper) Scheduling(scheduling *batchv1.JobSchedulingConfiguration) *JobWrapper {
+	j.Spec.Scheduling = scheduling
 	return j
 }
 

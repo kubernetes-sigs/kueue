@@ -205,7 +205,13 @@ rules:
   - kubeflow.org
   resources:
   - jaxjobs
+  - mpijobs
+  - paddlejobs
+  - pytorchjobs
+  - tfjobs
+  - xgboostjobs
   verbs:
+  - delete
   - get
   - list
   - patch
@@ -236,21 +242,6 @@ rules:
   - get
   - patch
   - update
-- apiGroups:
-  - kubeflow.org
-  resources:
-  - mpijobs
-  - paddlejobs
-  - pytorchjobs
-  - tfjobs
-  - xgboostjobs
-  verbs:
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
 - apiGroups:
   - kueue.x-k8s.io
   resources:
@@ -296,6 +287,7 @@ rules:
   - localqueues
   - multikueueclusters
   - multikueueconfigs
+  - preemptionconfigs
   - provisioningrequestconfigs
   - workloadpriorityclasses
   verbs:
@@ -374,6 +366,7 @@ rules:
   - resource.k8s.io
   resources:
   - deviceclasses
+  - devicetaintrules
   - resourceclaims
   - resourceclaimtemplates
   - resourceslices
@@ -414,6 +407,7 @@ rules:
   resources:
   - trainjobs
   verbs:
+  - delete
   - get
   - list
   - patch

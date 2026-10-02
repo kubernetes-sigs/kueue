@@ -70,39 +70,9 @@ var (
 	stsGVK = appsv1.SchemeGroupVersion.WithKind("StatefulSet")
 )
 
-func TestEnqueue(t *testing.T) {
-	queued := []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: testNS, Name: testLWS}}}
-	cases := map[string]struct {
-		current string
-		update  string
-		want    []reconcile.Request
-	}{
-		"a rollout in progress is queued":     {current: "rev1", update: "rev2", want: queued},
-		"a settled revision is left alone":    {current: "rev1", update: "rev1"},
-		"and so is an unset update revision":  {current: "rev1", update: ""},
-		"and so is an unset current revision": {current: "", update: "rev1"},
-		"and so are two unset revisions":      {current: "", update: ""},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			sts := statefulset.MakeStatefulSet(testSTS, testNS).
-				Label(leaderworkersetv1.SetNameLabelKey, testLWS).
-				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
-				CurrentRevision(tc.current).
-				UpdateRevision(tc.update).
-				Obj()
-			q := &utiltesting.MockTypedRateLimitingInterface{}
-			(&lwsStsHandler{}).enqueue(t.Context(), sts, q)
-			if diff := cmp.Diff(tc.want, q.Items); diff != "" {
-				t.Errorf("enqueue() queued (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
-
 func TestReconciler(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
-	request := reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}}
+	request := reconcile.Request{Name: testLWS, Namespace: testNS}
 	workloadUpdateErr := errors.New("workload update failed")
 
 	cases := map[string]struct {
@@ -324,15 +294,13 @@ func TestReconciler(t *testing.T) {
 				Replicas(1).
 				Size(3).
 				LeaderTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							"custom-leader-annotation":                  "leader-value",
-							"leaderworkerset.sigs.k8s.io/template-hash": "12345",
-						},
-						Labels: map[string]string{
-							"leaderworkerset.sigs.k8s.io/name":        testLWS,
-							"leaderworkerset.sigs.k8s.io/group-index": "1",
-						},
+					Annotations: map[string]string{
+						"custom-leader-annotation":                  "leader-value",
+						"leaderworkerset.sigs.k8s.io/template-hash": "12345",
+					},
+					Labels: map[string]string{
+						"leaderworkerset.sigs.k8s.io/name":        testLWS,
+						"leaderworkerset.sigs.k8s.io/group-index": "1",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -341,15 +309,13 @@ func TestReconciler(t *testing.T) {
 					},
 				}).
 				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							"custom-worker-annotation":                  "worker-value",
-							"leaderworkerset.sigs.k8s.io/template-hash": "12345",
-						},
-						Labels: map[string]string{
-							"leaderworkerset.sigs.k8s.io/name":        testLWS,
-							"leaderworkerset.sigs.k8s.io/group-index": "1",
-						},
+					Annotations: map[string]string{
+						"custom-worker-annotation":                  "worker-value",
+						"leaderworkerset.sigs.k8s.io/template-hash": "12345",
+					},
+					Labels: map[string]string{
+						"leaderworkerset.sigs.k8s.io/name":        testLWS,
+						"leaderworkerset.sigs.k8s.io/group-index": "1",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -364,15 +330,13 @@ func TestReconciler(t *testing.T) {
 					Replicas(1).
 					Size(3).
 					LeaderTemplate(corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{
-								"custom-leader-annotation":                  "leader-value",
-								"leaderworkerset.sigs.k8s.io/template-hash": "12345",
-							},
-							Labels: map[string]string{
-								"leaderworkerset.sigs.k8s.io/name":        testLWS,
-								"leaderworkerset.sigs.k8s.io/group-index": "1",
-							},
+						Annotations: map[string]string{
+							"custom-leader-annotation":                  "leader-value",
+							"leaderworkerset.sigs.k8s.io/template-hash": "12345",
+						},
+						Labels: map[string]string{
+							"leaderworkerset.sigs.k8s.io/name":        testLWS,
+							"leaderworkerset.sigs.k8s.io/group-index": "1",
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
@@ -381,15 +345,13 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					WorkerTemplate(corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{
-								"custom-worker-annotation":                  "worker-value",
-								"leaderworkerset.sigs.k8s.io/template-hash": "12345",
-							},
-							Labels: map[string]string{
-								"leaderworkerset.sigs.k8s.io/name":        testLWS,
-								"leaderworkerset.sigs.k8s.io/group-index": "1",
-							},
+						Annotations: map[string]string{
+							"custom-worker-annotation":                  "worker-value",
+							"leaderworkerset.sigs.k8s.io/template-hash": "12345",
+						},
+						Labels: map[string]string{
+							"leaderworkerset.sigs.k8s.io/name":        testLWS,
+							"leaderworkerset.sigs.k8s.io/group-index": "1",
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
@@ -444,10 +406,8 @@ func TestReconciler(t *testing.T) {
 				UID(testLWS).
 				Size(3).
 				LeaderTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -456,10 +416,8 @@ func TestReconciler(t *testing.T) {
 					},
 				}).
 				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -473,10 +431,8 @@ func TestReconciler(t *testing.T) {
 					UID(testLWS).
 					Size(3).
 					LeaderTemplate(corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{
-								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-							},
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
@@ -485,10 +441,8 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					WorkerTemplate(corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{
-								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-							},
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
@@ -546,10 +500,8 @@ func TestReconciler(t *testing.T) {
 				UID(testLWS).
 				Size(3).
 				LeaderTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -558,10 +510,8 @@ func TestReconciler(t *testing.T) {
 					},
 				}).
 				WorkerTemplate(corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 					},
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{
@@ -575,10 +525,8 @@ func TestReconciler(t *testing.T) {
 					UID(testLWS).
 					Size(3).
 					LeaderTemplate(corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{
-								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-							},
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
@@ -587,10 +535,8 @@ func TestReconciler(t *testing.T) {
 						},
 					}).
 					WorkerTemplate(corev1.PodTemplateSpec{
-						ObjectMeta: metav1.ObjectMeta{
-							Annotations: map[string]string{
-								kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-							},
+						Annotations: map[string]string{
+							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 						},
 						Spec: corev1.PodSpec{
 							Containers: []corev1.Container{
@@ -1248,6 +1194,101 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		// LeaderWorkerSet documents maxSurge as an absolute number or a percentage of the
+		// replicas at the start of the update, so the case above has to hold in both forms.
+		"should keep surge workloads during active rolling update with a percentage maxSurge": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+			},
+			leaderWorkerSet: func() *leaderworkersetv1.LeaderWorkerSet {
+				lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Replicas(2).Obj()
+				lws.Status.Replicas = 3
+				lws.Status.UpdatedReplicas = 1
+				lws.Spec.RolloutStrategy.RollingUpdateConfiguration = &leaderworkersetv1.RollingUpdateConfiguration{
+					MaxSurge: intstr.FromString("50%"),
+				}
+				return lws
+			}(),
+			wantLeaderWorkerSets: func() []leaderworkersetv1.LeaderWorkerSet {
+				lws := leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Replicas(2).Obj()
+				lws.Status.Replicas = 3
+				lws.Status.UpdatedReplicas = 1
+				lws.Spec.RolloutStrategy.RollingUpdateConfiguration = &leaderworkersetv1.RollingUpdateConfiguration{
+					MaxSurge: intstr.FromString("50%"),
+				}
+				return []leaderworkersetv1.LeaderWorkerSet{*lws}
+			}(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					Priority(0).
+					Obj(),
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "1"), testNS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					Priority(0).
+					Obj(),
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "2"), testNS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					Priority(0).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "0"), testNS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					Priority(0).
+					Obj(),
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "1"), testNS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					Priority(0).
+					Obj(),
+				*utiltestingapi.MakeWorkload(GetWorkloadName(testLWS, testLWS, "2"), testNS).
+					OwnerReference(gvk, testLWS, testLWS).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							RestartPolicy("").
+							Image(utiltestingjobs.TestDefaultContainerImage).
+							Obj()).
+					Priority(0).
+					Obj(),
+			},
+		},
 		"should delete LeaderWorkerSet ownerReference from the redundant prebuilt workload": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
@@ -1762,7 +1803,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"should ungate current revision pods during a statefulSet rollout without removing finalizers": {
+		"should keep gates on current revision pods during a statefulSet rollout": {
 			featureGates:    map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			leaderWorkerSet: leaderworkerset.MakeLeaderWorkerSet(testLWS, testNS).UID(testLWS).Obj(),
 			statefulSets: []appsv1.StatefulSet{
@@ -1826,7 +1867,13 @@ func TestReconciler(t *testing.T) {
 					Label(leaderworkersetv1.SetNameLabelKey, testLWS).
 					Label(leaderworkersetv1.GroupIndexLabelKey, "0").
 					Label(appsv1.ControllerRevisionHashLabelKey, "revision-1").
+					ManagedByKueueLabel().
+					GroupNameLabel(GetWorkloadName(testLWS, testLWS, "0")).
+					GroupTotalCount("1").
+					PrebuiltWorkloadLabel(GetWorkloadName(testLWS, testLWS, "0")).
 					Annotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+					Annotation(podconstants.RoleHashAnnotation, string(kueue.DefaultPodSetName)).
+					Gate(podconstants.SchedulingGateName).
 					KueueFinalizer().
 					Obj(),
 			},
@@ -2846,7 +2893,7 @@ func TestReconcileWorkloadsDoesNotCancelTheOtherBranches(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Creating the reconciler: %v", err)
 	}
-	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: testLWS, Namespace: testNS}})
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{Name: testLWS, Namespace: testNS})
 	if errors.Is(err, errNotOrdered) {
 		t.Fatalf("Reconcile() error = %v, so the branches never interleaved and the ordering below was not exercised", err)
 	}
@@ -2863,5 +2910,36 @@ func TestReconcileWorkloadsDoesNotCancelTheOtherBranches(t *testing.T) {
 	}
 	if created.Spec.Priority == nil || *created.Spec.Priority != 100 {
 		t.Errorf("created Workload priority = %v, want the class value 100", created.Spec.Priority)
+	}
+}
+
+func TestIsRollingUpdateWithSurge(t *testing.T) {
+	cases := map[string]struct {
+		maxSurge intstr.IntOrString
+		want     bool
+		wantErr  error
+	}{
+		"absolute":        {maxSurge: intstr.FromInt32(1), want: true},
+		"absolute zero":   {maxSurge: intstr.FromInt32(0)},
+		"percentage":      {maxSurge: intstr.FromString("30%"), want: true},
+		"percentage all":  {maxSurge: intstr.FromString("100%"), want: true},
+		"percentage zero": {maxSurge: intstr.FromString("0%")},
+		"quoted number":   {maxSurge: intstr.FromString("2"), wantErr: errInvalidMaxSurge},
+		"neither":         {maxSurge: intstr.FromString("some"), wantErr: errInvalidMaxSurge},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			lws := &leaderworkersetv1.LeaderWorkerSet{}
+			lws.Spec.Replicas = new(int32(4))
+			lws.Status.UpdatedReplicas = 1
+			lws.Spec.RolloutStrategy.RollingUpdateConfiguration = &leaderworkersetv1.RollingUpdateConfiguration{MaxSurge: tc.maxSurge}
+			got, err := isRollingUpdateWithSurge(lws)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("isRollingUpdateWithSurge() error (-want,+got):\n%s", diff)
+			}
+			if got != tc.want {
+				t.Errorf("isRollingUpdateWithSurge() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

@@ -63,6 +63,10 @@ func (s *TASFlavorSnapshot) handleElasticWorkload(
 	}
 
 	previousCount := utiltas.CountPodsInAssignment(prevAssignment)
+	sliceSize, _ := getSliceSizeWithSinglePodAsDefault(workers.PodSet.TopologyRequest)
+	if sliceSize > 1 && (previousCount%sliceSize != 0 || workers.Count%sliceSize != 0) {
+		return elasticPlacementResult{applied: false}
+	}
 
 	switch {
 	case workers.Count > previousCount:
@@ -106,7 +110,10 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 		placementLeader = nil
 	}
 
-	deltaAssignments, deltaLeafAssignments, reason := s.findTopologyAssignment(ctx, deltaRequest, placementLeader, assumedUsage, opts.simulateEmpty, "", opts.workload)
+	// Scaling up places new pods, so the group's spreading counts apply, exactly
+	// as they do on the fresh-placement path.
+	podSetGroupCountByDomain := opts.topologySpreadCounts[utiltas.GroupKeyForPodSet(workers.PodSet)]
+	deltaAssignments, deltaLeafAssignments, reason := s.findTopologyAssignment(ctx, deltaRequest, placementLeader, assumedUsage, opts.simulateEmpty, "", opts.workload, podSetGroupCountByDomain)
 	if reason != "" {
 		result[workers.PodSet.Name] = tasPodSetAssignmentResult{FailureReason: reason}
 		return elasticPlacementResult{applied: true, assignments: result}

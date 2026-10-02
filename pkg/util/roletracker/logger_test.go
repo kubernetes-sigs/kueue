@@ -23,7 +23,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/go-logr/logr/funcr"
 	"github.com/google/go-cmp/cmp"
-	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
@@ -121,7 +120,7 @@ func TestNewLogConstructor(t *testing.T) {
 			calls: []logCall{
 				{
 					request: &reconcile.Request{
-						NamespacedName: types.NamespacedName{Namespace: "test-ns", Name: "test-name"},
+						Namespace: "test-ns", Name: "test-name",
 					},
 				},
 			},
@@ -135,7 +134,7 @@ func TestNewLogConstructor(t *testing.T) {
 			calls: []logCall{
 				{
 					request: &reconcile.Request{
-						NamespacedName: types.NamespacedName{Name: "cluster-name"},
+						Name: "cluster-name",
 					},
 				},
 			},

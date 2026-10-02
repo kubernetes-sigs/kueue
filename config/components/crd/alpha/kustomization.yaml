@@ -4,3 +4,4 @@
 resources:
 - bases/kueue.x-k8s.io_dynamicquotaorchestrators.yaml
 - bases/kueue.x-k8s.io_capacityproviders.yaml
+- bases/kueue.x-k8s.io_preemptionconfigs.yaml

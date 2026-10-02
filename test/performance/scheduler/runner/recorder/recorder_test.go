@@ -148,12 +148,10 @@ func TestRecordWorkloadStateCarriesObjectTimestamps(t *testing.T) {
 	admissionTime := creationTime.Add(20 * time.Second)
 	uid := types.UID("test-workload")
 	wl := &kueue.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:              "test-workload",
-			Namespace:         "default",
-			UID:               uid,
-			CreationTimestamp: metav1.NewTime(creationTime),
-		},
+		Name:              "test-workload",
+		Namespace:         "default",
+		UID:               uid,
+		CreationTimestamp: metav1.NewTime(creationTime),
 		Status: kueue.WorkloadStatus{
 			Conditions: []metav1.Condition{{
 				Type:               kueue.WorkloadAdmitted,

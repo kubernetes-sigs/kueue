@@ -19,6 +19,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Generate SBOM
-        uses: ./.github/actions/generate-sbom
+        uses: $/.github/actions/generate-sbom
         with:
           tag: ${{ inputs.tag }}

@@ -97,7 +97,10 @@ func TestPodSets(t *testing.T) {
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("100m"),
-									corev1.ResourceMemory: resource.MustParse("512Mi"),
+									corev1.ResourceMemory: resource.MustParse("896Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceMemory: resource.MustParse("896Mi"),
 								},
 							},
 						},
@@ -113,7 +116,55 @@ func TestPodSets(t *testing.T) {
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
 									corev1.ResourceCPU:    resource.MustParse("100m"),
-									corev1.ResourceMemory: resource.MustParse("512Mi"),
+									corev1.ResourceMemory: resource.MustParse("896Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceMemory: resource.MustParse("896Mi"),
+								},
+							},
+						},
+					},
+				}).Obj(),
+			},
+		},
+		"with SparkApplication-level node selector": {
+			sparkApp: testSparkApp.Clone().
+				NodeSelector(maps.Clone(nodeSelector)).
+				ExecutorInstances(3).Obj(),
+			want: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("driver", 1).PodSpec(corev1.PodSpec{
+					NodeSelector:   maps.Clone(nodeSelector),
+					Tolerations:    []corev1.Toleration{},
+					InitContainers: []corev1.Container{},
+					Containers: []corev1.Container{
+						{
+							Name: sparkcommon.SparkDriverContainerName,
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("896Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceMemory: resource.MustParse("896Mi"),
+								},
+							},
+						},
+					},
+				}).Obj(),
+				*utiltestingapi.MakePodSet("executor", 3).PodSpec(corev1.PodSpec{
+					NodeSelector:   maps.Clone(nodeSelector),
+					Tolerations:    []corev1.Toleration{},
+					InitContainers: []corev1.Container{},
+					Containers: []corev1.Container{
+						{
+							Name: sparkcommon.Spark3DefaultExecutorContainerName,
+							Resources: corev1.ResourceRequirements{
+								Requests: corev1.ResourceList{
+									corev1.ResourceCPU:    resource.MustParse("100m"),
+									corev1.ResourceMemory: resource.MustParse("896Mi"),
+								},
+								Limits: corev1.ResourceList{
+									corev1.ResourceMemory: resource.MustParse("896Mi"),
 								},
 							},
 						},
@@ -146,7 +197,10 @@ func TestPodSets(t *testing.T) {
 								Resources: corev1.ResourceRequirements{
 									Requests: corev1.ResourceList{
 										corev1.ResourceCPU:    resource.MustParse("100m"),
-										corev1.ResourceMemory: resource.MustParse("512Mi"),
+										corev1.ResourceMemory: resource.MustParse("896Mi"),
+									},
+									Limits: corev1.ResourceList{
+										corev1.ResourceMemory: resource.MustParse("896Mi"),
 									},
 								},
 							},
@@ -168,7 +222,10 @@ func TestPodSets(t *testing.T) {
 								Resources: corev1.ResourceRequirements{
 									Requests: corev1.ResourceList{
 										corev1.ResourceCPU:    resource.MustParse("100m"),
-										corev1.ResourceMemory: resource.MustParse("512Mi"),
+										corev1.ResourceMemory: resource.MustParse("896Mi"),
+									},
+									Limits: corev1.ResourceList{
+										corev1.ResourceMemory: resource.MustParse("896Mi"),
 									},
 								},
 							},
@@ -200,7 +257,10 @@ func TestPodSets(t *testing.T) {
 								Resources: corev1.ResourceRequirements{
 									Requests: corev1.ResourceList{
 										corev1.ResourceCPU:    resource.MustParse("100m"),
-										corev1.ResourceMemory: resource.MustParse("512Mi"),
+										corev1.ResourceMemory: resource.MustParse("896Mi"),
+									},
+									Limits: corev1.ResourceList{
+										corev1.ResourceMemory: resource.MustParse("896Mi"),
 									},
 								},
 							},
@@ -221,7 +281,10 @@ func TestPodSets(t *testing.T) {
 								Resources: corev1.ResourceRequirements{
 									Requests: corev1.ResourceList{
 										corev1.ResourceCPU:    resource.MustParse("100m"),
-										corev1.ResourceMemory: resource.MustParse("512Mi"),
+										corev1.ResourceMemory: resource.MustParse("896Mi"),
+									},
+									Limits: corev1.ResourceList{
+										corev1.ResourceMemory: resource.MustParse("896Mi"),
 									},
 								},
 							},
@@ -441,6 +504,11 @@ func TestRestorePodSetsInfo(t *testing.T) {
 	nodeSelector := map[string]string{"disktype": "ssd"}
 	schedulingGate := corev1.PodSchedulingGate{Name: "test-scheduling-gate-1"}
 	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "ns")
+	sparkAppWithoutExecutorInstances := testSparkApp.Clone().
+		DriverTemplate(emptyDriverPodTemplateSpec.DeepCopy()).
+		ExecutorTemplate(emptyExecutorPodTemplateSpec.DeepCopy()).
+		Obj()
+	sparkAppWithoutExecutorInstances.Spec.Executor.Instances = nil
 
 	cases := map[string]struct {
 		sparkApp     *sparkappv1beta2.SparkApplication
@@ -590,6 +658,15 @@ func TestRestorePodSetsInfo(t *testing.T) {
 				Obj(),
 			wantChanged: true,
 		},
+		"should keep executor instances unset when the executor PodSet count is 0": {
+			sparkApp: sparkAppWithoutExecutorInstances.DeepCopy(),
+			podsetsInfo: []podset.PodSetInfo{
+				{Name: "driver"},
+				{Name: "executor", Count: 0},
+			},
+			wantSparkApp: sparkAppWithoutExecutorInstances.DeepCopy(),
+			wantChanged:  false,
+		},
 		"should not modify the SparkApplication  if the wrong number of PodSet infos is provided": {
 			sparkApp: testSparkApp.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
@@ -616,6 +693,45 @@ func TestRestorePodSetsInfo(t *testing.T) {
 			if diff := cmp.Diff(tc.wantSparkApp, tc.sparkApp, sparkAppCmpOpts); diff != "" {
 				t.Errorf("RunWithPodSetsInfo() mismatch (-want,+got):\n%s", diff)
 				return
+			}
+		})
+	}
+}
+
+func TestFinished(t *testing.T) {
+	cases := map[string]struct {
+		state        sparkappv1beta2.ApplicationStateType
+		wantSuccess  bool
+		wantFinished bool
+	}{
+		"running": {
+			state: sparkappv1beta2.ApplicationStateRunning,
+		},
+		"submission failed, the operator may still resubmit": {
+			state: sparkappv1beta2.ApplicationStateFailedSubmission,
+		},
+		"completed": {
+			state:        sparkappv1beta2.ApplicationStateCompleted,
+			wantSuccess:  true,
+			wantFinished: true,
+		},
+		"failed": {
+			state:        sparkappv1beta2.ApplicationStateFailed,
+			wantFinished: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			sparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "ns").Obj()
+			sparkApp.Status.AppState.State = tc.state
+
+			_, gotSuccess, gotFinished := (*SparkApplication)(sparkApp).Finished(t.Context())
+			if gotSuccess != tc.wantSuccess {
+				t.Errorf("unexpected success: want %v, got %v", tc.wantSuccess, gotSuccess)
+			}
+			if gotFinished != tc.wantFinished {
+				t.Errorf("unexpected finished: want %v, got %v", tc.wantFinished, gotFinished)
 			}
 		})
 	}
@@ -784,7 +900,9 @@ func TestReconciler(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			clientBuilder := utiltesting.NewClientBuilder(sparkappv1beta2.AddToScheme).
-				WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				})
 			kClient := clientBuilder.
 				WithObjects(tc.sparkApp, testNamespace).
 				WithStatusSubresource(&kueue.Workload{}).
@@ -826,5 +944,44 @@ func TestReconciler(t *testing.T) {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// TestGlobalNodeSelectorSurvivesRunRestoreRoundTrip guards the full admit/evict cycle:
+// RunWithPodSetsInfo flattens spec.nodeSelector into the per-role selectors and clears
+// it, so the PodSet templates recorded in the Workload are the only place
+// RestorePodSetsInfo can read the original selector back from.
+func TestGlobalNodeSelectorSurvivesRunRestoreRoundTrip(t *testing.T) {
+	globalNodeSelector := map[string]string{"zone": "us-east"}
+	sparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "ns").
+		NodeSelector(maps.Clone(globalNodeSelector)).
+		ExecutorInstances(3).
+		Obj()
+	kSparkApp := (*SparkApplication)(sparkApp)
+
+	podSets, err := kSparkApp.PodSets(t.Context(), nil)
+	if err != nil {
+		t.Fatalf("PodSets() returned error: %v", err)
+	}
+
+	// Mirrors how the reconciler derives the PodSetInfos it feeds back on eviction.
+	podSetsInfo := make([]podset.PodSetInfo, 0, len(podSets))
+	for i := range podSets {
+		podSetsInfo = append(podSetsInfo, podset.FromPodSet(&podSets[i]))
+	}
+
+	if err := kSparkApp.RunWithPodSetsInfo(t.Context(), nil, podSetsInfo); err != nil {
+		t.Fatalf("RunWithPodSetsInfo() returned error: %v", err)
+	}
+	kSparkApp.RestorePodSetsInfo(t.Context(), podSetsInfo)
+
+	if diff := cmp.Diff(globalNodeSelector, sparkApp.Spec.Driver.NodeSelector); diff != "" {
+		t.Errorf("driver node selector mismatch (-want,+got):\n%s", diff)
+	}
+	if diff := cmp.Diff(globalNodeSelector, sparkApp.Spec.Executor.NodeSelector); diff != "" {
+		t.Errorf("executor node selector mismatch (-want,+got):\n%s", diff)
+	}
+	if sparkApp.Spec.NodeSelector != nil {
+		t.Errorf("spec.nodeSelector should stay cleared, got %v", sparkApp.Spec.NodeSelector)
 	}
 }

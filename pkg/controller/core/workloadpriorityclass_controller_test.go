@@ -332,9 +332,7 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 
 			reconciler := NewWorkloadPriorityClassReconciler(k8sClient, nil)
 			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name: tc.wpc.Name,
-				},
+				Name: tc.wpc.Name,
 			}
 
 			_, gotErr := reconciler.Reconcile(ctx, req)

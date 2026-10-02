@@ -17,13 +17,17 @@ limitations under the License.
 package pod
 
 import (
+	"context"
+	"errors"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/importer/cache"
@@ -37,13 +41,34 @@ import (
 )
 
 const (
-	testingNamespace  = "ns"
-	testingQueueLabel = "testing.lbl"
+	testingNamespace   = "ns"
+	testingQueueLabel  = "testing.lbl"
+	testingGPUResource = corev1.ResourceName("nvidia.com/gpu")
 )
+
+var errPodList = errors.New("pod list failed")
+
+// failPagedPodList makes only the paged Pod listing done by ListPods fail, so
+// that cache loading and the tests' own verification lists keep working.
+func failPagedPodList(err error) interceptor.Funcs {
+	return interceptor.Funcs{
+		List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+			listOpts := &client.ListOptions{}
+			listOpts.ApplyOptions(opts)
+			if _, isPodList := list.(*corev1.PodList); isPodList && listOpts.Limit > 0 {
+				return err
+			}
+			return c.List(ctx, list, opts...)
+		},
+	}
+}
 
 func TestCheckNamespace(t *testing.T) {
 	basePodWrapper := testingpod.MakePod("pod", testingNamespace).
 		Label(testingQueueLabel, "q1")
+	gpuPodWrapper := testingpod.MakePod("pod-gpu", testingNamespace).
+		Label(testingQueueLabel, "q1").
+		Request(testingGPUResource, "1")
 
 	baseLocalQueue := utiltestingapi.MakeLocalQueue("lq1", testingNamespace).ClusterQueue("cq1")
 	baseClusterQueue := utiltestingapi.MakeClusterQueue("cq1")
@@ -60,6 +85,20 @@ func TestCheckNamespace(t *testing.T) {
 		},
 	}
 
+	gpuMapping := mapping.Rules{
+		mapping.Rule{
+			Match: mapping.Match{
+				Labels: map[string]string{
+					testingQueueLabel: "q1",
+				},
+				Resources: []corev1.ResourceName{testingGPUResource},
+			},
+			ToLocalQueue: "lq1",
+		},
+	}
+	gpuClusterQueue := utiltestingapi.MakeClusterQueue("cq1").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf1").Resource(testingGPUResource, "1").Obj())
+
 	cases := map[string]struct {
 		pods                     []corev1.Pod
 		clusterQueues            []kueue.ClusterQueue
@@ -68,10 +107,15 @@ func TestCheckNamespace(t *testing.T) {
 		flavors                  []kueue.ResourceFlavor
 		priorityClasses          []schedulingv1.PriorityClass
 		excludedResourcePrefixes []string
+		podListErr               error
 
 		wantError error
 	}{
 		"empty cluster": {},
+		"pod list error is reported": {
+			podListErr: errPodList,
+			wantError:  errPodList,
+		},
 		"no mapping": {
 			pods: []corev1.Pod{
 				*basePodWrapper.DeepCopy(),
@@ -220,7 +264,7 @@ func TestCheckNamespace(t *testing.T) {
 				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
 			},
 			priorityClasses: []schedulingv1.PriorityClass{
-				{ObjectMeta: metav1.ObjectMeta{Name: "p-class"}, Value: 100},
+				{Name: "p-class", Value: 100},
 			},
 		},
 		"pod references an unknown priority class": {
@@ -239,6 +283,39 @@ func TestCheckNamespace(t *testing.T) {
 			},
 			wantError: cache.ErrPCNotFound,
 		},
+		"pods not requesting the resource are skipped": {
+			pods: []corev1.Pod{
+				*gpuPodWrapper.DeepCopy(),
+				*basePodWrapper.DeepCopy(),
+			},
+			mapping: append(slices.Clone(gpuMapping), mapping.Rule{Skip: true}),
+			localQueues: []kueue.LocalQueue{
+				*baseLocalQueue.Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*gpuClusterQueue.Obj(),
+			},
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
+			},
+		},
+		"pods not requesting the resource have no mapping without a catch-all rule": {
+			pods: []corev1.Pod{
+				*gpuPodWrapper.DeepCopy(),
+				*basePodWrapper.DeepCopy(),
+			},
+			mapping: gpuMapping,
+			localQueues: []kueue.LocalQueue{
+				*baseLocalQueue.Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*gpuClusterQueue.Obj(),
+			},
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
+			},
+			wantError: mapping.ErrNoMapping,
+		},
 	}
 
 	for name, tc := range cases {
@@ -251,6 +328,9 @@ func TestCheckNamespace(t *testing.T) {
 
 			builder := utiltesting.NewClientBuilder()
 			builder = builder.WithLists(&podsList, &cqList, &lqList, &rfList, &pcList)
+			if tc.podListErr != nil {
+				builder = builder.WithInterceptorFuncs(failPagedPodList(tc.podListErr))
+			}
 
 			client := builder.Build()
 			ctx, _ := utiltesting.ContextWithLog(t)

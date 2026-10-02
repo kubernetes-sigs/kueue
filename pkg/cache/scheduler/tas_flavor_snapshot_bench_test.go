@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -113,7 +114,7 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 		nodes := buildBenchNodes(topo)
 		levels := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
 
-		tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+		tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 		for i := range nodes {
 			tasCache.SyncNode(&nodes[i])
 		}
@@ -142,7 +143,7 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 		// cache-hit-only benchmark and gives the update modes a tree to
 		// invalidate.
 		for _, flavorCache := range flavorCaches {
-			if _, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+			if _, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulator(), nil); err != nil {
 				b.Fatalf("initial TASFlavorSnapshot creation failed: %v", err)
 			}
 		}
@@ -170,7 +171,7 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 				tasCache.SyncNode(invalidatingNodes[update%len(invalidatingNodes)])
 			}
 			for _, flavorCache := range flavorCaches {
-				if _, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+				if _, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulator(), nil); err != nil {
 					b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 				}
 			}
@@ -217,7 +218,7 @@ func runBenchmarkTASFlavorAssignment(b *testing.B, tc assignmentBenchCase) {
 		nodes := buildBenchNodes(topo)
 		levels := tc.levels
 
-		tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+		tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 		for i := range nodes {
 			tasCache.SyncNode(&nodes[i])
 		}
@@ -225,7 +226,7 @@ func runBenchmarkTASFlavorAssignment(b *testing.B, tc assignmentBenchCase) {
 			topologyInformation{Levels: levels},
 			flavorInformation{TopologyName: "default"},
 		)
-		snapshot, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil)
+		snapshot, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulator(), nil)
 		if err != nil {
 			b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 		}
@@ -256,7 +257,8 @@ func balancedPlacementBenchRequests(topo benchTopology, withLeader bool) FlavorT
 		PodSet: &kueue.PodSet{
 			Name: "workers",
 			TopologyRequest: &kueue.PodSetTopologyRequest{
-				Preferred: &preferredLevel,
+				Preferred:       &preferredLevel,
+				PodSetGroupName: &groupName,
 			},
 		},
 		SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
@@ -267,7 +269,10 @@ func balancedPlacementBenchRequests(topo benchTopology, withLeader bool) FlavorT
 	}}
 	if withLeader {
 		requests = append(requests, TASPodSetRequests{
-			PodSet: &kueue.PodSet{Name: "leader"},
+			PodSet: &kueue.PodSet{
+				Name:            "leader",
+				TopologyRequest: &kueue.PodSetTopologyRequest{PodSetGroupName: &groupName},
+			},
 			SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
 				corev1.ResourceCPU: 72000,
 			}),
@@ -300,7 +305,7 @@ func BenchmarkTASFlavorSnapshotWithWorkloadUsage(b *testing.B) {
 				b.ReportAllocs()
 				_, log := utiltesting.ContextWithLog(b)
 				nodes := buildBenchNodes(topo)
-				tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+				tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 				for i := range nodes {
 					tasCache.SyncNode(&nodes[i])
 				}
@@ -327,15 +332,97 @@ func BenchmarkTASFlavorSnapshotWithWorkloadUsage(b *testing.B) {
 						Count:             1,
 					}})
 				}
-				if _, err := fc.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+				if _, err := fc.snapshot(b.Context(), log, newDefaultSimulator(), nil); err != nil {
 					b.Fatalf("initial TASFlavorSnapshot creation failed: %v", err)
 				}
 				for b.Loop() {
-					if _, err := fc.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+					if _, err := fc.snapshot(b.Context(), log, newDefaultSimulator(), nil); err != nil {
 						b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 					}
 				}
 			})
 		}
+	}
+}
+
+// benchPoolLabel splits the cluster so the workers and the leader want different
+// nodes. Without that split every node is feasible for both and the leader pass
+// costs the same however it is written, which is what the cases above measure.
+const benchPoolLabel = "bench.kueue.x-k8s.io/pool"
+
+// BenchmarkTASLeaderFeasibility measures a PodSet group whose leader only fits on
+// nodes the workers cannot use. The leader pass has to consider every leaf, not just
+// the workers', so this is where the cost of that pass shows up; the workers' pass is
+// served from matchingLeavesCache after the first cycle, so what is left is the
+// leader's.
+func BenchmarkTASLeaderFeasibility(b *testing.B) {
+	features.SetFeatureGateDuringTest(b, features.TASNodeFeasibilityForAllLevels, true)
+	features.SetFeatureGateDuringTest(b, features.TASLeaderPodSetFeasibility, true)
+	features.SetFeatureGateDuringTest(b, features.TASCacheNodeMatchResults, true)
+
+	for _, nodeCount := range []int{500, 2500} {
+		b.Run(fmt.Sprintf("nodes=%d", nodeCount), func(b *testing.B) {
+			b.ReportAllocs()
+			_, log := utiltesting.ContextWithLog(b)
+			topo := benchTopology{nodes: nodeCount, nodesPerRack: 16, racksPerBlock: 16}
+			nodes := buildBenchNodes(topo)
+			for i := range nodes {
+				pool := "workers"
+				if i >= len(nodes)-topo.nodesPerRack {
+					pool = "leader"
+				}
+				nodes[i].Labels[benchPoolLabel] = pool
+			}
+
+			tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
+			for i := range nodes {
+				tasCache.SyncNode(&nodes[i])
+			}
+			flavorCache := tasCache.NewTASFlavorCache(
+				topologyInformation{Levels: []string{benchBlockLabel, benchRackLabel, benchHostLabel}},
+				flavorInformation{TopologyName: "default"},
+			)
+			snapshot, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulator(), nil)
+			if err != nil {
+				b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
+			}
+
+			const groupName = "benchmark-group"
+			requests := FlavorTASRequests{
+				{
+					PodSet: utiltestingapi.MakePodSet("workers", 64).
+						UnconstrainedTopologyRequest().
+						PodSetGroup(groupName).
+						NodeSelector(map[string]string{benchPoolLabel: "workers"}).Obj(),
+					SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+					Count:             64,
+					PodSetGroupName:   new(groupName),
+				},
+				{
+					PodSet: utiltestingapi.MakePodSet("leader", 1).
+						UnconstrainedTopologyRequest().
+						PodSetGroup(groupName).
+						NodeSelector(map[string]string{benchPoolLabel: "leader"}).Obj(),
+					SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+					Count:             1,
+					PodSetGroupName:   new(groupName),
+				},
+			}
+			// Production always passes a Workload, and matchingLeavesCache is keyed by
+			// its UID, so omitting it would measure an uncached cluster.
+			wl := workload.NewInfo(log, &kueue.Workload{
+				Namespace: "default", Name: "bench", UID: "bench-uid"})
+			result := snapshot.FindTopologyAssignmentsForFlavor(b.Context(), requests, WithWorkloadInfo(wl))
+			if failure := result.Failure(); failure != nil {
+				b.Fatalf("leader feasibility preflight failed: %s", failure.Reason)
+			}
+
+			for b.Loop() {
+				result = snapshot.FindTopologyAssignmentsForFlavor(b.Context(), requests, WithWorkloadInfo(wl))
+			}
+			if failure := result.Failure(); failure != nil {
+				b.Fatalf("repeated leader feasibility failed: %s", failure.Reason)
+			}
+		})
 	}
 }

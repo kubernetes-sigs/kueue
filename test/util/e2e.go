@@ -50,6 +50,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -208,6 +209,9 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config, 
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kftraining.AddToScheme(scheme.Scheme)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+
+	err = autoscaling.AddToScheme(scheme.Scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = kfmpi.AddToScheme(scheme.Scheme)
@@ -518,7 +522,7 @@ func waitForKueueControllerReadyWithWebhookEndpoints(ctx context.Context, k8sCli
 	ginkgo.By(fmt.Sprintf("Probing the webhook data path: %q", key))
 	gomega.Eventually(func(g gomega.Gomega) {
 		probeRF := &kueue.ResourceFlavor{
-			ObjectMeta: metav1.ObjectMeta{GenerateName: "webhook-probe-"},
+			GenerateName: "webhook-probe-",
 		}
 		g.Expect(k8sClient.Create(ctx, probeRF, client.DryRunAll)).To(gomega.Succeed())
 	}, LongTimeout, Interval).Should(gomega.Succeed())
@@ -627,7 +631,7 @@ func ForceLeaderFailover(ctx context.Context, k8sClient client.Client) {
 	leaderPodName, _, _ := strings.Cut(holderIdentity, "_")
 
 	ginkgo.By(fmt.Sprintf("Deleting leader pod %q to force failover", leaderPodName))
-	leaderPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Namespace: kueueNS, Name: leaderPodName}}
+	leaderPod := &corev1.Pod{Namespace: kueueNS, Name: leaderPodName}
 	gomega.Expect(k8sClient.Delete(ctx, leaderPod)).To(gomega.Succeed())
 
 	ginkgo.By("Waiting for a new leader to be elected")
