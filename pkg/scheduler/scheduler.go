@@ -1088,8 +1088,11 @@ func (s *Scheduler) patchWorkloadAdmission(
 		workloadpatching.WithLooseOnApply(),
 	}
 	if workload.NeedsSecondPass(wl) {
-		// Keep the workload's resourceVersion so a write based on an outdated copy fails with Conflict instead of overwriting newer state.
-		patchOptions = nil
+		// Send the workload's resourceVersion, without retry, so a write based on an outdated copy fails with Conflict instead of overwriting newer state.
+		patchOptions = []workloadpatching.PatchStatusOption{
+			workloadpatching.WithStrictPatch(),
+			workloadpatching.WithStrictApply(),
+		}
 	}
 	return workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 		s.prepareWorkload(log, wl, cq, admission)
