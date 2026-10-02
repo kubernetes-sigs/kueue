@@ -53,12 +53,12 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 			WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
 		util.MustCreate(ctx, k8sClient, limitRange)
 
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
+
 		smallFlavor = utiltestingapi.MakeResourceFlavor("small").Obj()
 		util.MustCreate(ctx, k8sClient, smallFlavor)
 		largeFlavor = utiltestingapi.MakeResourceFlavor("large").Obj()
 		util.MustCreate(ctx, k8sClient, largeFlavor)
-
-		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 		// The small flavor fits only effective requests of up to 2 CPU in
 		// total; the large one has room for everything.
 		clusterQueue = utiltestingapi.MakeClusterQueue("cq-hash-freshness").
