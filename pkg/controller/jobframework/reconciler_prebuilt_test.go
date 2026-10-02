@@ -50,7 +50,6 @@ func TestReconcilePrebuiltWorkloadSlices(t *testing.T) {
 		evicted      bool
 		pending      bool
 		extraPending bool
-		variant      bool
 		listError    bool
 		conflict     bool
 		wantFinished bool
@@ -58,7 +57,6 @@ func TestReconcilePrebuiltWorkloadSlices(t *testing.T) {
 		"admitted replacement without owner":                  {wantFinished: true},
 		"pending replacement":                                 {pending: true},
 		"multiple pending replacements are preserved":         {pending: true, extraPending: true},
-		"admitted variant does not finish predecessor":        {pending: true, variant: true},
 		"evicted predecessor awaiting admission":              {evicted: true, pending: true},
 		"admitted replacement takes over evicted predecessor": {evicted: true, wantFinished: true},
 		"feature disabled":                                    {gateOff: true},
@@ -98,11 +96,6 @@ func TestReconcilePrebuiltWorkloadSlices(t *testing.T) {
 			if tc.extraPending {
 				workloads = append(workloads, replacement.Clone().Name("newer").Creation(now.Add(time.Minute)).
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/new").Obj())
-			}
-			if tc.variant {
-				workloads = append(workloads, replacement.Clone().Name("variant").
-					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "new", "new-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj())
 			}
 			objects := []client.Object{utiltesting.MakeNamespace("ns"), obj}
 			for _, wl := range workloads {

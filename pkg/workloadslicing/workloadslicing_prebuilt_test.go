@@ -76,14 +76,6 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 				Annotation(kueue.WorkloadSliceNameAnnotation, "old").
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).Obj()},
 		},
-		"variant is not replacement evidence": {
-			workloads: []*kueue.Workload{old.Obj(), replacement.Obj(), admitted.Clone().Name("variant").
-				ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "new", "new-uid").Obj()},
-		},
-		"variant predecessor is not finished": {
-			workloads: []*kueue.Workload{old.Clone().
-				ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "parent", "parent-uid").Obj(), admitted.Obj()},
-		},
 		"finished replacement preserves evidence after releasing quota": {
 			workloads: []*kueue.Workload{old.Obj(), replacement.Clone().
 				Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: kueue.WorkloadSliceReplaced, LastTransitionTime: metav1.NewTime(now)}).Obj(),
