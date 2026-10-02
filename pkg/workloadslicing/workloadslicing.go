@@ -308,8 +308,21 @@ func EnsureWorkloadSlices(
 		return nil, true, fmt.Errorf("failed to find active workload slices: %w", err)
 	}
 
-	if wl := retainedEvictedSlice(workloads); wl != nil {
-		return wl, true, nil
+	// An evicted slice can still own running Pods. Return it to the job
+	// reconciler until its reservation is released, unless an admitted
+	// replacement has already taken ownership of those Pods.
+	for i := range workloads {
+		wl := &workloads[i]
+		if !workloadevict.IsEvicted(wl) || !workload.HasQuotaReservation(wl) {
+			continue
+		}
+		replaced := slices.ContainsFunc(workloads, func(candidate kueue.Workload) bool {
+			key := ReplacementForKey(&candidate)
+			return key != nil && *key == workload.Key(wl) && workload.IsAdmitted(&candidate) && !workloadevict.IsEvicted(&candidate)
+		})
+		if !replaced {
+			return wl, true, nil
+		}
 	}
 
 	switch len(workloads) {
@@ -386,36 +399,40 @@ func EnsureWorkloadSlices(
 	}
 }
 
-// EnsurePrebuiltWorkloadSlices normalizes a prebuilt workload's slice chain
-// without changing PodSets or creating slices, which remain managed remotely.
-func EnsurePrebuiltWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clock, wl *kueue.Workload) error {
+// FinishReplacedWorkloadSlices retries predecessor finishes missed by the scheduler.
+// It follows explicit replacement links without normalizing the chain or changing PodSets.
+func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clock, wl *kueue.Workload) error {
 	list := &kueue.WorkloadList{}
 	if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace),
 		client.MatchingFields{indexer.WorkloadSliceNameKey: SliceName(wl)}); err != nil {
 		return fmt.Errorf("failed to find prebuilt workload slices: %w", err)
 	}
-	workloads := sortAndFilterNotFinishedWorkloads(list.Items)
-	if len(workloads) < 2 || retainedEvictedSlice(workloads) != nil {
-		return nil
-	}
-	_, err := normalizeActiveSlices(ctx, clnt, clk, workloads)
-	return err
-}
-
-// An evicted slice can still own running Pods. Retain it until its reservation
-// is released or an admitted replacement has taken over.
-func retainedEvictedSlice(workloads []kueue.Workload) *kueue.Workload {
-	for i := range workloads {
-		wl := &workloads[i]
-		if !workloadevict.IsEvicted(wl) || !workload.HasQuotaReservation(wl) {
+	replaced := make(map[workload.Reference]struct{}, len(list.Items))
+	for i := range list.Items {
+		candidate := &list.Items[i]
+		if concurrentadmission.IsVariant(candidate) {
 			continue
 		}
-		replaced := slices.ContainsFunc(workloads, func(candidate kueue.Workload) bool {
-			key := ReplacementForKey(&candidate)
-			return key != nil && *key == workload.Key(wl) && workload.IsAdmitted(&candidate) && !workloadevict.IsEvicted(&candidate)
-		})
-		if !replaced {
-			return wl
+		// Match the scheduler's quota-reservation boundary, not full admission.
+		// A finished replacement must remain evidence even after it releases quota.
+		if !IsReplaced(candidate.Status) &&
+			(!workload.HasQuotaReservation(candidate) || workloadevict.IsEvicted(candidate) || workloadfinish.IsFinished(candidate)) {
+			continue
+		}
+		if key := ReplacementForKey(candidate); key != nil && *key != workload.Key(candidate) {
+			replaced[*key] = struct{}{}
+		}
+	}
+	for i := range list.Items {
+		predecessor := &list.Items[i]
+		if concurrentadmission.IsVariant(predecessor) || workloadfinish.IsFinished(predecessor) {
+			continue
+		}
+		if _, found := replaced[workload.Key(predecessor)]; !found {
+			continue
+		}
+		if err := workloadfinish.Finish(ctx, clnt, predecessor, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice", clk); err != nil {
+			return err
 		}
 	}
 	return nil

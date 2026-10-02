@@ -1109,7 +1109,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		}
 
 		if workloadslicing.Enabled(object) {
-			if err := workloadslicing.EnsurePrebuiltWorkloadSlices(ctx, r.client, r.clock, wl); err != nil {
+			if err := workloadslicing.FinishReplacedWorkloadSlices(ctx, r.client, r.clock, wl); err != nil {
 				return nil, err
 			}
 		}
