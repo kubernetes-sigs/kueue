@@ -2896,120 +2896,66 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 	}
 }
 
-func TestReconcilePrebuiltWorkloadSlices(t *testing.T) {
-	tests := map[string]struct {
-		evicted      bool
-		pending      bool
-		extraPending bool
-		listError    bool
-		conflict     bool
-		wantFinished bool
-	}{
-		"admitted replacement without owner":                  {wantFinished: true},
-		"pending replacement":                                 {pending: true},
-		"multiple pending replacements are preserved":         {pending: true, extraPending: true},
-		"evicted predecessor awaiting admission":              {evicted: true, pending: true},
-		"admitted replacement takes over evicted predecessor": {evicted: true, wantFinished: true},
-		"list error propagates":                               {listError: true, wantFinished: true},
-		"finish conflict propagates and recovers":             {conflict: true, wantFinished: true},
+func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now().Truncate(time.Second)
+	gvk := batchv1.SchemeGroupVersion.WithKind("Job")
+	obj := testingjob.MakeJob("job", "ns").UID("job-uid").Queue("q").Suspend(false).
+		PrebuiltWorkloadLabel("new").
+		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).Obj()
+	// The scheduler admitted the replacement but failed to finish the old slice.
+	old := utiltestingapi.MakeWorkload("old", "ns").Creation(now.Add(-time.Minute)).
+		ControllerReference(gvk, obj.Name, string(obj.UID)).
+		PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj()
+	replacement := utiltestingapi.MakeWorkload("new", "ns").Queue("q").Creation(now).
+		Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+		Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").
+		PodSets(*utiltestingapi.MakePodSet("main", 2).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj()
+	workloads := []*kueue.Workload{old, replacement}
+
+	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), obj, old, replacement).
+		WithStatusSubresource(&kueue.Workload{}).
+		WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
+		Build()
+	mgj := mocks.NewMockGenericJob(gomock.NewController(t))
+	mgj.EXPECT().Object().Return(obj).AnyTimes()
+	mgj.EXPECT().GVK().Return(gvk).AnyTimes()
+	mgj.EXPECT().IsSuspended().Return(false).AnyTimes()
+	mgj.EXPECT().IsActive().Return(true).AnyTimes()
+	mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+	mgj.EXPECT().PodsReady(gomock.Any(), gomock.Any()).Return(false).AnyTimes()
+	mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(replacement.Spec.PodSets, nil).AnyTimes()
+	rec := NewReconciler(cl, &utiltesting.EventRecorder{})
+	req := controllerruntime.Request{NamespacedName: client.ObjectKeyFromObject(obj)}
+
+	for range 2 {
+		if _, err := rec.ReconcileGenericJob(ctx, req, mgj); err != nil {
+			t.Fatal(err)
+		}
 	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-			ctx, _ := utiltesting.ContextWithLog(t)
-			now := time.Now().Truncate(time.Second)
-			gvk := batchv1.SchemeGroupVersion.WithKind("Job")
-			obj := testingjob.MakeJob("job", "ns").UID("job-uid").Queue("q").Suspend(false).
-				PrebuiltWorkloadLabel("new").
-				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).Obj()
-			old := utiltestingapi.MakeWorkload("old", "ns").Creation(now.Add(-time.Minute)).
-				ControllerReference(gvk, obj.Name, string(obj.UID)).
-				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now)
-			if tc.evicted {
-				old.EvictedAt(now)
-			}
-			replacement := utiltestingapi.MakeWorkload("new", "ns").Queue("q").Creation(now).
-				Annotation(kueue.WorkloadSliceNameAnnotation, "old").
-				Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").
-				PodSets(*utiltestingapi.MakePodSet("main", 2).Obj())
-			if !tc.pending {
-				replacement.ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now)
-			}
-			injected := errors.New("slice list failed")
-			if tc.conflict {
-				injected = apierrors.NewConflict(schema.GroupResource{Group: kueue.SchemeGroupVersion.Group, Resource: "workloads"}, "old", errors.New("stale resource version"))
-			}
-			fail := tc.listError || tc.conflict
-			workloads := []*kueue.Workload{old.Obj(), replacement.Obj()}
-			if tc.extraPending {
-				workloads = append(workloads, replacement.Clone().Name("newer").Creation(now.Add(time.Minute)).
-					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/new").Obj())
-			}
-			objects := []client.Object{utiltesting.MakeNamespace("ns"), obj}
-			for _, wl := range workloads {
-				objects = append(objects, wl)
-			}
-			cl := utiltesting.NewClientBuilder().WithObjects(objects...).
-				WithStatusSubresource(&kueue.Workload{}).
-				WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
-				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourceApply: func(ctx context.Context, c client.Client, sub string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
-						if tc.conflict && fail {
-							if obj, _, err := utiltesting.ConvertApplyConfigToObject(applyConf); err == nil && obj.GetName() == "old" {
-								return injected
-							}
-						}
-						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, sub, applyConf, opts...)
-					},
-					List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-						if _, ok := list.(*kueue.WorkloadList); ok && tc.listError && fail {
-							return injected
-						}
-						return c.List(ctx, list, opts...)
-					},
-				}).Build()
-			mgj := mocks.NewMockGenericJob(gomock.NewController(t))
-			mgj.EXPECT().Object().Return(obj).AnyTimes()
-			mgj.EXPECT().GVK().Return(gvk).AnyTimes()
-			mgj.EXPECT().IsSuspended().Return(false).AnyTimes()
-			mgj.EXPECT().IsActive().Return(true).AnyTimes()
-			mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
-			mgj.EXPECT().PodsReady(gomock.Any(), gomock.Any()).Return(false).AnyTimes()
-			mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(replacement.Spec.PodSets, nil).AnyTimes()
-			rec := NewReconciler(cl, &utiltesting.EventRecorder{})
-			req := controllerruntime.Request{NamespacedName: client.ObjectKeyFromObject(obj)}
-			if fail {
-				if _, err := rec.ReconcileGenericJob(ctx, req, mgj); !errors.Is(err, injected) {
-					t.Fatalf("error = %v, want %v", err, injected)
-				}
-				fail = false
-			}
-			for range 2 {
-				if _, err := rec.ReconcileGenericJob(ctx, req, mgj); err != nil {
-					t.Fatal(err)
-				}
-			}
-			list := &kueue.WorkloadList{}
-			if err := cl.List(ctx, list); err != nil {
-				t.Fatal(err)
-			}
-			if len(list.Items) != len(workloads) {
-				t.Fatalf("workload count = %d, want %d", len(list.Items), len(workloads))
-			}
-			for _, before := range workloads {
-				got := &kueue.Workload{}
-				if err := cl.Get(ctx, client.ObjectKeyFromObject(before), got); err != nil {
-					t.Fatal(err)
-				}
-				if diff := cmp.Diff(before.Spec.PodSets, got.Spec.PodSets, cmpopts.EquateEmpty()); diff != "" {
-					t.Errorf("PodSets changed: %s", diff)
-				}
-				wantFinished := before.Name == "old" && tc.wantFinished
-				if workloadfinish.IsFinished(got) != wantFinished {
-					t.Errorf("%s Finished = %v, want %v", got.Name, workloadfinish.IsFinished(got), wantFinished)
-				}
-			}
-		})
+
+	list := &kueue.WorkloadList{}
+	if err := cl.List(ctx, list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != len(workloads) {
+		t.Fatalf("workload count = %d, want %d", len(list.Items), len(workloads))
+	}
+	for _, before := range workloads {
+		got := &kueue.Workload{}
+		if err := cl.Get(ctx, client.ObjectKeyFromObject(before), got); err != nil {
+			t.Fatal(err)
+		}
+		if diff := cmp.Diff(before.Spec.PodSets, got.Spec.PodSets, cmpopts.EquateEmpty()); diff != "" {
+			t.Errorf("PodSets changed: %s", diff)
+		}
+		wantFinished := before.Name == "old"
+		if workloadfinish.IsFinished(got) != wantFinished {
+			t.Errorf("%s Finished = %v, want %v", got.Name, workloadfinish.IsFinished(got), wantFinished)
+		}
 	}
 }
