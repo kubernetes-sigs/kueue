@@ -40,7 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/preemptionpolicy"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -154,7 +154,7 @@ func isDoesNotProvideOnly(at FlavorAssignmentAttempt) bool {
 }
 
 type simulationResultForFlavor struct {
-	preemptionPossiblity     preemptioncommon.PreemptionPossibility
+	preemptionPossiblity     preemptionpolicy.PreemptionPossibility
 	borrowingAfterSimulation int
 }
 
@@ -168,13 +168,13 @@ func (f *testOracle) SimulatePreemption(
 	wl workload.Info,
 	fr resources.FlavorResource,
 	quantity resources.Amount,
-) (preemptioncommon.PreemptionPossibility, int) {
+) (preemptionpolicy.PreemptionPossibility, int) {
 	if f.simulationResult != nil {
 		if result, ok := f.simulationResult[fr]; ok {
 			return result.preemptionPossiblity, result.borrowingAfterSimulation
 		}
 	}
-	return preemptioncommon.Preempt, 0
+	return preemptionpolicy.Preempt, 0
 }
 
 func TestAssignFlavors(t *testing.T) {
@@ -365,7 +365,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "default",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Reasons:               []string{"insufficient unused quota for cpu in flavor default, 1 more needed"},
 						},
 					},
@@ -816,7 +816,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "b_one", Resource: "example.com/gpu"}: resources.NewAmount(2),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "two", Resource: corev1.ResourceMemory}: {preemptioncommon.Preempt, 1},
+				{Flavor: "two", Resource: corev1.ResourceMemory}: {preemptionpolicy.Preempt, 1},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -841,7 +841,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "b_one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Reasons:               []string{"insufficient unused quota for example.com/gpu in flavor b_one, 1 more needed"},
 						},
 						{
@@ -853,7 +853,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "two",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Borrow:                1,
 							Reasons:               []string{"insufficient unused quota for memory in flavor two, 5Mi more needed"},
 						},
@@ -1482,7 +1482,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(9_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptionpolicy.Preempt, 1},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1499,7 +1499,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Borrow:                1,
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 						},
@@ -1542,7 +1542,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 						},
 					},
@@ -1580,7 +1580,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(8_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptionpolicy.Preempt, 1},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1597,7 +1597,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Borrow:                1,
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 2 more needed"},
 						},
@@ -1655,7 +1655,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "two",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Reasons:               []string{"insufficient unused quota for cpu in flavor two, 1 more needed"},
 						},
 					},
@@ -1713,7 +1713,7 @@ func TestAssignFlavors(t *testing.T) {
 							{
 								Flavor:                "one",
 								Mode:                  Preempt,
-								PreemptionPossibility: new(preemptioncommon.Preempt),
+								PreemptionPossibility: new(preemptionpolicy.Preempt),
 								Reasons:               []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 							},
 							{
@@ -1747,7 +1747,7 @@ func TestAssignFlavors(t *testing.T) {
 							{
 								Flavor:                "tainted",
 								Mode:                  Preempt,
-								PreemptionPossibility: new(preemptioncommon.Preempt),
+								PreemptionPossibility: new(preemptionpolicy.Preempt),
 								Reasons:               []string{"insufficient unused quota for cpu in flavor tainted, 3 more needed"},
 							},
 						},
@@ -2732,7 +2732,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 						},
 					},
@@ -2782,7 +2782,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 						},
 					},
@@ -2830,7 +2830,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 						},
 						{Flavor: "two", Mode: Fit},
@@ -3048,7 +3048,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptionpolicy.Preempt, 1},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -3066,7 +3066,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Borrow:                1,
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
 						},
@@ -3115,7 +3115,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptionpolicy.Preempt, 1},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -3133,7 +3133,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Borrow:                1,
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
 						},
@@ -3182,7 +3182,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptionpolicy.Preempt, 1},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -3200,7 +3200,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Borrow:                1,
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
 						},
@@ -3249,7 +3249,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptionpolicy.Preempt, 1},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -3267,7 +3267,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Borrow:                1,
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
 						},
@@ -3598,7 +3598,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptionpolicy.NoCandidates, 0},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -3614,7 +3614,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.NoCandidates),
+							PreemptionPossibility: new(preemptionpolicy.NoCandidates),
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 2 more needed"},
 						},
 						{Flavor: "two", Mode: Fit, Borrow: 1},
@@ -3665,7 +3665,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptionpolicy.NoCandidates, 0},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -3681,7 +3681,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.NoCandidates),
+							PreemptionPossibility: new(preemptionpolicy.NoCandidates),
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 2 more needed"},
 						},
 						{Flavor: "two", Mode: Fit, Borrow: 1},
@@ -3775,7 +3775,7 @@ func TestAssignFlavors(t *testing.T) {
 			// come from test-cohort. That is what makes this case exercise the
 			// borrowing relaxation granted by the PreemptionConfig.
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Reclaim, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptionpolicy.Reclaim, 1},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -3871,7 +3871,7 @@ func TestAssignFlavors(t *testing.T) {
 				Cohort("test-cohort").
 				Obj(),
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptionpolicy.Preempt, 1},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -3890,7 +3890,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Borrow:                1,
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 1 more needed"},
 						},
@@ -3934,7 +3934,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptionpolicy.Preempt, 1},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -3952,7 +3952,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Borrow:                1,
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
 						},
@@ -3994,7 +3994,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptionpolicy.Preempt, 1},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -4012,7 +4012,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.Preempt),
+							PreemptionPossibility: new(preemptionpolicy.Preempt),
 							Borrow:                1,
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 10 more needed"},
 						},
@@ -4054,7 +4054,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptionpolicy.NoCandidates, 0},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -4113,7 +4113,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptionpolicy.NoCandidates, 0},
 			},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
@@ -4687,8 +4687,8 @@ func TestAssignFlavors_ReclaimBeforePriorityPreemption(t *testing.T) {
 				{Flavor: "tre", Resource: "gpu"}: resources.NewAmount(1),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "uno", Resource: "gpu"}: {preemptioncommon.Preempt, 0},
-				{Flavor: "due", Resource: "gpu"}: {preemptioncommon.Reclaim, 0},
+				{Flavor: "uno", Resource: "gpu"}: {preemptionpolicy.Preempt, 0},
+				{Flavor: "due", Resource: "gpu"}: {preemptionpolicy.Reclaim, 0},
 			},
 			wantMode:      Preempt,
 			wantAssigment: rfMap{"gpu": "due"},
@@ -4745,9 +4745,9 @@ func TestAssignFlavors_ReclaimBeforePriorityPreemption(t *testing.T) {
 				{Flavor: "tre", Resource: "gpu"}: resources.NewAmount(1),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "uno", Resource: "gpu"}: {preemptioncommon.Preempt, 0},
-				{Flavor: "due", Resource: "gpu"}: {preemptioncommon.Reclaim, 0},
-				{Flavor: "tre", Resource: "gpu"}: {preemptioncommon.Reclaim, 0},
+				{Flavor: "uno", Resource: "gpu"}: {preemptionpolicy.Preempt, 0},
+				{Flavor: "due", Resource: "gpu"}: {preemptionpolicy.Reclaim, 0},
+				{Flavor: "tre", Resource: "gpu"}: {preemptionpolicy.Reclaim, 0},
 			},
 			wantMode:      Preempt,
 			wantAssigment: rfMap{"gpu": "tre", "compute": "tre"},
@@ -5053,7 +5053,7 @@ func TestAssignFlavors_Hierarchical(t *testing.T) {
 				Preference:     new(kueue.PreemptionOverBorrowing),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptionpolicy.NoCandidates, 1},
 			},
 			wantMode:      Fit,
 			wantAssigment: rfMap{corev1.ResourceCPU: "two"},
@@ -6878,13 +6878,13 @@ func TestAssignFlavors_NoFitDueToCapacityAndLimits(t *testing.T) {
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
 				{Flavor: "flavor-shared", Resource: corev1.ResourceCPU}: {
-					preemptionPossiblity: preemptioncommon.NoCandidates,
+					preemptionPossiblity: preemptionpolicy.NoCandidates,
 				},
 				{Flavor: "flavor-shared", Resource: corev1.ResourceMemory}: {
-					preemptionPossiblity: preemptioncommon.NoCandidates,
+					preemptionPossiblity: preemptionpolicy.NoCandidates,
 				},
 				{Flavor: "flavor-a", Resource: corev1.ResourceCPU}: {
-					preemptionPossiblity: preemptioncommon.NoCandidates,
+					preemptionPossiblity: preemptionpolicy.NoCandidates,
 				},
 			},
 			resourceFlavors: sharedFlavors,
@@ -7652,8 +7652,8 @@ func TestAssignFlavors_RecordsLastTriedFlavorIdx(t *testing.T) {
 				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 0},
-				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {preemptioncommon.Preempt, 0},
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {preemptionpolicy.Preempt, 0},
+				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {preemptionpolicy.Preempt, 0},
 			},
 			fungibility: kueue.FlavorFungibility{
 				WhenCanBorrow:  kueue.MayStopSearch,
@@ -7672,8 +7672,8 @@ func TestAssignFlavors_RecordsLastTriedFlavorIdx(t *testing.T) {
 				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
-				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {preemptionpolicy.NoCandidates, 0},
+				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {preemptionpolicy.NoCandidates, 0},
 			},
 			// Both knobs are the conservative setting, yet shouldTryNextFlavor returns
 			// true for noPreemptionCandidates before either policy is consulted, so no
@@ -7762,8 +7762,8 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: resources.NewAmount(10_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
-				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 0},
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {preemptionpolicy.NoCandidates, 0},
+				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {preemptionpolicy.NoCandidates, 0},
 			},
 			// The replayed scan no longer breaks on flavor-1, so it walks on to flavor-2,
 			// which the nomination mapping skips, and ends on the last flavor.

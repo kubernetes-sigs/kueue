@@ -23,7 +23,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/preemptionpolicy"
 	"sigs.k8s.io/kueue/pkg/util/priority"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -90,7 +90,7 @@ func classifyPreemptionVariant(ctx *HierarchicalPreemptionCtx, wl *workload.Info
 		preemptionPolicy = ctx.Cq.Preemption.ReclaimWithinCohort
 	}
 
-	if !preemptioncommon.SatisfiesPreemptionPolicy(ctx.Log, ctx.Wl, wl.Obj, ctx.WorkloadOrdering, preemptionPolicy) {
+	if !preemptionpolicy.SatisfiesPreemptionPolicy(ctx.Log, ctx.Wl, wl.Obj, ctx.WorkloadOrdering, preemptionPolicy) {
 		return Never
 	}
 

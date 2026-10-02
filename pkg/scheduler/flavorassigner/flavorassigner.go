@@ -37,7 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/preemptionpolicy"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	"sigs.k8s.io/kueue/pkg/util/podset"
@@ -599,26 +599,26 @@ func isPreferred(a, b granularMode, fungibilityConfig kueue.FlavorFungibility) b
 	return borrowingOverPreemption()
 }
 
-func fromPreemptionPossibility(preemptionPossibility preemptioncommon.PreemptionPossibility) preemptionMode {
+func fromPreemptionPossibility(preemptionPossibility preemptionpolicy.PreemptionPossibility) preemptionMode {
 	switch preemptionPossibility {
-	case preemptioncommon.NoCandidates:
+	case preemptionpolicy.NoCandidates:
 		return noPreemptionCandidates
-	case preemptioncommon.Preempt:
+	case preemptionpolicy.Preempt:
 		return preempt
-	case preemptioncommon.Reclaim:
+	case preemptionpolicy.Reclaim:
 		return reclaim
 	}
 	panic(fmt.Sprintf("illegal PreemptionPossibility: %d", preemptionPossibility))
 }
 
-func (mode preemptionMode) preemptionPossibility() *preemptioncommon.PreemptionPossibility {
+func (mode preemptionMode) preemptionPossibility() *preemptionpolicy.PreemptionPossibility {
 	switch mode {
 	case noPreemptionCandidates:
-		return new(preemptioncommon.NoCandidates)
+		return new(preemptionpolicy.NoCandidates)
 	case preempt:
-		return new(preemptioncommon.Preempt)
+		return new(preemptionpolicy.Preempt)
 	case reclaim:
-		return new(preemptioncommon.Reclaim)
+		return new(preemptionpolicy.Reclaim)
 	case fit, noFit:
 		return nil
 	default:
@@ -662,7 +662,7 @@ type preemptionOracle interface {
 		wl workload.Info,
 		fr resources.FlavorResource,
 		quantity resources.Amount,
-	) (preemptioncommon.PreemptionPossibility, int)
+	) (preemptionpolicy.PreemptionPossibility, int)
 }
 
 type FlavorAssigner struct {

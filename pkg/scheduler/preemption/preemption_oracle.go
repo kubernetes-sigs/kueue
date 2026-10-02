@@ -25,7 +25,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/preemptionpolicy"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -46,7 +46,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 	wl workload.Info,
 	fr resources.FlavorResource,
 	quantity resources.Amount,
-) (preemptioncommon.PreemptionPossibility, int) {
+) (preemptionpolicy.PreemptionPossibility, int) {
 	log := log.FromContext(ctx)
 	preemptorCQ := p.snapshot.ClusterQueue(wl.ClusterQueue)
 	pCtx := &preemptionCtx{
@@ -66,7 +66,7 @@ func (p *PreemptionOracle) SimulatePreemption(
 
 	if len(candidates) == 0 {
 		borrow, _ := classical.FindHeightOfLowestSubtreeThatFits(cq, fr, quantity)
-		return preemptioncommon.NoCandidates, borrow
+		return preemptionpolicy.NoCandidates, borrow
 	}
 
 	workloadsToPreempt := make([]*workload.Info, len(candidates))
@@ -79,8 +79,8 @@ func (p *PreemptionOracle) SimulatePreemption(
 
 	for _, candidate := range candidates {
 		if candidate.WorkloadInfo.ClusterQueue == cq.Name {
-			return preemptioncommon.Preempt, borrowAfterPreemptions
+			return preemptionpolicy.Preempt, borrowAfterPreemptions
 		}
 	}
-	return preemptioncommon.Reclaim, borrowAfterPreemptions
+	return preemptionpolicy.Reclaim, borrowAfterPreemptions
 }
