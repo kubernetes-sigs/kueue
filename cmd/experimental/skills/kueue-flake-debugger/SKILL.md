@@ -40,6 +40,12 @@ curl -fsSL "${GCS_BUILD}/podinfo.json" -o build-logs/podinfo.json
 curl -fsSL "${GCS_BUILD}/prowjob.json" -o build-logs/prowjob.json
 ```
 
+Convert a Prow viewer URL to its GCS artifact URL instead of rebuilding the path manually:
+
+```sh
+GCS_BUILD="${PROW_BUILD/https:\/\/prow.k8s.io\/view\/gs\//https:\/\/gcsweb.k8s.io\/gcs\/}"
+```
+
 Search around the failure and report the failing spec, source location, and exact error:
 
 ```sh
@@ -55,6 +61,14 @@ https://storage.googleapis.com/kubernetes-ci-logs/<same-path>/build-log.txt
 
 Use the `gcsweb` listing when discovering artifact names and the `storage.googleapis.com` URL when
 downloading a raw file. Keep downloaded artifacts under `build-logs/`.
+
+Determine the test tier from the Prow job name, target, and build log before following the later
+steps:
+
+- Unit test: for an assertion-only failure, skip Steps 2-6 and continue with Steps 7-9. For a
+  process or container failure, run Steps 2-3 first, then continue with Steps 7-9.
+- Integration or envtest: run Steps 2-5, skip Step 6, then continue with Steps 7-9.
+- E2E or Kind: run Steps 2-3, skip Steps 4-5, run Step 6, then continue with Steps 7-9.
 
 ### Step 2 - inspect the CI Pod and distinguish OOM from ordinary failure
 
@@ -91,8 +105,8 @@ Set the Pod name from `podinfo.json` and use a time range covering the test cont
 ```sh
 PROM_API='https://monitoring-eks.prow.k8s.io/api/datasources/proxy/uid/PA553F4D380FC2FA5/api/v1'
 POD=$(jq -r '.pod.metadata.name' build-logs/podinfo.json)
-START=START_UNIX_TIME
-END=END_UNIX_TIME
+START=$(jq -r '.pod.status.containerStatuses[] | select(.name == "test") | .state.terminated.startedAt | fromdateiso8601' build-logs/podinfo.json)
+END=$(jq -r '.pod.status.containerStatuses[] | select(.name == "test") | .state.terminated.finishedAt | fromdateiso8601' build-logs/podinfo.json)
 
 curl -fsS --get "${PROM_API}/query_range" \
   --data-urlencode "query=container_memory_working_set_bytes{namespace=\"test-pods\",pod=\"${POD}\",container=\"test\"}" \
@@ -165,10 +179,12 @@ rg -n 'INTEGRATION_API_LOG_LEVEL|API_LOG_LEVEL|GetAPIServer\(\).*Out|GetAPIServe
 ```
 
 If the log level is `0`, apiserver stdout/stderr is not included in the test log. For a reproducer or
-follow-up CI run, use a positive level such as:
+follow-up integration run, set the failing Make target explicitly and use a positive log level:
 
 ```sh
-INTEGRATION_API_LOG_LEVEL=2 make test-multikueue-integration
+FAILING_TEST_TARGET=test-integration
+INTEGRATION_API_LOG_LEVEL=2 make "${FAILING_TEST_TARGET}"
+# For example: FAILING_TEST_TARGET=test-multikueue-integration
 ```
 
 Do not treat the absence of server logs as proof of OOM. It is an evidence gap. Capture apiserver
@@ -220,8 +236,8 @@ read does not repair an apiserver that is stopping or an envtest process that ca
 Use this decision order:
 
 1. If `OOMKilled` or an increasing OOM counter is present, fix the memory limit or workload shape.
-2. If memory is near the limit but no OOM is observed, report resource pressure and consider adding
-   headroom. Do not label it a confirmed OOM.
+2. If memory is near the limit but no OOM is observed, report resource pressure and recommend
+   increasing the container limit. Do not label it a confirmed OOM.
 3. If an apiserver stop timeout is primary and resource pressure is plausible, inspect teardown
    ordering and parallel envtest ownership.
 4. If resource usage is normal, prioritize apiserver/etcd logs and process lifecycle evidence.
