@@ -17,6 +17,7 @@ limitations under the License.
 package version
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -24,15 +25,26 @@ import (
 	"github.com/spf13/cobra"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
+	kubetesting "k8s.io/client-go/testing"
 
 	cmdtesting "sigs.k8s.io/kueue/cmd/kueuectl/app/testing"
 )
 
 func TestVersionCmd(t *testing.T) {
+	controllerManagerLabels := map[string]string{
+		"app.kubernetes.io/name": "kueue",
+		"control-plane":          "controller-manager",
+	}
+	errForbidden := apierrors.NewForbidden(appsv1.Resource("deployments"), "", errors.New("access denied"))
+
 	testCases := map[string]struct {
-		deployment *appsv1.Deployment
+		deployments []*appsv1.Deployment
+		// failVerb makes the fake clientset fail this verb on Deployments with errForbidden.
+		failVerb   string
 		args       []string
 		wantOut    string
 		wantOutErr string
@@ -43,7 +55,7 @@ func TestVersionCmd(t *testing.T) {
 			wantOut: "Client Version: v0.0.0-main\n",
 		},
 		"should print client and server versions": {
-			deployment: &appsv1.Deployment{
+			deployments: []*appsv1.Deployment{{
 				Name:      kueueControllerManagerName,
 				Namespace: kueueNamespace,
 				Spec: appsv1.DeploymentSpec{
@@ -58,14 +70,14 @@ func TestVersionCmd(t *testing.T) {
 						},
 					},
 				},
-			},
+			}},
 			args: []string{},
 			wantOut: `Client Version: v0.0.0-main
 Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0
 `,
 		},
 		"should look up the controller manager in --namespace": {
-			deployment: &appsv1.Deployment{
+			deployments: []*appsv1.Deployment{{
 				Name:      kueueControllerManagerName,
 				Namespace: "custom-kueue",
 				Spec: appsv1.DeploymentSpec{
@@ -80,14 +92,14 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0
 						},
 					},
 				},
-			},
+			}},
 			args: []string{"--namespace", "custom-kueue"},
 			wantOut: `Client Version: v0.0.0-main
 Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0-custom
 `,
 		},
 		"should ignore a controller manager outside --namespace": {
-			deployment: &appsv1.Deployment{
+			deployments: []*appsv1.Deployment{{
 				Name:      kueueControllerManagerName,
 				Namespace: kueueNamespace,
 				Spec: appsv1.DeploymentSpec{
@@ -102,9 +114,114 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0-custom
 						},
 					},
 				},
-			},
+			}},
 			args:    []string{"--namespace", "custom-kueue"},
 			wantOut: "Client Version: v0.0.0-main\n",
+		},
+		"should find the controller manager of a Helm release with a custom name": {
+			deployments: []*appsv1.Deployment{{
+				Name:      "foo-kueue-controller-manager",
+				Namespace: kueueNamespace,
+				Labels:    controllerManagerLabels,
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name:  "manager",
+									Image: "registry.k8s.io/kueue/kueue:v0.0.0-helm",
+								},
+							},
+						},
+					},
+				},
+			}},
+			args: []string{},
+			wantOut: `Client Version: v0.0.0-main
+Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0-helm
+`,
+		},
+		"should ignore a Deployment without the controller manager labels": {
+			deployments: []*appsv1.Deployment{{
+				Name:      "foo-kueue-kueueviz-backend",
+				Namespace: kueueNamespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/name":      "kueue",
+					"app.kubernetes.io/component": "dashboard",
+				},
+				Spec: appsv1.DeploymentSpec{
+					Template: corev1.PodTemplateSpec{
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Name:  "manager",
+									Image: "registry.k8s.io/kueue/kueueviz-backend:v0.0.0",
+								},
+							},
+						},
+					},
+				},
+			}},
+			args:    []string{},
+			wantOut: "Client Version: v0.0.0-main\n",
+		},
+		"should prefer the default Deployment name over the controller manager labels": {
+			deployments: []*appsv1.Deployment{
+				{
+					Name:      kueueControllerManagerName,
+					Namespace: kueueNamespace,
+					Spec: appsv1.DeploymentSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name:  "manager",
+										Image: "registry.k8s.io/kueue/kueue:v0.0.0",
+									},
+								},
+							},
+						},
+					},
+				},
+				{
+					Name:      "foo-kueue-controller-manager",
+					Namespace: kueueNamespace,
+					Labels:    controllerManagerLabels,
+				},
+			},
+			args: []string{},
+			wantOut: `Client Version: v0.0.0-main
+Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0
+`,
+		},
+		"should fail when multiple Deployments have the controller manager labels": {
+			deployments: []*appsv1.Deployment{
+				{
+					Name:      "foo-kueue-controller-manager",
+					Namespace: kueueNamespace,
+					Labels:    controllerManagerLabels,
+				},
+				{
+					Name:      "bar-kueue-controller-manager",
+					Namespace: kueueNamespace,
+					Labels:    controllerManagerLabels,
+				},
+			},
+			args:    []string{},
+			wantOut: "Client Version: v0.0.0-main\n",
+			wantErr: errMultipleControllerManagers,
+		},
+		"should return a Get error other than NotFound": {
+			failVerb: "get",
+			args:     []string{},
+			wantOut:  "Client Version: v0.0.0-main\n",
+			wantErr:  errForbidden,
+		},
+		"should return a List error after the default name is not found": {
+			failVerb: "list",
+			args:     []string{},
+			wantOut:  "Client Version: v0.0.0-main\n",
+			wantErr:  errForbidden,
 		},
 	}
 
@@ -112,10 +229,17 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0-custom
 		t.Run(name, func(t *testing.T) {
 			streams, _, out, outErr := genericiooptions.NewTestIOStreams()
 
-			tcg := cmdtesting.NewTestClientGetter()
-			if tc.deployment != nil {
-				tcg.WithK8sClientset(k8sfake.NewClientset(tc.deployment))
+			objs := make([]runtime.Object, 0, len(tc.deployments))
+			for _, d := range tc.deployments {
+				objs = append(objs, d)
 			}
+			clientset := k8sfake.NewClientset(objs...)
+			if tc.failVerb != "" {
+				clientset.PrependReactor(tc.failVerb, "deployments", func(kubetesting.Action) (bool, runtime.Object, error) {
+					return true, nil, errForbidden
+				})
+			}
+			tcg := cmdtesting.NewTestClientGetter().WithK8sClientset(clientset)
 
 			cmd := NewVersionCmd(tcg, streams)
 			// Simulate the inherited persistent --namespace flag from the root command.
