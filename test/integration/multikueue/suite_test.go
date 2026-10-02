@@ -57,6 +57,7 @@ import (
 	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	workloadtfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 	workloadxgboostjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
+	workloadleaderworkerset "sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
@@ -136,6 +137,7 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 			behavioral.KfTrainerCrds,
 			behavioral.AutoscalerCrds,
 			behavioral.ClusterProfileCrds,
+			behavioral.LeaderWorkerSetCrds,
 		},
 		APIServerFeatureGates:     apiFeatureGates,
 		APIServerAdmissionPlugins: []string{"MutatingAdmissionPolicy"},
@@ -229,6 +231,7 @@ func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.Integr
 		workloadrayservice.FrameworkName,
 		workloadaw.FrameworkName,
 		workloadtrainjob.FrameworkName,
+		workloadleaderworkerset.FrameworkName,
 	} {
 		integrationManager.EnableIntegration(frameworkName)
 	}
@@ -458,6 +461,21 @@ func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.Integr
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = workloadtrainjob.SetupTrainJobWebhook(mgr, jobOptions...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadleaderworkerset.SetupIndexes(ctx, mgr.GetFieldIndexer())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	lwsReconciler, err := workloadleaderworkerset.NewReconciler(
+		ctx,
+		mgr.GetClient(),
+		mgr.GetFieldIndexer(),
+		mgr.GetEventRecorder(constants.JobControllerName), jobOptions...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = lwsReconciler.SetupWithManager(mgr)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	err = workloadleaderworkerset.SetupWebhook(mgr, jobOptions...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = provisioning.SetupIndexer(ctx, mgr.GetFieldIndexer())
