@@ -473,6 +473,103 @@ func TestClearMultiKueueClusterQueueMetrics(t *testing.T) {
 	}
 }
 
+// seedMultiKueueWorkloadCounters reports one series per counter for every
+// ClusterQueue and worker pair, with two eviction reasons for the evicted counter.
+func seedMultiKueueWorkloadCounters(t *testing.T, cqs, workers []string) {
+	t.Helper()
+	resetMultiKueueWorkloadCounters()
+	t.Cleanup(resetMultiKueueWorkloadCounters)
+	for _, cq := range cqs {
+		for _, worker := range workers {
+			ReportMultiKueueWorkloadDispatched(kueue.ClusterQueueReference(cq), worker, nil)
+			ReportMultiKueueWorkloadAdmitted(kueue.ClusterQueueReference(cq), worker, nil)
+			ReportMultiKueueWorkloadEvicted(kueue.ClusterQueueReference(cq), worker, kueue.WorkloadEvictedByPreemption, nil)
+			ReportMultiKueueWorkloadEvicted(kueue.ClusterQueueReference(cq), worker, kueue.WorkloadEvictedByPodsReadyTimeout, nil)
+		}
+	}
+}
+
+func resetMultiKueueWorkloadCounters() {
+	MultiKueueWorkloadsDispatchedTotal.Reset()
+	MultiKueueWorkloadsAdmittedTotal.Reset()
+	MultiKueueWorkloadsEvictedTotal.Reset()
+}
+
+func TestClearMultiKueueWorkloadCounters(t *testing.T) {
+	cqs := []string{"cq1", "cq2"}
+	workers := []string{"worker1", "worker2"}
+
+	tests := map[string]struct {
+		clear func()
+		// Remaining series per counter after clearing, with two eviction reasons
+		// per cluster_queue and cluster pair for the evicted counter.
+		wantDispatchedAdmitted int
+		wantEvicted            int
+		// survivor is a cluster_queue and cluster pair that must be left untouched.
+		survivorCQ, survivorWorker string
+	}{
+		"clearing a cluster removes it across ClusterQueues": {
+			clear:                  func() { ClearMultiKueueClusterMetrics("worker1") },
+			wantDispatchedAdmitted: 2,
+			wantEvicted:            4,
+			survivorCQ:             "cq1",
+			survivorWorker:         "worker2",
+		},
+		"clearing a ClusterQueue removes it across clusters": {
+			clear:                  func() { ClearMultiKueueClusterQueueWorkloadCounters("cq1") },
+			wantDispatchedAdmitted: 2,
+			wantEvicted:            4,
+			survivorCQ:             "cq2",
+			survivorWorker:         "worker1",
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			seedMultiKueueWorkloadCounters(t, cqs, workers)
+
+			tc.clear()
+
+			if got := testutil.CollectAndCount(MultiKueueWorkloadsDispatchedTotal); got != tc.wantDispatchedAdmitted {
+				t.Errorf("unexpected dispatched series count, got %d, want %d", got, tc.wantDispatchedAdmitted)
+			}
+			if got := testutil.CollectAndCount(MultiKueueWorkloadsAdmittedTotal); got != tc.wantDispatchedAdmitted {
+				t.Errorf("unexpected admitted series count, got %d, want %d", got, tc.wantDispatchedAdmitted)
+			}
+			if got := testutil.CollectAndCount(MultiKueueWorkloadsEvictedTotal); got != tc.wantEvicted {
+				t.Errorf("unexpected evicted series count, got %d, want %d", got, tc.wantEvicted)
+			}
+			role := roletracker.RoleStandalone
+			if got := testutil.ToFloat64(MultiKueueWorkloadsDispatchedTotal.WithLabelValues(tc.survivorCQ, tc.survivorWorker, role)); got != 1 {
+				t.Errorf("expected surviving dispatched series to be kept, got %v", got)
+			}
+			if got := testutil.ToFloat64(MultiKueueWorkloadsAdmittedTotal.WithLabelValues(tc.survivorCQ, tc.survivorWorker, role)); got != 1 {
+				t.Errorf("expected surviving admitted series to be kept, got %v", got)
+			}
+			for _, reason := range []string{kueue.WorkloadEvictedByPreemption, kueue.WorkloadEvictedByPodsReadyTimeout} {
+				if got := testutil.ToFloat64(MultiKueueWorkloadsEvictedTotal.WithLabelValues(tc.survivorCQ, tc.survivorWorker, reason, role)); got != 1 {
+					t.Errorf("expected surviving evicted series with reason %q to be kept, got %v", reason, got)
+				}
+			}
+		})
+	}
+}
+
+func TestClearMultiKueueClusterQueueMetricsKeepsWorkloadCounters(t *testing.T) {
+	seedMultiKueueWorkloadCounters(t, []string{"cq1", "cq2"}, []string{"worker1", "worker2"})
+
+	ClearMultiKueueClusterQueueMetrics("cq1")
+
+	if got := testutil.CollectAndCount(MultiKueueWorkloadsDispatchedTotal); got != 4 {
+		t.Errorf("expected dispatched series to be kept, got %d series", got)
+	}
+	if got := testutil.CollectAndCount(MultiKueueWorkloadsAdmittedTotal); got != 4 {
+		t.Errorf("expected admitted series to be kept, got %d series", got)
+	}
+	if got := testutil.CollectAndCount(MultiKueueWorkloadsEvictedTotal); got != 8 {
+		t.Errorf("expected evicted series to be kept, got %d series", got)
+	}
+}
+
 func TestReportMultiKueueWorkloadEvicted(t *testing.T) {
 	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
 
