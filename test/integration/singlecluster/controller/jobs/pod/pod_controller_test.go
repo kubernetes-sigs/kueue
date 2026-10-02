@@ -3503,11 +3503,7 @@ var _ = ginkgo.Describe("Pod controller when waitForPodsReady enabled with sched
 	)
 })
 
-var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForPodsReady enabled", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	const (
-		backoffBaseSeconds = 1
-	)
-
+var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
 		fl *kueue.ResourceFlavor
@@ -3516,14 +3512,6 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForP
 	)
 
 	ginkgo.BeforeAll(func() {
-		waitForPodsReady := &configapi.WaitForPodsReady{
-			Timeout: metav1.Duration{Duration: util.ShortTimeout},
-			RequeuingStrategy: &configapi.RequeuingStrategy{
-				Timestamp:          new(configapi.EvictionTimestamp),
-				BackoffLimitCount:  new(int32(2)),
-				BackoffBaseSeconds: new(int32(backoffBaseSeconds)),
-			},
-		}
 		nsSelector := &metav1.LabelSelector{
 			MatchExpressions: []metav1.LabelSelectorRequirement{
 				{
@@ -3538,7 +3526,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForP
 		fwk.StartManager(ctx, cfg, managerSetup(
 			false,
 			true,
-			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
+			&configapi.Configuration{},
 			jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 			jobframework.WithEnabledFrameworks([]string{"pod"}),
 		))
@@ -3571,7 +3559,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForP
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
 	})
 
-	ginkgo.When("pod group not ready", func() {
+	ginkgo.When("pod group waiting for replacement pods", func() {
 		ginkgo.It("shouldn't re-admit workload with WaitingForReplacementPods=True", func() {
 			podGroupName := "pod-group"
 			pod := testingpod.MakePod("pod", ns.Name).
@@ -3586,19 +3574,34 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForP
 
 			wlKey := types.NamespacedName{Name: podGroupName, Namespace: pod.Namespace}
 
-			ginkgo.By("Checking that workload was evicted due to pods ready timeout", func() {
-				util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, wlKey, 0)
-			})
-
-			ginkgo.By("Waiting for BackoffFinished", func() {
-				wl := &kueue.Workload{}
+			ginkgo.By("Waiting for the pod to be ungated", func() {
+				createdPod := &corev1.Pod{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-					g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadRequeued, kueue.WorkloadBackoffFinished))
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).Should(gomega.Succeed())
+					g.Expect(createdPod.Spec.SchedulingGates).ShouldNot(gomega.ContainElement(
+						corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
+					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking the workload isn't admitted due to don't have pod replacements", func() {
+			ginkgo.By("Draining the ClusterQueue to evict the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
+					cq.Spec.StopPolicy = new(kueue.HoldAndDrain)
+					g.Expect(k8sClient.Update(ctx, cq)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that workload was evicted by the stopped ClusterQueue", func() {
+				wl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+					g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadEvicted, kueue.WorkloadEvictedByClusterQueueStopped))
+					g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadWaitingForReplacementPods))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the workload isn't admitted while waiting for pod replacements", func() {
 				wl := &kueue.Workload{}
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
@@ -3618,6 +3621,22 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForP
 				Obj()
 			ginkgo.By("Creating replacement pod", func() {
 				util.MustCreate(ctx, k8sClient, replacementPod)
+			})
+
+			ginkgo.By("Resuming the ClusterQueue", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
+					cq.Spec.StopPolicy = new(kueue.None)
+					g.Expect(k8sClient.Update(ctx, cq)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for the workload to be requeued after ClusterQueue restart", func() {
+				wl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+					g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadRequeued, kueue.WorkloadClusterQueueRestarted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that workload was admitted", func() {
@@ -3640,19 +3659,34 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForP
 
 			wlKey := types.NamespacedName{Name: podGroupName, Namespace: pod.Namespace}
 
-			ginkgo.By("Checking that workload was evicted due to pods ready timeout", func() {
-				util.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, wlKey, 0)
-			})
-
-			ginkgo.By("Waiting for BackoffFinished", func() {
-				wl := &kueue.Workload{}
+			ginkgo.By("Waiting for the pod to be ungated", func() {
+				createdPod := &corev1.Pod{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-					g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadRequeued, kueue.WorkloadBackoffFinished))
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).Should(gomega.Succeed())
+					g.Expect(createdPod.Spec.SchedulingGates).ShouldNot(gomega.ContainElement(
+						corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
+					))
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Checking the workload isn't admitted due to don't have pod replacements", func() {
+			ginkgo.By("Draining the ClusterQueue to evict the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
+					cq.Spec.StopPolicy = new(kueue.HoldAndDrain)
+					g.Expect(k8sClient.Update(ctx, cq)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking that workload was evicted by the stopped ClusterQueue", func() {
+				wl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+					g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadEvicted, kueue.WorkloadEvictedByClusterQueueStopped))
+					g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadWaitingForReplacementPods))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the workload isn't admitted while waiting for pod replacements", func() {
 				wl := &kueue.Workload{}
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
@@ -3673,6 +3707,22 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForP
 				Obj()
 			ginkgo.By("Creating replacement pod", func() {
 				util.MustCreate(ctx, k8sClient, replacementPod)
+			})
+
+			ginkgo.By("Resuming the ClusterQueue", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
+					cq.Spec.StopPolicy = new(kueue.None)
+					g.Expect(k8sClient.Update(ctx, cq)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for the workload to be requeued after ClusterQueue restart", func() {
+				wl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+					g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadRequeued, kueue.WorkloadClusterQueueRestarted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that workload was admitted", func() {
