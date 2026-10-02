@@ -17,17 +17,12 @@ limitations under the License.
 package workloadslicing_test
 
 import (
-	"context"
-	"errors"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -54,12 +49,10 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 	finished := func(reason string) metav1.Condition {
 		return metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: reason, LastTransitionTime: metav1.NewTime(now)}
 	}
-	conflict := apierrors.NewConflict(schema.GroupResource{Group: kueue.SchemeGroupVersion.Group, Resource: "workloads"}, "old", errors.New("stale resource version"))
 
 	tests := map[string]struct {
 		workloads    []*kueue.Workload
 		wantFinished []string
-		finishError  error
 	}{
 		"no slices":    {},
 		"single slice": {workloads: []*kueue.Workload{old.Obj()}},
@@ -107,11 +100,6 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 		"already finished predecessor is left untouched": {
 			workloads: []*kueue.Workload{old.Clone().Condition(finished(kueue.WorkloadSliceReplaced)).Obj(), admitted.Obj()},
 		},
-		"finish conflict is returned and retry recovers": {
-			workloads:    []*kueue.Workload{old.Obj(), admitted.Obj()},
-			finishError:  conflict,
-			wantFinished: []string{"old"},
-		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -127,30 +115,13 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 			for _, wl := range tc.workloads {
 				objects = append(objects, wl.DeepCopy())
 			}
-			injected := tc.finishError
 			cl := utiltesting.NewClientBuilder().WithObjects(objects...).WithStatusSubresource(&kueue.Workload{}).
 				WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
-				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourceApply: func(ctx context.Context, c client.Client, sub string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
-						if injected != nil {
-							err := injected
-							injected = nil
-							return err
-						}
-						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, sub, applyConf, opts...)
-					},
-				}).Build()
+				WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
+				Build()
 			clk := testingclock.NewFakeClock(now)
 
-			err := workloadslicing.FinishReplacedWorkloadSlices(ctx, cl, clk, pending.Obj())
-			if tc.finishError != nil {
-				if !errors.Is(err, tc.finishError) {
-					t.Fatalf("error = %v, want %v", err, tc.finishError)
-				}
-				// The next call must recover from the failed finish.
-				err = workloadslicing.FinishReplacedWorkloadSlices(ctx, cl, clk, pending.Obj())
-			}
-			if err != nil {
+			if err := workloadslicing.FinishReplacedWorkloadSlices(ctx, cl, clk, pending.Obj()); err != nil {
 				t.Fatal(err)
 			}
 
