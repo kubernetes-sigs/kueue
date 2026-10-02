@@ -329,6 +329,53 @@ func TestAmountFromQuantityInRangeDoesNotAllocate(t *testing.T) {
 	}
 }
 
+// CmpInt64 would build 10^n to align a scale of n, which costs far more than
+// the digit count of the decimal path.
+func TestAmountFromQuantityAtAFarScale(t *testing.T) {
+	cases := map[string]struct {
+		name     corev1.ResourceName
+		unscaled int64
+		scale    resource.Scale
+		want     string
+	}{
+		"a far positive exponent is capped": {
+			name:     "example.com/gpu",
+			unscaled: 10,
+			scale:    999_999,
+			want:     "9223372036854775807",
+		},
+		"a far positive exponent of cpu is capped in cores": {
+			name:     corev1.ResourceCPU,
+			unscaled: 10,
+			scale:    999_999,
+			want:     "9223372036854775807000",
+		},
+		"a far negative exponent rounds up to one": {
+			name:     "example.com/gpu",
+			unscaled: 1,
+			scale:    -1_000_000,
+			want:     "1",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			q := *resource.NewScaledQuantity(tc.unscaled, tc.scale)
+			if got := AmountFromQuantity(tc.name, q); got.String() != tc.want {
+				t.Errorf("AmountFromQuantity(%s, %d at scale %d) = %s, want %s", tc.name, tc.unscaled, tc.scale, got, tc.want)
+			}
+			allocs := testing.AllocsPerRun(1, func() {
+				AmountFromQuantity(tc.name, q)
+			})
+			decimalAllocs := testing.AllocsPerRun(1, func() {
+				fromBig(scaledBig(tc.name, q))
+			})
+			if allocs > decimalAllocs {
+				t.Errorf("AmountFromQuantity(%s, %d at scale %d) allocated %v times, the decimal path %v", tc.name, tc.unscaled, tc.scale, allocs, decimalAllocs)
+			}
+		})
+	}
+}
+
 func BenchmarkAmountFromQuantity(b *testing.B) {
 	cases := []struct {
 		name corev1.ResourceName
