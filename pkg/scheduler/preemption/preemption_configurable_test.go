@@ -235,7 +235,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 		fairSharing                    *config.FairSharing
 		configurablePreemptionDisabled bool
 		wantPreempted                  sets.Set[workload.Reference]
-		wantReasons                    map[string]string
+		wantReasons                    map[workload.Reference]string
 		wantConfigurableReasonsData    map[string]*preemptioncommon.ConfigurablePreemptionReasonData
 	}{
 		"no candidates for CQ without config": {
@@ -389,7 +389,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			// Classical candidates are considered before configurable ones, so a1 and
 			// a2 admit the incoming workload on their own, sparing a3.
 			wantPreempted: sets.New[workload.Reference]("/a1", "/a2"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				"/a1": kueue.InClusterQueueReason,
 				"/a2": kueue.InClusterQueueReason,
 			},
@@ -435,7 +435,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			// preemption is used as a fallback to select a3 once the classical
 			// candidates are not enough to free the 3 CPU needed.
 			wantPreempted: sets.New[workload.Reference]("/a1", "/a2", "/a3"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				"/a1": kueue.InClusterQueueReason,
 				"/a2": kueue.InClusterQueueReason,
 				"/a3": kueue.ConfigurablePreemptionReason,
@@ -468,7 +468,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			// candidate ordering considers the workloads of other ClusterQueues
 			// first. Preempting b1 frees quota that a can borrow, so a1 is spared.
 			wantPreempted: sets.New[workload.Reference]("/b1"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				"/b1": kueue.ConfigurablePreemptionReason,
 			},
 		},
@@ -491,7 +491,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			incoming:      unitWl.Clone().Name("a_incoming").Priority(100).Obj(),
 			targetCQ:      "a",
 			wantPreempted: sets.New[workload.Reference]("/a1"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				// Classical preemption runs before the PreemptionConfig fallback, so
 				// a1 is preempted by the classical WithinClusterQueue policy.
 				"/a1": kueue.InClusterQueueReason,
@@ -533,7 +533,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 				Obj(),
 			targetCQ:      "a",
 			wantPreempted: sets.New[workload.Reference]("/c1"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				"/c1": kueue.ConfigurablePreemptionReason,
 			},
 		},
@@ -557,7 +557,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 				Obj(),
 			targetCQ:      "a",
 			wantPreempted: sets.New[workload.Reference]("/a1"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				"/a1": kueue.ConfigurablePreemptionReason,
 			},
 		},
@@ -582,7 +582,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 				Obj(),
 			targetCQ:      "a",
 			wantPreempted: sets.New[workload.Reference]("/a1"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				"/a1": kueue.ConfigurablePreemptionReason,
 			},
 		},
@@ -607,7 +607,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 				Obj(),
 			targetCQ:      "a",
 			wantPreempted: sets.New[workload.Reference]("/a2"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				"/a2": kueue.ConfigurablePreemptionReason,
 			},
 		},
@@ -631,7 +631,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
 			targetCQ:      "a",
 			wantPreempted: sets.New[workload.Reference]("/a1"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				"/a1": kueue.ConfigurablePreemptionReason,
 			},
 		},
@@ -661,7 +661,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			incoming:      unitWl.Clone().Name("a_incoming").Obj(),
 			targetCQ:      "a",
 			wantPreempted: sets.New[workload.Reference]("/a1"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				"/a1": kueue.ConfigurablePreemptionReason,
 			},
 		},
@@ -713,7 +713,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			// candidate ordering considers the workloads of other ClusterQueues
 			// first. Preempting b1 frees quota that a can borrow, so a1 is spared.
 			wantPreempted: sets.New[workload.Reference]("/b1"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				"/b1": kueue.ConfigurablePreemptionReason,
 			},
 		},
@@ -750,7 +750,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			// The Fair Sharing strategy admits the workload on its own, so the
 			// candidates of the Always trigger are never considered.
 			wantPreempted: sets.New[workload.Reference]("/b1"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				"/b1": kueue.InCohortReclamationReason,
 			},
 		},
@@ -799,7 +799,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			// The configurable candidates are a last resort, reached only once both
 			// strategies failed, so b1 is preferred over c1
 			wantPreempted: sets.New[workload.Reference]("/b1"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				"/b1": kueue.InCohortFairSharingReason,
 			},
 		},
@@ -834,7 +834,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 				Obj(),
 			targetCQ:      "a",
 			wantPreempted: sets.New[workload.Reference]("/x1", "/x2"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				"/x1": kueue.ConfigurablePreemptionReason,
 				"/x2": kueue.InClusterQueueReason,
 			},
@@ -860,7 +860,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 				Label("preemption-tier", "5").Obj(),
 			targetCQ:      "a",
 			wantPreempted: sets.New[workload.Reference]("/a1", "/a2"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				"/a1": kueue.ConfigurablePreemptionReason,
 				"/a2": kueue.ConfigurablePreemptionReason,
 			},
@@ -912,7 +912,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 				Label("preemption-tier", "5").Obj(),
 			targetCQ:      "a",
 			wantPreempted: sets.New[workload.Reference]("/a1", "/a2"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				"/a1": kueue.ConfigurablePreemptionReason,
 				"/a2": kueue.ConfigurablePreemptionReason,
 			},
@@ -934,7 +934,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 			assignment:    tasAssignment,
 			targetCQ:      "a",
 			wantPreempted: sets.New[workload.Reference]("/a1"),
-			wantReasons: map[string]string{
+			wantReasons: map[workload.Reference]string{
 				"/a1": kueue.ConfigurablePreemptionReason,
 			},
 			wantConfigurableReasonsData: map[string]*preemptioncommon.ConfigurablePreemptionReasonData{
@@ -1032,9 +1032,9 @@ func TestConfigurablePreemptions(t *testing.T) {
 				t.Errorf("Issued preemptions (-want,+got):\n%s", diff)
 			}
 			if tc.wantReasons != nil {
-				gotReasons := make(map[string]string, len(targets))
+				gotReasons := make(map[workload.Reference]string, len(targets))
 				for _, target := range targets {
-					gotReasons[string(workload.Key(target.WorkloadInfo.Obj))] = target.Reason
+					gotReasons[workload.Key(target.WorkloadInfo.Obj)] = target.Reason
 				}
 				if diff := cmp.Diff(tc.wantReasons, gotReasons); diff != "" {
 					t.Errorf("Preemption reasons (-want,+got):\n%s", diff)
