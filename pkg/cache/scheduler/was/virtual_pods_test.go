@@ -244,29 +244,26 @@ func TestCandidateVirtualPodsForPodSet_MetadataAndStatus(t *testing.T) {
 		t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error: %v", err)
 	}
 
-	wantPods := []*corev1.Pod{
-		&corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      virtualPodName(wl.Name, string(ps.Name), 0),
-				Namespace: "test-ns",
-				UID:       types.UID("virtual-wl-uid-workers-0"),
-				Labels: map[string]string{
-					"app":                 "train",
-					constants.PodSetLabel: "workers",
-				},
-				Annotations: map[string]string{
-					"user":                   "alice",
-					kueue.WorkloadAnnotation: "wl",
-				},
-			},
-			Spec: corev1.PodSpec{
-				Containers: []corev1.Container{{Name: "c"}},
-			},
-			Status: corev1.PodStatus{
-				Phase: corev1.PodPending,
-			},
+	wantPod := &corev1.Pod{
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "c"}},
+		},
+		Status: corev1.PodStatus{
+			Phase: corev1.PodPending,
 		},
 	}
+	wantPod.Name = virtualPodName(wl.Name, string(ps.Name), 0)
+	wantPod.Namespace = "test-ns"
+	wantPod.UID = types.UID("virtual-wl-uid-workers-0")
+	wantPod.Labels = map[string]string{
+		"app":                 "train",
+		constants.PodSetLabel: "workers",
+	}
+	wantPod.Annotations = map[string]string{
+		"user":                   "alice",
+		kueue.WorkloadAnnotation: "wl",
+	}
+	wantPods := []*corev1.Pod{wantPod}
 	if diff := cmp.Diff(wantPods, pods); diff != "" {
 		t.Errorf("unexpected virtualization result (-want +got):\n%s", diff)
 	}
