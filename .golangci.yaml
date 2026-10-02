@@ -58,10 +58,9 @@ linters:
         - name: empty-lines
         - name: increment-decrement
         - name: var-naming
+        - name: package-naming
           arguments:
-            - []
-            - []
-            - - skip-package-name-collision-with-go-std: true
+            - skip-collision-with-common-std: true
         - name: package-directory-mismatch
         - name: redundant-import-alias
         - name: use-any
@@ -98,6 +97,12 @@ linters:
       - linters:
           - fatcontext
         path: ^test/*
+      # test/util is the last package named "util". It is scheduled to be split
+      # into purpose-named packages; drop this exclusion when that is done.
+      - linters:
+          - revive
+        path: ^test/util/
+        text: 'package-naming: '
 issues:
   # Show all issues from a linter
   max-issues-per-linter: 0
