@@ -34,6 +34,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
@@ -73,6 +74,155 @@ func TestValidate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeRequired,
 					Field: "integrations",
+				},
+			},
+		},
+		"valid frameworkConfigs with QuotaReleaseStrategy feature gate enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaReleaseStrategy: true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job", "pod"},
+					FrameworkConfigs: []configapi.FrameworkConfig{
+						{
+							Name:                 "batch/job",
+							QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseOnQuotaReleased),
+						},
+						{
+							Name:                 "pod",
+							QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseOnTerminal),
+						},
+					},
+				},
+				ManagedJobsNamespaceSelector: systemNamespacesSelector,
+			},
+		},
+		"frameworkConfigs validation skipped when feature gate disabled": {
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job"},
+					FrameworkConfigs: []configapi.FrameworkConfig{
+						{
+							Name:                 "batch/job",
+							QuotaReleaseStrategy: new(configapi.QuotaReleaseOnTerminal),
+						},
+					},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaReleaseStrategy: false,
+			},
+		},
+		"invalid frameworkConfigs empty framework name": {
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaReleaseStrategy: true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job"},
+					FrameworkConfigs: []configapi.FrameworkConfig{
+						{
+							Name:                 "",
+							QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseOnQuotaReleased),
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeRequired,
+					Field: "integrations.frameworkConfigs[0].name",
+				},
+			},
+		},
+		"invalid frameworkConfigs duplicate framework name": {
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaReleaseStrategy: true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job"},
+					FrameworkConfigs: []configapi.FrameworkConfig{
+						{
+							Name: "batch/job",
+						},
+						{
+							Name: "batch/job",
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeDuplicate,
+					Field: "integrations.frameworkConfigs[1].name",
+				},
+			},
+		},
+		"invalid frameworkConfigs framework not in frameworks": {
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaReleaseStrategy: true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job"},
+					FrameworkConfigs: []configapi.FrameworkConfig{
+						{
+							Name: "pod",
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "integrations.frameworkConfigs[0].name",
+				},
+			},
+		},
+		"invalid frameworkConfigs unsupported quota release strategy enum": {
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaReleaseStrategy: true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job"},
+					FrameworkConfigs: []configapi.FrameworkConfig{
+						{
+							Name:                 "batch/job",
+							QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseStrategy("InvalidStrategy")),
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeNotSupported,
+					Field: "integrations.frameworkConfigs[0].quotaReleaseStrategy",
+				},
+			},
+		},
+		"invalid frameworkConfigs OnTerminal for unsupported framework": {
+			featureGates: map[featuregate.Feature]bool{
+				features.QuotaReleaseStrategy: true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job", "kubeflow.org/mpijob"},
+					FrameworkConfigs: []configapi.FrameworkConfig{
+						{
+							Name:                 "batch/job",
+							QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseOnTerminal),
+						},
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeForbidden,
+					Field:  "integrations.frameworkConfigs[0].quotaReleaseStrategy",
+					Detail: "OnTerminal is only supported for \"pod\" integration",
 				},
 			},
 		},

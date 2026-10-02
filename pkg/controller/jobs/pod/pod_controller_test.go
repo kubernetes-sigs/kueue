@@ -8706,9 +8706,11 @@ func TestPod_IsActive(t *testing.T) {
 		list corev1.PodList
 	}
 	tests := map[string]struct {
-		fields                 fields
-		enableFastQuotaRelease bool
-		want                   bool
+		fields                        fields
+		strategy                      configapi.QuotaReleaseStrategy
+		disableQuotaReleaseStrategyFG bool
+		enableLegacyFastQuotaRelease  bool
+		want                          bool
 	}{
 		"RegularPod": {
 			want: false,
@@ -8736,6 +8738,7 @@ func TestPod_IsActive(t *testing.T) {
 			},
 		},
 		"PodGroup_Active": {
+			strategy: configapi.QuotaReleaseOnTerminal,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -8765,7 +8768,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: true,
 		},
 		"FastQuotaRelease_PodWithDeletionTimestamp_Inactive": {
-			enableFastQuotaRelease: true,
+			strategy: configapi.QuotaReleaseOnQuotaReleased,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -8781,7 +8784,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: false,
 		},
 		"FastQuotaRelease_Disabled_PodWithDeletionTimestampWithinGrace_Active": {
-			enableFastQuotaRelease: false,
+			strategy: configapi.QuotaReleaseOnTerminal,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -8797,7 +8800,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: true,
 		},
 		"FastQuotaRelease_MixedGroup_SomeTerminating_SomeRunning": {
-			enableFastQuotaRelease: true,
+			strategy: configapi.QuotaReleaseOnQuotaReleased,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -8817,7 +8820,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: true,
 		},
 		"FastQuotaRelease_AllTerminating": {
-			enableFastQuotaRelease: true,
+			strategy: configapi.QuotaReleaseOnQuotaReleased,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -8838,15 +8841,55 @@ func TestPod_IsActive(t *testing.T) {
 			},
 			want: false,
 		},
+		"QuotaReleaseStrategy_Disabled_LegacyFastQuotaRelease_Enabled": {
+			disableQuotaReleaseStrategyFG: true,
+			enableLegacyFastQuotaRelease:  true,
+			strategy:                      configapi.QuotaReleaseOnTerminal,
+			fields: fields{
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							Name:                       "terminating-within-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+					},
+				},
+			},
+			want: false,
+		},
+		"QuotaReleaseStrategy_Disabled_LegacyFastQuotaRelease_Disabled": {
+			disableQuotaReleaseStrategyFG: true,
+			enableLegacyFastQuotaRelease:  false,
+			strategy:                      configapi.QuotaReleaseOnQuotaReleased,
+			fields: fields{
+				list: corev1.PodList{
+					Items: []corev1.Pod{
+						{
+							Name:                       "terminating-within-grace",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
+						},
+					},
+				},
+			},
+			want: true,
+		},
 	}
+
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.FastQuotaReleaseInPodIntegration, tt.enableFastQuotaRelease)
+			features.SetFeatureGateDuringTest(t, features.QuotaReleaseStrategy, !tt.disableQuotaReleaseStrategyFG)
+			features.SetFeatureGateDuringTest(t, features.FastQuotaReleaseInPodIntegration, tt.enableLegacyFastQuotaRelease) //nolint:staticcheck // SA1019: testing deprecated feature gate migration
 			p := &Pod{
-				pod:   tt.fields.pod,
-				list:  tt.fields.list,
-				clock: testingclock.NewFakeClock(now),
+				pod:                  tt.fields.pod,
+				list:                 tt.fields.list,
+				clock:                testingclock.NewFakeClock(now),
+				quotaReleaseStrategy: tt.strategy,
 			}
+
 			if got := p.IsActive(); got != tt.want {
 				t.Errorf("IsActive() = %v, want %v", got, tt.want)
 			}
