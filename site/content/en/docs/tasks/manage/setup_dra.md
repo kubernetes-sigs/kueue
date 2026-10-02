@@ -116,6 +116,70 @@ The `example.com/gpu` resource in the `ClusterQueue` corresponds to the `name`
 field in `deviceClassMappings`. Each device request referencing a mapped
 `DeviceClass` consumes `count` units of this quota (default 1 when omitted).
 
+## Set up `firstAvailable` requests
+
+{{< feature-state state="alpha" for_version="v0.20" >}}
+
+Use this when your users' `ResourceClaimTemplate` objects list alternative
+device classes under `firstAvailable`. Complete the
+[ResourceClaimTemplate path](#set-up-the-resourceclaimtemplate-path) first.
+Every alternative of a request must use `ExactCount`, ask for the same `count`,
+and map to one logical resource that has no `counter` or `capacity` source.
+Kueue charges that count once per request.
+
+### 1. Verify the DeviceClasses
+
+Every `DeviceClass` the alternatives name must exist. Outside
+[Topology-Aware Scheduling with DRA](#use-topology-aware-scheduling-with-dra), a
+missing one leaves the Pod `Pending` while the Workload holds its quota.
+
+To try the example with the
+[dra-example-driver](https://github.com/kubernetes-sigs/dra-example-driver),
+create two mock classes. Both select the same mock devices, so the example
+shows only the quota charge:
+
+{{< include "examples/dra/sample-dra-firstavailable-deviceclasses.yaml" "yaml" >}}
+
+```shell
+kubectl apply -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-firstavailable-deviceclasses.yaml
+```
+
+Check that the classes exist:
+
+```shell
+kubectl get deviceclass a100.example.com a100-mig.example.com
+```
+
+### 2. Enable the gate and map the classes
+
+Merge the following into your Kueue Configuration, following the
+[custom configuration installation instructions](/docs/installation/#install-a-custom-configured-released-version),
+and restart the controller. The two classes join the `example.com/gpu` entry
+from the ResourceClaimTemplate path; a second entry with the same `name` is
+rejected.
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+featureGates:
+  KueueDRAIntegrationPrioritizedList: true
+resources:
+  deviceClassMappings:
+  - name: example.com/gpu
+    deviceClassNames:
+    - gpu.example.com
+    - a100.example.com
+    - a100-mig.example.com
+```
+
+`KueueDRAIntegration` and the Kubernetes `DRAPrioritizedList` gate are needed
+too. Both are on by default, `DRAPrioritizedList` since Kubernetes 1.34, so on
+1.34 or later you do not need to enable them. The `sample-dra-queues.yaml`
+`ClusterQueue` already covers `example.com/gpu`. Continue with the
+[Job example](/docs/tasks/run/dra/#using-a-firstavailable-request). The
+[limitations](/docs/concepts/dynamic_resource_allocation/#limitations) list
+what Kueue does not check for these requests.
+
 ## Set up the extended resource path
 
 {{< feature-state state="beta" for_version="v0.19" >}}
@@ -533,4 +597,6 @@ timeout, allowing them to be re-queued and retried.
 DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue).
 MultiKueue syncs the workload and its owning job to worker clusters, but
 `ResourceClaimTemplate` and `DeviceClass` objects are not automatically
-synced. These must be created on each worker cluster separately.
+synced. These must be created on each worker cluster separately. That support
+does not extend to `firstAvailable` requests. See the
+[limitations](/docs/concepts/dynamic_resource_allocation/#limitations).

@@ -745,7 +745,7 @@ func TestChargesForClaimSpec(t *testing.T) {
 		// perLogicalResource is always allocated, so an empty map is the expectation
 		// when no prioritized list is charged; ToMap reports no class charges as nil.
 		wantLogical map[corev1.ResourceName]resources.Amount
-		wantClasses map[corev1.ResourceName]int64
+		wantClasses map[corev1.ResourceName]resources.Amount
 		wantErr     bool
 		// Set these when which error comes back is the point of the case, since
 		// several guards on this path reject the same spec for different reasons.
@@ -760,9 +760,9 @@ func TestChargesForClaimSpec(t *testing.T) {
 				).
 				Build(),
 			wantLogical: map[corev1.ResourceName]resources.Amount{},
-			wantClasses: map[corev1.ResourceName]int64{"gpu": 5},
+			wantClasses: map[corev1.ResourceName]resources.Amount{"gpu": resources.NewAmount(5)},
 		},
-		"an exactly sum saturates at MaxInt64 instead of wrapping negative": {
+		"an exactly sum past MaxInt64 stays exact": {
 			spec: utiltesting.NewResourceClaimSpecBuilder().
 				DeviceRequests(
 					testingdra.MakeDeviceRequest("r0", "gpu", math.MaxInt64).Obj(),
@@ -770,7 +770,7 @@ func TestChargesForClaimSpec(t *testing.T) {
 				).
 				Build(),
 			wantLogical: map[corev1.ResourceName]resources.Amount{},
-			wantClasses: map[corev1.ResourceName]int64{"gpu": math.MaxInt64},
+			wantClasses: map[corev1.ResourceName]resources.Amount{"gpu": resources.NewAmount(math.MaxInt64).MulInt64(2)},
 		},
 		"with the gate off a prioritized list is still refused": {
 			spec: utiltesting.NewResourceClaimSpecBuilder().
@@ -826,7 +826,7 @@ func TestChargesForClaimSpec(t *testing.T) {
 				Build(),
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
 			wantLogical:  map[corev1.ResourceName]resources.Amount{"example.com/gpu": resources.NewAmount(4)},
-			wantClasses:  map[corev1.ResourceName]int64{"fast.example.com": 2},
+			wantClasses:  map[corev1.ResourceName]resources.Amount{"fast.example.com": resources.NewAmount(2)},
 		},
 		"a sum past the int64 range is kept exactly rather than saturated": {
 			spec: utiltesting.NewResourceClaimSpecBuilder().

@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
@@ -34,7 +33,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
-	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
@@ -136,8 +134,8 @@ func chargesForClaimSpec(claimSpec *resourcev1.ResourceClaimSpec, mapper *Resour
 		if dc == "" {
 			continue
 		}
-		// Counts are user-controlled up to MaxInt64, so the sum saturates rather than wraps.
-		charges.perDeviceClass.Set(dc, utilmath.SaturatingAdd(charges.perDeviceClass.ResourceValue(dc), q))
+		// Counts are user-controlled up to MaxInt64, and the sum is exact.
+		charges.perDeviceClass.Set(dc, charges.perDeviceClass.ResourceValue(dc).AddInt64(q))
 	}
 	return charges, nil
 }
@@ -315,7 +313,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 				if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) && len(mapper.getCapacityConfigs(dc)) > 0 {
 					continue
 				}
-				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: resource.MustParse(strconv.FormatInt(qty, 10))})
+				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: resource.MustParse(qty.String())})
 			}
 		}
 

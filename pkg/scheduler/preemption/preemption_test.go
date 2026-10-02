@@ -4304,7 +4304,8 @@ func TestPreemption(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(log, tc.incoming)
 				wlInfo.ClusterQueue = tc.targetCQ
-				targets := preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy)
+				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, tc.assignment)
+				targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 				preempted, failed, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
 					t.Fatalf("Failed doing preemption")
@@ -4538,7 +4539,8 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(log, tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
-				targets := preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy)
+				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, tc.assignment)
+				targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 				_, _, err = preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
 					t.Fatalf("Failed doing preemption")
@@ -4766,7 +4768,8 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(log, tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
-				targets := preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshot)
+				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, tc.assignment)
+				targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 
 				if len(targets) == 0 {
 					t.Fatal("Expected preemption targets")
@@ -5129,10 +5132,10 @@ func TestPriorityInfo(t *testing.T) {
 	}
 }
 
-// TestGetTargetsWithPodsQuota pins that target selection counts Pods when the
+// TestPreemptionWithPodsQuota pins that target selection counts Pods when the
 // ClusterQueue has quota for them: a 7-Pod workload needs both lower-priority
 // workloads, and one victim alone is not enough.
-func TestGetTargetsWithPodsQuota(t *testing.T) {
+func TestPreemptionWithPodsQuota(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
 		quota     corev1.ResourceName
@@ -5210,8 +5213,9 @@ func TestGetTargetsWithPodsQuota(t *testing.T) {
 			}
 
 			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, assignment)
 			var got []string
-			for _, target := range preemptor.GetTargets(ctx, *wlInfo, assignment, snapshot) {
+			for _, target := range preemptor.GetTargetsWithStrategy(ctx, strategies) {
 				got = append(got, target.WorkloadInfo.Obj.Name)
 			}
 			slices.Sort(got)

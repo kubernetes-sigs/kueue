@@ -25,6 +25,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
 const (
@@ -58,10 +59,8 @@ func NegativeDRS() DRS {
 	return DRS{unweightedRatio: -1, dominantResource: "", fairWeight: defaultWeight}
 }
 
-// IsZero returns whether the DRS unweighted ratio is 0.
-// In the current implementation, DRS unweighted ratio is zero
-// if and only if it is not borrowing any resources.
-// This may change in the future if the DRS implementation changes.
+// IsZero returns whether the DRS unweighted ratio is 0, which is also the
+// case for a node borrowing only what its Cohort has nothing lendable for.
 func (d DRS) IsZero() bool {
 	return d.unweightedRatio == 0
 }
@@ -88,13 +87,20 @@ func (d DRS) isWeightZero() bool {
 }
 
 func (d DRS) PreciseWeightedShare() float64 {
+	if d.ZeroWeightBorrows() {
+		return math.Inf(1)
+	}
 	if d.IsZero() {
 		return 0.0
 	}
-	if d.isWeightZero() {
-		return math.Inf(1)
+	share := d.unweightedRatio / d.fairWeight
+	// A weight around 1e308, or one past the float64 range and so +Inf,
+	// divides a positive ratio down to zero, which is the share of a node
+	// within its quota.
+	if share == 0 && d.unweightedRatio > 0 {
+		return math.SmallestNonzeroFloat64
 	}
-	return d.unweightedRatio / d.fairWeight
+	return share
 }
 
 // PreciseWeightedShareSerialized returns the DRS value
@@ -122,29 +128,27 @@ func CompareDRS(a, b DRS) int {
 	}
 }
 
-// roundedWeightedShare returns a value ranging from 0 to math.MaxInt,
+// roundedWeightedShare returns a value ranging from 0 to math.MaxInt64,
 // representing the maximum of the ratios of usage above nominal quota
 // to the lendable resources in the cohort, among all the resources
-// provided by the ClusterQueue, and divided by the weight.  If zero,
-// it means that the usage of the ClusterQueue is below the nominal
-// quota.  The function also returns the resource name that yielded
-// this value.  When the FairSharing weight is 0, and the ClusterQueue
-// or Cohort is borrowing, we return math.MaxInt.
+// provided by the ClusterQueue, and divided by the weight.  The function
+// also returns the resource name that yielded this value.  When the
+// FairSharing weight is 0, and the ClusterQueue or Cohort is borrowing,
+// or the share is above the int64 range, we return math.MaxInt64.
 func (d DRS) roundedWeightedShare() (int64, corev1.ResourceName) {
 	var weightedShare int64
 	if d.ZeroWeightBorrows() {
 		weightedShare = math.MaxInt64
 	} else {
-		weightedShare = int64(math.Ceil(d.PreciseWeightedShare()))
+		weightedShare = utilmath.SaturatingCeil(d.PreciseWeightedShare())
 	}
 	return weightedShare, d.dominantResource
 }
 
-// ZeroWeightBorrows returns whether this DRS represents a
-// borrowing state for a ClusterQueue/Cohort with a zero weight.
-// This is equivalent to PreciseWeightedShare returning +Inf.
+// ZeroWeightBorrows returns whether a ClusterQueue/Cohort with a zero
+// weight borrows, which makes its PreciseWeightedShare +Inf.
 func (d DRS) ZeroWeightBorrows() bool {
-	return d.isWeightZero() && !d.IsZero()
+	return d.isWeightZero() && d.IsBorrowing()
 }
 
 func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities) DRS {
