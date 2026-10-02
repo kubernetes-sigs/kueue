@@ -55,6 +55,7 @@ func TestApplyRulesToSliceLeavesItsInputAlone(t *testing.T) {
 	rules := []*resourceapi.DeviceTaintRule{{
 		Name: "maintenance",
 		Spec: resourceapi.DeviceTaintRuleSpec{
+			DeviceSelector: &resourceapi.DeviceTaintSelector{},
 			Taint: resourceapi.DeviceTaint{
 				Key:    "example.com/maintenance",
 				Effect: resourceapi.DeviceTaintEffectNoSchedule,
