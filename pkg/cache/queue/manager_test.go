@@ -23,6 +23,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -2508,6 +2509,125 @@ func TestQueueSecondPassReadErrorRetried(t *testing.T) {
 	}
 	if wantReady := sets.New(workload.Key(wl)); !gotReady.Equal(wantReady) {
 		t.Errorf("Unexpected ready workloads: want %v, got %v", wantReady, gotReady)
+	}
+}
+
+func secondPassUnhealthyNodeWorkload(now time.Time) *kueue.Workload {
+	return utiltestingapi.MakeWorkload("foo", "default").
+		Queue("tas-main").
+		PodSets(*utiltestingapi.MakePodSet("one", 2).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("tas-main").
+				PodSets(utiltestingapi.MakePodSetAssignment("one").
+					Assignment(corev1.ResourceCPU, "tas-default", "2").
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+						Obj()).
+					Obj()).
+				Obj(),
+			now,
+		).
+		AdmittedAt(true, now).
+		UnhealthyNodes("x1").
+		Obj()
+}
+
+// A node failure recorded while the pending pass re-reads an older version still gets a pass.
+func TestQueueSecondPassRequestDuringReReadNotLost(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	wl := secondPassUnhealthyNodeWorkload(now)
+
+	healed := wl.DeepCopy()
+	healed.Status.UnhealthyNodes = nil
+	readDone := make(chan struct{})
+	releaseRead := make(chan struct{})
+	release := sync.OnceFunc(func() { close(releaseRead) })
+	defer release()
+	var firstRead atomic.Bool
+	c := utiltesting.NewClientBuilder().WithObjects(healed).WithStatusSubresource(healed).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if err := cl.Get(ctx, key, obj, opts...); err != nil {
+				return err
+			}
+			if _, ok := obj.(*kueue.Workload); ok && firstRead.CompareAndSwap(false, true) {
+				close(readDone)
+				<-releaseRead
+			}
+			return nil
+		},
+	}).Build()
+
+	fakeClock := testingclock.NewFakeClock(now)
+	manager := NewManagerForUnitTests(c, nil, WithClock(fakeClock))
+
+	manager.QueueSecondPassIfNeeded(ctx, wl, 0)
+	// The fake clock runs the pass inside Step.
+	stepDone := make(chan struct{})
+	go func() {
+		fakeClock.Step(time.Second)
+		close(stepDone)
+	}()
+	<-readDone
+
+	// The informer stores the new failure before its handler requests a pass.
+	var latest kueue.Workload
+	if err := c.Get(ctx, client.ObjectKeyFromObject(wl), &latest); err != nil {
+		t.Fatal(err)
+	}
+	latest.Status.UnhealthyNodes = []kueue.UnhealthyNode{{Name: "x2"}}
+	if err := c.Status().Update(ctx, &latest); err != nil {
+		t.Fatal(err)
+	}
+	handlerDone := make(chan struct{})
+	go func() {
+		manager.QueueSecondPassIfNeeded(ctx, &latest, 0)
+		close(handlerDone)
+	}()
+	// A request that only arrives after the release arms a fresh pass and can't
+	// be lost; give it time to reach the pending pass first.
+	select {
+	case <-handlerDone:
+	case <-time.After(200 * time.Millisecond):
+	}
+	release()
+	<-stepDone
+	<-handlerDone
+
+	fakeClock.Step(maxBackoff)
+	if ready := manager.secondPassQueue.takeAllReady(); len(ready) != 1 {
+		t.Errorf("Unexpected number of ready workloads: want 1, got %d", len(ready))
+	}
+}
+
+// An update for a workload with a pending pass must not shorten the scheduler's retry backoff.
+func TestQueueSecondPassUpdateKeepsPendingRetry(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	wl := secondPassUnhealthyNodeWorkload(now)
+
+	fakeClock := testingclock.NewFakeClock(now)
+	manager := NewManagerForUnitTests(utiltesting.NewFakeClient(wl.DeepCopy()), nil, WithClock(fakeClock))
+	retryDelay := manager.secondPassQueue.nextDelay(5)
+
+	manager.QueueSecondPassIfNeeded(ctx, wl, 4)
+	manager.QueueSecondPassIfNeeded(ctx, wl, 0)
+
+	fakeClock.Step(time.Second)
+	if early := manager.secondPassQueue.takeAllReady(); len(early) != 0 {
+		t.Fatalf("Unexpected ready workloads before the retry delay: %d", len(early))
+	}
+	fakeClock.Step(retryDelay - time.Second)
+	ready := manager.secondPassQueue.takeAllReady()
+	if len(ready) != 1 {
+		t.Fatalf("Unexpected number of ready workloads: want 1, got %d", len(ready))
+	}
+	if ready[0].SecondPassIteration != 5 {
+		t.Errorf("Unexpected second pass iteration: want 5, got %d", ready[0].SecondPassIteration)
 	}
 }
 
