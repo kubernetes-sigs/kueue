@@ -92,7 +92,14 @@ func (d DRS) PreciseWeightedShare() float64 {
 	if d.IsZero() {
 		return 0.0
 	}
-	return d.unweightedRatio / d.fairWeight
+	share := d.unweightedRatio / d.fairWeight
+	// A weight around 1e308, or one past the float64 range and so +Inf,
+	// divides a positive ratio down to zero, which is the share of a node
+	// within its quota.
+	if share == 0 && d.unweightedRatio > 0 {
+		return math.SmallestNonzeroFloat64
+	}
+	return share
 }
 
 // PreciseWeightedShareSerialized returns the DRS value
