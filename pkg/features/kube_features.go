@@ -636,6 +636,14 @@ const (
 	// replacing map lookups for higher performance during scheduling and preemption.
 	VectorizedResourceRequests featuregate.Feature = "VectorizedResourceRequests"
 
+	// owner: @zhengchenyu
+	//
+	// Enables caching and reusing the per-ClusterQueue candidate ordering across
+	// preemptors within a single scheduling cycle in classical preemption, and the
+	// lazy segment/bucket merge iterator that consumes it, instead of re-sorting a
+	// flat candidate list for every preemptor.
+	CandidateOrderCache featuregate.Feature = "CandidateOrderCache"
+
 	// owner: @vladikkuzn
 	//
 	// When an existing PodTemplate at the deterministic name differs from the Kueue-derived
@@ -1203,6 +1211,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	VectorizedResourceRequests: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	CandidateOrderCache: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	EnforceProvisioningPodTemplateContents: {

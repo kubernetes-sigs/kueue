@@ -60,6 +60,16 @@ type Snapshot struct {
 	// hostnameLeafTASFlavors holds the flavor snapshots sharing topology
 	// capacity, fixed once the snapshot is built.
 	hostnameLeafTASFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
+
+	// candidateOrderCache memoizes per-CQ preemption candidate ordering per snapshot.
+	candidateOrderCache *CandidateOrderCache
+}
+
+func (s *Snapshot) CandidateOrder() *CandidateOrderCache {
+	if s.candidateOrderCache == nil {
+		s.candidateOrderCache = newCandidateOrderCache()
+	}
+	return s.candidateOrderCache
 }
 
 // RemoveWorkload removes a workload from its corresponding ClusterQueue and
