@@ -24,7 +24,6 @@ import (
 
 	"github.com/spf13/cobra"
 	appsv1 "k8s.io/api/apps/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
@@ -36,9 +35,8 @@ import (
 )
 
 const (
-	kueueNamespace             = "kueue-system"
-	kueueControllerManagerName = "kueue-controller-manager"
-	kueueContainerName         = "manager"
+	kueueNamespace     = "kueue-system"
+	kueueContainerName = "manager"
 )
 
 var (
@@ -151,21 +149,10 @@ func (o *VersionOptions) Run(ctx context.Context) error {
 }
 
 // findControllerManager returns the Kueue controller manager Deployment in
-// o.Namespace, or nil if there is none. A Helm release can rename the Deployment
-// (for example foo-kueue-controller-manager), so when the default name is not
-// found it falls back to the controller manager labels.
+// o.Namespace, or nil if there is none. It looks the Deployment up by labels
+// because a Helm release can rename it (for example foo-kueue-controller-manager).
 func (o *VersionOptions) findControllerManager(ctx context.Context) (*appsv1.Deployment, error) {
-	deployments := o.K8sClientset.AppsV1().Deployments(o.Namespace)
-
-	deployment, err := deployments.Get(ctx, kueueControllerManagerName, metav1.GetOptions{})
-	if err == nil {
-		return deployment, nil
-	}
-	if !apierrors.IsNotFound(err) {
-		return nil, err
-	}
-
-	list, err := deployments.List(ctx, metav1.ListOptions{LabelSelector: kueueControllerManagerSelector})
+	list, err := o.K8sClientset.AppsV1().Deployments(o.Namespace).List(ctx, metav1.ListOptions{LabelSelector: kueueControllerManagerSelector})
 	if err != nil {
 		return nil, err
 	}
