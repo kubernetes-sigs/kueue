@@ -4520,6 +4520,110 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 	})
 
+	ginkgo.When("A workload slice replacement competes for cohort quota", func() {
+		var (
+			resourceFlavor *kueue.ResourceFlavor
+			cqA, cqB       *kueue.ClusterQueue
+			lqA, lqB       *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+
+			resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
+			util.MustCreate(ctx, k8sClient, resourceFlavor)
+
+			// cq-b only borrows, so in a shared cycle cq-a's entries go first.
+			cqA = utiltestingapi.MakeClusterQueue("slice-a").
+				Cohort("slice").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+					Resource(corev1.ResourceCPU, "10").Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cqA)
+			cqB = utiltestingapi.MakeClusterQueue("slice-b").
+				Cohort("slice").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+					Resource(corev1.ResourceCPU, "0", "10").Obj()).
+				Obj()
+			util.MustCreate(ctx, k8sClient, cqB)
+			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cqA, cqB)
+
+			lqA = utiltestingapi.MakeLocalQueue("slice-a", ns.Name).ClusterQueue(cqA.Name).Obj()
+			util.MustCreate(ctx, k8sClient, lqA)
+			lqB = utiltestingapi.MakeLocalQueue("slice-b", ns.Name).ClusterQueue(cqB.Name).Obj()
+			util.MustCreate(ctx, k8sClient, lqB)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lqA, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lqB, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqA, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqB, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+		})
+
+		ginkgo.It("should not let a workload in the same cycle reuse the replaced slice's quota", func() {
+			// The replacement and the other workload must be considered in one
+			// cycle, so both wait behind a full cohort and are released together.
+			var old, blocker *kueue.Workload
+			ginkgo.By("filling the cohort with the slice to replace and a borrowing workload", func() {
+				old = utiltestingapi.MakeWorkload("old", ns.Name).
+					Queue(kueue.LocalQueueName(lqA.Name)).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 6).
+						Request(corev1.ResourceCPU, "1").Obj()).
+					Obj()
+				util.MustCreate(ctx, k8sClient, old)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, old)
+
+				blocker = utiltestingapi.MakeWorkload("blocker", ns.Name).
+					Queue(kueue.LocalQueueName(lqB.Name)).
+					Request(corev1.ResourceCPU, "4").
+					Obj()
+				util.MustCreate(ctx, k8sClient, blocker)
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, blocker)
+			})
+
+			var grow, other *kueue.Workload
+			ginkgo.By("queueing a replacement that grows the slice from 6 to 8 and a workload asking for 4", func() {
+				grow = utiltestingapi.MakeWorkload("grow", ns.Name).
+					Queue(kueue.LocalQueueName(lqA.Name)).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(old))).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 8).
+						Request(corev1.ResourceCPU, "1").Obj()).
+					Obj()
+				util.MustCreate(ctx, k8sClient, grow)
+				other = utiltestingapi.MakeWorkload("other", ns.Name).
+					Queue(kueue.LocalQueueName(lqB.Name)).
+					Request(corev1.ResourceCPU, "4").
+					Obj()
+				util.MustCreate(ctx, k8sClient, other)
+				util.ExpectWorkloadsToBePending(ctx, k8sClient, grow, other)
+				util.ExpectPendingWorkloadsMetric(cqA, 0, 1)
+				util.ExpectPendingWorkloadsMetric(cqB, 0, 1)
+			})
+
+			ginkgo.By("freeing 4 CPU in a single step", func() {
+				util.FinishWorkloads(ctx, k8sClient, blocker)
+			})
+
+			ginkgo.By("admitting the replacement, which takes 2 of the 4 CPU", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, grow)
+				util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(old))
+			})
+
+			ginkgo.By("keeping the other workload pending, as only 2 CPU are left", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					var wl kueue.Workload
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(other), &wl)).To(gomega.Succeed())
+					g.Expect(wl.Status.Admission).To(gomega.BeNil())
+				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+	})
+
 	ginkgo.When("The admission goroutine races with preemptions in the next scheduling cycle", func() {
 		// This deterministically reproduces a race condition in the scheduler, where the asynchronous
 		// admission goroutine does not finish before the next scheduling cycle starts.
