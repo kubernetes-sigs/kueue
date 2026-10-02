@@ -17,6 +17,7 @@ limitations under the License.
 package resources
 
 import (
+	"encoding/json"
 	"math"
 	"math/big"
 	"strings"
@@ -105,6 +106,90 @@ func TestAmountSub(t *testing.T) {
 	}
 }
 
+func TestAmountMulQuo(t *testing.T) {
+	mulCases := map[string]struct {
+		a         Amount
+		f         int64
+		want      string
+		wantInt64 bool
+	}{
+		"an int64 product":        {a: NewAmount(20), f: 3, want: "60", wantInt64: true},
+		"a product past MaxInt64": {a: NewAmount(math.MaxInt64), f: 2, want: "18446744073709551614"},
+		"MinInt64 times -1":       {a: NewAmount(math.MinInt64), f: -1, want: "9223372036854775808"},
+		"a large value times two": {a: bigAmount(t, "9223372036854775808"), f: 2, want: "18446744073709551616"},
+		"a product of zero":       {a: bigAmount(t, "9223372036854775808"), f: 0, want: "0", wantInt64: true},
+	}
+	for name, tc := range mulCases {
+		t.Run("mul/"+name, func(t *testing.T) {
+			got := tc.a.MulInt64(tc.f)
+			if got.String() != tc.want {
+				t.Errorf("MulInt64(%d) = %s, want %s", tc.f, got, tc.want)
+			}
+			if held := got.large == nil; held != tc.wantInt64 {
+				t.Errorf("MulInt64(%d) = %s held in int64: %v, want %v", tc.f, got, held, tc.wantInt64)
+			}
+		})
+	}
+
+	quoCases := map[string]struct {
+		a         Amount
+		f         int64
+		want      string
+		wantInt64 bool
+	}{
+		"division inside int64":        {a: NewAmount(math.MaxInt64), f: 1, want: "9223372036854775807", wantInt64: true},
+		"MinInt64 divided by -1":       {a: NewAmount(math.MinInt64), f: -1, want: "9223372036854775808"},
+		"a large value divided by two": {a: bigAmount(t, "18446744073709551616"), f: 2, want: "9223372036854775808"},
+		"truncation toward zero":       {a: NewAmount(5), f: 2, want: "2", wantInt64: true},
+		"a negative quotient":          {a: NewAmount(-5), f: 2, want: "-2", wantInt64: true},
+	}
+	for name, tc := range quoCases {
+		t.Run("quo/"+name, func(t *testing.T) {
+			got := tc.a.QuoInt64(tc.f)
+			if got.String() != tc.want {
+				t.Errorf("QuoInt64(%d) = %s, want %s", tc.f, got, tc.want)
+			}
+			if held := got.large == nil; held != tc.wantInt64 {
+				t.Errorf("QuoInt64(%d) = %s held in int64: %v, want %v", tc.f, got, held, tc.wantInt64)
+			}
+		})
+	}
+
+	quo := bigAmount(t, "18446744073709551616").Quo(NewAmount(2))
+	if quo.String() != "9223372036854775808" {
+		t.Errorf("Quo() = %s, want 9223372036854775808", quo)
+	}
+	rem := NewAmount(math.MaxInt64).MulInt64(2).RemInt64(3)
+	if !rem.Equal(NewAmount(2)) {
+		t.Errorf("RemInt64() = %s, want 2", rem)
+	}
+}
+
+func TestAmountJSONMatchesInt64(t *testing.T) {
+	cases := []int64{0, 1, -1, 1000, math.MaxInt64, math.MinInt64}
+	for _, n := range cases {
+		got, err := json.Marshal(NewAmount(n))
+		if err != nil {
+			t.Fatalf("Marshal(%d) error: %v", n, err)
+		}
+		want, err := json.Marshal(n)
+		if err != nil {
+			t.Fatalf("Marshal int64(%d) error: %v", n, err)
+		}
+		if string(got) != string(want) {
+			t.Errorf("Marshal(%d) = %s, want %s", n, got, want)
+		}
+	}
+	large := bigAmount(t, "9223372036854775808")
+	got, err := json.Marshal(large)
+	if err != nil {
+		t.Fatalf("Marshal(large) error: %v", err)
+	}
+	if string(got) != `"9223372036854775808"` {
+		t.Errorf("Marshal(large) = %s, want a decimal string", got)
+	}
+}
+
 func TestAmountCmp(t *testing.T) {
 	large := bigAmount(t, "9223372036854775808")
 	negative := bigAmount(t, "-9223372036854775809")
@@ -180,8 +265,10 @@ func TestAmountFromQuantity(t *testing.T) {
 	}{
 		"whole cores in milli":      {name: corev1.ResourceCPU, qty: "2", want: "2000"},
 		"a fraction of a core":      {name: corev1.ResourceCPU, qty: "1.5", want: "1500"},
+		"a negative fraction":       {name: corev1.ResourceCPU, qty: "-1.5", want: "-1500"},
 		"a milli":                   {name: corev1.ResourceCPU, qty: "500m", want: "500"},
 		"below a milli rounds up":   {name: corev1.ResourceCPU, qty: "500u", want: "1"},
+		"below a milli rounds down": {name: corev1.ResourceCPU, qty: "-500u", want: "-1"},
 		"1E of cpu is not infinite": {name: corev1.ResourceCPU, qty: "1E", want: "1000000000000000000000"},
 		"10P of cpu is exact":       {name: corev1.ResourceCPU, qty: "10P", want: "10000000000000000000"},
 		"the largest int64 milli":   {name: corev1.ResourceCPU, qty: "9223372036854775807m", want: "9223372036854775807"},
@@ -213,6 +300,97 @@ func TestAmountFromQuantity(t *testing.T) {
 			got := AmountFromQuantity(tc.name, resource.MustParse(tc.qty))
 			if got.String() != tc.want {
 				t.Errorf("AmountFromQuantity(%s, %s) = %s, want %s", tc.name, tc.qty, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAmountFromQuantityInRangeDoesNotAllocate(t *testing.T) {
+	cases := map[string]struct {
+		name corev1.ResourceName
+		qty  string
+	}{
+		"cpu milli": {name: corev1.ResourceCPU, qty: "100m"},
+		"whole cpu": {name: corev1.ResourceCPU, qty: "2"},
+		"memory":    {name: corev1.ResourceMemory, qty: "1Gi"},
+		"a device":  {name: "example.com/gpu", qty: "8"},
+		"zero cpu":  {name: corev1.ResourceCPU, qty: "0"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			q := resource.MustParse(tc.qty)
+			allocs := testing.AllocsPerRun(100, func() {
+				AmountFromQuantity(tc.name, q)
+			})
+			if allocs != 0 {
+				t.Errorf("AmountFromQuantity(%s) allocated %v times, want 0", tc.qty, allocs)
+			}
+		})
+	}
+}
+
+// CmpInt64 would build 10^n to align a scale of n, which costs far more than
+// the digit count of the decimal path.
+func TestAmountFromQuantityAtAFarScale(t *testing.T) {
+	cases := map[string]struct {
+		name     corev1.ResourceName
+		unscaled int64
+		scale    resource.Scale
+		want     string
+	}{
+		"a far positive exponent is capped": {
+			name:     "example.com/gpu",
+			unscaled: 10,
+			scale:    999_999,
+			want:     "9223372036854775807",
+		},
+		"a far positive exponent of cpu is capped in cores": {
+			name:     corev1.ResourceCPU,
+			unscaled: 10,
+			scale:    999_999,
+			want:     "9223372036854775807000",
+		},
+		"a far negative exponent rounds up to one": {
+			name:     "example.com/gpu",
+			unscaled: 1,
+			scale:    -1_000_000,
+			want:     "1",
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			q := *resource.NewScaledQuantity(tc.unscaled, tc.scale)
+			if got := AmountFromQuantity(tc.name, q); got.String() != tc.want {
+				t.Errorf("AmountFromQuantity(%s, %d at scale %d) = %s, want %s", tc.name, tc.unscaled, tc.scale, got, tc.want)
+			}
+			allocs := testing.AllocsPerRun(1, func() {
+				AmountFromQuantity(tc.name, q)
+			})
+			decimalAllocs := testing.AllocsPerRun(1, func() {
+				fromBig(scaledBig(tc.name, q))
+			})
+			if allocs > decimalAllocs {
+				t.Errorf("AmountFromQuantity(%s, %d at scale %d) allocated %v times, the decimal path %v", tc.name, tc.unscaled, tc.scale, allocs, decimalAllocs)
+			}
+		})
+	}
+}
+
+func BenchmarkAmountFromQuantity(b *testing.B) {
+	cases := []struct {
+		name corev1.ResourceName
+		qty  string
+	}{
+		{name: corev1.ResourceCPU, qty: "100m"},
+		{name: corev1.ResourceCPU, qty: "1"},
+		{name: corev1.ResourceMemory, qty: "1Gi"},
+		{name: "example.com/gpu", qty: "1"},
+	}
+	for _, tc := range cases {
+		q := resource.MustParse(tc.qty)
+		b.Run(tc.qty, func(b *testing.B) {
+			for b.Loop() {
+				AmountFromQuantity(tc.name, q)
 			}
 		})
 	}

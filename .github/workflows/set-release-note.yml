@@ -55,7 +55,9 @@ jobs:
         uses: $/.github/actions/authorize-release-actor
         with:
           actor: ${{ github.actor }}
-          aliases: release-team
+          aliases: |
+            release-team
+            kueue-approvers
 
   report-authorization-failure:
     name: Report authorization failure

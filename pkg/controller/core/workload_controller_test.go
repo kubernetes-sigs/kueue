@@ -2957,9 +2957,9 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 									if tc.wantDRAResourceTotal != nil {
 										if len(wlInfo.TotalRequests) > 0 && wlInfo.TotalRequests[0].Requests != nil {
 											gpuVal := wlInfo.TotalRequests[0].Requests.ResourceValue("gpu")
-											if gpuVal > 0 {
-												if gpuVal != *tc.wantDRAResourceTotal {
-													t.Errorf("Expected gpu resource total to be %d, got %d", *tc.wantDRAResourceTotal, gpuVal)
+											if gpuVal.Sign() > 0 {
+												if gpuVal.CmpInt64(*tc.wantDRAResourceTotal) != 0 {
+													t.Errorf("Expected gpu resource total to be %d, got %s", *tc.wantDRAResourceTotal, gpuVal)
 												}
 											} else {
 												t.Errorf("Expected gpu resource in DRA workload TotalRequests, but not found")
@@ -2971,7 +2971,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 									for _, resName := range tc.wantAbsentDRAResources {
 										if len(wlInfo.TotalRequests) > 0 && wlInfo.TotalRequests[0].Requests != nil {
 											var found bool
-											wlInfo.TotalRequests[0].Requests.ForEach(func(name corev1.ResourceName, _ int64) {
+											wlInfo.TotalRequests[0].Requests.ForEach(func(name corev1.ResourceName, _ resources.Amount) {
 												if name == resName {
 													found = true
 												}

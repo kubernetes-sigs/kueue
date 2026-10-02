@@ -59,6 +59,9 @@ Only the `ExactCount` allocation mode is supported. The
 
 For setup instructions, see
 [Set Up Dynamic Resource Allocation](/docs/tasks/manage/setup_dra).
+For `firstAvailable` requests, see
+[Set up `firstAvailable` requests](/docs/tasks/manage/setup_dra/#set-up-firstavailable-requests)
+and [Using a `firstAvailable` request](/docs/tasks/run/dra/#using-a-firstavailable-request).
 
 ## How the extended resource path works
 
