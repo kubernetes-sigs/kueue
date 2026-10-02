@@ -25,6 +25,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
 const (
@@ -127,20 +128,19 @@ func CompareDRS(a, b DRS) int {
 	}
 }
 
-// roundedWeightedShare returns a value ranging from 0 to math.MaxInt,
+// roundedWeightedShare returns a value ranging from 0 to math.MaxInt64,
 // representing the maximum of the ratios of usage above nominal quota
 // to the lendable resources in the cohort, among all the resources
-// provided by the ClusterQueue, and divided by the weight.  If zero,
-// it means that the usage of the ClusterQueue is below the nominal
-// quota.  The function also returns the resource name that yielded
-// this value.  When the FairSharing weight is 0, and the ClusterQueue
-// or Cohort is borrowing, we return math.MaxInt.
+// provided by the ClusterQueue, and divided by the weight.  The function
+// also returns the resource name that yielded this value.  When the
+// FairSharing weight is 0, and the ClusterQueue or Cohort is borrowing,
+// or the share is above the int64 range, we return math.MaxInt64.
 func (d DRS) roundedWeightedShare() (int64, corev1.ResourceName) {
 	var weightedShare int64
 	if d.ZeroWeightBorrows() {
 		weightedShare = math.MaxInt64
 	} else {
-		weightedShare = int64(math.Ceil(d.PreciseWeightedShare()))
+		weightedShare = utilmath.SaturatingCeil(d.PreciseWeightedShare())
 	}
 	return weightedShare, d.dominantResource
 }
