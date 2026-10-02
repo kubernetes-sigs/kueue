@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
@@ -417,5 +418,18 @@ func TestValidateAdmissibilityAdjustmentError(t *testing.T) {
 	}
 	if !apierrors.IsNotFound(admErr) {
 		t.Errorf("expected ValidateAdmissibility error to preserve NotFound, got: %v", admErr)
+	}
+
+	// Quota-reserved workloads (e.g. in second-pass scheduling) bypass AdjustmentErr.
+	reservedWl := utiltestingapi.MakeWorkload("wl-reserved", "ns").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("missing-rc").Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+		Obj()
+	reservedInfo, err := NewInfoFromClient(ctx, cl, reservedWl)
+	if err == nil {
+		t.Fatal("expected NewInfoFromClient to return error for missing RuntimeClass")
+	}
+	if reservedAdmErr := ValidateAdmissibility(ctx, cl, reservedInfo, nil); reservedAdmErr != nil {
+		t.Errorf("expected quota-reserved workload to pass ValidateAdmissibility despite AdjustmentErr, got: %v", reservedAdmErr)
 	}
 }
