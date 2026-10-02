@@ -8159,7 +8159,7 @@ func TestCandidateVirtualPods(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		"creates candidate pods for non-TAS podset without error": {
+		"returns error for non-TAS podset": {
 			workload: wlInfo,
 			assignment: Assignment{
 				PodSets: []PodSetAssignment{
@@ -8173,25 +8173,7 @@ func TestCandidateVirtualPods(t *testing.T) {
 					},
 				},
 			},
-			wantPodsCount: 1,
-			wantNodeSelector: map[string]string{
-				"arch":   "amd64",
-				"zone":   "zone-a",
-				"region": "us-central1",
-			},
-			wantLabels: map[string]string{
-				"app":                 "worker",
-				"injected-1":          "true",
-				"injected-2":          "true",
-				constants.PodSetLabel: string(kueue.DefaultPodSetName),
-			},
-			wantAnnotations: map[string]string{
-				"meta":                   "data",
-				"injected-ann-1":         "val-1",
-				"injected-ann-2":         "val-2",
-				kueue.WorkloadAnnotation: "wl",
-			},
-			wantTolerationsLen: 2,
+			wantErr: true,
 		},
 		"returns error when podset is failing": {
 			workload: wlInfo,

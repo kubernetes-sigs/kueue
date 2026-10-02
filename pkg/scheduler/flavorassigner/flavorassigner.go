@@ -18,7 +18,6 @@ package flavorassigner
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -1569,20 +1568,16 @@ func (a *Assignment) candidateVirtualPods(wl *workload.Info, cq *schdcache.Clust
 			return nil, fmt.Errorf("podSet %q not found in workload %s", psAssignment.Name, wl.Obj.Name)
 		}
 
-		var flavorNodeLabels map[string]string
-		var flavorTolerations []corev1.Toleration
-
 		tasFlavor, err := onlyTASFlavor(psAssignment.Flavors, cq.TASFlavors)
-		if err != nil && !errors.Is(err, ErrNoTASFlavorAssigned) {
+		if err != nil {
 			return nil, fmt.Errorf("failed to get TAS flavor for PodSet %q: %w", psAssignment.Name, err)
-		} else if tasFlavor != nil {
-			flavorSnapshot := cq.TASFlavors[*tasFlavor]
-			if flavorSnapshot == nil {
-				return nil, fmt.Errorf("TAS flavor snapshot for flavor %q not found in ClusterQueue %s", *tasFlavor, cq.Name)
-			}
-			flavorNodeLabels = flavorSnapshot.NodeLabels()
-			flavorTolerations = flavorSnapshot.Tolerations()
 		}
+		flavorSnapshot := cq.TASFlavors[*tasFlavor]
+		if flavorSnapshot == nil {
+			return nil, fmt.Errorf("TAS flavor snapshot for flavor %q not found in ClusterQueue %s", *tasFlavor, cq.Name)
+		}
+		flavorNodeLabels := flavorSnapshot.NodeLabels()
+		flavorTolerations := flavorSnapshot.Tolerations()
 
 		// Gather ready PodSetUpdates from admission checks
 		var podSetUpdates []kueue.PodSetUpdate
