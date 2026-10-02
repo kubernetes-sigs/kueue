@@ -576,7 +576,7 @@ func TestDominantResourceShare(t *testing.T) {
 					Name:      "cq",
 					NodeType:  nodeTypeCq,
 					DrName:    "example.com/gpu",
-					DrValue:   math.MaxInt,
+					DrValue:   math.MaxInt64,
 					Borrowing: true,
 				},
 				{
@@ -944,6 +944,59 @@ func TestDominantResourceShare(t *testing.T) {
 			want: []fairSharingResult{
 				{Name: "cq", NodeType: nodeTypeCq, DrName: corev1.ResourceCPU, DrValue: 1, Borrowing: true},
 				{Name: "child-cohort", NodeType: nodeTypeCohort, DrName: corev1.ResourceCPU, DrValue: 1, Borrowing: true},
+				{Name: "root", NodeType: nodeTypeCohort},
+			},
+		},
+		// 30_000_000 * 1000 / 1 / 2e-9 = 1.5e19, past the int64 range.
+		"share past int64 is reported as the int64 maximum": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(30_000_000),
+			},
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("2n")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("0").Append().
+						Obj(),
+				).Obj(),
+			lendingClusterQueue: utiltestingapi.MakeClusterQueue("lending-cq").
+				Cohort("test-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("1").Append().
+						Obj(),
+				).Obj(),
+			want: []fairSharingResult{
+				{Name: "cq", NodeType: nodeTypeCq, DrName: "example.com/gpu", DrValue: math.MaxInt64, Borrowing: true},
+				{Name: "lending-cq", NodeType: nodeTypeCq},
+				{Name: "test-cohort", NodeType: nodeTypeCohort},
+			},
+		},
+		"cohort share past int64 is reported as the int64 maximum": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(30_000_000),
+			},
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Cohort("child-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("0").Append().
+						Obj(),
+				).Obj(),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("child-cohort").FairWeight(resource.MustParse("2n")).Parent("root").Obj(),
+				utiltestingapi.MakeCohort("root").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("1").Append().
+						Obj(),
+				).Obj(),
+			},
+			want: []fairSharingResult{
+				{Name: "cq", NodeType: nodeTypeCq, DrName: "example.com/gpu", DrValue: 30_000_000_000, Borrowing: true},
+				{Name: "child-cohort", NodeType: nodeTypeCohort, DrName: "example.com/gpu", DrValue: math.MaxInt64, Borrowing: true},
 				{Name: "root", NodeType: nodeTypeCohort},
 			},
 		},
