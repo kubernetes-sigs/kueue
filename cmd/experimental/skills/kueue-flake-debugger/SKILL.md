@@ -33,17 +33,15 @@ path from the Prow page; do not reconstruct the PR-number path by hand.
 
 ```sh
 PROW_BUILD='https://prow.k8s.io/view/gs/kubernetes-ci-logs/pr-logs/pull/.../.../...'
-GCS_BUILD='https://gcsweb.k8s.io/gcs/kubernetes-ci-logs/pr-logs/pull/.../.../...'
+GCS_BUILD="${PROW_BUILD/https:\/\/prow.k8s.io\/view\/gs\//https:\/\/gcsweb.k8s.io\/gcs\/}"
 mkdir -p build-logs
 curl -fsSL "${GCS_BUILD}/build-log.txt" -o build-logs/build-log.txt
-curl -fsSL "${GCS_BUILD}/podinfo.json" -o build-logs/podinfo.json
-curl -fsSL "${GCS_BUILD}/prowjob.json" -o build-logs/prowjob.json
-```
-
-Convert a Prow viewer URL to its GCS artifact URL instead of rebuilding the path manually:
-
-```sh
-GCS_BUILD="${PROW_BUILD/https:\/\/prow.k8s.io\/view\/gs\//https:\/\/gcsweb.k8s.io\/gcs\/}"
+if ! curl -fsSL "${GCS_BUILD}/podinfo.json" -o build-logs/podinfo.json; then
+  printf '%s\n' 'podinfo.json is unavailable; skip Pod-specific checks.'
+fi
+if ! curl -fsSL "${GCS_BUILD}/prowjob.json" -o build-logs/prowjob.json; then
+  printf '%s\n' 'prowjob.json is unavailable; continue with the available artifacts.'
+fi
 ```
 
 Search around the failure and report the failing spec, source location, and exact error:
@@ -72,15 +70,21 @@ steps:
 
 ### Step 2 - inspect the CI Pod and distinguish OOM from ordinary failure
 
-`podinfo.json` is the source of truth for the test container resource limit and termination reason:
+When `build-logs/podinfo.json` is available, use it as the source of truth for the test container
+resource limit and termination reason. If it is unavailable, skip this step and report that the Pod
+metadata is missing.
 
 ```sh
-jq '.pod.metadata | {name,namespace,creationTimestamp}' build-logs/podinfo.json
-jq '.pod.spec.containers[] | {name,resources}' build-logs/podinfo.json
-jq '.pod.status.containerStatuses[] |
-  {name,reason:.state.terminated.reason,exitCode:.state.terminated.exitCode,
-   startedAt:.state.terminated.startedAt,finishedAt:.state.terminated.finishedAt}' \
-  build-logs/podinfo.json
+if test -s build-logs/podinfo.json; then
+  jq '.pod.metadata | {name,namespace,creationTimestamp}' build-logs/podinfo.json
+  jq '.pod.spec.containers[] | {name,resources}' build-logs/podinfo.json
+  jq '.pod.status.containerStatuses[] |
+    {name,reason:.state.terminated.reason,exitCode:.state.terminated.exitCode,
+     startedAt:.state.terminated.startedAt,finishedAt:.state.terminated.finishedAt}' \
+    build-logs/podinfo.json
+else
+  printf '%s\n' 'podinfo.json is unavailable; skip Pod-specific checks.'
+fi
 ```
 
 Interpret the result as follows:
@@ -94,7 +98,8 @@ Interpret the result as follows:
 
 ### Step 3 - query Prow Prometheus for resource evidence
 
-The Grafana UI at `https://monitoring-eks.prow.k8s.io` may require login. The Prow datasource
+Run this step only when `build-logs/podinfo.json` is available. The Grafana UI at
+`https://monitoring-eks.prow.k8s.io` may require login. The Prow datasource
 proxy API can expose the required public metrics without using the UI. The datasource UID used by
 the repository's metrics helper is `PA553F4D380FC2FA5`; verify it in
 `hack/infra/stats/fetch_prow_metrics.py` if the monitoring setup changes. Do not bypass
