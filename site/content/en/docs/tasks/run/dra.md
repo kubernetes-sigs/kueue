@@ -57,8 +57,9 @@ Running a workload with DRA devices is similar to
 `kueue.x-k8s.io/queue-name` label to select the `LocalQueue` you want to
 submit the workload to.
 
-There are two ways to request DRA devices, depending on how your administrator
-has configured the cluster. Choose the approach that matches your setup.
+There are several ways to request DRA devices, depending on how your
+administrator has configured the cluster. Choose the approach that matches your
+setup.
 
 ### Using a ResourceClaimTemplate
 
@@ -66,6 +67,24 @@ Use this approach when you need to explicitly describe the device you want.
 Create a `ResourceClaimTemplate` and reference it from the workload:
 
 {{< include "examples/dra/sample-dra-rct-job.yaml" "yaml" >}}
+
+### Using a `firstAvailable` request
+
+{{% alert title="Note" color="info" %}}
+This feature requires the `KueueDRAIntegrationPrioritizedList` feature gate,
+which is disabled by default in v0.20.
+{{% /alert %}}
+
+If your administrator has
+[set up `firstAvailable` requests](/docs/tasks/manage/setup_dra/#set-up-firstavailable-requests),
+list the alternative device classes in order of preference. They must use
+`ExactCount`, ask for the same `count`, and map to one logical resource:
+
+{{< include "examples/dra/sample-dra-firstavailable-job.yaml" "yaml" >}}
+
+Kueue charges this one-Pod Job `example.com/gpu: 1`, whichever alternative the
+kube-scheduler
+[allocates](https://kubernetes.io/docs/concepts/resource-management/dynamic-resource-allocation/dra-api/).
 
 ### Using extended resources
 
@@ -132,6 +151,12 @@ For a ResourceClaimTemplate-based workload:
 kubectl create -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-rct-job.yaml
 ```
 
+For a workload with a `firstAvailable` request:
+
+```shell
+kubectl create -f https://kueue.sigs.k8s.io/examples/dra/sample-dra-firstavailable-job.yaml
+```
+
 For an extended resource-based workload:
 
 ```shell
@@ -174,6 +199,41 @@ resources charged for quota in the
 kubectl -n default get workloads.kueue.x-k8s.io <workload-name> -o yaml
 ```
 
+The Workload does not record which alternative a Pod received. Read it from the
+Pod's generated `ResourceClaim`, using the Job name `kubectl create` returned:
+
+```shell
+kubectl -n default get pods -l batch.kubernetes.io/job-name=<job-name> -o jsonpath='{.items[*].status.resourceClaimStatuses[*].resourceClaimName}'
+```
+
+Then, for each claim name printed:
+
+```shell
+kubectl -n default get resourceclaim <claim-name> -o jsonpath='{.status.allocation.devices.results[*].request}'
+```
+
+The output is similar to the following:
+
+```
+gpu/a100
+```
+
+Each value is `<request>/<alternative>`. The output is empty until the claim is
+allocated.
+
+The example container waits so that you can inspect the claim. When you finish,
+delete each example Job:
+
+```shell
+kubectl -n default delete job <job-name>
+```
+
+Once nothing uses `a100-or-mig`, delete the template:
+
+```shell
+kubectl -n default delete resourceclaimtemplate a100-or-mig
+```
+
 ## Troubleshooting
 
 ### Workload not admitted
@@ -200,6 +260,18 @@ If the message is `Bypassed scheduling evaluation because an equivalent workload
 recently failed`, Kueue skipped your workload because an equivalent one, with the same
 requests, was just rejected. Look for another workload in the same queue whose message
 includes `draNoFit`; it gives the reason. Both are retried when the devices change.
+
+### `firstAvailable` request not admitted
+
+Run `kubectl -n default describe workload <workload-name>` and look at the
+`QuotaReserved` condition. With reason `DRAResourcesUnresolved` (`Inadmissible`
+if your administrator disabled `UnadmittedWorkloadsObservability`), the message
+names the template and the field at fault. `FirstAvailable device selection is
+not supported` means `KueueDRAIntegrationPrioritizedList` is disabled, and
+`deviceClassName: Not found` means the class is not in the mapping. Name a
+mapped class, or ask your administrator to enable the gate or map the class and
+restart the controller. For any other message, create a corrected template
+under a new name and submit a new Job.
 
 ### Pods pending after the workload is admitted
 
