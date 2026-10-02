@@ -407,12 +407,20 @@ func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk c
 		client.MatchingFields{indexer.WorkloadSliceNameKey: SliceName(wl)}); err != nil {
 		return fmt.Errorf("failed to find prebuilt workload slices: %w", err)
 	}
-	replaced := make(map[workload.Reference]struct{}, len(list.Items))
-	for i := range list.Items {
-		candidate := &list.Items[i]
-		if concurrentadmission.IsVariant(candidate) {
-			continue
+	for _, predecessor := range replacedUnfinishedWorkloads(list.Items) {
+		if err := workloadfinish.Finish(ctx, clnt, predecessor, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice", clk); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// replacedUnfinishedWorkloads returns unfinished predecessors of effective
+// replacements. The returned pointers refer to entries in workloads.
+func replacedUnfinishedWorkloads(workloads []kueue.Workload) []*kueue.Workload {
+	replaced := make(map[workload.Reference]struct{}, len(workloads))
+	for i := range workloads {
+		candidate := &workloads[i]
 		// Match the scheduler's quota-reservation boundary, not full admission.
 		// A finished replacement must remain evidence even after it releases quota.
 		if !IsReplaced(candidate.Status) &&
@@ -423,19 +431,18 @@ func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk c
 			replaced[*key] = struct{}{}
 		}
 	}
-	for i := range list.Items {
-		predecessor := &list.Items[i]
-		if concurrentadmission.IsVariant(predecessor) || workloadfinish.IsFinished(predecessor) {
+	var predecessors []*kueue.Workload
+	for i := range workloads {
+		predecessor := &workloads[i]
+		if workloadfinish.IsFinished(predecessor) {
 			continue
 		}
 		if _, found := replaced[workload.Key(predecessor)]; !found {
 			continue
 		}
-		if err := workloadfinish.Finish(ctx, clnt, predecessor, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice", clk); err != nil {
-			return err
-		}
+		predecessors = append(predecessors, predecessor)
 	}
-	return nil
+	return predecessors
 }
 
 // normalizeActiveSlices enforces the workload slice invariant:
@@ -451,6 +458,7 @@ func normalizeActiveSlices(
 	workloads []kueue.Workload,
 ) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
+	replacedWorkloads := replacedUnfinishedWorkloads(workloads)
 
 	// Index replacements by the workload they replace. On duplicate claims
 	// (race-created forks), prefer the admitted one.
@@ -480,7 +488,7 @@ func normalizeActiveSlices(
 			continue
 		}
 		// Skip if replaced by another admitted workload.
-		if repl, ok := replacements[workload.Key(wl)]; ok && workload.HasQuotaReservation(repl) {
+		if slices.Contains(replacedWorkloads, wl) {
 			continue
 		}
 		latestWithQuotaReservation = wl
