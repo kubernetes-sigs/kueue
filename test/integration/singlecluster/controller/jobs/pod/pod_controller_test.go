@@ -3613,23 +3613,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForP
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Resuming the ClusterQueue", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
-					cq.Spec.StopPolicy = new(kueue.None)
-					g.Expect(k8sClient.Update(ctx, cq)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Waiting for the workload to be requeued after ClusterQueue restart", func() {
-				wl := &kueue.Workload{}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-					g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadRequeued, kueue.WorkloadClusterQueueRestarted))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Checking the workload isn't admitted due to don't have pod replacements", func() {
+			ginkgo.By("Checking the workload isn't admitted while waiting for pod replacements", func() {
 				wl := &kueue.Workload{}
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
@@ -3649,6 +3633,22 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForP
 				Obj()
 			ginkgo.By("Creating replacement pod", func() {
 				util.MustCreate(ctx, k8sClient, replacementPod)
+			})
+
+			ginkgo.By("Resuming the ClusterQueue", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
+					cq.Spec.StopPolicy = new(kueue.None)
+					g.Expect(k8sClient.Update(ctx, cq)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for the workload to be requeued after ClusterQueue restart", func() {
+				wl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+					g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadRequeued, kueue.WorkloadClusterQueueRestarted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that workload was admitted", func() {
@@ -3698,23 +3698,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForP
 				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Resuming the ClusterQueue", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
-					cq.Spec.StopPolicy = new(kueue.None)
-					g.Expect(k8sClient.Update(ctx, cq)).Should(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Waiting for the workload to be requeued after ClusterQueue restart", func() {
-				wl := &kueue.Workload{}
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-					g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadRequeued, kueue.WorkloadClusterQueueRestarted))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Checking the workload isn't admitted due to don't have pod replacements", func() {
+			ginkgo.By("Checking the workload isn't admitted while waiting for pod replacements", func() {
 				wl := &kueue.Workload{}
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
@@ -3735,6 +3719,22 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForP
 				Obj()
 			ginkgo.By("Creating replacement pod", func() {
 				util.MustCreate(ctx, k8sClient, replacementPod)
+			})
+
+			ginkgo.By("Resuming the ClusterQueue", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
+					cq.Spec.StopPolicy = new(kueue.None)
+					g.Expect(k8sClient.Update(ctx, cq)).Should(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Waiting for the workload to be requeued after ClusterQueue restart", func() {
+				wl := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+					g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadRequeued, kueue.WorkloadClusterQueueRestarted))
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that workload was admitted", func() {
