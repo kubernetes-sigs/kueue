@@ -9,8 +9,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  authorize:
-    name: Authorize release-note update
+  set-release-note:
+    name: Set PR release note
     if: |
       github.event.issue.pull_request != null &&
       startsWith(github.event.comment.body, '/set-release-note') &&
@@ -21,8 +21,7 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-    outputs:
-      error_message: ${{ steps.auth.outputs.error_message || steps.validate-actions.outputs.error_message }}
+      pull-requests: write
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,7 +36,6 @@ jobs:
             "hack/releasing/authorize_release_actor.py"
             "hack/releasing/requirements.txt"
             "hack/releasing/set_release_note.py"
-            "hack/releasing/set_release_note_test.py"
           )
           MISSING=()
           for item in "${REQUIRED_ITEMS[@]}"; do
@@ -46,7 +44,7 @@ jobs:
             fi
           done
           if [ ${#MISSING[@]} -ne 0 ]; then
-            echo "error_message=❌ Missing required automation actions/scripts after checkout: ${MISSING[*]}" >> "$GITHUB_OUTPUT"
+            echo "error_message=❌ Missing required automation actions/scripts after checkout: $(printf '%s, ' "${MISSING[@]}" | sed 's/, $//')." >> "$GITHUB_OUTPUT"
             exit 1
           fi
 
@@ -56,38 +54,6 @@ jobs:
         with:
           actor: ${{ github.actor }}
           aliases: release-team
-
-  report-authorization-failure:
-    name: Report authorization failure
-    needs: authorize
-    if: ${{ always() && needs.authorize.result == 'failure' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      pull-requests: write
-    steps:
-      - name: Report failure
-        env:
-          GH_TOKEN: ${{ github.token }}
-          MESSAGE: ${{ needs.authorize.outputs.error_message || '❌ Failed to authorize the release-note update.' }}
-          PR_NUMBER: ${{ github.event.issue.number }}
-          TARGET_REPO: ${{ github.repository }}
-        run: |
-          gh pr comment "$PR_NUMBER" --repo "$TARGET_REPO" --body "$MESSAGE"
-
-  set-release-note:
-    name: Set PR release note
-    needs: authorize
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      pull-requests: write
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -143,15 +109,15 @@ jobs:
           PR_NUMBER: ${{ github.event.issue.number }}
           TARGET_REPO: ${{ github.repository }}
         run: |
-          gh pr comment "$PR_NUMBER" --repo "$TARGET_REPO" \
-            --body '✅ The release note was updated.'
+          gh pr comment "$PR_NUMBER" --repo "$TARGET_REPO" --body '✅ The release note was updated.'
 
       - name: Report failure
         if: ${{ failure() }}
         env:
           GH_TOKEN: ${{ github.token }}
-          MESSAGE: ${{ steps.update.outputs.body_updated == 'true' && '⚠️ The release note was updated, but the success confirmation failed.' || steps.update.outputs.error_message || '❌ Failed to update the release note.' }}
           PR_NUMBER: ${{ github.event.issue.number }}
           TARGET_REPO: ${{ github.repository }}
+          ERROR_MESSAGE: ${{ steps.validate-actions.outputs.error_message || steps.auth.outputs.error_message || steps.update.outputs.error_message || (steps.update.outputs.body_updated == 'true' && '⚠️ The release note was updated, but the success confirmation failed.') }}
         run: |
-          gh pr comment "$PR_NUMBER" --repo "$TARGET_REPO" --body "$MESSAGE"
+          gh pr comment "$PR_NUMBER" --repo "$TARGET_REPO" \
+            --body "${ERROR_MESSAGE:-❌ Failed to update the release note.}"
