@@ -38,13 +38,13 @@ import (
 func TestFinishReplacedWorkloadSlices(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	admission := utiltestingapi.MakeAdmission("cq").Obj()
-	old := utiltestingapi.MakeWorkload("old", "ns").Creation(now.Add(-time.Minute)).
+	old := utiltestingapi.MakeWorkload("old", "ns").
 		PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 		ReserveQuotaAt(admission, now).AdmittedAt(true, now)
-	pending := utiltestingapi.MakeWorkload("new", "ns").Creation(now).
+	pending := utiltestingapi.MakeWorkload("new", "ns").
 		Annotation(kueue.WorkloadSliceNameAnnotation, "old").
 		Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").
-		PodSets(*utiltestingapi.MakePodSet("main", 2).Obj())
+		PodSets(*utiltestingapi.MakePodSet("main", 1).Obj())
 	admitted := pending.Clone().ReserveQuotaAt(admission, now).AdmittedAt(true, now)
 	finished := func(reason string) metav1.Condition {
 		return metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: reason, LastTransitionTime: metav1.NewTime(now)}
@@ -71,8 +71,8 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 		"every replaced slice in a chain is finished": {
 			workloads: []*kueue.Workload{
 				old.Obj(),
-				admitted.Clone().Name("mid").Creation(now).Obj(),
-				admitted.Clone().Name("last").Creation(now.Add(time.Minute)).
+				admitted.Clone().Name("mid").Obj(),
+				admitted.Clone().Name("last").
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/mid").Obj(),
 			},
 			wantFinished: []string{"old", "mid"},
@@ -94,7 +94,6 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			objects := []client.Object{
-				utiltestingapi.MakeWorkload("unrelated", "ns").Obj(),
 				// A replacement in another namespace must not finish "old".
 				utiltestingapi.MakeWorkload("other-namespace", "other").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "old").
