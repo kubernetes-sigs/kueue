@@ -1,0 +1,19 @@
+title: Metrics access for pod-local scrapers
+kep-number: 16029
+authors:
+  - "@ankushbbbr"
+status: provisional
+creation-date: 2026-10-01
+reviewers:
+  - TBD
+approvers:
+  - TBD
+see-also:
+  - "/keps/4377-metrics-tls"
+  - "/keps/8190-tls-security-profiles"
+replaces: []
+# Proposed maturity; release milestones remain unset pending design acceptance.
+stage: stable
+feature-gates: []
+disable-supported: true
+metrics: []
