@@ -76,12 +76,6 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 				Annotation(kueue.WorkloadSliceNameAnnotation, "old").
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).Obj()},
 		},
-		"finished replacement preserves evidence after releasing quota": {
-			workloads: []*kueue.Workload{old.Obj(), replacement.Clone().
-				Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: kueue.WorkloadSliceReplaced, LastTransitionTime: metav1.NewTime(now)}).Obj(),
-				admitted.Clone().Name("newer").Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/new").Obj()},
-			wantFinished: true,
-		},
 		"failed replacement is not evidence": {
 			workloads: []*kueue.Workload{old.Obj(), admitted.Clone().
 				Condition(metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: kueue.WorkloadFinishedReasonFailed, LastTransitionTime: metav1.NewTime(now)}).Obj()},

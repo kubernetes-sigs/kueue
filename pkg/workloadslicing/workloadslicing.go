@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -407,7 +408,18 @@ func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk c
 		client.MatchingFields{indexer.WorkloadSliceNameKey: SliceName(wl)}); err != nil {
 		return fmt.Errorf("failed to find prebuilt workload slices: %w", err)
 	}
-	for _, predecessor := range replacedUnfinishedWorkloads(list.Items) {
+	replaced := sets.New[workload.Reference]()
+	for i := range list.Items {
+		if key := replacementTarget(&list.Items[i]); key != nil {
+			replaced.Insert(*key)
+		}
+	}
+	for i := range list.Items {
+		predecessor := &list.Items[i]
+		if !replaced.Has(workload.Key(predecessor)) {
+			continue
+		}
+		// Finish is a no-op for an already finished slice.
 		if err := workloadfinish.Finish(ctx, clnt, predecessor, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice", clk); err != nil {
 			return err
 		}
@@ -415,34 +427,17 @@ func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk c
 	return nil
 }
 
-// replacedUnfinishedWorkloads returns unfinished predecessors of effective
-// replacements. The returned pointers refer to entries in workloads.
-func replacedUnfinishedWorkloads(workloads []kueue.Workload) []*kueue.Workload {
-	replaced := make(map[workload.Reference]struct{}, len(workloads))
-	for i := range workloads {
-		candidate := &workloads[i]
-		// Match the scheduler's quota-reservation boundary, not full admission.
-		// A finished replacement must remain evidence even after it releases quota.
-		if !IsReplaced(candidate.Status) &&
-			(!workload.HasQuotaReservation(candidate) || workloadevict.IsEvicted(candidate) || workloadfinish.IsFinished(candidate)) {
-			continue
-		}
-		if key := ReplacementForKey(candidate); key != nil && *key != workload.Key(candidate) {
-			replaced[*key] = struct{}{}
-		}
+// replacementTarget returns the slice that wl replaced once wl holds quota,
+// which is the state the scheduler leaves behind when finishing the
+// predecessor failed. It matches the scheduler's quota-reservation boundary,
+// not full admission.
+func replacementTarget(wl *kueue.Workload) *workload.Reference {
+	key := ReplacementForKey(wl)
+	if key == nil || *key == workload.Key(wl) ||
+		!workload.HasQuotaReservation(wl) || workloadevict.IsEvicted(wl) || workloadfinish.IsFinished(wl) {
+		return nil
 	}
-	var predecessors []*kueue.Workload
-	for i := range workloads {
-		predecessor := &workloads[i]
-		if workloadfinish.IsFinished(predecessor) {
-			continue
-		}
-		if _, found := replaced[workload.Key(predecessor)]; !found {
-			continue
-		}
-		predecessors = append(predecessors, predecessor)
-	}
-	return predecessors
+	return key
 }
 
 // normalizeActiveSlices enforces the workload slice invariant:
