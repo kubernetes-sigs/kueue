@@ -2916,7 +2916,6 @@ func TestReconcilePrebuiltWorkloadSlices(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
-			features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, true)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			now := time.Now().Truncate(time.Second)
 			gvk := batchv1.SchemeGroupVersion.WithKind("Job")
@@ -2955,18 +2954,19 @@ func TestReconcilePrebuiltWorkloadSlices(t *testing.T) {
 				WithStatusSubresource(&kueue.Workload{}).
 				WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+					SubResourceApply: func(ctx context.Context, c client.Client, sub string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+						if tc.conflict && fail {
+							if obj, _, err := utiltesting.ConvertApplyConfigToObject(applyConf); err == nil && obj.GetName() == "old" {
+								return injected
+							}
+						}
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, sub, applyConf, opts...)
+					},
 					List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
 						if _, ok := list.(*kueue.WorkloadList); ok && tc.listError && fail {
 							return injected
 						}
 						return c.List(ctx, list, opts...)
-					},
-					SubResourcePatch: func(ctx context.Context, c client.Client, sub string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-						if tc.conflict && fail && obj.GetName() == "old" {
-							return injected
-						}
-						return c.SubResource(sub).Patch(ctx, obj, patch, opts...)
 					},
 				}).Build()
 			mgj := mocks.NewMockGenericJob(gomock.NewController(t))
