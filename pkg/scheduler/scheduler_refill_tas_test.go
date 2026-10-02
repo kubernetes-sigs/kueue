@@ -19,6 +19,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"testing"
 	"time"
@@ -44,6 +45,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 // TestScheduleForFairSharingRefillTAS pins that a refilled workload's topology
@@ -54,6 +56,9 @@ import (
 // TASRecomputeAssignmentWithinSchedulingCycle on and off: the recompute would
 // heal an outdated nomination, so the off arm pins the refill nomination's own
 // freshness.
+//
+// The workload slice cases are here because only a successor nominated
+// mid-cycle reads the topology usage a slice replacement leaves behind.
 func TestScheduleForFairSharingRefillTAS(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
@@ -71,16 +76,19 @@ func TestScheduleForFairSharingRefillTAS(t *testing.T) {
 	localQueue := utiltestingapi.MakeLocalQueue("tas-refill-lq", "default").
 		ClusterQueue("tas-refill").Obj()
 
-	node := func(name string) corev1.Node {
+	nodeWithCPU := func(name, cpu string) corev1.Node {
 		return *testingnode.MakeNode(name).
 			Label("tas-node", "true").
 			Label(corev1.LabelHostname, name).
 			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:  resource.MustParse("2"),
+				corev1.ResourceCPU:  resource.MustParse(cpu),
 				corev1.ResourcePods: resource.MustParse("10"),
 			}).
 			Ready().
 			Obj()
+	}
+	node := func(name string) corev1.Node {
+		return nodeWithCPU(name, "2")
 	}
 	// tasWl requires all pods on one hostname, so a workload occupies exactly
 	// one node and the per-node remaining capacity decides its placement.
@@ -105,9 +113,37 @@ func TestScheduleForFairSharingRefillTAS(t *testing.T) {
 				Obj(),
 		).Obj()
 	}
+	sliceWl := func(name string, pods int, creation time.Time) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(name, "default").
+			Queue("tas-refill-lq").
+			Creation(creation).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			PodSets(*utiltestingapi.MakePodSet("one", pods).
+				UnconstrainedTopologyRequest().
+				Request(corev1.ResourceCPU, "1").
+				Obj())
+	}
+	sliceOld := func(pods int32) kueue.Workload {
+		return *sliceWl("old", int(pods), now.Add(-3*time.Minute)).
+			ReserveQuotaAt(new(tasAdmission("x1", pods, fmt.Sprint(pods))), now.Add(-3*time.Minute)).
+			Obj()
+	}
+	sliceReplacement := func(name string, pods int, creation time.Time) kueue.Workload {
+		return *sliceWl(name, pods, creation).
+			Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
+			Obj()
+	}
+	sliceSucc := *sliceWl("succ", 1, now.Add(-time.Minute)).Obj()
+	sliceGates := func(sliceAwareTAS bool) map[featuregate.Feature]bool {
+		return map[featuregate.Feature]bool{
+			features.ElasticJobsViaWorkloadSlices:        true,
+			features.ElasticJobsViaWorkloadSlicesWithTAS: sliceAwareTAS,
+		}
+	}
 
 	cases := map[string]struct {
 		refillEnabled        bool
+		featureGates         map[featuregate.Feature]bool
 		nodes                []corev1.Node
 		workloads            []kueue.Workload
 		wantAssignments      map[workload.Reference]kueue.Admission
@@ -178,14 +214,73 @@ func TestScheduleForFairSharingRefillTAS(t *testing.T) {
 				"tas-refill": {"default/tas-b"},
 			},
 		},
+		// The node fits grow and succ only if old's pods are no longer counted.
+		"workload slice replacement: a refilled successor sees the replaced slice's domains released": {
+			refillEnabled: true,
+			featureGates:  sliceGates(true),
+			nodes:         []corev1.Node{nodeWithCPU("x1", "4")},
+			workloads:     []kueue.Workload{sliceOld(2), sliceReplacement("grow", 3, now.Add(-2*time.Minute)), sliceSucc},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/old":  tasAdmission("x1", 2, "2"),
+				"default/grow": tasAdmission("x1", 3, "3"),
+				"default/succ": tasAdmission("x1", 1, "1"),
+			},
+		},
+		"workload slice scale down: a refilled successor sees the replaced slice's domains released": {
+			refillEnabled: true,
+			featureGates:  sliceGates(true),
+			nodes:         []corev1.Node{nodeWithCPU("x1", "3")},
+			workloads:     []kueue.Workload{sliceOld(3), sliceReplacement("grow", 2, now.Add(-2*time.Minute)), sliceSucc},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/old":  tasAdmission("x1", 3, "3"),
+				"default/grow": tasAdmission("x1", 2, "2"),
+				"default/succ": tasAdmission("x1", 1, "1"),
+			},
+		},
+		// Without slice-aware placement the replacement is placed on x2 as
+		// if it were new, while old's pods keep running on x1.
+		"workload slice replacement without slice-aware placement: the replaced slice's domains stay occupied": {
+			refillEnabled: true,
+			featureGates:  sliceGates(false),
+			nodes:         []corev1.Node{nodeWithCPU("x1", "2"), nodeWithCPU("x2", "3")},
+			workloads:     []kueue.Workload{sliceOld(2), sliceReplacement("grow", 3, now.Add(-2*time.Minute)), sliceSucc},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/old":  tasAdmission("x1", 2, "2"),
+				"default/grow": tasAdmission("x2", 3, "3"),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-refill": {"default/succ"},
+			},
+		},
+		// Only refill can bring a second replacement of the same slice into
+		// the cycle, and it must still conflict with the first one.
+		"workload slice replacement: a second replacement of the same slice is not admitted in the same cycle": {
+			refillEnabled: true,
+			featureGates:  sliceGates(true),
+			nodes:         []corev1.Node{nodeWithCPU("x1", "20")},
+			workloads: []kueue.Workload{
+				sliceOld(2),
+				sliceReplacement("grow", 3, now.Add(-2*time.Minute)),
+				sliceReplacement("fork", 3, now.Add(-2*time.Minute+time.Second)),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/old":  tasAdmission("x1", 2, "2"),
+				"default/grow": tasAdmission("x1", 3, "3"),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-refill": {"default/fork"},
+			},
+		},
 	}
 	for name, tc := range cases {
 		for _, recompute := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s recompute:%t", name, recompute), func(t *testing.T) {
-				features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				fg := map[featuregate.Feature]bool{
 					features.FairSharingRefill:                           tc.refillEnabled,
 					features.TASRecomputeAssignmentWithinSchedulingCycle: recompute,
-				})
+				}
+				maps.Copy(fg, tc.featureGates)
+				features.SetFeatureGatesDuringTest(t, fg)
 				ctx, log := utiltesting.ContextWithLog(t)
 
 				clientBuilder := utiltesting.NewClientBuilder().
