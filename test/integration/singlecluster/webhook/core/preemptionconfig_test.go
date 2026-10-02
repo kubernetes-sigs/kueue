@@ -28,8 +28,10 @@ import (
 )
 
 const (
-	minMaxValueErrorMessage   = "minValue must be less than or equal to maxValue"
-	negativeValueErrorMessage = "should be greater than or equal to 0"
+	minMaxValueErrorMessage             = "minValue must be less than or equal to maxValue"
+	negativeValueErrorMessage           = "should be greater than or equal to 0"
+	modeAndComparisonTogetherErrMessage = "mode and comparison must be specified together"
+	priorityClassNameMinLenErrMessage   = "should be at least 1 chars long"
 )
 
 func makePreemptionConfigWithNumericLabel(name string, minValue, maxValue *int32) *kueuealpha.PreemptionConfig {
@@ -88,6 +90,104 @@ var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 			ginkgo.Entry("Disallow negative maxValue", nil, ptr.To[int32](-1), negativeValueErrorMessage),
 			ginkgo.Entry("Disallow negative minValue with non-negative maxValue", ptr.To[int32](-1), ptr.To[int32](5), negativeValueErrorMessage),
 			ginkgo.Entry("Disallow negative minValue and maxValue", ptr.To[int32](-5), ptr.To[int32](-1), negativeValueErrorMessage),
+		)
+
+		ginkgo.DescribeTable("Validate priority constraint and priority class selectors",
+			func(preemptorSelector *kueuealpha.PreemptionConfigPriorityClassSelector, priority *kueuealpha.PreemptionConfigPriorityConstraint, wantErrMessage string) {
+				pc := &kueuealpha.PreemptionConfig{
+					Name: "pc-priority-validation",
+					Spec: kueuealpha.PreemptionConfigSpec{
+						Rules: []kueuealpha.PreemptionConfigPreemptionRule{{
+							Name:                           "rule",
+							PreemptorPriorityClassSelector: preemptorSelector,
+							ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{
+								Trigger: kueuealpha.Always,
+							},
+							CandidateSelectors: []kueuealpha.PreemptionConfigPreemptionCandidateSelector{{
+								Scope:    kueuealpha.WithinClusterQueue,
+								Priority: priority,
+							}},
+						}},
+					},
+				}
+
+				err := k8sClient.Create(ctx, pc)
+				if wantErrMessage != "" {
+					gomega.Expect(err).To(utiltesting.BeInvalidError())
+					gomega.Expect(err.Error()).To(gomega.ContainSubstring(wantErrMessage))
+					return
+				}
+				gomega.Expect(err).To(gomega.Succeed())
+				util.ExpectObjectToBeDeleted(ctx, k8sClient, pc, true)
+			},
+			ginkgo.Entry("Allow preemptorPriorityClassSelector with matchNames and notMatchNames",
+				&kueuealpha.PreemptionConfigPriorityClassSelector{
+					MatchNames:    []string{"high-priority", "critical-priority"},
+					NotMatchNames: []string{"mid-priority"},
+				},
+				nil,
+				"",
+			),
+			ginkgo.Entry("Allow priority with matchNames only",
+				nil,
+				&kueuealpha.PreemptionConfigPriorityConstraint{
+					MatchNames: []string{"low-priority", "very-low-priority"},
+				},
+				"",
+			),
+			ginkgo.Entry("Allow priority with notMatchNames only",
+				nil,
+				&kueuealpha.PreemptionConfigPriorityConstraint{
+					NotMatchNames: []string{"high-priority"},
+				},
+				"",
+			),
+			ginkgo.Entry("Allow priority with mode, comparison, matchNames, and notMatchNames",
+				nil,
+				&kueuealpha.PreemptionConfigPriorityConstraint{
+					Mode:          new(kueuealpha.Base),
+					Comparison:    new(kueuealpha.LessThan),
+					MatchNames:    []string{"low-priority", "very-low-priority"},
+					NotMatchNames: []string{"mid-priority"},
+				},
+				"",
+			),
+			ginkgo.Entry("Disallow priority.mode without priority.comparison",
+				nil,
+				&kueuealpha.PreemptionConfigPriorityConstraint{
+					Mode: new(kueuealpha.Base),
+				},
+				modeAndComparisonTogetherErrMessage,
+			),
+			ginkgo.Entry("Disallow priority.comparison without priority.mode",
+				nil,
+				&kueuealpha.PreemptionConfigPriorityConstraint{
+					Comparison: new(kueuealpha.LessThan),
+				},
+				modeAndComparisonTogetherErrMessage,
+			),
+			ginkgo.Entry("Disallow priority.mode with matchNames but without priority.comparison",
+				nil,
+				&kueuealpha.PreemptionConfigPriorityConstraint{
+					Mode:       new(kueuealpha.Boosted),
+					MatchNames: []string{"low-priority"},
+				},
+				modeAndComparisonTogetherErrMessage,
+			),
+			ginkgo.Entry("Disallow empty string in priority.matchNames",
+				nil,
+				&kueuealpha.PreemptionConfigPriorityConstraint{
+					MatchNames: []string{""},
+				},
+				priorityClassNameMinLenErrMessage,
+			),
+			ginkgo.Entry("Disallow empty string in preemptorPriorityClassSelector.matchNames",
+				&kueuealpha.PreemptionConfigPriorityClassSelector{
+					MatchNames: []string{""},
+				},
+				nil,
+				priorityClassNameMinLenErrMessage,
+			),
 		)
 	})
 

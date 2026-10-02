@@ -29,10 +29,11 @@ const (
 	FilterNumericLabels        = "NumericLabels"
 	FilterPreemptorSelector    = "PreemptorSelector"
 
-	ReasonUnsupportedScope      = "UnsupportedScope"
-	ReasonInvalidSelector       = "InvalidSelector"
-	ReasonUnsupportedMode       = "UnsupportedMode"
-	ReasonUnsupportedComparison = "UnsupportedComparison"
+	ReasonUnsupportedScope        = "UnsupportedScope"
+	ReasonInvalidSelector         = "InvalidSelector"
+	ReasonUnsupportedMode         = "UnsupportedMode"
+	ReasonUnsupportedComparison   = "UnsupportedComparison"
+	ReasonMissingModeOrComparison = "MissingModeOrComparison"
 )
 
 // FilterBuildError describes a failure while building a candidate filter.

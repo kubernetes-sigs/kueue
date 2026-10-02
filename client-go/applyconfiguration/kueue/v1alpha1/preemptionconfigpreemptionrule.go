@@ -35,6 +35,11 @@ type PreemptionConfigPreemptionRuleApplyConfiguration struct {
 	// using this rule. Accepts all workloads if not set.
 	//
 	PreemptorSelector *v1.LabelSelectorApplyConfiguration `json:"preemptorSelector,omitempty"`
+	// preemptorPriorityClassSelector filters which preempting workloads can activate this rule
+	// based on their spec.priorityClassRef.name.
+	// If omitted or empty, workloads of any priority class can trigger this rule.
+	//
+	PreemptorPriorityClassSelector *PreemptionConfigPriorityClassSelectorApplyConfiguration `json:"preemptorPriorityClassSelector,omitempty"`
 	// activationPolicy determines when this rule contributes matching
 	// candidates to preemption evaluation.
 	//
@@ -65,6 +70,14 @@ func (b *PreemptionConfigPreemptionRuleApplyConfiguration) WithName(value string
 // If called multiple times, the PreemptorSelector field is set to the value of the last call.
 func (b *PreemptionConfigPreemptionRuleApplyConfiguration) WithPreemptorSelector(value *v1.LabelSelectorApplyConfiguration) *PreemptionConfigPreemptionRuleApplyConfiguration {
 	b.PreemptorSelector = value
+	return b
+}
+
+// WithPreemptorPriorityClassSelector sets the PreemptorPriorityClassSelector field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the PreemptorPriorityClassSelector field is set to the value of the last call.
+func (b *PreemptionConfigPreemptionRuleApplyConfiguration) WithPreemptorPriorityClassSelector(value *PreemptionConfigPriorityClassSelectorApplyConfiguration) *PreemptionConfigPreemptionRuleApplyConfiguration {
+	b.PreemptorPriorityClassSelector = value
 	return b
 }
 

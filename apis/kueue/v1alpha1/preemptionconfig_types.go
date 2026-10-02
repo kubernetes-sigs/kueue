@@ -205,6 +205,13 @@ type PreemptionConfigPreemptionRule struct {
 	// +optional
 	PreemptorSelector *metav1.LabelSelector `json:"preemptorSelector,omitempty"`
 
+	// preemptorPriorityClassSelector filters which preempting workloads can activate this rule
+	// based on their spec.priorityClassRef.name.
+	// If omitted or empty, workloads of any priority class can trigger this rule.
+	//
+	// +optional
+	PreemptorPriorityClassSelector *PreemptionConfigPriorityClassSelector `json:"preemptorPriorityClassSelector,omitempty"`
+
 	// activationPolicy determines when this rule contributes matching
 	// candidates to preemption evaluation.
 	//
@@ -292,19 +299,53 @@ type PreemptionConfigPreemptionCandidateSelector struct {
 	Priority *PreemptionConfigPriorityConstraint `json:"priority,omitempty"`
 }
 
-// PreemptionConfigPriorityConstraint defines the requirements for the priority of preemption candidates.
+// PreemptionConfigPriorityConstraint defines how candidate priority is evaluated.
+// +kubebuilder:validation:XValidation:rule="has(self.mode) == has(self.comparison)",message="mode and comparison must be specified together"
 type PreemptionConfigPriorityConstraint struct {
-	// mode specifies whether priority comparison uses base or boosted (effective) priority.
+	// mode specifies which priority value to compare.
+	// Must be specified together with comparison.
 	//
-	// +required
-	Mode PreemptionConfigPriorityMode `json:"mode,omitempty"`
+	// +optional
+	Mode *PreemptionConfigPriorityMode `json:"mode,omitempty"`
 
-	// comparison defines how the candidate's priority compares to the preemptor's priority.
-	// For example, "LessThan" means that only workloads with lower
-	// priority will be allowed as preemption candidates.
+	// comparison is the relational operator comparing the candidate's priority
+	// against the preemptor's priority (i.e., <candidate> <comparison> <preemptor>).
+	// For example, LessThan means the candidate must have strictly lower priority than the preemptor.
+	// Must be specified together with mode.
 	//
-	// +required
-	Comparison NumericComparison `json:"comparison,omitempty"`
+	// +optional
+	Comparison *NumericComparison `json:"comparison,omitempty"`
+
+	// PreemptionConfigPriorityClassSelector filters candidate workloads by priority class name.
+	PreemptionConfigPriorityClassSelector `json:",inline"`
+}
+
+// PreemptionConfigPriorityClassSelector filters workloads by their priority class name
+// (matched against the Workload's spec.priorityClassRef.name, which is populated by Kueue
+// for both WorkloadPriorityClass and Pod PriorityClass).
+type PreemptionConfigPriorityClassSelector struct {
+	// matchNames is an allowlist of PriorityClass or WorkloadPriorityClass names.
+	// A workload matches if its spec.priorityClassRef.name equals any name in this list (OR semantics).
+	// Workloads without a priorityClassRef do not match when matchNames is non-empty.
+	//
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=253
+	MatchNames []string `json:"matchNames,omitempty"`
+
+	// notMatchNames is a denylist of PriorityClass or WorkloadPriorityClass names.
+	// A workload matches only if its spec.priorityClassRef.name does not equal any name in this list.
+	// Workloads without a priorityClassRef match any notMatchNames constraint.
+	// If both matchNames and notMatchNames are specified, both conditions must be satisfied (AND semantics).
+	//
+	// +optional
+	// +listType=set
+	// +kubebuilder:validation:MaxItems=32
+	// +kubebuilder:validation:items:MinLength=1
+	// +kubebuilder:validation:items:MaxLength=253
+	NotMatchNames []string `json:"notMatchNames,omitempty"`
 }
 
 // PreemptionConfigPriorityMode defines whether base or boosted (effective) priority is used when comparing candidates against the preemptor.

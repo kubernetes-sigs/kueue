@@ -215,8 +215,8 @@ func TestNewCandidateFilters(t *testing.T) {
 					MatchLabels: map[string]string{"env": "prod"},
 				},
 				Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
-					Mode:       kueuealpha.Base,
-					Comparison: kueuealpha.LessThan,
+					Mode:       new(kueuealpha.Base),
+					Comparison: new(kueuealpha.LessThan),
 				},
 				NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
 					{
@@ -249,8 +249,8 @@ func TestNewCandidateFilters(t *testing.T) {
 						preemptorVal: ptr.To[int32](8),
 					},
 					&priorityFilter{
-						mode:              kueuealpha.Base,
-						comparison:        kueuealpha.LessThan,
+						mode:              new(kueuealpha.Base),
+						comparison:        new(kueuealpha.LessThan),
 						preemptorPriority: 100,
 					},
 				},
@@ -260,8 +260,8 @@ func TestNewCandidateFilters(t *testing.T) {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.WithinClusterQueue,
 				Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
-					Mode:       kueuealpha.Base,
-					Comparison: kueuealpha.LessThan,
+					Mode:       new(kueuealpha.Base),
+					Comparison: new(kueuealpha.LessThan),
 				},
 			},
 			preemptor: preemptor,
@@ -271,8 +271,8 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 				WLFilters: []WorkloadFilter{
 					&priorityFilter{
-						mode:              kueuealpha.Base,
-						comparison:        kueuealpha.LessThan,
+						mode:              new(kueuealpha.Base),
+						comparison:        new(kueuealpha.LessThan),
 						preemptorPriority: 100,
 					},
 				},
@@ -376,8 +376,8 @@ func TestNewCandidateFilters(t *testing.T) {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.WithinClusterQueue,
 				Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
-					Mode:       kueuealpha.PreemptionConfigPriorityMode("InvalidMode"),
-					Comparison: kueuealpha.LessThan,
+					Mode:       new(kueuealpha.PreemptionConfigPriorityMode("InvalidMode")),
+					Comparison: new(kueuealpha.LessThan),
 				},
 			},
 			preemptor: preemptor,
@@ -392,8 +392,8 @@ func TestNewCandidateFilters(t *testing.T) {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.WithinClusterQueue,
 				Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
-					Mode:       kueuealpha.Base,
-					Comparison: kueuealpha.NumericComparison("InvalidComparison"),
+					Mode:       new(kueuealpha.Base),
+					Comparison: new(kueuealpha.NumericComparison("InvalidComparison")),
 				},
 			},
 			preemptor: preemptor,
