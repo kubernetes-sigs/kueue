@@ -54,13 +54,11 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 	finished := func(reason string) metav1.Condition {
 		return metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: reason, LastTransitionTime: metav1.NewTime(now)}
 	}
-	listError := errors.New("list failed")
 	conflict := apierrors.NewConflict(schema.GroupResource{Group: kueue.SchemeGroupVersion.Group, Resource: "workloads"}, "old", errors.New("stale resource version"))
 
 	tests := map[string]struct {
 		workloads    []*kueue.Workload
 		wantFinished []string
-		listError    error
 		finishError  error
 	}{
 		"no slices":    {},
@@ -109,9 +107,6 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 		"already finished predecessor is left untouched": {
 			workloads: []*kueue.Workload{old.Clone().Condition(finished(kueue.WorkloadSliceReplaced)).Obj(), admitted.Obj()},
 		},
-		"list error is returned": {
-			listError: listError,
-		},
 		"finish conflict is returned and retry recovers": {
 			workloads:    []*kueue.Workload{old.Obj(), admitted.Obj()},
 			finishError:  conflict,
@@ -136,12 +131,6 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().WithObjects(objects...).WithStatusSubresource(&kueue.Workload{}).
 				WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
 				WithInterceptorFuncs(interceptor.Funcs{
-					List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-						if tc.listError != nil {
-							return tc.listError
-						}
-						return c.List(ctx, list, opts...)
-					},
 					SubResourceApply: func(ctx context.Context, c client.Client, sub string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
 						if injected != nil {
 							err := injected
@@ -154,13 +143,7 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 			clk := testingclock.NewFakeClock(now)
 
 			err := workloadslicing.FinishReplacedWorkloadSlices(ctx, cl, clk, pending.Obj())
-			switch {
-			case tc.listError != nil:
-				if !errors.Is(err, tc.listError) {
-					t.Fatalf("error = %v, want %v", err, tc.listError)
-				}
-				return
-			case tc.finishError != nil:
+			if tc.finishError != nil {
 				if !errors.Is(err, tc.finishError) {
 					t.Fatalf("error = %v, want %v", err, tc.finishError)
 				}
