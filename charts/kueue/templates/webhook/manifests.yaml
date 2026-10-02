@@ -123,6 +123,38 @@ webhooks:
       service:
         name: '{{ include "kueue.fullname" . }}-webhook-service'
         namespace: '{{ .Release.Namespace }}'
+        path: /mutate-disaggregatedset-x-k8s-io-v1-disaggregatedset
+    failurePolicy: Fail
+    name: mdisaggregatedset.kb.io
+    namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
+    rules:
+      - apiGroups:
+          - disaggregatedset.x-k8s.io
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - disaggregatedsets
+    sideEffects: None
+    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
         path: /mutate-kubeflow-org-v1-jaxjob
     failurePolicy: Fail
     name: mjaxjob.kb.io
@@ -781,6 +813,37 @@ webhooks:
           - UPDATE
         resources:
           - deployments
+    sideEffects: None
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate-disaggregatedset-x-k8s-io-v1-disaggregatedset
+    failurePolicy: Fail
+    name: vdisaggregatedset.kb.io
+    namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
+    rules:
+      - apiGroups:
+          - disaggregatedset.x-k8s.io
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - disaggregatedsets
     sideEffects: None
   - admissionReviewVersions:
       - v1
