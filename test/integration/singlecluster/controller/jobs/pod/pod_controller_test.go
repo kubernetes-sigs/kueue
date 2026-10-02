@@ -3237,11 +3237,7 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 	})
 })
 
-var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForPodsReady enabled", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
-	const (
-		backoffBaseSeconds = 1
-	)
-
+var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
 		fl *kueue.ResourceFlavor
@@ -3250,14 +3246,6 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForP
 	)
 
 	ginkgo.BeforeAll(func() {
-		waitForPodsReady := &configapi.WaitForPodsReady{
-			Timeout: metav1.Duration{Duration: util.ShortTimeout},
-			RequeuingStrategy: &configapi.RequeuingStrategy{
-				Timestamp:          new(configapi.EvictionTimestamp),
-				BackoffLimitCount:  new(int32(2)),
-				BackoffBaseSeconds: new(int32(backoffBaseSeconds)),
-			},
-		}
 		nsSelector := &metav1.LabelSelector{
 			MatchExpressions: []metav1.LabelSelectorRequirement{
 				{
@@ -3272,7 +3260,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForP
 		fwk.StartManager(ctx, cfg, managerSetup(
 			false,
 			true,
-			&configapi.Configuration{WaitForPodsReady: waitForPodsReady},
+			&configapi.Configuration{},
 			jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 			jobframework.WithEnabledFrameworks([]string{"pod"}),
 		))
@@ -3305,7 +3293,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler when waitForP
 		util.ExpectObjectToBeDeleted(ctx, k8sClient, fl, true)
 	})
 
-	ginkgo.When("pod group not ready", func() {
+	ginkgo.When("pod group waiting for replacement pods", func() {
 		ginkgo.It("shouldn't re-admit workload with WaitingForReplacementPods=True", func() {
 			podGroupName := "pod-group"
 			pod := testingpod.MakePod("pod", ns.Name).
