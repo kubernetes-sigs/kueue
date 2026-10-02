@@ -265,7 +265,8 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, err
 	}
 
-	if err := w.removeObjectsOnPreviousCluster(ctx, grp, req.String()); err != nil {
+	retryCleanupAfter, err := w.removeObjectsOnPreviousCluster(ctx, grp, req.String())
+	if err != nil {
 		return reconcile.Result{}, err
 	}
 
@@ -283,48 +284,54 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		return reconcile.Result{}, nil
 	}
 
-	return w.reconcileGroup(ctx, grp)
+	res, err := w.reconcileGroup(ctx, grp)
+	if retryCleanupAfter > 0 && (res.RequeueAfter == 0 || retryCleanupAfter < res.RequeueAfter) {
+		res.RequeueAfter = retryCleanupAfter
+	}
+	return res, err
 }
 
 // removeObjectsOnPreviousCluster deletes the remote objects on the cluster the workload was
 // admitted on before an eviction cleared its cluster name, if that cluster is no longer in the
 // MultiKueueConfig. The group no longer reads that cluster, so nothing else stops the remote
 // job there, and it would keep running after the workload is dispatched again.
-func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group *wlGroup, key string) error {
+// It returns how long to wait before retrying when that cluster is disconnected.
+func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group *wlGroup, key string) (time.Duration, error) {
 	clusterName, found := w.previousClusterNames.Get(key)
 	if !found {
-		return nil
+		return 0, nil
 	}
 	if _, inGroup := group.remoteClients[clusterName]; inGroup || slices.Contains(group.unavailableClusters, clusterName) {
 		// The group reads this cluster, so the regular flow removes its remote objects.
 		w.previousClusterNames.Delete(key)
-		return nil
+		return 0, nil
 	}
 	rc, found := w.clusters.controllerFor(clusterName)
 	if !found {
 		// Without a MultiKueueCluster the cluster cannot be reached.
 		w.previousClusterNames.Delete(key)
-		return nil
+		return 0, nil
 	}
 	if !rc.connState.isConnected() {
-		// Retry on a later reconcile, after the cluster reconnects.
-		return nil
+		// A reconnected watch does not replay the remote workloads, so nothing else
+		// triggers a reconcile once the cluster is back.
+		return w.workerLostTimeout, nil
 	}
 
 	remWl := &kueue.Workload{}
 	err := rc.getClient().Get(ctx, client.ObjectKeyFromObject(group.local), remWl)
 	if client.IgnoreNotFound(err) != nil {
-		return err
+		return 0, err
 	}
 	if err != nil {
 		remWl = nil
 	}
 	if err := group.removeRemoteObjects(ctx, rc, remWl); err != nil {
-		return fmt.Errorf("removing remote objects on cluster %q: %w", clusterName, err)
+		return 0, fmt.Errorf("removing remote objects on cluster %q: %w", clusterName, err)
 	}
 	ctrl.LoggerFrom(ctx).V(3).Info("Removed remote objects on a cluster removed from the MultiKueueConfig", "workerCluster", clusterName)
 	w.previousClusterNames.Delete(key)
-	return nil
+	return 0, nil
 }
 
 func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *kueue.AdmissionCheckState, status kueue.CheckState, message string) error {
