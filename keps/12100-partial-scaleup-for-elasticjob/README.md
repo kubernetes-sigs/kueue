@@ -27,7 +27,7 @@
   - [Probe lifecycle](#probe-lifecycle)
   - [Eviction and readmission behavior](#eviction-and-readmission-behavior)
   - [RayJob/RayService/RayCluster controller](#rayjobrayserviceraycluster-controller)
-  - [Job controller](#job-controller)
+  - [Job integration](#job-integration)
   - [Partial ScaleUp for multiple PodSets](#partial-scaleup-for-multiple-podsets)
     - [Order-Based policy (<code>order-based</code>)](#order-based-policy-order-based)
       - [Example of RayJob with multiple PodSets](#example-of-rayjob-with-multiple-podsets)
@@ -257,7 +257,7 @@ Consequently, the reducer selects the counts for the probe between `minCount` an
 
 ### RayJob/RayService/RayCluster controller
 
-`RayJob`, `RayService`, and `RayCluster` integrations support the partial scale up feature as described in this section; see [Job controller](#job-controller) below for `batch/v1 Job`.
+`RayJob`, `RayService`, and `RayCluster` integrations support the partial scale up feature as described in this section; see [Job integration](#job-integration) below for `batch/v1 Job`.
 
 `RayCluster.workerGroupSpecs[i].replicas * numOfHosts` is translated to `PodSet.Count`. With partial scale up enabled, each worker group's `minCount` is set to its `PodSet.Count` in the initial Workload; `minReplicas` is not consulted.
 
@@ -265,20 +265,15 @@ Scale up replacement Workloads get their `minCount` and baseline as described in
 
 Note, that PodsReady() for Ray jobs rely on RayCluster.Status.State value, so the partial scale up won't affect the PodsReady() value.
 
-### Job controller
+### Job integration
 
-`batch/v1 Job` supports partial scale up the same way as RayJob/RayService/RayCluster, with one added constraint. 
+Similarly to RayJob/RayService/RayCluster, `batch/v1 Job` supports partial scale up, with a few Job-specific details.
+Upstream Kubernetes only allows changing `.spec.completions` on an `Indexed` Job when the new value equals `.spec.parallelism`.
+The Job webhook requires `completionMode: Indexed` and `.spec.completions == .spec.parallelism` whenever `kueue.x-k8s.io/elastic-job-scale-up-strategy: "partial"` is set, since only that strategy (not the default `atomic`) performs scale up.
 
-Upstream Kubernetes only allows mutating `.spec.parallelism` on an already-unsuspended Job together with `.spec.completions`, and only under `completionMode: Indexed`.
-The Job webhook enforces this: it requires `kueue.x-k8s.io/job-completions-equal-parallelism: "true"` whenever `elastic-job` is enabled. Requiring that annotation makes the existing `Indexed`/`completions == parallelism` checks apply to elastic Jobs too, without duplicating them.
+For `batch/v1 Job`, the shared `ElasticJobUngater` ungates the lowest `batch.kubernetes.io/job-completion-index` first, since the built-in Job controller counts gated Pods against `.spec.parallelism`. Ungating out of order could leave a low index gated forever behind a higher one, stalling `.spec.completions`. RayCluster/RayJob/RayService Pods carry no such label and keep the previous name-based order.
 
-For `batch/v1 Job`, Kueue guarantees Pods are ungated in completion-index order, lowest first.
-This matters because the built-in Job controller counts gated Pods against `.spec.parallelism`. Ungating out of order could leave a low completion index gated forever while a higher one runs, stalling `.spec.completions` even when enough quota was granted overall.
-The shared `ElasticJobUngater` (also used for RayJob/RayService/RayCluster) enforces this using the `batch.kubernetes.io/job-completion-index` Pod label. RayCluster/RayJob/RayService Pods carry no such label, so they keep the previous name-based order.
-
-Unlike Ray, whose `PodsReady()` reads a single aggregate `RayCluster.Status.State` field and so ignores individual Pods, a Job's `PodsReady()` counts individual `Status.Ready`/`Status.Succeeded` Pods against its full target (`podsCount()`), not the Workload's granted count. 
-`WaitForPodsReady` could evict a healthy, partially-progressing Job, if a ClusterQueue's quota permanently plateaus below the Job's target, because `PodsReady()` never becomes true for it.
-Job partial scale-up needs `PodsReady()` to compare against the granted PodSet count instead of the full target while the Job is admitted under partial scale-up.
+A Job's `PodsReady()` counts individual Pods. While the Job is partially admitted, it compares that count against the granted PodSet count rather than the full target (`podsCount()`).
 
 ### Partial ScaleUp for multiple PodSets
 
