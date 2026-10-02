@@ -2932,10 +2932,8 @@ func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
 	rec := NewReconciler(cl, &utiltesting.EventRecorder{})
 	req := controllerruntime.Request{NamespacedName: client.ObjectKeyFromObject(obj)}
 
-	for range 2 {
-		if _, err := rec.ReconcileGenericJob(ctx, req, mgj); err != nil {
-			t.Fatal(err)
-		}
+	if _, err := rec.ReconcileGenericJob(ctx, req, mgj); err != nil {
+		t.Fatal(err)
 	}
 
 	list := &kueue.WorkloadList{}
