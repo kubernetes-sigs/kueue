@@ -278,10 +278,12 @@ func TestAmountFromQuantityAtAFarScale(t *testing.T) {
 			if got := AmountFromQuantity(tc.name, q); got.String() != tc.want {
 				t.Errorf("AmountFromQuantity(%s, %d at scale %d) = %s, want %s", tc.name, tc.unscaled, tc.scale, got, tc.want)
 			}
-			allocs := testing.AllocsPerRun(1, func() {
+			// Under -race, sync.Pool drops items at random, and math/big pools
+			// its scratch space, so one call may allocate more than another.
+			allocs := testing.AllocsPerRun(100, func() {
 				AmountFromQuantity(tc.name, q)
 			})
-			decimalAllocs := testing.AllocsPerRun(1, func() {
+			decimalAllocs := testing.AllocsPerRun(100, func() {
 				fromBig(scaledBig(tc.name, q))
 			})
 			if allocs > decimalAllocs {
