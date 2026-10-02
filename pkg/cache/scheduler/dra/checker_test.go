@@ -125,44 +125,24 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 			},
 		},
 	}
-	gpuSlice := &resourceapi.ResourceSlice{
-		Name: "gpu-node-slice",
-		Spec: resourceapi.ResourceSliceSpec{
-			Driver:   "gpu.example.com",
-			NodeName: new("gpu-node"),
-			Pool: resourceapi.ResourcePool{
-				Name:               "gpu-pool",
-				Generation:         1,
-				ResourceSliceCount: 1,
-			},
-			Devices: []resourceapi.Device{
-				{Name: "gpu-0"},
-				{Name: "gpu-1"},
-			},
-		},
-	}
+	gpuSlice := testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+		NodeName("gpu-node").
+		Pool("gpu-pool", 1, 1).
+		Device("gpu-0").
+		Device("gpu-1").
+		Obj()
 
 	// A device that only binds once a condition reports True. kube-scheduler can
 	// still select it, so the simulation has to as well.
 	bindingNode := &corev1.Node{
 		Name: "binding-node",
 	}
-	bindingSlice := &resourceapi.ResourceSlice{
-		Name: "binding-node-slice",
-		Spec: resourceapi.ResourceSliceSpec{
-			Driver:   "gpu.example.com",
-			NodeName: new("binding-node"),
-			Pool: resourceapi.ResourcePool{
-				Name:               "binding-pool",
-				Generation:         1,
-				ResourceSliceCount: 1,
-			},
-			Devices: []resourceapi.Device{{
-				Name:              "gpu-0",
-				BindingConditions: []string{"example.com/device-ready"},
-			}},
-		},
-	}
+	bindingSlice := testingdra.MakeResourceSlice("binding-node-slice", "gpu.example.com").
+		NodeName("binding-node").
+		Pool("binding-pool", 1, 1).
+		Device("gpu-0").
+		BindingConditions("example.com/device-ready").
+		Obj()
 
 	gpuClaim := &resourceapi.ResourceClaim{
 		Name: "existing-gpu-claim", Namespace: "default",
@@ -206,32 +186,16 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 			Selectors: []resourceapi.DeviceSelector{{CEL: &resourceapi.CELDeviceSelector{Expression: `device.driver == "slice.example.com"`}}},
 		},
 	}
-	fullSlice := &resourceapi.ResourceSlice{
-		Name: "mixed-node-full",
-		Spec: resourceapi.ResourceSliceSpec{
-			Driver:   "full.example.com",
-			NodeName: new("mixed-node"),
-			Pool: resourceapi.ResourcePool{
-				Name:               "full-pool",
-				Generation:         1,
-				ResourceSliceCount: 1,
-			},
-			Devices: []resourceapi.Device{{Name: "full-0"}},
-		},
-	}
-	sliceSlice := &resourceapi.ResourceSlice{
-		Name: "mixed-node-slice",
-		Spec: resourceapi.ResourceSliceSpec{
-			Driver:   "slice.example.com",
-			NodeName: new("mixed-node"),
-			Pool: resourceapi.ResourcePool{
-				Name:               "slice-pool",
-				Generation:         1,
-				ResourceSliceCount: 1,
-			},
-			Devices: []resourceapi.Device{{Name: "slice-0"}},
-		},
-	}
+	fullSlice := testingdra.MakeResourceSlice("mixed-node-full", "full.example.com").
+		NodeName("mixed-node").
+		Pool("full-pool", 1, 1).
+		Device("full-0").
+		Obj()
+	sliceSlice := testingdra.MakeResourceSlice("mixed-node-slice", "slice.example.com").
+		NodeName("mixed-node").
+		Pool("slice-pool", 1, 1).
+		Device("slice-0").
+		Obj()
 	fallbackOneTemplate := utiltesting.MakeResourceClaimTemplate("fallback-template", "default").
 		DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
 			testingdra.MakeDeviceSubRequest("full", "full.example.com", 1).Obj(),
