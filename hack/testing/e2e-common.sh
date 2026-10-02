@@ -14,12 +14,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-export KUSTOMIZE="$ROOT_DIR"/bin/kustomize
-export GINKGO="$ROOT_DIR"/bin/ginkgo
-export KIND="$ROOT_DIR"/bin/kind
-export YQ="$ROOT_DIR"/bin/yq
-export HELM="$ROOT_DIR"/bin/helm
-export PATH="$ROOT_DIR/bin:$PATH"
+export E2E_BIN_DIR="${E2E_BIN_DIR:-${ROOT_DIR}/bin}"
+export KUSTOMIZE="${E2E_BIN_DIR}/kustomize"
+export GINKGO="${E2E_BIN_DIR}/ginkgo"
+export KIND="${E2E_BIN_DIR}/kind"
+export YQ="${E2E_BIN_DIR}/yq"
+export HELM="${E2E_BIN_DIR}/helm"
+export PATH="${E2E_BIN_DIR}:$PATH"
 
 # GOTRACEBACK=system asks the Go runtime to include runtime-internal goroutines when a
 # subprocess spawned below (e.g. `go vet`/`go build` during `ginkgo run` compilation)
