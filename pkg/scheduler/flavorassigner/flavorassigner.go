@@ -1498,15 +1498,26 @@ func (a *FlavorAssigner) fitsResourceQuota(
 	status.appendf("insufficient unused quota for %s in flavor %s, %s more needed",
 		fr.Resource, fr.Flavor, a.resourceFormatter.ExactAmountString(fr.Resource, val.Sub(available)))
 
-	if rQuota.Nominal.Cmp(val) >= 0 || mayReclaimInHierarchy || a.canPreemptWhileBorrowing() {
+	if rQuota.Nominal.Cmp(val) >= 0 || mayReclaimInHierarchy || a.canPreemptWithinClusterQueue() || a.canPreemptWhileBorrowing() {
 		preemptionPossiblity, borrowAfterPreemptions := a.oracle.SimulatePreemption(ctx, a.cq, *a.wl, fr, val)
 		mode := fromPreemptionPossibility(preemptionPossiblity)
+		if rQuota.Nominal.Cmp(val) < 0 &&
+			mode == noPreemptionCandidates &&
+			!mayReclaimInHierarchy &&
+			a.canPreemptWithinClusterQueue() &&
+			!a.canPreemptWhileBorrowing() {
+			return noFit, borrow, &status
+		}
 		if mode != noFit {
 			status.noFitReason = ""
 		}
 		return mode, borrowAfterPreemptions, &status
 	}
 	return noFit, borrow, &status
+}
+
+func (a *FlavorAssigner) canPreemptWithinClusterQueue() bool {
+	return a.cq.Preemption.WithinClusterQueue != "" && a.cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever
 }
 
 func (a *FlavorAssigner) canPreemptWhileBorrowing() bool {
