@@ -65,7 +65,9 @@ steps:
 
 - Unit test: for an assertion-only failure, skip Steps 2-6 and continue with Steps 7-9. For a
   process or container failure, run Steps 2-3 first, then continue with Steps 7-9.
-- Integration or envtest: run Steps 2-5, skip Step 6, then continue with Steps 7-9.
+- Integration or envtest, including `test-performance-scheduler`,
+  `test-tas-performance-scheduler`, `test-tas-dra-performance-scheduler`, and
+  `test-large-scale-performance-scheduler`: run Steps 2-5, skip Step 6, then continue with Steps 7-9.
 - E2E or Kind: run Steps 2-3, skip Steps 4-5, run Step 6, then continue with Steps 7-9.
 
 ### Step 2 - inspect the CI Pod and distinguish OOM from ordinary failure
@@ -100,15 +102,21 @@ Interpret the result as follows:
 
 Run this step only when `build-logs/podinfo.json` is available. The Grafana UI at
 `https://monitoring-eks.prow.k8s.io` may require login. The Prow datasource
-proxy API can expose the required public metrics without using the UI. The datasource UID used by
-the repository's metrics helper is `PA553F4D380FC2FA5`; verify it in
-`hack/infra/stats/fetch_prow_metrics.py` if the monitoring setup changes. Do not bypass
+proxy API can expose the required public metrics without using the UI. Discover the Prometheus
+datasource UID from the public frontend settings instead of hardcoding it. If multiple Prometheus
+datasources exist, inspect the settings and select the intended UID before querying. Do not bypass
 authentication if the endpoint changes or becomes private.
 
 Set the Pod name from `podinfo.json` and use a time range covering the test container lifetime:
 
 ```sh
-PROM_API='https://monitoring-eks.prow.k8s.io/api/datasources/proxy/uid/PA553F4D380FC2FA5/api/v1'
+set -e
+GRAFANA='https://monitoring-eks.prow.k8s.io'
+curl -fsS "${GRAFANA}/api/frontend/settings" -o build-logs/grafana-settings.json
+DS_UID=$(jq -er '[.datasources[] | select(.type == "prometheus") | .uid] |
+  if length == 1 then .[0] else error("Select the intended Prometheus datasource UID.") end' \
+  build-logs/grafana-settings.json)
+PROM_API="${GRAFANA}/api/datasources/proxy/uid/${DS_UID}/api/v1"
 POD=$(jq -r '.pod.metadata.name' build-logs/podinfo.json)
 START=$(jq -r '.pod.status.containerStatuses[] | select(.name == "test") | .state.terminated.startedAt | fromdateiso8601' build-logs/podinfo.json)
 END=$(jq -r '.pod.status.containerStatuses[] | select(.name == "test") | .state.terminated.finishedAt | fromdateiso8601' build-logs/podinfo.json)
@@ -133,19 +141,33 @@ curl -fsS --get "${PROM_API}/query_range" \
   --data-urlencode "end=${END}" \
   --data-urlencode 'step=30' \
   -o build-logs/cpu.json
+
+curl -fsS --get "${PROM_API}/query_range" \
+  --data-urlencode "query=100 * rate(container_cpu_cfs_throttled_periods_total{namespace=\"test-pods\",pod=\"${POD}\",container=\"test\"}[2m]) / (rate(container_cpu_cfs_periods_total{namespace=\"test-pods\",pod=\"${POD}\",container=\"test\"}[2m]) > 0)" \
+  --data-urlencode "start=${START}" \
+  --data-urlencode "end=${END}" \
+  --data-urlencode 'step=30' \
+  -o build-logs/cpu-throttling.json
 ```
 
 Extract the relevant values:
 
 ```sh
-jq '[.data.result[]?.values[]?[1] | tonumber] | {max:(max // 0)}' build-logs/memory.json
-jq '[.data.result[]?.values[]?[1] | tonumber] | {max:(max // 0)}' build-logs/oom.json
-jq '[.data.result[]?.values[]?[1] | tonumber] | {max:(max // 0)}' build-logs/cpu.json
+jq '[.data.result[]?.values[]?[1] | tonumber] | {max:max}' build-logs/memory.json
+jq '[.data.result[]?.values[]?[1] | tonumber] | {max:max}' build-logs/oom.json
+jq '[.data.result[]?.values[]?[1] | tonumber] | {max:max}' build-logs/cpu.json
+jq '[.data.result[]?.values[]?[1] | tonumber] | {max:max}' build-logs/cpu-throttling.json
 ```
 
 Record the units explicitly. For example, `12,871,102,464` bytes is about `11.987 GiB`, while a
 `12 GiB` limit is `12,884,901,888` bytes. A result at 99% of the limit supports a resource-pressure
 hypothesis but does not establish an OOM kill.
+
+CPU usage is measured in cores; compare it with the `test` container CPU limit. The CFS ratio is
+the percentage of periods with throttling, not the percentage of CPU time lost. Near-limit CPU
+usage with a high ratio supports CPU quota pressure but does not prove the failure's cause.
+The CFS query excludes zero-period windows. For any metric, a null maximum means samples are
+missing; report an evidence gap instead of treating it as zero usage or no OOM events.
 
 ### Step 4 - inspect envtest parallelism and lifecycle
 
@@ -204,6 +226,19 @@ plane and worker logs:
 curl -fsSL "${GCS_BUILD}/artifacts/" | rg 'href='
 ```
 
+For example, single-cluster artifacts use `artifacts/run-test-e2e-<suite>-<k8s-version>/`.
+Set `BASE_ARTIFACTS` to the actual suite directory URL from the listing. With the default Kind
+cluster name, typical log paths relative to that directory are:
+
+```text
+kind-control-plane/pods/kube-system_kube-scheduler-*/kube-scheduler/0.log
+<worker>/kubelet.log
+```
+
+List `${BASE_ARTIFACTS}/kind-control-plane/pods/` to find the exact scheduler Pod directory, then
+download its `kube-scheduler/0.log`. Worker names include `kind-worker` and `kind-worker2`.
+Use the actual cluster and node names from the listing for custom or MultiKueue clusters.
+
 For scheduler logs, locate the Pod directory and inspect the relevant `0.log` file. Look for the
 placement of Kueue controller Pods and Pods in the failed test namespace:
 
@@ -243,10 +278,13 @@ Use this decision order:
 1. If `OOMKilled` or an increasing OOM counter is present, fix the memory limit or workload shape.
 2. If memory is near the limit but no OOM is observed, report resource pressure and recommend
    increasing the container limit. Do not label it a confirmed OOM.
-3. If an apiserver stop timeout is primary and resource pressure is plausible, inspect teardown
+3. If CPU usage is near its limit and the CFS throttled-period ratio is high, inspect the CPU quota
+   and test parallelism. Evaluate a CPU limit or parallelism change without treating throttling as
+   a confirmed cause of the failure.
+4. If an apiserver stop timeout is primary and resource pressure is plausible, inspect teardown
    ordering and parallel envtest ownership.
-4. If resource usage is normal, prioritize apiserver/etcd logs and process lifecycle evidence.
-5. Add retries only when the error is transient and the apiserver remains healthy; do not use retries
+5. If resource usage is normal, prioritize apiserver/etcd logs and process lifecycle evidence.
+6. Add retries only when the error is transient and the apiserver remains healthy; do not use retries
    to hide teardown failures.
 
 ### Step 9 - recommendations and final report
