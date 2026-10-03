@@ -1317,6 +1317,25 @@ re-queuing an evicted workload.</p>
 <p>Defaults to 3600.</p>
 </td>
 </tr>
+<tr><td><code>backoffLimitTimeout</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>BackoffLimitTimeout defines the maximum time a workload can spend being
+re-queued due to evictions with the PodsReadyTimeout reason. The time is
+measured from the first such eviction since the workload last reached the
+PodsReady=true condition, recorded in <code>.status.requeueState.firstEvictedAt</code>.
+When the timeout has elapsed and the workload is about to be evicted with the
+PodsReadyTimeout reason again, it is deactivated (<code>.spec.active</code>=<code>false</code>)
+instead of being re-queued.
+Reaching PodsReady=true resets the measurement, so the timeout bounds the
+time spent cycling through evictions rather than the total time in the queue.
+BackoffLimitCount is applied independently; whichever limit is reached first
+deactivates the workload.
+When it is null, the re-queuing time is not limited.</p>
+<p>Defaults to null.</p>
+</td>
+</tr>
 </tbody>
 </table>
 
