@@ -36,7 +36,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
-	testutil "sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -59,7 +58,7 @@ func TestValidateCreate(t *testing.T) {
 		{
 			name:    "invalid queue-name label",
 			job:     testingutil.MakeMPIJob("job", "default").Queue("queue_name").Obj(),
-			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", testutil.InvalidRFC1123Message)}.ToAggregate(),
+			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", utiltesting.InvalidRFC1123Message)}.ToAggregate(),
 		},
 		{
 			name:    "with prebuilt workload",
