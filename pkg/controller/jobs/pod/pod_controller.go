@@ -55,6 +55,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
@@ -78,9 +79,10 @@ var errMsgIncorrectGroupRoleCount = fmt.Sprintf("pod group can't include more th
 
 // Event reasons used by the pod controller
 const (
-	ReasonExcessPodDeleted     = "ExcessPodDeleted"
-	ReasonOwnerReferencesAdded = "OwnerReferencesAdded"
-	ReasonWorkloadNameConflict = "WorkloadNameConflict"
+	ReasonExcessPodDeleted       = "ExcessPodDeleted"
+	ReasonOwnerReferencesAdded   = "OwnerReferencesAdded"
+	ReasonWorkloadNameConflict   = "WorkloadNameConflict"
+	ReasonPodExceedsRoleRequests = "PodExceedsRoleRequests"
 )
 
 const (
@@ -317,6 +319,7 @@ func (p *Pod) Suspend() {
 func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podSetsInfo []podset.PodSetInfo, recorder events.EventRecorder, msg string) error {
 	log := ctrl.LoggerFrom(ctx)
 
+	var keepGated sets.Set[string]
 	if !p.isGroup {
 		if len(podSetsInfo) != 1 {
 			return fmt.Errorf("%w: expecting 1 pod set got %d", podset.ErrInvalidPodsetInfo, len(podSetsInfo))
@@ -337,12 +340,18 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 		}
 
 		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.customLabels, p.roleTracker)
+	} else {
+		var err error
+		keepGated, err = validatePodsBeforeUngating(p.list.Items, wl, recorder)
+		if err != nil {
+			return err
+		}
 	}
 
 	return parallelize.Until(ctx, len(p.list.Items), func(i int) error {
 		pod := &p.list.Items[i]
 
-		if !isGated(pod) {
+		if !isGated(pod) || keepGated.Has(pod.Name) {
 			return nil
 		}
 
@@ -961,6 +970,78 @@ func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.
 	return nil, errors.New("failed to find a runnable pod in the group")
 }
 
+// podExceedsRequests reports whether the pod requests more of any resource than reserved
+// for its role. Unreserved / missing reserved keys count as zero.
+func podExceedsRequests(pod *corev1.Pod, reserved resources.Requests) bool {
+	_, found := firstExceededResource(pod, reserved)
+	return found
+}
+
+// firstExceededResource returns the first resource the pod requests above the reservation.
+// A resource absent from the reservation is treated as zero.
+func firstExceededResource(pod *corev1.Pod, reserved resources.Requests) (corev1.ResourceName, bool) {
+	actual := resources.NewRequestsFromPodSpec(&pod.Spec)
+	if reserved == nil {
+		reserved = resources.NewRequests()
+	}
+	for name, val := range actual.Iter() {
+		if val.Cmp(reserved.ResourceValue(name)) > 0 {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// validatePodsBeforeUngating verifies that every gated pod fits the PodSet its
+// role-hash annotation names, and returns the names of the pods that do not. The
+// annotation is user-supplied and is treated as an untrusted PodSet name: it selects
+// the reservation to check against, it does not assert anything about the pod.
+// Verifying here rather than at admission means the pod is in its final shape
+// (admission-check nodeSelectors already applied) and no pod annotation has to be
+// rewritten to make the check sound. A pod exceeding its reservation gets a Warning
+// event and is left gated instead of failing the group, so that such a pod cannot
+// disrupt an already admitted group.
+func validatePodsBeforeUngating(pods []corev1.Pod, wl *kueue.Workload, recorder events.EventRecorder) (sets.Set[string], error) {
+	if !features.Enabled(features.PodIntegrationVerifyRoleRequests) {
+		return nil, nil
+	}
+	oversized := sets.New[string]()
+	podSets := utilslices.ToRefMap(wl.Spec.PodSets, func(ps *kueue.PodSet) kueue.PodSetReference { return ps.Name })
+	for i := range pods {
+		pod := &pods[i]
+		if !isGated(pod) {
+			continue
+		}
+		role, err := getRoleHash(*pod)
+		if err != nil {
+			return nil, errRoleHashCalculationForPod(pod.Name, err)
+		}
+		ps, found := podSets[kueue.NewPodSetReference(role)]
+		if !found {
+			return nil, fmt.Errorf("%w: no podset named %q for pod %q", podset.ErrInvalidPodsetInfo, role, pod.Name)
+		}
+		reserved := resources.NewRequestsFromPodSpec(&ps.Template.Spec)
+		resourceName, exceeds := firstExceededResource(pod, reserved)
+		if !exceeds {
+			continue
+		}
+		msg := fmt.Sprintf("Pod %q requests more %s than podset %q reserves", pod.Name, resourceName, role)
+		if recorder != nil {
+			recorder.Eventf(pod, nil, corev1.EventTypeWarning, ReasonPodExceedsRoleRequests, "Admission", api.TruncateEventMessage(msg))
+		}
+		oversized.Insert(pod.Name)
+	}
+	return oversized, nil
+}
+
+func errRoleHashCalculationForPod(podName string, err error) error {
+	return fmt.Errorf("failed to calculate pod role hash for pod %q: %w", podName, err)
+}
+
+func errRoleHashCalculation(errs []error) error {
+	return fmt.Errorf("failed to calculate pod role hash: %w", errors.Join(errs...))
+}
+
 type podSetWithShapeHash struct {
 	podSet    kueue.PodSet
 	shapeHash string
@@ -1572,7 +1653,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		roleActivePods := utilslices.Pick(activePods, hasRoleFunc)
 		roleInactivePods := utilslices.Pick(inactivePods, hasRoleFunc)
 		if len(roleHashErrors) > 0 {
-			return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", errors.Join(roleHashErrors...))
+			return nil, nil, errRoleHashCalculation(roleHashErrors)
 		}
 
 		absentPods += p.countAbsentPods(ps, len(roleActivePods))
