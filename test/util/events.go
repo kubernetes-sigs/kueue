@@ -62,3 +62,18 @@ func ExpectEventAppeared(ctx context.Context, k8sClient client.Client, event eve
 		g.Expect(observedEvents.Items).To(haveEvent(event))
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
+
+// EventsForObject lists the events regarding the object identified by key.
+func EventsForObject(ctx context.Context, k8sClient client.Client, key types.NamespacedName) ([]eventsv1.Event, error) {
+	events := &eventsv1.EventList{}
+	if err := k8sClient.List(ctx, events, client.InNamespace(key.Namespace)); err != nil {
+		return nil, err
+	}
+	var result []eventsv1.Event
+	for _, event := range events.Items {
+		if event.Regarding.Namespace == key.Namespace && event.Regarding.Name == key.Name {
+			result = append(result, event)
+		}
+	}
+	return result, nil
+}
