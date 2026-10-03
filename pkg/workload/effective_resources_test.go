@@ -37,6 +37,9 @@ func TestEffectivePodSpecs(t *testing.T) {
 	runtimeClass := utiltesting.MakeRuntimeClass("kata", "handler").
 		PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}).
 		Obj()
+	mixedClass := utiltesting.MakeRuntimeClass("mixed", "handler").
+		PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m"), corev1.ResourceMemory: resource.MustParse("2Gi")}).
+		Obj()
 	limitRange := utiltesting.MakeLimitRange("limits", "ns").
 		WithValue("Default", corev1.ResourceCPU, "4").
 		WithValue("DefaultRequest", corev1.ResourceCPU, "2").
@@ -128,12 +131,72 @@ func TestEffectivePodSpecs(t *testing.T) {
 					Limit(corev1.ResourceCPU, "4").Request(corev1.ResourceCPU, "2").Template.Spec,
 			},
 		},
+		"own overhead below the class": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).
+					Limit(corev1.ResourceCPU, "3").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}).
+					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
+			},
+		},
+		// Only a class's handler is immutable, so a Pod admitted under a larger
+		// overhead still carries it after the class is lowered.
+		"own overhead above the class": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}).
+					Limit(corev1.ResourceCPU, "3").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}).
+					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
+			},
+		},
+		"own overhead key the class does not define": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceMemory: resource.MustParse("1Gi")}).
+					Limit(corev1.ResourceCPU, "3").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourceMemory: resource.MustParse("1Gi")}).
+					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
+			},
+		},
+		// Larger on a different side for each resource, so taking one list whole
+		// cannot pass this.
+		"each resource takes its own larger value": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("mixed").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("1Gi")}).
+					Limit(corev1.ResourceCPU, "3").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("mixed").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("2Gi")}).
+					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
+			},
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
-				WithObjects(runtimeClass, limitRange).
+				WithObjects(runtimeClass, mixedClass, limitRange).
 				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
