@@ -842,12 +842,18 @@ func CreatePrometheusClient(cfg *rest.Config) prometheusv1.API {
 }
 
 func SetResourceNominalQuota(cq *kueue.ClusterQueue, resourceName corev1.ResourceName, value string) *kueue.ClusterQueue {
+	return SetFlavorResourceNominalQuota(cq, "", resourceName, value)
+}
+
+func SetFlavorResourceNominalQuota(cq *kueue.ClusterQueue, flavorName string, resourceName corev1.ResourceName, value string) *kueue.ClusterQueue {
 	for rgi := range cq.Spec.ResourceGroups {
 		for fi := range cq.Spec.ResourceGroups[rgi].Flavors {
-			for ri := range cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources {
-				if cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri].Name == resourceName {
-					cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri].NominalQuota = resource.MustParse(value)
-					return cq
+			if flavorName == "" || string(cq.Spec.ResourceGroups[rgi].Flavors[fi].Name) == flavorName {
+				for ri := range cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources {
+					if cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri].Name == resourceName {
+						cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri].NominalQuota = resource.MustParse(value)
+						return cq
+					}
 				}
 			}
 		}
