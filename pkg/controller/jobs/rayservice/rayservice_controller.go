@@ -60,6 +60,7 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 		JobType:       &rayv1.RayService{},
 		AddToScheme:   rayv1.AddToScheme,
 		MultiKueueAdapter: ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
+			ray.WithElasticReplicaSync(elasticRuntimeSync()),
 			ray.WithRemoteSpecSync[*rayv1.RayService, rayv1.RayService](remoteSpecSyncer{}),
 		),
 	})
@@ -197,7 +198,8 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 }
 
 func (j *RayService) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
-	return raycluster.RestorePodSetsInfo(ctx, &j.Spec.RayClusterSpec, podSetsInfo)
+	changed := raycluster.ClearRuntimeWorkerStateAnnotations(j.Object())
+	return raycluster.RestorePodSetsInfo(ctx, &j.Spec.RayClusterSpec, podSetsInfo) || changed
 }
 
 func (j *RayService) Finished(ctx context.Context) (message string, success, finished bool) {

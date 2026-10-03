@@ -17,15 +17,62 @@ limitations under the License.
 package rayservice
 
 import (
+	"context"
+	"fmt"
+
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/util/api"
 )
 
-var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy)
+var _ jobframework.MultiKueueAdapter = ray.NewMKAdapter(
+	copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
+)
+
+func elasticRuntimeSync() *ray.ElasticReplicaSync[*rayv1.RayService, rayv1.RayService] {
+	return &ray.ElasticReplicaSync[*rayv1.RayService, rayv1.RayService]{
+		WorkloadNameExtraPart: func(s *rayv1.RayService) string { return raycluster.GetWorkloadNameExtraPart(s.GetObjectMeta()) },
+		AutoscalingEnabled: func(s *rayv1.RayService) bool {
+			return ptr.Deref(s.Spec.RayClusterSpec.EnableInTreeAutoscaling, false)
+		},
+		IsSuspended: func(s *rayv1.RayService) bool {
+			return ptr.Deref(s.Spec.RayClusterSpec.Suspend, false)
+		},
+		Runtime: &ray.RuntimeReplicaSync[*rayv1.RayService]{
+			Fetch: fetchActiveRayClusterWorkerState,
+			Apply: raycluster.SetRuntimeWorkerStateAnnotations,
+		},
+	}
+}
+
+func fetchActiveRayClusterWorkerState(ctx context.Context, remoteClient client.Client, remoteService *rayv1.RayService) (*ray.FetchResult, error) {
+	if ptr.Deref(remoteService.Spec.RayClusterSpec.Suspend, false) {
+		return nil, nil
+	}
+	childName := remoteService.Status.ActiveServiceStatus.RayClusterName
+	if childName == "" {
+		return nil, nil
+	}
+	child := &rayv1.RayCluster{}
+	err := remoteClient.Get(ctx, types.NamespacedName{Namespace: remoteService.Namespace, Name: childName}, child)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &ray.FetchResult{
+		Counts:   raycluster.WorkerGroupPodCounts(&child.Spec),
+		Revision: fmt.Sprintf("%s-%d", child.UID, child.Generation),
+	}, nil
+}
 
 // remoteSpecSyncer is RayService's RemoteSpecSyncer for MultiKueue.
 type remoteSpecSyncer struct{}
