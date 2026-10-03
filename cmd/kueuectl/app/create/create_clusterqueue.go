@@ -506,29 +506,30 @@ func quotaTypeOf(rq kueue.ResourceQuota) string {
 func mergeFlavorsByCoveredResources(resourceGroups []kueue.ResourceGroup) ([]kueue.ResourceGroup, error) {
 	var mergedResources []kueue.ResourceGroup
 
-	coveredResources := sets.New[corev1.ResourceName]()
 	for _, rg := range resourceGroups {
 		resourceGroupResources := sets.New(rg.CoveredResources...)
+		// Merged groups never overlap, so at most one of them shares resources with rg.
 		idx := slices.IndexFunc(mergedResources, func(existing kueue.ResourceGroup) bool {
-			return resourceGroupResources.Equal(sets.New(existing.CoveredResources...))
+			return resourceGroupResources.HasAny(existing.CoveredResources...)
 		})
-		if idx != -1 {
-			// The webhook requires resources in coveredResources order.
-			covered := mergedResources[idx].CoveredResources
-			for i := range rg.Flavors {
-				slices.SortFunc(rg.Flavors[i].Resources, func(a, b kueue.ResourceQuota) int {
-					return cmp.Compare(slices.Index(covered, a.Name), slices.Index(covered, b.Name))
-				})
-			}
-			mergedResources[idx].Flavors = append(mergedResources[idx].Flavors, rg.Flavors...)
+		if idx == -1 {
+			mergedResources = append(mergedResources, rg)
 			continue
 		}
 
-		if coveredResources.HasAny(rg.CoveredResources...) {
-			return mergedResources, errInvalidResourceGroup
+		existing := mergedResources[idx]
+		if !resourceGroupResources.Equal(sets.New(existing.CoveredResources...)) {
+			return mergedResources, fmt.Errorf("%w: flavor %q covers %v but flavor %q covers %v; flavors that share a resource must cover the same resources",
+				errInvalidResourceGroup, rg.Flavors[0].Name, rg.CoveredResources, existing.Flavors[0].Name, existing.CoveredResources)
 		}
-		mergedResources = append(mergedResources, rg)
-		coveredResources.Insert(rg.CoveredResources...)
+
+		// The webhook requires resources in coveredResources order.
+		for i := range rg.Flavors {
+			slices.SortFunc(rg.Flavors[i].Resources, func(a, b kueue.ResourceQuota) int {
+				return cmp.Compare(slices.Index(existing.CoveredResources, a.Name), slices.Index(existing.CoveredResources, b.Name))
+			})
+		}
+		mergedResources[idx].Flavors = append(mergedResources[idx].Flavors, rg.Flavors...)
 	}
 
 	return mergedResources, nil
