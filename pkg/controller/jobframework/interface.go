@@ -190,6 +190,12 @@ type JobWithCustomWorkloadConditions interface {
 	CustomWorkloadConditions(wl *kueue.Workload) ([]metav1.Condition, bool)
 }
 
+// JobWithCustomWorkloadFinalization is an optional interface that allows
+// jobs to determine whether a Workload can be finalized.
+type JobWithCustomWorkloadFinalization interface {
+	CanFinalizeWorkload(wl *kueue.Workload) bool
+}
+
 // JobWithCustomWorkloadActivation is an optional interface that should be implemented
 // by generic jobs when custom logic is needed to determine whether the workload is active.
 type JobWithCustomWorkloadActivation interface {
