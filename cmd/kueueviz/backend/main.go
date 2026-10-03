@@ -37,8 +37,12 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
-	// Initialize server configuration
+	// Parse CLI flags (--listen, --port, --log-level) before reading config.
+	config.ParseFlags(os.Args[1:])
+
+	// Initialize server configuration (env + flags)
 	serverConfig := config.NewServerConfig()
+	config.SetupLogging(serverConfig.LogLevel)
 
 	// Setup pprof for development
 	config.SetupPprof()
