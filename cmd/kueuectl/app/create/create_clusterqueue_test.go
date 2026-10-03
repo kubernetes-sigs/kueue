@@ -161,7 +161,7 @@ func TestParseResourceQuotas(t *testing.T) {
 				},
 			},
 		},
-		"should create one resource group when flavors listing resources in different order": {
+		"should create one resource group when flavors list resources in different order": {
 			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:memory=2;cpu=2"},
 			wantResourceGroups: []kueue.ResourceGroup{
 				{
@@ -537,7 +537,7 @@ func TestParseResourceQuotas(t *testing.T) {
 					t.Errorf("Unexpected error message (-want,+got):\n%s", diff)
 				}
 			}
-			if diff := cmp.Diff(cqOptions.ResourceGroups, tc.wantResourceGroups); diff != "" {
+			if diff := cmp.Diff(tc.wantResourceGroups, cqOptions.ResourceGroups); diff != "" {
 				t.Errorf("Unexpected ResourceGroups (-want,+got):\n%s", diff)
 			}
 		})
