@@ -27,7 +27,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	jobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Fair Sharing", ginkgo.Label("area:singlecluster", "feature:fairsharing"), func() {
@@ -43,10 +43,10 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Label("area:singlecluster", "feat
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 
 		rf = utiltestingapi.MakeResourceFlavor("rf-" + ns.Name).Obj()
-		util.MustCreate(ctx, k8sClient, rf)
+		behavioral.MustCreate(ctx, k8sClient, rf)
 
 		cohort := kueue.CohortReference("cohort-" + ns.Name)
 
@@ -71,21 +71,21 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Label("area:singlecluster", "feat
 				Resource(corev1.ResourceMemory, "36G").
 				Obj()).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq1, cq2, cq3)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq1, cq2, cq3)
 
 		lq1 = utiltestingapi.MakeLocalQueue("lq1", ns.Name).ClusterQueue(cq1.Name).Obj()
 		lq2 = utiltestingapi.MakeLocalQueue("lq2", ns.Name).ClusterQueue(cq2.Name).Obj()
 		lq3 = utiltestingapi.MakeLocalQueue("lq3", ns.Name).ClusterQueue(cq3.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq1, lq2, lq3)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq1, lq2, lq3)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq3, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq3, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("the cluster queue starts borrowing", func() {
@@ -94,14 +94,14 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Label("area:singlecluster", "feat
 			for i := range 4 {
 				job := jobtesting.MakeJob(fmt.Sprintf("j%d", i+1), ns.Name).
 					Queue(kueue.LocalQueueName(lq1.Name)).
-					Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 					Parallelism(3).
 					Completions(3).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").
 					TerminationGracePeriod(1).
 					Obj()
-				util.MustCreate(ctx, k8sClient, job)
+				behavioral.MustCreate(ctx, k8sClient, job)
 			}
 
 			ginkgo.By("checking cluster queues")
@@ -121,7 +121,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Label("area:singlecluster", "feat
 				g.Expect(cq3.Status.AdmittedWorkloads).Should(gomega.Equal(int32(0)))
 				g.Expect(cq3.Status.FairSharing).ShouldNot(gomega.BeNil())
 				g.Expect(cq3.Status.FairSharing.WeightedShare).Should(gomega.Equal(int64(0)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })

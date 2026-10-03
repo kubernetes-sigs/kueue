@@ -28,7 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 type trainJobTestContext struct {
@@ -50,16 +50,16 @@ func registerTrainJobTests(contextProvider func() trainJobTestContext) {
 			RequestAndLimit(corev1.ResourceCPU, "100m", "100m").
 			RequestAndLimit(corev1.ResourceMemory, "100M", "100M").
 			// Even if we override the image coming from the TrainingRuntime, we still need to set the command and args
-			TrainerImage(util.GetAgnHostImage(), []string{"/agnhost"}, util.BehaviorExitFast).
+			TrainerImage(behavioral.GetAgnHostImage(), []string{"/agnhost"}, behavioral.BehaviorExitFast).
 			Obj()
 
 		ginkgo.By("Creating the trainjob", func() {
-			util.MustCreate(ctx, k8sManagerClient, trainjob)
+			behavioral.MustCreate(ctx, k8sManagerClient, trainjob)
 		})
 
 		wlLookupKey := types.NamespacedName{Name: workloadtrainjob.GetWorkloadNameForTrainJob(trainjob.Name, trainjob.UID), Namespace: managerNs.Name}
 
-		admittedWorker := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+		admittedWorker := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 		ginkgo.GinkgoLogr.Info("TrainJob %s is admitted in worker cluster %s", trainjob.Name, admittedWorker)
 
 		ginkgo.By("Checking the TrainJob is ready", func() {
@@ -67,7 +67,7 @@ func registerTrainJobTests(contextProvider func() trainJobTestContext) {
 				createdTrainJob := &kftrainer.TrainJob{}
 				g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(trainjob), createdTrainJob)).To(gomega.Succeed())
 				g.Expect(ptr.Deref(createdTrainJob.Spec.Suspend, false)).To(gomega.BeFalse())
-			}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 }

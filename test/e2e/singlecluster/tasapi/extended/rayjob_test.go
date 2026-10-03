@@ -31,7 +31,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, ginkgo.Label("area:tas", "feature:kuberay"), func() {
@@ -44,16 +44,16 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-rayjob-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-rayjob-")
 
 		topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
-		util.MustCreate(ctx, k8sClient, topology)
+		behavioral.MustCreate(ctx, k8sClient, topology)
 
 		tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 			NodeLabel(tasNodeGroupLabel, instanceType).
 			TopologyName(topology.Name).
 			Obj()
-		util.MustCreate(ctx, k8sClient, tasFlavor)
+		behavioral.MustCreate(ctx, k8sClient, tasFlavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
@@ -64,18 +64,18 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 					Obj(),
 			).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteAllRayJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteAllRayJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("Creating a RayJob", func() {
@@ -86,7 +86,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 				submitter      = 1
 			)
 			numPods := headReplicas + workerReplicas + submitter
-			kuberayTestImage := util.GetKuberayTestImage()
+			kuberayTestImage := behavioral.GetKuberayTestImage()
 			rayjob := testingrayjob.MakeJob("ranks-ray", ns.Name).
 				Queue(localQueue.Name).
 				WithSubmissionMode(rayv1.K8sJobMode).
@@ -178,13 +178,13 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 				TerminationGracePeriod(1).
 				Obj()
 
-			util.MustCreate(ctx, k8sClient, rayjob)
+			behavioral.MustCreate(ctx, k8sClient, rayjob)
 
 			ginkgo.By("RayJob is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayjob), rayjob)).To(gomega.Succeed())
 					g.Expect(rayjob.Spec.Suspend).Should(gomega.BeFalse())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			pods := &corev1.PodList{}
@@ -195,7 +195,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 					// The timeout is long to ensure all cluster pods are up and running.
 					// This is because the Ray image takes long time (around 170s on the CI)
 					// to load and then to sync with head.
-				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("ensure all pods are scheduled", func() {
@@ -205,11 +205,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(numPods))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
-				workerPods, err := util.GetRayClusterWorkerPods(ctx, k8sClient, client.ObjectKey{
+				workerPods, err := behavioral.GetRayClusterWorkerPods(ctx, k8sClient, client.ObjectKey{
 					Namespace: rayjob.Namespace,
 					Name:      rayjob.Status.RayClusterName,
 				}, "")
