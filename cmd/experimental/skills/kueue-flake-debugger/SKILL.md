@@ -25,7 +25,7 @@ If `gh` is unavailable, use the public issue page:
 
 ```sh
 curl -fsSL https://github.com/kubernetes-sigs/kueue/issues/ISSUE \
-  | rg -o 'https://prow\.k8s\.io/view/gs/kubernetes-ci-logs/pr-logs/pull[^" ]+'
+  | rg -o 'https://prow\.k8s\.io/view/gs/kubernetes-ci-logs/(pr-logs/pull|logs)/[^" ]+'
 ```
 
 List all matching builds. Choose the relevant failed build and preserve its exact artifact base
