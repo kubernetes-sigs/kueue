@@ -33,6 +33,7 @@ import (
 	testingdeploy "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "feature:appwrapper"), func() {
@@ -47,7 +48,7 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "appwrapper-e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "appwrapper-e2e-")
 		resourceFlavorName = "appwrapper-rf-" + ns.Name
 		clusterQueueName = "appwrapper-cq-" + ns.Name
 		localQueueName = "appwrapper-lq-" + ns.Name
@@ -88,7 +89,7 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 					Parallelism(int32(numPods)).
 					Completions(int32(numPods)).
 					Suspend(false).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 					SetTypeMeta().Obj(),
 			}).
 			Queue(localQueueName).
@@ -127,7 +128,7 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 			Suspend(true).
 			Component(awtesting.Component{
 				Template: testingdeploy.MakeDeployment(deploymentKey.Name, deploymentKey.Namespace).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
 					TerminationGracePeriod(1).
 					Replicas(3).

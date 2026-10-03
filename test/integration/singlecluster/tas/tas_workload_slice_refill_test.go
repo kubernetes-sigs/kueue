@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Topology Aware Scheduling with workload slices and fair sharing refill", ginkgo.Ordered, func() {
@@ -60,7 +61,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with workload slices and fair
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FairSharingRefill, true)
 
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-slice-refill-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-slice-refill-")
 
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("slice-refill-x1").

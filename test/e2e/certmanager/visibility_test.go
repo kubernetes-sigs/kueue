@@ -28,6 +28,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Kueue secure visibility server", func() {
@@ -43,7 +44,7 @@ var _ = ginkgo.Describe("Kueue secure visibility server", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		defaultRF = utiltestingapi.MakeResourceFlavor(defaultFlavor).Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultRF)
 
@@ -72,7 +73,7 @@ var _ = ginkgo.Describe("Kueue secure visibility server", func() {
 			ginkgo.By("Schedule a job that maxes out the cluster queue", func() {
 				firstJob = testingjob.MakeJob("job-1", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					TerminationGracePeriod(1).
 					BackoffLimit(0).
@@ -96,7 +97,7 @@ var _ = ginkgo.Describe("Kueue secure visibility server", func() {
 			ginkgo.By("Schedule a job which is pending due to low quota", func() {
 				secondJob = testingjob.MakeJob("job-2", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					Obj()
 				behavioral.MustCreate(ctx, k8sClient, secondJob)

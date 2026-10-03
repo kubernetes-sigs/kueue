@@ -35,6 +35,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area:tas", "feature:mpijob"), func() {
@@ -47,7 +48,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-mpijob-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-mpijob-")
 
 		topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
 		behavioral.MustCreate(ctx, k8sClient, topology)
@@ -99,8 +100,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 						Annotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 						},
-						Image: behavioral.GetAgnHostImage(),
-						Args:  behavioral.BehaviorExitFast,
+						Image: e2e.GetAgnHostImage(),
+						Args:  e2e.BehaviorExitFast,
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
@@ -109,8 +110,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 						Annotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 						},
-						Image: behavioral.GetAgnHostImage(),
-						Args:  behavioral.BehaviorExitFast,
+						Image: e2e.GetAgnHostImage(),
+						Args:  e2e.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "200m").
@@ -176,8 +177,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 						Annotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 						},
-						Image: behavioral.GetAgnHostImage(),
-						Args:  behavioral.BehaviorExitFast,
+						Image: e2e.GetAgnHostImage(),
+						Args:  e2e.BehaviorExitFast,
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
@@ -186,8 +187,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 						Annotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 						},
-						Image: behavioral.GetAgnHostImage(),
-						Args:  behavioral.BehaviorExitFast,
+						Image: e2e.GetAgnHostImage(),
+						Args:  e2e.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "200m").
@@ -262,8 +263,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetGroupName:                  "same-group",
 						},
-						Image: behavioral.GetAgnHostImage(),
-						Args:  behavioral.BehaviorExitFast,
+						Image: e2e.GetAgnHostImage(),
+						Args:  e2e.BehaviorExitFast,
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
@@ -273,8 +274,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 							kueue.PodSetGroupName:                  "same-group",
 						},
-						Image: behavioral.GetAgnHostImage(),
-						Args:  behavioral.BehaviorExitFast,
+						Image: e2e.GetAgnHostImage(),
+						Args:  e2e.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "200m").
@@ -332,8 +333,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 						ReplicaType:   kfmpi.MPIReplicaTypeWorker,
 						ReplicaCount:  1,
 						RestartPolicy: corev1.RestartPolicyOnFailure,
-						Image:         behavioral.GetAgnHostImage(),
-						Args:          behavioral.BehaviorExitFast,
+						Image:         e2e.GetAgnHostImage(),
+						Args:          e2e.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kfmpi.MPIReplicaTypeWorker, extraResource, "1").
@@ -354,8 +355,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for MPIJob", ginkgo.Label("area
 						Containers: []corev1.Container{
 							{
 								Name:  "mpijob",
-								Image: behavioral.GetAgnHostImage(),
-								Args:  behavioral.BehaviorExitFast,
+								Image: e2e.GetAgnHostImage(),
+								Args:  e2e.BehaviorExitFast,
 							},
 						},
 					},

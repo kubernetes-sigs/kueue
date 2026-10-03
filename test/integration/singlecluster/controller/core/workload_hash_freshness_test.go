@@ -29,6 +29,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // Pins that the scheduling equivalence hash follows the effective resources:
@@ -49,7 +50,7 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-freshness-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-freshness-")
 		smallFlavor = utiltestingapi.MakeResourceFlavor("small").Obj()
 		behavioral.MustCreate(ctx, k8sClient, smallFlavor)
 		largeFlavor = utiltestingapi.MakeResourceFlavor("large").Obj()
@@ -150,8 +151,8 @@ var _ = ginkgo.Describe("Pending scheduling hashes under differing LimitRange de
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 
-		nsSmall = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-small-")
-		nsLarge = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-large-")
+		nsSmall = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-small-")
+		nsLarge = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-large-")
 		flavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor)
 		// Zero quota keeps both workloads pending as inadmissible.

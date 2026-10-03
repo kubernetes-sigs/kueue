@@ -34,9 +34,10 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	deploymenttesting "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for Deployment", ginkgo.Label(behavioral.Shard1, "area:tas", "feature:deployment"), func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for Deployment", ginkgo.Label(e2e.Shard1, "area:tas", "feature:deployment"), func() {
 	var (
 		ns           *corev1.Namespace
 		topology     *kueue.Topology
@@ -46,7 +47,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Deployment", ginkgo.Label(b
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-deployment-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-deployment-")
 
 		topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
 		behavioral.MustCreate(ctx, k8sClient, topology)
@@ -94,7 +95,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Deployment", ginkgo.Label(b
 			)
 
 			deployment := deploymenttesting.MakeDeployment("deployment", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "10m").
 				Replicas(replicas).
 				Queue(localQueue.Name).

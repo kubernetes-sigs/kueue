@@ -28,6 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // Sanity check that the compiled kueuectl binary works end-to-end.
@@ -39,7 +40,7 @@ var _ = ginkgo.Describe("Kueuectl", ginkgo.Label("area:singlecluster", "feature:
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 
 		cq = utiltestingapi.MakeClusterQueue("e2e-cq-" + ns.Name).Obj()
 		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)

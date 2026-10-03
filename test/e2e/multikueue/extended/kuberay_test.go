@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 type kubeRayTestContext struct {
@@ -73,7 +74,7 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 			kubernetesClients = tc.kubernetesClients
 		})
 		ginkgo.It("Should run a RayJob on worker if admitted", func() {
-			kuberayTestImage := behavioral.GetKuberayTestImage()
+			kuberayTestImage := e2e.GetKuberayTestImage()
 			rayjob := testingrayjob.MakeJob("rayjob1", managerNs.Name).
 				Suspend(true).
 				Queue(managerLq.Name).
@@ -92,7 +93,7 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 
 			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: managerNs.Name}
 
-			admittedWorker := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+			admittedWorker := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 			ginkgo.GinkgoLogr.Info(fmt.Sprintf("RayJob %s/%s is admitted in worker cluster %s", rayjob.Name, rayjob.Namespace, admittedWorker))
 
 			ginkgo.By("Waiting for the RayJob to finish", func() {
@@ -115,7 +116,7 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 		})
 
 		ginkgo.It("Should run a RayCluster on worker if admitted", func() {
-			kuberayTestImage := behavioral.GetKuberayTestImage()
+			kuberayTestImage := e2e.GetKuberayTestImage()
 			raycluster := testingraycluster.MakeCluster("raycluster1", managerNs.Name).
 				Suspend(true).
 				Queue(managerLq.Name).
@@ -132,7 +133,7 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 
 			wlLookupKey := types.NamespacedName{Name: workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID), Namespace: managerNs.Name}
 			// the execution should be given to the worker1
-			admittedWorker := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+			admittedWorker := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 			ginkgo.GinkgoLogr.Info(fmt.Sprintf("RayCluster %s/%s is admitted in worker cluster %s", raycluster.Name, raycluster.Namespace, admittedWorker))
 
 			ginkgo.By("Checking the RayCluster is ready", func() {
@@ -147,7 +148,7 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 		})
 
 		ginkgo.It("Should scale an elastic RayCluster on worker if admitted", func() {
-			kuberayTestImage := behavioral.GetKuberayTestImage()
+			kuberayTestImage := e2e.GetKuberayTestImage()
 			raycluster := testingraycluster.MakeCluster("raycluster-elastic", managerNs.Name).
 				Suspend(true).
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -174,7 +175,7 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 				Name:      jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(raycluster.Name, raycluster.UID, rayv1.GroupVersion.WithKind("RayCluster"), raycluster.GetGeneration()),
 				Namespace: managerNs.Name,
 			}
-			admittedWorker := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+			admittedWorker := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 			ginkgo.GinkgoLogr.Info(fmt.Sprintf("elastic RayCluster %s/%s is admitted in worker cluster %s", raycluster.Name, raycluster.Namespace, admittedWorker))
 
 			// The assertions below check DesiredWorkerReplicas, which KubeRay derives
@@ -236,7 +237,7 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 		})
 
 		ginkgo.It("Should run a RayService on worker if admitted", func() {
-			kuberayTestImage := behavioral.GetKuberayTestImage()
+			kuberayTestImage := e2e.GetKuberayTestImage()
 
 			// Create ConfigMap with a simple Ray Serve application
 			configMap := &corev1.ConfigMap{
@@ -329,7 +330,7 @@ app = HelloWorld.bind()`,
 
 			wlLookupKey := types.NamespacedName{Name: workloadrayservice.GetWorkloadNameForRayService(rayService.Name, rayService.UID), Namespace: managerNs.Name}
 
-			admittedWorker := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+			admittedWorker := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 			ginkgo.GinkgoLogr.Info(fmt.Sprintf("RayService %s/%s is admitted in worker cluster %s", rayService.Name, rayService.Namespace, admittedWorker))
 
 			ginkgo.By("Checking the RayService is running", func() {
@@ -406,8 +407,8 @@ func runElasticRayClusterCleanupAfterPreemptionTest(
 		RequestAndLimit(rayv1.HeadNode, corev1.ResourceName(extraResourceGPUHighCost), "2").
 		RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 		RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
-		Image(rayv1.HeadNode, behavioral.GetKuberayTestImage(), []string{}).
-		Image(rayv1.WorkerNode, behavioral.GetKuberayTestImage(), []string{}).
+		Image(rayv1.HeadNode, e2e.GetKuberayTestImage(), []string{}).
+		Image(rayv1.WorkerNode, e2e.GetKuberayTestImage(), []string{}).
 		TerminationGracePeriod(1).
 		Obj()
 
@@ -420,7 +421,7 @@ func runElasticRayClusterCleanupAfterPreemptionTest(
 		Name:      jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(rayCluster.Name, rayCluster.UID, rayv1.GroupVersion.WithKind("RayCluster"), rayCluster.GetGeneration()),
 		Namespace: managerNs.Name,
 	}
-	admittedWorkerName := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+	admittedWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 	// Requesting two units of the virtual high-cost GPU resource forces both the
 	// RayCluster and its preemptor onto worker1 because worker2 has quota for only one.
 	gomega.Expect(admittedWorkerName).To(gomega.HavePrefix("worker1-"))
@@ -465,7 +466,7 @@ func runElasticRayClusterCleanupAfterPreemptionTest(
 	})
 
 	highJob := testingjob.MakeJob("raycluster-elastic-preemptor", managerNs.Name).
-		Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+		Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 		WorkloadPriorityClass(managerHighWPC.Name).
 		Queue(kueue.LocalQueueName(managerLq.Name)).
 		RequestAndLimit(corev1.ResourceCPU, "100m").
@@ -491,7 +492,7 @@ func runElasticRayClusterCleanupAfterPreemptionTest(
 			)))
 		}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
-		highJobWorkerName := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, highWlKey, multiKueueAc.Name)
+		highJobWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, highWlKey, multiKueueAc.Name)
 		gomega.Expect(highJobWorkerName).To(gomega.HavePrefix("worker1-"))
 	})
 

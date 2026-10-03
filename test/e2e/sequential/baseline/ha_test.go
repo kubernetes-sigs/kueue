@@ -31,17 +31,18 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // Tests in this file require 2 Kueue replicas for leader failover checks.
-var _ = ginkgo.Describe("HA tests", ginkgo.Label("feature:ha", behavioral.Shard0), ginkgo.Serial, ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("HA tests", ginkgo.Label("feature:ha", e2e.Shard0), ginkgo.Serial, ginkgo.Ordered, func() {
 	var (
 		originalReplicas    int32
 		originalReplicasSet bool
 	)
 
 	ginkgo.BeforeAll(func() {
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
 		originalReplicas = kueueControllerManagerReplicas()
 		originalReplicasSet = true
 		scaleKueueControllerManager(2)
@@ -67,7 +68,7 @@ var _ = ginkgo.Describe("HA tests", ginkgo.Label("feature:ha", behavioral.Shard0
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-certs-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-certs-")
 			onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand-"+ns.Name).
 				NodeLabel("instance-type", "on-demand").Obj()
 			behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
@@ -148,7 +149,7 @@ var _ = ginkgo.Describe("HA tests", ginkgo.Label("feature:ha", behavioral.Shard0
 			})
 
 			ginkgo.By("await for Kueue to be available", func() {
-				behavioral.WaitForKueueAvailability(ctx, k8sClient)
+				e2e.WaitForKueueAvailability(ctx, k8sClient)
 			})
 
 			ginkgo.By("verify the caBundle is set again for CRD", func() {
@@ -195,7 +196,7 @@ var _ = ginkgo.Describe("HA tests", ginkgo.Label("feature:ha", behavioral.Shard0
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ha-failover-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ha-failover-")
 
 			rf = utiltestingapi.MakeResourceFlavor("rf").Obj()
 			behavioral.MustCreate(ctx, k8sClient, rf)
@@ -220,7 +221,7 @@ var _ = ginkgo.Describe("HA tests", ginkgo.Label("feature:ha", behavioral.Shard0
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
-			behavioral.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
+			e2e.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 		})
 
 		ginkgo.It("should admit a workload after leader failover when a previously admitted workload was deleted", func() {
@@ -236,7 +237,7 @@ var _ = ginkgo.Describe("HA tests", ginkgo.Label("feature:ha", behavioral.Shard0
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl1, true)
 
 			ginkgo.By("forcing a leader failover so the former follower becomes the new leader")
-			behavioral.ForceLeaderFailover(ctx, k8sClient)
+			e2e.ForceLeaderFailover(ctx, k8sClient)
 
 			ginkgo.By("creating workload-2 and expecting the new leader to admit it")
 			wl2 := utiltestingapi.MakeWorkload("workload-2", ns.Name).
@@ -269,7 +270,7 @@ var _ = ginkgo.Describe("HA tests", ginkgo.Label("feature:ha", behavioral.Shard0
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl1, true)
 
 			ginkgo.By("forcing a leader failover so the former follower becomes the new leader")
-			behavioral.ForceLeaderFailover(ctx, k8sClient)
+			e2e.ForceLeaderFailover(ctx, k8sClient)
 
 			ginkgo.By("creating workload-3")
 			wl3 := utiltestingapi.MakeWorkload("workload-3", ns.Name).
@@ -305,9 +306,9 @@ func scaleKueueControllerManager(replicas int32) {
 	}
 
 	ginkgo.By("scaling kueue-controller-manager", func() {
-		behavioral.UpdateDeploymentAndWaitForProgressing(ctx, k8sClient, key, kindClusterName, func(deployment *appsv1.Deployment) {
+		e2e.UpdateDeploymentAndWaitForProgressing(ctx, k8sClient, key, kindClusterName, func(deployment *appsv1.Deployment) {
 			deployment.Spec.Replicas = &replicas
 		})
-		behavioral.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
+		e2e.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 	})
 }

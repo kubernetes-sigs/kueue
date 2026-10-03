@@ -40,6 +40,7 @@ import (
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var ns *corev1.Namespace
@@ -52,7 +53,7 @@ const (
 var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
 	ginkgo.AfterEach(func() {
@@ -109,7 +110,7 @@ var _ = ginkgo.Describe("Workload defaulting webhook", func() {
 var _ = ginkgo.Describe("Workload validating webhook", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
 	ginkgo.AfterEach(func() {
@@ -1438,7 +1439,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher AllAtOnce", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
 	ginkgo.AfterEach(func() {
@@ -1543,7 +1544,7 @@ var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Al
 var _ = ginkgo.Describe("Workload validating webhook ClusterName - Dispatcher Incremental", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -1689,7 +1690,7 @@ var _ = ginkgo.Describe("TopologyAssignment validation", func() {
 
 	var _ = ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 		wl = utiltestingapi.MakeWorkload("wl", ns.Name).
 			Queue(kueue.LocalQueueName("lq1")).
 			PodSets(
@@ -1843,7 +1844,7 @@ var _ = ginkgo.Describe("TopologyAssignment validation", func() {
 var _ = ginkgo.Describe("Workload v1beta1 CEL validation", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-v1beta1-cel-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-v1beta1-cel-")
 	})
 
 	ginkgo.AfterEach(func() {
@@ -1855,7 +1856,7 @@ var _ = ginkgo.Describe("Workload v1beta1 CEL validation", func() {
 var _ = ginkgo.Describe("Workload topology-spreading validation", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-spread-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-spread-")
 	})
 
 	ginkgo.AfterEach(func() {

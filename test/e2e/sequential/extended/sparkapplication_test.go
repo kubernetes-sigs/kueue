@@ -38,6 +38,7 @@ import (
 	sparkapplicationtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/sparkapplication"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:spark"), ginkgo.Ordered, func() {
@@ -55,7 +56,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 	)
 
 	ginkgo.BeforeAll(func() {
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.Integrations.Frameworks = append(cfg.Integrations.Frameworks, sparkapplication.FrameworkName)
 			cfg.FeatureGates[string(features.SparkApplicationIntegration)] = true
 			cfg.FeatureGates[string(features.TopologyAwareScheduling)] = true
@@ -63,7 +64,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sparkapplication-e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sparkapplication-e2e-")
 
 		resourceFlavorName = "sparkapplication-rf-" + ns.Name
 		clusterQueueName = "sparkapplication-cq-" + ns.Name
@@ -133,10 +134,10 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 		})
 
 		ginkgo.It("should run if admitted", func() {
-			sparkImage := behavioral.GetSparkTestImage()
+			sparkImage := e2e.GetSparkTestImage()
 			sparkApp := sparkapplicationtesting.MakeSparkApplication("sparkapplication-simple", ns.Name).
 				Image(sparkImage).
-				SparkVersion(behavioral.VersionFromImage(sparkImage)).
+				SparkVersion(e2e.VersionFromImage(sparkImage)).
 				DriverServiceAccount(sa.Name).
 				DriverCoreRequest("500m").
 				DriverMemoryRequest("512m"). // 512MB
@@ -257,10 +258,10 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 		})
 
 		ginkgo.It("should admit a SparkApplication via TAS", func() {
-			sparkImage := behavioral.GetSparkTestImage()
+			sparkImage := e2e.GetSparkTestImage()
 			sparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapplication-tas", ns.Name).
 				Image(sparkImage).
-				SparkVersion(behavioral.VersionFromImage(sparkImage)).
+				SparkVersion(e2e.VersionFromImage(sparkImage)).
 				DriverAnnotation(
 					kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname,
 				).

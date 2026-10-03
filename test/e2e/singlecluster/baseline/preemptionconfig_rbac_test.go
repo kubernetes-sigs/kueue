@@ -26,6 +26,7 @@ import (
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -142,7 +143,7 @@ var _ = ginkgo.Describe("PreemptionConfig RBAC", ginkgo.Label("area:singlecluste
 	ginkgo.When("A subject is bound to neither kueue-batch-admin-role nor kueue-batch-user-role", func() {
 		ginkgo.It("Should be Forbidden from accessing PreemptionConfigs", func() {
 			expectPreemptionConfigAccessForbidden(
-				behavioral.CreateKueueClientset(preemptionConfigNoRoleUser), "preemptionconfig-rbac-nobody")
+				e2e.CreateKueueClientset(preemptionConfigNoRoleUser), "preemptionconfig-rbac-nobody")
 		})
 	})
 })
@@ -185,7 +186,7 @@ func bindUserToClusterRole(user, clusterRole string, probe func(kueueclientset.I
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, binding, true)
 	})
 
-	clientset := behavioral.CreateKueueClientset(user)
+	clientset := e2e.CreateKueueClientset(user)
 	ginkgo.By("Wait for an already granted request to succeed to make sure the role binding is in effect", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(probe(clientset)).To(gomega.Succeed())

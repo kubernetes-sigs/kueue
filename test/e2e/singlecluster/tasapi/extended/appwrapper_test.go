@@ -31,6 +31,7 @@ import (
 	awtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	utiltestingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", ginkgo.Label("area:tas", "feature:appwrapper"), func() {
@@ -43,7 +44,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", ginkgo.Label("
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-aw-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-aw-")
 
 		topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
 		behavioral.MustCreate(ctx, k8sClient, topology)
@@ -87,7 +88,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", ginkgo.Label("
 						RequestAndLimit(corev1.ResourceCPU, "200m").
 						RequestAndLimit(extraResource, "1").
 						Suspend(false).
-						Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+						Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 						PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
 						SetTypeMeta().Obj(),
 				}).
@@ -131,7 +132,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for AppWrapper", ginkgo.Label("
 				Suspend(false).
 				RequestAndLimit(extraResource, "1").
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				SetTypeMeta().
 				Obj()
 			aw := awtesting.MakeAppWrapper("aw-ranks-job", ns.Name).

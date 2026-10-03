@@ -47,6 +47,7 @@ import (
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:managejobswithoutqueuename"), ginkgo.Ordered, func() {
@@ -58,13 +59,13 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 	)
 
 	ginkgo.BeforeAll(func() {
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.ManageJobsWithoutQueueName = true
 		})
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultRf)
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
@@ -93,7 +94,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 						Parallelism(int32(numPods)).
 						Completions(int32(numPods)).
 						Suspend(false).
-						Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+						Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 						SetTypeMeta().Obj(),
 				}).
 				Suspend(false).
@@ -148,8 +149,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 								Replicas:    2,
 								Parallelism: 1,
 								Completions: 1,
-								Image:       behavioral.GetAgnHostImage(),
-								Args:        behavioral.BehaviorExitFast,
+								Image:       e2e.GetAgnHostImage(),
+								Args:        e2e.BehaviorExitFast,
 							},
 						).
 						SetTypeMeta().
@@ -212,8 +213,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 								Replicas:    2,
 								Parallelism: 1,
 								Completions: 1,
-								Image:       behavioral.GetAgnHostImage(),
-								Args:        behavioral.BehaviorExitFast,
+								Image:       e2e.GetAgnHostImage(),
+								Args:        e2e.BehaviorExitFast,
 								Labels: map[string]string{
 									controllerconstants.QueueLabel: localQueue.Name,
 								},
@@ -275,8 +276,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 						Replicas:    2,
 						Parallelism: 2,
 						Completions: 2,
-						Image:       behavioral.GetAgnHostImage(),
-						Args:        behavioral.BehaviorExitFast,
+						Image:       e2e.GetAgnHostImage(),
+						Args:        e2e.BehaviorExitFast,
 						Labels: map[string]string{
 							controllerconstants.QueueLabel: localQueue.Name,
 						},
@@ -335,7 +336,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				Suspend(false).
 				Component(awtesting.Component{
 					Template: testingdeploy.MakeDeployment(deploymentKey.Name, deploymentKey.Namespace).
-						Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+						Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 						RequestAndLimit(corev1.ResourceCPU, "200m").
 						TerminationGracePeriod(1).
 						Replicas(3).
@@ -405,7 +406,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 
 		ginkgo.It("should not suspend the pods created by a LeaderWorkerSet in the test namespace with queue-name label", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -463,7 +464,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 
 		ginkgo.It("should suspend the pods created by a LeaderWorkerSet in the test namespace without queue-name label", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -520,7 +521,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 
 		ginkgo.It("should suspend the pods created by a LeaderWorkerSet without queue-name label and unsuspend after set queue-name", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(1).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -625,7 +626,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName with namespace selector excl
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 
 		defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultRf)
@@ -641,7 +642,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName with namespace selector excl
 		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 
 		// Unfortunately, we can't move it to BeforeAll, due to we need to know the namespace name.
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.ManageJobsWithoutQueueName = true
 			cfg.ManagedJobsNamespaceSelector = &metav1.LabelSelector{
 				MatchExpressions: []metav1.LabelSelectorRequirement{{
@@ -669,16 +670,16 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName with namespace selector excl
 					Replicas:    1,
 					Parallelism: 1,
 					Completions: 1,
-					Image:       behavioral.GetAgnHostImage(),
-					Args:        behavioral.BehaviorExitFast,
+					Image:       e2e.GetAgnHostImage(),
+					Args:        e2e.BehaviorExitFast,
 				},
 				testingjobset.ReplicatedJobRequirements{
 					Name:        "test-job-2",
 					Replicas:    1,
 					Parallelism: 1,
 					Completions: 1,
-					Image:       behavioral.GetAgnHostImage(),
-					Args:        behavioral.BehaviorExitFast,
+					Image:       e2e.GetAgnHostImage(),
+					Args:        e2e.BehaviorExitFast,
 				},
 			).Obj()
 
@@ -728,7 +729,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 	)
 
 	ginkgo.BeforeAll(func() {
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.ManageJobsWithoutQueueName = true
 			cfg.Integrations.Frameworks = slices.DeleteFunc(cfg.Integrations.Frameworks, func(framework string) bool {
 				return framework == jobset.FrameworkName
@@ -737,7 +738,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultRf)
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
@@ -771,8 +772,8 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName without JobSet integration",
 								Replicas:    2,
 								Parallelism: 1,
 								Completions: 1,
-								Image:       behavioral.GetAgnHostImage(),
-								Args:        behavioral.BehaviorExitFast,
+								Image:       e2e.GetAgnHostImage(),
+								Args:        e2e.BehaviorExitFast,
 							},
 						).
 						SetTypeMeta().

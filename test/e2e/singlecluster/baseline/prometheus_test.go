@@ -28,6 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -37,7 +38,7 @@ const (
 
 var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:prometheus"), func() {
 	ginkgo.It("should discover Kueue target and report it as up", func() {
-		behavioral.ExpectPrometheusTargetForKueue(ctx, prometheusClient)
+		e2e.ExpectPrometheusTargetForKueue(ctx, prometheusClient)
 	})
 
 	ginkgo.It("should scrape kueue_build_info metric via PromQL", func() {
@@ -53,7 +54,7 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 	})
 
 	ginkgo.It("should report workload admission metrics via PromQL", func() {
-		ns := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-prom-")
+		ns := e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-prom-")
 		ginkgo.DeferCleanup(func() {
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})

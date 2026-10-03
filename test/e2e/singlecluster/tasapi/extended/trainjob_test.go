@@ -34,12 +34,13 @@ import (
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("area:tas", "feature:trainjob"), func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-jobset-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-jobset-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -94,8 +95,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "node",
-						Image:       behavioral.GetAgnHostImage(),
-						Args:        behavioral.BehaviorExitFast,
+						Image:       e2e.GetAgnHostImage(),
+						Args:        e2e.BehaviorExitFast,
 						Replicas:    int32(replicas),
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
@@ -164,8 +165,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "node",
-						Image:       behavioral.GetAgnHostImage(),
-						Args:        behavioral.BehaviorExitFast,
+						Image:       e2e.GetAgnHostImage(),
+						Args:        e2e.BehaviorExitFast,
 						Replicas:    int32(replicas),
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),
@@ -236,8 +237,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for TrainJob", ginkgo.Label("ar
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "node",
-						Image:       behavioral.GetAgnHostImage(),
-						Args:        behavioral.BehaviorExitFast,
+						Image:       e2e.GetAgnHostImage(),
+						Args:        e2e.BehaviorExitFast,
 						Replicas:    int32(replicas),
 						Parallelism: int32(parallelism),
 						Completions: int32(parallelism),

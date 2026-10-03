@@ -29,6 +29,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // Probe for: when a namespace LimitRange sets defaultRequest and a container
@@ -44,7 +45,7 @@ var _ = ginkgo.Describe("LimitRange default vs limits-only accounting probe", fu
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lr-order-probe-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lr-order-probe-")
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
 		clusterQueue = utiltestingapi.MakeClusterQueue("cq-lr-order").

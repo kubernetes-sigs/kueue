@@ -41,6 +41,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -64,7 +65,7 @@ var _ = ginkgo.Describe("Provisioning admission check", ginkgo.Label("area:singl
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-prov-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-prov-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -158,7 +159,7 @@ var _ = ginkgo.Describe("Provisioning admission check", ginkgo.Label("area:singl
 
 			job1 := testingjob.MakeJob("job1", ns.Name).
 				Queue("main").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "500m").
 				TerminationGracePeriod(1).
 				Obj()
@@ -198,7 +199,7 @@ var _ = ginkgo.Describe("Provisioning admission check", ginkgo.Label("area:singl
 
 			job2 := testingjob.MakeJob("job2", ns.Name).
 				Queue("main").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(priorityClassName).
 				RequestAndLimit(corev1.ResourceCPU, "750m").
 				NodeSelector("zone", "zone-1").
@@ -311,7 +312,7 @@ var _ = ginkgo.Describe("Provisioning admission check", ginkgo.Label("area:singl
 
 			job := testingjob.MakeJob("job", ns.Name).
 				Queue("main").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				TerminationGracePeriod(1).
 				Obj()
@@ -338,7 +339,7 @@ var _ = ginkgo.Describe("Provisioning admission check", ginkgo.Label("area:singl
 				foreign := utiltesting.MakePodTemplate(ptName, ns.Name).
 					Containers(corev1.Container{
 						Name:  "c",
-						Image: behavioral.GetAgnHostImage(),
+						Image: e2e.GetAgnHostImage(),
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceCPU: resource.MustParse("1"),

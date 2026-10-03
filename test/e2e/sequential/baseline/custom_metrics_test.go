@@ -32,9 +32,10 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	podtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "feature:pod", behavioral.Shard0), func() {
+var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "feature:pod", e2e.Shard0), func() {
 	var (
 		ns             *corev1.Namespace
 		onDemandRF     *kueue.ResourceFlavor
@@ -42,7 +43,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-e2e-")
 		flavorOnDemand = "on-demand-" + ns.Name
 		onDemandRF = utiltestingapi.MakeResourceFlavor(flavorOnDemand).NodeLabel("instance-type", "on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemandRF)
@@ -62,7 +63,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 		)
 
 		ginkgo.BeforeAll(func() {
-			behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+			e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 				cfg.FeatureGates = map[string]bool{
 					string(features.CustomMetricLabels): true,
 				}
@@ -75,7 +76,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 		})
 
 		ginkgo.AfterAll(func() {
-			behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
+			e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
 		})
 
 		ginkgo.BeforeEach(func() {

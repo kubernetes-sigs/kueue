@@ -34,6 +34,7 @@ import (
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 type leaderWorkerSetTestContext struct {
@@ -52,7 +53,7 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 		kubernetesClients := tc.kubernetesClients
 
 		lws := testingleaderworkerset.MakeLeaderWorkerSet("leaderworkerset", managerNs.Name).
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			Replicas(2).
 			Size(2).
 			RequestAndLimit(corev1.ResourceCPU, "100m").
@@ -77,7 +78,7 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 			Namespace: managerNs.Name,
 		}
 
-		admittedWorkerName := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey0, multiKueueAc.Name)
+		admittedWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey0, multiKueueAc.Name)
 		workerClient := kubernetesClients[admittedWorkerName].client
 
 		ginkgo.By("Verifying both workloads are admitted on the same worker", func() {
@@ -143,7 +144,7 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 
 		const lwsReplicas = 3
 		lws := testingleaderworkerset.MakeLeaderWorkerSet("leaderworkerset", managerNs.Name).
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			Replicas(lwsReplicas).
 			Size(2).
 			RequestAndLimit(corev1.ResourceCPU, "100m").
@@ -176,7 +177,7 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
-		admittedWorkerName := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlKeys[0], multiKueueAc.Name)
+		admittedWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlKeys[0], multiKueueAc.Name)
 		workerClient := kubernetesClients[admittedWorkerName].client
 
 		ginkgo.By("Verifying primary workload is admitted on worker2", func() {

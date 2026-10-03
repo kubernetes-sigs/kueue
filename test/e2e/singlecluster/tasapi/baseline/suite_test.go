@@ -29,6 +29,7 @@ import (
 
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var (
@@ -37,19 +38,19 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	behavioral.RunE2ESuite(t, "End To End TAS Baseline Suite")
+	e2e.RunE2ESuite(t, "End To End TAS Baseline Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	behavioral.SetupLogger()
 
 	var err error
-	k8sClient, _, err = behavioral.CreateClientUsingCluster("")
+	k8sClient, _, err = e2e.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
-	behavioral.WaitForKueueAvailability(ctx, k8sClient)
+	e2e.WaitForKueueAvailability(ctx, k8sClient)
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),

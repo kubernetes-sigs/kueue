@@ -30,6 +30,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // equalPriority is shared by both Workloads in these specs so that the
@@ -64,7 +65,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling preserving flavor scan progre
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-preserve-flavor-scan-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-preserve-flavor-scan-")
 
 		// One node per flavor. The blocker Workload fills the flavor-1 node, so the
 		// second Workload can only be placed on the flavor-2 node.

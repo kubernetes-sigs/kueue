@@ -30,13 +30,14 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-dra-cc-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-dra-cc-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -83,7 +84,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 			job := testingjob.MakeJob("cc-explicit-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "cc-explicit-template").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)
@@ -112,7 +113,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 			job := testingjob.MakeJob("cc-default-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "cc-default-template").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)
@@ -141,7 +142,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 			job := testingjob.MakeJob("cc-round-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "cc-round-template").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)
@@ -170,7 +171,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 			job := testingjob.MakeJob("cc-count2-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "cc-count2-template").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)
@@ -198,7 +199,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 			job := testingjob.MakeJob("cc-exceed-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "cc-exceed-template").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)
@@ -233,7 +234,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 			job1 := testingjob.MakeJob("cc-share-job-1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "cc-share-template").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job1)
@@ -241,7 +242,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 			job2 := testingjob.MakeJob("cc-share-job-2", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "cc-share-template").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job2)
@@ -278,7 +279,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 			job := testingjob.MakeJob("cc-nomatch-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "cc-nomatch-template").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)

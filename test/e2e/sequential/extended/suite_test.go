@@ -28,6 +28,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var (
@@ -38,39 +39,39 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	behavioral.RunE2ESuite(t, "End To End Sequential Extended Suite")
+	e2e.RunE2ESuite(t, "End To End Sequential Extended Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	behavioral.SetupLogger()
 
 	var err error
-	k8sClient, _, err = behavioral.CreateClientUsingCluster("")
+	k8sClient, _, err = e2e.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
-	behavioral.WaitForKueueAvailability(ctx, k8sClient)
+	e2e.WaitForKueueAvailability(ctx, k8sClient)
 	if ginkgo.Label("feature:workloadidentifierannotations").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
-		behavioral.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
+		e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
 	}
 	if ginkgo.Label("feature:managejobswithoutqueuename").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
-		behavioral.WaitForJobSetAvailability(ctx, k8sClient)
-		behavioral.WaitForAppWrapperAvailability(ctx, k8sClient)
-		behavioral.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
+		e2e.WaitForJobSetAvailability(ctx, k8sClient)
+		e2e.WaitForAppWrapperAvailability(ctx, k8sClient)
+		e2e.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
 	}
 	if ginkgo.Label("feature:spark").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
-		behavioral.WaitForSparkOperatorAvailability(ctx, k8sClient)
+		e2e.WaitForSparkOperatorAvailability(ctx, k8sClient)
 	}
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),
 	)
-	defaultKueueCfg = behavioral.GetKueueConfiguration(ctx, k8sClient)
+	defaultKueueCfg = e2e.GetKueueConfiguration(ctx, k8sClient)
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	if behavioral.IsE2EModeDev() {
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
+	if e2e.IsE2EModeDev() {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
 	}
 })
