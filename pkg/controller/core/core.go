@@ -69,7 +69,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 	if err := acRec.SetupWithManager(mgr, cfg); err != nil {
 		return "AdmissionCheck", err
 	}
-	wpcRec := NewWorkloadPriorityClassReconciler(mgr.GetClient(), opts.RoleTracker)
+	wpcRec := NewWorkloadPriorityClassReconciler(mgr.GetClient(), mgr.GetAPIReader(), opts.RoleTracker)
 	if err := wpcRec.SetupWithManager(mgr, cfg); err != nil {
 		return "WorkloadPriorityClass", err
 	}

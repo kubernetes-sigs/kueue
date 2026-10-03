@@ -18,9 +18,11 @@ package core
 
 import (
 	"context"
+	"sync"
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -37,13 +39,28 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // WorkloadPriorityClassReconciler reconciles a WorkloadPriorityClass object
 type WorkloadPriorityClassReconciler struct {
 	logName     string
 	client      client.Client
+	apiReader   client.Reader
 	roleTracker *roletracker.RoleTracker
+
+	// mu guards lastRun.
+	mu sync.Mutex
+	// lastRun is, per class name, the class first seen, then the one seen by each
+	// run that ended without error. Another object or generation means the cache
+	// may still lag that run's own writes. Entries stay until restart.
+	lastRun map[string]classRevision
+}
+
+// classRevision identifies a WorkloadPriorityClass object at one generation.
+type classRevision struct {
+	uid        types.UID
+	generation int64
 }
 
 var _ reconcile.Reconciler = (*WorkloadPriorityClassReconciler)(nil)
@@ -51,12 +68,15 @@ var _ predicate.TypedPredicate[*kueue.WorkloadPriorityClass] = (*WorkloadPriorit
 
 func NewWorkloadPriorityClassReconciler(
 	client client.Client,
+	apiReader client.Reader,
 	roleTracker *roletracker.RoleTracker,
 ) *WorkloadPriorityClassReconciler {
 	return &WorkloadPriorityClassReconciler{
 		logName:     "workloadpriorityclass-reconciler",
 		client:      client,
+		apiReader:   apiReader,
 		roleTracker: roleTracker,
+		lastRun:     make(map[string]classRevision),
 	}
 }
 
@@ -84,8 +104,10 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 		log.Error(err, "Failed to list workloads for WorkloadPriorityClass")
 		return ctrl.Result{}, err
 	}
+	classChanged := r.observeClass(&wpc)
 	if len(workloads.Items) == 0 {
 		log.V(2).Info("No workloads using this WorkloadPriorityClass")
+		r.recordClass(&wpc)
 		return ctrl.Result{}, nil
 	}
 
@@ -100,10 +122,18 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 			return nil
 		}
 
-		// Skip if priority is already up to date
+		// Skip if priority is already up to date. After a class change the cache
+		// may not have seen an earlier run's write yet, so the API server decides.
 		if wl.Spec.Priority != nil && *wl.Spec.Priority == wpc.Value {
-			wlLog.V(3).Info("Workload priority already up to date")
-			return nil
+			if !classChanged {
+				wlLog.V(3).Info("Workload priority already up to date")
+				return nil
+			}
+			live, err := r.liveWorkloadToUpdate(ctrl.LoggerInto(ctx, wlLog), wl, &wpc)
+			if err != nil || live == nil {
+				return err
+			}
+			wl = live
 		}
 
 		wl.Spec.Priority = new(wpc.Value)
@@ -119,7 +149,62 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 		wlLog.V(2).Info("Updated workload priority", "newPriority", wpc.Value)
 		return nil
 	})
+	if err == nil {
+		r.recordClass(&wpc)
+	}
 	return ctrl.Result{}, err
+}
+
+// liveWorkloadToUpdate returns the API server's copy of wl if it still needs
+// the class value, or nil if it is to be left alone.
+func (r *WorkloadPriorityClassReconciler) liveWorkloadToUpdate(ctx context.Context, wl *kueue.Workload, wpc *kueue.WorkloadPriorityClass) (*kueue.Workload, error) {
+	log := ctrl.LoggerFrom(ctx)
+	live := &kueue.Workload{}
+	if err := r.apiReader.Get(ctx, client.ObjectKeyFromObject(wl), live); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.V(4).Info("Workload is gone")
+			return nil, nil
+		}
+		log.Error(err, "Failed to read workload from the API server")
+		return nil, err
+	}
+	// The object at this name may have changed since the cache saw it, so
+	// ownership and the class reference are checked again on it.
+	if _, isMultiKueueRemote := live.Labels[kueue.MultiKueueOriginLabel]; isMultiKueueRemote {
+		log.V(3).Info("Skipping workload the API server holds as MultiKueue remote")
+		return nil, nil
+	}
+	if !workload.IsWorkloadPriorityClass(live) || live.Spec.PriorityClassRef.Name != wpc.Name {
+		log.V(3).Info("Workload no longer references this WorkloadPriorityClass")
+		return nil, nil
+	}
+	if live.Spec.Priority != nil && *live.Spec.Priority == wpc.Value {
+		log.V(3).Info("Workload priority already up to date")
+		return nil, nil
+	}
+	return live, nil
+}
+
+// observeClass reports whether the class differs from the one recorded for it.
+// A class seen for the first time is recorded at once, so a first run that fails
+// after writing still has the next edit read live.
+func (r *WorkloadPriorityClassReconciler) observeClass(wpc *kueue.WorkloadPriorityClass) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	current := classRevision{uid: wpc.UID, generation: wpc.Generation}
+	seen, found := r.lastRun[wpc.Name]
+	if !found {
+		r.lastRun[wpc.Name] = current
+	}
+	return found && seen != current
+}
+
+// recordClass marks a run that ended without error, so the next run at this
+// revision trusts the cache.
+func (r *WorkloadPriorityClassReconciler) recordClass(wpc *kueue.WorkloadPriorityClass) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lastRun[wpc.Name] = classRevision{uid: wpc.UID, generation: wpc.Generation}
 }
 
 func (r *WorkloadPriorityClassReconciler) Create(e event.TypedCreateEvent[*kueue.WorkloadPriorityClass]) bool {
