@@ -358,7 +358,7 @@ if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
 }
 ```
 
-Use predefined comparison options from `test/util/constants.go`:
+Use predefined comparison options from `test/util/behavioral/constants.go`:
 
 ```go
 cmpOpts := cmp.Options{
@@ -419,7 +419,7 @@ var _ = ginkgo.AfterSuite(func() {
 
 ### Timeout Constants
 
-Use the predefined constants from `test/util/constants.go` for timeouts and polling intervals.
+Use the predefined constants from `test/util/behavioral/constants.go` for timeouts and polling intervals.
 
 ### Mocking and Error Injection
 

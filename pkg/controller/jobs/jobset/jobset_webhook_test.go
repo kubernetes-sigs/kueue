@@ -36,7 +36,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
-	testutil "sigs.k8s.io/kueue/test/util"
+	testutil "sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (

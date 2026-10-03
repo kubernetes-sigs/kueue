@@ -28,7 +28,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 // Pins that the scheduling equivalence hash follows the effective resources:
@@ -49,11 +49,11 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-freshness-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-freshness-")
 		smallFlavor = utiltestingapi.MakeResourceFlavor("small").Obj()
-		util.MustCreate(ctx, k8sClient, smallFlavor)
+		behavioral.MustCreate(ctx, k8sClient, smallFlavor)
 		largeFlavor = utiltestingapi.MakeResourceFlavor("large").Obj()
-		util.MustCreate(ctx, k8sClient, largeFlavor)
+		behavioral.MustCreate(ctx, k8sClient, largeFlavor)
 		// The small flavor fits only effective requests of up to 2 CPU in
 		// total; the large one has room for everything.
 		clusterQueue = utiltestingapi.MakeClusterQueue("cq-hash-freshness").
@@ -66,23 +66,23 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 				*utiltestingapi.MakeFlavorQuotas(largeFlavor.Name).Resource(corev1.ResourceCPU, "3").Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
+		behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 		localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
-		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueue)
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
+		behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, localQueue)
 
 		limitRange = utiltesting.MakeLimitRange("limits", ns.Name).
 			WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
-		util.MustCreate(ctx, k8sClient, limitRange)
+		behavioral.MustCreate(ctx, k8sClient, limitRange)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, largeFlavor, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, smallFlavor, true)
+		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, largeFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, smallFlavor, true)
 		fwk.StopManager(ctx)
 		metrics.InitMetricVectors(nil)
 	})
@@ -95,7 +95,7 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 			g.Expect(read.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
 			g.Expect(read.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceCPU]).To(
 				gomega.Equal(kueue.ResourceFlavorReference(flavorName)))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	}
 
 	ginkgo.It("places a raw-identical workload by its new effective resources after a defaultRequest change", func() {
@@ -103,7 +103,7 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 			Queue(kueue.LocalQueueName(localQueue.Name)).
 			Obj()
 		ginkgo.By("admitting the first raw workload on the large flavor (effective 3 CPU)", func() {
-			util.MustCreate(ctx, k8sClient, wl1)
+			behavioral.MustCreate(ctx, k8sClient, wl1)
 			expectAdmittedOnFlavor(wl1, largeFlavor.Name)
 		})
 
@@ -124,7 +124,7 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 			wl2 := utiltestingapi.MakeWorkload("two", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl2)
+			behavioral.MustCreate(ctx, k8sClient, wl2)
 			expectAdmittedOnFlavor(wl2, smallFlavor.Name)
 		})
 
@@ -150,36 +150,36 @@ var _ = ginkgo.Describe("Pending scheduling hashes under differing LimitRange de
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 
-		nsSmall = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-small-")
-		nsLarge = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-large-")
+		nsSmall = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-small-")
+		nsLarge = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-large-")
 		flavor = utiltestingapi.MakeResourceFlavor("default").Obj()
-		util.MustCreate(ctx, k8sClient, flavor)
+		behavioral.MustCreate(ctx, k8sClient, flavor)
 		// Zero quota keeps both workloads pending as inadmissible.
 		clusterQueue = utiltestingapi.MakeClusterQueue("cq-hash-defaults").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).
 				Resource(corev1.ResourceCPU, "0").Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
+		behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 		lqSmall = utiltestingapi.MakeLocalQueue("queue", nsSmall.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, lqSmall)
+		behavioral.MustCreate(ctx, k8sClient, lqSmall)
 		lqLarge = utiltestingapi.MakeLocalQueue("queue", nsLarge.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, lqLarge)
-		util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lqSmall, lqLarge)
+		behavioral.MustCreate(ctx, k8sClient, lqLarge)
+		behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, lqSmall, lqLarge)
 
-		util.MustCreate(ctx, k8sClient, utiltesting.MakeLimitRange("limits", nsSmall.Name).
+		behavioral.MustCreate(ctx, k8sClient, utiltesting.MakeLimitRange("limits", nsSmall.Name).
 			WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj())
-		util.MustCreate(ctx, k8sClient, utiltesting.MakeLimitRange("limits", nsLarge.Name).
+		behavioral.MustCreate(ctx, k8sClient, utiltesting.MakeLimitRange("limits", nsLarge.Name).
 			WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj())
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, nsSmall)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, nsLarge)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, nsSmall)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, nsLarge)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, nsSmall)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, nsLarge)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, nsSmall)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, nsLarge)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		fwk.StopManager(ctx)
 		metrics.InitMetricVectors(nil)
 	})
@@ -191,11 +191,11 @@ var _ = ginkgo.Describe("Pending scheduling hashes under differing LimitRange de
 		wlLarge := utiltestingapi.MakeWorkload("two", nsLarge.Name).
 			Queue(kueue.LocalQueueName(lqLarge.Name)).
 			Obj()
-		util.MustCreate(ctx, k8sClient, wlSmall)
-		util.MustCreate(ctx, k8sClient, wlLarge)
+		behavioral.MustCreate(ctx, k8sClient, wlSmall)
+		behavioral.MustCreate(ctx, k8sClient, wlLarge)
 
 		// The hashes must follow the effective requests (1 vs 3 CPU), not the
 		// identical raw spec.
-		util.ExpectPendingSchedulingHashesMetric(clusterQueue, 0, 2)
+		behavioral.ExpectPendingSchedulingHashesMetric(clusterQueue, 0, 2)
 	})
 })

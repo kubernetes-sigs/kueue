@@ -29,7 +29,7 @@ import (
 
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
-	testutil "sigs.k8s.io/kueue/test/util"
+	testutil "sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (

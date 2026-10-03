@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", ginkgo.Ordered, func() {
@@ -53,15 +53,15 @@ var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", gink
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cpuFlavor, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, gpuFlavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cpuFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, gpuFlavor, true)
 	})
 
 	ginkgo.DescribeTable("Flavor selection and scale-up", func(gpuQuota string, wantFlavor kueue.ResourceFlavorReference, wantScaleUpAdmitted bool) {
 		const gpuResource = corev1.ResourceName("example.com/gpu")
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "elastic-flavor-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "elastic-flavor-")
 		cpuFlavor = utiltestingapi.MakeResourceFlavor("cpu").NodeLabel("instance-type", "cpu").Obj()
 		gpuFlavor = utiltestingapi.MakeResourceFlavor("gpu").NodeLabel("instance-type", "gpu").Obj()
 		cq = utiltestingapi.MakeClusterQueue("elastic-flavor").ResourceGroup(
@@ -69,17 +69,17 @@ var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", gink
 			*utiltestingapi.MakeFlavorQuotas(gpuFlavor.Name).Resource(corev1.ResourceCPU, "10").Resource(gpuResource, gpuQuota).Obj(),
 		).Obj()
 		lq := utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
-		util.MustCreate(ctx, k8sClient, cpuFlavor)
-		util.MustCreate(ctx, k8sClient, gpuFlavor)
-		util.MustCreate(ctx, k8sClient, cq)
-		util.MustCreate(ctx, k8sClient, lq)
+		behavioral.MustCreate(ctx, k8sClient, cpuFlavor)
+		behavioral.MustCreate(ctx, k8sClient, gpuFlavor)
+		behavioral.MustCreate(ctx, k8sClient, cq)
+		behavioral.MustCreate(ctx, k8sClient, lq)
 
 		testJob := testingjob.MakeJob("elastic-flavor", ns.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			Queue(kueue.LocalQueueName(lq.Name)).
 			Request(corev1.ResourceCPU, "1").RequestAndLimit(gpuResource, "1").
 			Parallelism(0).Completions(2).Obj()
-		util.MustCreate(ctx, k8sClient, testJob)
+		behavioral.MustCreate(ctx, k8sClient, testJob)
 
 		var rootWorkloadName string
 		ginkgo.By("admitting the zero-count slice without charging quota")
@@ -99,14 +99,14 @@ var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", gink
 				corev1.ResourceCPU: resource.MustParse("0"), gpuResource: resource.MustParse("0"),
 			}))
 			rootWorkloadName = wl.Name
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("unsuspending the Job with the selected flavor's node selector before scaling up")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
 			g.Expect(testJob.Spec.Suspend).Should(gomega.HaveValue(gomega.BeFalse()))
 			g.Expect(testJob.Spec.Template.Spec.NodeSelector).Should(gomega.HaveKeyWithValue("instance-type", string(wantFlavor)))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("warning about fallback before scale-up only when the capacity probe failed")
 		if wantScaleUpAdmitted {
@@ -120,7 +120,7 @@ var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", gink
 					}
 				}
 				g.Expect(warnings).Should(gomega.BeEmpty())
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 		} else {
 			checkFallbackWarning := func(g gomega.Gomega) {
 				events := &eventsv1.EventList{}
@@ -141,8 +141,8 @@ var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", gink
 					gomega.ContainSubstring("Review capacity and flavor constraints before scaling up"),
 				))
 			}
-			gomega.Eventually(checkFallbackWarning, util.Timeout, util.Interval).Should(gomega.Succeed())
-			gomega.Consistently(checkFallbackWarning, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			gomega.Eventually(checkFallbackWarning, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Consistently(checkFallbackWarning, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 		}
 
 		ginkgo.By("scaling the Job to two pods")
@@ -150,7 +150,7 @@ var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", gink
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testJob), testJob)).Should(gomega.Succeed())
 			testJob.Spec.Parallelism = new(int32(2))
 			g.Expect(k8sClient.Update(ctx, testJob)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		if !wantScaleUpAdmitted {
 			ginkgo.By("keeping the replacement pending for insufficient quota and retaining the root slice")
@@ -175,8 +175,8 @@ var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", gink
 					g.Expect(condition.Message).Should(gomega.ContainSubstring("insufficient quota for example.com/gpu in flavor cpu"))
 				}
 			}
-			gomega.Eventually(checkPendingReplacement, util.Timeout, util.Interval).Should(gomega.Succeed())
-			gomega.Consistently(checkPendingReplacement, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			gomega.Eventually(checkPendingReplacement, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Consistently(checkPendingReplacement, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 			return
 		}
 
@@ -201,7 +201,7 @@ var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", gink
 					corev1.ResourceCPU: resource.MustParse("2"), gpuResource: resource.MustParse("2"),
 				}))
 			}
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	},
 		ginkgo.Entry("Should choose a feasible flavor at zero parallelism and admit the scale-up slice", "4", kueue.ResourceFlavorReference("gpu"), true),
 		ginkgo.Entry("Should fall back at zero parallelism and keep the scale-up slice pending when no flavor has capacity", "0", kueue.ResourceFlavorReference("cpu"), false),

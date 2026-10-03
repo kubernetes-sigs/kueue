@@ -33,18 +33,18 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singlecluster", "feature:tas"), func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-")
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("Creating a Job requesting TAS", func() {
@@ -56,11 +56,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 		)
 		ginkgo.BeforeEach(func() {
 			topology = utiltestingapi.MakeDefaultOneLevelTopology("hostname-" + ns.Name)
-			util.MustCreate(ctx, k8sClient, topology)
+			behavioral.MustCreate(ctx, k8sClient, topology)
 
 			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand-"+ns.Name).
 				NodeLabel("instance-type", "on-demand").TopologyName(topology.Name).Obj()
-			util.MustCreate(ctx, k8sClient, onDemandRF)
+			behavioral.MustCreate(ctx, k8sClient, onDemandRF)
 			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue-" + ns.Name).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(onDemandRF.Name).
@@ -69,19 +69,19 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 						Obj(),
 				).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			// Force remove workloads to be sure that cluster queue can be removed.
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 		})
 
 		ginkgo.It("should admit a Job via TAS", func() {
@@ -90,9 +90,9 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 				RequestAndLimit(corev1.ResourceCPU, "700m").
 				RequestAndLimit(corev1.ResourceMemory, "20Mi").
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
-				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
 				Obj()
-			util.MustCreate(ctx, k8sClient, sampleJob)
+			behavioral.MustCreate(ctx, k8sClient, sampleJob)
 
 			createdWorkload := &kueue.Workload{}
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(sampleJob.Name, sampleJob.UID), Namespace: ns.Name}
@@ -101,12 +101,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			// The job might have finished at this point. That shouldn't be a problem for the purpose of this test
 			jobKey := client.ObjectKeyFromObject(sampleJob)
-			util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
+			behavioral.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, map[string]string{
 				"instance-type": "on-demand",
 			})
 
@@ -130,7 +130,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 			})
 
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {
-				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
+				behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 			})
 		})
 	})
@@ -144,14 +144,14 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 		)
 		ginkgo.BeforeEach(func() {
 			topology = utiltestingapi.MakeDefaultOneLevelTopology("hostname-" + ns.Name)
-			util.MustCreate(ctx, k8sClient, topology)
+			behavioral.MustCreate(ctx, k8sClient, topology)
 
 			onDemandRF = utiltestingapi.MakeResourceFlavor("on-demand-"+ns.Name).
 				NodeLabel("instance-type", "on-demand").
 				TopologyName(topology.Name).
 				Obj()
 
-			util.MustCreate(ctx, k8sClient, onDemandRF)
+			behavioral.MustCreate(ctx, k8sClient, onDemandRF)
 			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue-" + ns.Name).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(onDemandRF.Name).
@@ -160,32 +160,32 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 						Obj(),
 				).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			// Force remove workloads to be sure that cluster queue can be removed.
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 		})
 
 		ginkgo.It("should admit a single Pod via TAS", func() {
 			p := testingpod.MakePod("test-pod", ns.Name).
 				Queue(localQueue.Name).
-				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				RequestAndLimit(corev1.ResourceMemory, "200Mi").
 				Obj()
 
 			ginkgo.By("Creating the Pod", func() {
-				util.MustCreate(ctx, k8sClient, p)
+				behavioral.MustCreate(ctx, k8sClient, p)
 				gomega.Expect(p.Spec.SchedulingGates).To(gomega.ContainElements(
 					corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
 					corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate},
@@ -200,7 +200,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 						"instance-type":      "on-demand",
 						corev1.LabelHostname: "kind-worker",
 					}))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(p.Name, p.UID), Namespace: ns.Name}
@@ -210,7 +210,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
@@ -225,14 +225,14 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 			})
 
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {
-				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
+				behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 			})
 		})
 
 		ginkgo.It("should admit a Pod group via TAS", func() {
 			group := testingpod.MakePod("group", ns.Name).
 				Queue(localQueue.Name).
-				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				RequestAndLimit(corev1.ResourceMemory, "200Mi").
@@ -240,7 +240,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 
 			ginkgo.By("Creating the Pod group", func() {
 				for _, p := range group {
-					util.MustCreate(ctx, k8sClient, p)
+					behavioral.MustCreate(ctx, k8sClient, p)
 					gomega.Expect(p.Spec.SchedulingGates).To(gomega.ContainElements(
 						corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
 						corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate},
@@ -260,7 +260,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 							corev1.LabelHostname: "kind-worker",
 						}))
 					}
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			wlLookupKey := client.ObjectKey{Namespace: ns.Name, Name: "group"}
@@ -270,7 +270,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				gomega.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 				gomega.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
@@ -285,7 +285,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling", ginkgo.Label("area:singleclus
 			})
 
 			ginkgo.By(fmt.Sprintf("verify the workload %q gets finished", wlLookupKey), func() {
-				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
+				behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 			})
 		})
 	})

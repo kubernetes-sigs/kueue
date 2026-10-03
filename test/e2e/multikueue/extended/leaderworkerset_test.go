@@ -33,7 +33,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 type leaderWorkerSetTestContext struct {
@@ -52,7 +52,7 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 		kubernetesClients := tc.kubernetesClients
 
 		lws := testingleaderworkerset.MakeLeaderWorkerSet("leaderworkerset", managerNs.Name).
-			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 			Replicas(2).
 			Size(2).
 			RequestAndLimit(corev1.ResourceCPU, "100m").
@@ -62,7 +62,7 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 			Obj()
 
 		ginkgo.By("Creating the leaderworkerset", func() {
-			util.MustCreate(ctx, k8sManagerClient, lws)
+			behavioral.MustCreate(ctx, k8sManagerClient, lws)
 		})
 
 		createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
@@ -77,7 +77,7 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 			Namespace: managerNs.Name,
 		}
 
-		admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey0, multiKueueAc.Name)
+		admittedWorkerName := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey0, multiKueueAc.Name)
 		workerClient := kubernetesClients[admittedWorkerName].client
 
 		ginkgo.By("Verifying both workloads are admitted on the same worker", func() {
@@ -88,14 +88,14 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 				wl1 := &kueue.Workload{}
 				g.Expect(workerClient.Get(ctx, wlLookupKey1, wl1)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(wl1)).To(gomega.BeTrue())
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for LWS to be synced to worker cluster", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				workerLWS := &leaderworkersetv1.LeaderWorkerSet{}
 				g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(lws), workerLWS)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Waiting for all replicas to be ready on worker cluster", func() {
@@ -103,7 +103,7 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 				workerLWS := &leaderworkersetv1.LeaderWorkerSet{}
 				g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(lws), workerLWS)).To(gomega.Succeed())
 				g.Expect(workerLWS.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Verifying pods on management cluster remain gated", func() {
@@ -116,12 +116,12 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 				for _, pod := range pods.Items {
 					g.Expect(utilpod.HasGate(&pod, podconstants.SchedulingGateName)).To(gomega.BeTrue())
 				}
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Deleting the leaderworkerset", func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, lws, true)
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, workerClient, lws, false, util.MediumTimeout)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sManagerClient, lws, true)
+			behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, workerClient, lws, false, behavioral.MediumTimeout)
 		})
 
 		ginkgo.By("Checking that all workloads are deleted from manager and worker clusters", func() {
@@ -130,7 +130,7 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 				g.Expect(k8sManagerClient.Get(ctx, wlLookupKey1, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				g.Expect(workerClient.Get(ctx, wlLookupKey0, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				g.Expect(workerClient.Get(ctx, wlLookupKey1, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -143,7 +143,7 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 
 		const lwsReplicas = 3
 		lws := testingleaderworkerset.MakeLeaderWorkerSet("leaderworkerset", managerNs.Name).
-			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 			Replicas(lwsReplicas).
 			Size(2).
 			RequestAndLimit(corev1.ResourceCPU, "100m").
@@ -153,7 +153,7 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 			Obj()
 
 		ginkgo.By("Creating the leaderworkerset", func() {
-			util.MustCreate(ctx, k8sManagerClient, lws)
+			behavioral.MustCreate(ctx, k8sManagerClient, lws)
 		})
 
 		createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
@@ -173,10 +173,10 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 					wl := &kueue.Workload{}
 					g.Expect(k8sManagerClient.Get(ctx, key, wl)).To(gomega.Succeed())
 				}
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
-		admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlKeys[0], multiKueueAc.Name)
+		admittedWorkerName := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlKeys[0], multiKueueAc.Name)
 		workerClient := kubernetesClients[admittedWorkerName].client
 
 		ginkgo.By("Verifying primary workload is admitted on worker2", func() {
@@ -184,14 +184,14 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 				wl := &kueue.Workload{}
 				g.Expect(workerClient.Get(ctx, wlKeys[0], wl)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Verifying LWS is synced to worker cluster", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				workerLWS := &leaderworkersetv1.LeaderWorkerSet{}
 				g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(lws), workerLWS)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Verifying follower workloads are dispatched to the same worker cluster", func() {
@@ -205,12 +205,12 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 					g.Expect(wl.Status.ClusterName).ToNot(gomega.BeNil())
 					g.Expect(*wl.Status.ClusterName).To(gomega.Equal(*primaryWl.Status.ClusterName))
 				}
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Deleting the leaderworkerset", func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sManagerClient, lws, true)
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, workerClient, lws, false, util.MediumTimeout)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sManagerClient, lws, true)
+			behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, workerClient, lws, false, behavioral.MediumTimeout)
 		})
 
 		ginkgo.By("Checking that all workloads are deleted from manager and worker clusters", func() {
@@ -219,7 +219,7 @@ func registerLeaderWorkerSetTests(contextProvider func() leaderWorkerSetTestCont
 					g.Expect(k8sManagerClient.Get(ctx, key, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 					g.Expect(workerClient.Get(ctx, key, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 }
