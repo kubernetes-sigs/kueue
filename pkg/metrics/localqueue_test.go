@@ -19,6 +19,8 @@ package metrics
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
@@ -31,7 +33,7 @@ func TestNewLocalQueueMetricsConfig(t *testing.T) {
 		cfg     *configapi.LocalQueueMetrics
 		labels  map[string]string
 		want    bool
-		wantErr bool
+		wantErr error
 	}{
 		"no configuration exposes all queues": {
 			labels: map[string]string{"env": "dev"},
@@ -68,7 +70,7 @@ func TestNewLocalQueueMetricsConfig(t *testing.T) {
 					},
 				},
 			},
-			wantErr: true,
+			wantErr: ErrInvalidLocalQueueSelector,
 		},
 	}
 
@@ -76,8 +78,8 @@ func TestNewLocalQueueMetricsConfig(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 			cfg, err := NewLocalQueueMetricsConfig(tc.cfg)
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("NewLocalQueueMetricsConfig() error = %v, wantErr %v", err, tc.wantErr)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
 			if err == nil {
 				if got := cfg.ShouldExposeLocalQueueMetrics(tc.labels); got != tc.want {
