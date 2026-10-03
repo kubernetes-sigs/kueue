@@ -38,6 +38,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -97,9 +98,9 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		managerNs = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-tas-")
-		worker1Ns = behavioral.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
-		worker2Ns = behavioral.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
+		managerNs = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-tas-")
+		worker1Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
+		worker2Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
 
 		workerCluster1 = utiltestingapi.MakeMultiKueueClusterWithGeneratedName("worker1-").KubeConfig(kueue.SecretLocationType, "multikueue1").Obj()
 		behavioral.MustCreate(ctx, k8sManagerClient, workerCluster1)
@@ -222,7 +223,7 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 				RequestAndLimit(corev1.ResourceCPU, "500m").
 				RequestAndLimit(corev1.ResourceMemory, "200Mi").
 				TerminationGracePeriod(1).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Obj()
 			job = (&testingjob.JobWrapper{Job: *job}).
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
@@ -285,9 +286,9 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 			ginkgo.By("Finishing the job's pods", func() {
 				listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
 				if assignedClusterName == workerCluster1.Name {
-					behavioral.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 2, 0, listOpts)
+					e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 2, 0, listOpts)
 				} else {
-					behavioral.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 2, 0, listOpts)
+					e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 2, 0, listOpts)
 				}
 			})
 
@@ -321,7 +322,7 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 				RequestAndLimit(corev1.ResourceCPU, "500m").
 				RequestAndLimit(corev1.ResourceMemory, "200Mi").
 				TerminationGracePeriod(1).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Obj()
 
 			ginkgo.By("Creating the job without TAS annotation", func() {
@@ -359,9 +360,9 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 			ginkgo.By("Finishing the job", func() {
 				listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
 				if assignedClusterName == workerCluster1.Name {
-					behavioral.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 2, 0, listOpts)
+					e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 2, 0, listOpts)
 				} else {
-					behavioral.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 2, 0, listOpts)
+					e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 2, 0, listOpts)
 				}
 			})
 
@@ -407,9 +408,9 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		managerNs = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-tas-")
-		worker1Ns = behavioral.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
-		worker2Ns = behavioral.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
+		managerNs = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-tas-")
+		worker1Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
+		worker2Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
 
 		managerTopology = utiltestingapi.MakeDefaultOneLevelTopology("default-" + managerNs.Name)
 		behavioral.MustCreate(ctx, k8sManagerClient, managerTopology)
@@ -544,7 +545,7 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 			Queue(kueue.LocalQueueName(managerLq.Name)).
 			PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, corev1.LabelHostname).
 			Request(corev1.ResourceCPU, "1500m").
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			Obj()
 		behavioral.MustCreate(ctx, k8sManagerClient, job)
@@ -553,7 +554,7 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
 			Namespace: managerNs.Name,
 		}
-		admittedWorkerName := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+		admittedWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 		workerClient := kubernetesClients[admittedWorkerName].client
 
 		ginkgo.By(fmt.Sprintf("Waiting for TopologyAssignment to be computed on %s", admittedWorkerName), func() {
@@ -566,7 +567,7 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 
 		ginkgo.By(fmt.Sprintf("Finishing the job's pods on %s", admittedWorkerName))
 		listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
-		behavioral.WaitForActivePodsAndTerminate(ctx, workerClient, kubernetesClients[admittedWorkerName].restClient, kubernetesClients[admittedWorkerName].cfg, job.Namespace, 1, 0, listOpts)
+		e2e.WaitForActivePodsAndTerminate(ctx, workerClient, kubernetesClients[admittedWorkerName].restClient, kubernetesClients[admittedWorkerName].cfg, job.Namespace, 1, 0, listOpts)
 
 		ginkgo.By("Waiting for workload to finish")
 		createdWorkload := &kueue.Workload{}
@@ -595,7 +596,7 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 			Queue(kueue.LocalQueueName(managerLq.Name)).
 			PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 			Request(corev1.ResourceCPU, "500m").
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			Obj()
 		behavioral.MustCreate(ctx, k8sManagerClient, job)
@@ -634,9 +635,9 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 		ginkgo.By(fmt.Sprintf("Finishing the job's pods on %s", assignedClusterName))
 		listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
 		if assignedClusterName == workerCluster1.Name {
-			behavioral.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 1, 0, listOpts)
+			e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 1, 0, listOpts)
 		} else {
-			behavioral.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 1, 0, listOpts)
+			e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 1, 0, listOpts)
 		}
 
 		ginkgo.By("Waiting for workload to finish")

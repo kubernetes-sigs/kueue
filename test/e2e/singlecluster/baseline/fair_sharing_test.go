@@ -28,6 +28,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	jobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Fair Sharing", ginkgo.Label("area:singlecluster", "feature:fairsharing"), func() {
@@ -43,7 +44,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Label("area:singlecluster", "feat
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 
 		rf = utiltestingapi.MakeResourceFlavor("rf-" + ns.Name).Obj()
 		behavioral.MustCreate(ctx, k8sClient, rf)
@@ -94,7 +95,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Label("area:singlecluster", "feat
 			for i := range 4 {
 				job := jobtesting.MakeJob(fmt.Sprintf("j%d", i+1), ns.Name).
 					Queue(kueue.LocalQueueName(lq1.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					Parallelism(3).
 					Completions(3).
 					RequestAndLimit(corev1.ResourceCPU, "1").

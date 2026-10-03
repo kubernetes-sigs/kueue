@@ -30,11 +30,12 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe(
 	"Job reconciliation with ManagedJobsNamespaceSelectorAlwaysRespected",
-	ginkgo.Label("feature:managedjobsnamespaceselectoralwaysrespected", behavioral.Shard0),
+	ginkgo.Label("feature:managedjobsnamespaceselectoralwaysrespected", e2e.Shard0),
 	ginkgo.Ordered,
 	func() {
 		const (
@@ -51,7 +52,7 @@ var _ = ginkgo.Describe(
 		)
 
 		ginkgo.BeforeAll(func() {
-			behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+			e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 				cfg.ManagedJobsNamespaceSelector = &metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{
 						{
@@ -104,7 +105,7 @@ var _ = ginkgo.Describe(
 				testJob = testingjob.MakeJob("unmanaged-job", metav1.NamespaceDefault).
 					Queue(kueue.LocalQueueName(lq.Name)).
 					Suspend(true).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 					Obj()
 
 				gomega.Expect(k8sClient.Create(ctx, testJob)).To(gomega.Succeed())
@@ -118,7 +119,7 @@ var _ = ginkgo.Describe(
 				testJob = testingjob.MakeJob("managed-job", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
 					Suspend(true).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 					Obj()
 
 				gomega.Expect(k8sClient.Create(ctx, testJob)).To(gomega.Succeed())
@@ -135,7 +136,7 @@ var _ = ginkgo.Describe(
 			ginkgo.It("should not reconcile a pod in the default (unmanaged) namespace", func() {
 				testPod = testingpod.MakePod("test-pod", metav1.NamespaceDefault).
 					Queue(lq.Name).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					TerminationGracePeriod(1).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, testPod)).To(gomega.Succeed())

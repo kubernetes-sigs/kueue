@@ -29,6 +29,7 @@ import (
 
 	visibility "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var (
@@ -37,30 +38,30 @@ var (
 	cfg              *rest.Config
 	restClient       *rest.RESTClient
 	prometheusClient prometheusv1.API
-	kueueNS          = behavioral.GetKueueNamespace()
+	kueueNS          = e2e.GetKueueNamespace()
 	visibilityClient visibility.VisibilityV1beta2Interface
 )
 
 func TestAPIs(t *testing.T) {
-	behavioral.RunE2ESuite(t, "End To End Cert Manager Integration Suite")
+	e2e.RunE2ESuite(t, "End To End Cert Manager Integration Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	behavioral.SetupLogger()
 
 	var err error
-	k8sClient, cfg, err = behavioral.CreateClientUsingCluster("")
+	k8sClient, cfg, err = e2e.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	restClient = behavioral.CreateRestClient(cfg)
-	visibilityClient = behavioral.CreateVisibilityClient("")
+	restClient = e2e.CreateRestClient(cfg)
+	visibilityClient = e2e.CreateVisibilityClient("")
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
-	behavioral.WaitForKueueAvailability(ctx, k8sClient)
+	e2e.WaitForKueueAvailability(ctx, k8sClient)
 	labelFilter := ginkgo.GinkgoLabelFilter()
 	if ginkgo.Label("feature:prometheus").MatchesLabelFilter(labelFilter) {
-		prometheusClient = behavioral.CreatePrometheusClient(cfg)
-		behavioral.WaitForPrometheusAvailability(ctx, k8sClient)
+		prometheusClient = e2e.CreatePrometheusClient(cfg)
+		e2e.WaitForPrometheusAvailability(ctx, k8sClient)
 	}
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",

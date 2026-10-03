@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -58,7 +59,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "preemption-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "preemption-")
 		alphaFlavor = utiltestingapi.MakeResourceFlavor("alpha").Obj()
 		behavioral.MustCreate(ctx, k8sClient, alphaFlavor)
 	})

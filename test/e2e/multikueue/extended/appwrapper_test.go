@@ -31,6 +31,7 @@ import (
 	testingaw "sigs.k8s.io/kueue/pkg/util/testingjobs/appwrapper"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 type appWrapperTestContext struct {
@@ -55,7 +56,7 @@ func registerAppWrapperTests(contextProvider func() appWrapperTestContext) {
 				Template: testingjob.MakeJob(jobName, managerNs.Name).
 					SetTypeMeta().
 					Suspend(false).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion). // Give it the time to be observed Active in the live status update step.
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion). // Give it the time to be observed Active in the live status update step.
 					Parallelism(2).
 					RequestAndLimit(corev1.ResourceCPU, "100m").
 					RequestAndLimit(corev1.ResourceMemory, "100M").
@@ -70,7 +71,7 @@ func registerAppWrapperTests(contextProvider func() appWrapperTestContext) {
 
 		wlLookupKey := types.NamespacedName{Name: workloadaw.GetWorkloadNameForAppWrapper(aw.Name, aw.UID), Namespace: managerNs.Name}
 
-		admittedWorkerName := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+		admittedWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 		admittedWorker := kubernetesClients[admittedWorkerName]
 
 		ginkgo.By("Waiting for the appwrapper to get status updates", func() {
@@ -83,7 +84,7 @@ func registerAppWrapperTests(contextProvider func() appWrapperTestContext) {
 
 		ginkgo.By("Finishing the wrapped job's pods", func() {
 			listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", jobName))
-			behavioral.WaitForActivePodsAndTerminate(ctx, admittedWorker.client, admittedWorker.restClient, admittedWorker.cfg, aw.Namespace, 2, 0, listOpts)
+			e2e.WaitForActivePodsAndTerminate(ctx, admittedWorker.client, admittedWorker.restClient, admittedWorker.cfg, aw.Namespace, 2, 0, listOpts)
 		})
 
 		ginkgo.By("Waiting for the appwrapper to finish", func() {

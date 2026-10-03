@@ -27,13 +27,14 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobspytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("PyTorchJob Webhook", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(pytorchjob.SetupPyTorchJobWebhook))
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pytorch-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pytorch-")
 	})
 
 	ginkgo.AfterEach(func() {

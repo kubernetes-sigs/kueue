@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -94,7 +95,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 		)
 
 		ginkgo.JustBeforeEach(func() {
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
 
 			prc = baseConfigWithParameters.Clone().RetryLimit(0).Obj()
 			behavioral.MustCreate(ctx, k8sClient, prc)
@@ -854,7 +855,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			updatedWl      kueue.Workload
 		)
 		ginkgo.JustBeforeEach(func() {
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
 			prc = baseConfig.Clone().RetryLimit(1).BaseBackoff(2).Obj()
 			behavioral.MustCreate(ctx, k8sClient, prc)
 
@@ -1328,7 +1329,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			provReqKey     types.NamespacedName
 		)
 		ginkgo.JustBeforeEach(func() {
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
 
 			prc = baseConfig.Clone().RetryLimit(2).BaseBackoff(2).Obj()
 			behavioral.MustCreate(ctx, k8sClient, prc)
@@ -1525,7 +1526,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 		)
 
 		ginkgo.JustBeforeEach(func() {
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
 
 			prc = baseConfig.Clone().
 				RetryLimit(0).
@@ -1668,7 +1669,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 		)
 
 		ginkgo.JustBeforeEach(func() {
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-slices-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-slices-")
 
 			prc = baseConfig.Clone().RetryLimit(0).Obj()
 			behavioral.MustCreate(ctx, k8sClient, prc)
@@ -1883,7 +1884,7 @@ var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller
 	})
 
 	ginkgo.JustBeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "provisioning-")
 
 		rf1 = utiltestingapi.MakeResourceFlavor(flavor1Name).NodeLabel("ns1", "ns1v").Obj()
 		behavioral.MustCreate(ctx, k8sClient, rf1)

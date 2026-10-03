@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // specReplicasPerWorkerGroup returns the desired replica count of every worker
@@ -49,7 +50,7 @@ func specReplicasPerWorkerGroup(rayCluster *rayv1.RayCluster) map[string]int32 {
 // findRunningPodsPerWorkerGroup counts the RayCluster's running worker Pods,
 // keyed by worker group name.
 func findRunningPodsPerWorkerGroup(g gomega.Gomega, rayClusterKey client.ObjectKey) map[string]int32 {
-	workerPods, err := behavioral.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+	workerPods, err := e2e.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 	g.Expect(err).NotTo(gomega.HaveOccurred())
 	counts := make(map[string]int32, len(workerPods))
 	for i := range workerPods {
@@ -77,7 +78,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-autoscaling-e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-autoscaling-e2e-")
 		rf = utiltestingapi.MakeResourceFlavor("kuberay-autoscaling-rf-"+ns.Name).
 			NodeLabel("instance-type", "on-demand").
 			Obj()
@@ -118,7 +119,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 			actorB       = "actor-b"
 		)
 
-		kuberayTestImage := behavioral.GetKuberayTestImage()
+		kuberayTestImage := e2e.GetKuberayTestImage()
 		rayCluster := testingraycluster.MakeCluster("raycluster-multi-podset", ns.Name).
 			Suspend(true).
 			Queue(lq.Name).
@@ -191,7 +192,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 		}
 
 		ginkgo.By("Requesting only the first worker group's custom resource", func() {
-			behavioral.CreateDetachedRayActor(
+			e2e.CreateDetachedRayActor(
 				ctx, k8sClient, cfg, restClient, client.ObjectKeyFromObject(rayCluster), actorA, rayResourceA,
 			)
 			expected := map[string]int32{workerGroupA: 1, workerGroupB: 0}
@@ -200,7 +201,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 		})
 
 		ginkgo.By("Requesting the second worker group's custom resource without changing the first group", func() {
-			behavioral.CreateDetachedRayActor(
+			e2e.CreateDetachedRayActor(
 				ctx, k8sClient, cfg, restClient, client.ObjectKeyFromObject(rayCluster), actorB, rayResourceB,
 			)
 			expected := map[string]int32{workerGroupA: 1, workerGroupB: 1}
@@ -209,7 +210,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 		})
 
 		ginkgo.By("Terminating the first actor without scaling down the second worker group", func() {
-			behavioral.TerminateDetachedRayActor(
+			e2e.TerminateDetachedRayActor(
 				ctx, k8sClient, cfg, restClient, client.ObjectKeyFromObject(rayCluster), actorA,
 			)
 			expected := map[string]int32{workerGroupA: 0, workerGroupB: 1}
@@ -218,7 +219,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 		})
 
 		ginkgo.By("Terminating the second actor and returning both worker groups to zero", func() {
-			behavioral.TerminateDetachedRayActor(
+			e2e.TerminateDetachedRayActor(
 				ctx, k8sClient, cfg, restClient, client.ObjectKeyFromObject(rayCluster), actorB,
 			)
 			expected := map[string]int32{workerGroupA: 0, workerGroupB: 0}

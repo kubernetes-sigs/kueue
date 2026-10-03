@@ -30,9 +30,10 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", ginkgo.Label(behavioral.Shard1, "area:tas", "feature:statefulset"), func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", ginkgo.Label(e2e.Shard1, "area:tas", "feature:statefulset"), func() {
 	var (
 		ns           *corev1.Namespace
 		topology     *kueue.Topology
@@ -42,7 +43,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", ginkgo.Label(
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-sts-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-sts-")
 
 		topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
 		behavioral.MustCreate(ctx, k8sClient, topology)
@@ -76,7 +77,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for StatefulSet", ginkgo.Label(
 
 			const replicas = 3
 			sts := statefulset.MakeStatefulSet("sts", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(extraResource, "1").
 				Replicas(replicas).
 				Queue(localQueue.Name).

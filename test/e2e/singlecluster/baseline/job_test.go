@@ -45,6 +45,7 @@ import (
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job"), func() {
@@ -53,10 +54,10 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 	var jobKey types.NamespacedName
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		sampleJob = testingjob.MakeJob("test-job", ns.Name).
 			Queue("main").
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			RequestAndLimit(corev1.ResourceCPU, "200m").
 			RequestAndLimit(corev1.ResourceMemory, "20Mi").
 			TerminationGracePeriod(1).
@@ -161,8 +162,8 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 									Containers: []corev1.Container{
 										{
 											Name:    "c",
-											Image:   behavioral.GetAgnHostImage(),
-											Command: behavioral.BehaviorExitFast,
+											Image:   e2e.GetAgnHostImage(),
+											Command: e2e.BehaviorExitFast,
 											Resources: corev1.ResourceRequirements{
 												Requests: corev1.ResourceList{
 													corev1.ResourceCPU: resource.MustParse("1"),
@@ -213,7 +214,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 
 		ginkgo.It("Should unsuspend a job and set nodeSelectors", func() {
 			// Use a binary that ends.
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).Obj()
+			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).Obj()
 			behavioral.MustCreate(ctx, k8sClient, sampleJob)
 
 			// The job might have finished at this point. That shouldn't be a problem for the purpose of this test
@@ -231,7 +232,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 		ginkgo.It("Should finish workload if the job is deleted with PropagationPolicy=DeletePropagationOrphan", func() {
 			job := testingjob.MakeJob("job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)
 
@@ -260,7 +261,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 				sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 					PrebuiltWorkloadLabel("prebuilt-wl").
 					BackoffLimit(0).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletionFailOnExit).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletionFailOnExit).
 					TerminationGracePeriod(1).
 					Obj()
 				testingjob.SetContainerDefaults(&sampleJob.Spec.Template.Spec.Containers[0])
@@ -349,7 +350,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			ginkgo.By("Job is preempted by higher priority job", func() {
 				job := testingjob.MakeJob("high-with-wpc", ns.Name).
 					Queue("main").
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					WorkloadPriorityClass(highWorkloadPriorityClass.Name).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					NodeSelector("instance-type", "on-demand"). // target the same flavor to cause preemption
@@ -372,7 +373,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			// Use a binary that ends.
 			job := testingjob.MakeJob("job", ns.Name).
 				Queue("main").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				RequestAndLimit(corev1.ResourceCPU, "500m").
 				Parallelism(3).
 				Completions(4).
@@ -427,7 +428,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			ginkgo.By("Create job-one with mid priority", func() {
 				sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 					WorkloadPriorityClass(midPriority).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					NodeSelector("instance-type", "on-demand").
 					TerminationGracePeriod(1).
 					Obj()
@@ -471,7 +472,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					RequestAndLimit(corev1.ResourceMemory, "20Mi").
 					WorkloadPriorityClass(lowPriority).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					NodeSelector("instance-type", "on-demand").
 					TerminationGracePeriod(1).
 					Obj()
@@ -532,7 +533,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 
 			lowJob := testingjob.MakeJob("low", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				TerminationGracePeriod(1).
 				Parallelism(1).
 				NodeSelector("instance-type", "on-demand").
@@ -568,7 +569,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 
 			highJob := testingjob.MakeJob("high", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Parallelism(1).
 				WorkloadPriorityClass(highPriorityClass.Name).
 				Request(corev1.ResourceCPU, "1").
@@ -637,7 +638,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 			ginkgo.By("Create job with priority", func() {
 				sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 					WorkloadPriorityClass(samplePriority).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					NodeSelector("instance-type", "on-demand").
 					RequestAndLimit(corev1.ResourceCPU, "2").
 					TerminationGracePeriod(1).
@@ -727,7 +728,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 
 		ginkgo.It("Should unsuspend a job only after all checks are cleared", func() {
 			// Use a binary that ends.
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).Obj()
+			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).Obj()
 			behavioral.MustCreate(ctx, k8sClient, sampleJob)
 
 			createdWorkload := &kueue.Workload{}
@@ -860,7 +861,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 				RequestAndLimit(corev1.ResourceMemory, "20Mi").
 				Parallelism(2).
 				Completions(10).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				TerminationGracePeriod(1).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, elasticJob)
@@ -1000,7 +1001,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 				Parallelism(4).
 				Completions(4).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				TerminationGracePeriod(1).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, elasticJob)
@@ -1014,7 +1015,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 
 			ginkgo.By("completing indexes 0 and 1: 2 pods running, quota converges to 2 (400m), not over-reserved", func() {
 				for _, idx := range []string{"0", "1"} {
-					behavioral.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 0,
+					e2e.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 0,
 						client.MatchingLabels{
 							"batch.kubernetes.io/job-name":             elasticJob.Name,
 							"batch.kubernetes.io/job-completion-index": idx,

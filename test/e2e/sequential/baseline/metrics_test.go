@@ -28,9 +28,10 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueuemetrics", behavioral.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueuemetrics", e2e.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -42,7 +43,7 @@ var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueueme
 	)
 
 	ginkgo.BeforeAll(func() {
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.Metrics.LocalQueueMetrics = &configapi.LocalQueueMetrics{
 				Enable: true,
 				LocalQueueSelector: &metav1.LabelSelector{
@@ -55,7 +56,7 @@ var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueueme
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-customconfig-lq-metrics-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-customconfig-lq-metrics-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("test-flavor-" + ns.Name).Obj()
 		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
@@ -79,13 +80,13 @@ var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueueme
 
 		curlPod = testingjobspod.MakePod("curl-metrics-"+ns.Name, kueueNS).
 			ServiceAccountName(serviceAccountName).
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, curlPod)
 
 		ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
-			behavioral.WaitForPodRunning(ctx, k8sClient, curlPod)
+			e2e.WaitForPodRunning(ctx, k8sClient, curlPod)
 		})
 
 		curlContainerName = curlPod.Spec.Containers[0].Name
@@ -155,7 +156,7 @@ var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueueme
 			}
 
 			ginkgo.By("checking that default metrics are available", func() {
-				behavioral.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
+				e2e.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 
 			ginkgo.By("deleting the cluster queue", func() {
@@ -169,7 +170,7 @@ var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueueme
 			}
 
 			ginkgo.By("checking that metrics that should have been deleted are no longer available", func() {
-				behavioral.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, deletedMetrics)
+				e2e.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, deletedMetrics)
 			})
 
 			notDeletedMetrics := [][]string{
@@ -188,7 +189,7 @@ var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueueme
 			}
 
 			ginkgo.By("checking that metrics that should not have been deleted are still available", func() {
-				behavioral.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, notDeletedMetrics)
+				e2e.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, notDeletedMetrics)
 			})
 
 			ginkgo.By("deleting the local queue", func() {
@@ -206,7 +207,7 @@ var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueueme
 			}
 
 			ginkgo.By("checking that LocalQueue metrics are no longer available after deleting the local queue", func() {
-				behavioral.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, deletedLocalQueueMetrics)
+				e2e.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, deletedLocalQueueMetrics)
 			})
 		})
 	})
@@ -266,7 +267,7 @@ var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueueme
 			}
 
 			ginkgo.By("checking that default metrics are not available", func() {
-				behavioral.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
+				e2e.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 		})
 	})

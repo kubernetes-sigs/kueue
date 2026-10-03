@@ -32,6 +32,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, ginkgo.Label("area:tas", "feature:kuberay"), func() {
@@ -44,7 +45,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-rayjob-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-rayjob-")
 
 		topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
 		behavioral.MustCreate(ctx, k8sClient, topology)
@@ -86,7 +87,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 				submitter      = 1
 			)
 			numPods := headReplicas + workerReplicas + submitter
-			kuberayTestImage := behavioral.GetKuberayTestImage()
+			kuberayTestImage := e2e.GetKuberayTestImage()
 			rayjob := testingrayjob.MakeJob("ranks-ray", ns.Name).
 				Queue(localQueue.Name).
 				WithSubmissionMode(rayv1.K8sJobMode).
@@ -209,7 +210,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
-				workerPods, err := behavioral.GetRayClusterWorkerPods(ctx, k8sClient, client.ObjectKey{
+				workerPods, err := e2e.GetRayClusterWorkerPods(ctx, k8sClient, client.ObjectKey{
 					Namespace: rayjob.Namespace,
 					Name:      rayjob.Status.RayClusterName,
 				}, "")

@@ -25,6 +25,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor tolerations", ginkgo.Ordered, func() {
@@ -42,7 +43,7 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor tolerations", ginkgo.O
 	}
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rf-tolerations-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rf-tolerations-")
 
 		flavor = utiltestingapi.MakeResourceFlavor("tolerations-flavor").
 			Taint(taint).
@@ -131,7 +132,7 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor nodeLabels", ginkgo.Or
 	const zoneKey = "example.com/zone"
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rf-nodelabels-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rf-nodelabels-")
 
 		flavor = utiltestingapi.MakeResourceFlavor("nodelabels-flavor").
 			NodeLabel(zoneKey, "zone-a").

@@ -84,7 +84,6 @@ import (
 	utillogging "sigs.k8s.io/kueue/pkg/util/logging"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -103,13 +102,6 @@ func RunSuite(t *testing.T, suiteName string) {
 	ginkgo.ReportAfterSuite("Generate JUnit Report", ConfigureSuiteReporting)
 	gomega.RegisterFailHandler(ginkgo.Fail)
 	ginkgo.RunSpecs(t, suiteName)
-}
-
-func RunE2ESuite(t *testing.T, suiteName string) {
-	if ver, found := os.LookupEnv("E2E_KIND_VERSION"); found {
-		suiteName = fmt.Sprintf("%s: %s", suiteName, ver)
-	}
-	RunSuite(t, suiteName)
 }
 
 func formatK8sObject(value any) (string, bool) {
@@ -1759,52 +1751,6 @@ func IgnoreConflict(err error) error {
 		return nil
 	}
 	return err
-}
-func ExpectNodeToBecomeReady(ctx context.Context, c client.Client, nodeName string, localQueue *kueue.LocalQueue) {
-	ginkgo.GinkgoHelper()
-
-	node := &corev1.Node{}
-	gomega.Eventually(func(g gomega.Gomega) {
-		g.Expect(c.Get(ctx, client.ObjectKey{Name: nodeName}, node)).To(gomega.Succeed())
-		g.Expect(utiltas.IsNodeStatusConditionTrue(node.Status.Conditions, corev1.NodeReady)).To(gomega.BeTrue())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg(fmt.Sprintf("Node %s did not become Ready", nodeName), node))
-
-	waitForDummyWorkloadToRunOnNode(ctx, c, node, localQueue)
-}
-
-func waitForDummyWorkloadToRunOnNode(ctx context.Context, c client.Client, node *corev1.Node, lq *kueue.LocalQueue) {
-	ginkgo.GinkgoHelper()
-
-	ginkgo.By(fmt.Sprintf("Waiting for a dummy workload to run on the recovered node %s", node.Name), func() {
-		dummyJob := testingjob.MakeJob(fmt.Sprintf("dummy-job-%s", node.Name), lq.Namespace).
-			Queue(kueue.LocalQueueName(lq.Name)).
-			NodeSelector(corev1.LabelHostname, node.Name).
-			Image(GetAgnHostImage(), BehaviorExitFast).
-			RequestAndLimit(corev1.ResourceCPU, "200m").
-			// we just need to test that the Node allows to run Pods already, using two Pods to indroduce extra redundancy
-			Parallelism(2).
-			Completions(2).
-			CompletionMode(batchv1.IndexedCompletion).
-			SuccessPolicy(&batchv1.SuccessPolicy{
-				Rules: []batchv1.SuccessPolicyRule{
-					{
-						SucceededCount: new(int32(1)),
-					},
-				},
-			}).
-			Obj()
-
-		MustCreate(ctx, c, dummyJob)
-
-		var createdDummyJob batchv1.Job
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(dummyJob), &createdDummyJob)).To(gomega.Succeed())
-			g.Expect(createdDummyJob.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(batchv1.JobCondition{
-				Type:   batchv1.JobComplete,
-				Status: corev1.ConditionTrue,
-			}, cmpopts.IgnoreFields(batchv1.JobCondition{}, "LastTransitionTime", "LastProbeTime", "Reason", "Message"))))
-		}, LongTimeout, Interval).Should(gomega.Succeed(), AssertMsg(fmt.Sprintf("Dummy workload did not complete on node %s", node.Name), &createdDummyJob))
-	})
 }
 
 func ExpectObjectToBeDeletedOnClusters[PtrT objAsPtr[T], T any](ctx context.Context, obj PtrT, clients ...client.Client) {

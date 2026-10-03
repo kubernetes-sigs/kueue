@@ -40,6 +40,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	podtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "feature:pod"), func() {
@@ -50,7 +51,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-e2e-")
 		flavorOnDemand = "on-demand-" + ns.Name
 		onDemandRF = utiltestingapi.MakeResourceFlavor(flavorOnDemand).NodeLabel("instance-type", "on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemandRF)
@@ -91,7 +92,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 
 		ginkgo.It("should admit group that fits", func() {
 			group := podtesting.MakePod("group", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				Queue(lq.Name).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				MakeGroup(2)
@@ -136,7 +137,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 
 		ginkgo.It("Should only admit a complete group", func() {
 			group := podtesting.MakePod("group", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				Queue(lq.Name).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				MakeGroup(3)
@@ -181,14 +182,14 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 
 			groupName := "group"
 			group := podtesting.MakePod(groupName, ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				TerminationGracePeriod(1).
 				Queue(lq.Name).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				MakeGroup(3)
 
 			// First pod runs for much longer, so that there is time to terminate it.
-			group[0].Spec.Containers[0].Args = behavioral.BehaviorWaitForDeletionFailOnExit
+			group[0].Spec.Containers[0].Args = e2e.BehaviorWaitForDeletionFailOnExit
 
 			ginkgo.By("Group starts", func() {
 				for _, p := range group {
@@ -296,7 +297,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			})
 
 			group := podtesting.MakePod("group", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				Queue(lq.Name).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				MakeGroup(2)
@@ -367,7 +368,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 
 		ginkgo.It("should allow to schedule a group of diverse pods", func() {
 			group := podtesting.MakePod("group", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				Queue(lq.Name).
 				RequestAndLimit(corev1.ResourceCPU, "3").
 				MakeGroup(2)
@@ -418,7 +419,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			})
 
 			defaultPriorityGroup := podtesting.MakePod("default-priority-group", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletionFailOnExit).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletionFailOnExit).
 				TerminationGracePeriod(1).
 				Queue(lq.Name).
 				RequestAndLimit(corev1.ResourceCPU, "2").
@@ -443,7 +444,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			})
 
 			highPriorityGroup := podtesting.MakePod("high-priority-group", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Queue(lq.Name).
 				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "1").
@@ -492,7 +493,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				for _, origPod := range defaultPriorityGroup {
 					rep := origPod.DeepCopy()
 					rep.Name = "replacement-for-" + rep.Name
-					rep.Spec.Containers[0].Args = behavioral.BehaviorExitFast
+					rep.Spec.Containers[0].Args = e2e.BehaviorExitFast
 					behavioral.MustCreate(ctx, k8sClient, rep)
 					replacementPods = append(replacementPods, client.ObjectKeyFromObject(rep))
 				}
@@ -521,7 +522,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			ginkgo.By("Call high priority group pods to complete", func() {
 				for _, p := range highPriorityGroup {
 					listOpts := client.MatchingFields{metav1.ObjectNameField: p.Name}
-					behavioral.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 0, listOpts)
+					e2e.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 0, listOpts)
 				}
 			})
 
@@ -557,7 +558,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 		ginkgo.It("Pod should be admitted after the group labels are added", func() {
 			ginkgo.By("creating a pod", func() {
 				p := podtesting.MakePod("pod-0", ns.Name).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					Label("app-role", "worker").
 					Annotation(podconstants.SuspendedByParentAnnotation, "OtherController").

@@ -39,6 +39,7 @@ import (
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var (
@@ -86,7 +87,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "podsready-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "podsready-")
 
 		prodClusterQ = utiltestingapi.MakeClusterQueue("prod-cq").
 			Cohort("all").
@@ -686,7 +687,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReadyNonblockingMode", func() {
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "podsready-nonblocking-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "podsready-nonblocking-")
 
 		prodClusterQ = utiltestingapi.MakeClusterQueue("prod-cq").
 			Cohort("all").

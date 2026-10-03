@@ -31,6 +31,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	deploymenttesting "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "feature:deployment"), func() {
@@ -45,7 +46,7 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "deployment-e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "deployment-e2e-")
 		resourceFlavorName = "deployment-rf-" + ns.Name
 		clusterQueueName = "deployment-cq-" + ns.Name
 		localQueueName = "deployment-lq-" + ns.Name
@@ -79,7 +80,7 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 
 	ginkgo.It("should admit workloads that fits", func() {
 		deployment := deploymenttesting.MakeDeployment("deployment", ns.Name).
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			RequestAndLimit(corev1.ResourceCPU, "200m").
 			TerminationGracePeriod(1).
 			Replicas(3).
@@ -129,7 +130,7 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 
 	ginkgo.It("should admit workloads after change queue-name if AvailableReplicas = 0", func() {
 		deployment := deploymenttesting.MakeDeployment("deployment", ns.Name).
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			RequestAndLimit(corev1.ResourceCPU, "200m").
 			TerminationGracePeriod(1).
 			Replicas(3).

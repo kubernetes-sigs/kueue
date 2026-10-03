@@ -32,13 +32,14 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("TrainJob", ginkgo.Label("area:singlecluster", "feature:trainjob"), func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -77,7 +78,7 @@ var _ = ginkgo.Describe("TrainJob", ginkgo.Label("area:singlecluster", "feature:
 				RuntimeRefName("torch-distributed").
 				Queue("main").
 				// Even if we override the image coming from the TrainingRuntime, we still need to set the command and args
-				TrainerImage(behavioral.GetAgnHostImage(), []string{"/agnhost"}, behavioral.BehaviorExitFast).
+				TrainerImage(e2e.GetAgnHostImage(), []string{"/agnhost"}, e2e.BehaviorExitFast).
 				TrainerRequest(corev1.ResourceCPU, "500m").
 				TrainerRequest(corev1.ResourceMemory, "200Mi").
 				Obj()
@@ -162,7 +163,7 @@ var _ = ginkgo.Describe("TrainJob", ginkgo.Label("area:singlecluster", "feature:
 				RuntimeRefName("torch-distributed").
 				Queue("main").
 				// Even if we override the image coming from the TrainingRuntime, we still need to set the command and args
-				TrainerImage(behavioral.GetAgnHostImage(), []string{"/agnhost"}, behavioral.BehaviorWaitForDeletion).
+				TrainerImage(e2e.GetAgnHostImage(), []string{"/agnhost"}, e2e.BehaviorWaitForDeletion).
 				TrainerRequest(corev1.ResourceCPU, "500m").
 				TrainerRequest(corev1.ResourceMemory, "200Mi").
 				Obj()

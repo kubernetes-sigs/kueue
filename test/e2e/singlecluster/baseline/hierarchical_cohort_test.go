@@ -29,6 +29,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster", "feature:cohort"), func() {
@@ -38,7 +39,7 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 		rf = utiltestingapi.MakeResourceFlavor("rf-" + ns.Name).Obj()
 		behavioral.MustCreate(ctx, k8sClient, rf)
 	})
@@ -101,7 +102,7 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 			for i := range 2 {
 				job := testingjob.MakeJob(fmt.Sprintf("job-%d", i+1), ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					RequestAndLimit(corev1.ResourceCPU, "500m").
 					TerminationGracePeriod(1).Obj()
 				behavioral.MustCreate(ctx, k8sClient, job)
@@ -119,7 +120,7 @@ var _ = ginkgo.Describe("Hierarchical Cohort", ginkgo.Label("area:singlecluster"
 			ginkgo.By("submitting an overflow job that exceeds the root cohort capacity")
 			overflowJob := testingjob.MakeJob("job-overflow", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "500m").
 				TerminationGracePeriod(1).Obj()
 			behavioral.MustCreate(ctx, k8sClient, overflowJob)

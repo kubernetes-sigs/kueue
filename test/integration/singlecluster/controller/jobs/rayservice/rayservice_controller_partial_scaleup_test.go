@@ -33,6 +33,7 @@ import (
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // KEP-12100: two worker groups pinned to separate resource flavors by their node selectors. The
@@ -78,7 +79,7 @@ var _ = ginkgo.Describe("RayService with partial replica scale-up across resourc
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-partial-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-partial-")
 
 		reservation = utiltestingapi.MakeResourceFlavor("reservation").
 			NodeLabel(instanceTypeLabel, "reservation").Obj()

@@ -28,6 +28,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -38,14 +39,14 @@ const (
 	customVisibilityPort      = 9444
 )
 
-var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", behavioral.Shard0), ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", e2e.Shard0), ginkgo.Ordered, func() {
 	var originalDeployment appsv1.Deployment
 	var originalService corev1.Service
 	var cq *kueue.ClusterQueue
 
 	ginkgo.BeforeAll(func() {
 		ginkgo.By("Updating the visibilityServer configuration and restarting Kueue")
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.VisibilityServer = &configapi.VisibilityServerConfiguration{
 				BindPort: new(int32(customVisibilityPort)),
 			}
@@ -83,7 +84,7 @@ var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", 
 			g.Expect(k8sClient.Update(ctx, latestService)).To(gomega.Succeed())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-		behavioral.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
+		e2e.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
 		ginkgo.By("Cleaning up cluster queue")
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
@@ -106,7 +107,7 @@ var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", 
 
 		ginkgo.By("Verifying requests succeed on the custom port")
 		gomega.Eventually(func(g gomega.Gomega) {
-			visClient := behavioral.CreateVisibilityClient("")
+			visClient := e2e.CreateVisibilityClient("")
 			pw, err := visClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, cqName, metav1.GetOptions{})
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 			g.Expect(pw).NotTo(gomega.BeNil())

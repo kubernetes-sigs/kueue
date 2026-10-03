@@ -34,13 +34,14 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
 	podTerminationGracePeriodSeconds = 1
 )
 
-var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failurerecoverypolicy", behavioral.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failurerecoverypolicy", e2e.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		job *batchv1.Job
 		ns  *corev1.Namespace
@@ -48,7 +49,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 	)
 
 	ginkgo.BeforeAll(func() {
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.FeatureGates = map[string]bool{string(features.FailureRecoveryPolicy): true}
 		})
 		rf = utiltestingapi.MakeResourceFlavor("rf").Obj()
@@ -56,10 +57,10 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "frp-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "frp-")
 		job = testingjob.MakeJob("test-job", ns.Name).
 			Queue("lq").
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			RequestAndLimit(corev1.ResourceMemory, "40Mi").
 			Parallelism(1).
@@ -161,7 +162,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 			})
 
 			ginkgo.By("waiting for the node to be ready again", func() {
-				behavioral.ExpectNodeToBecomeReady(ctx, k8sClient, nodeName, lq)
+				e2e.ExpectNodeToBecomeReady(ctx, k8sClient, nodeName, lq)
 			})
 		})
 

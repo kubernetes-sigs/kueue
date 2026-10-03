@@ -29,6 +29,7 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var (
@@ -37,34 +38,34 @@ var (
 	restClient      *rest.RESTClient
 	ctx             context.Context
 	defaultKueueCfg *config.Configuration
-	kueueNS         = behavioral.GetKueueNamespace()
+	kueueNS         = e2e.GetKueueNamespace()
 	kindClusterName = os.Getenv("KIND_CLUSTER_NAME")
 )
 
 func TestAPIs(t *testing.T) {
-	behavioral.RunE2ESuite(t, "End To End Sequential Baseline Suite")
+	e2e.RunE2ESuite(t, "End To End Sequential Baseline Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	behavioral.SetupLogger()
 
 	var err error
-	k8sClient, cfg, err = behavioral.CreateClientUsingCluster("")
+	k8sClient, cfg, err = e2e.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	restClient = behavioral.CreateRestClient(cfg)
+	restClient = e2e.CreateRestClient(cfg)
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
-	behavioral.WaitForKueueAvailability(ctx, k8sClient)
+	e2e.WaitForKueueAvailability(ctx, k8sClient)
 	ginkgo.GinkgoLogr.Info(
 		"Kueue is available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),
 	)
-	defaultKueueCfg = behavioral.GetKueueConfiguration(ctx, k8sClient)
+	defaultKueueCfg = e2e.GetKueueConfiguration(ctx, k8sClient)
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	if behavioral.IsE2EModeDev() {
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
+	if e2e.IsE2EModeDev() {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
 	}
 })

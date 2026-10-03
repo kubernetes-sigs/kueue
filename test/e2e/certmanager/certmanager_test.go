@@ -27,6 +27,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("CertManager", ginkgo.Ordered, func() {
@@ -67,7 +68,7 @@ var _ = ginkgo.Describe("CertManager", ginkgo.Ordered, func() {
 		ginkgo.It("should admit a Job", func() {
 			testJob := testingjob.MakeJob("test-job", ns.Name).
 				Queue("main").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Suspend(false).
 				TerminationGracePeriod(1).
 				Obj()

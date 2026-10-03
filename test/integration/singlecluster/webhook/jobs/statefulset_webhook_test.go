@@ -35,6 +35,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("StatefulSet Webhook", func() {
@@ -53,7 +54,7 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 			))
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "statefulset-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "statefulset-")
 		})
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())

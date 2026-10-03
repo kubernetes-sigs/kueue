@@ -33,6 +33,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // The gate is removed before the metric is recorded, so a regression drops the series.
@@ -73,7 +74,7 @@ var _ = ginkgo.Describe("Pod controller with ClusterQueue custom metric labels",
 		})
 
 		ginkgo.BeforeEach(func() {
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-custom-metric-labels-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-custom-metric-labels-")
 			localQueue = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 			behavioral.MustCreate(ctx, k8sClient, localQueue)
 		})
