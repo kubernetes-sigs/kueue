@@ -19,6 +19,7 @@ package leaderworkerset
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -26,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
@@ -878,6 +880,7 @@ func TestValidateUpdate(t *testing.T) {
 		integrations []string
 		oldObj       *leaderworkersetv1.LeaderWorkerSet
 		newObj       *leaderworkersetv1.LeaderWorkerSet
+		workloads    []client.Object
 		featureGates map[featuregate.Feature]bool
 		wantErr      error
 	}{
@@ -904,6 +907,59 @@ func TestValidateUpdate(t *testing.T) {
 				LeaderTemplate(corev1.PodTemplateSpec{}).
 				Queue("new-test-queue").
 				Obj(),
+		},
+		"reject queue change when a Workload still reserves quota": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "test-ns").
+				UID("test-uid").
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "test-ns").
+				UID("test-uid").
+				Queue("new-test-queue").
+				Obj(),
+			workloads: []client.Object{
+				utiltestingapi.MakeWorkload("test-wl", "test-ns").
+					OwnerReference(gvk, "test-lws", "test-uid").
+					Queue("test-queue").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+					Obj(),
+			},
+			wantErr: field.ErrorList{
+				field.Forbidden(queueNameLabelPath, "cannot change queue while a Workload has quota reserved"),
+			}.ToAggregate(),
+		},
+		"allow queue change when owned Workloads have no quota reservation": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "test-ns").
+				UID("test-uid").
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "test-ns").
+				UID("test-uid").
+				Queue("new-test-queue").
+				Obj(),
+			workloads: []client.Object{
+				utiltestingapi.MakeWorkload("test-wl", "test-ns").
+					OwnerReference(gvk, "test-lws", "test-uid").
+					Queue("test-queue").
+					Obj(),
+			},
+		},
+		"allow queue change when only another LWS reserves quota": {
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "test-ns").
+				UID("test-uid").
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "test-ns").
+				UID("test-uid").
+				Queue("new-test-queue").
+				Obj(),
+			workloads: []client.Object{
+				utiltestingapi.MakeWorkload("other-wl", "test-ns").
+					OwnerReference(gvk, "other-lws", "other-uid").
+					Queue("test-queue").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+					Obj(),
+			},
 		},
 		"set invalid replicas": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
@@ -1565,7 +1621,10 @@ func TestValidateUpdate(t *testing.T) {
 				integrationManager.EnableIntegration(integration)
 			}
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			wh := &Webhook{integrationManager: integrationManager}
+			wh := &Webhook{
+				integrationManager: integrationManager,
+				client:             utiltesting.NewClientBuilder().WithObjects(tc.workloads...).Build(),
+			}
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			warns, err := wh.ValidateUpdate(ctx, tc.oldObj, tc.newObj)

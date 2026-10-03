@@ -35,12 +35,14 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type Webhook struct {
@@ -197,6 +199,18 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 	// or if the queue-name has been deleted.
 	if !isSuspended || newQueueName == "" {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
+	} else if newQueueName != oldQueueName {
+		workloads := &kueue.WorkloadList{}
+		if err := wh.client.List(ctx, workloads, client.InNamespace(oldObj.Namespace),
+			client.MatchingFields{indexer.OwnerReferenceUID: string(oldObj.UID)}); err != nil {
+			return nil, err
+		}
+		for i := range workloads.Items {
+			if workload.HasQuotaReservation(&workloads.Items[i]) {
+				allErrs = append(allErrs, field.Forbidden(queueNameLabelPath, "cannot change queue while a Workload has quota reserved"))
+				break
+			}
+		}
 	}
 
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
