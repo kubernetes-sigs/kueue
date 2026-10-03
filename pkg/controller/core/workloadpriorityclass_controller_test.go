@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -349,6 +350,260 @@ func TestWorkloadPriorityClassReconcile(t *testing.T) {
 				if diff := cmp.Diff(wantWl.Spec.Priority, gotWl.Spec.Priority); diff != "" {
 					t.Errorf("workload %s priority mismatch (-want +got):\n%s", wantWl.Name, diff)
 				}
+			}
+		})
+	}
+}
+
+func TestWorkloadPriorityClassRefChangedPredicate(t *testing.T) {
+	cases := map[string]struct {
+		eventType string
+		oldWL     *kueue.Workload
+		newWL     *kueue.Workload
+		want      bool
+	}{
+		"created already referencing a class": {
+			eventType: "create",
+			newWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
+			want:      true,
+		},
+		// MultiKueue copies the manager's resolution onto the remote Workload,
+		// and a class of the same name here is not the one it came from.
+		"created by MultiKueue on this cluster": {
+			eventType: "create",
+			newWL: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").
+				Label(kueue.MultiKueueOriginLabel, "manager").Obj(),
+			want: false,
+		},
+		"created referencing a Pod PriorityClass": {
+			eventType: "create",
+			newWL:     utiltestingapi.MakeWorkload("wl", "ns").PodPriorityClassRef("high").Obj(),
+			want:      false,
+		},
+		"created referencing nothing": {
+			eventType: "create",
+			newWL:     utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			want:      false,
+		},
+		"reference added": {
+			eventType: "update",
+			oldWL:     utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			newWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
+			want:      true,
+		},
+		// Only the group tells these apart, so a predicate comparing names alone
+		// would call this unchanged and leave the class unreconciled.
+		"moved from a Pod PriorityClass of the same name": {
+			eventType: "update",
+			oldWL:     utiltestingapi.MakeWorkload("wl", "ns").PodPriorityClassRef("high").Obj(),
+			newWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
+			want:      true,
+		},
+		"moved between classes": {
+			eventType: "update",
+			oldWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("low").Obj(),
+			newWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
+			want:      true,
+		},
+		// What Reconcile itself writes.
+		"same class, priority value rewritten": {
+			eventType: "update",
+			oldWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+			newWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(200).Obj(),
+			want:      false,
+		},
+		"same class, nothing changed": {
+			eventType: "update",
+			oldWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
+			newWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
+			want:      false,
+		},
+		"reference added on a Workload MultiKueue created here": {
+			eventType: "update",
+			oldWL:     utiltestingapi.MakeWorkload("wl", "ns").Label(kueue.MultiKueueOriginLabel, "manager").Obj(),
+			newWL: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").
+				Label(kueue.MultiKueueOriginLabel, "manager").Obj(),
+			want: false,
+		},
+		// The manager resolved the value this Workload carries. Once the label
+		// saying so is gone, this cluster's class is what it has to follow, and
+		// the reference did not have to move for that to be true.
+		"ownership moved here with the reference unchanged": {
+			eventType: "update",
+			oldWL: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").
+				Label(kueue.MultiKueueOriginLabel, "manager").Obj(),
+			newWL: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
+			want:  true,
+		},
+		"ownership moved away with the reference unchanged": {
+			eventType: "update",
+			oldWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
+			newWL: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").
+				Label(kueue.MultiKueueOriginLabel, "manager").Obj(),
+			want: false,
+		},
+		"ownership moved here on a Pod PriorityClass reference": {
+			eventType: "update",
+			oldWL: utiltestingapi.MakeWorkload("wl", "ns").PodPriorityClassRef("high").
+				Label(kueue.MultiKueueOriginLabel, "manager").Obj(),
+			newWL: utiltestingapi.MakeWorkload("wl", "ns").PodPriorityClassRef("high").Obj(),
+			want:  false,
+		},
+		"moved to a Pod PriorityClass": {
+			eventType: "update",
+			oldWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
+			newWL:     utiltestingapi.MakeWorkload("wl", "ns").PodPriorityClassRef("high").Obj(),
+			want:      false,
+		},
+		"deleted": {
+			eventType: "delete",
+			oldWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
+			want:      false,
+		},
+		"generic": {
+			eventType: "generic",
+			newWL:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Obj(),
+			want:      false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			p := workloadPriorityClassRefChanged()
+			var got bool
+			switch tc.eventType {
+			case "create":
+				got = p.Create(event.TypedCreateEvent[*kueue.Workload]{Object: tc.newWL})
+			case "update":
+				got = p.Update(event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: tc.oldWL, ObjectNew: tc.newWL})
+			case "delete":
+				got = p.Delete(event.TypedDeleteEvent[*kueue.Workload]{Object: tc.oldWL})
+			case "generic":
+				got = p.Generic(event.TypedGenericEvent[*kueue.Workload]{Object: tc.newWL})
+			default:
+				t.Fatalf("unknown event type %q", tc.eventType)
+			}
+			if got != tc.want {
+				t.Errorf("predicate = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestWorkloadPriorityClassReferenceReconcile(t *testing.T) {
+	cases := map[string]struct {
+		workload             *kueue.Workload
+		class                *kueue.WorkloadPriorityClass
+		classValueAfterWrite *int32
+		wantPriority         *int32
+		wantWrites           int
+		wantRequeueAfter     time.Duration
+	}{
+		"a value left behind by an earlier reconcile": {
+			workload:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+			class:        utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			wantPriority: new(int32(200)),
+			wantWrites:   1,
+		},
+		// Already at the value the class moves to, so the sweep that move
+		// starts skips it and this pass has to come back for it.
+		"a class that moved while the workload was being written": {
+			workload:             utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(300).Obj(),
+			class:                utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			classValueAfterWrite: new(int32(300)),
+			wantPriority:         new(int32(200)),
+			wantWrites:           1,
+			wantRequeueAfter:     classMovedRequeue,
+		},
+		// The rule this pins: the class wins over a value the user chose. A
+		// Workload created already referencing a class is resolved from it at
+		// once, where before this the value stood until the class next moved.
+		// A later numeric-only update is left alone, so an override is still
+		// available, just not in the same request as the reference.
+		"a value the user chose, against the class it references": {
+			workload:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(123).Obj(),
+			class:        utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			wantPriority: new(int32(200)),
+			wantWrites:   1,
+		},
+		"a value already in step with the class": {
+			workload:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(200).Obj(),
+			class:        utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			wantPriority: new(int32(200)),
+		},
+		// The class sweeps what references it when it is created.
+		"a class that does not exist yet": {
+			workload:     utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+			wantPriority: new(int32(100)),
+		},
+		"a Workload MultiKueue created here": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").WorkloadPriorityClassRef("high").Priority(100).
+				Label(kueue.MultiKueueOriginLabel, "manager").Obj(),
+			class:        utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			wantPriority: new(int32(100)),
+		},
+		"a reference to a Pod PriorityClass": {
+			workload:     utiltestingapi.MakeWorkload("wl", "ns").PodPriorityClassRef("high").Priority(100).Obj(),
+			class:        utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			wantPriority: new(int32(100)),
+		},
+		"no reference at all": {
+			workload:     utiltestingapi.MakeWorkload("wl", "ns").Priority(100).Obj(),
+			class:        utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			wantPriority: new(int32(100)),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			var writes int
+			objs := []client.Object{tc.workload}
+			if tc.class != nil {
+				objs = append(objs, tc.class)
+			}
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(objs...).
+				WithInterceptorFuncs(interceptor.Funcs{
+					// Counted whichever verb carries it, so the count says how
+					// often the workload was written rather than which call did it.
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						writes++
+						return c.Update(ctx, obj, opts...)
+					},
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						writes++
+						if err := c.Patch(ctx, obj, patch, opts...); err != nil {
+							return err
+						}
+						if tc.classValueAfterWrite == nil {
+							return nil
+						}
+						var class kueue.WorkloadPriorityClass
+						if err := c.Get(ctx, client.ObjectKeyFromObject(tc.class), &class); err != nil {
+							return err
+						}
+						class.Value = *tc.classValueAfterWrite
+						return c.Update(ctx, &class)
+					},
+				}).Build()
+
+			r := NewWorkloadPriorityClassReferenceReconciler(cl, cl, nil)
+			res, err := r.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.workload)})
+			if err != nil {
+				t.Fatalf("Reconcile() = %v", err)
+			}
+
+			var got kueue.Workload
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(tc.workload), &got); err != nil {
+				t.Fatalf("reading the workload back: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantPriority, got.Spec.Priority); diff != "" {
+				t.Errorf("workload priority (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantWrites, writes); diff != "" {
+				t.Errorf("workload writes (-want +got):\n%s", diff)
+			}
+			if res.RequeueAfter != tc.wantRequeueAfter {
+				t.Errorf("RequeueAfter = %v, want %v", res.RequeueAfter, tc.wantRequeueAfter)
 			}
 		})
 	}
