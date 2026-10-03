@@ -41,11 +41,10 @@ import (
 
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
+	kueuectlutil "sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
-	kueuectlutil "sigs.k8s.io/kueue/cmd/kueuectl/app/util"
-
 )
 
 var (
