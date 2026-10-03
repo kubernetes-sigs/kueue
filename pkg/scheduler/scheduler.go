@@ -1231,8 +1231,8 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 			if workload.PropagateResourceRequests(wl, &e.Info, s.resourceFormatter) {
 				updated = true
 			}
-			if e.status == preemptionGated {
-				updated = workload.SetBlockedOnPreemptionGatesCondition(wl, s.clock.Now(), kueue.PreemptionGated, e.inadmissibleMsg)
+			if e.status == preemptionGated && workload.SetBlockedOnPreemptionGatesCondition(wl, s.clock.Now(), kueue.PreemptionGated, e.inadmissibleMsg) {
+				updated = true
 			}
 			return updated, nil
 		}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
