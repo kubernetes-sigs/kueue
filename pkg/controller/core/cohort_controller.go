@@ -19,6 +19,7 @@ package core
 import (
 	"context"
 	"errors"
+	"math"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -258,7 +259,11 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 	}
 
 	if r.fairSharingEnabled {
-		metrics.ReportCohortWeightedShare(kueue.CohortReference(cohort.Name), stats.WeightedShare, r.customLabels.CohortGet(kueue.CohortReference(cohort.Name)), r.roleTracker)
+		weightedShare := stats.WeightedShare
+		if weightedShare == math.Inf(1) {
+			weightedShare = math.NaN()
+		}
+		metrics.ReportCohortWeightedShare(kueue.CohortReference(cohort.Name), weightedShare, r.customLabels.CohortGet(kueue.CohortReference(cohort.Name)), r.roleTracker)
 		if cohort.Status.FairSharing == nil {
 			cohort.Status.FairSharing = &kueue.FairSharingStatus{}
 		}
