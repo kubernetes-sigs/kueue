@@ -32,7 +32,7 @@ import (
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 // The gate is removed before the metric is recorded, so a regression drops the series.
@@ -56,31 +56,31 @@ var _ = ginkgo.Describe("Pod controller with ClusterQueue custom metric labels",
 			))
 
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
-			util.MustCreate(ctx, k8sClient, defaultFlavor)
+			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 			clusterQueue = utiltestingapi.MakeClusterQueue("cq-custom-metric-labels").
 				Label("team", "platform").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).Resource(corev1.ResourceCPU, "1").Obj(),
 				).Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 		})
 
 		ginkgo.AfterAll(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 			fwk.StopManager(ctx)
 			metrics.InitMetricVectors(nil)
 		})
 
 		ginkgo.BeforeEach(func() {
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-custom-metric-labels-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-custom-metric-labels-")
 			localQueue = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			behavioral.MustCreate(ctx, k8sClient, localQueue)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})
 
 		ginkgo.It("should remove the gate and record it with the ClusterQueue's custom label", func() {
@@ -88,7 +88,7 @@ var _ = ginkgo.Describe("Pod controller with ClusterQueue custom metric labels",
 				Queue(localQueue.Name).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
-			util.MustCreate(ctx, k8sClient, pod)
+			behavioral.MustCreate(ctx, k8sClient, pod)
 
 			ginkgo.By("waiting for the Workload the Pod is admitted through")
 			wlKey := types.NamespacedName{
@@ -98,7 +98,7 @@ var _ = ginkgo.Describe("Pod controller with ClusterQueue custom metric labels",
 			createdWorkload := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, createdWorkload)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("admitting it so the controller removes the gate")
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
@@ -107,14 +107,14 @@ var _ = ginkgo.Describe("Pod controller with ClusterQueue custom metric labels",
 					Count(createdWorkload.Spec.PodSets[0].Count).
 					Obj()).
 				Obj()
-			util.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+			behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 			createdPod := &corev1.Pod{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).Should(gomega.Succeed())
 				g.Expect(createdPod.Spec.SchedulingGates).Should(gomega.BeEmpty())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking the observation carries the ClusterQueue's label value")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -124,6 +124,6 @@ var _ = ginkgo.Describe("Pod controller with ClusterQueue custom metric labels",
 					"custom_team":   "platform",
 				})
 				g.Expect(got).Should(gomega.HaveLen(1))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})

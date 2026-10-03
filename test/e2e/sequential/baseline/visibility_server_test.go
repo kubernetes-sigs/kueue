@@ -27,7 +27,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
@@ -38,14 +38,14 @@ const (
 	customVisibilityPort      = 9444
 )
 
-var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", util.Shard0), ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", behavioral.Shard0), ginkgo.Ordered, func() {
 	var originalDeployment appsv1.Deployment
 	var originalService corev1.Service
 	var cq *kueue.ClusterQueue
 
 	ginkgo.BeforeAll(func() {
 		ginkgo.By("Updating the visibilityServer configuration and restarting Kueue")
-		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.VisibilityServer = &configapi.VisibilityServerConfiguration{
 				BindPort: new(int32(customVisibilityPort)),
 			}
@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", 
 		cq = &kueue.ClusterQueue{
 			Name: cqName,
 		}
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 	})
 
 	ginkgo.AfterEach(func() {
@@ -73,7 +73,7 @@ var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", 
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueManagerName, Namespace: kueueNS}, latestDeployment)).To(gomega.Succeed())
 			latestDeployment.Spec = originalDeployment.Spec
 			g.Expect(k8sClient.Update(ctx, latestDeployment)).To(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Restoring the original service")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -81,12 +81,12 @@ var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", 
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: kueueVisibilityServerName, Namespace: kueueNS}, latestService)).To(gomega.Succeed())
 			latestService.Spec.Ports = originalService.Spec.Ports
 			g.Expect(k8sClient.Update(ctx, latestService)).To(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-		util.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
+		behavioral.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
 		ginkgo.By("Cleaning up cluster queue")
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 	})
 
 	ginkgo.It("Should use the custom port from the visibilityServer configuration API", func() {
@@ -102,14 +102,14 @@ var _ = ginkgo.Describe("Visibility Server", ginkgo.Label("feature:visibility", 
 				}
 			}
 			g.Expect(k8sClient.Update(ctx, patchedService)).To(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Verifying requests succeed on the custom port")
 		gomega.Eventually(func(g gomega.Gomega) {
-			visClient := util.CreateVisibilityClient("")
+			visClient := behavioral.CreateVisibilityClient("")
 			pw, err := visClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, cqName, metav1.GetOptions{})
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 			g.Expect(pw).NotTo(gomega.BeNil())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })

@@ -26,7 +26,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("CertManager", ginkgo.Ordered, func() {
@@ -41,41 +41,41 @@ var _ = ginkgo.Describe("CertManager", ginkgo.Ordered, func() {
 		ns = &corev1.Namespace{
 			GenerateName: "e2e-cert-manager-",
 		}
-		util.MustCreate(ctx, k8sClient, ns)
+		behavioral.MustCreate(ctx, k8sClient, ns)
 
 		defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
-		util.MustCreate(ctx, k8sClient, defaultRf)
+		behavioral.MustCreate(ctx, k8sClient, defaultRf)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(defaultRf.Name).
 				Resource(corev1.ResourceCPU, "2").
 				Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, util.MediumTimeout)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, clusterQueue, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultRf, true, behavioral.MediumTimeout)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("CertManager is Enabled", func() {
 		ginkgo.It("should admit a Job", func() {
 			testJob := testingjob.MakeJob("test-job", ns.Name).
 				Queue("main").
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 				Suspend(false).
 				TerminationGracePeriod(1).
 				Obj()
-			util.MustCreate(ctx, k8sClient, testJob)
+			behavioral.MustCreate(ctx, k8sClient, testJob)
 
 			ginkgo.By("Checking resource status", func() {
 				jobKey := types.NamespacedName{Name: testJob.Name, Namespace: ns.Name}
-				util.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, nil)
+				behavioral.ExpectJobUnsuspendedWithNodeSelectors(ctx, k8sClient, jobKey, nil)
 			})
 
 			ginkgo.By("Verifying workload admission", func() {
@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("CertManager", ginkgo.Ordered, func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Admission).ToNot(gomega.BeNil())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

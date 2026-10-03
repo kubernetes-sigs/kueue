@@ -30,7 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/experimental/kueue-priority-booster/pkg/constants"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("PriorityBoostReconciler envtest", ginkgo.Serial, ginkgo.Ordered, func() {
@@ -53,7 +53,7 @@ var _ = ginkgo.Describe("PriorityBoostReconciler envtest", ginkgo.Serial, ginkgo
 
 	ginkgo.AfterEach(func() {
 		if ns != nil {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			ns = nil
 		}
 	})
@@ -82,14 +82,14 @@ var _ = ginkgo.Describe("PriorityBoostReconciler envtest", ginkgo.Serial, ginkgo
 			g.Expect(k8sClient.Get(ctx, admittedWorkloadKey(wl.Name), wl)).To(gomega.Succeed())
 			setAdmittedCondition(wl, metav1.NewTime(time.Now().Add(-5*time.Second)))
 			g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		gomega.Consistently(func(g gomega.Gomega) {
 			var got kueue.Workload
 			g.Expect(k8sClient.Get(ctx, admittedWorkloadKey("wl-in-window"), &got)).To(gomega.Succeed())
 			_, has := got.Annotations[constants.PriorityBoostAnnotationKey]
 			g.Expect(has).To(gomega.BeFalse())
-		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("sets negative boost annotation after time-sharing window", func() {
@@ -102,7 +102,7 @@ var _ = ginkgo.Describe("PriorityBoostReconciler envtest", ginkgo.Serial, ginkgo
 			g.Expect(k8sClient.Get(ctx, admittedWorkloadKey(wl.Name), wl)).To(gomega.Succeed())
 			setAdmittedCondition(wl, metav1.NewTime(time.Now().Add(-integrationTimeSharingWindow-10*time.Second)))
 			g.Expect(k8sClient.Status().Update(ctx, wl)).To(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			var got kueue.Workload
@@ -111,6 +111,6 @@ var _ = ginkgo.Describe("PriorityBoostReconciler envtest", ginkgo.Serial, ginkgo
 			g.Expect(ok).To(gomega.BeTrue())
 			want := strconv.FormatInt(-int64(integrationNegativeBoost), 10)
 			g.Expect(val).To(gomega.Equal(want))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })

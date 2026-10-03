@@ -33,14 +33,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
 	podTerminationGracePeriodSeconds = 1
 )
 
-var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failurerecoverypolicy", util.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failurerecoverypolicy", behavioral.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		job *batchv1.Job
 		ns  *corev1.Namespace
@@ -48,18 +48,18 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 	)
 
 	ginkgo.BeforeAll(func() {
-		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.FeatureGates = map[string]bool{string(features.FailureRecoveryPolicy): true}
 		})
 		rf = utiltestingapi.MakeResourceFlavor("rf").Obj()
-		util.MustCreate(ctx, k8sClient, rf)
+		behavioral.MustCreate(ctx, k8sClient, rf)
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "frp-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "frp-")
 		job = testingjob.MakeJob("test-job", ns.Name).
 			Queue("lq").
-			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			RequestAndLimit(corev1.ResourceMemory, "40Mi").
 			Parallelism(1).
@@ -90,15 +90,15 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 	})
 
 	ginkgo.JustAfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.AfterEach(func() {
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.AfterAll(func() {
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
 	})
 
 	ginkgo.When("the kubelet on a node goes down", func() {
@@ -119,22 +119,22 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 						Resource(corev1.ResourceMemory, "36G").
 						Obj()).
 					Obj()
-				util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+				behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 				lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).
 					ClusterQueue(cq.Name).
 					Obj()
-				util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+				behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 			})
 
 			ginkgo.By("creating the job and waiting for it to start", func() {
-				util.MustCreate(ctx, k8sClient, job)
+				behavioral.MustCreate(ctx, k8sClient, job)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
 					g.Expect(*job.Spec.Suspend).To(gomega.BeFalse())
 					g.Expect(job.Status.Active).To(gomega.Equal(int32(1)))
 					g.Expect(job.Status.Ready).To(gomega.Equal(new(int32(1))))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("ensuring the pod is scheduled on a worker node", func() {
@@ -145,7 +145,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 
 					nodeName = pods.Items[0].Spec.NodeName
 					g.Expect(nodeName).ToNot(gomega.BeEmpty())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("stopping the kubelet on the node running the pod", func() {
@@ -161,13 +161,13 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 			})
 
 			ginkgo.By("waiting for the node to be ready again", func() {
-				util.ExpectNodeToBecomeReady(ctx, k8sClient, nodeName, lq)
+				behavioral.ExpectNodeToBecomeReady(ctx, k8sClient, nodeName, lq)
 			})
 		})
 
 		ginkgo.AfterEach(func() {
 			ginkgo.By("deleting the cluster queue", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			})
 		})
 
@@ -176,7 +176,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
 					g.Expect(job.Status.Active).To(gomega.Equal(int32(1)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("deleting the job with foreground propagation", func() {
@@ -184,7 +184,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 			})
 
 			ginkgo.By("ensuring the job is deleted", func() {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, job, false, unhealthyNodeforcefulTerminationCheckTimeout+util.Timeout)
+				behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, job, false, unhealthyNodeforcefulTerminationCheckTimeout+behavioral.Timeout)
 			})
 		})
 	})

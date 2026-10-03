@@ -39,7 +39,7 @@ import (
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("RayCluster Webhook", func() {
@@ -48,11 +48,11 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeEach(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(raycluster.SetupRayClusterWebhook))
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "raycluster-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "raycluster-")
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			fwk.StopManager(ctx)
 		})
 
@@ -70,7 +70,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 
 			ginkgo.It("should reject removing the queue name from an unsuspended RayCluster", func() {
 				cluster := testingraycluster.MakeCluster("raycluster", ns.Name).Queue("queue-name").Obj()
-				util.MustCreate(ctx, k8sClient, cluster)
+				behavioral.MustCreate(ctx, k8sClient, cluster)
 
 				lookupKey := types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}
 				createdCluster := &rayv1.RayCluster{}
@@ -96,7 +96,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 
 			ginkgo.It("should allow removing the queue name from an unsuspended RayCluster", func() {
 				cluster := testingraycluster.MakeCluster("raycluster", ns.Name).Queue("queue-name").Obj()
-				util.MustCreate(ctx, k8sClient, cluster)
+				behavioral.MustCreate(ctx, k8sClient, cluster)
 
 				lookupKey := types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}
 				createdCluster := &rayv1.RayCluster{}
@@ -153,12 +153,12 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 				gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
 				return nil
-			}, jobframework.WithManageJobsWithoutQueueName(true), jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "raycluster-")
+			}, jobframework.WithManageJobsWithoutQueueName(true), jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding("unmanaged-ns"))))
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "raycluster-")
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			fwk.StopManager(ctx)
 		})
 
@@ -168,21 +168,21 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 				Queue("test").
 				Suspend(false).
 				Obj()
-			util.MustCreate(ctx, k8sClient, parentJob)
+			behavioral.MustCreate(ctx, k8sClient, parentJob)
 
 			lookupKey := types.NamespacedName{Name: parentJob.Name, Namespace: ns.Name}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, lookupKey, parentJob)).To(gomega.Succeed())
 				parentJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusSuspended
 				g.Expect(k8sClient.Status().Update(ctx, parentJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Fetching the workload created for the job")
 			createdWorkload := &kueue.Workload{}
 			wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(parentJob.Name, parentJob.UID), Namespace: ns.Name}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Admitting the workload created for the job")
 			admission := utiltestingapi.MakeAdmission("foo").PodSets(
@@ -204,8 +204,8 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 					},
 				},
 			).Obj()
-			util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-			util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+			behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 
 			ginkgo.By("Creating the child cluster")
@@ -213,14 +213,14 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 				Suspend(false).
 				Obj()
 			gomega.Expect(ctrl.SetControllerReference(parentJob, childCluster, k8sClient.Scheme())).To(gomega.Succeed())
-			util.MustCreate(ctx, k8sClient, childCluster)
+			behavioral.MustCreate(ctx, k8sClient, childCluster)
 
 			ginkgo.By("Checking that the child cluster is not suspended")
 			childClusterKey := client.ObjectKeyFromObject(childCluster)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, childClusterKey, childCluster)).To(gomega.Succeed())
 				g.Expect(childCluster.Spec.Suspend).To(gomega.Equal(new(false)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })

@@ -32,7 +32,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("WorkloadIdentifierAnnotations", ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.Label("feature:workloadidentifierannotations"), func() {
@@ -44,10 +44,10 @@ var _ = ginkgo.Describe("WorkloadIdentifierAnnotations", ginkgo.Ordered, ginkgo.
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-e2e-")
 
 		rf = utiltestingapi.MakeResourceFlavor("rf-"+ns.Name).NodeLabel("instance-type", "on-demand").Obj()
-		util.MustCreate(ctx, k8sClient, rf)
+		behavioral.MustCreate(ctx, k8sClient, rf)
 
 		cq = utiltestingapi.MakeClusterQueue("cq-" + ns.Name).
 			ResourceGroup(
@@ -56,23 +56,23 @@ var _ = ginkgo.Describe("WorkloadIdentifierAnnotations", ginkgo.Ordered, ginkgo.
 					Obj(),
 			).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue("lq-"+ns.Name, ns.Name).ClusterQueue(cq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteAllLeaderWorkerSetsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteAllLeaderWorkerSetsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.Context("with WorkloadIdentifierAnnotations enabled", func() {
 		ginkgo.BeforeAll(func() {
-			util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+			behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 				if cfg.FeatureGates == nil {
 					cfg.FeatureGates = make(map[string]bool, 1)
 				}
@@ -83,14 +83,14 @@ var _ = ginkgo.Describe("WorkloadIdentifierAnnotations", ginkgo.Ordered, ginkgo.
 		ginkgo.It("should admit group with 50-character lws name", func() {
 			lwsName := strings.Repeat("a", 50)
 			lws := leaderworkersettesting.MakeLeaderWorkerSet(lwsName, ns.Name).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 				Size(3).Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				TerminationGracePeriod(1).
 				Queue(lq.Name).Obj()
 
 			ginkgo.By("create a LeaderWorkerSet", func() {
-				util.MustCreate(ctx, k8sClient, lws)
+				behavioral.MustCreate(ctx, k8sClient, lws)
 			})
 
 			ginkgo.By("waiting for replicas to be ready", func() {
@@ -99,7 +99,7 @@ var _ = ginkgo.Describe("WorkloadIdentifierAnnotations", ginkgo.Ordered, ginkgo.
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Status.ReadyReplicas).To(gomega.Equal(int32(1)))
 					g.Expect(createdLeaderWorkerSet.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason("Available", "AllGroupsReady"))
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("checking pods have group name as annotation, not label", func() {
@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("WorkloadIdentifierAnnotations", ginkgo.Ordered, ginkgo.
 						g.Expect(pod.Annotations).To(gomega.HaveKey(podconstants.GroupNameAnnotation))
 						g.Expect(pod.Labels).ToNot(gomega.HaveKey(podconstants.GroupNameLabel))
 					}
-				}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

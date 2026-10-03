@@ -28,18 +28,18 @@ import (
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mpijob"), func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("Creating a MPIJob", func() {
@@ -53,23 +53,23 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 			flavorDefault := "default-" + ns.Name
 			clusterQueueName := "cluster-queue-" + ns.Name
 			defaultRf = utiltestingapi.MakeResourceFlavor(flavorDefault).Obj()
-			util.MustCreate(ctx, k8sClient, defaultRf)
+			behavioral.MustCreate(ctx, k8sClient, defaultRf)
 			clusterQueue = utiltestingapi.MakeClusterQueue(clusterQueueName).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(flavorDefault).
 						Resource(corev1.ResourceCPU, "2").
 						Resource(corev1.ResourceMemory, "2G").Obj()).Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueueName).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteAllMPIJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultRf, true)
+			gomega.Expect(behavioral.DeleteAllMPIJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultRf, true)
 		})
 
 		ginkgo.It("Should run a MPIJob if admitted", func() {
@@ -79,14 +79,14 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:  kfmpi.MPIReplicaTypeLauncher,
 						ReplicaCount: 1,
-						Image:        util.GetAgnHostImage(),
-						Args:         util.BehaviorExitFast,
+						Image:        behavioral.GetAgnHostImage(),
+						Args:         behavioral.BehaviorExitFast,
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:  kfmpi.MPIReplicaTypeWorker,
 						ReplicaCount: 1,
-						Image:        util.GetAgnHostImage(),
-						Args:         util.BehaviorExitFast,
+						Image:        behavioral.GetAgnHostImage(),
+						Args:         behavioral.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "500m").
@@ -94,13 +94,13 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 				Obj()
 
 			ginkgo.By("Creating the MPIJob", func() {
-				util.MustCreate(ctx, k8sClient, mpiJob)
+				behavioral.MustCreate(ctx, k8sClient, mpiJob)
 			})
 
 			wlLookupKey := types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(mpiJob.Name, mpiJob.UID), Namespace: ns.Name}
 
 			ginkgo.By("Waiting for the MPIJob to finish", func() {
-				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
+				behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 			})
 		})
 	})
@@ -118,10 +118,10 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 			clusterQueueName := "cluster-queue-" + ns.Name
 			onDemandRF = utiltestingapi.MakeResourceFlavor(flavorOnDemand).
 				NodeLabel("instance-type", "on-demand").Obj()
-			util.MustCreate(ctx, k8sClient, onDemandRF)
+			behavioral.MustCreate(ctx, k8sClient, onDemandRF)
 			spotRF = utiltestingapi.MakeResourceFlavor(flavorSpot).
 				NodeLabel("instance-type", "spot").Obj()
-			util.MustCreate(ctx, k8sClient, spotRF)
+			behavioral.MustCreate(ctx, k8sClient, spotRF)
 			clusterQueue = utiltestingapi.MakeClusterQueue(clusterQueueName).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
@@ -137,18 +137,18 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueueName).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteAllMPIJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, spotRF, true)
+			gomega.Expect(behavioral.DeleteAllMPIJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, spotRF, true)
 		})
 
 		ginkgo.It("Should allow to suspend a MPIJob when the ClusterQueue is stopped with the HoldAndDrain policy", func() {
@@ -158,14 +158,14 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:  kfmpi.MPIReplicaTypeLauncher,
 						ReplicaCount: 1,
-						Image:        util.GetAgnHostImage(),
-						Args:         util.BehaviorExitFast,
+						Image:        behavioral.GetAgnHostImage(),
+						Args:         behavioral.BehaviorExitFast,
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:  kfmpi.MPIReplicaTypeWorker,
 						ReplicaCount: 1,
-						Image:        util.GetAgnHostImage(),
-						Args:         util.BehaviorExitFast,
+						Image:        behavioral.GetAgnHostImage(),
+						Args:         behavioral.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
@@ -173,7 +173,7 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 				Obj()
 
 			ginkgo.By("Creating the mpiJob", func() {
-				util.MustCreate(ctx, k8sClient, mpiJob)
+				behavioral.MustCreate(ctx, k8sClient, mpiJob)
 			})
 
 			ginkgo.By("Waiting for the mpiJob to be unsuspended", func() {
@@ -181,7 +181,7 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobKey, mpiJob)).To(gomega.Succeed())
 					g.Expect(mpiJob.Spec.RunPolicy.Suspend).Should(gomega.BeEquivalentTo(new(false)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verify the mpiJob has nodeSelector set", func() {
@@ -197,14 +197,14 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).To(gomega.Succeed())
 				clusterQueue.Spec.StopPolicy = new(kueue.HoldAndDrain)
 				g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Waiting for the mpiJob to be suspended", func() {
 				jobKey := client.ObjectKeyFromObject(mpiJob)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobKey, mpiJob)).To(gomega.Succeed())
 					g.Expect(mpiJob.Spec.RunPolicy.Suspend).Should(gomega.BeEquivalentTo(new(true)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
