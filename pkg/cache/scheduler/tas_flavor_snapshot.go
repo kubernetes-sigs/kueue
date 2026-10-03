@@ -955,6 +955,72 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 	return result
 }
 
+// FindTopologyAssignmentsForFlavor returns TAS assignment, if possible, for all
+// the TAS requests in the flavor handled by the snapshot.
+func (s *TASFlavorSnapshot) BuildTopologyAssignmentsForPodSet(
+	ctx context.Context,
+	podSet *kueue.PodSet,
+	flavor kueue.ResourceFlavorReference,
+	nodeAllotments utiltas.Allotment,
+) (result *tasPodSetAssignmentResult) {
+	result = &tasPodSetAssignmentResult{}
+	result.Flavor = flavor
+
+	domainCounts := map[*domain]int32{}
+	for node, count := range nodeAllotments {
+		leafID, ok := s.nodeToDomain[node]
+		if !ok {
+			result.FailureReason = fmt.Sprintf("node %s is not defined in the known topology", node)
+			return
+		}
+
+		domain := &s.leaves[leafID].domain
+		if s.topologyTree.virtualHostname {
+			// The domain we read is not published.
+			// Using parent as the first published domain.
+			domain = domain.parent
+		}
+		domainCounts[domain] += count
+	}
+
+	levelsTotal := len(s.levelKeys)
+	var levelsSliceStart, levelsSliceEnd int
+	switch {
+	case s.virtualHostname:
+		levelsSliceStart = 0
+		levelsSliceEnd = levelsTotal - 1
+	case s.declaresHostnameLevel():
+		levelsSliceStart = levelsTotal - 1
+		levelsSliceEnd = levelsTotal
+	default:
+		levelsSliceStart = 0
+		levelsSliceEnd = levelsTotal
+	}
+
+	tasAssignment := &utiltas.TopologyAssignment{}
+	tasAssignment.Levels = s.levelKeys[levelsSliceStart:levelsSliceEnd]
+	for domain, count := range orderedIterator(domainCounts, s.compareDomainLevelValues) {
+		tasAssignment.Domains = append(tasAssignment.Domains, utiltas.TopologyDomainAssignment{
+			Values: domain.levelValues[levelsSliceStart:levelsSliceEnd],
+			Count:  count,
+		})
+	}
+	result.TopologyAssignment = tasAssignment
+	return
+}
+
+func orderedIterator[K comparable, V any](m map[K]V, order func(K, K) int) iter.Seq2[K, V] {
+	return func(yield func(K, V) bool) {
+		keys := slices.Collect(maps.Keys(m))
+		slices.SortFunc(keys, order)
+		for _, key := range keys {
+			if !yield(key, m[key]) {
+				return
+			}
+		}
+	}
+}
+
 func shouldKeepExistingAssignment(wl *kueue.Workload, psa *kueue.PodSetAssignment) bool {
 	if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wl) {
 		// The pod cannot relocate and the Workload cannot outlive it; keep

@@ -20,6 +20,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 )
 
+type NodeName = string
+
 // NodeHostname returns the value that identifies the node in a hostname-level
 // topology domain: its kubernetes.io/hostname label, which can differ from the
 // Node name, or the Node name when the label is missing.

@@ -96,6 +96,9 @@ func (a *Assignment) UpdateForTASResult(log logr.Logger, cq *schdcache.ClusterQu
 		if psResult.TopologyAssignment != nil && psAssignment.DelayedTopologyRequest != nil {
 			psAssignment.DelayedTopologyRequest = new(kueue.DelayedTopologyRequestStateReady)
 		}
+		if psResult.FailureReason != "" {
+			psAssignment.Status = *NewStatus(psResult.FailureReason).WithNoFitReason(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
+		}
 	}
 	a.Usage.TAS = a.ComputeTASNetUsage(log, cq, wl, nil)
 }
@@ -360,6 +363,16 @@ func NewStatus(reasons ...string) *Status {
 	return &Status{
 		reasons: reasons,
 	}
+}
+
+func (s *Status) WithError(err error) *Status {
+	s.err = err
+	return s
+}
+
+func (s *Status) WithNoFitReason(reason string) *Status {
+	s.noFitReason = reason
+	return s
 }
 
 func (s *Status) IsFit() bool {

@@ -129,3 +129,13 @@ func (s *defaultSimulator) Simulate(_ context.Context, fn func()) error {
 	fn()
 	return nil
 }
+
+func (s *defaultSimulator) ScheduleWorkload(_ context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
+	// Default simulator is not able to simulate pod placement,
+	// so every pod is reported as not placed.
+	placements := make(map[client.ObjectKey]simulator.PodPlacement, len(workloadPods))
+	for _, pod := range workloadPods {
+		placements[client.ObjectKeyFromObject(pod)] = simulator.NewFailedPlacement("workload scheduling simulation is not supported")
+	}
+	return simulator.SchedulingResult{PodPlacements: placements}
+}

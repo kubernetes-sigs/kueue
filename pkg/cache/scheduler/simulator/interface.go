@@ -81,6 +81,9 @@ type SchedulerSimulator interface {
 	// will be reverted regardless of their outcome (error vs success).
 	// The default implementation does not perform any logic here.
 	PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (revert func() error, err error)
+	// ScheduleWorkload simulates how the given workload, represented by the list of its pods,
+	// would be scheduled.
+	ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...ScheduleOption) SchedulingResult
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {
