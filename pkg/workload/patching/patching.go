@@ -18,13 +18,13 @@ package patching
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"maps"
 
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -135,6 +135,12 @@ func admissionStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload) {
 	wlCopy.Status.NominatedClusterNames = w.Status.NominatedClusterNames
 	wlCopy.Status.UnhealthyNodes = w.Status.UnhealthyNodes
 	wlCopy.Status.PreemptionGates = w.Status.PreemptionGates
+	if len(w.Status.ReclaimablePods) == 0 {
+		wlCopy.Status.ReclaimablePods = []kueue.ReclaimablePod{}
+	} else {
+		wlCopy.Status.ReclaimablePods = make([]kueue.ReclaimablePod, len(w.Status.ReclaimablePods))
+		copy(wlCopy.Status.ReclaimablePods, w.Status.ReclaimablePods)
+	}
 }
 
 func admissionChecksStatusPatch(w *kueue.Workload, wlCopy *kueue.Workload, c clock.Clock) {
@@ -239,7 +245,7 @@ func convertPatchStatusOptions(options []PatchStatusOption) *patchStatusOptions 
 // wl with the object returned by the API server. That response is decoded on top of wlPatch, so
 // that fields the API server leaves out keep the value the update function set.
 func applyWorkloadStatus(ctx context.Context, c client.Client, wlPatch, wl *kueue.Workload, owner client.FieldOwner) error {
-	request, err := json.Marshal(wlPatch)
+	request, err := patchObjectData(wlPatch, owner)
 	if err != nil {
 		return fmt.Errorf("failed to marshal workload status: %w", err)
 	}
@@ -287,6 +293,24 @@ func patchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner
 		return err
 	}
 	return applyWorkloadStatus(ctx, c, wlCopy, wl, owner)
+}
+
+func patchObjectData(wlCopy *kueue.Workload, owner client.FieldOwner) ([]byte, error) {
+	data, err := json.Marshal(wlCopy)
+	if err != nil {
+		return nil, err
+	}
+	if (owner == constants.AdmissionName || owner == constants.ReclaimablePodsMgr) && len(wlCopy.Status.ReclaimablePods) == 0 {
+		var u map[string]any
+		if err := json.Unmarshal(data, &u); err != nil {
+			return nil, err
+		}
+		if status, ok := u["status"].(map[string]any); ok {
+			status["reclaimablePods"] = []any{}
+			return json.Marshal(u)
+		}
+	}
+	return data, nil
 }
 
 func PatchStatus(ctx context.Context, c client.Client, wl *kueue.Workload, owner client.FieldOwner, update UpdateFunc, options ...PatchStatusOption) error {
