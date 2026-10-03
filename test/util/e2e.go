@@ -47,6 +47,7 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -766,6 +767,24 @@ func ExpectMetricsNotToBeAvailable(ctx context.Context, cfg *rest.Config, restCl
 		metricsOutput, stderr, err := GetKueueMetrics(ctx, cfg, restClient, curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", stderr)
 		g.Expect(metricsOutput).Should(utiltesting.ExcludeMetrics(metrics))
+	}, LongTimeout, Interval).Should(gomega.Succeed())
+}
+
+// ExpectVisibilityAPIServiceToVerifyTLS checks that the API server reaches the visibility
+// server through a CA bundle instead of skipping TLS verification.
+func ExpectVisibilityAPIServiceToVerifyTLS(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
+	apiService := &unstructured.Unstructured{}
+	apiService.SetGroupVersionKind(schema.GroupVersionKind{Group: "apiregistration.k8s.io", Version: "v1", Kind: "APIService"})
+	key := client.ObjectKey{Name: visibility.SchemeGroupVersion.Version + "." + visibility.SchemeGroupVersion.Group}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, key, apiService)).To(gomega.Succeed())
+		g.Expect(apiService.Object).NotTo(gomega.HaveKeyWithValue("spec", gomega.HaveKey("insecureSkipTLSVerify")))
+		g.Expect(apiService.Object).To(gomega.HaveKeyWithValue("spec", gomega.HaveKeyWithValue("caBundle", gomega.Not(gomega.BeEmpty()))))
+		g.Expect(apiService.Object).To(gomega.HaveKeyWithValue("status", gomega.HaveKeyWithValue("conditions", gomega.ContainElement(gomega.And(
+			gomega.HaveKeyWithValue("type", "Available"),
+			gomega.HaveKeyWithValue("status", "True"),
+		)))))
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 

@@ -294,14 +294,22 @@ func main() {
 	roleTracker := setupRoleTracker(ctx, mgr, &cfg)
 
 	certsReady := make(chan struct{})
+	visibilityCertsReady := make(chan struct{})
 
 	if cfg.InternalCertManagement != nil && *cfg.InternalCertManagement.Enable {
 		if err = cert.ManageCerts(mgr, cfg, certsReady); err != nil {
 			setupLog.Error(err, "Unable to set up cert rotation")
 			os.Exit(1)
 		}
+		if features.Enabled(features.VisibilityOnDemand) {
+			if err = cert.ManageVisibilityCerts(mgr, cfg, visibilityCertsReady); err != nil {
+				setupLog.Error(err, "Unable to set up visibility cert rotation")
+				os.Exit(1)
+			}
+		}
 	} else {
 		close(certsReady)
+		close(visibilityCertsReady)
 	}
 	resourceFormatter := resources.NewResourceFormatter()
 	cacheOptions := []schdcache.Option{
@@ -452,6 +460,11 @@ func main() {
 
 	if features.Enabled(features.VisibilityOnDemand) {
 		go func() {
+			select {
+			case <-visibilityCertsReady:
+			case <-ctx.Done():
+				return
+			}
 			if err := visibility.CreateAndStartVisibilityServer(ctx, queues, &cfg, kubeConfig, parsedTLSConfig); err != nil {
 				setupLog.Error(err, "Unable to create and start visibility server")
 				os.Exit(1)
