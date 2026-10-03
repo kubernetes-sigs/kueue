@@ -2492,8 +2492,8 @@ func TestLeaderPodSetFeasibilityKeepsWorkerAffinityScores(t *testing.T) {
 	})
 
 	for _, leaf := range snapshot.leaves {
-		if got := snapshot.domainStateOf(&leaf.domain).affinityScore; got != 14 {
-			t.Errorf("leaf %s affinity score = %d, want 14 (the workers' score, scored once and added once)", leaf.id, got)
+		if got := snapshot.domainStateOf(&leaf.domain).affinityScore; got != 7 {
+			t.Errorf("leaf %s affinity score = %d, want 7 (the workers' score, scored once)", leaf.id, got)
 		}
 	}
 }
@@ -3452,6 +3452,55 @@ func TestFillTailCountsWithCapacityBound(t *testing.T) {
 			}
 			if parent.sliceCount[obligationLeader|obligationTail] != tc.wantLeaderAndTailCapacity {
 				t.Errorf("sliceCount[obligationLeader|obligationTail] = %d, want %d", parent.sliceCount[obligationLeader|obligationTail], tc.wantLeaderAndTailCapacity)
+			}
+		})
+	}
+}
+
+// A second cycle answers from matchingLeavesCache and must still rank the
+// preferred node first: node-b has twice the CPU, so BestFit takes it as soon
+// as the score is lost.
+func TestPreferredNodeAffinitySurvivesTheMatchingLeavesCache(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeFeasibilityForAllLevels, true)
+	features.SetFeatureGateDuringTest(t, features.TASRespectNodeAffinityPreferred, true)
+	for _, cacheEnabled := range []bool{true, false} {
+		t.Run(fmt.Sprintf("TASCacheNodeMatchResults=%t", cacheEnabled), func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, cacheEnabled)
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			// Same size, and the preferred node sorts last by name, so only the
+			// score can pick it.
+			nodes := []*corev1.Node{
+				node.MakeNode("node-a").Label(corev1.LabelHostname, "node-a").Label("pool", "slow").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("110"),
+					}).Ready().Obj(),
+				node.MakeNode("node-b").Label(corev1.LabelHostname, "node-b").Label("pool", "fast").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("110"),
+					}).Ready().Obj(),
+			}
+			snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"},
+				newTopologyTree([]string{corev1.LabelHostname}, nodes, 0), newDefaultSimulator())
+
+			requests := FlavorTASRequests{{
+				PodSet: utiltestingapi.MakePodSet("main", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					PreferredNodeSelectorRequirement(10, "pool", corev1.NodeSelectorOpIn, "fast").Obj(),
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
+				Count:             1,
+			}}
+			wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
+			for cycle := range 2 {
+				result := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl))
+				if failure := result.Failure(); failure != nil {
+					t.Fatalf("cycle %d: FindTopologyAssignmentsForFlavor() = %v, want a fit", cycle, failure)
+				}
+				if diff := cmp.Diff([]string{"node-b"}, result["main"].TopologyAssignment.Domains[0].Values); diff != "" {
+					t.Errorf("cycle %d: Pod placed wrong (-want,+got): %s", cycle, diff)
+				}
 			}
 		})
 	}
