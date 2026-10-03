@@ -381,6 +381,7 @@ func (r *ClusterQueueReconciler) Delete(e event.TypedDeleteEvent[*kueue.ClusterQ
 	r.qManager.DeleteClusterQueue(log, e.Object)
 
 	metrics.ClearClusterQueueResourceMetrics(e.Object.Name)
+	metrics.ClearMultiKueueClusterQueueWorkloadCounters(kueue.ClusterQueueReference(e.Object.Name))
 	if features.Enabled(features.CustomMetricLabels) {
 		r.customLabels.CQDelete(kueue.ClusterQueueReference(e.Object.GetName()))
 	}
