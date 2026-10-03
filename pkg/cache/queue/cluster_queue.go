@@ -403,7 +403,8 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 			equality.Semantic.DeepEqual(apimeta.FindStatusCondition(oldInfo.Obj.Status.Conditions, kueue.WorkloadRequeued),
 				apimeta.FindStatusCondition(wInfo.Obj.Status.Conditions, kueue.WorkloadRequeued)) &&
 			workload.HasClosedPreemptionGate(oldInfo.Obj) == workload.HasClosedPreemptionGate(wInfo.Obj) &&
-			!draRequestsChanged(oldInfo, wInfo) {
+			!draRequestsChanged(oldInfo, wInfo) &&
+			!adjustmentErrResolved(oldInfo, wInfo) {
 			c.workloads.UpdateInadmissible(key, oldInfo, wInfo)
 			return
 		}
@@ -440,6 +441,10 @@ func draRequestsChanged(oldInfo, newInfo *workload.Info) bool {
 		return false
 	}
 	return !workload.Semantic.DeepEqual(oldInfo.TotalRequests, newInfo.TotalRequests)
+}
+
+func adjustmentErrResolved(oldInfo, newInfo *workload.Info) bool {
+	return oldInfo.AdjustmentErr != nil && newInfo.AdjustmentErr == nil
 }
 
 func (c *ClusterQueue) GetNoFitReason(wl workload.Reference) (string, bool) {

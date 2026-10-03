@@ -31,9 +31,11 @@ import (
 	"github.com/go-logr/logr/funcr"
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -48,7 +50,6 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
@@ -79,6 +80,8 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).Obj(),
 		utiltestingapi.MakeWorkload("e", "earth").Queue("foo").Active(false).Obj(),
 		utiltestingapi.MakeWorkload("f", "earth").Queue("foo").Finished().Obj(),
+		utiltestingapi.MakeWorkload("g", "earth").Queue("foo").
+			PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("missing-rc").Obj()).Obj(),
 		utiltestingapi.MakeWorkload("a", "moon").Queue("foo").Obj(),
 	)
 	manager := NewManagerForUnitTests(kClient, nil)
@@ -89,8 +92,12 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 	}
 	qImpl := manager.localQueues[queue.Key(q)]
 	workloadNames := workloadNamesFromLQ(qImpl)
-	if diff := gocmp.Diff(sets.New[workload.Reference]("earth/a", "earth/c"), workloadNames); diff != "" {
+	if diff := gocmp.Diff(sets.New[workload.Reference]("earth/a", "earth/c", "earth/g"), workloadNames); diff != "" {
 		t.Errorf("Unexpected items in queue foo (-want,+got):\n%s", diff)
+	}
+	infoG := qImpl.items["earth/g"]
+	if infoG == nil || !apierrors.IsNotFound(infoG.AdjustmentErr) {
+		t.Errorf("Expected workload earth/g to be queued with NotFound AdjustmentErr, got: %v", infoG)
 	}
 	assignedWorkloads := manager.workloadAssignedQueues
 	expectedWorkloads := map[workload.Reference]queue.LocalQueueReference{
@@ -99,9 +106,194 @@ func TestAddLocalQueueOrphans(t *testing.T) {
 		"earth/d": "earth/foo",
 		"earth/e": "earth/foo",
 		"earth/f": "earth/foo",
+		"earth/g": "earth/foo",
 	}
 	if diff := gocmp.Diff(expectedWorkloads, assignedWorkloads); diff != "" {
 		t.Errorf("Unexpected assigned workloads (-want,+got):\n%s", diff)
+	}
+}
+
+func TestAddLocalQueueOrphans_InternalErrorRetry(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	fakeClock := testingclock.NewFakeClock(time.Now())
+
+	var failLookup atomic.Bool
+	failLookup.Store(true)
+
+	cl := utiltesting.NewClientBuilder().
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(lookupCtx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*nodev1.RuntimeClass); ok && failLookup.Load() {
+					return apierrors.NewInternalError(errors.New("transient internal error"))
+				}
+				return c.Get(lookupCtx, key, obj, opts...)
+			},
+		}).
+		WithObjects(
+			utiltestingapi.MakeWorkload("transient", "earth").Queue("foo").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("rc").Obj()).Obj(),
+			utiltesting.MakeRuntimeClass("rc", "handler").Obj(),
+		).
+		Build()
+
+	manager := NewManagerForUnitTests(cl, nil, WithClock(fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+	if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+		t.Fatalf("Failed adding cluster queue: %v", err)
+	}
+	q := utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()
+
+	if err := manager.AddLocalQueue(ctx, q); err != nil {
+		t.Fatalf("Failed adding queue: %v", err)
+	}
+
+	qImpl := manager.localQueues[queue.Key(q)]
+	if qImpl.items["earth/transient"] != nil {
+		t.Errorf("Expected earth/transient not to be queued yet due to internal error")
+	}
+	if _, assigned := manager.workloadAssignedQueues["earth/transient"]; assigned {
+		t.Errorf("Expected earth/transient not to remain in workloadAssignedQueues while pending retry")
+	}
+
+	for range 200 {
+		if fakeClock.Waiters() > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	failLookup.Store(false)
+	fakeClock.Step(initialBackoff + 10*time.Millisecond)
+
+	gomega.NewWithT(t).Eventually(func(g gomega.Gomega) {
+		manager.RLock()
+		defer manager.RUnlock()
+		g.Expect(qImpl.items["earth/transient"]).ToNot(gomega.BeNil())
+		g.Expect(manager.workloadAssignedQueues["earth/transient"]).To(gomega.Equal(queue.LocalQueueReference("earth/foo")))
+	}, time.Second, 10*time.Millisecond).Should(gomega.Succeed())
+}
+
+func TestAddLocalQueueOrphans_InternalErrorRetryUsesCurrentWorkload(t *testing.T) {
+	for name, change := range map[string]func(context.Context, client.Client, *kueue.Workload) error{
+		"deleted": func(ctx context.Context, cl client.Client, w *kueue.Workload) error {
+			return cl.Delete(ctx, w)
+		},
+		"deactivated": func(ctx context.Context, cl client.Client, w *kueue.Workload) error {
+			w.Spec.Active = new(false)
+			return cl.Update(ctx, w)
+		},
+		"moved to another LocalQueue": func(ctx context.Context, cl client.Client, w *kueue.Workload) error {
+			w.Spec.QueueName = "bar"
+			return cl.Update(ctx, w)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			fakeClock := testingclock.NewFakeClock(time.Now())
+			var failLookup atomic.Bool
+			failLookup.Store(true)
+			var workloadReads atomic.Int32
+			w := utiltestingapi.MakeWorkload("transient", "earth").Queue("foo").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("rc").Obj()).Obj()
+			cl := utiltesting.NewClientBuilder().WithObjects(w, utiltesting.MakeRuntimeClass("rc", "handler").Obj()).
+				WithInterceptorFuncs(interceptor.Funcs{
+					Get: func(lookupCtx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+						switch obj.(type) {
+						case *kueue.Workload:
+							workloadReads.Add(1)
+						case *nodev1.RuntimeClass:
+							if failLookup.Load() {
+								return apierrors.NewInternalError(errors.New("transient internal error"))
+							}
+						}
+						return c.Get(lookupCtx, key, obj, opts...)
+					},
+				}).Build()
+			manager := NewManagerForUnitTests(cl, nil, WithClock(fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("AddClusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("bar", "earth").ClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("AddLocalQueue bar: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("AddLocalQueue foo: %v", err)
+			}
+			if err := change(ctx, cl, w); err != nil {
+				t.Fatalf("Change workload: %v", err)
+			}
+			failLookup.Store(false)
+			gomega.NewWithT(t).Eventually(fakeClock.Waiters, time.Second, 5*time.Millisecond).Should(gomega.BeNumerically(">", 0))
+			fakeClock.Step(initialBackoff)
+			gomega.NewWithT(t).Eventually(workloadReads.Load, time.Second, 5*time.Millisecond).Should(gomega.BeNumerically(">", 0))
+			g := gomega.NewWithT(t)
+			if name == "moved to another LocalQueue" {
+				g.Eventually(func() bool {
+					manager.RLock()
+					defer manager.RUnlock()
+					return manager.localQueues["earth/bar"].items["earth/transient"] != nil
+				}, time.Second, 5*time.Millisecond).Should(gomega.BeTrue())
+			} else {
+				g.Consistently(func() bool {
+					manager.RLock()
+					defer manager.RUnlock()
+					_, assigned := manager.workloadAssignedQueues["earth/transient"]
+					return assigned
+				}, 100*time.Millisecond, 5*time.Millisecond).Should(gomega.BeFalse())
+			}
+			manager.RLock()
+			defer manager.RUnlock()
+			if manager.localQueues["earth/foo"].items["earth/transient"] != nil {
+				t.Error("Stale workload was added to its original LocalQueue")
+			}
+		})
+	}
+}
+
+func TestAddLocalQueueOrphans_InternalErrorRetryRoutesDRA(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	fakeClock := testingclock.NewFakeClock(time.Now())
+	var failLookup atomic.Bool
+	failLookup.Store(true)
+	w := utiltestingapi.MakeWorkload("transient", "earth").Queue("foo").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("rc").Obj()).Obj()
+	cl := utiltesting.NewClientBuilder().WithObjects(w, utiltesting.MakeRuntimeClass("rc", "handler").Obj()).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(lookupCtx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*nodev1.RuntimeClass); ok && failLookup.Load() {
+					return apierrors.NewInternalError(errors.New("transient internal error"))
+				}
+				return c.Get(lookupCtx, key, obj, opts...)
+			},
+		}).Build()
+	manager := NewManagerForUnitTests(cl, nil, WithClock(fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+	draChannel := make(chan event.TypedGenericEvent[*kueue.Workload], 1)
+	manager.SetDRAReconcileChannel(draChannel)
+	if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+		t.Fatalf("AddClusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("foo", "earth").ClusterQueue("cq").Obj()); err != nil {
+		t.Fatalf("AddLocalQueue: %v", err)
+	}
+	w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{Name: "claim", ResourceClaimTemplateName: new("template")}}
+	if err := cl.Update(ctx, w); err != nil {
+		t.Fatalf("Update workload: %v", err)
+	}
+	failLookup.Store(false)
+	gomega.NewWithT(t).Eventually(fakeClock.Waiters, time.Second, 5*time.Millisecond).Should(gomega.BeNumerically(">", 0))
+	fakeClock.Step(initialBackoff)
+	select {
+	case event := <-draChannel:
+		if event.Object.Name != w.Name || !workload.HasDRA(event.Object) {
+			t.Errorf("DRA event did not contain the current workload: %v", event.Object)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Expected DRA reconcile event after LocalQueue retry")
+	}
+	manager.RLock()
+	defer manager.RUnlock()
+	if manager.localQueues["earth/foo"].items["earth/transient"] != nil {
+		t.Error("DRA workload was added directly to the LocalQueue")
 	}
 }
 
@@ -1050,8 +1242,8 @@ func TestAddOrUpdateWorkloadResourceLookupsRespectCancellation(t *testing.T) {
 	}
 	wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").
 		PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("runtime").Obj()).Obj()
-	if err := manager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
-		t.Fatal(err)
+	if err := manager.AddOrUpdateWorkload(ctx, log, wl); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Expected context.Canceled, got: %v", err)
 	}
 	if !gotRuntimeClass || !listedLimitRanges {
 		t.Fatalf("Expected both resource lookups: RuntimeClass=%t, LimitRange=%t", gotRuntimeClass, listedLimitRanges)
@@ -1282,9 +1474,7 @@ func TestRequeueWorkloadSchedulingHash(t *testing.T) {
 			})
 			wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("foo").
 				Request(corev1.ResourceCPU, "1").Obj()
-			cl := utiltesting.NewClientBuilder().
-				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
-				Build()
+			cl := utiltesting.NewClientBuilder().Build()
 			ctx, log := utiltesting.ContextWithLog(t)
 			ctx, cancel := context.WithTimeout(ctx, headsTimeout)
 			defer cancel()
@@ -1335,7 +1525,11 @@ func TestRequeueWorkloadSchedulingHash(t *testing.T) {
 			// A recomputed hash must describe the Info the queue now holds. The
 			// reuse cases cannot be checked this way: what they keep is the probe.
 			if !tc.wantReuse {
-				if want := workload.NewInfoFromClient(ctx, cl, info.Obj).SchedulingHash; info.SchedulingHash != want {
+				wantInfo, err := workload.NewInfoFromClient(ctx, cl, info.Obj)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if want := wantInfo.SchedulingHash; info.SchedulingHash != want {
 					t.Errorf("SchedulingHash = %q, want %q", info.SchedulingHash, want)
 				}
 			}
@@ -1567,6 +1761,58 @@ func TestRequeueWorkload(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRequeueWorkloadAdjustmentErrHandoffAndReasonPreservation(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	ctx, cancel := context.WithTimeout(ctx, headsTimeout)
+	defer cancel()
+
+	wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("foo").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).RuntimeClass("missing-rc").Obj()).Obj()
+
+	cl := utiltesting.NewFakeClient(wl)
+	queueOptions := []Option{WithPreemptionExpectations(preemptexpectations.New())}
+	manager := NewManagerForUnitTests(cl, nil, queueOptions...)
+
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed adding cluster queue: %v", err)
+	}
+	lq := utiltestingapi.MakeLocalQueue("foo", "ns").ClusterQueue("cq").Obj()
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Failed adding local queue: %v", err)
+	}
+
+	go manager.CleanUpOnContext(ctx)
+	heads := manager.Heads(ctx)
+	if len(heads) != 1 {
+		t.Fatalf("Heads returned %d workloads, want 1", len(heads))
+	}
+	info := &heads[0].Info
+	if !apierrors.IsNotFound(info.AdjustmentErr) {
+		t.Fatalf("Expected AdjustmentErr to be NotFound on popped workload, got: %v", info.AdjustmentErr)
+	}
+
+	// Artificially clear info.AdjustmentErr to verify that RequeueWorkload updates it from fresh.AdjustmentErr.
+	info.AdjustmentErr = nil
+
+	// Call RequeueWorkload with RequeueReasonPendingPreemption.
+	if !manager.RequeueWorkload(ctx, info, RequeueReasonPendingPreemption, "") {
+		t.Fatal("RequeueWorkload returned false")
+	}
+
+	// 1. Verify AdjustmentErr handoff: info.AdjustmentErr was restored from fresh.AdjustmentErr.
+	if !apierrors.IsNotFound(info.AdjustmentErr) {
+		t.Errorf("Expected info.AdjustmentErr to be updated to NotFound from fresh, got: %v", info.AdjustmentErr)
+	}
+
+	// 2. Verify caller reason preservation: RequeueReasonPendingPreemption must NOT be overwritten to Generic,
+	// so the preemptor must remain registered on the ClusterQueue.
+	cqImpl := manager.hm.ClusterQueue("cq")
+	if !cqImpl.IsPreemptor(info) {
+		t.Errorf("Expected ClusterQueue to register workload as preemptor, but IsPreemptor returned false")
 	}
 }
 
@@ -2812,6 +3058,65 @@ func TestQueueSecondPassUpdateKeepsPendingRetry(t *testing.T) {
 	}
 	if ready[0].SecondPassIteration != 5 {
 		t.Errorf("Unexpected second pass iteration: want 5, got %d", ready[0].SecondPassIteration)
+	}
+}
+
+func TestQueueSecondPassResourceResolutionError(t *testing.T) {
+	for name, internalError := range map[string]bool{
+		"missing RuntimeClass proceeds": false,
+		"internal lookup error retries": true,
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			now := time.Now()
+			wl := utiltestingapi.MakeWorkload("foo", "default").Queue("tas-main").
+				PodSets(*utiltestingapi.MakePodSet("one", 1).
+					RuntimeClass("rc").RequiredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "1").Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).Obj()).Obj(), now).
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "prov-check", State: kueue.CheckStateReady}).Obj()
+			objects := []client.Object{wl}
+			if internalError {
+				objects = append(objects, utiltesting.MakeRuntimeClass("rc", "handler").Obj())
+			}
+			var failLookup atomic.Bool
+			failLookup.Store(internalError)
+			cl := utiltesting.NewClientBuilder().WithObjects(objects...).WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(lookupCtx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, ok := obj.(*nodev1.RuntimeClass); ok && failLookup.Load() {
+						return apierrors.NewInternalError(errors.New("transient internal error"))
+					}
+					return c.Get(lookupCtx, key, obj, opts...)
+				},
+			}).Build()
+			fakeClock := testingclock.NewFakeClock(now)
+			manager := NewManagerForUnitTests(cl, nil, WithClock(fakeClock))
+			if !manager.QueueSecondPassIfNeeded(ctx, wl, 0) {
+				t.Fatal("Workload should need a second pass")
+			}
+			fakeClock.Step(initialBackoff)
+			if internalError {
+				if ready := manager.secondPassQueue.takeAllReady(); len(ready) != 0 {
+					t.Fatalf("Internal lookup error queued a second pass: %v", ready)
+				}
+				failLookup.Store(false)
+				gomega.NewWithT(t).Eventually(fakeClock.Waiters, time.Second, 5*time.Millisecond).Should(gomega.BeNumerically(">", 0))
+				fakeClock.Step(2 * initialBackoff)
+			}
+			ready := manager.secondPassQueue.takeAllReady()
+			if len(ready) != 1 {
+				t.Fatalf("Expected one workload ready for second pass, got %d", len(ready))
+			}
+			if internalError && ready[0].AdjustmentErr != nil {
+				t.Errorf("Expected resolved resources after retry, got %v", ready[0].AdjustmentErr)
+			}
+			if !internalError && !apierrors.IsNotFound(ready[0].AdjustmentErr) {
+				t.Errorf("Expected missing RuntimeClass on queued second pass, got %v", ready[0].AdjustmentErr)
+			}
+		})
 	}
 }
 
