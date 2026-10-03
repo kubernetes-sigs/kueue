@@ -103,6 +103,14 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Opt
 	}
 }
 
+// WithServerVersionFetcher sets the fetcher used to determine the API server
+// version the effective workload resources mirror.
+func WithServerVersionFetcher(f workload.ServerVersionFetcher) Option {
+	return func(c *Cache) {
+		c.workloadInfoOptions = append(c.workloadInfoOptions, workload.WithServerVersionFetcher(f))
+	}
+}
+
 func WithFairSharing(enabled bool) Option {
 	return func(c *Cache) {
 		c.fairSharingEnabled = enabled

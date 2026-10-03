@@ -831,9 +831,10 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 			})
 
-			ginkgo.By("Check queue resource consumption reflects the pod-level limit used as request", func() {
-				// 4 CPU from the first workload's pod-level limit (synced to request);
-				// 1 CPU remaining, not enough for the second workload.
+			ginkgo.By("Check queue resource consumption reflects the pod-level request defaulted from the container LimitRange default", func() {
+				// 3 CPU for the first workload: the pod-level request defaults to the
+				// container LimitRange default request (the pod-level limit is 4);
+				// 2 CPU remaining, not enough for the second workload.
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 					g.Expect(updatedCQ.Status).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
@@ -843,7 +844,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 							Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
 							Resources: []kueue.ResourceUsage{{
 								Name:  corev1.ResourceCPU,
-								Total: resource.MustParse("4"),
+								Total: resource.MustParse("3"),
 							}},
 						}},
 					}, ignoreCqCondition, ignoreInClusterQueueStatus))
