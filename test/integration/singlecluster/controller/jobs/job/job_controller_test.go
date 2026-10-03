@@ -54,6 +54,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -7147,6 +7148,13 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 		}
 
 		labelKeysToCopy, annotationsToCopy := metrics.WorkloadCustomLabelSources(configuration.Metrics.CustomLabels)
+		// The spec names every non-inheritable key.
+		labelKeysToCopy.Insert(kueue.MultiKueueOriginLabel, constants.ConcurrentAdmissionParentLabelKey,
+			constants.JobUIDLabel)
+		annotationsToCopy.Insert(constants.ComponentWorkloadIndexAnnotation, constants.JobOwnerGVKAnnotation,
+			constants.JobOwnerNameAnnotation, constants.PriorityBoostAnnotationKey,
+			constants.WorkloadAllowedResourceFlavorAnnotation, kueue.WorkloadSliceNameAnnotation,
+			workloadslicing.WorkloadSliceReplacementFor, podconstants.IsGroupWorkloadAnnotationKey)
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, false, configuration,
 			jobframework.WithLabelKeysToCopy(labelKeysToCopy),
 			jobframework.WithAnnotationsToCopy(annotationsToCopy),
@@ -7183,6 +7191,48 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 		gomega.Expect(wl.Labels).ShouldNot(gomega.HaveKey("dont-copy-label"))
 		gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("job-annotation", "annotation-value"))
 		gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey("dont-copy-annotation"))
+	})
+
+	ginkgo.It("should not copy Kueue's internal labels and annotations", func() {
+		nonInheritableLabels := map[string]string{
+			kueue.MultiKueueOriginLabel:                 "multikueue",
+			constants.ConcurrentAdmissionParentLabelKey: "true",
+		}
+		nonInheritableAnnotations := map[string]string{
+			constants.ComponentWorkloadIndexAnnotation:        "0",
+			constants.JobOwnerGVKAnnotation:                   "batch/v1, Kind=Job",
+			constants.JobOwnerNameAnnotation:                  "someone-elses-job",
+			constants.PriorityBoostAnnotationKey:              "2147483647",
+			constants.WorkloadAllowedResourceFlavorAnnotation: "expensive",
+			kueue.WorkloadSliceNameAnnotation:                 "someone-elses-workload",
+			workloadslicing.WorkloadSliceReplacementFor:       "ns/someone-elses-workload",
+			podconstants.IsGroupWorkloadAnnotationKey:         "true",
+		}
+		job := testingjob.MakeJob("test-job-internal-metadata", ns.Name).Queue("foo").
+			Label("job-label", "label-value").
+			Label(constants.JobUIDLabel, "someone-elses-uid").
+			SetAnnotation("job-annotation", "annotation-value").
+			Obj()
+		maps.Copy(job.Labels, nonInheritableLabels)
+		maps.Copy(job.Annotations, nonInheritableAnnotations)
+		util.MustCreate(ctx, k8sClient, job)
+
+		wl := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+		gomega.Expect(wl.Labels).Should(gomega.HaveKeyWithValue("job-label", "label-value"))
+		gomega.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue("job-annotation", "annotation-value"))
+		for key := range nonInheritableLabels {
+			gomega.Expect(wl.Labels).ShouldNot(gomega.HaveKey(key))
+		}
+		for key := range nonInheritableAnnotations {
+			gomega.Expect(wl.Annotations).ShouldNot(gomega.HaveKey(key))
+		}
+		// The reconciler sets the job UID label itself.
+		gomega.Expect(wl.Labels).Should(gomega.HaveKeyWithValue(constants.JobUIDLabel, string(job.UID)))
 	})
 })
 

@@ -58,6 +58,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -1947,6 +1948,30 @@ func TestProcessOptions(t *testing.T) {
 				LabelKeysToCopy:            sets.New("toCopyKey"),
 				AnnotationsToCopy:          sets.New("toCopyAnnotation"),
 				Clock:                      fakeClock,
+			},
+		},
+		"Kueue's internal labels and annotations are dropped from the keys to copy": {
+			inputOpts: []Option{
+				WithLabelKeysToCopy(sets.New("toCopyKey",
+					kueue.MultiKueueOriginLabel,
+					constants.ConcurrentAdmissionParentLabelKey,
+					constants.JobUIDLabel,
+				)),
+				WithAnnotationsToCopy(sets.New("toCopyAnnotation",
+					constants.ComponentWorkloadIndexAnnotation,
+					constants.JobOwnerGVKAnnotation,
+					constants.JobOwnerNameAnnotation,
+					constants.PriorityBoostAnnotationKey,
+					constants.WorkloadAllowedResourceFlavorAnnotation,
+					kueue.WorkloadSliceNameAnnotation,
+					workloadslicing.WorkloadSliceReplacementFor,
+					podconstants.IsGroupWorkloadAnnotationKey,
+				)),
+			},
+			wantOpts: Options{
+				LabelKeysToCopy:   sets.New("toCopyKey"),
+				AnnotationsToCopy: sets.New("toCopyAnnotation"),
+				Clock:             clock.RealClock{},
 			},
 		},
 		"a single option is passed": {

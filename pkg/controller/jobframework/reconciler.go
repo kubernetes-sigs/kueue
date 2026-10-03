@@ -56,6 +56,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -222,17 +223,37 @@ func WithManagerName(n string) Option {
 	}
 }
 
-// WithLabelKeysToCopy adds the label keys
+// These labels and annotations control how Kueue handles a Workload, so they
+// are never copied from the Job or Pod, whose author could otherwise set them.
+var (
+	nonInheritableLabels = []string{
+		kueue.MultiKueueOriginLabel,
+		controllerconsts.ConcurrentAdmissionParentLabelKey,
+		controllerconsts.JobUIDLabel,
+	}
+	nonInheritableAnnotations = []string{
+		controllerconsts.ComponentWorkloadIndexAnnotation,
+		controllerconsts.JobOwnerGVKAnnotation,
+		controllerconsts.JobOwnerNameAnnotation,
+		controllerconsts.PriorityBoostAnnotationKey,
+		controllerconsts.WorkloadAllowedResourceFlavorAnnotation,
+		kueue.WorkloadSliceNameAnnotation,
+		workloadslicing.WorkloadSliceReplacementFor,
+		podconstants.IsGroupWorkloadAnnotationKey,
+	}
+)
+
+// WithLabelKeysToCopy adds the label keys to copy, except nonInheritableLabels.
 func WithLabelKeysToCopy(s sets.Set[string]) Option {
 	return func(o *Options) {
-		o.LabelKeysToCopy = s
+		o.LabelKeysToCopy = s.Clone().Delete(nonInheritableLabels...)
 	}
 }
 
-// WithAnnotationsToCopy adds the annotation keys
+// WithAnnotationsToCopy adds the annotation keys to copy, except nonInheritableAnnotations.
 func WithAnnotationsToCopy(s sets.Set[string]) Option {
 	return func(o *Options) {
-		o.AnnotationsToCopy = s
+		o.AnnotationsToCopy = s.Clone().Delete(nonInheritableAnnotations...)
 	}
 }
 
