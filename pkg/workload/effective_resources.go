@@ -24,14 +24,18 @@ import (
 	nodev1 "k8s.io/api/node/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/resource"
+	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
 )
 
 // AdjustmentInputs carries the pre-resolved external inputs the effective
@@ -44,6 +48,10 @@ type AdjustmentInputs struct {
 	// classes referenced by the workload and found in the cluster have an
 	// entry.
 	PodOverheads map[string]corev1.ResourceList
+	// PodScheduling maps a RuntimeClass name to its scheduling constraints.
+	// Only populated when the constraints still have to be resolved; see
+	// resolveScheduling in ResolveAdjustmentInputs.
+	PodScheduling map[string]*nodev1.Scheduling
 	// LimitRangeSummary is the summarized namespace LimitRange, or nil when
 	// the namespace has no container- or pod-type LimitRange items.
 	LimitRangeSummary limitrange.Summary
@@ -60,25 +68,37 @@ func ResolveAdjustmentInputs(ctx context.Context, cl client.Client, wl *kueue.Wo
 		return in, nil
 	}
 
+	// A template copied from an existing Pod already carries what the admission
+	// controller merged into it, so resolving the class again would only make it
+	// diverge from that Pod.
+	resolveScheduling := features.Enabled(features.RuntimeClassScheduling) && !OwnedByPods(wl)
+	read := make(map[string]bool)
 	for i := range wl.Spec.PodSets {
-		podSpec := &wl.Spec.PodSets[i].Template.Spec
-		if podSpec.RuntimeClassName == nil || len(podSpec.Overhead) > 0 {
+		ps := &wl.Spec.PodSets[i]
+		podSpec := &ps.Template.Spec
+		if podSpec.RuntimeClassName == nil {
 			continue
 		}
 		name := *podSpec.RuntimeClassName
-		if _, found := in.PodOverheads[name]; found {
-			continue
-		}
-		var runtimeClass nodev1.RuntimeClass
-		if err := cl.Get(ctx, types.NamespacedName{Name: name}, &runtimeClass); err != nil {
-			errs = append(errs, fmt.Errorf("in podSet %s: %w", wl.Spec.PodSets[i].Name, err))
-			continue
-		}
-		if runtimeClass.Overhead != nil {
-			if in.PodOverheads == nil {
-				in.PodOverheads = make(map[string]corev1.ResourceList)
+		if !read[name] {
+			var runtimeClass nodev1.RuntimeClass
+			if err := cl.Get(ctx, types.NamespacedName{Name: name}, &runtimeClass); err != nil {
+				errs = append(errs, fmt.Errorf("in podSet %s: %w", ps.Name, err))
+				continue
 			}
-			in.PodOverheads[name] = runtimeClass.Overhead.PodFixed
+			read[name] = true
+			if runtimeClass.Overhead != nil {
+				if in.PodOverheads == nil {
+					in.PodOverheads = make(map[string]corev1.ResourceList)
+				}
+				in.PodOverheads[name] = runtimeClass.Overhead.PodFixed
+			}
+			if resolveScheduling && runtimeClass.Scheduling != nil {
+				if in.PodScheduling == nil {
+					in.PodScheduling = make(map[string]*nodev1.Scheduling)
+				}
+				in.PodScheduling[name] = runtimeClass.Scheduling
+			}
 		}
 	}
 
@@ -92,14 +112,62 @@ func ResolveAdjustmentInputs(ctx context.Context, cl client.Client, wl *kueue.Wo
 	return in, errs
 }
 
+// mergeRuntimeClassScheduling merges a RuntimeClass's scheduling constraints
+// into podSpec the way the admission controller merges them into a Pod: the
+// PodSet keeps its own values, tolerations are not duplicated, and a
+// conflicting nodeSelector key is an error that leaves podSpec untouched.
+func mergeRuntimeClassScheduling(podSpec *corev1.PodSpec, scheduling *nodev1.Scheduling) error {
+	if err := utilmaps.HaveConflict(podSpec.NodeSelector, scheduling.NodeSelector); err != nil {
+		return err
+	}
+	utilmaps.Copy(&podSpec.NodeSelector, scheduling.NodeSelector)
+	podSpec.Tolerations = utiltolerations.Merge(podSpec.Tolerations, scheduling.Tolerations)
+	return nil
+}
+
+// ValidateRuntimeClassScheduling reports PodSets whose nodeSelector conflicts
+// with the one of their RuntimeClass. The admission controller rejects such a
+// Pod, so no flavor can hold the Workload. A class that cannot be read is
+// reported when the effective view is resolved, not here.
+func ValidateRuntimeClassScheduling(ctx context.Context, c client.Client, wi *Info) field.ErrorList {
+	if c == nil || !features.Enabled(features.RuntimeClassScheduling) || OwnedByPods(wi.Obj) {
+		return nil
+	}
+	var allErrors field.ErrorList
+	for i := range wi.Obj.Spec.PodSets {
+		podSpec := &wi.Obj.Spec.PodSets[i].Template.Spec
+		if podSpec.RuntimeClassName == nil {
+			continue
+		}
+		var runtimeClass nodev1.RuntimeClass
+		if err := c.Get(ctx, types.NamespacedName{Name: *podSpec.RuntimeClassName}, &runtimeClass); err != nil {
+			continue
+		}
+		if runtimeClass.Scheduling == nil {
+			continue
+		}
+		if err := mergeRuntimeClassScheduling(podSpec.DeepCopy(), runtimeClass.Scheduling); err != nil {
+			allErrors = append(allErrors, field.Invalid(
+				PodSetsPath.Index(i).Child("template").Child("spec").Child("nodeSelector"),
+				podSpec.NodeSelector, err.Error()))
+		}
+	}
+	return allErrors
+}
+
 // applyAdjustmentsToPodSpec rewrites the given PodSpec into its effective
-// form: RuntimeClass overhead, then limits copied into missing requests
-// (mirroring API-server object defaulting), then the LimitRange defaults for
-// whatever is still unset (mirroring the LimitRanger admission plugin).
+// form: the RuntimeClass overhead and scheduling constraints, then limits
+// copied into missing requests (mirroring API-server object defaulting), then
+// the LimitRange defaults for whatever is still unset (mirroring the
+// LimitRanger admission plugin).
 func applyAdjustmentsToPodSpec(podSpec *corev1.PodSpec, in AdjustmentInputs) {
-	if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
-		if overhead, found := in.PodOverheads[*podSpec.RuntimeClassName]; found {
+	if podSpec.RuntimeClassName != nil {
+		if overhead, found := in.PodOverheads[*podSpec.RuntimeClassName]; found && len(podSpec.Overhead) == 0 {
 			podSpec.Overhead = overhead.DeepCopy()
+		}
+		if sched, found := in.PodScheduling[*podSpec.RuntimeClassName]; found {
+			// A conflict is reported by ValidateRuntimeClassScheduling.
+			_ = mergeRuntimeClassScheduling(podSpec, sched)
 		}
 	}
 
