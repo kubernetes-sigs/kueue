@@ -30,6 +30,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 )
@@ -62,7 +63,7 @@ func ResolveAdjustmentInputs(ctx context.Context, cl client.Client, wl *kueue.Wo
 
 	for i := range wl.Spec.PodSets {
 		podSpec := &wl.Spec.PodSets[i].Template.Spec
-		if podSpec.RuntimeClassName == nil || len(podSpec.Overhead) > 0 {
+		if podSpec.RuntimeClassName == nil || len(resources.ChargeableOverhead(podSpec.Overhead)) > 0 {
 			continue
 		}
 		name := *podSpec.RuntimeClassName
@@ -97,6 +98,8 @@ func ResolveAdjustmentInputs(ctx context.Context, cl client.Client, wl *kueue.Wo
 // (mirroring API-server object defaulting), then the LimitRange defaults for
 // whatever is still unset (mirroring the LimitRanger admission plugin).
 func applyAdjustmentsToPodSpec(podSpec *corev1.PodSpec, in AdjustmentInputs) {
+	// Uncharged entries must not mask a RuntimeClass overhead.
+	podSpec.Overhead = resources.ChargeableOverhead(podSpec.Overhead)
 	if podSpec.RuntimeClassName != nil && len(podSpec.Overhead) == 0 {
 		if overhead, found := in.PodOverheads[*podSpec.RuntimeClassName]; found {
 			podSpec.Overhead = overhead.DeepCopy()
