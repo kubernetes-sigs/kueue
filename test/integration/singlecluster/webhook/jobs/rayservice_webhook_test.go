@@ -29,7 +29,8 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("RayService Webhook", func() {
@@ -38,11 +39,11 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeEach(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(rayservice.SetupRayServiceWebhook))
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-")
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			fwk.StopManager(ctx)
 		})
 
@@ -56,7 +57,7 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 					Queue("queue-name").
 					UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 					Obj()
-				util.MustCreate(ctx, k8sClient, service)
+				behavioral.MustCreate(ctx, k8sClient, service)
 
 				lookupKey := types.NamespacedName{Name: service.Name, Namespace: service.Namespace}
 				createdService := &rayv1.RayService{}
@@ -85,7 +86,7 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 					Queue("queue-name").
 					UpgradeStrategy(rayv1.RayServiceUpgradeNone).
 					Obj()
-				util.MustCreate(ctx, k8sClient, service)
+				behavioral.MustCreate(ctx, k8sClient, service)
 
 				lookupKey := types.NamespacedName{Name: service.Name, Namespace: service.Namespace}
 				createdService := &rayv1.RayService{}
@@ -140,7 +141,7 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Obj()
 
-				util.MustCreate(ctx, k8sClient, service)
+				behavioral.MustCreate(ctx, k8sClient, service)
 			})
 		})
 	})

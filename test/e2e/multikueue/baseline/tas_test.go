@@ -37,7 +37,8 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -55,7 +56,7 @@ func waitForTopologyAssignment(workerClient client.Client, wlLookupKey types.Nam
 		g.Expect(workerWl.Status.Admission.PodSetAssignments[0].TopologyAssignment).NotTo(gomega.BeNil())
 		g.Expect(workerWl.Status.Admission.PodSetAssignments[0].TopologyAssignment.Levels).To(gomega.Equal([]string{corev1.LabelHostname}))
 		g.Expect(tas.TotalDomainCount(workerWl.Status.Admission.PodSetAssignments[0].TopologyAssignment)).NotTo(gomega.BeZero())
-	}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+	}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 func waitForDelayedTopologyRequestReady(wlLookupKey types.NamespacedName) {
@@ -66,7 +67,7 @@ func waitForDelayedTopologyRequestReady(wlLookupKey types.NamespacedName) {
 		g.Expect(managerWl.Status.Admission).NotTo(gomega.BeNil())
 		g.Expect(managerWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
 		g.Expect(managerWl.Status.Admission.PodSetAssignments[0].DelayedTopologyRequest).To(gomega.Equal(new(kueue.DelayedTopologyRequestStateReady)))
-	}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+	}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
@@ -97,35 +98,35 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		managerNs = util.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-tas-")
-		worker1Ns = util.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
-		worker2Ns = util.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
+		managerNs = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-tas-")
+		worker1Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
+		worker2Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
 
 		workerCluster1 = utiltestingapi.MakeMultiKueueClusterWithGeneratedName("worker1-").KubeConfig(kueue.SecretLocationType, "multikueue1").Obj()
-		util.MustCreate(ctx, k8sManagerClient, workerCluster1)
+		behavioral.MustCreate(ctx, k8sManagerClient, workerCluster1)
 
 		workerCluster2 = utiltestingapi.MakeMultiKueueClusterWithGeneratedName("worker2-").KubeConfig(kueue.SecretLocationType, "multikueue2").Obj()
-		util.MustCreate(ctx, k8sManagerClient, workerCluster2)
+		behavioral.MustCreate(ctx, k8sManagerClient, workerCluster2)
 
 		multiKueueConfig = utiltestingapi.MakeMultiKueueConfigWithGeneratedName("multikueueconfig-").Clusters(workerCluster1.Name, workerCluster2.Name).Obj()
-		util.MustCreate(ctx, k8sManagerClient, multiKueueConfig)
+		behavioral.MustCreate(ctx, k8sManagerClient, multiKueueConfig)
 
 		multiKueueAc = utiltestingapi.MakeAdmissionCheck("").
 			GeneratedName("ac1-").
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
-		util.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
+		behavioral.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
 
 		managerTopology = utiltestingapi.MakeDefaultOneLevelTopology("default-" + managerNs.Name)
-		util.MustCreate(ctx, k8sManagerClient, managerTopology)
+		behavioral.MustCreate(ctx, k8sManagerClient, managerTopology)
 
 		managerFlavor = utiltestingapi.MakeResourceFlavor("").
 			GeneratedName("tas-flavor-").
 			NodeLabel(tasNodeGroupLabel, instanceType).
 			TopologyName(managerTopology.Name).
 			Obj()
-		util.MustCreate(ctx, k8sManagerClient, managerFlavor)
+		behavioral.MustCreate(ctx, k8sManagerClient, managerFlavor)
 
 		managerCq = utiltestingapi.MakeClusterQueue("").
 			GeneratedName("q1-").
@@ -137,19 +138,19 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 			).
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAc.Name)).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sManagerClient, managerCq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sManagerClient, managerCq)
 
 		managerLq = utiltestingapi.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sManagerClient, managerLq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sManagerClient, managerLq)
 
 		worker1Topology = utiltestingapi.MakeDefaultOneLevelTopology("default-" + worker1Ns.Name)
-		util.MustCreate(ctx, k8sWorker1Client, worker1Topology)
+		behavioral.MustCreate(ctx, k8sWorker1Client, worker1Topology)
 
 		worker1Flavor = utiltestingapi.MakeResourceFlavor(managerFlavor.Name).
 			NodeLabel(tasNodeGroupLabel, instanceType).
 			TopologyName(worker1Topology.Name).
 			Obj()
-		util.MustCreate(ctx, k8sWorker1Client, worker1Flavor)
+		behavioral.MustCreate(ctx, k8sWorker1Client, worker1Flavor)
 
 		worker1Cq = utiltestingapi.MakeClusterQueue(managerCq.Name).
 			ResourceGroup(
@@ -159,19 +160,19 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 					Obj(),
 			).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Cq)
 
 		worker1Lq = utiltestingapi.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Lq)
 
 		worker2Topology = utiltestingapi.MakeDefaultOneLevelTopology("default-" + worker2Ns.Name)
-		util.MustCreate(ctx, k8sWorker2Client, worker2Topology)
+		behavioral.MustCreate(ctx, k8sWorker2Client, worker2Topology)
 
 		worker2Flavor = utiltestingapi.MakeResourceFlavor(managerFlavor.Name).
 			NodeLabel(tasNodeGroupLabel, instanceType).
 			TopologyName(worker2Topology.Name).
 			Obj()
-		util.MustCreate(ctx, k8sWorker2Client, worker2Flavor)
+		behavioral.MustCreate(ctx, k8sWorker2Client, worker2Flavor)
 
 		worker2Cq = utiltestingapi.MakeClusterQueue(managerCq.Name).
 			ResourceGroup(
@@ -181,36 +182,36 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 					Obj(),
 			).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Cq)
 
 		worker2Lq = utiltestingapi.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Lq)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
 
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Flavor, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Topology, true, util.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Flavor, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Topology, true, behavioral.MediumTimeout)
 
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Cq, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Flavor, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Topology, true, util.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Cq, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Flavor, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Topology, true, behavioral.MediumTimeout)
 
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerCq, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerFlavor, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerTopology, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueAc, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueConfig, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster1, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster2, true, util.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerCq, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerFlavor, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerTopology, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueAc, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueConfig, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster1, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster2, true, behavioral.MediumTimeout)
 
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sManagerClient, managerNs)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker1Client, worker1Ns)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker2Client, worker2Ns)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sManagerClient, managerNs)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker1Client, worker1Ns)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker2Client, worker2Ns)
 	})
 
 	ginkgo.When("Creating a Job with TAS requirements", func() {
@@ -222,19 +223,19 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 				RequestAndLimit(corev1.ResourceCPU, "500m").
 				RequestAndLimit(corev1.ResourceMemory, "200Mi").
 				TerminationGracePeriod(1).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Obj()
 			job = (&testingjob.JobWrapper{Job: *job}).
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 				Obj()
 
 			ginkgo.By("Creating the job", func() {
-				util.MustCreate(ctx, k8sManagerClient, job)
+				behavioral.MustCreate(ctx, k8sManagerClient, job)
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdJob := &batchv1.Job{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
 					g.Expect(ptr.Deref(createdJob.Spec.ManagedBy, "")).To(gomega.BeEquivalentTo(kueue.MultiKueueControllerName))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			createdWorkload := &kueue.Workload{}
@@ -255,8 +256,8 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 					} else {
 						assignedWorkerCluster = k8sWorker2Client
 					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.ExpectAdmissionCheckStateWithMessage(
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.ExpectAdmissionCheckStateWithMessage(
 					ctx, k8sManagerClient, wlLookupKey,
 					multiKueueAc.Name,
 					kueue.CheckStateReady,
@@ -279,15 +280,15 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 					g.Expect(createdJob.Status.StartTime).NotTo(gomega.BeNil())
 					g.Expect(createdJob.Status.Active).To(gomega.Equal(int32(2)))
 					g.Expect(createdJob.Status.CompletionTime).To(gomega.BeNil())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Finishing the job's pods", func() {
-				listOpts := util.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
+				listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
 				if assignedClusterName == workerCluster1.Name {
-					util.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 2, 0, listOpts)
+					e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 2, 0, listOpts)
 				} else {
-					util.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 2, 0, listOpts)
+					e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 2, 0, listOpts)
 				}
 			})
 
@@ -295,12 +296,12 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonSucceeded))
-				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the job is completed", func() {
-				util.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
-				util.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
+				behavioral.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
+				behavioral.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 
 				createdJob := &batchv1.Job{}
 				gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
@@ -321,16 +322,16 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 				RequestAndLimit(corev1.ResourceCPU, "500m").
 				RequestAndLimit(corev1.ResourceMemory, "200Mi").
 				TerminationGracePeriod(1).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Obj()
 
 			ginkgo.By("Creating the job without TAS annotation", func() {
-				util.MustCreate(ctx, k8sManagerClient, job)
+				behavioral.MustCreate(ctx, k8sManagerClient, job)
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdJob := &batchv1.Job{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
 					g.Expect(ptr.Deref(createdJob.Spec.ManagedBy, "")).To(gomega.BeEquivalentTo(kueue.MultiKueueControllerName))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			createdWorkload := &kueue.Workload{}
@@ -348,8 +349,8 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 						Status:  metav1.ConditionTrue,
 						Reason:  "Admitted",
 						Message: "The workload is admitted",
-					}, util.IgnoreConditionTimestampsAndObservedGeneration))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, behavioral.IgnoreConditionTimestampsAndObservedGeneration))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Waiting for DelayedTopologyRequest to be marked Ready on manager", func() {
@@ -357,11 +358,11 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 			})
 
 			ginkgo.By("Finishing the job", func() {
-				listOpts := util.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
+				listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
 				if assignedClusterName == workerCluster1.Name {
-					util.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 2, 0, listOpts)
+					e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 2, 0, listOpts)
 				} else {
-					util.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 2, 0, listOpts)
+					e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 2, 0, listOpts)
 				}
 			})
 
@@ -370,7 +371,7 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 					g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
 					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonSucceeded))
-				}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -407,53 +408,53 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		managerNs = util.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-tas-")
-		worker1Ns = util.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
-		worker2Ns = util.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
+		managerNs = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-tas-")
+		worker1Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
+		worker2Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
 
 		managerTopology = utiltestingapi.MakeDefaultOneLevelTopology("default-" + managerNs.Name)
-		util.MustCreate(ctx, k8sManagerClient, managerTopology)
+		behavioral.MustCreate(ctx, k8sManagerClient, managerTopology)
 
 		worker1Topology = utiltestingapi.MakeDefaultOneLevelTopology("default-" + worker1Ns.Name)
-		util.MustCreate(ctx, k8sWorker1Client, worker1Topology)
+		behavioral.MustCreate(ctx, k8sWorker1Client, worker1Topology)
 
 		worker2Topology = utiltestingapi.MakeDefaultOneLevelTopology("default-" + worker2Ns.Name)
-		util.MustCreate(ctx, k8sWorker2Client, worker2Topology)
+		behavioral.MustCreate(ctx, k8sWorker2Client, worker2Topology)
 
 		managerTasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 			GeneratedName("tas-flavor-").
 			NodeLabel(tasNodeGroupLabel, instanceType).
 			TopologyName(managerTopology.Name).
 			Obj()
-		util.MustCreate(ctx, k8sManagerClient, managerTasFlavor)
+		behavioral.MustCreate(ctx, k8sManagerClient, managerTasFlavor)
 
 		worker1TasFlavor = utiltestingapi.MakeResourceFlavor(managerTasFlavor.Name).
 			NodeLabel(tasNodeGroupLabel, instanceType).
 			TopologyName(worker1Topology.Name).
 			Obj()
-		util.MustCreate(ctx, k8sWorker1Client, worker1TasFlavor)
+		behavioral.MustCreate(ctx, k8sWorker1Client, worker1TasFlavor)
 
 		worker2TasFlavor = utiltestingapi.MakeResourceFlavor(managerTasFlavor.Name).
 			NodeLabel(tasNodeGroupLabel, instanceType).
 			TopologyName(worker2Topology.Name).
 			Obj()
-		util.MustCreate(ctx, k8sWorker2Client, worker2TasFlavor)
+		behavioral.MustCreate(ctx, k8sWorker2Client, worker2TasFlavor)
 
 		workerCluster1 = utiltestingapi.MakeMultiKueueClusterWithGeneratedName("worker1-").KubeConfig(kueue.SecretLocationType, "multikueue1").Obj()
-		util.MustCreate(ctx, k8sManagerClient, workerCluster1)
+		behavioral.MustCreate(ctx, k8sManagerClient, workerCluster1)
 
 		workerCluster2 = utiltestingapi.MakeMultiKueueClusterWithGeneratedName("worker2-").KubeConfig(kueue.SecretLocationType, "multikueue2").Obj()
-		util.MustCreate(ctx, k8sManagerClient, workerCluster2)
+		behavioral.MustCreate(ctx, k8sManagerClient, workerCluster2)
 
 		multiKueueConfig = utiltestingapi.MakeMultiKueueConfigWithGeneratedName("multikueueconfig-").Clusters(workerCluster1.Name, workerCluster2.Name).Obj()
-		util.MustCreate(ctx, k8sManagerClient, multiKueueConfig)
+		behavioral.MustCreate(ctx, k8sManagerClient, multiKueueConfig)
 
 		multiKueueAc = utiltestingapi.MakeAdmissionCheck("").
 			GeneratedName("ac1-").
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", multiKueueConfig.Name).
 			Obj()
-		util.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
+		behavioral.CreateAdmissionChecksAndWaitForActive(ctx, k8sManagerClient, multiKueueAc)
 
 		managerCq = utiltestingapi.MakeClusterQueue("").
 			GeneratedName("tas-cq-").
@@ -465,10 +466,10 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 			).
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAc.Name)).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sManagerClient, managerCq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sManagerClient, managerCq)
 
 		managerLq = utiltestingapi.MakeLocalQueue(managerCq.Name, managerNs.Name).ClusterQueue(managerCq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sManagerClient, managerLq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sManagerClient, managerLq)
 
 		// Worker1: 2 CPU quota (can fit 1.5 CPU jobs)
 		worker1Cq = utiltestingapi.MakeClusterQueue(managerCq.Name).
@@ -479,10 +480,10 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 					Obj(),
 			).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Cq)
 
 		worker1Lq = utiltestingapi.MakeLocalQueue(worker1Cq.Name, worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker1Client, worker1Lq)
 
 		// Worker2: 1 CPU quota (cannot fit 1.5 CPU jobs)
 		worker2Cq = utiltestingapi.MakeClusterQueue(managerCq.Name).
@@ -493,10 +494,10 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 					Obj(),
 			).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Cq)
 
 		worker2Lq = utiltestingapi.MakeLocalQueue(worker2Cq.Name, worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sWorker2Client, worker2Lq)
 
 		kubernetesClients = kubernetesClientsMap{
 			workerCluster1.Name: {
@@ -513,29 +514,29 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sManagerClient, managerNs)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sWorker1Client, worker1Ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sWorker2Client, worker2Ns)).To(gomega.Succeed())
 
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1TasFlavor, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Topology, true, util.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1TasFlavor, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Topology, true, behavioral.MediumTimeout)
 
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Cq, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2TasFlavor, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Topology, true, util.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Cq, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2TasFlavor, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker2Client, worker2Topology, true, behavioral.MediumTimeout)
 
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerCq, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerTasFlavor, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerTopology, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueAc, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueConfig, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster1, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster2, true, util.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerCq, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerTasFlavor, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, managerTopology, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueAc, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, multiKueueConfig, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster1, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, workerCluster2, true, behavioral.MediumTimeout)
 
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sManagerClient, managerNs)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker1Client, worker1Ns)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker2Client, worker2Ns)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sManagerClient, managerNs)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker1Client, worker1Ns)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker2Client, worker2Ns)
 	})
 
 	ginkgo.It("Should route a TAS Job with preferred topology to worker1 deterministically", func() {
@@ -544,16 +545,16 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 			Queue(kueue.LocalQueueName(managerLq.Name)).
 			PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, corev1.LabelHostname).
 			Request(corev1.ResourceCPU, "1500m").
-			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			Obj()
-		util.MustCreate(ctx, k8sManagerClient, job)
+		behavioral.MustCreate(ctx, k8sManagerClient, job)
 
 		wlLookupKey := types.NamespacedName{
 			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
 			Namespace: managerNs.Name,
 		}
-		admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+		admittedWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 		workerClient := kubernetesClients[admittedWorkerName].client
 
 		ginkgo.By(fmt.Sprintf("Waiting for TopologyAssignment to be computed on %s", admittedWorkerName), func() {
@@ -565,19 +566,19 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 		})
 
 		ginkgo.By(fmt.Sprintf("Finishing the job's pods on %s", admittedWorkerName))
-		listOpts := util.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
-		util.WaitForActivePodsAndTerminate(ctx, workerClient, kubernetesClients[admittedWorkerName].restClient, kubernetesClients[admittedWorkerName].cfg, job.Namespace, 1, 0, listOpts)
+		listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
+		e2e.WaitForActivePodsAndTerminate(ctx, workerClient, kubernetesClients[admittedWorkerName].restClient, kubernetesClients[admittedWorkerName].cfg, job.Namespace, 1, 0, listOpts)
 
 		ginkgo.By("Waiting for workload to finish")
 		createdWorkload := &kueue.Workload{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 			g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonSucceeded))
-		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Checking no objects are left in worker clusters and job is completed")
-		util.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
-		util.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
+		behavioral.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
+		behavioral.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 
 		createdJob := &batchv1.Job{}
 		gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
@@ -595,10 +596,10 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 			Queue(kueue.LocalQueueName(managerLq.Name)).
 			PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
 			Request(corev1.ResourceCPU, "500m").
-			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			Obj()
-		util.MustCreate(ctx, k8sManagerClient, job)
+		behavioral.MustCreate(ctx, k8sManagerClient, job)
 
 		wlLookupKey := types.NamespacedName{
 			Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
@@ -614,7 +615,7 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 			g.Expect(createdWorkload.Status.Admission.PodSetAssignments).NotTo(gomega.BeEmpty())
 			g.Expect(createdWorkload.Status.ClusterName).NotTo(gomega.BeNil())
 			assignedClusterName = *createdWorkload.Status.ClusterName
-		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 		var assignedWorkerClient client.Client
 		if assignedClusterName == workerCluster1.Name {
@@ -632,11 +633,11 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 		})
 
 		ginkgo.By(fmt.Sprintf("Finishing the job's pods on %s", assignedClusterName))
-		listOpts := util.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
+		listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
 		if assignedClusterName == workerCluster1.Name {
-			util.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 1, 0, listOpts)
+			e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 1, 0, listOpts)
 		} else {
-			util.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 1, 0, listOpts)
+			e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 1, 0, listOpts)
 		}
 
 		ginkgo.By("Waiting for workload to finish")
@@ -644,10 +645,10 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 			g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, kueue.WorkloadFinishedReasonSucceeded))
-		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Checking cleanup on worker clusters")
-		util.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
-		util.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
+		behavioral.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
+		behavioral.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 	})
 })

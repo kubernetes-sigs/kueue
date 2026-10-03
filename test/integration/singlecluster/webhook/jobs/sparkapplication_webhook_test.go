@@ -28,7 +28,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingspark "sigs.k8s.io/kueue/pkg/util/testingjobs/sparkapplication"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("SparkApplication Webhook", func() {
@@ -37,11 +38,11 @@ var _ = ginkgo.Describe("SparkApplication Webhook", func() {
 	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeEach(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(sparkapplication.SetupWebhook))
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sparkapplication-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sparkapplication-")
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			fwk.StopManager(ctx)
 		})
 
@@ -52,7 +53,7 @@ var _ = ginkgo.Describe("SparkApplication Webhook", func() {
 
 			ginkgo.It("should reject removing the queue name from an unsuspended SparkApplication", func() {
 				app := testingspark.MakeSparkApplication("sparkapp", ns.Name).Queue("queue-name").Obj()
-				util.MustCreate(ctx, k8sClient, app)
+				behavioral.MustCreate(ctx, k8sClient, app)
 
 				lookupKey := types.NamespacedName{Name: app.Name, Namespace: app.Namespace}
 				createdApp := &sparkappv1beta2.SparkApplication{}
@@ -78,7 +79,7 @@ var _ = ginkgo.Describe("SparkApplication Webhook", func() {
 
 			ginkgo.It("should allow removing the queue name from an unsuspended SparkApplication", func() {
 				app := testingspark.MakeSparkApplication("sparkapp", ns.Name).Queue("queue-name").Obj()
-				util.MustCreate(ctx, k8sClient, app)
+				behavioral.MustCreate(ctx, k8sClient, app)
 
 				lookupKey := types.NamespacedName{Name: app.Name, Namespace: app.Namespace}
 				createdApp := &sparkappv1beta2.SparkApplication{}

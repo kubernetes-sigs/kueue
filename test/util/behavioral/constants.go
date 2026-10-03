@@ -14,11 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package behavioral
 
 import (
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -40,15 +39,18 @@ const (
 	LongTimeout = 90 * time.Second
 	// VeryLongTimeout is meant for waiting for Kueue startup including
 	// cert propagation and component readiness.
-	VeryLongTimeout         = 5 * time.Minute
-	ConsistentDuration      = 300 * time.Millisecond
+	VeryLongTimeout = 5 * time.Minute
+
 	ShortConsistentDuration = 100 * time.Millisecond
+	ConsistentDuration      = 300 * time.Millisecond
 	// LongConsistentDuration is for asserting that something does not happen
 	// when a controller would take longer than ConsistentDuration to do it.
 	LongConsistentDuration = 2 * time.Second
-	ShortInterval          = 10 * time.Millisecond
-	Interval               = time.Millisecond * 250
-	LongInterval           = time.Second * 1
+
+	ShortInterval = 10 * time.Millisecond
+	Interval      = time.Millisecond * 250
+	LongInterval  = time.Second * 1
+
 	// DRAExampleDriverName is the DeviceClass name registered by the dra-example-driver.
 	DRAExampleDriverName = "gpu.example.com"
 )
@@ -79,42 +81,4 @@ var (
 	ClusterProfileCrds       = filepath.Join(ProjectBaseDir, "dep-crds", "clusterprofile")
 )
 
-var (
-	// For full documentation on agnhost subcommands see the following documentation:
-	// https://pkg.go.dev/k8s.io/kubernetes/test/images/agnhost#section-readme
-
-	// Starts a simple HTTP(S) with a few endpoints, one of which is the /exit endpoint which exits with `exit 0`
-	BehaviorWaitForDeletion = []string{"netexec"}
-
-	// Starts a container which always ends in failure on deletion.
-	// To achieve this runs simple webserver, but does not register any signal handler.
-	BehaviorWaitForDeletionFailOnExit = []string{"test-webserver"}
-
-	// The agnhost container will print args passed and `exit 0`
-	BehaviorExitFast = []string{"entrypoint-tester"}
-)
-
 var RealClock = clock.RealClock{}
-
-// Validation error messages used in webhook tests
-const (
-	InvalidRFC1123Message  = `a lowercase RFC 1123 subdomain must consist of lower case alphanumeric characters, '-' or '.', and must start and end with an alphanumeric character (e.g. 'example.com', regex used for validation is '[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*')`
-	InvalidLabelKeyMessage = `name part must consist of alphanumeric characters, '-', '_' or '.', and must start and end with an alphanumeric character (e.g. 'MyName',  or 'my.name',  or '123-abc', regex used for validation is '([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9]')`
-	InvalidPathMessage     = `Invalid path (regex used for validation is '[A-Za-z0-9/\-._~%!$&'()*+,;=:]+')`
-)
-
-const (
-	Shard0 = "shard-0"
-	Shard1 = "shard-1"
-)
-
-var (
-	sparkTestImageOnce sync.Once
-	sparkTestImage     string
-
-	agnHostImageOnce sync.Once
-	agnHostImage     string
-
-	redisTestImageOnce sync.Once
-	redisTestImage     string
-)

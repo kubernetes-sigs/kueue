@@ -32,7 +32,8 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -62,17 +63,17 @@ var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, gink
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-pl-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-pl-")
 
 			deviceClasses = nil
 			for _, name := range []string{"a100.example.com", "a100-mig.example.com"} {
 				deviceClass := testingdra.MakeDeviceClass(name).Obj()
-				util.MustCreate(ctx, k8sClient, deviceClass)
+				behavioral.MustCreate(ctx, k8sClient, deviceClass)
 				deviceClasses = append(deviceClasses, deviceClass)
 			}
 
 			resourceFlavor = utiltestingapi.MakeResourceFlavor("").GeneratedName("rf-pl-").Obj()
-			util.MustCreate(ctx, k8sClient, resourceFlavor)
+			behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
 
 			clusterQueue = utiltestingapi.MakeClusterQueue("").GeneratedName("pl-cq-").
 				ResourceGroup(
@@ -80,19 +81,19 @@ var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, gink
 						Resource("gpu", "2").
 						Obj(),
 				).Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("pl-lq", ns.Name).
 				ClusterQueue(clusterQueue.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 			for _, deviceClass := range deviceClasses {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
 			}
 		})
 
@@ -104,14 +105,14 @@ var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, gink
 					testingdra.MakeDeviceSubRequest("slice", "a100-mig.example.com", 2).Obj(),
 				).Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, rct)
+			behavioral.MustCreate(ctx, k8sClient, rct)
 
 			ginkgo.By("Creating a workload referencing the template")
 			wl := utiltestingapi.MakeWorkload("pl-equal-wl", ns.Name).
 				Queue("pl-lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).ResourceClaimTemplate("gpu", "two-a100-or-two-slices").Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
 
 			ginkgo.By("Verifying the workload is admitted on that count, not the sum of the alternatives")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -125,7 +126,7 @@ var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, gink
 				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpu")))
 				gpuUsage := assignment.ResourceUsage["gpu"]
 				g.Expect(gpuUsage.Cmp(resource.MustParse("2"))).To(gomega.Equal(0))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should reject alternatives with different counts", func() {
@@ -136,14 +137,14 @@ var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, gink
 					testingdra.MakeDeviceSubRequest("slice", "a100-mig.example.com", 2).Obj(),
 				).Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, rct)
+			behavioral.MustCreate(ctx, k8sClient, rct)
 
 			ginkgo.By("Creating a workload referencing the template")
 			wl := utiltestingapi.MakeWorkload("pl-unequal-wl", ns.Name).
 				Queue("pl-lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).ResourceClaimTemplate("gpu", "one-a100-or-two-slices").Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
 
 			ginkgo.By("Verifying the workload is marked as inadmissible although either alternative alone would fit")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -161,7 +162,7 @@ var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, gink
 					gomega.HaveField("Status", metav1.ConditionFalse),
 					gomega.HaveField("Reason", kueue.WorkloadDRAResourcesUnresolved),
 				)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should reject alternatives that resolve to different logical resources", func() {
@@ -172,14 +173,14 @@ var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, gink
 					testingdra.MakeDeviceSubRequest("other", "test-deviceclass-1", 1).Obj(),
 				).Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, rct)
+			behavioral.MustCreate(ctx, k8sClient, rct)
 
 			ginkgo.By("Creating a workload referencing the template")
 			wl := utiltestingapi.MakeWorkload("pl-two-resources-wl", ns.Name).
 				Queue("pl-lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).ResourceClaimTemplate("gpu", "a100-or-res-1").Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
 
 			ginkgo.By("Verifying the workload is marked as inadmissible")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -197,7 +198,7 @@ var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, gink
 					gomega.HaveField("Status", metav1.ConditionFalse),
 					gomega.HaveField("Reason", kueue.WorkloadDRAResourcesUnresolved),
 				)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })

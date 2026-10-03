@@ -34,7 +34,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // Regression coverage for KEP-12100 partial replica scale-up with production wiring: the
@@ -49,7 +50,7 @@ func expectWorkloadAdmitted(obj client.Object) {
 		var wl kueue.Workload
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &wl)).Should(gomega.Succeed())
 		g.Expect(workload.IsAdmitted(&wl)).Should(gomega.BeTrue())
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (PartialAdmission on)", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -73,24 +74,24 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
-		util.MustCreate(ctx, k8sClient, resourceFlavor)
+		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("default").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, "6").Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 	})
 
 	ginkgo.It("creates a Workload for the elastic partial scale-up RayCluster and keeps the partial minCount", func() {
@@ -103,7 +104,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 			Obj()
 
 		ginkgo.By("creating the elastic RayCluster with the partial scale-up strategy")
-		util.MustCreate(ctx, k8sClient, testRayCluster)
+		behavioral.MustCreate(ctx, k8sClient, testRayCluster)
 
 		ginkgo.By("a Workload is created for the RayCluster")
 		var wl kueue.Workload
@@ -112,7 +113,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			wl = workloads.Items[0]
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the Workload is elastic and the worker podSet keeps the partial minCount")
 		gomega.Expect(wl.Annotations[workloadslicing.EnabledAnnotationKey]).Should(gomega.Equal(workloadslicing.EnabledAnnotationValue))
@@ -141,7 +142,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 		testRayCluster.Spec.WorkerGroupSpecs = append(testRayCluster.Spec.WorkerGroupSpecs, *secondWorker)
 
 		ginkgo.By("creating the elastic RayCluster with the partial scale-up strategy")
-		util.MustCreate(ctx, k8sClient, testRayCluster)
+		behavioral.MustCreate(ctx, k8sClient, testRayCluster)
 
 		ginkgo.By("a Workload with one podSet per group is created")
 		var wl kueue.Workload
@@ -150,7 +151,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			wl = workloads.Items[0]
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("every worker podSet keeps its partial minCount")
 		for _, groupName := range []string{"workers-group-0", "workers-group-1"} {
@@ -174,7 +175,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 			Obj()
 
 		ginkgo.By("creating the elastic RayCluster with one worker replica")
-		util.MustCreate(ctx, k8sClient, testRayCluster)
+		behavioral.MustCreate(ctx, k8sClient, testRayCluster)
 
 		ginkgo.By("the initial Workload slice is admitted")
 		var firstWl kueue.Workload
@@ -184,14 +185,14 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			firstWl = workloads.Items[0]
 			g.Expect(workload.IsAdmitted(&firstWl)).Should(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("scaling the worker replicas from 1 to 4")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
 			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](4)
 			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the probe slice replaces the initial slice and is admitted")
 		var newWl kueue.Workload
@@ -206,14 +207,14 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 				g.Expect(workload.IsAdmitted(&workloads.Items[i])).Should(gomega.BeTrue())
 				newWl = workloads.Items[i]
 			}
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the initial slice is marked finished")
 		gomega.Eventually(func(g gomega.Gomega) {
 			var oldWl kueue.Workload
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&firstWl), &oldWl)).Should(gomega.Succeed())
 			g.Expect(workloadfinish.IsFinished(&oldWl)).Should(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the probe slice is linked to the initial slice and carries the baseline as its minCount")
 		gomega.Expect(newWl.Annotations[workloadslicing.WorkloadSliceReplacementFor]).Should(gomega.Equal(string(workload.Key(&firstWl))))
@@ -235,7 +236,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 			Obj()
 
 		ginkgo.By("creating the elastic RayCluster without the partial scale-up strategy")
-		util.MustCreate(ctx, k8sClient, testRayCluster)
+		behavioral.MustCreate(ctx, k8sClient, testRayCluster)
 
 		ginkgo.By("the Workload is created and carries no minCount")
 		var wl kueue.Workload
@@ -244,7 +245,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			wl = workloads.Items[0]
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		gomega.Expect(wl.Annotations[workloadslicing.EnabledAnnotationKey]).Should(gomega.Equal(workloadslicing.EnabledAnnotationValue))
 		for i := range wl.Spec.PodSets {
 			gomega.Expect(wl.Spec.PodSets[i].MinCount).Should(gomega.BeNil())
@@ -279,24 +280,24 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
-		util.MustCreate(ctx, k8sClient, resourceFlavor)
+		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("default").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).Resource(corev1.ResourceCPU, "6").Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 	})
 
 	ginkgo.It("keeps the partial minCount on the created Workload", func() {
@@ -309,7 +310,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 			Obj()
 
 		ginkgo.By("creating the elastic RayCluster with the partial scale-up strategy")
-		util.MustCreate(ctx, k8sClient, testRayCluster)
+		behavioral.MustCreate(ctx, k8sClient, testRayCluster)
 
 		ginkgo.By("a Workload is created and the worker podSet still carries the partial minCount")
 		var wl kueue.Workload
@@ -318,7 +319,7 @@ var _ = ginkgo.Describe("KEP-12100 partial scale-up RayCluster end to end (Parti
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			wl = workloads.Items[0]
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		workerPS := podset.FindPodSetByName(wl.Spec.PodSets, kueue.NewPodSetReference("workers-group-0"))
 		gomega.Expect(workerPS).ShouldNot(gomega.BeNil())
 		gomega.Expect(workerPS.MinCount).ShouldNot(gomega.BeNil())
