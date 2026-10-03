@@ -26,6 +26,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // Regression coverage for the KEP-12100 partial scale-up Workload shapes.
@@ -46,7 +47,7 @@ var _ = ginkgo.Describe("Workload webhooks admit KEP-12100 partial scale-up shap
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
 	ginkgo.AfterEach(func() {

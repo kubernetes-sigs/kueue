@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("RayCluster Webhook", func() {
@@ -48,7 +49,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeEach(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(raycluster.SetupRayClusterWebhook))
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "raycluster-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "raycluster-")
 		})
 
 		ginkgo.AfterEach(func() {
@@ -154,7 +155,7 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 
 				return nil
 			}, jobframework.WithManageJobsWithoutQueueName(true), jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding("unmanaged-ns"))))
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "raycluster-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "raycluster-")
 		})
 
 		ginkgo.AfterEach(func() {

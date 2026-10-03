@@ -31,9 +31,10 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature:workloadpriorityclassdefaulting", behavioral.Shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature:workloadpriorityclassdefaulting", e2e.Shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns         *corev1.Namespace
 		rf         *kueue.ResourceFlavor
@@ -43,7 +44,7 @@ var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature
 	)
 
 	ginkgo.BeforeAll(func() {
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.FeatureGates = map[string]bool{string(features.WorkloadPriorityClassDefaulting): true}
 		})
 
@@ -62,7 +63,7 @@ var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wpc-defaulting-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wpc-defaulting-")
 		lq = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
 		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 
@@ -82,7 +83,7 @@ var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature
 		ginkgo.By("creating a job without a WorkloadPriorityClass label", func() {
 			job = testingjob.MakeJob("job-no-wpc", ns.Name).
 				Queue("main").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				RequestAndLimit(corev1.ResourceCPU, "100m").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)
@@ -128,7 +129,7 @@ var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature
 			job = testingjob.MakeJob("job-with-wpc", ns.Name).
 				Queue("main").
 				WorkloadPriorityClass("high").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				RequestAndLimit(corev1.ResourceCPU, "100m").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)

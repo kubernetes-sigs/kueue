@@ -25,6 +25,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("ResourceFlavor controller", ginkgo.Label("controller:resourceflavor", "area:core"), func() {
@@ -32,7 +33,7 @@ var _ = ginkgo.Describe("ResourceFlavor controller", ginkgo.Label("controller:re
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-resourceflavor-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-resourceflavor-")
 	})
 
 	ginkgo.AfterEach(func() {

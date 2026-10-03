@@ -30,6 +30,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // Pins that the effective-resource accounting (limits copied into missing
@@ -55,7 +56,7 @@ var _ = ginkgo.Describe("Workload accounting across a manager restart", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "restart-accounting-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "restart-accounting-")
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
 		runtimeClass = utiltesting.MakeRuntimeClass("kata-restart", "bar-handler").

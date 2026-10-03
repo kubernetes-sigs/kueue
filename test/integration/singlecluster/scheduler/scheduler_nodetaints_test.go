@@ -25,6 +25,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor nodeTaints", ginkgo.Ordered, func() {
@@ -42,7 +43,7 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor nodeTaints", ginkgo.Or
 	}
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "nodetaints-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "nodetaints-")
 
 		flavor = utiltestingapi.MakeResourceFlavor("tainted-flavor").
 			Taint(taint).

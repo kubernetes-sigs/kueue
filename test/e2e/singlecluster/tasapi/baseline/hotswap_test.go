@@ -38,12 +38,13 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(behavioral.Shard1, "area:tas", "feature:hotswap"), ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(e2e.Shard1, "area:tas", "feature:hotswap"), ginkgo.Ordered, func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-hotswap-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-hotswap-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -104,7 +105,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(be
 					Status: corev1.ConditionTrue,
 				})
 
-				behavioral.ExpectNodeToBecomeReady(ctx, k8sClient, nodeToRestore.Name, localQueue)
+				e2e.ExpectNodeToBecomeReady(ctx, k8sClient, nodeToRestore.Name, localQueue)
 
 				nodeToRestore = nil
 			}
@@ -125,7 +126,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(be
 		ginkgo.It("Should replace a failed node with a new one within the same domain", func() {
 			sampleJob := testingjob.MakeJob("ranks-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Parallelism(3).
 				Completions(3).
 				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
@@ -189,7 +190,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(be
 		ginkgo.It("Should evict the workload if replacement is not possible", func() {
 			sampleJob := testingjob.MakeJob("ranks-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Parallelism(2).
 				Completions(2).
 				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
@@ -261,7 +262,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(be
 					Completions(int32(parallelism)).
 					Suspend(true).
 					PodLabel("job-name", jobName).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletionFailOnExit).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletionFailOnExit).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
 					RequestAndLimit(extraResource, "1").
 					PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
@@ -346,7 +347,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(be
 					Completions(int32(parallelism)).
 					Suspend(true).
 					PodLabel("job-name", jobName).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletionFailOnExit).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletionFailOnExit).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
 					RequestAndLimit(extraResource, "1").
 					PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
@@ -445,7 +446,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(be
 					Completions(int32(parallelism)).
 					Suspend(true).
 					PodLabel("job-name", jobName).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletionFailOnExit).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletionFailOnExit).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
 					RequestAndLimit(extraResource, "1").
 					PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
@@ -597,7 +598,7 @@ var _ = ginkgo.Describe("Hotswap for Topology Aware Scheduling", ginkgo.Label(be
 					Completions(int32(parallelism)).
 					Suspend(true).
 					PodLabel("job-name", jobName).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletionFailOnExit).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletionFailOnExit).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
 					RequestAndLimit(extraResource, "1").
 					PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).

@@ -32,16 +32,17 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	jobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Label("feature:admissionfairsharing", behavioral.Shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Label("feature:admissionfairsharing", e2e.Shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
 		rf *kueue.ResourceFlavor
 	)
 
 	ginkgo.BeforeAll(func() {
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.AdmissionFairSharing = &configapi.AdmissionFairSharing{
 				UsageHalfLifeTime:     metav1.Duration{Duration: 1 * time.Second},
 				UsageSamplingInterval: metav1.Duration{Duration: 1 * time.Second},
@@ -53,7 +54,7 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Label("feature:admissio
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "afs-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "afs-")
 	})
 
 	ginkgo.JustAfterEach(func() {
@@ -106,14 +107,14 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Label("feature:admissio
 			ginkgo.By("Creating jobs in lq-a to saturate the ClusterQueue", func() {
 				job1 = jobtesting.MakeJob("job-a-1", ns.Name).
 					Queue(kueue.LocalQueueName(lqA.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "4").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").
 					Obj()
 				job2 = jobtesting.MakeJob("job-a-2", ns.Name).
 					Queue(kueue.LocalQueueName(lqA.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "4").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").
@@ -141,7 +142,7 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Label("feature:admissio
 			ginkgo.By("Creating pending jobs in both LocalQueues", func() {
 				job3 = jobtesting.MakeJob("job-a-3", ns.Name).
 					Queue(kueue.LocalQueueName(lqA.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "4").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").
@@ -149,7 +150,7 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Label("feature:admissio
 				behavioral.MustCreate(ctx, k8sClient, job3)
 				jobB = jobtesting.MakeJob("job-b-1", ns.Name).
 					Queue(kueue.LocalQueueName(lqB.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "4").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").
@@ -230,14 +231,14 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Label("feature:admissio
 			ginkgo.By("Creating jobs in lq1-a that borrow from cohort", func() {
 				job1A = jobtesting.MakeJob("job1-a-1", ns.Name).
 					Queue(kueue.LocalQueueName(lq1A.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "3").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").
 					Obj()
 				job2A = jobtesting.MakeJob("job1-a-2", ns.Name).
 					Queue(kueue.LocalQueueName(lq1A.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "3").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").
@@ -265,7 +266,7 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Label("feature:admissio
 			ginkgo.By("Creating a job in lq2-a to reclaim quota from cohort", func() {
 				job2 = jobtesting.MakeJob("job2-a-1", ns.Name).
 					Queue(kueue.LocalQueueName(lq2A.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "3").
 					RequestAndLimit(corev1.ResourceMemory, "200Mi").

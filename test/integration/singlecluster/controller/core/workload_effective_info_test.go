@@ -29,6 +29,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Effective resources in queued Info", ginkgo.Label("controller:workload", "area:core"), func() {
@@ -39,7 +40,7 @@ var _ = ginkgo.Describe("Effective resources in queued Info", ginkgo.Label("cont
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "effective-info-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "effective-info-")
 		flavor = utiltestingapi.MakeResourceFlavor("effective-info").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor)
 		cq = utiltestingapi.MakeClusterQueue("effective-info").ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).Resource(corev1.ResourceCPU, "0").Obj()).Obj()

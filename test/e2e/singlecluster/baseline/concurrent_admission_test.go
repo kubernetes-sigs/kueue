@@ -32,13 +32,14 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster", "feature:concurrent-admission"), func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-concurrent-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-concurrent-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -95,7 +96,7 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 		ginkgo.It("Should create one Parent Workload and one Variant per flavor", func() {
 			job := testingjob.MakeJob("job", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				RequestAndLimit(corev1.ResourceMemory, "20Mi").
 				TerminationGracePeriod(1).
@@ -156,7 +157,7 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 
 			job := testingjob.MakeJob("job", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				RequestAndLimit(corev1.ResourceMemory, "20Mi").
 				TerminationGracePeriod(1).

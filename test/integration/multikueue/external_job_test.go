@@ -47,6 +47,7 @@ import (
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe(
@@ -168,17 +169,17 @@ var _ = ginkgo.Describe(
 			})
 
 			ginkgo.BeforeEach(func() {
-				managerNs = behavioral.CreateNamespaceFromPrefixWithLog(
+				managerNs = e2e.CreateNamespaceFromPrefixWithLog(
 					managerTestCluster.ctx,
 					managerTestCluster.client,
 					"multikueue-",
 				)
-				worker1Ns = behavioral.CreateNamespaceWithLog(
+				worker1Ns = e2e.CreateNamespaceWithLog(
 					worker1TestCluster.ctx,
 					worker1TestCluster.client,
 					managerNs.Name,
 				)
-				worker2Ns = behavioral.CreateNamespaceWithLog(
+				worker2Ns = e2e.CreateNamespaceWithLog(
 					worker2TestCluster.ctx,
 					worker2TestCluster.client,
 					managerNs.Name,
@@ -501,10 +502,10 @@ var _ = ginkgo.Describe(
 						gomega.Eventually(func(g gomega.Gomega) {
 							g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).
 								To(gomega.Succeed())
-							behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
+							e2e.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
 							g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).
 								To(gomega.Succeed())
-							behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
+							e2e.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
 						}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 					})
 

@@ -32,6 +32,7 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSets", ginkgo.Ordered, func() {
@@ -50,7 +51,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 		fwk.StopManager(ctx)
 	})
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-zero-count-group-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-zero-count-group-")
 		topology = utiltestingapi.MakeDefaultOneLevelTopology("zero-count-group")
 		behavioral.MustCreate(ctx, k8sClient, topology)
 		flavors = nil

@@ -29,6 +29,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // Watches of different kinds are not ordered, so a Workload created right
@@ -162,8 +163,8 @@ var _ = ginkgo.Describe("Pending scheduling hashes under differing LimitRange de
 	)
 
 	ginkgo.BeforeEach(func() {
-		nsSmall = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-small-")
-		nsLarge = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-large-")
+		nsSmall = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-small-")
+		nsLarge = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-large-")
 
 		lrSmall := utiltesting.MakeLimitRange("limits", nsSmall.Name).
 			WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj()

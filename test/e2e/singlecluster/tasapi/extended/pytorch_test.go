@@ -31,6 +31,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", ginkgo.Label("area:tas", "feature:pytorchjob"), func() {
@@ -43,7 +44,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", ginkgo.Label("
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-pytorchjob-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-pytorchjob-")
 
 		topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
 		behavioral.MustCreate(ctx, k8sClient, topology)
@@ -95,8 +96,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", ginkgo.Label("
 						Annotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 						},
-						Image: behavioral.GetAgnHostImage(),
-						Args:  behavioral.BehaviorExitFast,
+						Image: e2e.GetAgnHostImage(),
+						Args:  e2e.BehaviorExitFast,
 					},
 					testingpytorchjob.PyTorchReplicaSpecRequirement{
 						ReplicaType:   kftraining.PyTorchJobReplicaTypeWorker,
@@ -105,8 +106,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", ginkgo.Label("
 						Annotations: map[string]string{
 							kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 						},
-						Image: behavioral.GetAgnHostImage(),
-						Args:  behavioral.BehaviorExitFast,
+						Image: e2e.GetAgnHostImage(),
+						Args:  e2e.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "200m").

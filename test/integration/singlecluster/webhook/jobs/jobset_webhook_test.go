@@ -26,13 +26,14 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("JobSet Webhook", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobset.SetupJobSetWebhook))
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -82,8 +83,8 @@ var _ = ginkgo.Describe("JobSet Webhook", func() {
 				Queue("indexed_job").
 				ReplicatedJobs(testingjob.ReplicatedJobRequirements{
 					Name:        "replicated-job-1",
-					Image:       behavioral.GetAgnHostImage(),
-					Args:        behavioral.BehaviorExitFast,
+					Image:       e2e.GetAgnHostImage(),
+					Args:        e2e.BehaviorExitFast,
 					Replicas:    replicas,
 					Parallelism: parallelism,
 					Completions: parallelism,

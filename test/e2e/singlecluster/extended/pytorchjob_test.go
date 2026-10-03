@@ -30,6 +30,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	pytorchjobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster", "feature:pytorchjob"), func() {
@@ -44,7 +45,7 @@ var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster"
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pytorch-e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pytorch-e2e-")
 		resourceFlavorName = "pytorch-rf-" + ns.Name
 		clusterQueueName = "pytorch-cq-" + ns.Name
 		localQueueName = "pytorch-lq-" + ns.Name
@@ -83,7 +84,7 @@ var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster"
 				Suspend(false).
 				SetTypeMeta().
 				PyTorchReplicaSpecsOnlyMasterDefault().
-				Image(kftraining.PyTorchJobReplicaTypeMaster, behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(kftraining.PyTorchJobReplicaTypeMaster, e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "1").
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "200Mi").
 				TerminationGracePeriod(kftraining.PyTorchJobReplicaTypeMaster, 1).
@@ -133,7 +134,7 @@ var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster"
 
 			ginkgo.By("Check workload is finished", func() {
 				// Wait for active pods and terminate them
-				behavioral.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 0, client.InNamespace(ns.Name))
+				e2e.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 0, client.InNamespace(ns.Name))
 
 				behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 			})

@@ -32,6 +32,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -51,7 +52,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("test-flavor-" + ns.Name).Obj()
 		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
@@ -75,13 +76,13 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 
 		curlPod = testingjobspod.MakePod("curl-metrics-"+ns.Name, kueueNS).
 			ServiceAccountName(serviceAccountName).
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, curlPod)
 
 		ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
-			behavioral.WaitForPodRunning(ctx, k8sClient, curlPod)
+			e2e.WaitForPodRunning(ctx, k8sClient, curlPod)
 		})
 
 		curlContainerName = curlPod.Spec.Containers[0].Name
@@ -170,7 +171,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			}
 
 			ginkgo.By("checking that default metrics are available", func() {
-				behavioral.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
+				e2e.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 
 			ginkgo.By("deleting the cluster queue", func() {
@@ -202,7 +203,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			}
 
 			ginkgo.By("checking that metrics that should have been deleted are no longer available", func() {
-				behavioral.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, deletedMetrics)
+				e2e.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, deletedMetrics)
 			})
 
 			notDeletedMetrics := [][]string{
@@ -225,7 +226,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			}
 
 			ginkgo.By("checking that metrics that should not have been deleted are still available", func() {
-				behavioral.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, notDeletedMetrics)
+				e2e.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, notDeletedMetrics)
 			})
 
 			ginkgo.By("deleting the local queue", func() {
@@ -243,7 +244,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			}
 
 			ginkgo.By("checking that LocalQueue metrics are no longer available after deleting the local queue", func() {
-				behavioral.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, deletedLocalQueueMetrics)
+				e2e.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, deletedLocalQueueMetrics)
 			})
 		})
 	})
@@ -284,7 +285,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 
 			createdJob = testingjob.MakeJob("admission-checked-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				TerminationGracePeriod(1).
 				Obj()
@@ -320,7 +321,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			}
 
 			ginkgo.By("checking that admission check metrics are available", func() {
-				behavioral.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
+				e2e.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 
 			ginkgo.By("deleting the cluster queue", func() {
@@ -331,7 +332,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			})
 
 			ginkgo.By("checking that admission check metrics are no longer available", func() {
-				behavioral.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
+				e2e.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 		})
 	})
@@ -412,7 +413,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 
 			lowerJob1 = testingjob.MakeJob("lower-job-1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue1.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				TerminationGracePeriod(1).
 				Obj()
@@ -433,7 +434,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 
 			lowerJob2 = testingjob.MakeJob("lower-job-2", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				TerminationGracePeriod(1).
 				Obj()
@@ -454,7 +455,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 
 			blockerJob = testingjob.MakeJob("blocker", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "3").
 				TerminationGracePeriod(1).
@@ -476,7 +477,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 
 			higherJob1 = testingjob.MakeJob("high-large-1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue1.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				TerminationGracePeriod(1).
@@ -485,7 +486,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 
 			higherJob2 = testingjob.MakeJob("high-large-2", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue2.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(highWorkloadPriorityClass.Name).
 				RequestAndLimit(corev1.ResourceCPU, "4").
 				TerminationGracePeriod(1).
@@ -568,7 +569,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			}
 
 			ginkgo.By("checking that eviction and preemption metrics are available", func() {
-				behavioral.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
+				e2e.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 
 			ginkgo.By("delete the cluster queue", func() {
@@ -585,7 +586,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Label("area:singlecluster", "feature:m
 			})
 
 			ginkgo.By("checking that eviction and preemption metrics are no longer available", func() {
-				behavioral.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
+				e2e.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, metrics)
 			})
 		})
 	})

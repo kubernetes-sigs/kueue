@@ -35,12 +35,13 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(behavioral.Shard1, "area:tas", "feature:job"), func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(e2e.Shard1, "area:tas", "feature:job"), func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-job-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-job-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -94,7 +95,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(behavior
 				Obj()
 			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, sampleJob)
 
@@ -115,7 +116,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(behavior
 				Completions(3).
 				RequestAndLimit(extraResource, "1").
 				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, sampleJob)
 
@@ -162,7 +163,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(behavior
 				Completions(3).
 				RequestAndLimit(extraResource, "1").
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, sampleJob)
 
@@ -209,7 +210,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(behavior
 				Completions(3).
 				RequestAndLimit(extraResource, "1").
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, sampleJob)
 
@@ -235,7 +236,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(behavior
 				Indexed(true).
 				RequestAndLimit(extraResource, "1").
 				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				TerminationGracePeriod(1).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, sampleJob)
@@ -292,7 +293,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(behavior
 				Completions(int32(numPods)).
 				Indexed(true).
 				RequestAndLimit(extraResource, "1").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				TerminationGracePeriod(1).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, sampleJob)
@@ -348,7 +349,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Job", ginkgo.Label(behavior
 				Completions(10).
 				RequestAndLimit(extraResource, "1").
 				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				TerminationGracePeriod(1).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, sampleJob)

@@ -39,6 +39,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("MultiKueue Pod", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -86,9 +87,9 @@ var _ = ginkgo.Describe("MultiKueue Pod", ginkgo.Label("area:multikueue", "featu
 			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
+				e2e.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
+				e2e.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
@@ -202,9 +203,9 @@ var _ = ginkgo.Describe("MultiKueue Pod", ginkgo.Label("area:multikueue", "featu
 			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
+				e2e.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
+				e2e.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
@@ -398,9 +399,9 @@ var _ = ginkgo.Describe("MultiKueue Pod", ginkgo.Label("area:multikueue", "featu
 			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
+				e2e.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
+				e2e.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 

@@ -35,13 +35,14 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/list"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Kueuectl List", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 	})
 
 	ginkgo.AfterEach(func() {
@@ -185,7 +186,7 @@ very-long-local-queue-name   cq1                            0                   
 		})
 
 		ginkgo.It("Should list local queues across all namespaces with -A", func() {
-			otherNs := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-other-")
+			otherNs := e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-other-")
 			ginkgo.DeferCleanup(func() {
 				gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, otherNs)).To(gomega.Succeed())
 			})

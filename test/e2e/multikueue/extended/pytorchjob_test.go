@@ -30,6 +30,7 @@ import (
 	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 type pyTorchJobTestContext struct {
@@ -53,8 +54,8 @@ func registerPyTorchJobTests(contextProvider func() pyTorchJobTestContext) {
 					ReplicaType:   kftraining.PyTorchJobReplicaTypeMaster,
 					ReplicaCount:  1,
 					RestartPolicy: "Never",
-					Image:         behavioral.GetAgnHostImage(),
-					Args:          behavioral.BehaviorExitFast,
+					Image:         e2e.GetAgnHostImage(),
+					Args:          e2e.BehaviorExitFast,
 				},
 			).
 			RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "100m").
@@ -69,7 +70,7 @@ func registerPyTorchJobTests(contextProvider func() pyTorchJobTestContext) {
 
 		wlLookupKey := types.NamespacedName{Name: workloadpytorchjob.GetWorkloadNameForPyTorchJob(pyTorchJob.Name, pyTorchJob.UID), Namespace: managerNs.Name}
 
-		admittedWorker := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+		admittedWorker := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 		ginkgo.GinkgoLogr.Info("PyTorchJob %s is admitted in worker cluster %s", pyTorchJob.Name, admittedWorker)
 
 		ginkgo.By("Waiting for the PyTorchJob to finish", func() {

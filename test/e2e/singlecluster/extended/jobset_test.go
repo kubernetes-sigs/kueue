@@ -28,13 +28,14 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("JobSet", ginkgo.Label("area:singlecluster", "feature:jobset"), func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -78,8 +79,8 @@ var _ = ginkgo.Describe("JobSet", ginkgo.Label("area:singlecluster", "feature:jo
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
-						Image:       behavioral.GetAgnHostImage(),
-						Args:        behavioral.BehaviorExitFast,
+						Image:       e2e.GetAgnHostImage(),
+						Args:        e2e.BehaviorExitFast,
 						Replicas:    2,
 						Parallelism: 2,
 						Completions: 2,
@@ -157,8 +158,8 @@ var _ = ginkgo.Describe("JobSet", ginkgo.Label("area:singlecluster", "feature:jo
 				ReplicatedJobs(
 					testingjobset.ReplicatedJobRequirements{
 						Name:        "replicated-job-1",
-						Image:       behavioral.GetAgnHostImage(),
-						Args:        behavioral.BehaviorExitFast,
+						Image:       e2e.GetAgnHostImage(),
+						Args:        e2e.BehaviorExitFast,
 						Replicas:    1,
 						Parallelism: 1,
 						Completions: 1,

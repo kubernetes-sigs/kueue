@@ -30,13 +30,14 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-dra-extended-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-dra-extended-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -83,7 +84,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			job := testingjob.MakeJob("partition-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "partition-template").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)
@@ -113,7 +114,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			job := testingjob.MakeJob("count2-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "partition-count2-template").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)
@@ -141,7 +142,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			job := testingjob.MakeJob("broad-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "broad-template").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)
@@ -168,7 +169,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			job := testingjob.MakeJob("fullgpu-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "fullgpu-template").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)
@@ -201,7 +202,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			job := testingjob.MakeJob("unified-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				ResourceClaimTemplate("full", "unified-full-template").
 				ResourceClaimTemplate("partition", "unified-partition-template").
 				Obj()
@@ -232,7 +233,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			job := testingjob.MakeJob("toomany-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "toomany-template").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)
@@ -267,7 +268,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			job1 := testingjob.MakeJob("share-job-1", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "share-template").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job1)
@@ -275,7 +276,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			job2 := testingjob.MakeJob("share-job-2", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				ResourceClaimTemplate("gpu", "share-template").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job2)
@@ -311,7 +312,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			job := testingjob.MakeJob("nomatch-job", ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "nomatch-template").
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)

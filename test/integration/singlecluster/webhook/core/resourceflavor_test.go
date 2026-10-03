@@ -30,6 +30,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -40,7 +41,7 @@ const (
 var _ = ginkgo.Describe("ResourceFlavor Webhook", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())

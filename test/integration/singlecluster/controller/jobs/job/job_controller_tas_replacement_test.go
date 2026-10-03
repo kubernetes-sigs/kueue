@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() {
@@ -51,7 +52,7 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(true, true, nil))
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-replacement-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-replacement-")
 		nodes = nil
 		for _, name := range []string{"node1", "node2", "node3", "node4"} {
 			nodes = append(nodes, *testingnode.MakeNode(name).

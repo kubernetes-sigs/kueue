@@ -34,6 +34,7 @@ import (
 	utiltestingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Importer", func() {
@@ -54,7 +55,7 @@ var _ = ginkgo.Describe("Importer", func() {
 		flavor = utiltestingapi.MakeResourceFlavor("f").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor)
 
-		ns1 = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "import-ns1-")
+		ns1 = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "import-ns1-")
 
 		cq1 = utiltestingapi.MakeClusterQueue("cq1").
 			ResourceGroup(
@@ -66,7 +67,7 @@ var _ = ginkgo.Describe("Importer", func() {
 		lq1 = utiltestingapi.MakeLocalQueue(lqName, ns1.Name).ClusterQueue("cq1").Obj()
 		behavioral.MustCreate(ctx, k8sClient, lq1)
 
-		ns2 = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "import-ns2-")
+		ns2 = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "import-ns2-")
 
 		cq2 = utiltestingapi.MakeClusterQueue("cq2").
 			ResourceGroup(

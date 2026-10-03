@@ -31,12 +31,13 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", ginkgo.Label(behavioral.Shard1, "area:tas", "feature:pod"), func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", ginkgo.Label(e2e.Shard1, "area:tas", "feature:pod"), func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-pod-group-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-pod-group-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -89,7 +90,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", ginkgo.Label(be
 				Queue("test-queue").
 				RequestAndLimit(extraResource, "1").
 				Limit(extraResource, "1").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel)
 			podGroup := basePod.MakeIndexedGroup(numPods)
 
@@ -138,7 +139,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", ginkgo.Label(be
 			numPods := 4
 			basePod := testingpod.MakePod("test-pod", ns.Name).
 				Queue("test-queue").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Request(extraResource, "1").
 				Limit(extraResource, "1")
 			podGroup := basePod.TerminationGracePeriod(1).MakeIndexedGroup(numPods)
@@ -202,7 +203,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", ginkgo.Label(be
 
 			basePod := testingpod.MakePod("group", ns.Name).
 				Queue("test-queue").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "10m").
 				Label(spreadGroupLabel, spreadGroupValue).
 				Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
@@ -304,7 +305,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", ginkgo.Label(be
 			numPods := 4
 			basePod := testingpod.MakePod("test-pod", ns.Name).
 				Queue("test-queue").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Request(extraResource, "1").
 				Limit(extraResource, "1")
 			podGroup := basePod.TerminationGracePeriod(1).MakeIndexedGroup(numPods)

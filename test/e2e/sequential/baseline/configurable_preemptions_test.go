@@ -35,6 +35,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	jobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configurablepreemption"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -62,7 +63,7 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 		).Obj()
 
 	ginkgo.BeforeAll(func() {
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.FeatureGates = map[string]bool{
 				string(features.ConfigurablePreemptions):      true,
 				string(features.TopologyAwareScheduling):      true,
@@ -75,7 +76,7 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 
 		behavioral.MustCreate(ctx, k8sClient, preemptionConfig)
 
@@ -119,7 +120,7 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 			ginkgo.By("Create jobs for admission")
 			lowPriorityJob := jobtesting.MakeJob("low-priority-job", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				RequestAndLimit(corev1.ResourceMemory, "200Mi").
 				Label(priorityLabel, "1").
@@ -129,7 +130,7 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 
 			highPriorityJob := jobtesting.MakeJob("high-priority-job", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				RequestAndLimit(corev1.ResourceMemory, "200Mi").
 				Label(priorityLabel, "9").
@@ -146,7 +147,7 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 			ginkgo.By("Create preempting job")
 			preemptingJob := jobtesting.MakeJob("preempting-job", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				RequestAndLimit(corev1.ResourceMemory, "200Mi").
 				Label(priorityLabel, "5").
