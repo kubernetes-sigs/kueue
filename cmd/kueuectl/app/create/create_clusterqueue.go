@@ -508,7 +508,7 @@ func mergeFlavorsByCoveredResources(resourceGroups []kueue.ResourceGroup) ([]kue
 
 	for _, rg := range resourceGroups {
 		resourceGroupResources := sets.New(rg.CoveredResources...)
-		// Merged groups never overlap, so at most one of them shares resources with rg.
+		// Merged groups are disjoint, so a group equal to rg is the only one sharing resources with it.
 		idx := slices.IndexFunc(mergedResources, func(existing kueue.ResourceGroup) bool {
 			return resourceGroupResources.HasAny(existing.CoveredResources...)
 		})
