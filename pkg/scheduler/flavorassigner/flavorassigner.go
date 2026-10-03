@@ -1179,7 +1179,11 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 
 	// We will only check against the flavors' labels for the resource.
 	attemptedFlavorIdx := -1
-	idx := a.wl.FlavorScanState.NextFlavorToTryForPodSetResource(psIDs[0], resName)
+	// Start zero-count probes from the first flavor, even when admission is being retried.
+	idx := 0
+	if probeRequests == nil {
+		idx = a.wl.FlavorScanState.NextFlavorToTryForPodSetResource(psIDs[0], resName)
+	}
 	for ; idx < len(resourceGroup.Flavors); idx++ {
 		attemptedFlavorIdx = idx
 		fName := resourceGroup.Flavors[idx]
@@ -1315,8 +1319,8 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 
 	if features.Enabled(features.FlavorFungibility) {
 		for _, assignment := range bestAssignment {
-			if attemptedFlavorIdx == len(resourceGroup.Flavors)-1 {
-				// we have reach the last flavor, try from the first flavor next time
+			if probeRequests != nil || attemptedFlavorIdx == len(resourceGroup.Flavors)-1 {
+				// A zero-count probe must not trigger more retries while another PodSet is blocked.
 				assignment.TriedFlavorIdx = -1
 			} else {
 				assignment.TriedFlavorIdx = attemptedFlavorIdx
