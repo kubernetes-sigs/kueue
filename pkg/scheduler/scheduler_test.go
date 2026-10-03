@@ -8148,7 +8148,7 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "AdmissionGated",
+						Reason:             kueue.PreemptionGated,
 						Message:            "Workload requires preemption, but it's gated",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
@@ -10368,14 +10368,14 @@ func TestRequeueAndUpdate(t *testing.T) {
 			e: entry{
 				status:              preemptionGated,
 				inadmissibleMsg:     "preemption gated",
-				quotaReservedReason: kueue.WorkloadAdmissionGated,
+				quotaReservedReason: kueue.PreemptionGated,
 			},
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadAdmissionGated,
+						Reason:  kueue.PreemptionGated,
 						Message: "preemption gated",
 					},
 					{
@@ -10418,14 +10418,14 @@ func TestRequeueAndUpdate(t *testing.T) {
 			e: entry{
 				status:              preemptionGated,
 				inadmissibleMsg:     "preemption gated",
-				quotaReservedReason: kueue.WorkloadAdmissionGated,
+				quotaReservedReason: kueue.PreemptionGated,
 			},
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadAdmissionGated,
+						Reason:  kueue.PreemptionGated,
 						Message: "preemption gated",
 					},
 					{

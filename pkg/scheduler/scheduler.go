@@ -519,7 +519,7 @@ func (s *Scheduler) processEntry(
 		if (features.Enabled(features.ConcurrentAdmission) || features.Enabled(features.MultiKueueOrchestratedPreemption)) && workload.HasClosedPreemptionGate(e.Obj) {
 			gatedMsg := "Workload requires preemption, but it's gated"
 			log.V(3).Info("Workload requires preemption, but it is gated", "workload", klog.KObj(e.Obj))
-			e.quotaReservedReason = kueue.WorkloadAdmissionGated
+			e.quotaReservedReason = kueue.PreemptionGated
 			e.markPreemptionGated(gatedMsg)
 			return
 		}
