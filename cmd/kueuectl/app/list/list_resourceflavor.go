@@ -32,7 +32,6 @@ import (
 	kueuev1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/kueue/v1beta2"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	kueuectlutil "sigs.k8s.io/kueue/cmd/kueuectl/app/util"
-
 )
 
 var (
