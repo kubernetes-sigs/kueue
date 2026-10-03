@@ -108,6 +108,23 @@ however the integration of the CRD with Kueue can implement
 to change this behavior. You can read the code for each job integration
 to learn how the priority class is obtained.
 
+## Referencing a PriorityClass
+
+Wherever the workload's priority comes from a `PriorityClass`, that `PriorityClass` must
+exist in the cluster. Kueue cannot resolve a priority from a name that does not exist, so
+it does not create the `Workload`, and the job it would have queued stays suspended.
+
+Kueue reports this as a `Warning` event with the reason `PriorityClassNotFound` on the
+object that named the class, so `kubectl describe` on that object names it. The `Workload`
+is created on a later reconciliation once the `PriorityClass` exists.
+
+Kubernetes refuses a Pod that names a nonexistent `PriorityClass` and reports that on the
+Pod's owner, but a job Kueue has suspended creates no Pod, so that error never appears. A
+CRD that defines the overall pod priority in a dedicated field does not reach a Pod spec
+at all: `MPIJob`, for example, resolves `.spec.runPolicy.schedulingPolicy.priorityClass`
+ahead of its launcher and worker templates, so the name Kueue looks up there need not
+appear on any Pod.
+
 ## Where workload's priority is used
 
 The priority of workloads is used for:
