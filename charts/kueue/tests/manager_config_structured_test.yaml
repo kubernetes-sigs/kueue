@@ -1,0 +1,442 @@
+# Copyright The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+suite: test structured manager configuration
+templates:
+  - manager/manager-config.yaml
+  - webhook/manifests.yaml
+tests:
+  - it: should keep sibling defaults when overriding nested fields
+    template: manager/manager-config.yaml
+    set:
+      managerConfig.config.clientConnection.qps: 600
+      managerConfig.config.controller.groupKindConcurrency:
+        Job.batch: 8
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "clientConnection:\n  burst: 500\n  qps: 600"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "Job.batch: 8"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "Cohort.kueue.x-k8s.io: 1"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "Workload.kueue.x-k8s.io: 10"
+
+  - it: should preserve false and zero values
+    template: manager/manager-config.yaml
+    set:
+      managerConfig.config.leaderElection.leaderElect: false
+      managerConfig.config.controller.groupKindConcurrency:
+        Job.batch: 0
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "leaderElect: false"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "Job.batch: 0"
+
+  - it: should remove an inherited field set to null
+    template: manager/manager-config.yaml
+    set:
+      managerConfig.config.clientConnection.qps: null
+    asserts:
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps:"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "burst: 500"
+
+  - it: should replace the frameworks list
+    template: manager/manager-config.yaml
+    set:
+      managerConfig.config.integrations.frameworks: [batch/job]
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "integrations:\n  frameworks:\n  - batch/job\n"
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "ray.io/rayjob|kubeflow.org/mpijob|  - pod"
+
+  - it: should allow an empty frameworks list
+    template: manager/manager-config.yaml
+    set:
+      managerConfig.config.integrations.frameworks: []
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: 'frameworks: \[\]'
+
+  - it: should keep a legacy string as a full replacement
+    template: manager/manager-config.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: |
+        clientConnection:
+          qps: 100
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 100"
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "burst:|groupKindConcurrency:"
+
+  - it: should disable internal certificates when cert-manager is enabled with structured config
+    template: manager/manager-config.yaml
+    set:
+      enableCertManager: true
+      managerConfig.config.clientConnection.qps: 600
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "internalCertManagement:\n  enable: false"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 600"
+
+  - it: should preserve explicit internal certificate settings
+    template: manager/manager-config.yaml
+    set:
+      enableCertManager: true
+      managerConfig.config.internalCertManagement:
+        enable: true
+        webhookServiceName: custom-service
+        webhookSecretName: custom-secret
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "internalCertManagement:\n  enable: true\n  webhookSecretName: custom-secret\n  webhookServiceName: custom-service"
+
+  - it: should reject a non-map structured config
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.config: invalid
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)managerConfig[/.]config.*(object|map)"
+
+  - it: should propagate the structured selector to the manager and both webhook configurations
+    set:
+      managerConfig.config.managedJobsNamespaceSelector:
+        matchLabels:
+          team: research
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "managedJobsNamespaceSelector:\n  matchLabels:\n    team: research"
+        template: manager/manager-config.yaml
+      - equal:
+          path: webhooks[?(@.name == "mjob.kb.io")].namespaceSelector
+          value:
+            matchLabels:
+              team: research
+        template: webhook/manifests.yaml
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "vjob.kb.io")].namespaceSelector
+          value:
+            matchLabels:
+              team: research
+        template: webhook/manifests.yaml
+        documentIndex: 1
+      - notExists:
+          path: webhooks[?(@.name == "mclusterqueue.kb.io")].namespaceSelector
+        template: webhook/manifests.yaml
+        documentIndex: 0
+
+  - it: should derive webhook failure policies from the structured frameworks list
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.config.integrations.frameworks: [batch/job, pod]
+    asserts:
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
+          value: Fail
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "vpod.kb.io")].failurePolicy
+          value: Fail
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "mdeployment.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+
+  - it: should use nonempty YAML instead of structured configuration for every consumer
+    set:
+      managerConfig.config:
+        clientConnection:
+          qps: 600
+        integrations:
+          frameworks: [batch/job, pod]
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: structured
+      managerConfig.controllerManagerConfigYaml: |
+        clientConnection:
+          qps: 100
+        integrations:
+          frameworks: [batch/job]
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: legacy
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 100"
+        template: manager/manager-config.yaml
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 600|burst:|groupKindConcurrency:|team: structured"
+        template: manager/manager-config.yaml
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: legacy"
+        template: manager/manager-config.yaml
+      - equal:
+          path: webhooks[?(@.name == "mjob.kb.io")].namespaceSelector.matchLabels.team
+          value: legacy
+        template: webhook/manifests.yaml
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "vjob.kb.io")].namespaceSelector.matchLabels.team
+          value: legacy
+        template: webhook/manifests.yaml
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
+          value: Ignore
+        template: webhook/manifests.yaml
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "vpod.kb.io")].failurePolicy
+          value: Ignore
+        template: webhook/manifests.yaml
+        documentIndex: 1
+
+  - it: should use chart defaults when both inputs are empty
+    template: manager/manager-config.yaml
+    set:
+      managerConfig.config: {}
+      managerConfig.controllerManagerConfigYaml: ""
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "burst: 500"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 300"
+
+  - it: should use chart defaults with an empty legacy string
+    template: manager/manager-config.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: ""
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "burst: 500"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 300"
+
+  - it: should derive webhook policies from chart defaults with an empty string
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: ""
+    asserts:
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
+          value: Fail
+        documentIndex: 0
+
+  - it: should select structured configuration when the legacy string is cleared
+    set:
+      managerConfig.controllerManagerConfigYaml: ""
+      managerConfig.config:
+        clientConnection:
+          qps: 600
+        integrations:
+          frameworks: [batch/job]
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: structured
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "clientConnection:\n  burst: 500\n  qps: 600"
+        template: manager/manager-config.yaml
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: structured"
+        template: manager/manager-config.yaml
+      - equal:
+          path: webhooks[?(@.name == "mjob.kb.io")].namespaceSelector.matchLabels.team
+          value: structured
+        template: webhook/manifests.yaml
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "vjob.kb.io")].namespaceSelector.matchLabels.team
+          value: structured
+        template: webhook/manifests.yaml
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
+          value: Ignore
+        template: webhook/manifests.yaml
+        documentIndex: 0
+
+  - it: should allow an explicit empty YAML object as a complete replacement
+    template: manager/manager-config.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: "{}"
+      managerConfig.config.clientConnection.qps: 600
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "internalCertManagement:"
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "clientConnection:|integrations:|leaderElection:|controller:"
+
+  - it: should ignore optional framework webhooks for an empty legacy YAML object
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: "{}"
+    asserts:
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "mdeployment.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "mstatefulset.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "vpod.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "vdeployment.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "vstatefulset.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+
+  - it: should ignore optional framework webhooks when integrations are removed
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.config.integrations: null
+    asserts:
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "mdeployment.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "mstatefulset.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "vpod.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "vdeployment.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "vstatefulset.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+
+  - it: should ignore optional framework webhooks when frameworks are removed
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.config.integrations.frameworks: null
+    asserts:
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "mdeployment.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "mstatefulset.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "vpod.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "vdeployment.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+      - equal:
+          path: webhooks[?(@.name == "vstatefulset.kb.io")].failurePolicy
+          value: Ignore
+        documentIndex: 1
+
+  - it: should use packaged defaults with an empty structured map
+    template: manager/manager-config.yaml
+    set:
+      managerConfig.config: {}
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "burst: 500"
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 300"
+
+  - it: should reject a null structured input
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.config: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)managerConfig[/.]config.*(object|map)"
+
+  - it: should reject a non-string legacy input
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)managerConfig[/.]controllerManagerConfigYaml.*string"
+
+  - it: should reject a null legacy input
+    template: webhook/manifests.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: null
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)managerConfig[/.]controllerManagerConfigYaml.*string"
