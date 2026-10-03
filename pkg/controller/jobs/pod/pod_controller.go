@@ -950,158 +950,24 @@ func constructPodSet(p *corev1.Pod) (kueue.PodSet, error) {
 }
 
 func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.PodSet, error) {
-	if !features.Enabled(features.PodIntegrationVerifyRoleRequests) {
-		for _, podInGroup := range pods {
-			if !isPodRunnableOrSucceeded(&podInGroup) {
-				continue
-			}
-			roleHash, err := getRoleHash(podInGroup)
-			if err != nil {
-				return nil, errRoleHashCalculationForPod(podInGroup.Name, err)
-			}
-			podSets, err := constructPodSets(&podInGroup)
-			if err != nil {
-				return nil, err
-			}
-			podSets[0].Name = kueue.NewPodSetReference(roleHash)
-			podSets[0].Count = int32(groupTotalCount)
-			return podSets, nil
-		}
-		return nil, errors.New("failed to find a runnable pod in the group")
-	}
-
-	var (
-		foundRoleHash string
-		podSets       []kueue.PodSet
-	)
 	for _, podInGroup := range pods {
 		if !isPodRunnableOrSucceeded(&podInGroup) {
 			continue
 		}
-		hash, err := getRoleHash(podInGroup)
+		roleHash, err := getRoleHash(podInGroup)
 		if err != nil {
-			return nil, errRoleHashCalculationForPod(podInGroup.Name, err)
+			return nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
 		}
-		if foundRoleHash == "" {
-			podSets, err = constructPodSets(&podInGroup)
-			if err != nil {
-				return nil, err
-			}
-			foundRoleHash = hash
-			podSets[0].Name = kueue.NewPodSetReference(foundRoleHash)
-			podSets[0].Count = int32(groupTotalCount)
-			continue
+		podSets, err := constructPodSets(&podInGroup)
+		if err != nil {
+			return nil, err
 		}
-		if hash != foundRoleHash {
-			return nil, errFastAdmissionRoleMismatch(podInGroup.Name, hash, foundRoleHash)
-		}
-		mergeMaxPodSpecsInto(&podSets[0].Template.Spec, &podInGroup.Spec)
+		podSets[0].Name = kueue.NewPodSetReference(roleHash)
+		podSets[0].Count = int32(groupTotalCount)
+		return podSets, nil
 	}
-	if foundRoleHash == "" {
-		return nil, errors.New("failed to find a runnable pod in the group")
-	}
-	return podSets, nil
-}
 
-// mergeMaxPodSpecsInto merges resource requests and limits, taking the
-// element-wise maximum. Containers and InitContainers (including sidecars with
-// restartPolicy: Always) are merged by index, and extras on other are appended.
-// Pod-level Resources (KEP-2837) are merged the same way. This matches
-// resourcehelpers.PodRequests, which accounts for all three. Limits are raised
-// so that no resource ends with requests > limits.
-func mergeMaxPodSpecsInto(template, other *corev1.PodSpec) {
-	if template == nil || other == nil {
-		return
-	}
-	template.Containers = mergeMaxContainers(template.Containers, other.Containers)
-	template.InitContainers = mergeMaxContainers(template.InitContainers, other.InitContainers)
-	if other.Resources == nil {
-		return
-	}
-	if template.Resources == nil {
-		template.Resources = other.Resources.DeepCopy()
-		return
-	}
-	mergeMaxResourceRequirements(template.Resources, other.Resources)
-}
-
-// mergeMaxContainers merges requests and limits of other into template by index,
-// taking the element-wise maximum, and appends containers present only in other.
-func mergeMaxContainers(template, other []corev1.Container) []corev1.Container {
-	for i := range other {
-		if i >= len(template) {
-			template = append(template, *other[i].DeepCopy())
-			continue
-		}
-		mergeMaxResourceRequirements(&template[i].Resources, &other[i].Resources)
-	}
-	return template
-}
-
-// mergeMaxResourceRequirements merges Requests and Limits element-wise, then
-// raises any limit that would otherwise be below its merged request.
-func mergeMaxResourceRequirements(template, other *corev1.ResourceRequirements) {
-	if template == nil || other == nil {
-		return
-	}
-	formatter := resources.NewResourceFormatter()
-	mergedRequests := mergeMaxRequests(
-		resources.NewRequestsFromResourceList(template.Requests),
-		resources.NewRequestsFromResourceList(other.Requests),
-	)
-	mergedLimits := mergeMaxRequests(
-		resources.NewRequestsFromResourceList(template.Limits),
-		resources.NewRequestsFromResourceList(other.Limits),
-	)
-	if mergedRequests != nil {
-		mergedRequests.ForEach(func(name corev1.ResourceName, reqVal int64) {
-			_, hasTemplateLim := template.Limits[name]
-			_, hasOtherLim := other.Limits[name]
-			if !hasTemplateLim && !hasOtherLim {
-				return
-			}
-			if mergedLimits == nil {
-				mergedLimits = resources.NewRequests()
-			}
-			if reqVal > mergedLimits.ResourceValue(name) {
-				mergedLimits.Set(name, reqVal)
-			}
-		})
-	}
-	template.Requests = mergedRequests.ToResourceList(formatter)
-	if mergedLimits != nil && mergedLimits.Len() > 0 {
-		template.Limits = mergedLimits.ToResourceList(formatter)
-	}
-}
-
-// mergeMaxRequests returns the element-wise maximum of two request vectors.
-func mergeMaxRequests(base, other resources.Requests) resources.Requests {
-	if other == nil {
-		return base
-	}
-	if base == nil {
-		return other.Clone()
-	}
-	result := base.Clone()
-	other.ForEach(func(name corev1.ResourceName, val int64) {
-		if val > result.ResourceValue(name) {
-			result.Set(name, val)
-		}
-	})
-	return result
-}
-
-// podWithMaxRequests returns a pod template whose requests and limits are the
-// element-wise maximum across all pods in the group, per container.
-func podWithMaxRequests(pods []corev1.Pod) *corev1.Pod {
-	if len(pods) == 0 {
-		return nil
-	}
-	template := pods[0].DeepCopy()
-	for i := 1; i < len(pods); i++ {
-		mergeMaxPodSpecsInto(&template.Spec, &pods[i].Spec)
-	}
-	return template
+	return nil, errors.New("failed to find a runnable pod in the group")
 }
 
 // podExceedsRequests reports whether the pod requests more of any resource than reserved
@@ -1119,7 +985,7 @@ func firstExceededResource(pod *corev1.Pod, reserved resources.Requests) (corev1
 		reserved = resources.NewRequests()
 	}
 	for name, val := range actual.Iter() {
-		if val > reserved.ResourceValue(name) {
+		if val.Cmp(reserved.ResourceValue(name)) > 0 {
 			return name, true
 		}
 	}
@@ -1168,12 +1034,6 @@ func validatePodsBeforeUngating(pods []corev1.Pod, wl *kueue.Workload, recorder 
 	return oversized, nil
 }
 
-func errFastAdmissionRoleMismatch(podName, gotRole, expectedRole string) error {
-	return jobframework.UnretryableError(fmt.Sprintf(
-		"pod %q has role %q but fast admission requires all pods to have the same role %q",
-		podName, gotRole, expectedRole))
-}
-
 func errRoleHashCalculationForPod(podName string, err error) error {
 	return fmt.Errorf("failed to calculate pod role hash for pod %q: %w", podName, err)
 }
@@ -1188,11 +1048,7 @@ type podSetWithShapeHash struct {
 }
 
 func constructGroupPodSets(pods []corev1.Pod, referenceOrder []kueue.PodSetReference) ([]kueue.PodSet, error) {
-	type roleInfo struct {
-		pods []corev1.Pod
-	}
-	roles := make(map[string]*roleInfo)
-	var roleOrder []string
+	var resultPodSets []podSetWithShapeHash
 
 	for _, podInGroup := range pods {
 		if !isPodRunnableOrSucceeded(&podInGroup) {
@@ -1201,42 +1057,37 @@ func constructGroupPodSets(pods []corev1.Pod, referenceOrder []kueue.PodSetRefer
 
 		roleHash, err := getRoleHash(podInGroup)
 		if err != nil {
-			return nil, errRoleHashCalculationForPod(podInGroup.Name, err)
+			return nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
 		}
 
-		info, ok := roles[roleHash]
-		if !ok {
-			info = &roleInfo{}
-			roles[roleHash] = info
-			roleOrder = append(roleOrder, roleHash)
-		}
-		info.pods = append(info.pods, podInGroup)
-	}
+		podRoleFound := false
+		for psi := range resultPodSets {
+			if string(resultPodSets[psi].podSet.Name) == roleHash {
+				podRoleFound = true
+				resultPodSets[psi].podSet.Count++
 
-	resultPodSets := make([]podSetWithShapeHash, 0, len(roles))
-	maxMerge := features.Enabled(features.PodIntegrationVerifyRoleRequests)
-	for _, roleHash := range roleOrder {
-		info := roles[roleHash]
-		templatePod := &info.pods[0]
-		if maxMerge {
-			templatePod = podWithMaxRequests(info.pods)
-		}
-		podSet, err := constructPodSet(templatePod)
-		if err != nil {
-			return nil, err
+				break
+			}
 		}
 
-		shapeHash, err := utilpod.GenerateRoleHash(&info.pods[0].Spec)
-		if err != nil {
-			return nil, fmt.Errorf("failed to calculate pod scheduling shape hash: %w", err)
-		}
+		if !podRoleFound {
+			podSet, err := constructPodSet(&podInGroup)
+			if err != nil {
+				return nil, err
+			}
 
-		podSet.Name = kueue.NewPodSetReference(roleHash)
-		podSet.Count = int32(len(info.pods))
-		resultPodSets = append(resultPodSets, podSetWithShapeHash{
-			podSet:    podSet,
-			shapeHash: shapeHash,
-		})
+			shapeHash, err := utilpod.GenerateRoleHash(&podInGroup.Spec)
+			if err != nil {
+				return nil, fmt.Errorf("failed to calculate pod scheduling shape hash: %w", err)
+			}
+
+			podSet.Name = kueue.NewPodSetReference(roleHash)
+
+			resultPodSets = append(resultPodSets, podSetWithShapeHash{
+				podSet:    podSet,
+				shapeHash: shapeHash,
+			})
+		}
 	}
 
 	if referenceOrder != nil {

@@ -1502,7 +1502,6 @@ func TestConstructGroupPodSets(t *testing.T) {
 	testCases := map[string]struct {
 		pods         []corev1.Pod
 		wantPodSets  []kueue.PodSet
-		wantErr      error
 		featureGates map[featuregate.Feature]bool
 	}{
 		"folds pods with matching role hash": {
@@ -1521,7 +1520,7 @@ func TestConstructGroupPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
-		"folds pods with matching role hash regardless of pod order": {
+		"uses the first pod as the role template": {
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod-2", "ns").
 					Image("", nil).
@@ -1532,24 +1531,28 @@ func TestConstructGroupPodSets(t *testing.T) {
 			},
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(podSetRole, 2).
-					PodSpec(*basePod.Spec.DeepCopy()).
+					PodSpec(testingpod.MakePod("pod-2", "ns").
+						Image("", nil).
+						Request(corev1.ResourceCPU, "500m").
+						RoleHash(string(podSetRole)).
+						Obj().Spec).
 					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 					Obj(),
 			},
 		},
-		"uses max requests across pods with matching role hash": {
+		"keeps the first pod template when a later pod requests more": {
 			pods: []corev1.Pod{
 				*basePod.DeepCopy(),
 				*higherRequestPod.DeepCopy(),
 			},
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(podSetRole, 2).
-					PodSpec(*higherRequestPod.Spec.DeepCopy()).
+					PodSpec(*basePod.Spec.DeepCopy()).
 					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 					Obj(),
 			},
 		},
-		"PodIntegrationVerifyRoleRequests=false keeps first-pod template without max-merge": {
+		"PodIntegrationVerifyRoleRequests=false keeps the first pod template": {
 			featureGates: map[featuregate.Feature]bool{features.PodIntegrationVerifyRoleRequests: false},
 			pods: []corev1.Pod{
 				*basePod.DeepCopy(),
@@ -1562,172 +1565,17 @@ func TestConstructGroupPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
-		"raises limits so merged requests never exceed limits": {
-			pods: []corev1.Pod{
-				*testingpod.MakePod("pod-a", "ns").
-					Image("", nil).
-					RequestAndLimit(corev1.ResourceCPU, "1").
-					RoleHash(string(podSetRole)).
-					Obj(),
-				*testingpod.MakePod("pod-b", "ns").
-					Image("", nil).
-					RequestAndLimit(corev1.ResourceCPU, "2").
-					RoleHash(string(podSetRole)).
-					Obj(),
-			},
-			wantPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet(podSetRole, 2).
-					PodSpec(testingpod.MakePod("pod", "ns").
-						Image("", nil).
-						RequestAndLimit(corev1.ResourceCPU, "2").
-						RoleHash(string(podSetRole)).
-						Obj().Spec).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
-					Obj(),
-			},
-		},
-		"uses element-wise max for incomparable pod requests": {
-			pods: []corev1.Pod{
-				*testingpod.MakePod("pod-cpu", "ns").
-					Image("", nil).
-					Request(corev1.ResourceCPU, "2").
-					RoleHash(string(podSetRole)).
-					Obj(),
-				*testingpod.MakePod("pod-mixed", "ns").
-					Image("", nil).
-					Request(corev1.ResourceCPU, "1").
-					Request(corev1.ResourceMemory, "1Gi").
-					RoleHash(string(podSetRole)).
-					Obj(),
-			},
-			wantPodSets: func() []kueue.PodSet {
-				wantPod := testingpod.MakePod("pod", "ns").
-					Image("", nil).
-					Request(corev1.ResourceCPU, "2").
-					Request(corev1.ResourceMemory, "1Gi").
-					RoleHash(string(podSetRole)).
-					Obj()
-				return []kueue.PodSet{
-					*utiltestingapi.MakePodSet(podSetRole, 2).
-						PodSpec(wantPod.Spec).
-						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
-						Obj(),
-				}
-			}(),
-		},
-		"appends extra containers when merging max requests": {
-			pods: func() []corev1.Pod {
-				podA := testingpod.MakePod("pod-a", "ns").
-					Image("", nil).
-					Request(corev1.ResourceCPU, "1").
-					RoleHash(string(podSetRole)).
-					Obj()
-				podB := testingpod.MakePod("pod-b", "ns").
-					Image("", nil).
-					Request(corev1.ResourceCPU, "1").
-					RoleHash(string(podSetRole)).
-					Obj()
-				podB.Spec.Containers = append(podB.Spec.Containers, corev1.Container{
-					Name:  "extra",
-					Image: podB.Spec.Containers[0].Image,
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
-					},
-				})
-				return []corev1.Pod{*podA, *podB}
-			}(),
-			wantPodSets: func() []kueue.PodSet {
-				wantPod := testingpod.MakePod("pod", "ns").
-					Image("", nil).
-					Request(corev1.ResourceCPU, "1").
-					RoleHash(string(podSetRole)).
-					Obj()
-				wantPod.Spec.Containers = append(wantPod.Spec.Containers, corev1.Container{
-					Name:  "extra",
-					Image: wantPod.Spec.Containers[0].Image,
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
-					},
-				})
-				return []kueue.PodSet{
-					*utiltestingapi.MakePodSet(podSetRole, 2).
-						PodSpec(wantPod.Spec).
-						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
-						Obj(),
-				}
-			}(),
-		},
-		"uses max init-container requests across pods with matching role hash": {
-			pods: []corev1.Pod{
-				*podWithInitContainer("pod-a", string(podSetRole), "1"),
-				*podWithInitContainer("pod-b", string(podSetRole), "2"),
-			},
-			wantPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet(podSetRole, 2).
-					PodSpec(podWithInitContainer("pod", string(podSetRole), "2").Spec).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
-					Obj(),
-			},
-		},
-		"uses max sidecar init-container requests across pods with matching role hash": {
-			pods: []corev1.Pod{
-				*podWithSidecar("pod-a", string(podSetRole), "500m"),
-				*podWithSidecar("pod-b", string(podSetRole), "1"),
-			},
-			wantPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet(podSetRole, 2).
-					PodSpec(podWithSidecar("pod", string(podSetRole), "1").Spec).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
-					Obj(),
-			},
-		},
-		"uses max pod-level resource requests across pods with matching role hash": {
-			pods: []corev1.Pod{
-				*podWithPodLevelResources("pod-a", string(podSetRole), "1"),
-				*podWithPodLevelResources("pod-b", string(podSetRole), "2"),
-			},
-			wantPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet(podSetRole, 2).
-					PodSpec(podWithPodLevelResources("pod", string(podSetRole), "2").Spec).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
-					Obj(),
-			},
-		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			gotPodSets, gotErr := constructGroupPodSets(tc.pods, nil)
-			if tc.wantErr != nil {
-				if !errors.Is(gotErr, tc.wantErr) {
-					t.Fatalf("error = %v, want %v", gotErr, tc.wantErr)
-				}
-				if !jobframework.IsUnretryableError(gotErr) {
-					t.Fatalf("error = %v, want unretryable error", gotErr)
-				}
-				return
-			}
 			if gotErr != nil {
 				t.Fatalf("unexpected error: %v", gotErr)
 			}
 			if diff := cmp.Diff(tc.wantPodSets, gotPodSets, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("pod sets mismatch (-want +got):\n%s", diff)
-			}
-
-			if !features.Enabled(features.PodIntegrationVerifyRoleRequests) {
-				return
-			}
-			for i := range tc.pods {
-				gate(&tc.pods[i])
-			}
-			wl := utiltestingapi.MakeWorkload("wl", "ns").PodSets(gotPodSets...).Obj()
-			oversized, err := validatePodsBeforeUngating(tc.pods, wl, nil)
-			if err != nil {
-				t.Errorf("honest max-merged group failed validatePodsBeforeUngating: %v", err)
-			}
-			if oversized.Len() != 0 {
-				t.Errorf("honest max-merged group has oversized pods: %v", sets.List(oversized))
 			}
 		})
 	}
@@ -1745,8 +1593,6 @@ func TestConstructGroupPodSetsFast(t *testing.T) {
 		pods            []corev1.Pod
 		groupTotalCount int
 		wantPodSets     []kueue.PodSet
-		wantErr         error
-		wantErrMessage  string
 		featureGates    map[featuregate.Feature]bool
 	}{
 		"builds pod set from matching pods": {
@@ -1766,7 +1612,7 @@ func TestConstructGroupPodSetsFast(t *testing.T) {
 					Obj(),
 			},
 		},
-		"builds pod set regardless of pod order": {
+		"snapshots the first runnable pod": {
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod-2", "ns").
 					Image("", nil).
@@ -1778,12 +1624,16 @@ func TestConstructGroupPodSetsFast(t *testing.T) {
 			groupTotalCount: 2,
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(podSetRole, 2).
-					PodSpec(*basePod.Spec.DeepCopy()).
+					PodSpec(testingpod.MakePod("pod-2", "ns").
+						Image("", nil).
+						Request(corev1.ResourceCPU, "500m").
+						RoleHash(string(podSetRole)).
+						Obj().Spec).
 					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
 					Obj(),
 			},
 		},
-		"PodIntegrationVerifyRoleRequests=false keeps first-pod template without max-merge": {
+		"PodIntegrationVerifyRoleRequests=false keeps the first runnable pod": {
 			featureGates: map[featuregate.Feature]bool{features.PodIntegrationVerifyRoleRequests: false},
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod-2", "ns").
@@ -1805,234 +1655,12 @@ func TestConstructGroupPodSetsFast(t *testing.T) {
 					Obj(),
 			},
 		},
-		"raises limits so merged requests never exceed limits": {
-			pods: []corev1.Pod{
-				*testingpod.MakePod("pod-a", "ns").
-					Image("", nil).
-					RequestAndLimit(corev1.ResourceCPU, "1").
-					RoleHash(string(podSetRole)).
-					Obj(),
-				*testingpod.MakePod("pod-b", "ns").
-					Image("", nil).
-					RequestAndLimit(corev1.ResourceCPU, "2").
-					RoleHash(string(podSetRole)).
-					Obj(),
-			},
-			groupTotalCount: 2,
-			wantPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet(podSetRole, 2).
-					PodSpec(testingpod.MakePod("pod", "ns").
-						Image("", nil).
-						RequestAndLimit(corev1.ResourceCPU, "2").
-						RoleHash(string(podSetRole)).
-						Obj().Spec).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
-					Obj(),
-			},
-		},
-		"uses element-wise max for incomparable pod requests": {
-			pods: []corev1.Pod{
-				*testingpod.MakePod("pod-cpu", "ns").
-					Image("", nil).
-					Request(corev1.ResourceCPU, "2").
-					RoleHash(string(podSetRole)).
-					Obj(),
-				*testingpod.MakePod("pod-mixed", "ns").
-					Image("", nil).
-					Request(corev1.ResourceCPU, "1").
-					Request(corev1.ResourceMemory, "1Gi").
-					RoleHash(string(podSetRole)).
-					Obj(),
-			},
-			groupTotalCount: 2,
-			wantPodSets: func() []kueue.PodSet {
-				wantPod := testingpod.MakePod("pod", "ns").
-					Image("", nil).
-					Request(corev1.ResourceCPU, "2").
-					Request(corev1.ResourceMemory, "1Gi").
-					RoleHash(string(podSetRole)).
-					Obj()
-				return []kueue.PodSet{
-					*utiltestingapi.MakePodSet(podSetRole, 2).
-						PodSpec(wantPod.Spec).
-						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
-						Obj(),
-				}
-			}(),
-		},
-		"rejects pods with diverging roles": {
-			pods: []corev1.Pod{
-				*basePod.DeepCopy(),
-				*testingpod.MakePod("pod-2", "ns").
-					Image("", nil).
-					Request(corev1.ResourceCPU, "1").
-					RoleHash("role-b").
-					Obj(),
-			},
-			groupTotalCount: 2,
-			wantErrMessage:  errFastAdmissionRoleMismatch("pod-2", "role-b", "role-a").Error(),
-		},
-		"uses per-container element-wise max for multi-container pods": {
-			pods: func() []corev1.Pod {
-				podA := testingpod.MakePod("pod-a", "ns").
-					Image("", nil).
-					RoleHash(string(podSetRole)).
-					Obj()
-				podA.Spec.Containers = append(podA.Spec.Containers, corev1.Container{
-					Name:  "sidecar",
-					Image: podA.Spec.Containers[0].Image,
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{},
-					},
-				})
-				podA.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("2")
-				podA.Spec.Containers[1].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("500m")
-
-				podB := testingpod.MakePod("pod-b", "ns").
-					Image("", nil).
-					RoleHash(string(podSetRole)).
-					Obj()
-				podB.Spec.Containers = append(podB.Spec.Containers, corev1.Container{
-					Name:  "sidecar",
-					Image: podB.Spec.Containers[0].Image,
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{},
-					},
-				})
-				podB.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("1")
-				podB.Spec.Containers[1].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("1")
-
-				return []corev1.Pod{*podA, *podB}
-			}(),
-			groupTotalCount: 2,
-			wantPodSets: func() []kueue.PodSet {
-				wantPod := testingpod.MakePod("pod", "ns").
-					Image("", nil).
-					RoleHash(string(podSetRole)).
-					Obj()
-				wantPod.Spec.Containers = append(wantPod.Spec.Containers, corev1.Container{
-					Name:  "sidecar",
-					Image: wantPod.Spec.Containers[0].Image,
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{},
-					},
-				})
-				wantPod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("2")
-				wantPod.Spec.Containers[1].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("1")
-				return []kueue.PodSet{
-					*utiltestingapi.MakePodSet(podSetRole, 2).
-						PodSpec(wantPod.Spec).
-						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
-						Obj(),
-				}
-			}(),
-		},
-		"appends extra containers when merging max requests": {
-			pods: func() []corev1.Pod {
-				podA := testingpod.MakePod("pod-a", "ns").
-					Image("", nil).
-					Request(corev1.ResourceCPU, "1").
-					RoleHash(string(podSetRole)).
-					Obj()
-				podB := testingpod.MakePod("pod-b", "ns").
-					Image("", nil).
-					Request(corev1.ResourceCPU, "1").
-					RoleHash(string(podSetRole)).
-					Obj()
-				podB.Spec.Containers = append(podB.Spec.Containers, corev1.Container{
-					Name:  "extra",
-					Image: podB.Spec.Containers[0].Image,
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
-					},
-				})
-				return []corev1.Pod{*podA, *podB}
-			}(),
-			groupTotalCount: 2,
-			wantPodSets: func() []kueue.PodSet {
-				wantPod := testingpod.MakePod("pod", "ns").
-					Image("", nil).
-					Request(corev1.ResourceCPU, "1").
-					RoleHash(string(podSetRole)).
-					Obj()
-				wantPod.Spec.Containers = append(wantPod.Spec.Containers, corev1.Container{
-					Name:  "extra",
-					Image: wantPod.Spec.Containers[0].Image,
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
-					},
-				})
-				return []kueue.PodSet{
-					*utiltestingapi.MakePodSet(podSetRole, 2).
-						PodSpec(wantPod.Spec).
-						PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
-						Obj(),
-				}
-			}(),
-		},
-		"uses max init-container requests across pods with matching role hash": {
-			pods: []corev1.Pod{
-				*podWithInitContainer("pod-a", string(podSetRole), "1"),
-				*podWithInitContainer("pod-b", string(podSetRole), "2"),
-			},
-			groupTotalCount: 2,
-			wantPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet(podSetRole, 2).
-					PodSpec(podWithInitContainer("pod", string(podSetRole), "2").Spec).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
-					Obj(),
-			},
-		},
-		"uses max sidecar init-container requests across pods with matching role hash": {
-			pods: []corev1.Pod{
-				*podWithSidecar("pod-a", string(podSetRole), "500m"),
-				*podWithSidecar("pod-b", string(podSetRole), "1"),
-			},
-			groupTotalCount: 2,
-			wantPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet(podSetRole, 2).
-					PodSpec(podWithSidecar("pod", string(podSetRole), "1").Spec).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
-					Obj(),
-			},
-		},
-		"uses max pod-level resource requests across pods with matching role hash": {
-			pods: []corev1.Pod{
-				*podWithPodLevelResources("pod-a", string(podSetRole), "1"),
-				*podWithPodLevelResources("pod-b", string(podSetRole), "2"),
-			},
-			groupTotalCount: 2,
-			wantPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet(podSetRole, 2).
-					PodSpec(podWithPodLevelResources("pod", string(podSetRole), "2").Spec).
-					PodIndexLabel(ptr.To(kueue.PodGroupPodIndexLabel)).
-					Obj(),
-			},
-		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			gotPodSets, gotErr := constructGroupPodSetsFast(tc.pods, tc.groupTotalCount)
-			if tc.wantErr != nil || tc.wantErrMessage != "" {
-				if gotErr == nil {
-					t.Fatalf("got nil error, want error")
-				}
-				if tc.wantErr != nil && !errors.Is(gotErr, tc.wantErr) {
-					t.Fatalf("error = %v, want %v", gotErr, tc.wantErr)
-				}
-				if tc.wantErrMessage != "" && gotErr.Error() != tc.wantErrMessage {
-					t.Fatalf("error = %q, want %q", gotErr.Error(), tc.wantErrMessage)
-				}
-				if !jobframework.IsUnretryableError(gotErr) {
-					t.Fatalf("error = %v, want unretryable error", gotErr)
-				}
-				if gotPodSets != nil {
-					t.Fatalf("podSets = %v, want nil", gotPodSets)
-				}
-				return
-			}
 			if gotErr != nil {
 				t.Fatalf("unexpected error: %v", gotErr)
 			}
