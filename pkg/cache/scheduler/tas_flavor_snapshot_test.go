@@ -1383,7 +1383,7 @@ func TestComputeAssumedUsageFromAssignment(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := tas.ComputeUsagePerDomain(tc.assignment, singlePodRequests)
+			got := tas.ComputeUsagePerDomain(tc.assignment, func(tas.TopologyDomainID) resources.Requests { return singlePodRequests })
 			if diff := cmp.Diff(tc.want, got, cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("ComputeUsagePerDomain() mismatch (-want +got):\n%s", diff)
 			}
@@ -1457,8 +1457,9 @@ func TestAddAssumedUsage(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			snapshot := &TASFlavorSnapshot{}
 			assumedUsage := newAssumedUsage(tc.assumedUsage)
-			addAssumedUsage(assumedUsage, tc.assignment, tc.tasRequests)
+			snapshot.addAssumedUsage(assumedUsage, tc.assignment, tc.tasRequests)
 			if diff := cmp.Diff(tc.want, assumedUsage.perDomain, cmp.Comparer(resources.Equal)); diff != "" {
 				t.Errorf("addAssumedUsage() mismatch (-want +got):\n%s", diff)
 			}
