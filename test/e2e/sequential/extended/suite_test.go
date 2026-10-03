@@ -27,7 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -38,39 +38,39 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunE2ESuite(t, "End To End Sequential Extended Suite")
+	behavioral.RunE2ESuite(t, "End To End Sequential Extended Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	util.SetupLogger()
+	behavioral.SetupLogger()
 
 	var err error
-	k8sClient, _, err = util.CreateClientUsingCluster("")
+	k8sClient, _, err = behavioral.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
-	util.WaitForKueueAvailability(ctx, k8sClient)
+	behavioral.WaitForKueueAvailability(ctx, k8sClient)
 	if ginkgo.Label("feature:workloadidentifierannotations").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
-		util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
+		behavioral.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
 	}
 	if ginkgo.Label("feature:managejobswithoutqueuename").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
-		util.WaitForJobSetAvailability(ctx, k8sClient)
-		util.WaitForAppWrapperAvailability(ctx, k8sClient)
-		util.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
+		behavioral.WaitForJobSetAvailability(ctx, k8sClient)
+		behavioral.WaitForAppWrapperAvailability(ctx, k8sClient)
+		behavioral.WaitForLeaderWorkerSetAvailability(ctx, k8sClient)
 	}
 	if ginkgo.Label("feature:spark").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
-		util.WaitForSparkOperatorAvailability(ctx, k8sClient)
+		behavioral.WaitForSparkOperatorAvailability(ctx, k8sClient)
 	}
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),
 	)
-	defaultKueueCfg = util.GetKueueConfiguration(ctx, k8sClient)
+	defaultKueueCfg = behavioral.GetKueueConfiguration(ctx, k8sClient)
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	if util.IsE2EModeDev() {
-		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
+	if behavioral.IsE2EModeDev() {
+		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
 	}
 })

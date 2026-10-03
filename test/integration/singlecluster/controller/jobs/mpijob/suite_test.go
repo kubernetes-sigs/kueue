@@ -42,7 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -53,13 +53,13 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunSuite(t, "MPIJob Controller Suite")
+	behavioral.RunSuite(t, "MPIJob Controller Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		DepCRDPaths: []string{util.MpiOperatorCrds},
-		WebhookPath: util.WebhookPath,
+		DepCRDPaths: []string{behavioral.MpiOperatorCrds},
+		WebhookPath: behavioral.WebhookPath,
 	}
 
 	cfg = fwk.Init()
@@ -110,7 +110,7 @@ func controllersSetup(
 ) (*schdcache.Cache, *qcache.Manager, *config.Configuration) {
 	cCache := schdcache.New(mgr.GetClient())
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+	queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 	opts = append(opts, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 

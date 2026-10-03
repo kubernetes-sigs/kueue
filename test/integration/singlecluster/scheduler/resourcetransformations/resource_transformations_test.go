@@ -28,7 +28,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -80,9 +80,9 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 
 	ginkgo.BeforeEach(func() {
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
-		util.MustCreate(ctx, k8sClient, defaultFlavor)
+		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "resource-transformations-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "resource-transformations-")
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("test-cq").
 			ResourceGroup(
@@ -95,16 +95,16 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 					Resource("example.com/total-vgpu-cores", "50").
 					Obj(),
 			).Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("test-lq", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 	})
 
 	ginkgo.AfterAll(func() {
@@ -119,10 +119,10 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 			Request("nvidia.com/gpucores", "20").
 			Request("nvidia.com/gpumem", "1024").
 			Obj()
-		util.MustCreate(ctx, k8sClient, wl)
+		behavioral.MustCreate(ctx, k8sClient, wl)
 
 		ginkgo.By("Waiting for workload to be admitted")
-		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 
 		ginkgo.By("Verifying MultiplyBy transformation", func() {
 			wlLookupKey := client.ObjectKeyFromObject(wl)
@@ -138,7 +138,7 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 					"nvidia.com/total-gpucores": resource.MustParse("40"),
 					"nvidia.com/total-gpumem":   resource.MustParse("2048"),
 				}))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -148,9 +148,9 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 			Request("nvidia.com/vgpu-count", "2").
 			Request("nvidia.com/vgpu-cores", "20").
 			Obj()
-		util.MustCreate(ctx, k8sClient, wl)
+		behavioral.MustCreate(ctx, k8sClient, wl)
 
-		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 
 		createdWorkload := &kueue.Workload{}
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -159,7 +159,7 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 			g.Expect(createdWorkload.Status.Admission.PodSetAssignments[0].ResourceUsage).To(gomega.BeComparableTo(corev1.ResourceList{
 				"example.com/total-vgpu-cores": resource.MustParse("40"),
 			}))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("should enforce quota for a transformation with an excluded input", func() {
@@ -168,9 +168,9 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 			Request("nvidia.com/vgpu-count", "2").
 			Request("nvidia.com/vgpu-cores", "30").
 			Obj()
-		util.MustCreate(ctx, k8sClient, wl)
+		behavioral.MustCreate(ctx, k8sClient, wl)
 
-		util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
 	})
 
 	ginkgo.It("should handle multiple PodSets with transformations", func() {
@@ -187,10 +187,10 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, wl)
+		behavioral.MustCreate(ctx, k8sClient, wl)
 
 		ginkgo.By("Waiting for workload to be admitted")
-		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 
 		ginkgo.By("Verifying transformations for each PodSet", func() {
 			wlLookupKey := client.ObjectKeyFromObject(wl)
@@ -213,7 +213,7 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 					"nvidia.com/gpu":            resource.MustParse("2"),
 					"nvidia.com/total-gpucores": resource.MustParse("20"),
 				}))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })
@@ -252,16 +252,16 @@ var _ = ginkgo.Describe("Resource Transformation: Retain CPU → cpu_credits (Sh
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
 
 		onDemand = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
-		util.MustCreate(ctx, k8sClient, onDemand)
+		behavioral.MustCreate(ctx, k8sClient, onDemand)
 
 		spot = utiltestingapi.MakeResourceFlavor("spot").Obj()
-		util.MustCreate(ctx, k8sClient, spot)
+		behavioral.MustCreate(ctx, k8sClient, spot)
 
 		credits = utiltestingapi.MakeResourceFlavor("credits").Obj()
-		util.MustCreate(ctx, k8sClient, credits)
+		behavioral.MustCreate(ctx, k8sClient, credits)
 
 		// ClusterQueue setup:
 		//   - 9 CPU on on-demand + 9 CPU on spot → total 18 "original" CPU capacity
@@ -276,18 +276,18 @@ var _ = ginkgo.Describe("Resource Transformation: Retain CPU → cpu_credits (Sh
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue("team-queue", ns.Name).ClusterQueue(cq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemand, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, spot, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, credits, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, onDemand, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, spot, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, credits, true)
 	})
 
 	ginkgo.When("workloads request regular CPU but are transformed to cpu_credits", func() {
@@ -324,29 +324,29 @@ var _ = ginkgo.Describe("Resource Transformation: Retain CPU → cpu_credits (Sh
 			ginkgo.By(fmt.Sprintf("Creating %d high-priority workloads (should fit within 8 credits)", initialFitCount), func() {
 				for i := range initialFitCount {
 					wl := workloadWrapper.Clone().Name(fmt.Sprintf("wl-%d", i+1)).Obj()
-					util.MustCreate(ctx, k8sClient, wl)
+					behavioral.MustCreate(ctx, k8sClient, wl)
 					admitted = append(admitted, wl)
 				}
 			})
 
 			ginkgo.By("Verifying initial workloads are admitted", func() {
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, admitted...)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, admitted...)
 			})
 
 			ginkgo.By("Creating a 3rd workload that should stay pending (not enough credits)", func() {
 				pendingWl = workloadWrapper.Clone().Name("wl").Obj()
-				util.MustCreate(ctx, k8sClient, pendingWl)
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, pendingWl)
+				behavioral.MustCreate(ctx, k8sClient, pendingWl)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, pendingWl)
 			})
 		})
 
 		ginkgo.It("should admit the pending workload after one running workload finishes", func() {
 			ginkgo.By("Marking one admitted workload as finished (frees 3 credits)", func() {
-				util.FinishWorkloads(ctx, k8sClient, admitted[0])
+				behavioral.FinishWorkloads(ctx, k8sClient, admitted[0])
 			})
 
 			ginkgo.By("Waiting for the pending workload to be admitted (credits available again)", func() {
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, pendingWl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, pendingWl)
 			})
 		})
 
@@ -358,12 +358,12 @@ var _ = ginkgo.Describe("Resource Transformation: Retain CPU → cpu_credits (Sh
 					createdWl.Spec.PriorityClassRef.Name = lowPriorityClassName
 					createdWl.Spec.Priority = new(int32(lowPriority))
 					g.Expect(k8sClient.Update(ctx, createdWl)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
-				util.FinishEvictionForWorkloads(ctx, k8sClient, admitted[0])
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, admitted[0])
 			})
 
 			ginkgo.By("Waiting for the pending workload to be admitted", func() {
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, pendingWl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, pendingWl)
 			})
 		})
 	})

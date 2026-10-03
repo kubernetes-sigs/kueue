@@ -30,7 +30,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadpytorchjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	testingpytorchjob "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 type pyTorchJobTestContext struct {
@@ -54,8 +54,8 @@ func registerPyTorchJobTests(contextProvider func() pyTorchJobTestContext) {
 					ReplicaType:   kftraining.PyTorchJobReplicaTypeMaster,
 					ReplicaCount:  1,
 					RestartPolicy: "Never",
-					Image:         util.GetAgnHostImage(),
-					Args:          util.BehaviorExitFast,
+					Image:         behavioral.GetAgnHostImage(),
+					Args:          behavioral.BehaviorExitFast,
 				},
 			).
 			RequestAndLimit(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "100m").
@@ -65,12 +65,12 @@ func registerPyTorchJobTests(contextProvider func() pyTorchJobTestContext) {
 			Obj()
 
 		ginkgo.By("Creating the PyTorchJob", func() {
-			util.MustCreate(ctx, k8sManagerClient, pyTorchJob)
+			behavioral.MustCreate(ctx, k8sManagerClient, pyTorchJob)
 		})
 
 		wlLookupKey := types.NamespacedName{Name: workloadpytorchjob.GetWorkloadNameForPyTorchJob(pyTorchJob.Name, pyTorchJob.UID), Namespace: managerNs.Name}
 
-		admittedWorker := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+		admittedWorker := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 		ginkgo.GinkgoLogr.Info("PyTorchJob %s is admitted in worker cluster %s", pyTorchJob.Name, admittedWorker)
 
 		ginkgo.By("Waiting for the PyTorchJob to finish", func() {
@@ -87,8 +87,8 @@ func registerPyTorchJobTests(contextProvider func() pyTorchJobTestContext) {
 						),
 					},
 				))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			util.ExpectWorkloadToFinish(ctx, k8sManagerClient, wlLookupKey)
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectWorkloadToFinish(ctx, k8sManagerClient, wlLookupKey)
 		})
 
 		ginkgo.By("Checking no objects are left in the worker clusters and the PyTorchJob is completed", func() {
@@ -98,8 +98,8 @@ func registerPyTorchJobTests(contextProvider func() pyTorchJobTestContext) {
 					Namespace: wlLookupKey.Namespace,
 				},
 			}
-			util.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
-			util.ExpectObjectToBeDeletedOnClusters(ctx, pyTorchJob, k8sWorker1Client, k8sWorker2Client)
+			behavioral.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
+			behavioral.ExpectObjectToBeDeletedOnClusters(ctx, pyTorchJob, k8sWorker1Client, k8sWorker2Client)
 		})
 	})
 }

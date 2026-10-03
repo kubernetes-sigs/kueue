@@ -35,7 +35,7 @@ import (
 	workloadsparkapplication "sigs.k8s.io/kueue/pkg/controller/jobs/sparkapplication"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
@@ -53,14 +53,14 @@ type PodsReadyTestSpec struct {
 
 func shouldReconcileSparkApplication(ctx context.Context, k8sClient client.Client, sparkApp *sparkv1beta2.SparkApplication) {
 	ginkgo.By("checking the job gets suspended when created unsuspended")
-	util.MustCreate(ctx, k8sClient, sparkApp)
+	behavioral.MustCreate(ctx, k8sClient, sparkApp)
 	lookupKey := client.ObjectKeyFromObject(sparkApp)
 	createdSparkApplication := &sparkv1beta2.SparkApplication{}
 
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, lookupKey, createdSparkApplication)).Should(gomega.Succeed())
 		g.Expect(ptr.Deref(createdSparkApplication.Spec.Suspend, false)).Should(gomega.BeTrue())
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 	wlLookupKey := types.NamespacedName{
 		Name:      workloadsparkapplication.GetWorkloadNameForSparkApplication(sparkApp.Name, sparkApp.UID),
@@ -68,22 +68,22 @@ func shouldReconcileSparkApplication(ctx context.Context, k8sClient client.Clien
 	}
 
 	ginkgo.By("checking the workload is created without queue assigned")
-	createdWorkload := util.AwaitAndVerifyCreatedWorkload(ctx, k8sClient, wlLookupKey, createdSparkApplication)
+	createdWorkload := behavioral.AwaitAndVerifyCreatedWorkload(ctx, k8sClient, wlLookupKey, createdSparkApplication)
 	gomega.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(kueue.LocalQueueName("")), "The Workload shouldn't have .spec.queueName set")
 
 	ginkgo.By("checking the workload is updated with queue name when the job does")
 	createdSparkApplication.Labels = map[string]string{constants.QueueLabel: string(jobQueueName)}
 	gomega.Expect(k8sClient.Update(ctx, createdSparkApplication)).Should(gomega.Succeed())
-	util.AwaitAndVerifyWorkloadQueueName(ctx, k8sClient, createdWorkload, wlLookupKey, jobQueueName)
+	behavioral.AwaitAndVerifyWorkloadQueueName(ctx, k8sClient, createdWorkload, wlLookupKey, jobQueueName)
 
 	ginkgo.By("checking the job is unsuspended when workload is assigned")
 	onDemandFlavor := utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
-	util.MustCreate(ctx, k8sClient, onDemandFlavor)
+	behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
 	spotFlavor := utiltestingapi.MakeResourceFlavor("spot").NodeLabel(instanceKey, "spot").Obj()
-	util.MustCreate(ctx, k8sClient, spotFlavor)
+	behavioral.MustCreate(ctx, k8sClient, spotFlavor)
 	defer func() {
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)
 	}()
 
 	clusterQueue := utiltestingapi.MakeClusterQueue("cluster-queue").
@@ -107,17 +107,17 @@ func shouldReconcileSparkApplication(ctx context.Context, k8sClient client.Clien
 			},
 		).Obj()
 
-	util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-	util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+	behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+	behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, lookupKey, createdSparkApplication)).Should(gomega.Succeed())
 		g.Expect(ptr.Deref(createdSparkApplication.Spec.Suspend, true)).Should(gomega.BeFalse())
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 	gomega.Eventually(func(g gomega.Gomega) {
 		ok, _ := utiltesting.CheckEventRecordedFor(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name), lookupKey)
 		g.Expect(ok).Should(gomega.BeTrue())
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 	gomega.Expect(createdSparkApplication.Spec.Driver.NodeSelector).To(gomega.BeComparableTo(map[string]string{instanceKey: "on-demand"}))
 	gomega.Expect(createdSparkApplication.Spec.Executor.NodeSelector).To(gomega.BeComparableTo(map[string]string{instanceKey: "spot"}))
@@ -125,7 +125,7 @@ func shouldReconcileSparkApplication(ctx context.Context, k8sClient client.Clien
 
 func shouldNotReconcileUnmanagedSparkApplication(ctx context.Context, k8sClient client.Client, sparkApp *sparkv1beta2.SparkApplication) {
 	ginkgo.By("checking the job remains unsuspended and no workload is created in unmanaged namespace")
-	util.MustCreate(ctx, k8sClient, sparkApp)
+	behavioral.MustCreate(ctx, k8sClient, sparkApp)
 
 	lookupKey := client.ObjectKeyFromObject(sparkApp)
 	wlLookupKey := types.NamespacedName{
@@ -138,13 +138,13 @@ func shouldNotReconcileUnmanagedSparkApplication(ctx context.Context, k8sClient 
 		g.Expect(k8sClient.Get(ctx, lookupKey, createdSparkApplication)).Should(gomega.Succeed())
 		g.Expect(ptr.Deref(createdSparkApplication.Spec.Suspend, false)).Should(gomega.BeFalse())
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, workload)).Should(utiltesting.BeNotFoundError())
-	}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+	}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 }
 
 func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient client.Client, sparkApp, createdSparkApplication *sparkv1beta2.SparkApplication, podsReadyTestSpec PodsReadyTestSpec) {
 	ginkgo.By("Create a SparkApplication")
 	sparkApp.Labels = map[string]string{constants.QueueLabel: string(jobQueueName)}
-	util.MustCreate(ctx, k8sClient, sparkApp)
+	behavioral.MustCreate(ctx, k8sClient, sparkApp)
 	lookupKey := client.ObjectKeyFromObject(sparkApp)
 	gomega.ExpectWithOffset(1, k8sClient.Get(ctx, lookupKey, createdSparkApplication)).Should(gomega.Succeed())
 
@@ -157,7 +157,7 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 	createdWorkload := &kueue.Workload{}
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 	ginkgo.By("Admit the workload created for the SparkApplication")
 	admission := utiltestingapi.MakeAdmission("foo").PodSets(
@@ -176,14 +176,14 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 			Count: new(createdWorkload.Spec.PodSets[1].Count),
 		},
 	).Obj()
-	util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-	util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+	behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+	behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 	ginkgo.By("Await for the SparkApplication to be unsuspended")
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, lookupKey, createdSparkApplication)).Should(gomega.Succeed())
 		g.Expect(ptr.Deref(createdSparkApplication.Spec.Suspend, true)).Should(gomega.BeFalse())
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 	if podsReadyTestSpec.BeforeAppState != nil {
 		ginkgo.By("Update the SparkApplication status to simulate initial progress")
@@ -200,10 +200,10 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 			g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)).Should(
 				gomega.BeComparableTo(
 					podsReadyTestSpec.BeforeCondition,
-					util.IgnoreConditionTimestampsAndObservedGeneration,
+					behavioral.IgnoreConditionTimestampsAndObservedGeneration,
 				),
 			)
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	}
 
 	ginkgo.By("Update the SparkApplication status to simulate progress")
@@ -214,8 +214,8 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 
 	if podsReadyTestSpec.Suspended {
 		ginkgo.By("Unset admission of the workload to suspend the SparkApplication")
-		util.SetQuotaReservation(ctx, k8sClient, wlLookupKey, nil)
-		util.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+		behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, nil)
+		behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 	}
 
 	ginkgo.By("Verify the PodsReady condition")
@@ -224,10 +224,10 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 		g.Expect(apimeta.FindStatusCondition(createdWorkload.Status.Conditions, kueue.WorkloadPodsReady)).Should(
 			gomega.BeComparableTo(
 				podsReadyTestSpec.WantCondition,
-				util.IgnoreConditionTimestampsAndObservedGeneration,
+				behavioral.IgnoreConditionTimestampsAndObservedGeneration,
 			),
 		)
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 // executorStatesForAppState mirrors what Spark Operator would publish in

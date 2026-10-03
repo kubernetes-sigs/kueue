@@ -29,7 +29,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/pytorchjob"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	pytorchjobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/pytorchjob"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster", "feature:pytorchjob"), func() {
@@ -44,13 +44,13 @@ var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster"
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pytorch-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pytorch-e2e-")
 		resourceFlavorName = "pytorch-rf-" + ns.Name
 		clusterQueueName = "pytorch-cq-" + ns.Name
 		localQueueName = "pytorch-lq-" + ns.Name
 
 		rf = utiltestingapi.MakeResourceFlavor(resourceFlavorName).Obj()
-		util.MustCreate(ctx, k8sClient, rf)
+		behavioral.MustCreate(ctx, k8sClient, rf)
 
 		cq = utiltestingapi.MakeClusterQueue(clusterQueueName).
 			ResourceGroup(
@@ -63,17 +63,17 @@ var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster"
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue(localQueueName, ns.Name).ClusterQueue(cq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteAllPyTorchJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteAllPyTorchJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("PyTorch created", func() {
@@ -83,14 +83,14 @@ var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster"
 				Suspend(false).
 				SetTypeMeta().
 				PyTorchReplicaSpecsOnlyMasterDefault().
-				Image(kftraining.PyTorchJobReplicaTypeMaster, util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(kftraining.PyTorchJobReplicaTypeMaster, behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceCPU, "1").
 				Request(kftraining.PyTorchJobReplicaTypeMaster, corev1.ResourceMemory, "200Mi").
 				TerminationGracePeriod(kftraining.PyTorchJobReplicaTypeMaster, 1).
 				Obj()
 
 			ginkgo.By("Create a PyTorch", func() {
-				util.MustCreate(ctx, k8sClient, pytorch)
+				behavioral.MustCreate(ctx, k8sClient, pytorch)
 			})
 
 			ginkgo.By("Waiting for replicas to be ready", func() {
@@ -115,7 +115,7 @@ var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster"
 							Status: corev1.ConditionTrue,
 						}, cmpopts.IgnoreFields(kftraining.JobCondition{}, "Reason", "Message", "LastUpdateTime", "LastTransitionTime")),
 					))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			wlLookupKey := types.NamespacedName{
@@ -128,22 +128,22 @@ var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster"
 			})
 
 			ginkgo.By("Check workload is admitted", func() {
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
 			})
 
 			ginkgo.By("Check workload is finished", func() {
 				// Wait for active pods and terminate them
-				util.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 0, client.InNamespace(ns.Name))
+				behavioral.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 0, client.InNamespace(ns.Name))
 
-				util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.LongTimeout)
+				behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 			})
 
 			ginkgo.By("Delete the PyTorch", func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, pytorch, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pytorch, true)
 			})
 
 			ginkgo.By("Check workload is deleted", func() {
-				util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, util.MediumTimeout)
+				behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, createdWorkload, false, behavioral.MediumTimeout)
 			})
 		})
 	})

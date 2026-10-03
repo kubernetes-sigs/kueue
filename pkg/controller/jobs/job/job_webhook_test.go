@@ -47,7 +47,7 @@ import (
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-	testutil "sigs.k8s.io/kueue/test/util"
+	testutil "sigs.k8s.io/kueue/test/util/behavioral"
 
 	// without this only the job framework is registered
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"

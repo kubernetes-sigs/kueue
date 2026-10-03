@@ -41,7 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -53,12 +53,12 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunSuite(t, "StatefulSet Controller Suite")
+	behavioral.RunSuite(t, "StatefulSet Controller Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
@@ -102,7 +102,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		cCache := schdcache.New(mgr.GetClient())
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 		opts = append(opts, jobframework.WithQueues(queues), jobframework.WithCache(cCache))
 
 		podJobReconciler, err := pod.NewReconciler(

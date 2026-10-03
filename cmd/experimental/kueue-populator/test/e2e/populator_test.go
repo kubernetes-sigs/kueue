@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("KueuePopulator", func() {
@@ -74,7 +74,7 @@ var _ = ginkgo.Describe("KueuePopulator", func() {
 			createdLQ := &kueue.LocalQueue{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, createdLQKey, createdLQ)).To(gomega.Succeed())
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			gomega.Expect(createdLQ.Spec.ClusterQueue).To(gomega.Equal(kueue.ClusterQueueReference(cq.Name)))
 		})
@@ -101,7 +101,7 @@ var _ = ginkgo.Describe("KueuePopulator", func() {
 			ginkgo.By("verifying no localqueue is created initially")
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, createdLQKey, createdLQ)).ToNot(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("updating the ClusterQueue to match the namespace")
 			createdCQKey := client.ObjectKeyFromObject(cq)
@@ -111,12 +111,12 @@ var _ = ginkgo.Describe("KueuePopulator", func() {
 				g.Expect(k8sClient.Get(ctx, createdCQKey, createdCQ)).To(gomega.Succeed())
 				createdCQ.Spec.NamespaceSelector = namespaceSelector
 				g.Expect(k8sClient.Update(ctx, createdCQ)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking that the localqueue is created")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, createdLQKey, createdLQ)).To(gomega.Succeed())
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			gomega.Expect(createdLQ.Spec.ClusterQueue).To(gomega.Equal(kueue.ClusterQueueReference(cq.Name)))
 		})
@@ -155,7 +155,7 @@ var _ = ginkgo.Describe("KueuePopulator", func() {
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, createdLQKey, createdLQ)).Should(gomega.Succeed())
 				g.Expect(string(createdLQ.Spec.ClusterQueue)).Should(gomega.Equal("some-other-queue"))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should not delete LocalQueue when namespace no longer matches", func() {
@@ -180,7 +180,7 @@ var _ = ginkgo.Describe("KueuePopulator", func() {
 			ginkgo.By("waiting for localqueue to be created")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, createdLQKey, createdLQ)).To(gomega.Succeed())
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("updating namespace to no longer match")
 			ns.Labels = map[string]string{"persist": "false"}
@@ -189,7 +189,7 @@ var _ = ginkgo.Describe("KueuePopulator", func() {
 			ginkgo.By("ensuring LocalQueue persists")
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, createdLQKey, createdLQ)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })

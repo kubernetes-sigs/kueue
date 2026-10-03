@@ -27,7 +27,7 @@ import (
 	"github.com/onsi/gomega"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -36,21 +36,21 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunE2ESuite(t, "End To End DRA Consumable Capacity Suite")
+	behavioral.RunE2ESuite(t, "End To End DRA Consumable Capacity Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	util.SetupLogger()
+	behavioral.SetupLogger()
 
 	var err error
-	k8sClient, _, err = util.CreateClientUsingCluster("")
+	k8sClient, _, err = behavioral.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
-	util.WaitForKueueAvailability(ctx, k8sClient)
+	behavioral.WaitForKueueAvailability(ctx, k8sClient)
 	clusterName := cmp.Or(os.Getenv("KIND_CLUSTER_NAME"), "kind")
-	util.WaitForDRAExampleDriverAvailability(ctx, k8sClient, clusterName)
+	behavioral.WaitForDRAExampleDriverAvailability(ctx, k8sClient, clusterName)
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and DRA example driver are available in the cluster",
 		"clusterName", clusterName,

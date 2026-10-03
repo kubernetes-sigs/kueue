@@ -30,7 +30,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
@@ -41,10 +41,10 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 			leaderworkerset.SetupWebhook,
 			jobframework.WithManageJobsWithoutQueueName(false),
 		))
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-webhook-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-webhook-")
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
 	})
 
@@ -55,7 +55,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 				Size(2).
 				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
 				Obj()
-			util.MustCreate(ctx, k8sClient, lws)
+			behavioral.MustCreate(ctx, k8sClient, lws)
 
 			createdLws := &leaderworkersetv1.LeaderWorkerSet{}
 			ginkgo.By("Increasing the size is rejected by the webhook", func() {
@@ -66,7 +66,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 						utiltesting.BeForbiddenError(),
 						gomega.MatchError(gomega.ContainSubstring("spec.leaderWorkerTemplate.size")),
 					))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -76,7 +76,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 				Size(2).
 				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
 				Obj()
-			util.MustCreate(ctx, k8sClient, lws)
+			behavioral.MustCreate(ctx, k8sClient, lws)
 
 			createdLws := &leaderworkersetv1.LeaderWorkerSet{}
 			ginkgo.By("Decreasing the size is rejected by the webhook", func() {
@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 						utiltesting.BeForbiddenError(),
 						gomega.MatchError(gomega.ContainSubstring("spec.leaderWorkerTemplate.size")),
 					))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -98,7 +98,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 				Size(2).
 				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
 				Obj()
-			util.MustCreate(ctx, k8sClient, lws)
+			behavioral.MustCreate(ctx, k8sClient, lws)
 
 			createdLws := &leaderworkersetv1.LeaderWorkerSet{}
 			ginkgo.By("Increasing replicas is accepted", func() {
@@ -106,7 +106,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
 					createdLws.Spec.Replicas = new(int32(3))
 					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -137,7 +137,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 					WorkerTemplateSpecAnnotation(kueue.PodSetSliceSizeAnnotation, "2").
 					RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
 					Obj()
-				util.MustCreate(ctx, k8sClient, lws)
+				behavioral.MustCreate(ctx, k8sClient, lws)
 			})
 
 			ginkgo.It("should allow LeaderWorkerSet with grouping and multi-layer slicing constraints", func() {
@@ -161,7 +161,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 					WorkerTemplateSpecAnnotation(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation, `[{"topology":"cloud.com/rack","size":2}]`).
 					RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
 					Obj()
-				util.MustCreate(ctx, k8sClient, lws)
+				behavioral.MustCreate(ctx, k8sClient, lws)
 			})
 		})
 
@@ -210,7 +210,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 					Size(2).
 					RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
 					Obj()
-				util.MustCreate(ctx, k8sClient, lws)
+				behavioral.MustCreate(ctx, k8sClient, lws)
 
 				createdLws := &leaderworkersetv1.LeaderWorkerSet{}
 				ginkgo.By("Increasing the size is accepted", func() {
@@ -218,7 +218,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
 						createdLws.Spec.LeaderWorkerTemplate.Size = new(int32(10))
 						g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.Succeed())
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 			})
 		})
@@ -230,7 +230,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 				Size(2).
 				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
 				Obj()
-			util.MustCreate(ctx, k8sClient, lws)
+			behavioral.MustCreate(ctx, k8sClient, lws)
 
 			createdLws := &leaderworkersetv1.LeaderWorkerSet{}
 			ginkgo.By("Increasing the size is accepted", func() {
@@ -238,7 +238,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLws)).To(gomega.Succeed())
 					createdLws.Spec.LeaderWorkerTemplate.Size = new(int32(10))
 					g.Expect(k8sClient.Update(ctx, createdLws)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -256,7 +256,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 				Queue("user-queue").
 				RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
 				Obj()
-			util.MustCreate(ctx, k8sClient, parentLWS)
+			behavioral.MustCreate(ctx, k8sClient, parentLWS)
 
 			// Re-read to get the real UID assigned by the API server.
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentLWS), parentLWS)).To(gomega.Succeed())
@@ -277,7 +277,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 					Controller: &isController,
 				},
 			}
-			util.MustCreate(ctx, k8sClient, childLWS)
+			behavioral.MustCreate(ctx, k8sClient, childLWS)
 
 			// Delete the parent LWS with background propagation: it has no
 			// finalizers so it disappears from the API server immediately,
@@ -291,7 +291,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentLWS), &leaderworkersetv1.LeaderWorkerSet{})).
 					Should(gomega.MatchError(gomega.ContainSubstring("not found")))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			// Delete the child LWS so it enters Terminating state.
 			// The foregroundDeletion finalizer prevents it from being fully removed.
@@ -301,7 +301,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(childLWS), &terminatingChild)).To(gomega.Succeed())
 				g.Expect(terminatingChild.DeletionTimestamp).NotTo(gomega.BeNil())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			// Simulate what the GC does: PATCH the child LWS to remove the
 			// foregroundDeletion finalizer.  Without the fix this PATCH is denied

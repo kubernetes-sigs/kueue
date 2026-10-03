@@ -30,10 +30,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature:workloadpriorityclassdefaulting", util.Shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature:workloadpriorityclassdefaulting", behavioral.Shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns         *corev1.Namespace
 		rf         *kueue.ResourceFlavor
@@ -43,37 +43,37 @@ var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature
 	)
 
 	ginkgo.BeforeAll(func() {
-		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.FeatureGates = map[string]bool{string(features.WorkloadPriorityClassDefaulting): true}
 		})
 
 		rf = utiltestingapi.MakeResourceFlavor("default").Obj()
-		util.MustCreate(ctx, k8sClient, rf)
+		behavioral.MustCreate(ctx, k8sClient, rf)
 
 		cq = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).Resource(corev1.ResourceCPU, "5").Obj()).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 	})
 
 	ginkgo.AfterAll(func() {
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, cq, true, util.MediumTimeout)
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, rf, true, util.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, cq, true, behavioral.MediumTimeout)
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, rf, true, behavioral.MediumTimeout)
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wpc-defaulting-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wpc-defaulting-")
 		lq = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 
 		defaultWPC = utiltestingapi.MakeWorkloadPriorityClass(controllerconstants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
-		util.MustCreate(ctx, k8sClient, defaultWPC)
+		behavioral.MustCreate(ctx, k8sClient, defaultWPC)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultWPC, true, util.MediumTimeout)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, defaultWPC, true, behavioral.MediumTimeout)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.It("should default the WorkloadPriorityClass and admit a job with the defaulted priority", func() {
@@ -82,10 +82,10 @@ var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature
 		ginkgo.By("creating a job without a WorkloadPriorityClass label", func() {
 			job = testingjob.MakeJob("job-no-wpc", ns.Name).
 				Queue("main").
-				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
 				RequestAndLimit(corev1.ResourceCPU, "100m").
 				Obj()
-			util.MustCreate(ctx, k8sClient, job)
+			behavioral.MustCreate(ctx, k8sClient, job)
 		})
 
 		ginkgo.By("verifying the default WorkloadPriorityClass label was set on the job", func() {
@@ -96,12 +96,12 @@ var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature
 					controllerconstants.WorkloadPriorityClassLabel,
 					controllerconstants.DefaultWorkloadPriorityClassName,
 				))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying the workload has the default WorkloadPriorityClass priority", func() {
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
-			util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, controllerconstants.DefaultWorkloadPriorityClassName, 100, wlLookupKey)
+			behavioral.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, controllerconstants.DefaultWorkloadPriorityClassName, 100, wlLookupKey)
 		})
 
 		ginkgo.By("verifying the workload is admitted and the job completes", func() {
@@ -110,16 +110,16 @@ var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 				g.Expect(createdWorkload.Status.Admission).ShouldNot(gomega.BeNil())
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
-			util.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, util.MediumTimeout)
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.MediumTimeout)
 		})
 	})
 
 	ginkgo.It("should not override an existing WorkloadPriorityClass label", func() {
 		highWPC := utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(1000).Obj()
-		util.MustCreate(ctx, k8sClient, highWPC)
+		behavioral.MustCreate(ctx, k8sClient, highWPC)
 		ginkgo.DeferCleanup(func() {
-			util.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, highWPC, true, util.MediumTimeout)
+			behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, highWPC, true, behavioral.MediumTimeout)
 		})
 
 		var job *batchv1.Job
@@ -128,10 +128,10 @@ var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature
 			job = testingjob.MakeJob("job-with-wpc", ns.Name).
 				Queue("main").
 				WorkloadPriorityClass("high").
-				Image(util.GetAgnHostImage(), util.BehaviorExitFast).
+				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
 				RequestAndLimit(corev1.ResourceCPU, "100m").
 				Obj()
-			util.MustCreate(ctx, k8sClient, job)
+			behavioral.MustCreate(ctx, k8sClient, job)
 		})
 
 		ginkgo.By("verifying the existing WorkloadPriorityClass label is preserved", func() {
@@ -141,12 +141,12 @@ var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature
 				g.Expect(createdJob.Labels).Should(gomega.HaveKeyWithValue(
 					controllerconstants.WorkloadPriorityClassLabel, "high",
 				))
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying the workload has the explicit WorkloadPriorityClass priority", func() {
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: ns.Name}
-			util.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, "high", 1000, wlLookupKey)
+			behavioral.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, "high", 1000, wlLookupKey)
 		})
 	})
 })
