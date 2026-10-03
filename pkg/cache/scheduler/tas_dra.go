@@ -47,10 +47,16 @@ type podRequests struct {
 // supplies them itself, so they are counted rather than left to the device check. Domains
 // above the leaf have no node to ask and keep the delegated request.
 func (p podRequests) forLeaf(leaf *leafDomain) resources.Requests {
-	if p.delegation == nil || !leaf.advertisesAll(p.delegation.Resources) {
-		return p.requests
+	return requestsForLeaf(leaf, p.requests, p.delegation)
+}
+
+// requestsForLeaf is the choice forLeaf describes, shared with RequestsForDomain so that
+// what TAS records on a leaf is what it counted there. leaf is nil above the leaf level.
+func requestsForLeaf(leaf *leafDomain, requests resources.Requests, delegation *DRADelegation) resources.Requests {
+	if delegation == nil || leaf == nil || !leaf.advertisesAll(delegation.Resources) {
+		return requests
 	}
-	return p.delegation.Undelegated
+	return delegation.Undelegated
 }
 
 // newPodRequests is what a single Pod of the PodSet asks for, its own Pod count included.
@@ -69,9 +75,11 @@ func newPodRequests(podSetRequests TASPodSetRequests) podRequests {
 	return p
 }
 
-// DomainAdvertises reports whether the domain's nodes publish every one of the resources.
-// A domain above the leaf level answers false, leaving them to the device check.
-func (s *TASFlavorSnapshot) DomainAdvertises(domainID utiltas.TopologyDomainID, names []corev1.ResourceName) bool {
-	leaf := s.leaves[domainID]
-	return leaf != nil && leaf.advertisesAll(names)
+// RequestsForDomain is the single-Pod request to record against domainID, chosen the way
+// forLeaf counts it, so a leaf that supplied the delegated resources is charged for them.
+func (s *TASFlavorSnapshot) RequestsForDomain(domainID utiltas.TopologyDomainID, requests resources.Requests, delegation *DRADelegation) resources.Requests {
+	if !features.Enabled(features.KueueDRADeviceFeasibility) {
+		return requests
+	}
+	return requestsForLeaf(s.leaves[domainID], requests, delegation)
 }
