@@ -413,6 +413,37 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 	}
 }
 
+func TestEffectiveReducerPodSetsCapsShrinkingPodSet(t *testing.T) {
+	podSets := []kueue.PodSet{
+		{Name: "head", Count: 1},
+		{Name: "workers-a", Count: 1, MinCount: new(int32(1))},
+		{Name: "workers-b", Count: 6, MinCount: new(int32(2))},
+	}
+	predecessor := &workload.Info{Obj: &kueue.Workload{
+		Spec: kueue.WorkloadSpec{PodSets: []kueue.PodSet{
+			{Name: "head", Count: 1},
+			{Name: "workers-a", Count: 4},
+			{Name: "workers-b", Count: 2},
+		}},
+		Status: kueue.WorkloadStatus{Admission: &kueue.Admission{
+			PodSetAssignments: []kueue.PodSetAssignment{
+				{Name: "head"}, {Name: "workers-a"}, {Name: "workers-b"},
+			},
+		}},
+	}}
+
+	effective := effectiveReducerPodSets(podSets, predecessor, true)
+	if got := *effective[1].MinCount; got != 1 {
+		t.Fatalf("shrinking PodSet minimum = %d, want 1", got)
+	}
+	counts, found := flavorassigner.NewOrderedPodSetReducer(effective, func(counts []int32) bool {
+		return counts[0]+counts[1]+counts[2] <= 7
+	}).Reduce(true)
+	if !found || !reflect.DeepEqual(counts, []int32{1, 1, 5}) {
+		t.Errorf("reduced counts = %v, found = %t; want [1 1 5], true", counts, found)
+	}
+}
+
 func TestSchedule(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)
