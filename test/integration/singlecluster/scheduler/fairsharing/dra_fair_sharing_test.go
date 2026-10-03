@@ -33,6 +33,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature:fairsharing", "feature:admissionfairsharing"), func() {
@@ -93,7 +94,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			gpuFlavor = utiltestingapi.MakeResourceFlavor("gpu-flavor").Obj()
 			behavioral.MustCreate(ctx, k8sClient, gpuFlavor)
 
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-afs-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-afs-")
 
 			// Create DeviceClass for DRA
 			deviceClass = &resourcev1.DeviceClass{
@@ -326,7 +327,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			gpuFlavor = utiltestingapi.MakeResourceFlavor("gpu-flavor").Obj()
 			behavioral.MustCreate(ctx, k8sClient, gpuFlavor)
 
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-afs-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-afs-")
 
 			// Create DeviceClass for DRA
 			deviceClass = &resourcev1.DeviceClass{

@@ -51,6 +51,7 @@ import (
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // parsePodSetReplicaCount parses the PodsetReplicaSizesAnnotation JSON and
@@ -104,7 +105,7 @@ func waitForRayServiceReadyToServe(rayService *rayv1.RayService) *rayv1.RayServi
 
 func startServeClientPod(ns string) *corev1.Pod {
 	pod := testingpod.MakePod("serve-client", ns).
-		Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+		Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 		TerminationGracePeriod(1).
 		Obj()
 	gomega.Expect(k8sClient.Create(ctx, pod)).To(gomega.Succeed())
@@ -127,7 +128,7 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-e2e-")
 		resourceFlavorName = "kuberay-rf-" + ns.Name
 		clusterQueueName = "kuberay-cq-" + ns.Name
 		localQueueName = "kuberay-lq-" + ns.Name
@@ -161,7 +162,7 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 	})
 
 	ginkgo.It("Should run a rayjob if admitted", ginkgo.Label("shard:kuberay-a"), func() {
-		kuberayTestImage := behavioral.GetKuberayTestImage()
+		kuberayTestImage := e2e.GetKuberayTestImage()
 
 		rayJob := testingrayjob.MakeJob("rayjob", ns.Name).
 			Queue(localQueueName).
@@ -242,7 +243,7 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 	})
 
 	ginkgo.It("Should run a rayjob with InTreeAutoscaling", ginkgo.Label("shard:kuberay-b"), func() {
-		kuberayTestImage := behavioral.GetKuberayTestImage()
+		kuberayTestImage := e2e.GetKuberayTestImage()
 
 		// Create ConfigMap with Python script
 		configMap := &corev1.ConfigMap{
@@ -375,7 +376,7 @@ print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 		ginkgo.By("Waiting for exactly 1 worker pod", func() {
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				workerPods, err := behavioral.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+				workerPods, err := e2e.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(workerPods).To(gomega.HaveLen(1), "Expected exactly 1 running worker Pod")
 			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsgObjList("Expected exactly 1 worker pod", podList))
@@ -394,7 +395,7 @@ print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 		ginkgo.By("Waiting for all 2 worker pods to be running", func() {
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				runningWorkers, err := behavioral.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+				runningWorkers, err := e2e.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(runningWorkers).To(gomega.HaveLen(2), "Expected 2 running worker pods")
 			}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsgObjList("Did not observe 2 running worker pods", podList))
@@ -402,7 +403,7 @@ print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 
 		var deletedPodName string
 		ginkgo.By("Deleting one worker pod", func() {
-			runningWorkers, err := behavioral.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+			runningWorkers, err := e2e.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			gomega.Expect(runningWorkers).NotTo(gomega.BeEmpty())
 			deletedPodName = runningWorkers[0].Name
@@ -412,7 +413,7 @@ print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 		ginkgo.By("Waiting for a new worker pod to replace the deleted one", func() {
 			podList := &corev1.PodList{}
 			gomega.Eventually(func(g gomega.Gomega) {
-				runningWorkers, err := behavioral.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+				runningWorkers, err := e2e.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(runningWorkers).To(gomega.HaveLen(2), "Expected 2 running worker pods after replacement")
 				for _, pod := range runningWorkers {
@@ -432,7 +433,7 @@ print(ray.get([my_task.remote(i, 10) for i in range(20)]))`,
 	})
 
 	ginkgo.It("Should run a rayjob with multi scale-up steps", ginkgo.Label("shard:kuberay-a"), func() {
-		kuberayTestImage := behavioral.GetKuberayTestImage()
+		kuberayTestImage := e2e.GetKuberayTestImage()
 
 		// Create ConfigMap with Python script that triggers multiple scale-up phases
 		configMap := &corev1.ConfigMap{
@@ -577,7 +578,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 
 		ginkgo.By("Waiting for at least 1 worker pod", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				workerPods, err := behavioral.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+				workerPods, err := e2e.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(workerPods).ToNot(gomega.BeEmpty(), "Expected at least 1 running worker Pod")
 			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed(), "Expected at least 1 worker pod")
@@ -595,7 +596,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 
 		ginkgo.By("Waiting for second scale-up to 5 workers due to high parallelism tasks", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				workerPods, err := behavioral.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+				workerPods, err := e2e.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(workerPods).To(gomega.HaveLen(5), "Expected exactly 5 running worker Pods after second scale-up")
 			}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed(), "Did not scale up to 5 worker pods")
@@ -647,7 +648,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 	})
 
 	ginkgo.It("Should account for the SidecarMode submitter in the head PodSet quota", ginkgo.Label("shard:kuberay-b"), func() {
-		kuberayTestImage := behavioral.GetKuberayTestImage()
+		kuberayTestImage := e2e.GetKuberayTestImage()
 
 		rayJob := testingrayjob.MakeJob("rayjob-sidecar", ns.Name).
 			Queue(localQueueName).
@@ -693,7 +694,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdRayJob := &rayv1.RayJob{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayJob), createdRayJob)).To(gomega.Succeed())
-				headPod, err := behavioral.GetRayClusterHeadPod(ctx, k8sClient, client.ObjectKey{
+				headPod, err := e2e.GetRayClusterHeadPod(ctx, k8sClient, client.ObjectKey{
 					Namespace: ns.Name,
 					Name:      createdRayJob.Status.RayClusterName,
 				})
@@ -709,7 +710,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 	})
 
 	ginkgo.It("Should run a RayCluster on worker if admitted", ginkgo.Label("shard:kuberay-a"), func() {
-		kuberayTestImage := behavioral.GetKuberayTestImage()
+		kuberayTestImage := e2e.GetKuberayTestImage()
 
 		raycluster := testingraycluster.MakeCluster("raycluster1", ns.Name).
 			Suspend(true).
@@ -751,7 +752,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 	})
 
 	ginkgo.It("Should account for the autoscaler sidecar in the head PodSet quota when in-tree autoscaling is enabled", ginkgo.Label("shard:kuberay-b"), func() {
-		kuberayTestImage := behavioral.GetKuberayTestImage()
+		kuberayTestImage := e2e.GetKuberayTestImage()
 
 		raycluster := testingraycluster.MakeCluster("raycluster-autoscaling", ns.Name).
 			Suspend(true).
@@ -814,7 +815,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 		// container that KubeRay actually injects into the head Pod.
 		ginkgo.By("Checking the accounted autoscaler resources match the real head Pod", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				headPod, err := behavioral.GetRayClusterHeadPod(ctx, k8sClient, client.ObjectKeyFromObject(raycluster))
+				headPod, err := e2e.GetRayClusterHeadPod(ctx, k8sClient, client.ObjectKeyFromObject(raycluster))
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				var autoscaler *corev1.Container
 				for i := range headPod.Spec.Containers {
@@ -833,7 +834,7 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 	})
 
 	ginkgo.It("Should run a RayService if admitted", ginkgo.Label("shard:kuberay-a", "requires:fullray"), func() {
-		kuberayTestImage := behavioral.GetKuberayTestImage()
+		kuberayTestImage := e2e.GetKuberayTestImage()
 
 		// Create ConfigMap with a simple Ray Serve application
 		configMap := &corev1.ConfigMap{
@@ -948,7 +949,7 @@ app = HelloWorld.bind()`,
 	})
 
 	ginkgo.It("Should run the Redis cleanup Job when a GCS fault-tolerant RayService is deleted", ginkgo.Label("shard:kuberay-a", "requires:fullray"), func() {
-		kuberayTestImage := behavioral.GetKuberayTestImage()
+		kuberayTestImage := e2e.GetKuberayTestImage()
 
 		// Deploy an in-cluster Redis backing the RayCluster's GCS fault tolerance.
 		redisLabels := map[string]string{"app": "redis-gcs-ft"}
@@ -961,7 +962,7 @@ app = HelloWorld.bind()`,
 					Spec: corev1.PodSpec{
 						Containers: []corev1.Container{{
 							Name:            "redis",
-							Image:           behavioral.GetRedisTestImage(),
+							Image:           e2e.GetRedisTestImage(),
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Ports:           []corev1.ContainerPort{{ContainerPort: 6379}},
 						}},
@@ -1058,7 +1059,7 @@ app = HelloWorld.bind()`,
 	})
 
 	ginkgo.It("Should run a rayservice with InTreeAutoscaling", ginkgo.Label("shard:kuberay-b", "requires:fullray"), func() {
-		kuberayTestImage := behavioral.GetKuberayTestImage()
+		kuberayTestImage := e2e.GetKuberayTestImage()
 
 		// Create ConfigMap with a Ray Serve application that supports a delay parameter
 		configMap := &corev1.ConfigMap{
@@ -1193,7 +1194,7 @@ app = HelloWorld.bind()`,
 
 		ginkgo.By("Waiting for worker count to be zero due to autoscaling", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				runningWorkers, err := behavioral.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+				runningWorkers, err := e2e.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(runningWorkers).To(gomega.BeEmpty(), "Expected 0 running worker pod before sending load")
 			}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
@@ -1222,7 +1223,7 @@ app = HelloWorld.bind()`,
 
 		ginkgo.By("Waiting for worker count to increase due to autoscaling", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				runningWorkers, err := behavioral.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
+				runningWorkers, err := e2e.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(len(runningWorkers)).To(gomega.BeNumerically(">", 1),
 					fmt.Sprintf("Expected more than %d running worker pods after autoscaling", 1))

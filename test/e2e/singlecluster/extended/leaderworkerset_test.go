@@ -39,6 +39,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:singlecluster", "feature:leaderworkerset"), func() {
@@ -53,7 +54,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-e2e-")
 		resourceFlavorName = "lws-rf-" + ns.Name
 		clusterQueueName = "lws-cq-" + ns.Name
 		localQueueName = "lws-lq-" + ns.Name
@@ -87,7 +88,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 	ginkgo.When("LeaderWorkerSet created", func() {
 		ginkgo.It("should admit group with leader only", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(1).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -136,7 +137,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 		ginkgo.It("should admit group with leader and workers", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -183,7 +184,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 		ginkgo.It("should admit group with multiple leaders and workers that fits", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(2).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -238,7 +239,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 		ginkgo.DescribeTable("should allow to scale up",
 			func(startupPolicyType leaderworkersetv1.StartupPolicyType) {
 				lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					Size(3).
 					Replicas(1).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -319,7 +320,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 		ginkgo.DescribeTable("should allow to scale down",
 			func(startupPolicyType leaderworkersetv1.StartupPolicyType) {
 				lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					Size(3).
 					Replicas(2).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -412,7 +413,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 		ginkgo.DescribeTable("should allow to scale up, scale down fast",
 			func(startupPolicyType leaderworkersetv1.StartupPolicyType) {
 				lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					Size(3).
 					Replicas(1).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -504,7 +505,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 		ginkgo.DescribeTable("should admit group with multiple leaders and workers that fits and have different resource needs",
 			func(startupPolicyType leaderworkersetv1.StartupPolicyType) {
 				lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					Size(3).
 					Replicas(2).
 					RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -515,8 +516,8 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 							Containers: []corev1.Container{
 								{
 									Name:  "c",
-									Args:  behavioral.BehaviorWaitForDeletion,
-									Image: behavioral.GetAgnHostImage(),
+									Args:  e2e.BehaviorWaitForDeletion,
+									Image: e2e.GetAgnHostImage(),
 									Resources: corev1.ResourceRequirements{
 										Requests: corev1.ResourceList{
 											corev1.ResourceCPU: resource.MustParse("150m"),
@@ -580,7 +581,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 		ginkgo.It("should allow to update the PodTemplate in LeaderWorkerSet", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(behavioral.GetAgnHostImageOld(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImageOld(), e2e.BehaviorWaitForDeletion).
 				Size(2).
 				Replicas(2).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -590,8 +591,8 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 						Containers: []corev1.Container{
 							{
 								Name:  "c",
-								Args:  behavioral.BehaviorWaitForDeletion,
-								Image: behavioral.GetAgnHostImageOld(),
+								Args:  e2e.BehaviorWaitForDeletion,
+								Image: e2e.GetAgnHostImageOld(),
 								Resources: corev1.ResourceRequirements{
 									Requests: corev1.ResourceList{
 										corev1.ResourceCPU: resource.MustParse("150m"),
@@ -623,9 +624,9 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Containers).Should(gomega.HaveLen(1))
-					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Containers[0].Image = behavioral.GetAgnHostImage()
+					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Containers[0].Image = e2e.GetAgnHostImage()
 					g.Expect(createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers).Should(gomega.HaveLen(1))
-					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image = behavioral.GetAgnHostImage()
+					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image = e2e.GetAgnHostImage()
 					g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -638,7 +639,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 					}))).To(gomega.Succeed())
 					g.Expect(pods.Items).To(gomega.HaveLen(4))
 					for _, p := range pods.Items {
-						g.Expect(p.Spec.Containers[0].Image).To(gomega.Equal(behavioral.GetAgnHostImage()))
+						g.Expect(p.Spec.Containers[0].Image).To(gomega.Equal(e2e.GetAgnHostImage()))
 					}
 				}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -690,7 +691,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			)
 
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws-rollout", ns.Name).
-				Image(behavioral.GetAgnHostImageOld(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImageOld(), e2e.BehaviorWaitForDeletion).
 				Size(1).
 				Replicas(lwsReplicas).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -730,7 +731,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			ginkgo.By("Trigger rolling update by changing image", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
-					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image = behavioral.GetAgnHostImage()
+					createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Containers[0].Image = e2e.GetAgnHostImage()
 					g.Expect(k8sClient.Update(ctx, createdLeaderWorkerSet)).To(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -790,7 +791,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 		ginkgo.It("should admit and evict correctly when queue-name is set on pod templates", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -863,7 +864,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 		ginkgo.It("should allow to change queue-name if ReadyReplicas=0", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(1).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -939,7 +940,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 		ginkgo.It("should allow to update the PodTemplate in LeaderWorkerSet", func() {
 			lowPriorityLWS := leaderworkersettesting.MakeLeaderWorkerSet("low-priority", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "1").
@@ -975,7 +976,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 
 			highPriorityLWS := leaderworkersettesting.MakeLeaderWorkerSet("high-priority", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "1").
@@ -1031,7 +1032,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 		ginkgo.It("should allow to update the workload priority in LeaderWorkerSet", func() {
 			lowPriorityLWS := leaderworkersettesting.MakeLeaderWorkerSet("low-priority", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "1").
@@ -1073,7 +1074,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 
 			updatablePriorityLWS := leaderworkersettesting.MakeLeaderWorkerSet("updatable-priority", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "1").
@@ -1145,7 +1146,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 	ginkgo.When("LeaderWorkerSet created with Restart Policy", func() {
 		ginkgo.It("should recreate pods when policy is set to RecreateGroupOnPodRestart", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -1197,7 +1198,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			// if the worker StatefulSet creates a same-name replacement first.
 			// TODO: Use pod deletion once https://github.com/kubernetes-sigs/lws/issues/998 is fixed.
 			ginkgo.By("Restart the container of the selected worker pod", func() {
-				behavioral.RestartPodContainer(ctx, k8sClient, restClient, cfg, restartedPodKey)
+				e2e.RestartPodContainer(ctx, k8sClient, restClient, cfg, restartedPodKey)
 			})
 
 			ginkgo.By("Wait for the restarted pod to be recreated with a new UID", func() {
@@ -1240,7 +1241,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 		ginkgo.It("should only recreate the deleted pod when policy is set to NoneRestartPolicy", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
@@ -1339,7 +1340,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 	ginkgo.When("Workload deactivated", func() {
 		ginkgo.It("shouldn't delete deactivated Workload", func() {
 			lws := leaderworkersettesting.MakeLeaderWorkerSet("lws", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(3).
 				Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").

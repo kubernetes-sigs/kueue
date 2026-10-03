@@ -35,6 +35,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.Label("area:tas", "feature:leaderworkerset"), func() {
@@ -47,7 +48,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-lws-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-lws-")
 
 		topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
 		behavioral.MustCreate(ctx, k8sClient, topology)
@@ -99,8 +100,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 						Containers: []corev1.Container{
 							{
 								Name:  "c",
-								Image: behavioral.GetAgnHostImage(),
-								Args:  behavioral.BehaviorWaitForDeletion,
+								Image: e2e.GetAgnHostImage(),
+								Args:  e2e.BehaviorWaitForDeletion,
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
 										extraResource: resource.MustParse("1"),
@@ -191,8 +192,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 						Containers: []corev1.Container{
 							{
 								Name:  "c",
-								Image: behavioral.GetAgnHostImage(),
-								Args:  behavioral.BehaviorWaitForDeletion,
+								Image: e2e.GetAgnHostImage(),
+								Args:  e2e.BehaviorWaitForDeletion,
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
 										extraResource: resource.MustParse("1"),
@@ -215,8 +216,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 						Containers: []corev1.Container{
 							{
 								Name:  "c",
-								Image: behavioral.GetAgnHostImage(),
-								Args:  behavioral.BehaviorWaitForDeletion,
+								Image: e2e.GetAgnHostImage(),
+								Args:  e2e.BehaviorWaitForDeletion,
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
 										extraResource: resource.MustParse("1"),
@@ -323,8 +324,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 						Containers: []corev1.Container{
 							{
 								Name:  "c",
-								Image: behavioral.GetAgnHostImage(),
-								Args:  behavioral.BehaviorWaitForDeletion,
+								Image: e2e.GetAgnHostImage(),
+								Args:  e2e.BehaviorWaitForDeletion,
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
 										extraResource: resource.MustParse("1"),
@@ -348,8 +349,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 						Containers: []corev1.Container{
 							{
 								Name:  "c",
-								Image: behavioral.GetAgnHostImage(),
-								Args:  behavioral.BehaviorWaitForDeletion,
+								Image: e2e.GetAgnHostImage(),
+								Args:  e2e.BehaviorWaitForDeletion,
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
 										extraResource: resource.MustParse("1"),
@@ -445,8 +446,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 						Containers: []corev1.Container{
 							{
 								Name:  "c",
-								Image: behavioral.GetAgnHostImage(),
-								Args:  behavioral.BehaviorWaitForDeletion,
+								Image: e2e.GetAgnHostImage(),
+								Args:  e2e.BehaviorWaitForDeletion,
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
 										corev1.ResourceCPU: resource.MustParse("200m"),
@@ -472,8 +473,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 						Containers: []corev1.Container{
 							{
 								Name:  "c",
-								Image: behavioral.GetAgnHostImage(),
-								Args:  behavioral.BehaviorWaitForDeletion,
+								Image: e2e.GetAgnHostImage(),
+								Args:  e2e.BehaviorWaitForDeletion,
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
 										corev1.ResourceCPU: resource.MustParse("200m"),
@@ -572,8 +573,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 						Containers: []corev1.Container{
 							{
 								Name:  "c",
-								Image: behavioral.GetAgnHostImage(),
-								Args:  behavioral.BehaviorWaitForDeletion,
+								Image: e2e.GetAgnHostImage(),
+								Args:  e2e.BehaviorWaitForDeletion,
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
 										corev1.ResourceCPU: resource.MustParse("200m"),
@@ -599,8 +600,8 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 						Containers: []corev1.Container{
 							{
 								Name:  "c",
-								Image: behavioral.GetAgnHostImage(),
-								Args:  behavioral.BehaviorWaitForDeletion,
+								Image: e2e.GetAgnHostImage(),
+								Args:  e2e.BehaviorWaitForDeletion,
 								Resources: corev1.ResourceRequirements{
 									Limits: map[corev1.ResourceName]resource.Quantity{
 										corev1.ResourceCPU: resource.MustParse("200m"),

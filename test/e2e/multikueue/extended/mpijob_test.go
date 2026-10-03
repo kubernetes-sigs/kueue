@@ -29,6 +29,7 @@ import (
 	workloadmpijob "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 type mpiJobTestContext struct {
@@ -52,15 +53,15 @@ func registerMPIJobTests(contextProvider func() mpiJobTestContext) {
 					ReplicaType:   kfmpi.MPIReplicaTypeLauncher,
 					ReplicaCount:  1,
 					RestartPolicy: "OnFailure",
-					Image:         behavioral.GetAgnHostImage(),
-					Args:          behavioral.BehaviorExitFast,
+					Image:         e2e.GetAgnHostImage(),
+					Args:          e2e.BehaviorExitFast,
 				},
 				testingmpijob.MPIJobReplicaSpecRequirement{
 					ReplicaType:   kfmpi.MPIReplicaTypeWorker,
 					ReplicaCount:  1,
 					RestartPolicy: "OnFailure",
-					Image:         behavioral.GetAgnHostImage(),
-					Args:          behavioral.BehaviorExitFast,
+					Image:         e2e.GetAgnHostImage(),
+					Args:          e2e.BehaviorExitFast,
 				},
 			).
 			RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").
@@ -75,7 +76,7 @@ func registerMPIJobTests(contextProvider func() mpiJobTestContext) {
 
 		wlLookupKey := types.NamespacedName{Name: workloadmpijob.GetWorkloadNameForMPIJob(mpijob.Name, mpijob.UID), Namespace: managerNs.Name}
 
-		admittedWorker := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+		admittedWorker := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 		ginkgo.GinkgoLogr.Info("MPIJob %s is admitted in worker cluster %s", mpijob.Name, admittedWorker)
 
 		ginkgo.By("Waiting for the MPIJob to finish", func() {

@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // The ungater gets these labels through SetupWithManager, not the shared option, so it needs its own test.
@@ -64,7 +65,7 @@ var _ = ginkgo.Describe("ElasticJobUngater with ClusterQueue custom metric label
 		})
 
 		ginkgo.BeforeEach(func() {
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "elastic-custom-metric-labels-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "elastic-custom-metric-labels-")
 
 			resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, resourceFlavor)

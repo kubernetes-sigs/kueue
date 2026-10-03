@@ -36,6 +36,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area:multikueue", "feature:multikueue"), ginkgo.Ordered, func() {
@@ -63,9 +64,9 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 	)
 
 	ginkgo.BeforeEach(func() {
-		managerNs = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueuedra-")
-		worker1Ns = behavioral.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
-		worker2Ns = behavioral.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
+		managerNs = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueuedra-")
+		worker1Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
+		worker2Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
 
 		workerCluster1 = utiltestingapi.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, "multikueue1").Obj()
 		behavioral.MustCreate(ctx, k8sManagerClient, workerCluster1)
@@ -179,7 +180,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			job := testingjob.MakeJob("dra-job", managerNs.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "gpu-template").
 				TerminationGracePeriod(1).
 				Obj()
@@ -243,9 +244,9 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			ginkgo.By("Finishing the job's pods")
 			listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
 			if assignedClusterName == workerCluster1.Name {
-				behavioral.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 1, 0, listOpts)
+				e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 1, 0, listOpts)
 			} else {
-				behavioral.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 1, 0, listOpts)
+				e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 1, 0, listOpts)
 			}
 
 			ginkgo.By("Waiting for workload to finish")
@@ -282,7 +283,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			job := testingjob.MakeJob("missing-rct-job", managerNs.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "missing-rct").
 				TerminationGracePeriod(1).
 				Obj()
@@ -326,7 +327,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			job := testingjob.MakeJob("heterogeneous-dra-job", managerNs.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "worker1-only-rct").
 				TerminationGracePeriod(1).
 				Obj()
@@ -365,7 +366,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 
 			ginkgo.By("Finishing the job's pods on worker1")
 			listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
-			behavioral.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 1, 0, listOpts)
+			e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 1, 0, listOpts)
 
 			ginkgo.By("Waiting for job to complete")
 			createdWorkload := &kueue.Workload{}
@@ -403,7 +404,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				Parallelism(2).
 				Completions(2).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				ResourceClaimTemplate("gpu", "multi-pod-gpu-template").
 				TerminationGracePeriod(1).
 				Obj()
@@ -414,15 +415,15 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 				Namespace: managerNs.Name,
 			}
 
-			var selectedWorker behavioral.ClusterInfo
+			var selectedWorker e2e.ClusterInfo
 			ginkgo.By("Waiting for workload to be admitted")
 			gomega.Eventually(func(g gomega.Gomega) {
 				managerWl := &kueue.Workload{}
 				g.Expect(k8sManagerClient.Get(ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-				selectedWorker = behavioral.GetClientForSelectedWorkerCluster(
+				selectedWorker = e2e.GetClientForSelectedWorkerCluster(
 					g,
 					managerWl,
-					behavioral.DefaultClusterInfosForTests(
+					e2e.DefaultClusterInfosForTests(
 						ctx,
 						k8sWorker1Client,
 						ctx,
@@ -446,9 +447,9 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			ginkgo.By("Finishing the job's pods")
 			listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
 			if selectedWorker.Name == workerCluster1.Name {
-				behavioral.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 2, 0, listOpts)
+				e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 2, 0, listOpts)
 			} else {
-				behavioral.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 2, 0, listOpts)
+				e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 2, 0, listOpts)
 			}
 
 			ginkgo.By("Waiting for job to complete")

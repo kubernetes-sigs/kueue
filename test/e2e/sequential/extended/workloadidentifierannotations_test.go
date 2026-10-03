@@ -33,6 +33,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	leaderworkersettesting "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("WorkloadIdentifierAnnotations", ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.Label("feature:workloadidentifierannotations"), func() {
@@ -44,7 +45,7 @@ var _ = ginkgo.Describe("WorkloadIdentifierAnnotations", ginkgo.Ordered, ginkgo.
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-e2e-")
 
 		rf = utiltestingapi.MakeResourceFlavor("rf-"+ns.Name).NodeLabel("instance-type", "on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, rf)
@@ -72,7 +73,7 @@ var _ = ginkgo.Describe("WorkloadIdentifierAnnotations", ginkgo.Ordered, ginkgo.
 
 	ginkgo.Context("with WorkloadIdentifierAnnotations enabled", func() {
 		ginkgo.BeforeAll(func() {
-			behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+			e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 				if cfg.FeatureGates == nil {
 					cfg.FeatureGates = make(map[string]bool, 1)
 				}
@@ -83,7 +84,7 @@ var _ = ginkgo.Describe("WorkloadIdentifierAnnotations", ginkgo.Ordered, ginkgo.
 		ginkgo.It("should admit group with 50-character lws name", func() {
 			lwsName := strings.Repeat("a", 50)
 			lws := leaderworkersettesting.MakeLeaderWorkerSet(lwsName, ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Size(3).Replicas(1).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				TerminationGracePeriod(1).

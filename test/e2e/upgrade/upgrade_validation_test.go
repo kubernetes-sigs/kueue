@@ -31,6 +31,7 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Upgrade Validation", ginkgo.Ordered, func() {
@@ -129,7 +130,7 @@ var _ = ginkgo.Describe("Upgrade Validation", ginkgo.Ordered, func() {
 
 		testJob := testingjob.MakeJob("upgrade-validation-job", jobNamespace).
 			Queue(kueue.LocalQueueName(queueName)).
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 			RequestAndLimit(corev1.ResourceCPU, "200m").
 			RequestAndLimit(corev1.ResourceMemory, "50Mi").
 			Obj()

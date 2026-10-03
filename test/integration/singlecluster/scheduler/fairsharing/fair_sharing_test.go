@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func() {
@@ -106,7 +107,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		flavor2 = utiltestingapi.MakeResourceFlavor("flavor2").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor2)
 
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
 	ginkgo.AfterEach(func() {
@@ -1691,7 +1692,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
 	ginkgo.AfterEach(func() {
@@ -2020,7 +2021,7 @@ var _ = ginkgo.Describe("Scheduler with AdmissionFairSharing = nil", ginkgo.Labe
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
 	ginkgo.AfterEach(func() {

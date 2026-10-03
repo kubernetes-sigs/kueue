@@ -47,6 +47,7 @@ import (
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe(
@@ -170,17 +171,17 @@ var _ = ginkgo.Describe(
 			})
 
 			ginkgo.BeforeEach(func() {
-				managerNs = behavioral.CreateNamespaceFromPrefixWithLog(
+				managerNs = e2e.CreateNamespaceFromPrefixWithLog(
 					managerTestCluster.ctx,
 					managerTestCluster.client,
 					"multikueue-",
 				)
-				worker1Ns = behavioral.CreateNamespaceWithLog(
+				worker1Ns = e2e.CreateNamespaceWithLog(
 					worker1TestCluster.ctx,
 					worker1TestCluster.client,
 					managerNs.Name,
 				)
-				worker2Ns = behavioral.CreateNamespaceWithLog(
+				worker2Ns = e2e.CreateNamespaceWithLog(
 					worker2TestCluster.ctx,
 					worker2TestCluster.client,
 					managerNs.Name,

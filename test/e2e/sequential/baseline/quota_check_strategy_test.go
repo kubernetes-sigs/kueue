@@ -33,9 +33,10 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckstrategy", behavioral.Shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckstrategy", e2e.Shard0), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns             *corev1.Namespace
 		resourceFlavor *kueue.ResourceFlavor
@@ -43,7 +44,7 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 	)
 
 	ginkgo.BeforeAll(func() {
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			if cfg.FeatureGates == nil {
 				cfg.FeatureGates = make(map[string]bool)
 			}
@@ -87,7 +88,7 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-quota-check-strategy-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-quota-check-strategy-")
 			metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
 				ObjectMeta: metav1.ObjectMeta{Name: "metrics-reader-rolebinding-" + ns.Name},
 				Subjects: []rbacv1.Subject{
@@ -107,13 +108,13 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 
 			curlPod = testingjobspod.MakePod("curl-metrics-"+ns.Name, kueueNS).
 				ServiceAccountName(serviceAccountName).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				TerminationGracePeriod(1).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, curlPod)
 
 			ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
-				behavioral.WaitForPodRunning(ctx, k8sClient, curlPod)
+				e2e.WaitForPodRunning(ctx, k8sClient, curlPod)
 			})
 
 			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
@@ -134,7 +135,7 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 			ginkgo.By("Create a job with undeclared resource", func() {
 				createdJob = testingjob.MakeJob("ignoreundeclared-job", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					TerminationGracePeriod(1).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					RequestAndLimit(corev1.ResourceMemory, "1Gi").
@@ -153,14 +154,14 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 			}
 			curlContainerName = curlPod.Spec.Containers[0].Name
 			ginkgo.By("checking that resource usage metrics for declared resources are available", func() {
-				behavioral.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, availableMetrics)
+				e2e.ExpectMetricsToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, availableMetrics)
 			})
 
 			unavailableMetrics := [][]string{
 				{"kueue_cluster_queue_resource_usage", clusterQueue.Name, "memory"},
 			}
 			ginkgo.By("checking that resource usage metrics for undeclared resources are not available", func() {
-				behavioral.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, unavailableMetrics)
+				e2e.ExpectMetricsNotToBeAvailable(ctx, cfg, restClient, curlPod.Name, curlContainerName, unavailableMetrics)
 			})
 		})
 	})
@@ -174,7 +175,7 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-preemption-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-preemption-")
 
 			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-preemption-").
@@ -201,7 +202,7 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 					WorkloadPriorityClass("low").
 					RequestAndLimit(corev1.ResourceCPU, "100").
 					RequestAndLimit(corev1.ResourceMemory, "1Gi").
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					TerminationGracePeriod(1).
 					Obj()
 				behavioral.MustCreate(ctx, k8sClient, lowJob)
@@ -215,7 +216,7 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 					WorkloadPriorityClass("high").
 					RequestAndLimit(corev1.ResourceCPU, "100").
 					RequestAndLimit(corev1.ResourceMemory, "1Gi").
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					TerminationGracePeriod(1).
 					Obj()
 				behavioral.MustCreate(ctx, k8sClient, highJob)

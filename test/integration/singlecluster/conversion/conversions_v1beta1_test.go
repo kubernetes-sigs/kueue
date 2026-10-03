@@ -35,6 +35,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("v1beta2 conversions", func() {
@@ -54,7 +55,7 @@ var _ = ginkgo.Describe("v1beta2 conversions", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-")
 	})
 
 	ginkgo.AfterEach(func() {

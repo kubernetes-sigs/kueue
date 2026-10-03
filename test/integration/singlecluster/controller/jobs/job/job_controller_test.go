@@ -66,6 +66,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -99,7 +100,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 		childLookupKey = types.NamespacedName{Name: childJobName, Namespace: ns.Name}
 	})
 
@@ -1294,7 +1295,7 @@ var _ = ginkgo.Describe("When waitForPodsReady enabled", ginkgo.Ordered, ginkgo.
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 
 	ginkgo.AfterEach(func() {
@@ -1619,7 +1620,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
@@ -2358,7 +2359,7 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 
 	ginkgo.It("Should unsuspend job iff localQueue is in the same namespace", func() {
 		ginkgo.By("create another namespace")
-		ns2 := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns2 := e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		defer func() {
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns2)).To(gomega.Succeed())
 		}()
@@ -3406,7 +3407,7 @@ var _ = ginkgo.Describe("Job controller interacting with Workload controller whe
 			jobframework.WithWaitForPodsReady(waitForPodsReady),
 		))
 
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -3964,7 +3965,7 @@ var _ = ginkgo.Describe("Job controller with TopologyAwareScheduling", ginkgo.Or
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-job-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-job-")
 
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("b1").
@@ -4220,7 +4221,7 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-elastic-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-elastic-")
 
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("b1").
@@ -4374,7 +4375,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 			jobframework.WithWaitForPodsReady(waitForPodsReady),
 		))
 
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -4461,7 +4462,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 			ginkgo.It("should delete orphaned Workload after finishing if the Job is deleted with PropagationPolicy=DeletePropagationOrphan", func() {
 				job := testingjob.MakeJob("job", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					Obj()
 				behavioral.MustCreate(ctx, k8sClient, job)
 
@@ -4729,7 +4730,7 @@ var _ = ginkgo.DescribeTable("Elastic resize preemption retains occupied capacit
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(tasEnabled, true, nil))
 		ginkgo.DeferCleanup(func() { fwk.StopManager(ctx) })
 
-		ns := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "resize-preemption-")
+		ns := e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "resize-preemption-")
 		nodes := []corev1.Node{}
 		for _, name := range []string{"resize-node-a", "resize-node-b"} {
 			nodes = append(nodes, *testingnode.MakeNode(name).
@@ -4890,7 +4891,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
@@ -6456,7 +6457,7 @@ var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
 		job := testingjob.MakeJob("unmanaged-job", unmanagedNs.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
 			Suspend(true).
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 			Obj()
 
 		gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
@@ -6472,7 +6473,7 @@ var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
 		job := testingjob.MakeJob("managed-job", managedNs.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
 			Suspend(true).
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			Obj()
 
 		gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
@@ -6521,7 +6522,7 @@ var _ = ginkgo.Describe("Job controller with CustomMetricLabels", ginkgo.Label("
 			jobframework.WithAnnotationsToCopy(annotationsToCopy),
 		))
 
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-metric-labels-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-metric-labels-")
 	})
 
 	ginkgo.AfterEach(func() {

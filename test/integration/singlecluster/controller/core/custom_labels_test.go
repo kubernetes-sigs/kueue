@@ -36,6 +36,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqueue", "area:core"), func() {
@@ -60,7 +61,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-")
 		})
 
 		ginkgo.AfterEach(func() {
@@ -203,7 +204,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-srclabel-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-srclabel-")
 		})
 
 		ginkgo.AfterEach(func() {
@@ -253,7 +254,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-srcannot-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-srcannot-")
 		})
 
 		ginkgo.AfterEach(func() {
@@ -304,7 +305,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-nolq-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-nolq-")
 		})
 
 		ginkgo.AfterEach(func() {
@@ -358,7 +359,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(nil))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-disabled-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-disabled-")
 		})
 
 		ginkgo.AfterEach(func() {
@@ -412,7 +413,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-config-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-config-")
 		})
 
 		ginkgo.AfterEach(func() {
@@ -475,7 +476,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-lq-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-lq-")
 		})
 
 		ginkgo.AfterEach(func() {
@@ -635,7 +636,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-preempt-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-preempt-")
 		})
 
 		ginkgo.AfterEach(func() {
@@ -733,7 +734,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-cohort-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-cohort-")
 		})
 
 		ginkgo.AfterEach(func() {
@@ -946,7 +947,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(nil))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-empty-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-empty-")
 		})
 
 		ginkgo.AfterEach(func() {
@@ -995,7 +996,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-wl-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-wl-")
 		})
 
 		ginkgo.AfterEach(func() {
@@ -1206,7 +1207,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-deleted-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-deleted-")
 		})
 
 		ginkgo.AfterEach(func() {

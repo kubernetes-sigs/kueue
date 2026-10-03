@@ -48,6 +48,7 @@ import (
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -72,7 +73,7 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -698,7 +699,7 @@ var _ = ginkgo.Describe("JobSet controller for workloads when only jobs with que
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -772,7 +773,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -973,7 +974,7 @@ var _ = ginkgo.Describe("JobSet controller interacting with scheduler", ginkgo.L
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
@@ -1161,7 +1162,7 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-jobset-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-jobset-")
 
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("b1r1").
@@ -1219,8 +1220,8 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 					PodAnnotations: map[string]string{
 						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 					},
-					Image: behavioral.GetAgnHostImage(),
-					Args:  behavioral.BehaviorExitFast,
+					Image: e2e.GetAgnHostImage(),
+					Args:  e2e.BehaviorExitFast,
 				},
 				testingjobset.ReplicatedJobRequirements{
 					Name:        "rj2",
@@ -1230,8 +1231,8 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 					PodAnnotations: map[string]string{
 						kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 					},
-					Image: behavioral.GetAgnHostImage(),
-					Args:  behavioral.BehaviorExitFast,
+					Image: e2e.GetAgnHostImage(),
+					Args:  e2e.BehaviorExitFast,
 				},
 			).
 			Request("rj1", corev1.ResourceCPU, "100m").

@@ -30,6 +30,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	jaxjobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/jaxjob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "feature:jaxjob"), func() {
@@ -44,7 +45,7 @@ var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "f
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jax-e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jax-e2e-")
 		resourceFlavorName = "jax-rf-" + ns.Name
 		clusterQueueName = "jax-cq-" + ns.Name
 		localQueueName = "jax-lq-" + ns.Name
@@ -85,7 +86,7 @@ var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "f
 				JAXReplicaSpecsDefault().
 				TerminationGracePeriod(kftraining.JAXJobReplicaTypeWorker, 1).
 				Parallelism(kftraining.JAXJobReplicaTypeWorker, 2).
-				Image(kftraining.JAXJobReplicaTypeWorker, behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(kftraining.JAXJobReplicaTypeWorker, e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Request(kftraining.JAXJobReplicaTypeWorker, corev1.ResourceCPU, "1").
 				Request(kftraining.JAXJobReplicaTypeWorker, corev1.ResourceMemory, "200Mi").
 				Obj()
@@ -134,7 +135,7 @@ var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "f
 
 			ginkgo.By("Check workload is finished", func() {
 				// Wait for active pods and terminate them
-				behavioral.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 2, 0, client.InNamespace(ns.Name))
+				e2e.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 2, 0, client.InNamespace(ns.Name))
 
 				behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 			})

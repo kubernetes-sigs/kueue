@@ -32,6 +32,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta1"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Kueue v1beta1", ginkgo.Label("area:singlecluster", "feature:e2e_v1beta1"), func() {
@@ -40,10 +41,10 @@ var _ = ginkgo.Describe("Kueue v1beta1", ginkgo.Label("area:singlecluster", "fea
 	var jobKey types.NamespacedName
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		sampleJob = testingjob.MakeJob("test-job", ns.Name).
 			Queue("main").
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			RequestAndLimit(corev1.ResourceMemory, "20Mi").
 			TerminationGracePeriod(1).
@@ -121,7 +122,7 @@ var _ = ginkgo.Describe("Kueue v1beta1", ginkgo.Label("area:singlecluster", "fea
 
 		ginkgo.It("Should unsuspend a job and set nodeSelectors", func() {
 			// Use a binary that ends.
-			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).Obj()
+			sampleJob = (&testingjob.JobWrapper{Job: *sampleJob}).Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).Obj()
 			behavioral.MustCreate(ctx, k8sClient, sampleJob)
 
 			// The job might have finished at this point. That shouldn't be a problem for the purpose of this test

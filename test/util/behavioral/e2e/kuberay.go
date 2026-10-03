@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package behavioral
+package e2e
 
 import (
 	"context"
@@ -28,6 +28,8 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const rayActorNamespace = "kueue-e2e"
@@ -71,10 +73,10 @@ func ExecuteCommandInRayClusterHead(
 		g.Expect(err).NotTo(gomega.HaveOccurred())
 		g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
 		headPod = pod
-	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 	gomega.Eventually(func(g gomega.Gomega) {
-		_, stderr, err := KExecute(
+		_, stderr, err := behavioral.KExecute(
 			ctx,
 			cfg,
 			restClient,
@@ -84,7 +86,7 @@ func ExecuteCommandInRayClusterHead(
 			command,
 		)
 		g.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", string(stderr))
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 // CreateDetachedRayActor creates a detached actor that requests the specified

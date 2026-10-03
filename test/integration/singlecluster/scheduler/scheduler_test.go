@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Scheduler", func() {
@@ -78,7 +79,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	}
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
@@ -1101,7 +1102,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			queue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
 			behavioral.MustCreate(ctx, k8sClient, queue)
 
-			nsFoo = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "foo-")
+			nsFoo = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "foo-")
 			queueFoo = utiltestingapi.MakeLocalQueue("foo", nsFoo.Name).ClusterQueue(cq.Name).Obj()
 			behavioral.MustCreate(ctx, k8sClient, queueFoo)
 		})
@@ -2545,7 +2546,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				Cohort(chName).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, strictFIFOClusterQ)
-			matchingNS = behavioral.CreateNamespaceFromObjectWithLog(ctx, k8sClient, utiltesting.MakeNamespaceWrapper("").GenerateName("foo-").Label("dep", "eng").Obj())
+			matchingNS = e2e.CreateNamespaceFromObjectWithLog(ctx, k8sClient, utiltesting.MakeNamespaceWrapper("").GenerateName("foo-").Label("dep", "eng").Obj())
 		})
 
 		ginkgo.AfterEach(func() {

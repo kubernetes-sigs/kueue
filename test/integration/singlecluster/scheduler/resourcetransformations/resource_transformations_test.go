@@ -29,6 +29,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -82,7 +83,7 @@ var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.Conti
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "resource-transformations-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "resource-transformations-")
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("test-cq").
 			ResourceGroup(
@@ -252,7 +253,7 @@ var _ = ginkgo.Describe("Resource Transformation: Retain CPU → cpu_credits (Sh
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
 
 		onDemand = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemand)

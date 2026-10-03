@@ -48,6 +48,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // updateAndRestartConcurrently runs the given functions in parallel goroutines,
@@ -96,9 +97,9 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		managerNs = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-")
-		worker1Ns = behavioral.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
-		worker2Ns = behavioral.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
+		managerNs = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-")
+		worker1Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
+		worker2Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
 
 		workerCluster1 = utiltestingapi.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, "multikueue1").Obj()
 		behavioral.MustCreate(ctx, k8sManagerClient, workerCluster1)
@@ -224,17 +225,17 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sWorker2Client, worker2Ns)
 	})
 
-	ginkgo.Describe("Worker Job TTL clearing", ginkgo.Label(behavioral.Shard0), func() {
+	ginkgo.Describe("Worker Job TTL clearing", ginkgo.Label(e2e.Shard0), func() {
 		ginkgo.It("Should not propagate Job TTL and should clean up the completed manager Job", func() {
-			defaultManagerKueueCfg := behavioral.GetKueueConfiguration(ctx, k8sManagerClient)
+			defaultManagerKueueCfg := e2e.GetKueueConfiguration(ctx, k8sManagerClient)
 			ginkgo.DeferCleanup(func() {
 				ginkgo.By("Restoring the manager Kueue configuration", func() {
-					behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
+					e2e.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
 				})
 			})
 
 			ginkgo.By("Enabling worker Job TTL clearing", func() {
-				behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
+				e2e.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
 					if cfg.FeatureGates == nil {
 						cfg.FeatureGates = make(map[string]bool)
 					}
@@ -247,9 +248,9 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 				// rebuilds its remote clients. If no worker is actually active when the Job is created, its Workload
 				// is requeued with a long delay. Force an observable False-to-True transition to ensure the remote
 				// caches are synchronized before creating the Job.
-				restoreWorker1Connection := behavioral.BreakConnection(ctx, k8sManagerClient, workerCluster1, behavioral.GetKueueNamespace())
+				restoreWorker1Connection := behavioral.BreakConnection(ctx, k8sManagerClient, workerCluster1, e2e.GetKueueNamespace())
 				restoreWorker1Connection()
-				restoreWorker2Connection := behavioral.BreakConnection(ctx, k8sManagerClient, workerCluster2, behavioral.GetKueueNamespace())
+				restoreWorker2Connection := behavioral.BreakConnection(ctx, k8sManagerClient, workerCluster2, e2e.GetKueueNamespace())
 				restoreWorker2Connection()
 			})
 
@@ -259,7 +260,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 				TerminationGracePeriod(1).
 				RequestAndLimit(corev1.ResourceCPU, "100m").
 				RequestAndLimit(corev1.ResourceMemory, "100M").
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Obj()
 
 			ginkgo.By("Creating the job with immediate TTL cleanup", func() {
@@ -267,7 +268,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			})
 
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
-			admittedWorkerName := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+			admittedWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 			gomega.Expect(admittedWorkerName).To(gomega.BeElementOf(workerCluster1.Name, workerCluster2.Name))
 			admittedWorkerClient := k8sWorker1Client
 			admittedWorkerRestClient := worker1RestClient
@@ -288,7 +289,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 
 			ginkgo.By("Finishing the remote Job", func() {
 				listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
-				behavioral.WaitForActivePodsAndTerminate(ctx, admittedWorkerClient, admittedWorkerRestClient, admittedWorkerCfg, job.Namespace, 1, 0, listOpts)
+				e2e.WaitForActivePodsAndTerminate(ctx, admittedWorkerClient, admittedWorkerRestClient, admittedWorkerCfg, job.Namespace, 1, 0, listOpts)
 			})
 
 			ginkgo.By("Waiting for the completed manager Job to be deleted by the TTL controller", func() {
@@ -301,14 +302,14 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 
-	ginkgo.Describe("Incremental mode", ginkgo.Label(behavioral.Shard0), ginkgo.Ordered, func() {
+	ginkgo.Describe("Incremental mode", ginkgo.Label(e2e.Shard0), ginkgo.Ordered, func() {
 		var defaultManagerKueueCfg *kueueconfig.Configuration
 
 		ginkgo.BeforeAll(func() {
 			ginkgo.By("setting MultiKueue Dispatcher to Incremental", func() {
-				defaultManagerKueueCfg = behavioral.GetKueueConfiguration(ctx, k8sManagerClient)
+				defaultManagerKueueCfg = e2e.GetKueueConfiguration(ctx, k8sManagerClient)
 				newCfg := defaultManagerKueueCfg.DeepCopy()
-				behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, newCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
+				e2e.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, newCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
 					if cfg.MultiKueue == nil {
 						cfg.MultiKueue = &kueueconfig.MultiKueue{}
 					}
@@ -318,7 +319,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 		ginkgo.AfterAll(func() {
 			ginkgo.By("setting MultiKueue Dispatcher back to AllAtOnce", func() {
-				behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
+				e2e.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
 			})
 		})
 		ginkgo.It("Should run a job on worker if admitted", func() {
@@ -329,7 +330,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 				RequestAndLimit(corev1.ResourceMemory, "2G").
 				TerminationGracePeriod(1).
 				// Give it the time to be observed Active in the live status update step.
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Obj()
 
 			ginkgo.By("Creating the job", func() {
@@ -365,7 +366,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 
 			ginkgo.By("Finishing the job's pod", func() {
 				listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
-				behavioral.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 1, 0, listOpts)
+				e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 1, 0, listOpts)
 			})
 
 			ginkgo.By("Waiting for the job to finish", func() {
@@ -391,7 +392,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 
-	ginkgo.Describe("The connection to a worker cluster is unreliable", ginkgo.Label(behavioral.Shard1), func() {
+	ginkgo.Describe("The connection to a worker cluster is unreliable", ginkgo.Label(e2e.Shard1), func() {
 		ginkgo.It("Should update the cluster status to reflect the connection state", func() {
 			worker1Cq2 := utiltestingapi.MakeClusterQueue("q2").
 				ResourceGroup(
@@ -449,11 +450,11 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			})
 
 			ginkgo.By("Waiting for kube-system to become available again", func() {
-				behavioral.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1Container)
+				e2e.WaitForKubeSystemControllersAvailability(ctx, k8sWorker1Client, worker1Container)
 			})
 
 			ginkgo.By("Restart Kueue and wait for availability again", func() {
-				behavioral.RestartKueueController(ctx, k8sWorker1Client, worker1ClusterName)
+				e2e.RestartKueueController(ctx, k8sWorker1Client, worker1ClusterName)
 			})
 
 			ginkgo.By("Checking that the Kueue is operational after reconnection", func() {
@@ -462,7 +463,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 
-	ginkgo.Describe("Connection via ClusterProfile no plugins", ginkgo.Label(behavioral.Shard0), ginkgo.Ordered, func() {
+	ginkgo.Describe("Connection via ClusterProfile no plugins", ginkgo.Label(e2e.Shard0), ginkgo.Ordered, func() {
 		var (
 			workerCluster3         *kueue.MultiKueueCluster
 			defaultManagerKueueCfg *kueueconfig.Configuration
@@ -471,16 +472,16 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 
 		ginkgo.BeforeAll(func() {
 			ginkgo.By("setting MultiKueueClusterProfile feature gate", func() {
-				defaultManagerKueueCfg = behavioral.GetKueueConfiguration(ctx, k8sManagerClient)
+				defaultManagerKueueCfg = e2e.GetKueueConfiguration(ctx, k8sManagerClient)
 				newCfg := defaultManagerKueueCfg.DeepCopy()
-				behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, newCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
+				e2e.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, newCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
 					cfg.FeatureGates[string(features.MultiKueueClusterProfile)] = true
 				})
 			})
 		})
 		ginkgo.AfterAll(func() {
 			ginkgo.By("reverting the configuration", func() {
-				behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
+				e2e.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
 			})
 		})
 
@@ -560,7 +561,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 
-	ginkgo.Describe("Connection via ClusterProfile with plugins", ginkgo.Label(behavioral.Shard0), ginkgo.Ordered, func() {
+	ginkgo.Describe("Connection via ClusterProfile with plugins", ginkgo.Label(e2e.Shard0), ginkgo.Ordered, func() {
 		const (
 			volumeName          = "plugins"
 			volumeMountPath     = "/plugins"
@@ -584,12 +585,12 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		)
 
 		ginkgo.BeforeAll(func() {
-			defaultManagerKueueCfg = behavioral.GetKueueConfiguration(ctx, k8sManagerClient)
+			defaultManagerKueueCfg = e2e.GetKueueConfiguration(ctx, k8sManagerClient)
 
 			// Image volumes are Beta and enabled by default from k8s 1.35, so the official secretreader
 			// image can be mounted directly. On older versions we keep the init container that copies the
 			// binary from the self-built image, because the official image does not ship a "cp" command.
-			serverVersion, err := versionutil.ParseGeneric(behavioral.GetKubernetesVersion(managerCfg))
+			serverVersion, err := versionutil.ParseGeneric(e2e.GetKubernetesVersion(managerCfg))
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 			useImageVolume := serverVersion.AtLeast(versionutil.MustParseGeneric("v1.35.0"))
 
@@ -631,7 +632,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 								Name: volumeName,
 								VolumeSource: corev1.VolumeSource{
 									Image: &corev1.ImageVolumeSource{
-										Reference:  behavioral.GetClusterProfilePluginImage(),
+										Reference:  e2e.GetClusterProfilePluginImage(),
 										PullPolicy: corev1.PullIfNotPresent,
 									},
 								},
@@ -641,7 +642,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 						updatedDeployment.Spec.Template.Spec.InitContainers = []corev1.Container{
 							*utiltesting.MakeContainer().
 								Name(pluginContainerName).
-								Image(behavioral.GetClusterProfilePluginImage()).
+								Image(e2e.GetClusterProfilePluginImage()).
 								ImagePullPolicy(corev1.PullIfNotPresent).
 								Command("sh", "-c", fmt.Sprintf("mkdir -p %s/bin && cp /bin/secretreader-plugin %s", volumeMountPath, secretReaderPath)).
 								VolumeMount(volumeName, volumeMountPath).
@@ -676,11 +677,11 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		ginkgo.AfterAll(func() {
 			ginkgo.By("setting back the configuration", func() {
 				// Just update Kueue configuration. We will restart Kueue later.
-				behavioral.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg)
+				e2e.UpdateKueueConfiguration(ctx, k8sManagerClient, defaultManagerKueueCfg)
 			})
 
 			ginkgo.By("setting back the deployment", func() {
-				behavioral.UpdateDeploymentAndWaitForProgressing(ctx, k8sManagerClient, deploymentKey, managerClusterName, func(deployment *appsv1.Deployment) {
+				e2e.UpdateDeploymentAndWaitForProgressing(ctx, k8sManagerClient, deploymentKey, managerClusterName, func(deployment *appsv1.Deployment) {
 					deployment.Spec = *defaultManagerDeployment.Spec.DeepCopy()
 				})
 			})
@@ -688,7 +689,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			ginkgo.By("wait for Kueue availability", func() {
 				// We are using NoRestartCountCheck because we expect one fails in MultiKueue tests.
 				// This happens on "The connection to a worker cluster is unreliable" test case.
-				behavioral.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sManagerClient)
+				e2e.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sManagerClient)
 			})
 
 			behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sManagerClient, secretReaderRoleBinding, true, behavioral.MediumTimeout)
@@ -707,7 +708,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 					},
 				}
 
-				behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
+				e2e.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName, func(cfg *kueueconfig.Configuration) {
 					cfg.FeatureGates[string(features.MultiKueueClusterProfile)] = true
 					if cfg.MultiKueue == nil {
 						cfg.MultiKueue = &kueueconfig.MultiKueue{}
@@ -719,8 +720,8 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			})
 
 			ginkgo.By("creating secrets with tokens to read from", func() {
-				worker1AuthInfo := behavioral.GetAuthInfoFromKubeConfig(worker1KConfig)
-				worker2AuthInfo := behavioral.GetAuthInfoFromKubeConfig(worker2KConfig)
+				worker1AuthInfo := e2e.GetAuthInfoFromKubeConfig(worker1KConfig)
+				worker2AuthInfo := e2e.GetAuthInfoFromKubeConfig(worker2KConfig)
 
 				secretsData := map[string]string{
 					"multikueue1-cp": worker1AuthInfo.Token,
@@ -764,7 +765,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 							{
 								Name: "secretreader",
 								Cluster: apiv1.Cluster{
-									Server:                   behavioral.GetClusterServerAddress(workerClusterNames[i]),
+									Server:                   e2e.GetClusterServerAddress(workerClusterNames[i]),
 									CertificateAuthorityData: workerCAData[i],
 									Extensions: []apiv1.NamedExtension{
 										{
@@ -805,14 +806,14 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		})
 	})
 
-	ginkgo.Describe("MultiKueueOrchestratedPreemption is enabled", ginkgo.Label(behavioral.Shard1), ginkgo.Ordered, func() {
+	ginkgo.Describe("MultiKueueOrchestratedPreemption is enabled", ginkgo.Label(e2e.Shard1), ginkgo.Ordered, func() {
 		var defaultManagerKueueCfg, defaultWorker1KueueCfg, defaultWorker2KueueCfg *kueueconfig.Configuration
 
 		ginkgo.BeforeAll(func() {
 			ginkgo.By("setting MultiKueueClusterProfile feature gate", func() {
-				defaultManagerKueueCfg = behavioral.GetKueueConfiguration(ctx, k8sManagerClient)
-				defaultWorker1KueueCfg = behavioral.GetKueueConfiguration(ctx, k8sWorker1Client)
-				defaultWorker2KueueCfg = behavioral.GetKueueConfiguration(ctx, k8sWorker2Client)
+				defaultManagerKueueCfg = e2e.GetKueueConfiguration(ctx, k8sManagerClient)
+				defaultWorker1KueueCfg = e2e.GetKueueConfiguration(ctx, k8sWorker1Client)
+				defaultWorker2KueueCfg = e2e.GetKueueConfiguration(ctx, k8sWorker2Client)
 
 				updateCfg := func(cfg *kueueconfig.Configuration) {
 					cfg.FeatureGates[string(features.MultiKueueOrchestratedPreemption)] = true
@@ -823,13 +824,13 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 				// reconciled before any cluster is connected is not requeued
 				// when the clusters connect. The worker restarts below provide
 				// that warm-up window.
-				behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg.DeepCopy(), managerClusterName, updateCfg)
+				e2e.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg.DeepCopy(), managerClusterName, updateCfg)
 				updateAndRestartConcurrently(
 					func() {
-						behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sWorker1Client, defaultWorker1KueueCfg.DeepCopy(), worker1ClusterName, updateCfg)
+						e2e.UpdateKueueConfigurationAndRestart(ctx, k8sWorker1Client, defaultWorker1KueueCfg.DeepCopy(), worker1ClusterName, updateCfg)
 					},
 					func() {
-						behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sWorker2Client, defaultWorker2KueueCfg.DeepCopy(), worker2ClusterName, updateCfg)
+						e2e.UpdateKueueConfigurationAndRestart(ctx, k8sWorker2Client, defaultWorker2KueueCfg.DeepCopy(), worker2ClusterName, updateCfg)
 					},
 				)
 			})
@@ -837,13 +838,13 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		ginkgo.AfterAll(func() {
 			ginkgo.By("reverting the configuration", func() {
 				// Manager first, for the same reason as in BeforeAll.
-				behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
+				e2e.UpdateKueueConfigurationAndRestart(ctx, k8sManagerClient, defaultManagerKueueCfg, managerClusterName)
 				updateAndRestartConcurrently(
 					func() {
-						behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sWorker1Client, defaultWorker1KueueCfg, worker1ClusterName)
+						e2e.UpdateKueueConfigurationAndRestart(ctx, k8sWorker1Client, defaultWorker1KueueCfg, worker1ClusterName)
 					},
 					func() {
-						behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sWorker2Client, defaultWorker2KueueCfg, worker2ClusterName)
+						e2e.UpdateKueueConfigurationAndRestart(ctx, k8sWorker2Client, defaultWorker2KueueCfg, worker2ClusterName)
 					},
 				)
 			})
@@ -852,7 +853,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		ginkgo.It("should not trigger concurrent preemptions", func() {
 			// Fits only in worker1
 			lowJob1 := testingjob.MakeJob("low-job1", managerNs.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerLowWPC.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "0.1").
@@ -885,7 +886,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 
 			// Fits only in worker2
 			lowJob2 := testingjob.MakeJob("low-job2", managerNs.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerLowWPC.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "0.1").
@@ -918,7 +919,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 
 			// Can fit in both workers after preemptions
 			highJob := testingjob.MakeJob("high-job", managerNs.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				WorkloadPriorityClass(managerHighWPC.Name).
 				Queue(kueue.LocalQueueName(managerLq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "0.1").
@@ -965,7 +966,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 						unaffectedWorkerClient = k8sWorker1Client
 					}
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed(),
-					behavioral.AssertMsgForMk(ctx, "Workload was expected to be admitted on exactly one worker", highWlKey, k8sManagerClient, k8sWorker1Client, k8sWorker2Client),
+					e2e.AssertMsgForMk(ctx, "Workload was expected to be admitted on exactly one worker", highWlKey, k8sManagerClient, k8sWorker1Client, k8sWorker2Client),
 				)
 			})
 

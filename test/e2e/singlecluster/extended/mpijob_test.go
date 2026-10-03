@@ -29,13 +29,14 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mpijob"), func() {
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -79,14 +80,14 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:  kfmpi.MPIReplicaTypeLauncher,
 						ReplicaCount: 1,
-						Image:        behavioral.GetAgnHostImage(),
-						Args:         behavioral.BehaviorExitFast,
+						Image:        e2e.GetAgnHostImage(),
+						Args:         e2e.BehaviorExitFast,
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:  kfmpi.MPIReplicaTypeWorker,
 						ReplicaCount: 1,
-						Image:        behavioral.GetAgnHostImage(),
-						Args:         behavioral.BehaviorExitFast,
+						Image:        e2e.GetAgnHostImage(),
+						Args:         e2e.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "500m").
@@ -158,14 +159,14 @@ var _ = ginkgo.Describe("MPIJob", ginkgo.Label("area:singlecluster", "feature:mp
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:  kfmpi.MPIReplicaTypeLauncher,
 						ReplicaCount: 1,
-						Image:        behavioral.GetAgnHostImage(),
-						Args:         behavioral.BehaviorExitFast,
+						Image:        e2e.GetAgnHostImage(),
+						Args:         e2e.BehaviorExitFast,
 					},
 					testingmpijob.MPIJobReplicaSpecRequirement{
 						ReplicaType:  kfmpi.MPIReplicaTypeWorker,
 						ReplicaCount: 1,
-						Image:        behavioral.GetAgnHostImage(),
-						Args:         behavioral.BehaviorExitFast,
+						Image:        e2e.GetAgnHostImage(),
+						Args:         e2e.BehaviorExitFast,
 					},
 				).
 				RequestAndLimit(kfmpi.MPIReplicaTypeLauncher, corev1.ResourceCPU, "100m").

@@ -33,9 +33,10 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Label("feature:objectretentionpolicies", behavioral.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Label("feature:objectretentionpolicies", e2e.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
 		rf *kueue.ResourceFlavor
@@ -44,7 +45,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Label("feature:objectr
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "orp-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "orp-")
 
 		rf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, rf)).Should(gomega.Succeed())
@@ -76,7 +77,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Label("feature:objectr
 			},
 		}
 
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.FeatureGates = nil
 			cfg.ObjectRetentionPolicies = nil
 			cfg.WaitForPodsReady = waitForPodsReady.DeepCopy()
@@ -84,7 +85,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Label("feature:objectr
 
 		job := testingjob.MakeJob("job", ns.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			Obj()
@@ -106,7 +107,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Label("feature:objectr
 		})
 
 		ginkgo.By("Enable ObjectRetentionPolicies feature gate", func() {
-			behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+			e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 				cfg.FeatureGates = map[string]bool{string(features.ObjectRetentionPolicies): true}
 				cfg.ObjectRetentionPolicies = &configapi.ObjectRetentionPolicies{
 					Workloads: &configapi.WorkloadRetentionPolicy{
@@ -132,7 +133,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Label("feature:objectr
 	})
 })
 
-var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Label(behavioral.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Label(e2e.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
 		rf *kueue.ResourceFlavor
@@ -141,7 +142,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Label
 	)
 
 	ginkgo.BeforeAll(func() {
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.FeatureGates = map[string]bool{string(features.ObjectRetentionPolicies): true}
 			cfg.ObjectRetentionPolicies = &configapi.ObjectRetentionPolicies{
 				Workloads: &configapi.WorkloadRetentionPolicy{
@@ -153,7 +154,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Label
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "orp-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "orp-")
 
 		rf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, rf)).Should(gomega.Succeed())
@@ -176,7 +177,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Label
 	ginkgo.When("workload has finished", func() {
 		ginkgo.It("should delete the Workload", func() {
 			job := testingjob.MakeJob("job", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				TerminationGracePeriod(1).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
@@ -198,7 +199,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Label
 			})
 
 			ginkgo.By("Terminating pods to make Workload finished", func() {
-				behavioral.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 0)
+				e2e.WaitForActivePodsAndTerminate(ctx, k8sClient, restClient, cfg, ns.Name, 1, 0)
 			})
 
 			ginkgo.By("Checking that the Workload is deleted after it is finished", func() {
@@ -219,7 +220,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Label
 	ginkgo.When("manually deactivating a Workload", func() {
 		ginkgo.It("shouldn't delete the Job or the Workload", func() {
 			job := testingjob.MakeJob("job", ns.Name).
-				Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				TerminationGracePeriod(1).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				RequestAndLimit(corev1.ResourceCPU, "1").
@@ -266,7 +267,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Label
 	})
 })
 
-var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingLimitExceeded", ginkgo.Label(behavioral.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingLimitExceeded", ginkgo.Label(e2e.Shard1), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var (
 		ns *corev1.Namespace
 		rf *kueue.ResourceFlavor
@@ -275,7 +276,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 	)
 
 	ginkgo.BeforeAll(func() {
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.FeatureGates = map[string]bool{string(features.ObjectRetentionPolicies): true}
 			cfg.ObjectRetentionPolicies = &configapi.ObjectRetentionPolicies{
 				Workloads: &configapi.WorkloadRetentionPolicy{
@@ -296,7 +297,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 	})
 
 	ginkgo.JustBeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "orp-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "orp-")
 
 		rf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, rf)).Should(gomega.Succeed())
@@ -319,7 +320,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 	ginkgo.It("should delete Job", func() {
 		job := testingjob.MakeJob("job", ns.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			Obj()

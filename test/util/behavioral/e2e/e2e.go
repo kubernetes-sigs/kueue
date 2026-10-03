@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package behavioral
+package e2e
 
 import (
 	"bufio"
@@ -72,6 +72,7 @@ import (
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	visibilityv1beta2 "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
@@ -125,7 +126,7 @@ func getCachedDockerImage(once *sync.Once, cache *string, envVar, dir string) st
 			return
 		}
 
-		dockerfilePath := filepath.Join(ProjectBaseDir, "hack", "testing", dir, "Dockerfile")
+		dockerfilePath := filepath.Join(behavioral.ProjectBaseDir, "hack", "testing", dir, "Dockerfile")
 		image, err := getDockerImageFromDockerfile(dockerfilePath)
 		if err != nil {
 			panic(fmt.Errorf("failed to get %s image: %w", dir, err))
@@ -284,12 +285,12 @@ func UpdateDeploymentAndWaitForProgressing(ctx context.Context, k8sClient client
 	// Make sure that we don't have progressing status before update Deployment.
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
-		deploymentCondition = FindDeploymentCondition(deployment, appsv1.DeploymentProgressing)
+		deploymentCondition = behavioral.FindDeploymentCondition(deployment, appsv1.DeploymentProgressing)
 		g.Expect(deploymentCondition).NotTo(gomega.BeNil())
 		g.Expect(deploymentCondition.Status).To(gomega.Equal(corev1.ConditionTrue))
 		g.Expect(deploymentCondition.Reason).To(gomega.BeElementOf("NewReplicaSetCreated", "NewReplicaSetAvailable", "ReplicaSetUpdated"))
 		ginkgo.GinkgoLogr.Info("Deployment status condition before the restart", "type", deploymentCondition.Type, "status", deploymentCondition.Status, "reason", deploymentCondition.Reason)
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 	var beforeObservedGeneration int64
 
@@ -300,13 +301,13 @@ func UpdateDeploymentAndWaitForProgressing(ctx context.Context, k8sClient client
 		beforeObservedGeneration = deployment.Status.ObservedGeneration
 		applyChanges(deployment)
 		g.Expect(k8sClient.Update(ctx, deployment)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 	// Wait for the Deployment update to be in progress.
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, deployment)).To(gomega.Succeed())
 		g.Expect(deployment.Status.ObservedGeneration).NotTo(gomega.Equal(beforeObservedGeneration))
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 func exportKindLogs(ctx context.Context, kindClusterName string) {
@@ -369,7 +370,7 @@ func waitForDeploymentAvailability(ctx context.Context, k8sClient client.Client,
 				}
 			}
 		}
-	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	ginkgo.GinkgoLogr.Info("Deployment is available", "deployment", key, "noRestarts", checkNoRestarts, "waitingTime", time.Since(waitStart))
 }
 
@@ -443,7 +444,7 @@ func applyKueueConfiguration(ctx context.Context, k8sClient client.Client, kueue
 		g.Expect(k8sClient.Get(ctx, kcmKey, configMap)).To(gomega.Succeed())
 		configMap.Data["controller_manager_config.yaml"] = string(config)
 		g.Expect(k8sClient.Update(ctx, configMap)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 func RestartKueueController(ctx context.Context, k8sClient client.Client, kindClusterName string) {
@@ -516,7 +517,7 @@ func waitForKueueControllerReadyWithWebhookEndpoints(ctx context.Context, k8sCli
 			}
 		}
 		g.Expect(endpointIPs).To(gomega.Equal(readyPodIPs))
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 	// EndpointSlice readiness does not guarantee that the apiserver has dropped
 	// stale webhook connections, so verify the webhook path itself.
@@ -526,7 +527,7 @@ func waitForKueueControllerReadyWithWebhookEndpoints(ctx context.Context, k8sCli
 			ObjectMeta: metav1.ObjectMeta{GenerateName: "webhook-probe-"},
 		}
 		g.Expect(k8sClient.Create(ctx, probeRF, client.DryRunAll)).To(gomega.Succeed())
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 	ginkgo.GinkgoLogr.Info("Ready pods and webhook endpoints verified", "deployment", key, "waitingTime", time.Since(waitStart))
 }
@@ -555,7 +556,7 @@ func WaitForActivePodsAndTerminate(
 			}
 		}
 		g.Expect(activePods).To(gomega.HaveLen(activePodsCount))
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 	for _, p := range activePods {
 		ginkgo.GinkgoLogr.Info("Terminating pod", "pod", klog.KObj(&p))
@@ -578,7 +579,7 @@ func RestartPodContainer(
 		g.Expect(pod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
 		g.Expect(pod.Status.PodIP).NotTo(gomega.BeEmpty())
 		g.Expect(curlAgnHost(ctx, cfg, restClient, pod, "readyz")).To(gomega.Succeed())
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	gomega.Expect(pod.Spec.RestartPolicy).To(gomega.Equal(corev1.RestartPolicyAlways),
 		"RestartPodContainer only restarts a container under the Always restart policy")
 
@@ -588,13 +589,13 @@ func RestartPodContainer(
 
 func curlAgnHost(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, pod *corev1.Pod, path string) error {
 	cmd := []string{"/bin/sh", "-c", fmt.Sprintf("curl \"http://%s:8080/%s\"", pod.Status.PodIP, path)}
-	_, _, err := KExecute(ctx, cfg, restClient, pod.Namespace, pod.Name, pod.Spec.Containers[0].Name, cmd)
+	_, _, err := behavioral.KExecute(ctx, cfg, restClient, pod.Namespace, pod.Name, pod.Spec.Containers[0].Name, cmd)
 	return err
 }
 
 func exitAgnHost(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, pod *corev1.Pod, exitCode int) error {
 	cmd := []string{"/bin/sh", "-c", fmt.Sprintf("curl \"http://%s:8080/exit?code=%v&timeout=2s&wait=2s\"", pod.Status.PodIP, exitCode)}
-	_, _, err := KExecute(ctx, cfg, restClient, pod.Namespace, pod.Name, pod.Spec.Containers[0].Name, cmd)
+	_, _, err := behavioral.KExecute(ctx, cfg, restClient, pod.Namespace, pod.Name, pod.Spec.Containers[0].Name, cmd)
 	// TODO: remove the custom handling of 137 response once this is fixed in the agnhost image
 	// We add the custom handling to protect in situation when the target pods completes with the expected
 	// exit code but it terminates before it completes sending the response.
@@ -641,7 +642,7 @@ func ForceLeaderFailover(ctx context.Context, k8sClient client.Client) {
 		newHolder := ptr.Deref(lease.Spec.HolderIdentity, "")
 		g.Expect(newHolder).NotTo(gomega.BeEmpty())
 		g.Expect(newHolder).NotTo(gomega.Equal(holderIdentity))
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
 	waitForKueueControllerReadyWithWebhookEndpoints(ctx, k8sClient, kcmKey)
@@ -659,7 +660,7 @@ func waitForLeaderElection(ctx context.Context, k8sClient client.Client) {
 		g.Expect(k8sClient.Get(ctx, leaseKey, lease)).To(gomega.Succeed())
 		g.Expect(lease.Spec.RenewTime).NotTo(gomega.BeNil())
 		g.Expect(lease.Spec.RenewTime.After(startTime)).To(gomega.BeTrue())
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 func WaitForKubeSystemControllersAvailability(ctx context.Context, k8sClient client.Client, clusterName string) {
@@ -696,7 +697,7 @@ func WaitForKubeSystemControllersAvailability(ctx context.Context, k8sClient cli
 				Status: corev1.ConditionTrue,
 			}, cmpopts.IgnoreFields(corev1.PodCondition{}, "Reason", "LastTransitionTime", "LastProbeTime"))))
 		}
-	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 func GetKuberayTestImage() string {
@@ -723,7 +724,7 @@ func CreateNamespaceFromPrefixWithLog(ctx context.Context, k8sClient client.Clie
 }
 
 func CreateNamespaceFromObjectWithLog(ctx context.Context, k8sClient client.Client, ns *corev1.Namespace) *corev1.Namespace {
-	MustCreate(ctx, k8sClient, ns)
+	behavioral.MustCreate(ctx, k8sClient, ns)
 	ginkgo.GinkgoLogr.Info("Created namespace", "namespace", ns.Name)
 	return ns
 }
@@ -740,9 +741,9 @@ func CreateNamespaceFromObjectWithLog(ctx context.Context, k8sClient client.Clie
 // that the metrics are gone.
 func GetKueueMetrics(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, curlPodName, curlContainerName string) (string, string, error) {
 	kueueNS := GetKueueNamespace()
-	ctx, cancel := context.WithTimeout(ctx, MediumTimeout)
+	ctx, cancel := context.WithTimeout(ctx, behavioral.MediumTimeout)
 	defer cancel()
-	metricsOutput, stderr, err := KExecute(ctx, cfg, restClient, kueueNS, curlPodName, curlContainerName, []string{
+	metricsOutput, stderr, err := behavioral.KExecute(ctx, cfg, restClient, kueueNS, curlPodName, curlContainerName, []string{
 		"/bin/sh", "-c",
 		fmt.Sprintf(
 			"curl -sS --fail --connect-timeout 5 --max-time 15 -k -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics",
@@ -758,7 +759,7 @@ func ExpectMetricsToBeAvailable(ctx context.Context, cfg *rest.Config, restClien
 		metricsOutput, stderr, err := GetKueueMetrics(ctx, cfg, restClient, curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", stderr)
 		g.Expect(metricsOutput).Should(utiltesting.ContainMetrics(metrics))
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 func ExpectMetricsNotToBeAvailable(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, curlPodName, curlContainerName string, metrics [][]string) {
@@ -767,7 +768,7 @@ func ExpectMetricsNotToBeAvailable(ctx context.Context, cfg *rest.Config, restCl
 		metricsOutput, stderr, err := GetKueueMetrics(ctx, cfg, restClient, curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", stderr)
 		g.Expect(metricsOutput).Should(utiltesting.ExcludeMetrics(metrics))
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 func WaitForPodRunning(ctx context.Context, k8sClient client.Client, pod *corev1.Pod) {
@@ -776,7 +777,7 @@ func WaitForPodRunning(ctx context.Context, k8sClient client.Client, pod *corev1
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
 		g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 func UpdateKueueConfiguration(ctx context.Context, k8sClient client.Client, config *configapi.Configuration, applyChanges ...func(cfg *configapi.Configuration)) {
@@ -825,7 +826,7 @@ func WaitForPrometheusAvailability(ctx context.Context, k8sClient client.Client)
 		g.Expect(k8sClient.Get(ctx, key, sts)).To(gomega.Succeed())
 		desiredReplicas := ptr.Deref(sts.Spec.Replicas, 1)
 		g.Expect(sts.Status.ReadyReplicas).To(gomega.Equal(desiredReplicas))
-	}, LongTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 func CreatePrometheusClient(cfg *rest.Config) prometheusv1.API {
@@ -859,9 +860,9 @@ func SetResourceNominalQuota(cq *kueue.ClusterQueue, resourceName corev1.Resourc
 func AssertMsgForMk(ctx context.Context, msg string, wlKey client.ObjectKey, k8sManagerClient client.Client, k8sWorker1Client client.Client, k8sWorker2Client client.Client) func() string {
 	return func() string {
 		return strings.Join([]string{
-			AssertMsg("Manager", getWorkload(ctx, k8sManagerClient, wlKey))(),
-			AssertMsg("Worker1", getWorkload(ctx, k8sWorker1Client, wlKey))(),
-			AssertMsg("Worker2", getWorkload(ctx, k8sWorker2Client, wlKey))(),
+			behavioral.AssertMsg("Manager", getWorkload(ctx, k8sManagerClient, wlKey))(),
+			behavioral.AssertMsg("Worker1", getWorkload(ctx, k8sWorker1Client, wlKey))(),
+			behavioral.AssertMsg("Worker2", getWorkload(ctx, k8sWorker2Client, wlKey))(),
 		}, "\n")
 	}
 }

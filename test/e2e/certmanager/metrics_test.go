@@ -33,6 +33,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobspod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -55,7 +56,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("test-flavor").Obj()
 		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
@@ -79,7 +80,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 
 		curlPod = testingjobspod.MakePod("curl-metrics", kueueNS).
 			ServiceAccountName(serviceAccountName).
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			Obj()
 		curlPod.Spec.Volumes = []corev1.Volume{
@@ -115,7 +116,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 		})
 
 		ginkgo.By("Waiting for the curl-metrics pod to run.", func() {
-			behavioral.WaitForPodRunning(ctx, k8sClient, curlPod)
+			e2e.WaitForPodRunning(ctx, k8sClient, curlPod)
 		})
 
 		curlContainerName = curlPod.Spec.Containers[0].Name
@@ -186,7 +187,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, workload)
 
 			ginkgo.By("Verifying Prometheus discovers and scrapes the Kueue target")
-			behavioral.ExpectPrometheusTargetForKueue(ctx, prometheusClient)
+			e2e.ExpectPrometheusTargetForKueue(ctx, prometheusClient)
 
 			ginkgo.By("Verifying admission metric is available via PromQL")
 			gomega.Eventually(func(g gomega.Gomega) {

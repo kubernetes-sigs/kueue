@@ -27,6 +27,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Scheduler", func() {
@@ -38,7 +39,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "equivalence-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "equivalence-")
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
 	})
@@ -99,7 +100,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			queue := utiltestingapi.MakeLocalQueue("ns-queue", ns.Name).ClusterQueue("ns-mismatch-cq").Obj()
 			behavioral.MustCreate(ctx, k8sClient, queue)
 
-			matchingNs := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "matching-")
+			matchingNs := e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "matching-")
 			defer func() {
 				gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, matchingNs)).To(gomega.Succeed())
 			}()

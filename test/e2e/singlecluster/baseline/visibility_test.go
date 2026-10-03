@@ -33,6 +33,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singlecluster", "feature:visibility"), ginkgo.Serial, func() {
@@ -59,8 +60,8 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 	)
 
 	ginkgo.BeforeEach(func() {
-		nsA = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
-		nsB = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		nsA = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		nsB = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		defaultFlavor = "default-flavor-" + nsA.Name
 	})
 	ginkgo.AfterEach(func() {
@@ -104,7 +105,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 			ginkgo.By("Schedule a job that when admitted workload blocks the queue", func() {
 				blockingJob = testingjob.MakeJob("test-job-1", nsA.Name).
 					Queue(kueue.LocalQueueName(localQueueA.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					TerminationGracePeriod(1).
 					BackoffLimit(0).
@@ -146,7 +147,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 			ginkgo.By("Schedule a job which is pending due to lower priority", func() {
 				sampleJob2 = testingjob.MakeJob("test-job-2", nsA.Name).
 					Queue(kueue.LocalQueueName(localQueueA.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					WorkloadPriorityClass(lowPriorityClass.Name).
 					Obj()
@@ -194,7 +195,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 			ginkgo.By("Schedule a job which is pending due to lower priority", func() {
 				sampleJob2 = testingjob.MakeJob("test-job-2", nsA.Name).
 					Queue(kueue.LocalQueueName(localQueueA.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					WorkloadPriorityClass(lowPriorityClass.Name).
 					Obj()
@@ -292,7 +293,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 			ginkgo.By("Schedule a job which is pending due to lower priority", func() {
 				sampleJob2 = testingjob.MakeJob("test-job-2", nsA.Name).
 					Queue(kueue.LocalQueueName(localQueueA.Name)).
-					Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+					Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 					RequestAndLimit(corev1.ResourceCPU, "1").
 					WorkloadPriorityClass(lowPriorityClass.Name).
 					Obj()
@@ -413,7 +414,7 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 				for _, jobCase := range jobCases {
 					job := testingjob.MakeJob(jobCase.name, jobCase.ns).
 						Queue(localQueueName).
-						Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+						Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 						RequestAndLimit(corev1.ResourceCPU, "2").
 						WorkloadPriorityClass(jobCase.priority).
 						TerminationGracePeriod(1).
@@ -679,7 +680,7 @@ func createPendingJobs(jobCases []pendingJobCase) {
 	for _, jobCase := range jobCases {
 		job := testingjob.MakeJob(jobCase.JobName, jobCase.nsName).
 			Queue(kueue.LocalQueueName(jobCase.LocalQueueName)).
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorExitFast).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			WorkloadPriorityClass(jobCase.JobPrioClassName).
 			Obj()

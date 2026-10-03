@@ -42,6 +42,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var defaultEnabledIntegrations = sets.New(
@@ -272,9 +273,9 @@ func setupMultiKueueFixture() *multiKueueFixture {
 	ginkgo.GinkgoHelper()
 	f := &multiKueueFixture{}
 
-	f.managerNs = behavioral.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-")
-	f.worker1Ns = behavioral.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, f.managerNs.Name)
-	f.worker2Ns = behavioral.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, f.managerNs.Name)
+	f.managerNs = e2e.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-")
+	f.worker1Ns = e2e.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, f.managerNs.Name)
+	f.worker2Ns = e2e.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, f.managerNs.Name)
 
 	w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

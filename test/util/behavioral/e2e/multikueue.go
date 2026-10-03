@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package behavioral
+package e2e
 
 import (
 	"context"
@@ -45,6 +45,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 func PolicyRule(group, resource string, verbs ...string) rbacv1.PolicyRule {
@@ -280,13 +281,13 @@ func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, k8sClient 
 	ginkgo.GinkgoHelper()
 	createdWorkload := &kueue.Workload{}
 	var workerName string
-	ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, MediumTimeout, wlLookupKey)
+	behavioral.ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, behavioral.MediumTimeout, wlLookupKey)
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 		admissionCheckMessage := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName)).Message
 		workerName = GetMultiKueueClusterNameFromAdmissionCheckMessage(admissionCheckMessage)
 		g.Expect(workerName).NotTo(gomega.BeEmpty())
-	}, MediumTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 	return workerName
 }
 

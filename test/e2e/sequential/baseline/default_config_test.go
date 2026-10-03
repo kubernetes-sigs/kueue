@@ -35,6 +35,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -43,9 +44,9 @@ const (
 	testLabelValue = "true"
 )
 
-var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(behavioral.Shard0), ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(e2e.Shard0), ginkgo.Ordered, func() {
 	ginkgo.BeforeAll(func() {
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
 	})
 
 	ginkgo.Context("Certs", func() {
@@ -62,7 +63,7 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(behavioral.S
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-certs-")
+			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-certs-")
 			onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand-"+ns.Name).
 				NodeLabel("instance-type", "on-demand").Obj()
 			behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
@@ -211,7 +212,7 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(behavioral.S
 				g.Expect(k8sClient.Update(ctx, latestService)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-			behavioral.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
+			e2e.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
 			ginkgo.By("Cleaning up cluster queue")
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
@@ -331,13 +332,13 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(behavioral.S
 				}
 				g.Expect(k8sClient.Update(ctx, patchedDeployment)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			behavioral.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
+			e2e.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 
 			// NEGATIVE TEST: The request is authenticated via TokenReview, but the visibility server
 			// itself cannot complete delegated authorization because its identity lacks SubjectAccessReview permission.
 			ginkgo.By("Expecting API requests to fail with internal error due to delegated authorization misconfiguration")
 			gomega.Eventually(func(g gomega.Gomega) {
-				visClient := behavioral.CreateVisibilityClient("")
+				visClient := e2e.CreateVisibilityClient("")
 				_, err := visClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, cqName, metav1.GetOptions{})
 				g.Expect(err).To(gomega.HaveOccurred())
 
@@ -357,7 +358,7 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(behavioral.S
 			behavioral.MustCreate(ctx, k8sClient, authDelegatorBinding)
 
 			gomega.Eventually(func(g gomega.Gomega) {
-				visClient := behavioral.CreateVisibilityClient("")
+				visClient := e2e.CreateVisibilityClient("")
 				pw, err := visClient.ClusterQueues().GetPendingWorkloadsSummary(ctx, cqName, metav1.GetOptions{})
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(pw).NotTo(gomega.BeNil())

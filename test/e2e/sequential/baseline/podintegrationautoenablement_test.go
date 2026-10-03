@@ -33,9 +33,10 @@ import (
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingsts "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Frameworks", ginkgo.Label("feature:podintegrationautoenablement", behavioral.Shard1), ginkgo.Ordered, func() {
+var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Frameworks", ginkgo.Label("feature:podintegrationautoenablement", e2e.Shard1), ginkgo.Ordered, func() {
 	var (
 		ns           *corev1.Namespace
 		defaultRf    *kueue.ResourceFlavor
@@ -44,11 +45,11 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 	)
 
 	ginkgo.BeforeAll(func() {
-		behavioral.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 			cfg.Integrations.Frameworks = []string{"statefulset"}
 		})
 
-		currentCfg := behavioral.GetKueueConfiguration(ctx, k8sClient)
+		currentCfg := e2e.GetKueueConfiguration(ctx, k8sClient)
 		frameworkSet := make(map[string]bool)
 		for _, framework := range currentCfg.Integrations.Frameworks {
 			frameworkSet[framework] = true
@@ -58,7 +59,7 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-disabled-pod-")
+		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-disabled-pod-")
 		defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultRf)
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
@@ -81,7 +82,7 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 
 	ginkgo.It("should successfully run StatefulSets when pod integration is auto-enabled", func() {
 		testSts := testingsts.MakeStatefulSet("test-sts", ns.Name).
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			Replicas(2).
 			RequestAndLimit(corev1.ResourceCPU, "200m").
 			TerminationGracePeriod(1).
@@ -121,7 +122,7 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 
 	ginkgo.It("should not manage pods without queue names regardless of auto-enablement", func() {
 		testPod := testingpod.MakePod("plain-pod", ns.Name).
-			Image(behavioral.GetAgnHostImage(), behavioral.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			RequestAndLimit(corev1.ResourceCPU, "200m").
 			Obj()

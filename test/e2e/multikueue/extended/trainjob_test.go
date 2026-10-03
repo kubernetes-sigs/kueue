@@ -29,6 +29,7 @@ import (
 	workloadtrainjob "sigs.k8s.io/kueue/pkg/controller/jobs/trainjob"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 type trainJobTestContext struct {
@@ -50,7 +51,7 @@ func registerTrainJobTests(contextProvider func() trainJobTestContext) {
 			RequestAndLimit(corev1.ResourceCPU, "100m", "100m").
 			RequestAndLimit(corev1.ResourceMemory, "100M", "100M").
 			// Even if we override the image coming from the TrainingRuntime, we still need to set the command and args
-			TrainerImage(behavioral.GetAgnHostImage(), []string{"/agnhost"}, behavioral.BehaviorExitFast).
+			TrainerImage(e2e.GetAgnHostImage(), []string{"/agnhost"}, e2e.BehaviorExitFast).
 			Obj()
 
 		ginkgo.By("Creating the trainjob", func() {
@@ -59,7 +60,7 @@ func registerTrainJobTests(contextProvider func() trainJobTestContext) {
 
 		wlLookupKey := types.NamespacedName{Name: workloadtrainjob.GetWorkloadNameForTrainJob(trainjob.Name, trainjob.UID), Namespace: managerNs.Name}
 
-		admittedWorker := behavioral.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+		admittedWorker := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 		ginkgo.GinkgoLogr.Info("TrainJob %s is admitted in worker cluster %s", trainjob.Name, admittedWorker)
 
 		ginkgo.By("Checking the TrainJob is ready", func() {
