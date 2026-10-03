@@ -17,12 +17,15 @@ limitations under the License.
 package workloaddispatcher
 
 import (
+	"context"
+	"errors"
 	"slices"
 	"testing"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -33,12 +36,15 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -168,11 +174,14 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 	}
 }
 
+const dispatchRoundsCQ = "dispatch-rounds-cq"
+
 func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 	const testName = "test-wl"
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
 	baseWl := utiltestingapi.MakeWorkload(testName, metav1.NamespaceDefault).
+		Admission(utiltestingapi.MakeAdmission(dispatchRoundsCQ).Obj()).
 		AdmissionCheck(kueue.AdmissionCheckState{
 			Name:  "ac1",
 			State: kueue.CheckStatePending,
@@ -190,6 +199,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 		wantErr               error
 		advanceRoundTime      bool
 		wantNominatedClusters []string
+		wantNoRound           bool
 	}{
 		"one remote": {
 			remoteClusters:        []string{"A"},
@@ -225,6 +235,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			wantErr:               ErrNoMoreWorkers,
 			advanceRoundTime:      true,
 			wantNominatedClusters: []string{"C", "B", "A"},
+			wantNoRound:           true,
 		},
 		"all already nominated (1)": {
 			remoteClusters:        []string{"A"},
@@ -232,6 +243,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			wantErr:               ErrNoMoreWorkers,
 			advanceRoundTime:      true,
 			wantNominatedClusters: []string{"A"},
+			wantNoRound:           true,
 		},
 		"round expired, next set nominated": {
 			remoteClusters:        []string{"F", "E", "D", "C", "B", "A"},
@@ -246,6 +258,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			wantErr:               nil,
 			advanceRoundTime:      false,
 			wantNominatedClusters: []string{"F", "E", "D"},
+			wantNoRound:           true,
 		},
 		"round expired, nominate all": {
 			remoteClusters:        []string{"H", "G", "F", "E", "D", "C", "B", "A"},
@@ -260,6 +273,7 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			wantErr:               ErrNoMoreWorkers,
 			advanceRoundTime:      false,
 			wantNominatedClusters: []string{},
+			wantNoRound:           true,
 		},
 		"stepSize=2, five remotes — first batch is exactly 2": {
 			remoteClusters: []string{"E", "D", "C", "B", "A"},
@@ -366,8 +380,19 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 			previousRoundNominatedClusters := tc.workload.Status.NominatedClusterNames
 			originalRemoteClusters := slices.Clone(tc.remoteClusters)
 
+			roundsBefore := testutil.ToFloat64(metrics.MultiKueueDispatchRoundsTotal.WithLabelValues(dispatchRoundsCQ, roletracker.RoleStandalone))
+
 			ctx, log := utiltesting.ContextWithLog(t)
 			_, gotErr := reconciler.nominateWorkers(ctx, tc.workload, tc.remoteClusters, log)
+
+			wantRounds := 1.0
+			if tc.wantNoRound {
+				wantRounds = 0
+			}
+			roundsAfter := testutil.ToFloat64(metrics.MultiKueueDispatchRoundsTotal.WithLabelValues(dispatchRoundsCQ, roletracker.RoleStandalone))
+			if got := roundsAfter - roundsBefore; got != wantRounds {
+				t.Errorf("unexpected number of dispatch rounds reported, want %v, got %v", wantRounds, got)
+			}
 
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
@@ -388,5 +413,51 @@ func TestIncrementalDispatcherNominateWorkers(t *testing.T) {
 				t.Errorf("nominateWorkers mutated remoteClusters (-want/+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestIncrementalDispatcherNominateWorkersFailedPatchReportsNoRound(t *testing.T) {
+	wl := utiltestingapi.MakeWorkload("test-wl", metav1.NamespaceDefault).
+		Admission(utiltestingapi.MakeAdmission(dispatchRoundsCQ).Obj()).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:  "ac1",
+			State: kueue.CheckStatePending,
+		}).
+		Obj()
+
+	scheme := runtime.NewScheme()
+	if err := kueue.AddToScheme(scheme); err != nil {
+		t.Fatalf("Fail to add to scheme %s", err)
+	}
+	errPatch := errors.New("patch failed")
+	c := fake.NewClientBuilder().WithScheme(scheme).
+		WithObjects(wl).WithStatusSubresource(wl).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourcePatch: func(context.Context, client.Client, string, client.Object, client.Patch, ...client.SubResourcePatchOption) error {
+				return errPatch
+			},
+			SubResourceApply: func(context.Context, client.Client, string, runtime.ApplyConfiguration, ...client.SubResourceApplyOption) error {
+				return errPatch
+			},
+		}).
+		Build()
+	reconciler := &IncrementalDispatcherReconciler{
+		client:          c,
+		clock:           testingclock.NewFakeClock(time.Now()),
+		roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
+	}
+
+	roundsBefore := testutil.ToFloat64(metrics.MultiKueueDispatchRoundsTotal.WithLabelValues(dispatchRoundsCQ, roletracker.RoleStandalone))
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	if _, err := reconciler.nominateWorkers(ctx, wl, []string{"A"}, log); !errors.Is(err, errPatch) {
+		t.Fatalf("expected nominateWorkers to fail with the patch error, got %v", err)
+	}
+
+	if got := testutil.ToFloat64(metrics.MultiKueueDispatchRoundsTotal.WithLabelValues(dispatchRoundsCQ, roletracker.RoleStandalone)) - roundsBefore; got != 0 {
+		t.Errorf("expected no dispatch round to be reported after a failed patch, got %v", got)
+	}
+	if _, found := reconciler.getRoundStartTime(client.ObjectKeyFromObject(wl)); found {
+		t.Error("expected no round start time after a failed patch")
 	}
 }
