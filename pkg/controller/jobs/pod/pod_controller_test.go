@@ -8928,6 +8928,30 @@ func TestIsPodRunnableOrSucceeded(t *testing.T) {
 			},
 			want: false,
 		},
+		"termination target Running pod is not runnable": {
+			pod: corev1.Pod{
+				Status: corev1.PodStatus{
+					Phase: corev1.PodRunning,
+					Conditions: []corev1.PodCondition{{
+						Type:   corev1.PodConditionType(ConditionTypeTerminationTarget),
+						Status: corev1.ConditionTrue,
+					}},
+				},
+			},
+			want: false,
+		},
+		"termination target Succeeeded pod still counts as succeeded": {
+			pod: corev1.Pod{
+				Status: corev1.PodStatus{
+					Phase: corev1.PodSucceeded,
+					Conditions: []corev1.PodCondition{{
+						Type:   corev1.PodConditionType(ConditionTypeTerminationTarget),
+						Status: corev1.ConditionTrue,
+					}},
+				},
+			},
+			want: true,
+		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
