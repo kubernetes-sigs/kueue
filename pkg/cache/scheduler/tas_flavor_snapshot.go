@@ -638,22 +638,45 @@ type FlavorTASRequests []TASPodSetRequests
 // Fits checks if the snapshot has enough capacity to accommodate the workload
 func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
 	cachingEnabled := features.Enabled(features.TASCachingRemainingResources)
+	// Entries in the same domain share its remaining capacity.
+	remaining := make(map[utiltas.TopologyDomainID]resources.Requests, len(flavorUsage))
 	for _, domainUsage := range flavorUsage {
 		dom := s.usageDomain(utiltas.DomainID(domainUsage.Values))
 		if dom == nil {
 			return false
 		}
+		// SinglePodRequests comes from the Pod spec, so the Pod slot is added
+		// the way newPodRequests adds it.
+		perPod := domainUsage.SinglePodRequests.Clone()
+		perPod.Add(resources.OnePodRequest)
+		capacity, seen := remaining[dom.id]
+		if !seen {
+			var lazy resources.LazyRequests
+			if s.virtualHostname {
+				lazy = s.domainRemainingCapacity(dom, nil, false)
+			} else {
+				lazy = s.remainingCapacityForLeaf(s.leaves[dom.id], false, cachingEnabled)
+			}
+			capacity = lazy.Get().Clone()
+			remaining[dom.id] = capacity
+		}
+		if perPod.CountIn(capacity) < domainUsage.Count {
+			return false
+		}
+		capacity.Sub(perPod.ScaledUp(int64(domainUsage.Count)))
+		if !s.virtualHostname {
+			continue
+		}
+		// The assignment does not publish which nodes in the domain it picked,
+		// so each entry is checked against the nodes on its own: packing the
+		// entries here could reject the placement the assignment found.
 		var fitCount int32
 		for leaf := range s.leavesOf(dom) {
 			remainingCapacity := s.remainingCapacityForLeaf(leaf, false, cachingEnabled)
-			fitCount += domainUsage.SinglePodRequests.CountIn(remainingCapacity.Get())
+			fitCount += perPod.CountIn(remainingCapacity.Get())
 			if fitCount >= domainUsage.Count {
 				break
 			}
-		}
-		if s.virtualHostname {
-			remaining := s.domainRemainingCapacity(dom, nil, false)
-			fitCount = min(fitCount, domainUsage.SinglePodRequests.CountIn(remaining.Get()))
 		}
 		if fitCount < domainUsage.Count {
 			return false
