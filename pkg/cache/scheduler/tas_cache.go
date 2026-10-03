@@ -63,6 +63,13 @@ func NewTASCache(client client.Client, simulatorFactory simulator.Factory, resou
 	}
 }
 
+func (t *tasCache) hasTopology(name kueue.TopologyReference) bool {
+	t.RLock()
+	defer t.RUnlock()
+	_, ok := t.topologies[name]
+	return ok
+}
+
 func (t *tasCache) Get(name kueue.ResourceFlavorReference) *TASFlavorCache {
 	t.RLock()
 	defer t.RUnlock()

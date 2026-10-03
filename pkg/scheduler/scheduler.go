@@ -233,10 +233,20 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 }
 
 // Start implements the Runnable interface to run scheduler as a controller.
+// The scheduling loop stays stopped until the kueue cache has caught up with
+// the initial apiserver list. See waitForInitialCache.
 func (s *Scheduler) Start(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx).WithName("scheduler")
 	ctx = ctrl.LoggerInto(ctx, log)
-	go wait.UntilWithBackoff(ctx, s.schedule)
+	go func() {
+		if err := s.waitForInitialCache(ctx); err != nil {
+			if !errors.Is(err, context.Canceled) {
+				log.Error(err, "Scheduler stopped waiting for the initial cache")
+			}
+			return
+		}
+		wait.UntilWithBackoff(ctx, s.schedule)
+	}()
 	return nil
 }
 
