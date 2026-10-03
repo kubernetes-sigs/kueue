@@ -35,7 +35,6 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
 	kueuectlutil "sigs.k8s.io/kueue/cmd/kueuectl/app/util"
-
 )
 
 var (
