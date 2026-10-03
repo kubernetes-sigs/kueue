@@ -39,6 +39,23 @@ import (
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
+// withNodeAllocatableResources returns a Device configured with node-allocatable mappings and overhead.
+func withNodeAllocatableResources(device resourcev1.Device) resourcev1.Device {
+	device.NodeAllocatableResources = map[corev1.ResourceName]resourcev1.NodeAllocatableResource{
+		corev1.ResourceCPU: {
+			Mapping: &resourcev1.NodeAllocatableMapping{
+				DeviceMultiplier: resource.NewQuantity(4, resource.DecimalSI),
+			},
+		},
+		corev1.ResourceMemory: {
+			Overhead: &resourcev1.NodeAllocatableOverhead{
+				PerPod: resource.NewQuantity(1<<30, resource.BinarySI),
+			},
+		},
+	}
+	return device
+}
+
 func Test_GetResourceRequests(t *testing.T) {
 	tmpl := utiltesting.MakeResourceClaimTemplate("claim-tmpl-1", "ns1").
 		DeviceRequest("device-request", "test-deviceclass-1", 2).
@@ -751,6 +768,68 @@ func Test_GetResourceRequests(t *testing.T) {
 				}},
 			}},
 			wantErr: celPoolError,
+		},
+		{
+			name: "Node-allocatable resources are not charged; only the deviceClassMappings resource is",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-node-resources", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 1).
+					WithCELSelectors("device.driver == \"cpu-driver\"").
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				&resourcev1.ResourceSlice{
+					Name: "cpu-slice",
+					Spec: resourcev1.ResourceSliceSpec{
+						Driver:  "cpu-driver",
+						Pool:    resourcev1.ResourcePool{Name: "cpu-pool", Generation: 1, ResourceSliceCount: 1},
+						Devices: []resourcev1.Device{withNodeAllocatableResources(resourcev1.Device{Name: "cpu-device"})},
+					},
+				},
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-node-resources", ResourceClaimTemplateName: new("claim-tmpl-node-resources")},
+				}
+			},
+			lookup: defaultLookup,
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {"res-1": resource.MustParse("1")},
+			},
+		},
+		{
+			name: "Node-allocatable resources with logical mapping named cpu are charged by device count only",
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-node-resources-cpu", "ns1").
+					DeviceRequest("req", "test-deviceclass-1", 2).
+					WithCELSelectors("device.driver == \"cpu-driver\"").
+					Obj(),
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				&resourcev1.ResourceSlice{
+					Name: "cpu-slice-collision",
+					Spec: resourcev1.ResourceSliceSpec{
+						Driver: "cpu-driver",
+						Pool:   resourcev1.ResourcePool{Name: "cpu-pool", Generation: 1, ResourceSliceCount: 1},
+						Devices: []resourcev1.Device{
+							withNodeAllocatableResources(resourcev1.Device{Name: "cpu-device-1"}),
+							withNodeAllocatableResources(resourcev1.Device{Name: "cpu-device-2"}),
+						},
+					},
+				},
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-node-resources-cpu", ResourceClaimTemplateName: new("claim-tmpl-node-resources-cpu")},
+				}
+			},
+			lookup: defaultLookup,
+			mappings: []configapi.DeviceClassMapping{{
+				Name:             corev1.ResourceCPU,
+				DeviceClassNames: []corev1.ResourceName{"test-deviceclass-1"},
+			}},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				// 2 devices only; no DeviceMultiplier translation.
+				"main": {corev1.ResourceCPU: resource.MustParse("2")},
+			},
 		},
 		{
 			name: "CEL selectors pre-filtered by DeviceClass selectors",

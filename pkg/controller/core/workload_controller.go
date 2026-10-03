@@ -220,6 +220,10 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 		draResources = ccResources
 	}
 
+	// ResourceSlices only declare KEP-5517 node-allocatable translation rules; the
+	// scheduler resolves the amounts for the allocated devices. Admission charges the
+	// DRA resources computed above and does not add those translated amounts.
+
 	// If the workload was held back due to inadmissible DRA resources (Requeued=False/Inadmissible),
 	// persist Requeued=True now that DRA processing succeeded so the scheduler can pick it up.
 	// Non-DRA reasons (e.g. PodsReadyTimeout) are left untouched for the backoff path to handle.
