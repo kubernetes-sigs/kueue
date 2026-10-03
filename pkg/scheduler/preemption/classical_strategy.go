@@ -24,7 +24,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
-	"sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/preemptionpolicy"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -54,7 +54,7 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 		preemptionCtx.frsNeedPreemption,
 		preemptionCtx.snapshot,
 		preemptor.clock,
-		common.CandidatesOrdering,
+		preemptionpolicy.CandidatesOrdering,
 	)
 	var attemptPossibleOpts []preemptionAttemptOpts
 	borrowWithinCohortForbidden, _ := classical.IsBorrowingWithinCohortForbidden(preemptionCtx.preemptorCQ)
@@ -111,7 +111,7 @@ func iterateOverCandidates(
 	allowBorrowing bool,
 	yield func(*Target) bool,
 ) (cont bool) {
-	yield = common.YieldFromSnapshot(preemptionCtx.snapshot, yield)
+	yield = preemptionpolicy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
 	iterator.Reset()
 	for candidateWl, reason := iterator.Next(allowBorrowing); candidateWl != nil; candidateWl, reason = iterator.Next(allowBorrowing) {
 		candidate := &Target{
