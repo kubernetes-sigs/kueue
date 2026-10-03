@@ -3817,6 +3817,10 @@ func TestCohortCycleRequiredGuards(t *testing.T) {
 		t.Fatalf("Getting ClusterQueue usage during cycle: %v", err)
 	}
 	cache.ResyncClusterQueueGaugeMetrics("cq")
+	// calculateLendable walks to the root, which does not terminate on a cycle.
+	if _, err := cache.CohortStats(utiltestingapi.MakeCohort("parent").Obj()); err != nil {
+		t.Fatalf("Getting Cohort stats during cycle: %v", err)
+	}
 }
 
 func TestDeleteCohortUpdatesAncestorSubtreeQuota(t *testing.T) {
