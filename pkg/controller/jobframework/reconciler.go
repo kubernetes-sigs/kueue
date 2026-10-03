@@ -1452,8 +1452,9 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 // classifyWorkloadsForPriorityUpdate splits the workloads this helper may manage
 // into those that already carry the object's class name, whose value may still be
 // stale, and those whose class name has to transition. The rest are left out: a
-// Pod PriorityClass-backed workload does not follow the label at all, and one that
-// reserved quota without a priorityClassRef can no longer be given one.
+// Pod PriorityClass-backed workload does not follow the label at all, one that
+// reserved quota without a priorityClassRef can no longer be given one, and one
+// without a priorityClassRef under an owner with no label never followed it.
 func classifyWorkloadsForPriorityUpdate(log logr.Logger, jobPriorityClassName string, wls []*kueue.Workload) (sameClassName, needsClassChange []*kueue.Workload) {
 	for _, wl := range wls {
 		if wl == nil {
@@ -1471,6 +1472,11 @@ func classifyWorkloadsForPriorityUpdate(log logr.Logger, jobPriorityClassName st
 				log.V(2).Info("Leaving a workload that reserved quota with no priority class alone, since one can no longer be added",
 					"workload", klog.KObj(wl))
 			}
+			continue
+		}
+		// Its value came from a Pod PriorityClass or the cluster default, not the
+		// label, so a name-changing sibling must not pull it onto the fallback.
+		if jobPriorityClassName == "" && workload.HasNoPriority(wl) {
 			continue
 		}
 		if !workload.HasNoPriority(wl) && !workload.IsWorkloadPriorityClass(wl) {
