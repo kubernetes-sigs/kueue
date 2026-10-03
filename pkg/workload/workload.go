@@ -34,7 +34,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/conversion"
 	"k8s.io/apimachinery/pkg/util/sets"
-	resourcehelpers "k8s.io/component-helpers/resource"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
@@ -843,8 +842,7 @@ func PodSetNameToTopologyRequest(wl *kueue.Workload) map[kueue.PodSetReference]*
 // so a pod overhead or a transformation output carried under the same name is left
 // where it is.
 func subtractReplacedRequestsFrom(retained corev1.ResourceList, spec *corev1.PodSpec, replaced sets.Set[corev1.ResourceName]) {
-	containerRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: *spec},
-		resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
+	containerRequests := resources.ContainerRequests(spec)
 	for extRes := range replaced {
 		q, ok := retained[extRes]
 		if !ok {
