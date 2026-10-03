@@ -26,7 +26,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
+	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -36,7 +36,7 @@ var _ simulator.SchedulerSimulator = (*wasSimulator)(nil)
 
 type wasSimulator struct {
 	// wasSnapshot is the cluster as it stands, with every tracked Pod on its node.
-	wasSnapshot *schedLibSnapshot.ClusterSnapshot
+	wasSnapshot *schedlib.ClusterSnapshot
 	// podsByWorkload indexes the tracked Pods by the Workload that owns them, which
 	// is the only set PreemptWorkload can release.
 	podsByWorkload podsByWorkload
@@ -49,14 +49,14 @@ type wasSimulator struct {
 // pay for it.
 type lazyCluster struct {
 	// build produces the cluster. It runs at most once.
-	build func(context.Context) (*schedLibSnapshot.ClusterSnapshot, error)
+	build func(context.Context) (*schedlib.ClusterSnapshot, error)
 	once  sync.Once
 	// value and err hold what build returned, and are only read after once has run.
-	value *schedLibSnapshot.ClusterSnapshot
+	value *schedlib.ClusterSnapshot
 	err   error
 }
 
-func (l *lazyCluster) get(ctx context.Context) (*schedLibSnapshot.ClusterSnapshot, error) {
+func (l *lazyCluster) get(ctx context.Context) (*schedlib.ClusterSnapshot, error) {
 	l.once.Do(func() {
 		l.value, l.err = l.build(ctx)
 	})
@@ -136,8 +136,49 @@ func (s *wasSimulator) PreemptWorkload(ctx context.Context, wlKey client.ObjectK
 }
 
 func (s *wasSimulator) Simulate(ctx context.Context, fn func()) error {
-	return s.wasSnapshot.Transaction(ctx, func() (schedLibSnapshot.TransactionResult, error) {
+	return s.wasSnapshot.Transaction(ctx, func() (schedlib.TransactionResult, error) {
 		fn()
-		return schedLibSnapshot.Revert, nil
+		return schedlib.Revert, nil
 	})
+}
+
+func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
+	placements := make(map[client.ObjectKey]simulator.PodPlacement)
+
+	wasResults, err := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, withDryRun())
+	if err != nil {
+		for _, pod := range workloadPods {
+			podKey := client.ObjectKeyFromObject(pod)
+			placements[podKey] = simulator.NewPlacementError(err, nil)
+		}
+		return simulator.SchedulingResult{PodPlacements: placements}
+	}
+
+	for _, podResult := range wasResults {
+		podKey := client.ObjectKeyFromObject(podResult.Pod)
+		status := podResult.Status
+		switch {
+		case status.IsError():
+			placements[podKey] = simulator.NewPlacementError(status.AsError(), status.Reasons())
+		case !podResult.Status.IsSuccess():
+			placements[podKey] = simulator.NewFailedPlacement(status.Reasons()...)
+		case podResult.SelectedNodeName == "":
+			placements[podKey] = simulator.NewFailedPlacement("no node assigned")
+		default:
+			placements[podKey] = simulator.NewSuccessfulPlacement(podResult.SelectedNodeName)
+		}
+	}
+
+	for _, wlPod := range workloadPods {
+		podKey := client.ObjectKeyFromObject(wlPod)
+		if _, placed := placements[podKey]; !placed {
+			placements[podKey] = simulator.NewFailedPlacement("no node assigned")
+		}
+	}
+
+	return simulator.SchedulingResult{PodPlacements: placements}
+}
+
+func withDryRun() schedlib.ScheduleWorkloadOptions {
+	return schedlib.ScheduleWorkloadOptions{DryRun: true}
 }
