@@ -222,8 +222,11 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	)
 	addErr := r.cache.AddOrUpdateCohort(&cohort)
 	if errors.Is(addErr, schdcache.ErrCohortHasCycle) {
-		// Skip consumers that require a valid tree, but notify ClusterQueues so they
+		// Skip consumers that require a valid tree, but record the new parent in the
+		// queue manager, which tolerates cycles, so its hierarchy still matches the
+		// cache when another Cohort resolves the cycle. Notify ClusterQueues so they
 		// can report the cycle as their inactive reason.
+		r.qManager.AddOrUpdateCohort(ctx, &cohort)
 		r.notifyWatchers(nil, &cohort)
 		return ctrl.Result{}, nil
 	}
