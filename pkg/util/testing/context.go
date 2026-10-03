@@ -18,13 +18,17 @@ package testing
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"strconv"
 	"testing"
 
 	"github.com/go-logr/logr"
+	admissionv1 "k8s.io/api/admission/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/klog/v2/ktesting"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 )
 
 const DefaultLogLevel = -3
@@ -54,4 +58,18 @@ func NewLogger(t testing.TB) logr.Logger {
 func ContextWithLog(tb testing.TB) (context.Context, logr.Logger) {
 	logger := NewLogger(tb)
 	return ctrl.LoggerInto(tb.Context(), logger), logger
+}
+
+// ContextWithUpdateRequest returns a copy of ctx that carries an UPDATE
+// admission request for oldObj, as the webhook server passes to a defaulter.
+func ContextWithUpdateRequest(ctx context.Context, tb testing.TB, oldObj runtime.Object) context.Context {
+	tb.Helper()
+	raw, err := json.Marshal(oldObj)
+	if err != nil {
+		tb.Fatalf("Failed to marshal the old object: %v", err)
+	}
+	return admission.NewContextWithRequest(ctx, admission.Request{
+		Operation: admissionv1.Update,
+		OldObject: runtime.RawExtension{Raw: raw},
+	})
 }
