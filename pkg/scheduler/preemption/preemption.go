@@ -357,6 +357,14 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 			targets = append(targets, candidate)
 			if workloadFits(ctx, strategy.pCtx, strategy.allowBorrowing) {
 				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
+				if p.enableFairSharing && !fairSharingDecisionsStillHold(log, strategy.pCtx, targets, p.fsStrategies) {
+					if logV := log.V(6); logV.Enabled() {
+						logV.Info("Discarding fair sharing preemption: decision does not hold against the resulting state",
+							"preemptingWorkload", klog.KObj(strategy.pCtx.preemptor.Obj),
+							"targets", logging.GetObjectReferences(targets))
+					}
+					break
+				}
 				restoreSnapshot(strategy.pCtx.snapshot, targets)
 				if logV := log.V(6); logV.Enabled() {
 					logV.Info("Preemption succeeded",
@@ -385,14 +393,85 @@ func fillBackWorkloads(ctx context.Context, preemptionCtx *preemptionCtx, target
 	for i := len(targets) - 2; i >= 0; i-- {
 		preemptionCtx.snapshot.AddWorkload(targets[i].WorkloadInfo)
 		if workloadFits(ctx, preemptionCtx, allowBorrowing) {
-			// O(1) deletion: copy the last element into index i and reduce size.
-			targets[i] = targets[len(targets)-1]
-			targets = targets[:len(targets)-1]
+			targets = slices.Delete(targets, i, i+1)
 		} else {
 			preemptionCtx.snapshot.RemoveWorkload(targets[i].WorkloadInfo)
 		}
 	}
 	return targets
+}
+
+// fairSharingDecisionsStillHold checks that every cross-CQ target in targets
+// still satisfies at least one configured FairSharing strategy when evaluated
+// against the final post-fill-back state (incoming workload admitted, all
+// surviving targets removed).
+//
+// During candidate selection, preempting an intra-CQ workload lowers the
+// preemptor's simulated DominantResourceShare, which can make a cross-CQ
+// target appear fair. If fillBackWorkloads later puts that intra-CQ workload
+// back (or if the intra-CQ workload is immediately re-admitted in the next
+// scheduling cycle), the preemptor's actual post-preemption share is higher
+// than the share used to justify the cross-CQ preemption, causing a
+// preemption loop between the two ClusterQueues.
+func fairSharingDecisionsStillHold(
+	log logr.Logger,
+	preemptionCtx *preemptionCtx,
+	targets []*Target,
+	strategies []fairsharing.Strategy,
+) bool {
+	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
+	defer revertSimulation()
+
+	withinNominal := features.Enabled(features.FairSharingPreemptWithinNominal) &&
+		queueWithinNominalInResourcesNeedingPreemption(preemptionCtx)
+
+	for _, t := range targets {
+		if t.Reason == kueue.InClusterQueueReason || t.Reason == kueue.ConfigurablePreemptionReason {
+			continue
+		}
+		if !isFairTarget(log, preemptionCtx, t, strategies, withinNominal) {
+			return false
+		}
+	}
+	return true
+}
+
+func isFairTarget(
+	log logr.Logger,
+	preemptionCtx *preemptionCtx,
+	t *Target,
+	strategies []fairsharing.Strategy,
+	withinNominal bool,
+) bool {
+	if t.Reason == kueue.InCohortReclamationReason && withinNominal {
+		return true
+	}
+
+	preemptorNode, targetNode := fairsharing.ShareNodes(preemptionCtx.preemptorCQ, t.WorkloadCq)
+	preemptorShare := fairsharing.PreemptorNewShare(preemptorNode.DominantResourceShare())
+	newShare := fairsharing.TargetNewShare(targetNode.DominantResourceShare())
+
+	revert := t.WorkloadCq.SimulateUsageAddition(t.WorkloadInfo.Usage())
+	oldShare := fairsharing.TargetOldShare(targetNode.DominantResourceShare())
+	revert()
+
+	passed := false
+	for _, strategy := range strategies {
+		if strategy(preemptorShare, oldShare, newShare) {
+			passed = true
+			break
+		}
+	}
+	if logV := log.V(5); logV.Enabled() {
+		logV.Info("Validating fair sharing target after fill back",
+			"targetWorkload", klog.KObj(t.WorkloadInfo.Obj),
+			"targetClusterQueue", klog.KRef("", string(t.WorkloadCq.Name)),
+			"preemptorShare", schdcache.DRS(preemptorShare).PreciseWeightedShareSerialized(),
+			"targetOldShare", schdcache.DRS(oldShare).PreciseWeightedShareSerialized(),
+			"targetNewShare", schdcache.DRS(newShare).PreciseWeightedShareSerialized(),
+			"passed", passed)
+	}
+	return passed
 }
 
 // parseStrategies converts the configured FairSharing preemption strategies into

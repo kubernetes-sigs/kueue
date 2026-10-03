@@ -1196,6 +1196,86 @@ func TestFairPreemptions(t *testing.T) {
 			),
 			featureGates: map[featuregate.Feature]bool{features.FairSharingReevaluatePreemptionCandidates: true},
 		},
+		// During candidate selection, removing p_small (30 CPU in qp) drops qp's
+		// simulated usage from 90 to 60 (DRS 0.1), which makes t_hero (70 CPU in qt,
+		// DRS 0.2) pass LessThanInitialShare. Once t_hero is removed, p_hero (60 CPU)
+		// fits even with p_small restored by fillBackWorkloads. In the resulting state
+		// (p_small + p_hero = 90 CPU, DRS 0.4), preempting t_hero (oldShare 0.2,
+		// newShare 0) violates both FairSharing strategies and must be discarded.
+		"intra-CQ candidate restored by fillBackWorkloads invalidates cross-CQ LessThanInitialShare preemption": {
+			strategies: []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare, config.LessThanInitialShare},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("qp").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "50").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("qt").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "50").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("p_small", "ns").Request(corev1.ResourceCPU, "30").Priority(0).Creation(now).SimpleReserveQuota("qp", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t_hero", "ns").Request(corev1.ResourceCPU, "70").Priority(0).Creation(now).SimpleReserveQuota("qt", "default", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("p_hero", "ns").Request(corev1.ResourceCPU, "60").Priority(10).Creation(now.Add(-time.Hour)).Obj(),
+			targetCQ:      "qp",
+			wantPreempted: nil,
+		},
+		// With FairSharingReevaluatePreemptionCandidates enabled and only
+		// LessThanOrEqualToFinalShare configured:
+		// 1. Initially qp (20+50=70 CPU, DRS 0.2) preempts t1 (10 CPU in qt,
+		//    reducing qt from 80 to 70 CPU, DRS 0.2). t2 (70 CPU) fails S2-a
+		//    because removing it drops qt to 0 CPU (DRS 0 < 0.2).
+		// 2. Next, p_small (20 CPU in qp) is removed (in-CQ), dropping qp to
+		//    50 CPU (DRS 0).
+		// 3. On re-evaluation, t2 (70 CPU in qt) now passes S2-a (0 <= 0).
+		// 4. fillBackWorkloads restores both p_small and t1 because p_hero (50 CPU)
+		//    fits alongside them once t2 (70 CPU) is removed.
+		// 5. Against the final state (qp at 70 CPU, DRS 0.2; qt at 10 CPU, DRS 0),
+		//    t2 no longer satisfies LessThanOrEqualToFinalShare and must be discarded.
+		"intra-CQ candidate restored by fillBackWorkloads invalidates re-evaluated LessThanOrEqualToFinalShare preemption": {
+			strategies: []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("qp").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "50").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("qt").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "50").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("p_small", "ns").Request(corev1.ResourceCPU, "20").Priority(0).Creation(now).SimpleReserveQuota("qp", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t1", "ns").Request(corev1.ResourceCPU, "10").Priority(0).Creation(now.Add(time.Minute)).SimpleReserveQuota("qt", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("t2", "ns").Request(corev1.ResourceCPU, "70").Priority(0).Creation(now).SimpleReserveQuota("qt", "default", now).Obj(),
+			},
+			incoming:      utiltestingapi.MakeWorkload("p_hero", "ns").Request(corev1.ResourceCPU, "50").Priority(10).Creation(now.Add(-time.Hour)).Obj(),
+			targetCQ:      "qp",
+			wantPreempted: nil,
+			featureGates:  map[featuregate.Feature]bool{features.FairSharingReevaluatePreemptionCandidates: true},
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
