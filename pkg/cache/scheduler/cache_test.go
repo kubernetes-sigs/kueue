@@ -1438,7 +1438,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "delete error clusterQueue doesn't exist",
+			name: "delete workload after its clusterQueue is deleted",
 			operation: func(log logr.Logger, cache *Cache) error {
 				cq := utiltestingapi.MakeClusterQueue("three").
 					ResourceGroup(
@@ -1461,7 +1461,6 @@ func TestCacheWorkloadOperations(t *testing.T) {
 
 				return cache.DeleteWorkload(log, workload.Key(w))
 			},
-			wantError: "cluster queue not found",
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New[workload.Reference]("/a", "/b"),
@@ -1478,7 +1477,6 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				"/a": "one",
 				"/b": "one",
 				"/c": "two",
-				"/d": "three",
 			},
 		},
 		{

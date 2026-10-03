@@ -2683,6 +2683,55 @@ var _ = ginkgo.Describe("Scheduler", func() {
 		})
 	})
 
+	ginkgo.It("preserves assumed quota across a pending informer update", func() {
+		cq := createQueue(utiltestingapi.MakeClusterQueue("assumed-quota").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).Resource(corev1.ResourceCPU, "2").Obj()).Obj())
+		assumed := make(chan struct{})
+		release := make(chan struct{})
+		namespace := ns.Name
+		var signaled atomic.Bool
+		released := false
+		defer func() {
+			if !released {
+				close(release)
+			}
+			setFakeSubResourcePatchSpec(nil)
+		}()
+		setFakeSubResourcePatchSpec(func(obj client.Object) (fakeClientUsage, error) {
+			wl, ok := obj.(*kueue.Workload)
+			if ok && wl.Namespace == namespace && wl.Name == "assumed" && wl.Status.Admission != nil {
+				if signaled.CompareAndSwap(false, true) {
+					close(assumed)
+				}
+				<-release
+			}
+			return fallThrough, nil
+		})
+		first := utiltestingapi.MakeWorkload("assumed", ns.Name).Queue(kueue.LocalQueueName(cq.Name)).Request(corev1.ResourceCPU, "2").Obj()
+		util.MustCreate(ctx, k8sClient, first)
+		gomega.Eventually(assumed, util.Timeout, util.Interval).Should(gomega.BeClosed())
+
+		ginkgo.By("Updating the informer object while its admission write is blocked")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(first), first)).To(gomega.Succeed())
+			g.Expect(workload.HasQuotaReservation(first)).To(gomega.BeFalse())
+			first.Annotations = map[string]string{"test.kueue.x-k8s.io/pending-update": "observed"}
+			g.Expect(k8sClient.Update(ctx, first)).To(gomega.Succeed())
+		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		second := utiltestingapi.MakeWorkload("competitor", ns.Name).Queue(kueue.LocalQueueName(cq.Name)).Request(corev1.ResourceCPU, "1").Obj()
+		util.MustCreate(ctx, k8sClient, second)
+		util.ExpectWorkloadsToBePending(ctx, k8sClient, second)
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(second), second)).To(gomega.Succeed())
+			g.Expect(workload.HasQuotaReservation(second)).To(gomega.BeFalse())
+		}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+		close(release)
+		released = true
+		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, first)
+		util.ExpectWorkloadsToBePending(ctx, k8sClient, second)
+	})
+
 	ginkgo.When("Deleting clusterQueues", func() {
 		var (
 			cq    *kueue.ClusterQueue

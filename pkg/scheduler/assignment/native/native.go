@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
 
 // NewPlanner returns a native implementation of assignment.Planner
@@ -54,12 +55,16 @@ type nativePlanner struct {
 func (p *nativePlanner) Plan(ctx context.Context, asgn *flavorassigner.Assignment, _ ...assignment.PlannerOption) assignment.Plan {
 	log := log.FromContext(ctx)
 	cq := p.snapshot.ClusterQueue(p.wl.ClusterQueue)
+	preTASMode := asgn.RepresentativeMode()
 
 	if asgn.RepresentativeMode() != flavorassigner.NoFit {
 		p.assigner.AssignTopology(ctx, log, asgn)
 	}
 
 	arm := asgn.RepresentativeMode()
+	if arm != flavorassigner.Fit && p.deferForResidualTASPods(ctx, asgn, preTASMode) {
+		return assignment.Plan{Assignment: asgn}
+	}
 
 	if arm == flavorassigner.Preempt {
 		strategies := p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, *asgn)
@@ -74,6 +79,62 @@ func (p *nativePlanner) Plan(ctx context.Context, asgn *flavorassigner.Assignmen
 	p.updateAssignmentForTAS(ctx, cq, asgn, nil)
 	resolveNoFit(asgn, cq)
 	return assignment.Plan{Assignment: asgn, PreemptionTargets: nil}
+}
+
+func (p *nativePlanner) deferForResidualTASPods(ctx context.Context, asgn *flavorassigner.Assignment, quotaMode flavorassigner.FlavorAssignmentMode) bool {
+	log := log.FromContext(ctx)
+	cq := p.snapshot.ClusterQueue(p.wl.ClusterQueue)
+	if !features.Enabled(features.TopologyAwareScheduling) || quotaMode == flavorassigner.NoFit ||
+		(!workload.IsExplicitlyRequestingTAS(p.wl.Obj.Spec.PodSets...) && !cq.IsTASOnly()) {
+		return false
+	}
+	tasRequests := asgn.WorkloadsTopologyRequests(log, p.wl, cq)
+	if len(tasRequests) == 0 {
+		return false
+	}
+	for _, ps := range asgn.PodSets {
+		if ps.Status.IsError() {
+			return false
+		}
+	}
+	restoreResidual, found := p.snapshot.SimulateResidualTASPodRelease(ctx, log, p.wl)
+	defer restoreResidual()
+	if !found {
+		return false
+	}
+	result := cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(p.wl))
+	if quotaMode != flavorassigner.Fit || result.Failure() != nil {
+		// Victims can release quota at different times. Probe with the normal
+		// policy selector, but only wait if no additional eviction is needed.
+		strategies := p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, *asgn)
+		targets := p.preemptor.GetTargetsWithStrategy(ctx, strategies)
+		if len(targets) == 0 {
+			return false
+		}
+		victims := make([]*workload.Info, 0, len(targets))
+		for _, target := range targets {
+			if !workloadevict.IsEvicted(target.WorkloadInfo.Obj) {
+				return false
+			}
+			victims = append(victims, target.WorkloadInfo)
+		}
+		restoreUsage := p.snapshot.SimulateWorkloadRemoval(victims)
+		defer restoreUsage()
+		restorePods := p.snapshot.SimulatePodRemoval(ctx, log, victims)
+		defer restorePods()
+		result = cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(p.wl))
+	}
+	if result.Failure() != nil {
+		return false
+	}
+	for i := range asgn.PodSets {
+		asgn.PodSets[i].Status = flavorassigner.Status{}
+	}
+	asgn.NoFitReason = ""
+	asgn.UpdateForTASResult(log, cq, p.wl, result)
+	asgn.SetRepresentativeMode(flavorassigner.DeferredFit)
+	asgn.WaitingForResidualTASPods = true
+	return true
 }
 
 func (p *nativePlanner) updateAssignmentForTAS(
