@@ -17,6 +17,7 @@ limitations under the License.
 package delete
 
 import (
+	"fmt"
 	"slices"
 	"testing"
 
@@ -57,6 +58,8 @@ func TestWorkloadCmd(t *testing.T) {
 		wantOutErr    string
 		wantErr       string
 		wantDeleteUID map[string]types.UID
+		// listPages, when set, makes Workload List calls return these pages in order.
+		listPages []runtime.Object
 	}{
 		"no arguments": {
 			args:    []string{},
@@ -208,6 +211,27 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 				"j2": "j2-uid",
 			},
 		},
+		"should delete workloads from every list page when using --all": {
+			args: []string{"--all", "--yes"},
+			workloads: []runtime.Object{
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).Obj(),
+				utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
+			},
+			listPages: []runtime.Object{
+				&kueue.WorkloadList{
+					Continue: "page2",
+					Items: []kueue.Workload{
+						*utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).Obj(),
+					},
+				},
+				&kueue.WorkloadList{
+					Items: []kueue.Workload{
+						*utiltestingapi.MakeWorkload("wl2", metav1.NamespaceDefault).Obj(),
+					},
+				},
+			},
+			ignoreOut: true,
+		},
 		"should delete all jobs corresponding to the workloads and any workloads without corresponding jobs in default namespace": {
 			args: []string{"--all", "--yes"},
 			workloads: []runtime.Object{
@@ -322,6 +346,9 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 
 			streams, in, out, outErr := genericiooptions.NewTestIOStreams()
 			clientset := fake.NewSimpleClientset(tc.workloads...)
+			if len(tc.listPages) > 0 {
+				prependPagedListReactor(clientset, tc.listPages)
+			}
 			clientset.PrependReactor("delete", "workloads", func(action kubetesting.Action) (handled bool, ret runtime.Object, err error) {
 				if slices.Contains(action.(kubetesting.DeleteAction).GetDeleteOptions().DryRun, metav1.DryRunAll) {
 					handled = true
@@ -436,4 +463,32 @@ Do you want to proceed (y/n)? jobs.batch/j1 deleted
 			}
 		})
 	}
+}
+
+// prependPagedListReactor makes List calls for workloads return the given pages
+// in order. The first request must not send a continue token; later requests must
+// pass the previous page's Continue. Once the pages are consumed, later lists use
+// the client tracker.
+func prependPagedListReactor(clientset *fake.Clientset, pages []runtime.Object) {
+	var page int
+	var wantContinue string
+	clientset.PrependReactor("list", "workloads", func(action kubetesting.Action) (bool, runtime.Object, error) {
+		if page >= len(pages) {
+			return false, nil, nil
+		}
+		listAction, ok := action.(kubetesting.ListActionImpl)
+		if !ok {
+			return true, nil, fmt.Errorf("expected ListActionImpl, got %T", action)
+		}
+		gotContinue := listAction.GetListOptions().Continue
+		if gotContinue != wantContinue {
+			return true, nil, fmt.Errorf("list continue = %q, want %q", gotContinue, wantContinue)
+		}
+		obj := pages[page]
+		page++
+		if list, ok := obj.(*kueue.WorkloadList); ok {
+			wantContinue = list.Continue
+		}
+		return true, obj, nil
+	})
 }

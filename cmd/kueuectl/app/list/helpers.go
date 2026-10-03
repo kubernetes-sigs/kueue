@@ -19,8 +19,6 @@ package list
 import (
 	"errors"
 	"io"
-	"os"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -30,30 +28,9 @@ import (
 	"k8s.io/cli-runtime/pkg/printers"
 )
 
-const (
-	defaultListRequestLimit         = 100
-	KueuectlListRequestLimitEnvName = "KUEUECTL_LIST_REQUEST_LIMIT"
-)
-
 var (
-	errInvalidListRequestLimit = errors.New("invalid list request limit")
-	errMultipleActiveFlags     = errors.New("only one active flag can be provided")
+	errMultipleActiveFlags = errors.New("only one active flag can be provided")
 )
-
-func listRequestLimit() (int64, error) {
-	listRequestLimitEnv := os.Getenv(KueuectlListRequestLimitEnvName)
-
-	if len(listRequestLimitEnv) == 0 {
-		return defaultListRequestLimit, nil
-	}
-
-	limit, err := strconv.ParseInt(listRequestLimitEnv, 10, 64)
-	if err != nil {
-		return 0, errInvalidListRequestLimit
-	}
-
-	return limit, nil
-}
 
 func addFieldSelectorFlagVar(cmd *cobra.Command, p *string) {
 	cmd.Flags().StringVar(p, "field-selector", "",
