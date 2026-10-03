@@ -3066,6 +3066,79 @@ func TestUpdateUnadmittedWorkload_LQMetricsDisabled(t *testing.T) {
 	}
 }
 
+func TestUnadmittedWorkloadMetrics_LocalQueueSelector(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+	defer metrics.InitMetricVectors(nil)
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), nil,
+		WithLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{
+			Enabled:       true,
+			QueueSelector: labels.SelectorFromSet(labels.Set{"team": "ml"}),
+		}))
+	cq := utiltestingapi.MakeClusterQueue("cq").Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Label("team", "dev").Obj()
+	if err := manager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("failed to add ClusterQueue: %v", err)
+	}
+	if err := manager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("failed to add LocalQueue: %v", err)
+	}
+	clearLQMetrics(queue.Key(lq))
+
+	expectLQCount := func(want int) {
+		t.Helper()
+		got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueUnadmittedWorkloads, map[string]string{
+			"name": "lq", "namespace": "ns",
+		})
+		if want == 0 {
+			if len(got) != 0 {
+				t.Errorf("expected no LocalQueue unadmitted series, got %v", got)
+			}
+		} else if len(got) != 1 || got[0].Value != float64(want) {
+			t.Errorf("LocalQueue unadmitted series = %v, want one series with value %d", got, want)
+		}
+	}
+
+	wl := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Obj()
+	manager.UpdateUnadmittedWorkload(log, wl)
+	expectLQCount(0)
+
+	updatedLQ := lq.DeepCopy()
+	updatedLQ.Labels["team"] = "ml"
+	if err := manager.UpdateLocalQueue(log, updatedLQ); err != nil {
+		t.Fatalf("failed to update LocalQueue: %v", err)
+	}
+	lq = updatedLQ
+	manager.ResyncLocalQueueGaugeMetrics(queue.Key(lq))
+	expectLQCount(1)
+
+	updatedLQ = lq.DeepCopy()
+	updatedLQ.Labels["team"] = "dev"
+	if err := manager.UpdateLocalQueue(log, updatedLQ); err != nil {
+		t.Fatalf("failed to update LocalQueue: %v", err)
+	}
+	lq = updatedLQ
+	clearLQMetrics(queue.Key(lq))
+	manager.ResyncLocalQueueGaugeMetrics(queue.Key(lq))
+	expectLQCount(0)
+
+	manager.UpdateUnadmittedWorkload(log, utiltestingapi.MakeWorkload("wl-2", "ns").Queue("lq").Obj())
+	expectLQCount(0)
+	manager.ResyncGaugeMetrics()
+	expectLQCount(0)
+
+	updatedLQ = lq.DeepCopy()
+	updatedLQ.Labels["team"] = "ml"
+	if err := manager.UpdateLocalQueue(log, updatedLQ); err != nil {
+		t.Fatalf("failed to update LocalQueue: %v", err)
+	}
+	lq = updatedLQ
+	manager.ResyncLocalQueueGaugeMetrics(queue.Key(lq))
+	expectLQCount(2)
+}
+
 func TestDeleteLocalQueue_UnadmittedWorkloads(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.UnadmittedWorkloadsObservability, true)
 
