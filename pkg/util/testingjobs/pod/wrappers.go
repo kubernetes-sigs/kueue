@@ -325,6 +325,21 @@ func (p *PodWrapper) NodeName(name string) *PodWrapper {
 	return p
 }
 
+func (p *PodWrapper) Port(container, host int32, protocol corev1.Protocol) *PodWrapper {
+	p.Spec.Containers[0].Ports = append(p.Spec.Containers[0].Ports, corev1.ContainerPort{
+		ContainerPort: container,
+		HostPort:      host,
+		Protocol:      protocol,
+	})
+	return p
+}
+
+// ContainerName sets the name of the default container.
+func (p *PodWrapper) ContainerName(name string) *PodWrapper {
+	p.Spec.Containers[0].Name = name
+	return p
+}
+
 // Request adds a resource request to the default container.
 func (p *PodWrapper) Request(r corev1.ResourceName, v string) *PodWrapper {
 	p.Spec.Containers[0].Resources.Requests[r] = resource.MustParse(v)
