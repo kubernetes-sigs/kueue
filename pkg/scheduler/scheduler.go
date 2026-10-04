@@ -1542,7 +1542,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 }
 
 // effectiveReducerPodSets swaps in the live predecessor's granted count (by PodSet name) as the
-// baseline, in place of the workload's own frozen MinCount, while that predecessor is around.
+// baseline, capped at the new count, while that predecessor is around.
 func effectiveReducerPodSets(podSets []kueue.PodSet, replaceableWorkloadSlice *workload.Info, mustGrow bool) []kueue.PodSet {
 	if !mustGrow {
 		return podSets
@@ -1557,6 +1557,7 @@ func effectiveReducerPodSets(podSets []kueue.PodSet, replaceableWorkloadSlice *w
 			continue
 		}
 		if grant, ok := liveGrants[effective[i].Name]; ok {
+			grant = min(grant, effective[i].Count)
 			effective[i].MinCount = &grant
 		}
 	}
