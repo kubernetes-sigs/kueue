@@ -808,7 +808,28 @@ func (a *FlavorAssigner) AssignFlavors(
 	// The probe needs the earlier PodSets' full requests. Quota usage may only
 	// contain replacement deltas, including negative values for shrinking PodSets.
 	assignedRequests := make(resources.FlavorResourceQuantities)
+	// Pre-credit quota freed by shrinking PodSet groups so that growing PodSet
+	// groups evaluated earlier in Spec.PodSets order can use the released quota.
+	unvisitedShrinkingUsage := make(resources.FlavorResourceQuantities)
 	for _, podSets := range groupedRequests.InOrder {
+		for fr, delta := range a.groupShrinkingQuotaDeltas(podSets) {
+			unvisitedShrinkingUsage[fr] = unvisitedShrinkingUsage[fr].Add(delta)
+		}
+	}
+	for _, podSets := range groupedRequests.InOrder {
+		for fr, delta := range a.groupShrinkingQuotaDeltas(podSets) {
+			unvisitedShrinkingUsage[fr] = unvisitedShrinkingUsage[fr].Sub(delta)
+		}
+		quotaUsage := assignment.Usage.Quota.Assigned
+		if len(unvisitedShrinkingUsage) > 0 {
+			quotaUsage = maps.Clone(assignment.Usage.Quota.Assigned)
+			for fr, delta := range unvisitedShrinkingUsage {
+				if delta.Sign() != 0 {
+					quotaUsage[fr] = quotaUsage[fr].Add(delta)
+				}
+			}
+		}
+
 		requests := resources.NewRequests()
 		psIDs := make([]int, len(podSets))
 		for idx, podset := range podSets {
@@ -844,11 +865,11 @@ func (a *FlavorAssigner) AssignFlavors(
 				continue
 			}
 
-			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, probeRequests, resName, assignment.Usage.Quota.Assigned, assignedRequests)
+			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, probeRequests, resName, quotaUsage, assignedRequests)
 			if probeRequests != nil && len(flavors) == 0 && !status.IsError() {
 				// The probe is a preference, not an admission barrier for zero-count PodSets.
 				probeReason := status.Message()
-				flavors, status, considered = a.findFlavorForPodSets(ctx, log, psIDs, requests, nil, resName, assignment.Usage.Quota.Assigned, assignedRequests)
+				flavors, status, considered = a.findFlavorForPodSets(ctx, log, psIDs, requests, nil, resName, quotaUsage, assignedRequests)
 				if len(flavors) > 0 && !status.IsError() {
 					if assignment.ZeroCountFlavorFallback != "" {
 						assignment.ZeroCountFlavorFallback += " "
@@ -1104,6 +1125,45 @@ func (a *Assignment) findOldPodSetRequest(psName kueue.PodSetReference, resource
 		return oldPS.Requests.ResourceValue(resource)
 	}
 	return resources.Amount{}
+}
+
+// groupShrinkingQuotaDeltas returns the negative (new - old) quota deltas for
+// resources where this PodSet group shrinks relative to the replaced slice.
+func (a *FlavorAssigner) groupShrinkingQuotaDeltas(podSets []indexedPodSet) resources.FlavorResourceQuantities {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || a.replaceWorkloadSlice == nil {
+		return nil
+	}
+	var deltas resources.FlavorResourceQuantities
+	for _, ips := range podSets {
+		oldPS := podSetResourcesByName(a.replaceWorkloadSlice.TotalRequests, ips.podSet.Name)
+		if oldPS == nil || oldPS.Requests == nil {
+			continue
+		}
+		if features.Enabled(features.ElasticJobsViaWorkloadSlicesFlavorChangeFromZero) && oldPS.Count == 0 {
+			continue
+		}
+		oldPS.Requests.ForEach(func(rName corev1.ResourceName, oldVal resources.Amount) {
+			oldFlavor, ok := oldPS.Flavors[rName]
+			if !ok {
+				return
+			}
+			var newVal resources.Amount
+			if ips.podSet.Requests != nil {
+				newVal = ips.podSet.Requests.ResourceValue(rName)
+			}
+			if deltas == nil {
+				deltas = make(resources.FlavorResourceQuantities)
+			}
+			fr := resources.FlavorResource{Flavor: oldFlavor, Resource: rName}
+			deltas[fr] = deltas[fr].Add(newVal.Sub(oldVal))
+		})
+	}
+	for fr, delta := range deltas {
+		if delta.Sign() >= 0 {
+			delete(deltas, fr)
+		}
+	}
+	return deltas
 }
 
 // probeRequestsFor checks one pod per PodSet only when the entire group is empty.
