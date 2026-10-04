@@ -397,18 +397,31 @@ func TestClusterQueueReconcile(t *testing.T) {
 }
 
 type cqMetrics struct {
-	NominalDPs   []testingmetrics.MetricDataPoint
-	BorrowingDPs []testingmetrics.MetricDataPoint
-	LendingDPs   []testingmetrics.MetricDataPoint
-	UsageDPs     []testingmetrics.MetricDataPoint
+	NominalDPs       []testingmetrics.MetricDataPoint
+	BorrowingDPs     []testingmetrics.MetricDataPoint
+	LendingDPs       []testingmetrics.MetricDataPoint
+	UsageDPs         []testingmetrics.MetricDataPoint
+	WeightedShareDPs []testingmetrics.MetricDataPoint
 }
 
 func allMetricsForQueue(name string) cqMetrics {
 	return cqMetrics{
-		NominalDPs:   testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, map[string]string{"cluster_queue": name}),
-		BorrowingDPs: testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceBorrowingLimit, map[string]string{"cluster_queue": name}),
-		LendingDPs:   testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceLendingLimit, map[string]string{"cluster_queue": name}),
-		UsageDPs:     testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceReservations, map[string]string{"cluster_queue": name}),
+		NominalDPs:       testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceNominalQuota, map[string]string{"cluster_queue": name}),
+		BorrowingDPs:     testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceBorrowingLimit, map[string]string{"cluster_queue": name}),
+		LendingDPs:       testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceLendingLimit, map[string]string{"cluster_queue": name}),
+		UsageDPs:         testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueResourceReservations, map[string]string{"cluster_queue": name}),
+		WeightedShareDPs: testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueWeightedShare, map[string]string{"cluster_queue": name}),
+	}
+}
+
+func weightedShareDataPoint(cohort, name string, v float64) testingmetrics.MetricDataPoint {
+	return testingmetrics.MetricDataPoint{
+		Labels: map[string]string{
+			"cohort":        cohort,
+			"cluster_queue": name,
+			"replica_role":  roletracker.RoleStandalone,
+		},
+		Value: v,
 	}
 }
 
@@ -484,6 +497,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 
 	testCases := map[string]struct {
 		queue              *kueue.ClusterQueue
+		fairSharing        bool
 		wantMetrics        cqMetrics
 		updatedQueue       *kueue.ClusterQueue
 		wantUpdatedMetrics cqMetrics
@@ -545,7 +559,8 @@ func TestRecordResourceMetrics(t *testing.T) {
 			},
 		},
 		"change-cohort": {
-			queue: baseQueue.DeepCopy(),
+			queue:       baseQueue.DeepCopy(),
+			fairSharing: true,
 			wantMetrics: cqMetrics{
 				NominalDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 1),
@@ -558,6 +573,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				},
 				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort", "name", "flavor", string(corev1.ResourceCPU), 2),
+				},
+				WeightedShareDPs: []testingmetrics.MetricDataPoint{
+					weightedShareDataPoint("cohort", "name", 1000),
 				},
 			},
 			updatedQueue: func() *kueue.ClusterQueue {
@@ -577,6 +595,9 @@ func TestRecordResourceMetrics(t *testing.T) {
 				},
 				UsageDPs: []testingmetrics.MetricDataPoint{
 					resourceDataPoint("cohort2", "name", "flavor", string(corev1.ResourceCPU), 2),
+				},
+				WeightedShareDPs: []testingmetrics.MetricDataPoint{
+					weightedShareDataPoint("cohort2", "name", 1000),
 				},
 			},
 		},
@@ -702,7 +723,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			cl := utiltesting.NewClientBuilder().Build()
-			cqCache := schdcache.New(cl)
+			cqCache := schdcache.New(cl, schdcache.WithFairSharing(tc.fairSharing))
 			r := &ClusterQueueReconciler{cache: cqCache}
 			err := cqCache.AddClusterQueue(ctx, tc.queue)
 			if err != nil {
@@ -733,7 +754,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 
 			metrics.ClearClusterQueueResourceMetrics(tc.queue.Name)
 			endMetrics := allMetricsForQueue(tc.queue.Name)
-			if len(endMetrics.NominalDPs) != 0 || len(endMetrics.BorrowingDPs) != 0 || len(endMetrics.UsageDPs) != 0 {
+			if len(endMetrics.NominalDPs) != 0 || len(endMetrics.BorrowingDPs) != 0 || len(endMetrics.UsageDPs) != 0 || len(endMetrics.WeightedShareDPs) != 0 {
 				t.Errorf("Unexpected metrics after cleanup:\n%v", endMetrics)
 			}
 		})
