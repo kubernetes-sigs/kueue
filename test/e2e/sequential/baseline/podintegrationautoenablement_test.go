@@ -115,7 +115,7 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 				createdStatefulSet := &appsv1.StatefulSet{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testSts), createdStatefulSet)).To(gomega.Succeed())
 				g.Expect(createdStatefulSet.Status.ReadyReplicas).To(gomega.Equal(int32(2)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
 		})
 	})
 

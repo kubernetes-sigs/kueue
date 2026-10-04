@@ -114,7 +114,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 			// The GPUs sit on was-n2 on purpose. TAS breaks ties by level values,
 			// so it picks was-n1 on its own; asserting was-n2 therefore fails
 			// unless DRA feasibility actively steered the assignment.
-			gpuSlice = utiltesting.MakeResourceSlice("was-n2-gpus", "gpu.test.com").
+			gpuSlice = testingdra.MakeResourceSlice("was-n2-gpus", "gpu.test.com").
 				NodeName("was-n2").
 				Pool("was-n2-gpu-pool", 1, 1).
 				Device("gpu-0").
@@ -408,7 +408,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					}, util.Timeout, util.Interval).Should(gomega.Succeed())
 				})
 
-				extraSlice = utiltesting.MakeResourceSlice("was-n2-more-gpus", "gpu.test.com").
+				extraSlice = testingdra.MakeResourceSlice("was-n2-more-gpus", "gpu.test.com").
 					NodeName("was-n2").
 					Pool("was-n2-more-gpu-pool", 1, 1).
 					Device("gpu-2").
@@ -441,7 +441,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(gpuSlice), gpuSlice)).To(gomega.Succeed())
-					gpuSlice.Spec.Devices = utiltesting.MakeResourceSlice(gpuSlice.Name, "gpu.test.com").
+					gpuSlice.Spec.Devices = testingdra.MakeResourceSlice(gpuSlice.Name, "gpu.test.com").
 						Device("gpu-0").
 						Device("gpu-1").
 						Device("gpu-2").

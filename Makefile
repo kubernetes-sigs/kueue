@@ -157,7 +157,7 @@ include hack/make/verify.mk
 manifests: controller-gen generate-code ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) \
 		crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/bases\
-		paths="./apis/kueue/v1beta1/...;./apis/kueue/v1beta2/...;./apis/visibility/...;./apis/config/..."
+		paths="./apis/kueue/v1beta2/...;./apis/visibility/...;./apis/config/..."
 	$(CONTROLLER_GEN) \
 		crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/alpha/bases\
 		paths="./apis/kueue/v1alpha1/..."

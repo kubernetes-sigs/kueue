@@ -57,7 +57,7 @@ var snapCmpOpts = cmp.Options{
 	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{}),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-	cmpopts.IgnoreFields(Snapshot{}, "SchedulerSimulator", "hostnameLeafTASFlavors"),
+	cmpopts.IgnoreFields(Snapshot{}, "SchedulerSimulator", "hostnameLeafTASFlavors", "released"),
 }
 
 func TestSnapshot(t *testing.T) {
@@ -2350,6 +2350,97 @@ func TestSnapshotWrapsTheDeviceCheckOnEitherSimulator(t *testing.T) {
 			}
 			if _, got := snap.SchedulerSimulator.(*schddra.Checker); got != tc.wantChecker {
 				t.Errorf("snapshot holds a *schddra.Checker = %v, want %v", got, tc.wantChecker)
+			}
+		})
+	}
+}
+
+func TestSnapshotReleaseWorkloadUsage(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	admittedWorkload := func(name, cpu string) kueue.Workload {
+		return *utiltestingapi.MakeWorkload(name, "").
+			Request(corev1.ResourceCPU, cpu).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("c1").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", cpu).
+					Obj()).
+				Obj(), now).
+			Obj()
+	}
+	workloads := []kueue.Workload{admittedWorkload("kept", "1"), admittedWorkload("released", "2")}
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
+	cqCache := New(cl)
+	cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+	if err := cqCache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("c1").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "6").Obj()).
+		Obj()); err != nil {
+		t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
+	}
+	cpu := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+
+	// Each case starts from a snapshot where "released" was released and
+	// only "kept" (1 CPU) is left in the ClusterQueue's usage.
+	cases := map[string]struct {
+		operate          func(s *Snapshot, kept, released *workload.Info) func()
+		wantUsage        int64
+		wantReleasedHeld bool
+	}{
+		"released workload stays in its ClusterQueue": {
+			operate:          func(*Snapshot, *workload.Info, *workload.Info) func() { return nil },
+			wantUsage:        1_000,
+			wantReleasedHeld: true,
+		},
+		"releasing again is a no-op": {
+			operate: func(s *Snapshot, _, released *workload.Info) func() {
+				s.ReleaseWorkloadUsage(released)
+				return nil
+			},
+			wantUsage:        1_000,
+			wantReleasedHeld: true,
+		},
+		"usage removal simulation skips the released workload": {
+			operate: func(s *Snapshot, kept, released *workload.Info) func() {
+				return s.SimulateWorkloadUsageRemoval([]*workload.Info{kept, released})
+			},
+			wantUsage:        0,
+			wantReleasedHeld: true,
+		},
+		"removal simulation leaves the released workload's usage": {
+			operate: func(s *Snapshot, _, released *workload.Info) func() {
+				return s.SimulateWorkloadRemoval([]*workload.Info{released})
+			},
+			wantUsage:        1_000,
+			wantReleasedHeld: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			snap, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			cq := snap.ClusterQueue("c1")
+			kept, released := cq.Workloads["/kept"], cq.Workloads["/released"]
+			snap.ReleaseWorkloadUsage(released)
+
+			revert := tc.operate(snap, kept, released)
+			if got := cq.ResourceNode.Usage[cpu]; got.CmpInt64(tc.wantUsage) != 0 {
+				t.Errorf("Unexpected usage after the operation: got %v, want %v", got, tc.wantUsage)
+			}
+			if _, got := cq.Workloads["/released"]; got != tc.wantReleasedHeld {
+				t.Errorf("Unexpected presence of the released workload after the operation: got %t, want %t", got, tc.wantReleasedHeld)
+			}
+			if revert == nil {
+				return
+			}
+			revert()
+			if got := cq.ResourceNode.Usage[cpu]; got.CmpInt64(1_000) != 0 {
+				t.Errorf("Unexpected usage after the revert: got %v, want 1000", got)
+			}
+			if _, found := cq.Workloads["/released"]; !found {
+				t.Error("The released workload is missing from its ClusterQueue after the revert")
 			}
 		})
 	}
