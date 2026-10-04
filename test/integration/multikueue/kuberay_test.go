@@ -278,13 +278,14 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			return utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).PodSets(
 				utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
 				utiltestingapi.MakePodSetAssignment("workers-group-0").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Count(workerCount).Obj(),
+				utiltestingapi.MakePodSetAssignment("submitter").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
 			)
 		}
 
 		rayJob := testingrayjob.MakeJob("autoscaling-rayjob-missed-finish", f.managerNs.Name).
 			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 			Queue(f.managerLq.Name).
-			WithSubmissionMode(rayv1.InteractiveMode).
+			WithSubmissionMode(rayv1.K8sJobMode).
 			EnableInTreeAutoscaling().
 			Obj()
 		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayJob)
