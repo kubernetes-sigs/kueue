@@ -6205,6 +6205,130 @@ func TestSchedule(t *testing.T) {
 				utiltesting.MakeEventRecord("sales", "foo-1", kueue.WorkloadSliceReplaced, corev1.EventTypeNormal).Obj(),
 			},
 		},
+		"workload-slice with partial replica scale up partially fits when a pod set shrinks below its live grant": {
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialAdmission:                                      false,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("partial-cq").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "7").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("partial-lq", "sales").ClusterQueue("partial-cq").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Queue("partial-lq").
+					PodSets(
+						*utiltestingapi.MakePodSet("head", 1).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltestingapi.MakePodSet("workers-a", 4).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltestingapi.MakePodSet("workers-b", 2).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("partial-cq").
+						PodSets(
+							utiltestingapi.MakePodSetAssignment("head").Assignment(corev1.ResourceCPU, "default", "1").Count(1).Obj(),
+							utiltestingapi.MakePodSetAssignment("workers-a").Assignment(corev1.ResourceCPU, "default", "4").Count(4).Obj(),
+							utiltestingapi.MakePodSetAssignment("workers-b").Assignment(corev1.ResourceCPU, "default", "2").Count(2).Obj(),
+						).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
+					Queue("partial-lq").
+					PodSets(
+						*utiltestingapi.MakePodSet("head", 1).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltestingapi.MakePodSet("workers-a", 1).SetMinimumCount(1).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltestingapi.MakePodSet("workers-b", 6).SetMinimumCount(2).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"sales/foo-1": *utiltestingapi.MakeAdmission("partial-cq").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("head").Assignment(corev1.ResourceCPU, "default", "1").Count(1).Obj(),
+						utiltestingapi.MakePodSetAssignment("workers-a").Assignment(corev1.ResourceCPU, "default", "4").Count(4).Obj(),
+						utiltestingapi.MakePodSetAssignment("workers-b").Assignment(corev1.ResourceCPU, "default", "2").Count(2).Obj(),
+					).
+					Obj(),
+				"sales/foo-2": *utiltestingapi.MakeAdmission("partial-cq").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("head").Assignment(corev1.ResourceCPU, "default", "1").Count(1).Obj(),
+						utiltestingapi.MakePodSetAssignment("workers-a").Assignment(corev1.ResourceCPU, "default", "1").Count(1).Obj(),
+						utiltestingapi.MakePodSetAssignment("workers-b").Assignment(corev1.ResourceCPU, "default", "5").Count(5).Obj(),
+					).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Queue("partial-lq").
+					PodSets(
+						*utiltestingapi.MakePodSet("head", 1).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltestingapi.MakePodSet("workers-a", 4).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltestingapi.MakePodSet("workers-b", 2).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("partial-cq").
+						PodSets(
+							utiltestingapi.MakePodSetAssignment("head").Assignment(corev1.ResourceCPU, "default", "1").Count(1).Obj(),
+							utiltestingapi.MakePodSetAssignment("workers-a").Assignment(corev1.ResourceCPU, "default", "4").Count(4).Obj(),
+							utiltestingapi.MakePodSetAssignment("workers-b").Assignment(corev1.ResourceCPU, "default", "2").Count(2).Obj(),
+						).
+						Obj(), now).
+					AdmittedAt(true, now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadSliceReplaced,
+						Message:            "Replaced to accommodate a workload (UID: , JobUID: ) due to workload slice aggregation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
+					Queue("partial-lq").
+					PodSets(
+						*utiltestingapi.MakePodSet("head", 1).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltestingapi.MakePodSet("workers-a", 1).SetMinimumCount(1).Request(corev1.ResourceCPU, "1").Obj(),
+						*utiltestingapi.MakePodSet("workers-b", 6).SetMinimumCount(2).Request(corev1.ResourceCPU, "1").Obj(),
+					).
+					Admission(utiltestingapi.MakeAdmission("partial-cq").
+						PodSets(
+							utiltestingapi.MakePodSetAssignment("head").Assignment(corev1.ResourceCPU, "default", "1").Count(1).Obj(),
+							utiltestingapi.MakePodSetAssignment("workers-a").Assignment(corev1.ResourceCPU, "default", "1").Count(1).Obj(),
+							utiltestingapi.MakePodSetAssignment("workers-b").Assignment(corev1.ResourceCPU, "default", "5").Count(5).Obj(),
+						).
+						Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadQuotaReserved,
+						Message:            "Quota reserved in ClusterQueue partial-cq",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadAdmitted,
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Obj(),
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("sales", "foo-2", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("sales", "foo-2", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("sales", "foo-1", kueue.WorkloadSliceReplaced, corev1.EventTypeNormal).Obj(),
+			},
+		},
 		"workload-slice with partial replica scale up does not partially scale up when feature is disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.PartialAdmission:                                      false,
