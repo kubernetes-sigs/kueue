@@ -503,3 +503,43 @@ func TestReconciler(t *testing.T) {
 		})
 	}
 }
+
+func TestReconcilerWithDeletionGracePeriod(t *testing.T) {
+	now := time.Now()
+	fakeClock := testingclock.NewFakeClock(now)
+	beforeGracePeriod := now.Add(-time.Minute * 2)
+
+	unreachableNode := testingnode.MakeNode("unreachable-node").
+		Taints(corev1.Taint{Key: corev1.TaintNodeUnreachable}).Obj()
+	podWithGracePeriod := testingpod.MakePod("pod", "ns").
+		StatusPhase(corev1.PodRunning).
+		Annotation(constants.SafeToForcefullyDeleteAnnotationKey, constants.SafeToForcefullyDeleteAnnotationValue).
+		NodeName(unreachableNode.Name).
+		DeletionTimestamp(beforeGracePeriod).
+		DeletionGracePeriod(30).
+		KueueFinalizer().
+		Obj()
+
+	recorder := &utiltesting.EventRecorder{}
+	reconciler := NewTerminatingPodReconciler(utiltesting.NewFakeClient(podWithGracePeriod, unreachableNode), recorder, WithClock(fakeClock))
+
+	ctxWithLogger, _ := utiltesting.ContextWithLog(t)
+	ctx, ctxCancel := context.WithCancel(ctxWithLogger)
+	defer ctxCancel()
+
+	_, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(podWithGracePeriod)})
+	if gotError != nil {
+		t.Fatalf("unexpected error: %v", gotError)
+	}
+	wantEvents := []utiltesting.EventRecord{
+		{
+			Key:       types.NamespacedName{Namespace: "ns", Name: "pod"},
+			EventType: "Warning",
+			Reason:    KueueForcefulTerminationReason,
+			Message:   "Pod forcefully terminated after 1m30s grace period due to unreachable node `unreachable-node` (triggered by `kueue.x-k8s.io/safe-to-forcefully-delete` annotation)",
+		},
+	}
+	if diff := cmp.Diff(wantEvents, recorder.RecordedEvents); diff != "" {
+		t.Errorf("unexpected events (-want/+got):\n%s", diff)
+	}
+}
