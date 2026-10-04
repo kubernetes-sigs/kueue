@@ -935,6 +935,102 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 		})
 	})
 
+	ginkgo.When("CustomMetricLabels is enabled with cohort and workload custom labels", func() {
+		var (
+			cq           *kueue.ClusterQueue
+			parentCohort *kueue.Cohort
+			childCohort  *kueue.Cohort
+		)
+
+		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.CustomMetricLabels, true)
+			controllersCfg := &config.Configuration{}
+			controllersCfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("team_cohort").SourceLabelKey("team").SourceKind(config.SourceKindCohort).Obj(),
+				utiltestingapi.MakeCustomLabel("wl_kind").SourceLabelKey("workload-kind").SourceKind(config.SourceKindWorkload).TrackedValues("kind1", "kind2").Obj(),
+				utiltestingapi.MakeCustomLabel("wl_anno").SourceAnnotationKey("workload-anno").SourceKind(config.SourceKindWorkload).TrackedValues("anno1", "anno2").Obj(),
+			}
+			fwk.StartManager(ctx, cfg, managerAndControllerSetup(controllersCfg, runScheduler))
+			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
+			util.MustCreate(ctx, k8sClient, defaultFlavor)
+			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "custom-labels-cohort-wl-")
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, childCohort, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, parentCohort, true)
+			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			fwk.StopManager(ctx)
+			metrics.InitMetricVectors(nil)
+		})
+
+		ginkgo.It("CohortSubtreeAdmittedWorkloadsTotal should track workloads by custom Cohort and WL labels in every ancestor", func() {
+			parentCohort = utiltestingapi.MakeCohort("parent-cohort").
+				Label("team", "org").
+				Obj()
+			util.MustCreate(ctx, k8sClient, parentCohort)
+
+			childCohort = utiltestingapi.MakeCohort("child-cohort").
+				Parent(kueue.CohortReference(parentCohort.Name)).
+				Label("team", "ml-team").
+				Obj()
+			util.MustCreate(ctx, k8sClient, childCohort)
+
+			cq = utiltestingapi.MakeClusterQueue("cq-cohort-wl").
+				Cohort(kueue.CohortReference(childCohort.Name)).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-cohort-wl", ns.Name).
+				ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
+				Label("workload-kind", "kind1").
+				Annotation("workload-anno", "anno1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			wl2 := utiltestingapi.MakeWorkload("wl2", ns.Name).
+				Label("workload-kind", "kind1").
+				Annotation("workload-anno", "anno1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			wl3 := utiltestingapi.MakeWorkload("wl3", ns.Name).
+				Label("workload-kind", "kind3").
+				Annotation("workload-anno", "anno2").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wl1)
+			util.MustCreate(ctx, k8sClient, wl2)
+			util.MustCreate(ctx, k8sClient, wl3)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2, wl3)
+
+			ginkgo.By("verifying the child Cohort counter is broken down by workload custom labels")
+			util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(kueue.CohortReference(childCohort.Name), "", 2, "ml-team", "kind1", "anno1")
+			util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(kueue.CohortReference(childCohort.Name), "", 1, "ml-team", config.UntrackedCustomLabelValue, "anno2")
+
+			ginkgo.By("verifying the parent Cohort counter is broken down by workload custom labels")
+			util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(kueue.CohortReference(parentCohort.Name), "", 2, "org", "kind1", "anno1")
+			util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(kueue.CohortReference(parentCohort.Name), "", 1, "org", config.UntrackedCustomLabelValue, "anno2")
+
+			ginkgo.By("finishing the workloads")
+			util.FinishWorkloads(ctx, k8sClient, wl1, wl3)
+
+			ginkgo.By("verifying the counters are not decremented")
+			util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(kueue.CohortReference(childCohort.Name), "", 2, "ml-team", "kind1", "anno1")
+			util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(kueue.CohortReference(childCohort.Name), "", 1, "ml-team", config.UntrackedCustomLabelValue, "anno2")
+			util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(kueue.CohortReference(parentCohort.Name), "", 2, "org", "kind1", "anno1")
+			util.ExpectCohortSubtreeAdmittedWorkloadsTotalMetric(kueue.CohortReference(parentCohort.Name), "", 1, "org", config.UntrackedCustomLabelValue, "anno2")
+		})
+	})
+
 	ginkgo.When("Empty customLabels (backward compatibility)", func() {
 		var (
 			cq *kueue.ClusterQueue
