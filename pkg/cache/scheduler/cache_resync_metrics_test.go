@@ -86,7 +86,6 @@ func TestResyncClusterQueueGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 	}
 
 	metrics.ClearClusterQueueMetrics("cq1")
-	metrics.ClearClusterQueueMetricsOnLabelChange("cq1")
 	metrics.ClearCacheMetrics("cq1")
 	metrics.ClearClusterQueueResourceMetrics("cq1")
 	cache.ResyncClusterQueueGaugeMetrics("cq1")
