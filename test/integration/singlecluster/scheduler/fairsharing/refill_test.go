@@ -26,7 +26,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // The shape of issue #9345: refill-rich is already borrowing 6 of refill-poor's
@@ -54,7 +53,7 @@ var _ = ginkgo.Describe("Scheduler with fair sharing refill", ginkgo.Label("feat
 
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "refill-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "refill-")
 
 		poorCQ = utiltestingapi.MakeClusterQueue("refill-poor").
 			Cohort("refill").

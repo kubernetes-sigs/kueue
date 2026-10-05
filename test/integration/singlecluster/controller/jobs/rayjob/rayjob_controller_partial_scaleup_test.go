@@ -31,7 +31,6 @@ import (
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // KEP-12100: partial replica scale-up for a RayJob. The RayCluster integration is covered in its
@@ -72,7 +71,7 @@ var _ = ginkgo.Describe("RayJob with partial replica scale-up for elastic jobs",
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayjob-scale-up-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayjob-scale-up-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)

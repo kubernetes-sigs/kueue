@@ -27,14 +27,13 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobspaddlejob "sigs.k8s.io/kueue/pkg/util/testingjobs/paddlejob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("PaddleJob Webhook", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(paddlejob.SetupPaddleJobWebhook))
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "paddle-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "paddle-")
 	})
 
 	ginkgo.AfterEach(func() {

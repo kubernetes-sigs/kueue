@@ -44,7 +44,7 @@ var _ = ginkgo.Describe("Kueue secure visibility server", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		defaultRF = utiltestingapi.MakeResourceFlavor(defaultFlavor).Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultRF)
 

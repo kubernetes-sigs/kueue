@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(e2e.Shard0),
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-certs-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-certs-")
 			onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand-"+ns.Name).
 				NodeLabel("instance-type", "on-demand").Obj()
 			behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)

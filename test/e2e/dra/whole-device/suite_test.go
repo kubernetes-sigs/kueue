@@ -51,7 +51,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	waitForAvailableStart := time.Now()
 	e2e.WaitForKueueAvailability(ctx, k8sClient)
 	clusterName := cmp.Or(os.Getenv("KIND_CLUSTER_NAME"), "kind")
-	behavioral.WaitForDRAExampleDriverAvailability(ctx, k8sClient, clusterName)
+	e2e.WaitForDRAExampleDriverAvailability(ctx, k8sClient, clusterName)
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and DRA example driver are available in the cluster",
 		"clusterName", clusterName,

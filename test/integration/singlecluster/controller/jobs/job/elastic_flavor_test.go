@@ -34,7 +34,6 @@ import (
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", ginkgo.Ordered, func() {
@@ -62,7 +61,7 @@ var _ = ginkgo.Describe("Elastic Job flavor selection at zero parallelism", gink
 
 	ginkgo.DescribeTable("Flavor selection and scale-up", func(gpuQuota string, wantFlavor kueue.ResourceFlavorReference, wantScaleUpAdmitted bool) {
 		const gpuResource = corev1.ResourceName("example.com/gpu")
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "elastic-flavor-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "elastic-flavor-")
 		cpuFlavor = utiltestingapi.MakeResourceFlavor("cpu").NodeLabel("instance-type", "cpu").Obj()
 		gpuFlavor = utiltestingapi.MakeResourceFlavor("gpu").NodeLabel("instance-type", "gpu").Obj()
 		cq = utiltestingapi.MakeClusterQueue("elastic-flavor").ResourceGroup(

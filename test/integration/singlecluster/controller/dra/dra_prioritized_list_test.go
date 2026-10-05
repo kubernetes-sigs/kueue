@@ -33,7 +33,6 @@ import (
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -63,7 +62,7 @@ var _ = ginkgo.Describe("DRA Prioritized List Integration", ginkgo.Ordered, gink
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-pl-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dra-pl-")
 
 			deviceClasses = nil
 			for _, name := range []string{"a100.example.com", "a100-mig.example.com"} {

@@ -87,7 +87,7 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-quota-check-strategy-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-quota-check-strategy-")
 			metricsReaderClusterRoleBinding = &rbacv1.ClusterRoleBinding{
 				Name: "metrics-reader-rolebinding-" + ns.Name,
 				Subjects: []rbacv1.Subject{
@@ -174,7 +174,7 @@ var _ = ginkgo.Describe("QuotaCheckStrategy", ginkgo.Label("feature:quotacheckst
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-preemption-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-preemption-")
 
 			localQueue = utiltestingapi.MakeLocalQueue("", ns.Name).
 				GeneratedName("test-lq-preemption-").

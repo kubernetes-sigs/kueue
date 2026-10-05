@@ -46,7 +46,7 @@ var _ = ginkgo.Describe("Deployment", ginkgo.Label("area:singlecluster", "featur
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "deployment-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "deployment-e2e-")
 		resourceFlavorName = "deployment-rf-" + ns.Name
 		clusterQueueName = "deployment-cq-" + ns.Name
 		localQueueName = "deployment-lq-" + ns.Name

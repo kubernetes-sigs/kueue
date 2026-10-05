@@ -45,7 +45,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -588,13 +587,13 @@ func RestartPodContainer(
 
 func curlAgnHost(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, pod *corev1.Pod, path string) error {
 	cmd := []string{"/bin/sh", "-c", fmt.Sprintf("curl \"http://%s:8080/%s\"", pod.Status.PodIP, path)}
-	_, _, err := behavioral.KExecute(ctx, cfg, restClient, pod.Namespace, pod.Name, pod.Spec.Containers[0].Name, cmd)
+	_, _, err := KExecute(ctx, cfg, restClient, pod.Namespace, pod.Name, pod.Spec.Containers[0].Name, cmd)
 	return err
 }
 
 func exitAgnHost(ctx context.Context, cfg *rest.Config, restClient *rest.RESTClient, pod *corev1.Pod, exitCode int) error {
 	cmd := []string{"/bin/sh", "-c", fmt.Sprintf("curl \"http://%s:8080/exit?code=%v&timeout=2s&wait=2s\"", pod.Status.PodIP, exitCode)}
-	_, _, err := behavioral.KExecute(ctx, cfg, restClient, pod.Namespace, pod.Name, pod.Spec.Containers[0].Name, cmd)
+	_, _, err := KExecute(ctx, cfg, restClient, pod.Namespace, pod.Name, pod.Spec.Containers[0].Name, cmd)
 	// TODO: remove the custom handling of 137 response once this is fixed in the agnhost image
 	// We add the custom handling to protect in situation when the target pods completes with the expected
 	// exit code but it terminates before it completes sending the response.
@@ -712,22 +711,6 @@ func GetClusterProfilePluginImage() string {
 	return clusterProfilePluginImage
 }
 
-func CreateNamespaceWithLog(ctx context.Context, k8sClient client.Client, nsName string) *corev1.Namespace {
-	ginkgo.GinkgoHelper()
-	return CreateNamespaceFromObjectWithLog(ctx, k8sClient, utiltesting.MakeNamespace(nsName))
-}
-
-func CreateNamespaceFromPrefixWithLog(ctx context.Context, k8sClient client.Client, nsPrefix string) *corev1.Namespace {
-	ginkgo.GinkgoHelper()
-	return CreateNamespaceFromObjectWithLog(ctx, k8sClient, utiltesting.MakeNamespaceWithGenerateName(nsPrefix))
-}
-
-func CreateNamespaceFromObjectWithLog(ctx context.Context, k8sClient client.Client, ns *corev1.Namespace) *corev1.Namespace {
-	behavioral.MustCreate(ctx, k8sClient, ns)
-	ginkgo.GinkgoLogr.Info("Created namespace", "namespace", ns.Name)
-	return ns
-}
-
 // GetKueueMetrics scrapes the Kueue metrics endpoint from the given curl pod, returning the
 // response body and curl's stderr.
 //
@@ -742,7 +725,7 @@ func GetKueueMetrics(ctx context.Context, cfg *rest.Config, restClient *rest.RES
 	kueueNS := GetKueueNamespace()
 	ctx, cancel := context.WithTimeout(ctx, behavioral.MediumTimeout)
 	defer cancel()
-	metricsOutput, stderr, err := behavioral.KExecute(ctx, cfg, restClient, kueueNS, curlPodName, curlContainerName, []string{
+	metricsOutput, stderr, err := KExecute(ctx, cfg, restClient, kueueNS, curlPodName, curlContainerName, []string{
 		"/bin/sh", "-c",
 		fmt.Sprintf(
 			"curl -sS --fail --connect-timeout 5 --max-time 15 -k -H \"Authorization: Bearer $(cat /var/run/secrets/kubernetes.io/serviceaccount/token)\" https://%s.%s.svc.cluster.local:8443/metrics",
@@ -840,20 +823,6 @@ func CreatePrometheusClient(cfg *rest.Config) prometheusv1.API {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return prometheusv1.NewAPI(client)
-}
-
-func SetResourceNominalQuota(cq *kueue.ClusterQueue, resourceName corev1.ResourceName, value string) *kueue.ClusterQueue {
-	for rgi := range cq.Spec.ResourceGroups {
-		for fi := range cq.Spec.ResourceGroups[rgi].Flavors {
-			for ri := range cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources {
-				if cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri].Name == resourceName {
-					cq.Spec.ResourceGroups[rgi].Flavors[fi].Resources[ri].NominalQuota = resource.MustParse(value)
-					return cq
-				}
-			}
-		}
-	}
-	return cq
 }
 
 func AssertMsgForMk(ctx context.Context, msg string, wlKey client.ObjectKey, k8sManagerClient client.Client, k8sWorker1Client client.Client, k8sWorker2Client client.Client) func() string {

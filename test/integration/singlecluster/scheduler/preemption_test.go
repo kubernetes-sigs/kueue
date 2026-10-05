@@ -42,7 +42,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -59,7 +58,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "preemption-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "preemption-")
 		alphaFlavor = utiltestingapi.MakeResourceFlavor("alpha").Obj()
 		behavioral.MustCreate(ctx, k8sClient, alphaFlavor)
 	})
@@ -1597,16 +1596,16 @@ var _ = ginkgo.Describe("Preemption", func() {
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				Obj()
-			util.MustCreate(ctx, k8sClient, cq)
+			behavioral.MustCreate(ctx, k8sClient, cq)
 
 			q = utiltestingapi.MakeLocalQueue("q", ns.Name).ClusterQueue(cq.Name).Obj()
-			util.MustCreate(ctx, k8sClient, q)
+			behavioral.MustCreate(ctx, k8sClient, q)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, q, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, q, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 
 		ginkgo.It("Should keep a stable PreemptionGated status while the preemption gate is closed", func() {
@@ -1616,8 +1615,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Request(corev1.ResourceCPU, "1.5").
 				Obj()
 			ginkgo.By("Creating low priority workload and waiting for it to reserve quota", func() {
-				util.MustCreate(ctx, k8sClient, lowWl)
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
+				behavioral.MustCreate(ctx, k8sClient, lowWl)
+				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, lowWl)
 			})
 
 			highWl := utiltestingapi.MakeWorkload("high", ns.Name).
@@ -1636,20 +1635,20 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 			var resourceVersion string
 			ginkgo.By("Creating a preemption gated, high priority workload and waiting for the PreemptionGated status", func() {
-				util.MustCreate(ctx, k8sClient, highWl)
+				behavioral.MustCreate(ctx, k8sClient, highWl)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, highWlKey, highWl)).To(gomega.Succeed())
 					g.Expect(highWl.Status.Conditions).To(gomega.ContainElement(
-						gomega.BeComparableTo(wantQuotaReserved, util.IgnoreConditionTimestampsAndObservedGeneration)))
+						gomega.BeComparableTo(wantQuotaReserved, behavioral.IgnoreConditionTimestampsAndObservedGeneration)))
 					resourceVersion = highWl.ResourceVersion
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the status of the preemption gated workload is not rewritten", func() {
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, highWlKey, highWl)).To(gomega.Succeed())
 					g.Expect(highWl.ResourceVersion).To(gomega.Equal(resourceVersion))
-				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 	})

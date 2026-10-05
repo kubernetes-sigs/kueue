@@ -17,7 +17,6 @@ limitations under the License.
 package behavioral
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -61,10 +60,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
-	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/remotecommand"
 	"k8s.io/klog/v2"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -1262,37 +1258,6 @@ func NewNamespaceSelectorExcluding(unmanaged ...string) labels.Selector {
 	return sel
 }
 
-func KExecute(ctx context.Context, cfg *rest.Config, client *rest.RESTClient, ns, pod, container string, command []string) ([]byte, []byte, error) {
-	var out, outErr bytes.Buffer
-
-	req := client.Post().
-		Resource("pods").
-		Namespace(ns).
-		Name(pod).
-		SubResource("exec").
-		VersionedParams(
-			&corev1.PodExecOptions{
-				Container: container,
-				Command:   command,
-				Stdout:    true,
-				Stderr:    true,
-			},
-			scheme.ParameterCodec,
-		)
-
-	executor, err := remotecommand.NewSPDYExecutor(cfg, "POST", req.URL())
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// Return whatever was captured even on error: when the remote command exits
-	// non-zero the streams still hold its output, and stderr is usually the only
-	// explanation of the failure. Callers assert on err and report stderr with it.
-	err = executor.StreamWithContext(ctx, remotecommand.StreamOptions{Stdout: &out, Stderr: &outErr})
-
-	return out.Bytes(), outErr.Bytes(), err
-}
-
 // getProjectBaseDir retrieves the project base directory either from an environment variable or by searching for a Makefile.
 // The fallback to the search is useful for running in IDEs like vs-code which don't set the PROJECT_DIR env. variable by default.
 func getProjectBaseDir() string {
@@ -1773,20 +1738,6 @@ func ExpectWorkloadAdmittedWithCheck(ctx context.Context, wlLookupKey types.Name
 		kueue.CheckStateReady,
 		fmt.Sprintf(`The workload was admitted on "%s"`, clusterName),
 	)
-}
-
-func WaitForDRAExampleDriverAvailability(ctx context.Context, k8sClient client.Client, clusterName string) {
-	ginkgo.GinkgoHelper()
-	dsKey := types.NamespacedName{Namespace: "dra-example-driver", Name: "dra-example-driver-kubeletplugin"}
-	daemonset := &appsv1.DaemonSet{}
-	waitForAvailableStart := time.Now()
-	ginkgo.By(fmt.Sprintf("Waiting for availability of daemonset %q on cluster %s", dsKey, clusterName))
-	gomega.Eventually(func(g gomega.Gomega) {
-		g.Expect(k8sClient.Get(ctx, dsKey, daemonset)).To(gomega.Succeed())
-		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.BeNumerically(">", 0))
-		g.Expect(daemonset.Status.DesiredNumberScheduled).To(gomega.Equal(daemonset.Status.NumberAvailable))
-	}, VeryLongTimeout, Interval).Should(gomega.Succeed())
-	ginkgo.GinkgoLogr.Info("DaemonSet is available in the cluster", "daemonset", dsKey, "cluster", clusterName, "waitingTime", time.Since(waitForAvailableStart))
 }
 
 func ExpectWorkloadToHaveConditions(

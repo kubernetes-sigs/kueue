@@ -109,7 +109,7 @@ var _ = ginkgo.Describe("Kuberay", ginkgo.Label("area:singlecluster", "feature:k
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-e2e-")
 		resourceFlavorName = "kuberay-rf-" + ns.Name
 		clusterQueueName = "kuberay-cq-" + ns.Name
 		localQueueName = "kuberay-lq-" + ns.Name
@@ -880,7 +880,7 @@ app = HelloWorld.bind()`,
 		ginkgo.By("Verifying the RayService responds to HTTP requests via the serve service", func() {
 			clientPod := startServeClientPod(ns.Name)
 			cmd := rayServeCurlCmd(rayService.Name, "")
-			stdout, stderr, err := behavioral.KExecute(ctx, cfg, restClient, ns.Name, clientPod.Name, clientPod.Spec.Containers[0].Name, cmd)
+			stdout, stderr, err := e2e.KExecute(ctx, cfg, restClient, ns.Name, clientPod.Name, clientPod.Spec.Containers[0].Name, cmd)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", string(stderr))
 			gomega.Expect(string(stdout)).To(gomega.ContainSubstring("Hello, World!"))
 		})
@@ -965,7 +965,7 @@ app = HelloWorld.bind()`,
 			pods := &corev1.PodList{}
 			g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{"app": "redis-gcs-ft"})).To(gomega.Succeed())
 			g.Expect(pods.Items).To(gomega.HaveLen(1))
-			out, _, err := behavioral.KExecute(ctx, cfg, restClient, ns.Name, pods.Items[0].Name, "redis", []string{"redis-cli", "DBSIZE"})
+			out, _, err := e2e.KExecute(ctx, cfg, restClient, ns.Name, pods.Items[0].Name, "redis", []string{"redis-cli", "DBSIZE"})
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 			size, err := strconv.Atoi(strings.TrimSpace(string(out)))
 			g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -1120,7 +1120,7 @@ app = HelloWorld.bind()`,
 		clientPod := startServeClientPod(ns.Name)
 		ginkgo.By("Verifying the RayService responds to HTTP requests via the serve service", func() {
 			cmd := rayServeCurlCmd(rayService.Name, "")
-			stdout, stderr, err := behavioral.KExecute(ctx, cfg, restClient, ns.Name, clientPod.Name, clientPod.Spec.Containers[0].Name, cmd)
+			stdout, stderr, err := e2e.KExecute(ctx, cfg, restClient, ns.Name, clientPod.Name, clientPod.Spec.Containers[0].Name, cmd)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "stderr: %s", string(stderr))
 			gomega.Expect(string(stdout)).To(gomega.ContainSubstring("Hello, World!"))
 		})
@@ -1145,7 +1145,7 @@ app = HelloWorld.bind()`,
 				wg.Go(func() {
 					// Each exec blocks until its slow request completes; errors are
 					// ignored — the assertion below observes the resulting scale-up.
-					_, _, _ = behavioral.KExecute(loadCtx, cfg, restClient, ns.Name, clientPod.Name, clientPod.Spec.Containers[0].Name, cmd)
+					_, _, _ = e2e.KExecute(loadCtx, cfg, restClient, ns.Name, clientPod.Name, clientPod.Spec.Containers[0].Name, cmd)
 				})
 			}
 			ginkgo.DeferCleanup(func() {

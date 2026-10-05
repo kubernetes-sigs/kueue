@@ -57,7 +57,7 @@ var _ = ginkgo.Describe("Failure Recovery Policy", ginkgo.Label("feature:failure
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "frp-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "frp-")
 		job = testingjob.MakeJob("test-job", ns.Name).
 			Queue("lq").
 			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).

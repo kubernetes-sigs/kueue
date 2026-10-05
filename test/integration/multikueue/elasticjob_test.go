@@ -43,7 +43,6 @@ import (
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -121,9 +120,9 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 			localWorkload := getWorkload(gomega.Default, manager.ctx, manager.client, workloadKey)
 			gomega.Eventually(func(g gomega.Gomega) {
 				workload := getWorkload(g, worker1.ctx, worker1.client, workloadKey)
-				e2e.ExpectRemoteWorkloadSpec(g, workload, localWorkload)
+				behavioral.ExpectRemoteWorkloadSpec(g, workload, localWorkload)
 				workload = getWorkload(g, worker2.ctx, worker2.client, workloadKey)
-				e2e.ExpectRemoteWorkloadSpec(g, workload, localWorkload)
+				behavioral.ExpectRemoteWorkloadSpec(g, workload, localWorkload)
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
@@ -217,7 +216,7 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 		gomega.Eventually(func(g gomega.Gomega) {
 			local := getWorkload(g, manager.ctx, manager.client, newWorkloadKey)
 			remote := getWorkload(g, worker1.ctx, worker1.client, newWorkloadKey)
-			e2e.ExpectRemoteWorkloadSpec(g, remote, local)
+			behavioral.ExpectRemoteWorkloadSpec(g, remote, local)
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("observe: there are no workloads or jobs in the worker2 cluster", func() {
@@ -522,9 +521,9 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 			localWorkload := getWorkload(gomega.Default, manager.ctx, manager.client, workloadKey)
 			gomega.Eventually(func(g gomega.Gomega) {
 				wl := getWorkload(g, worker1.ctx, worker1.client, workloadKey)
-				e2e.ExpectRemoteWorkloadSpec(g, wl, localWorkload)
+				behavioral.ExpectRemoteWorkloadSpec(g, wl, localWorkload)
 				wl = getWorkload(g, worker2.ctx, worker2.client, workloadKey)
-				e2e.ExpectRemoteWorkloadSpec(g, wl, localWorkload)
+				behavioral.ExpectRemoteWorkloadSpec(g, wl, localWorkload)
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 

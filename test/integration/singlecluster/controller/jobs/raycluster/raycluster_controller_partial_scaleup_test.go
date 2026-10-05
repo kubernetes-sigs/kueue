@@ -35,7 +35,6 @@ import (
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // The RayCluster workload has two PodSets: the head, which cannot be shrunk, and the single
@@ -94,7 +93,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "scale-up-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "scale-up-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
@@ -226,7 +225,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		ginkgo.By("raising the ClusterQueue's pod quota from 7 to 15")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
-			e2e.SetResourceNominalQuota(clusterQueue, corev1.ResourcePods, "15")
+			behavioral.SetResourceNominalQuota(clusterQueue, corev1.ResourcePods, "15")
 			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 

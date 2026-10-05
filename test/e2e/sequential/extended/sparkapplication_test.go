@@ -64,7 +64,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sparkapplication-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sparkapplication-e2e-")
 
 		resourceFlavorName = "sparkapplication-rf-" + ns.Name
 		clusterQueueName = "sparkapplication-cq-" + ns.Name
