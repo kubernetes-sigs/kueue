@@ -7222,7 +7222,7 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 			},
 			wantPodSets: []kueue.PodSetReference{"worker", "leader", "other"},
 		},
-		"second pass: a numeric group name does not pull in an ungrouped PodSet": {
+		"second pass: a numeric group name does not match an ungrouped PodSet's admission position": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet("x", 1).Request(corev1.ResourceCPU, "1").
 					RequiredTopologyRequest(corev1.LabelHostname).PodSetGroup("3").Obj(),
@@ -7255,6 +7255,60 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 				"q": {corev1.ResourceCPU: {Name: "tas-b", Mode: Fit}},
 			},
 			wantPodSets: []kueue.PodSetReference{"x", "z", "p", "q"},
+		},
+		"second pass: a numeric group name does not match an ungrouped PodSet's spec position": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("x", 1).Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).PodSetGroup("1").Obj(),
+				*utiltestingapi.MakePodSet("p", 1).Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).Obj(),
+				*utiltestingapi.MakePodSet("q", 1).Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).Obj(),
+				*utiltestingapi.MakePodSet("z", 1).Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).PodSetGroup("1").Obj(),
+			},
+			admission: utiltestingapi.MakeAdmission("test-clusterqueue").PodSets(
+				utiltestingapi.MakePodSetAssignment("x").Count(1).Assignment(corev1.ResourceCPU, "tas-a", "1").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).Obj(),
+				utiltestingapi.MakePodSetAssignment("z").Count(1).Assignment(corev1.ResourceCPU, "tas-a", "1").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).Obj(),
+				utiltestingapi.MakePodSetAssignment("p").Count(1).Assignment(corev1.ResourceCPU, "tas-b", "1").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).Obj(),
+				utiltestingapi.MakePodSetAssignment("q").Count(1).Assignment(corev1.ResourceCPU, "tas-b", "1").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).Obj(),
+			).Obj(),
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").Resource(corev1.ResourceCPU, "10").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("tas-b").Resource(corev1.ResourceCPU, "10").Obj(),
+				).Obj(),
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"x": {corev1.ResourceCPU: {Name: "tas-a", Mode: Fit}},
+				"z": {corev1.ResourceCPU: {Name: "tas-a", Mode: Fit}},
+				"p": {corev1.ResourceCPU: {Name: "tas-b", Mode: Fit}},
+				"q": {corev1.ResourceCPU: {Name: "tas-b", Mode: Fit}},
+			},
+			wantPodSets: []kueue.PodSetReference{"x", "z", "p", "q"},
+		},
+		"a numeric group name does not match an ungrouped PodSet's spec position": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("x", 1).Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).PodSetGroup("1").Obj(),
+				*utiltestingapi.MakePodSet("p", 1).Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).Obj(),
+				*utiltestingapi.MakePodSet("z", 1).Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).PodSetGroup("1").Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").Resource(corev1.ResourceCPU, "10").Obj(),
+				).Obj(),
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"x": {corev1.ResourceCPU: {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+				"z": {corev1.ResourceCPU: {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+				"p": {corev1.ResourceCPU: {Name: "tas-a", Mode: Fit, TriedFlavorIdx: -1}},
+			},
+			wantPodSets: []kueue.PodSetReference{"x", "z", "p"},
 		},
 		"second pass: reduced counts apply to their own non-adjacent PodSets": {
 			wlPods: []kueue.PodSet{
