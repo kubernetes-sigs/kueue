@@ -8192,9 +8192,9 @@ func TestCandidateVirtualPods(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			pods, err := tc.assignment.candidateVirtualPods(tc.workload, cq)
+			pods, err := tc.assignment.CandidateVirtualPods(tc.workload, cq)
 			if (err != nil) != tc.wantErr {
-				t.Fatalf("candidateVirtualPods() error = %v, wantErr %v", err, tc.wantErr)
+				t.Fatalf("CandidateVirtualPods() error = %v, wantErr %v", err, tc.wantErr)
 			}
 			if tc.wantErr {
 				return

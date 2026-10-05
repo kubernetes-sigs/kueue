@@ -910,7 +910,7 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 
 	if features.Enabled(features.SchedulerLibraryIntegration) {
 		// Building errors (e.g., metadata conflicts or missing snapshots) will be propagated in a follow-up when wiring the simulator.
-		candidatePods, err := assignment.candidateVirtualPods(a.wl, a.cq)
+		candidatePods, err := assignment.CandidateVirtualPods(a.wl, a.cq)
 		if err != nil {
 			log.Error(err, "Failed to build candidate virtual pods for workload", "workload", a.wl.Obj.Name)
 		}
@@ -1555,9 +1555,9 @@ func (a *FlavorAssigner) shouldSkipBasedOnNominationMapping(log logr.Logger,
 	return true
 }
 
-// candidateVirtualPods builds candidate virtual pods for all PodSets in the assignment
+// CandidateVirtualPods builds candidate virtual pods for all PodSets in the assignment
 // using the assigned flavor's node labels, tolerations, and admission check updates.
-func (a *Assignment) candidateVirtualPods(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot) ([]*corev1.Pod, error) {
+func (a *Assignment) CandidateVirtualPods(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot) ([]*corev1.Pod, error) {
 	var allPods []*corev1.Pod
 	for _, psAssignment := range a.PodSets {
 		if psAssignment.Status.IsError() {
