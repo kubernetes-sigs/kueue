@@ -86,6 +86,23 @@ func toSliceRequests(r Requests) SliceRequests {
 	return res
 }
 
+// int64MapToSliceRequests constructs a sorted SliceRequests from counts that already fit an int64.
+func int64MapToSliceRequests(m map[corev1.ResourceName]int64) SliceRequests {
+	if len(m) == 0 {
+		return nil
+	}
+	sr := make(SliceRequests, 0, len(m))
+	for name, v := range m {
+		sr = append(sr, resourceEntry{
+			name:  name,
+			hash:  hashResourceName(name),
+			value: NewAmount(v),
+		})
+	}
+	sr.sort()
+	return sr
+}
+
 // ResourceListToSliceRequests constructs a SliceRequests from a corev1.ResourceList.
 func ResourceListToSliceRequests(rl corev1.ResourceList) SliceRequests {
 	if len(rl) == 0 {
