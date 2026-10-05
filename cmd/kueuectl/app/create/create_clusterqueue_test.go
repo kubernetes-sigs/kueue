@@ -17,10 +17,15 @@ limitations under the License.
 package create
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/api/validate/content"
+	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -93,6 +98,11 @@ func TestCreateClusterQueue(t *testing.T) {
 }
 
 func TestParseResourceQuotas(t *testing.T) {
+	longFlavorName := strings.Repeat("a", 254)
+	longResourceName := "example.com/" + strings.Repeat("a", 64)
+	// apimachinery does not export these messages, and "-" fails both rules.
+	dns1123SubdomainMsg := content.IsDNS1123Subdomain("-")[0]
+	labelKeyNamePartMsg := content.IsLabelKey("-")[0]
 	testCases := map[string]struct {
 		quotaArgs          []string
 		borrowingArgs      []string
@@ -359,6 +369,20 @@ func TestParseResourceQuotas(t *testing.T) {
 				},
 			},
 		},
+		"should create one resource group with resource names containing dashes and dots after the slash": {
+			quotaArgs: []string{"alpha:nvidia.com/mig-1g.5gb=7;example.com/foo--bar=1"},
+			wantResourceGroups: []kueue.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"nvidia.com/mig-1g.5gb", "example.com/foo--bar"},
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
+							Resource("nvidia.com/mig-1g.5gb", "7").
+							Resource("example.com/foo--bar", "1").
+							Obj(),
+					},
+				},
+			},
+		},
 		"should fail to create a resource group with an invalid flavor and one quota set": {
 			quotaArgs: []string{"alpha:cpu=1;memory=1", "alpha:example.com/gpu=2"},
 			wantErr:   `misconfigured flavor "alpha": flavor is specified more than once in --nominal-quota`,
@@ -439,6 +463,20 @@ func TestParseResourceQuotas(t *testing.T) {
 				},
 			},
 		},
+		"should create one resource group with signed and exponent quantities": {
+			quotaArgs: []string{"alpha:cpu=1e-3;memory=+1Gi"},
+			wantResourceGroups: []kueue.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
+							Resource("cpu", "1e-3").
+							Resource("memory", "+1Gi").
+							Obj(),
+					},
+				},
+			},
+		},
 		"should keep borrowingLimit and lendingLimit optional per resource": {
 			quotaArgs:     []string{"alpha:cpu=1;memory=1Gi"},
 			borrowingArgs: []string{"alpha:cpu=2"},
@@ -480,27 +518,115 @@ func TestParseResourceQuotas(t *testing.T) {
 		},
 		"should fail when invalid resource quotas": {
 			quotaArgs: []string{"alpha:cpu=;memory=1"},
-			wantErr:   "invalid resources specification",
+			wantErr:   `invalid resources specification "alpha:cpu=;memory=1" in --nominal-quota`,
+		},
+		"should fail when a resource name has an empty prefix": {
+			quotaArgs: []string{"alpha:cpu=1;/gpu=1"},
+			wantErr:   `misconfigured flavor "alpha": invalid resource name "/gpu" in --nominal-quota: prefix part must be non-empty`,
+		},
+		"should fail when a resource name prefix ends with a dash": {
+			quotaArgs: []string{"alpha:example.com-/gpu=1"},
+			wantErr:   `misconfigured flavor "alpha": invalid resource name "example.com-/gpu" in --nominal-quota: prefix part ` + dns1123SubdomainMsg,
+		},
+		"should fail when a resource name ends with a dash after the slash": {
+			quotaArgs: []string{"alpha:example.com/gpu-=1"},
+			wantErr:   `misconfigured flavor "alpha": invalid resource name "example.com/gpu-" in --nominal-quota: ` + labelKeyNamePartMsg,
+		},
+		"should fail when a resource name starts with an underscore after the slash": {
+			quotaArgs: []string{"alpha:example.com/_gpu=1"},
+			wantErr:   `misconfigured flavor "alpha": invalid resource name "example.com/_gpu" in --nominal-quota: ` + labelKeyNamePartMsg,
+		},
+		"should fail when a resource name has an invalid character": {
+			quotaArgs: []string{"alpha:nvidia.com/gpu@x=1"},
+			wantErr:   `misconfigured flavor "alpha": invalid resource name "nvidia.com/gpu@x" in --nominal-quota: ` + labelKeyNamePartMsg,
+		},
+		"should fail when a resource name part is longer than 63 bytes": {
+			quotaArgs: []string{"alpha:" + longResourceName + "=1"},
+			wantErr:   fmt.Sprintf(`misconfigured flavor "alpha": invalid resource name %q in --nominal-quota: name part %s`, longResourceName, content.MaxLenError(63)),
+		},
+		"should fail when borrowingLimit has an invalid resource name": {
+			quotaArgs:     []string{"alpha:cpu=1"},
+			borrowingArgs: []string{"alpha:/gpu=1"},
+			wantErr:       `misconfigured flavor "alpha": invalid resource name "/gpu" in --borrowing-limit: prefix part must be non-empty`,
+		},
+		"should fail when lendingLimit has an invalid resource name": {
+			quotaArgs:   []string{"alpha:cpu=1"},
+			lendingArgs: []string{"alpha:/gpu=1"},
+			wantErr:     `misconfigured flavor "alpha": invalid resource name "/gpu" in --lending-limit: prefix part must be non-empty`,
 		},
 		"should fail when invalid resources separator": {
+			// pflag keeps it as one spec when quoted.
 			quotaArgs: []string{"alpha:cpu=0,memory=1"},
-			wantErr:   "invalid resources specification",
+			wantErr:   `invalid resources specification "alpha:cpu=0,memory=1" in --nominal-quota`,
+		},
+		"should fail when a spec has no flavor": {
+			// pflag splits "alpha:cpu=0,memory=1" into two specs.
+			quotaArgs: []string{"alpha:cpu=0", "memory=1"},
+			wantErr:   `invalid resources specification "memory=1" in --nominal-quota`,
+		},
+		"should fail when a spec has a leading space": {
+			quotaArgs: []string{"alpha:cpu=1", " beta:memory=2"},
+			wantErr:   `invalid resources specification " beta:memory=2" in --nominal-quota`,
 		},
 		"should fail when invalid param": {
 			quotaArgs: []string{"alpha"},
-			wantErr:   "invalid resources specification",
+			wantErr:   `invalid resources specification "alpha" in --nominal-quota`,
 		},
 		"should fail when invalid flavor specification": {
 			quotaArgs: []string{"alpha=cpu=0;memory=1"},
-			wantErr:   "invalid resources specification",
+			wantErr:   `invalid resources specification "alpha=cpu=0;memory=1" in --nominal-quota`,
+		},
+		"should fail when a flavor name ends with a dash": {
+			quotaArgs: []string{"alpha-:cpu=1"},
+			wantErr:   `invalid flavor name "alpha-" in --nominal-quota: ` + dns1123SubdomainMsg,
+		},
+		"should fail when a flavor name ends with a dot": {
+			quotaArgs: []string{"alpha.:cpu=1"},
+			wantErr:   `invalid flavor name "alpha." in --nominal-quota: ` + dns1123SubdomainMsg,
+		},
+		"should fail when a flavor name has uppercase letters": {
+			quotaArgs: []string{"Alpha:cpu=1"},
+			wantErr:   `invalid flavor name "Alpha" in --nominal-quota: ` + dns1123SubdomainMsg,
+		},
+		"should fail when a flavor name has a non-breaking space": {
+			quotaArgs: []string{"alpha :cpu=1"},
+			wantErr:   `invalid flavor name "alpha\u00a0" in --nominal-quota: ` + dns1123SubdomainMsg,
+		},
+		"should fail when a flavor name in lendingLimit is longer than 253 bytes": {
+			quotaArgs:   []string{"alpha:cpu=1"},
+			lendingArgs: []string{longFlavorName + ":cpu=1"},
+			wantErr:     fmt.Sprintf("invalid flavor name %q in --lending-limit: %s", longFlavorName, content.MaxLenError(253)),
 		},
 		"should fail when invalid quantity": {
 			quotaArgs: []string{"alpha:cpu=a;memory=1"},
-			wantErr:   "invalid resource quota",
+			wantErr:   `misconfigured flavor "alpha": invalid resource quota "a" for resource "cpu" in --nominal-quota: ` + resource.ErrFormatWrong.Error(),
+		},
+		"should fail when a quantity has a vertical tab": {
+			quotaArgs: []string{"alpha:cpu=1\v"},
+			wantErr:   `misconfigured flavor "alpha": invalid resource quota "1\v" for resource "cpu" in --nominal-quota: ` + resource.ErrFormatWrong.Error(),
+		},
+		"should fail when a lendingLimit quantity cannot be parsed": {
+			quotaArgs:   []string{"alpha:cpu=1"},
+			lendingArgs: []string{"alpha:cpu=a"},
+			wantErr:     `misconfigured flavor "alpha": invalid resource quota "a" for resource "cpu" in --lending-limit: ` + resource.ErrFormatWrong.Error(),
+		},
+		"should fail when a quantity is negative": {
+			quotaArgs: []string{"alpha:cpu=-1"},
+			wantErr:   `misconfigured flavor "alpha": invalid resource quota "-1" for resource "cpu" in --nominal-quota: ` + apimachineryvalidation.IsNegativeErrorMsg,
+		},
+		"should fail when a borrowingLimit quantity is negative": {
+			quotaArgs:     []string{"alpha:cpu=1"},
+			borrowingArgs: []string{"alpha:cpu=-1"},
+			wantErr:       `misconfigured flavor "alpha": invalid resource quota "-1" for resource "cpu" in --borrowing-limit: ` + apimachineryvalidation.IsNegativeErrorMsg,
+		},
+		"should fail when a lendingLimit quantity is negative": {
+			quotaArgs:   []string{"alpha:cpu=1"},
+			lendingArgs: []string{"alpha:cpu=-1"},
+			wantErr:     `misconfigured flavor "alpha": invalid resource quota "-1" for resource "cpu" in --lending-limit: ` + apimachineryvalidation.IsNegativeErrorMsg,
 		},
 		"should fail when invalid decimal quantity": {
 			quotaArgs: []string{"alpha:cpu=1.5.5;memory=1"},
-			wantErr:   "invalid resource quota",
+			wantErr:   `misconfigured flavor "alpha": invalid resource quota "1.5.5" for resource "cpu" in --nominal-quota: ` + resource.ErrFormatWrong.Error(),
 		},
 		"should fail when a resource is duplicated within a single nominalQuota spec": {
 			quotaArgs: []string{"alpha:cpu=1;cpu=2;memory=1Gi"},
