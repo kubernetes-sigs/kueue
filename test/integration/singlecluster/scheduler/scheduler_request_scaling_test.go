@@ -26,7 +26,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 // Requests over all Pods of a PodSet are int64 values that saturate at
@@ -48,12 +48,12 @@ var _ = ginkgo.Describe("Scheduler request scaling", func() {
 				Resource(gpu, quota).
 				Obj()).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("scaling-lq", ns.Name).
 			ClusterQueue(clusterQueue.Name).
 			Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	}
 
 	var expectAdmittedWith = func(wl *kueue.Workload, count int32, usage string) {
@@ -65,22 +65,22 @@ var _ = ginkgo.Describe("Scheduler request scaling", func() {
 			g.Expect(ptr.Deref(psa.Count, 0)).To(gomega.Equal(count))
 			got := psa.ResourceUsage[gpu]
 			g.Expect(got.Equal(resource.MustParse(usage))).To(gomega.BeTrue(), "resourceUsage %s", got.String())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	}
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "scaling-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "scaling-")
 
 		flavor = utiltestingapi.MakeResourceFlavor("scaling-flavor").Obj()
-		util.MustCreate(ctx, k8sClient, flavor)
+		behavioral.MustCreate(ctx, k8sClient, flavor)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-		gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	// 3 Pods x 4e18 overflow to the MaxInt64 saturation value. Dividing that
@@ -96,9 +96,9 @@ var _ = ginkgo.Describe("Scheduler request scaling", func() {
 				Request(gpu, "4000000000000000000").
 				Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, wl)
+		behavioral.MustCreate(ctx, k8sClient, wl)
 
-		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 		expectAdmittedWith(wl, 1, "4000000000000000000")
 	})
 
@@ -114,18 +114,18 @@ var _ = ginkgo.Describe("Scheduler request scaling", func() {
 				Request(gpu, "1317624576693539401").
 				Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, first)
-		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, first)
+		behavioral.MustCreate(ctx, k8sClient, first)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, first)
 		expectAdmittedWith(first, 7, "9223372036854775807")
 
 		second := utiltestingapi.MakeWorkload("one-unit", ns.Name).
 			Queue(kueue.LocalQueueName(localQueue.Name)).
 			Request(gpu, "1").
 			Obj()
-		util.MustCreate(ctx, k8sClient, second)
-		util.ExpectWorkloadsToBePending(ctx, k8sClient, second)
+		behavioral.MustCreate(ctx, k8sClient, second)
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, second)
 
-		util.UpdateReclaimablePods(ctx, k8sClient, first, []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 6}})
-		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, first, second)
+		behavioral.UpdateReclaimablePods(ctx, k8sClient, first, []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 6}})
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, first, second)
 	})
 })

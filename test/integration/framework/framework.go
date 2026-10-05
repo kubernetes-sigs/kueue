@@ -57,7 +57,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 type ManagerSetup func(context.Context, manager.Manager)
@@ -93,11 +93,11 @@ type Framework struct {
 }
 
 func (f *Framework) Init() *rest.Config {
-	f.ObservedLogs = util.SetupLoggerGetObservedLogs()
+	f.ObservedLogs = behavioral.SetupLoggerGetObservedLogs()
 
 	var cfg *rest.Config
 	ginkgo.By("bootstrapping test environment", func() {
-		baseCrdPath := filepath.Join(util.ProjectBaseDir, "config", "components", "crd", "_output")
+		baseCrdPath := filepath.Join(behavioral.ProjectBaseDir, "config", "components", "crd", "_output")
 		f.testEnv = &envtest.Environment{
 			CRDDirectoryPaths:       append(f.DepCRDPaths, baseCrdPath),
 			ErrorIfCRDPathMissing:   true,
@@ -241,7 +241,7 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 			conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 			conn.Close()
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 }
 
@@ -268,7 +268,7 @@ func (f *Framework) Teardown() {
 	}
 	err := f.testEnv.Stop()
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
-	util.VerifyLogs(f.ObservedLogs)
+	behavioral.VerifyLogs(f.ObservedLogs)
 }
 
 var (

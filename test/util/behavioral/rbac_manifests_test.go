@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package behavioral
 
 import (
 	"bytes"
@@ -230,7 +230,7 @@ func validateRBACRelationships(res *rbacResources, targetSAName, targetSANamespa
 func findRBACDir() (string, error) {
 	candidates := []string{
 		"config/components/rbac",
-		"../../config/components/rbac",
+		"../../../config/components/rbac",
 	}
 	for _, c := range candidates {
 		if fi, err := os.Stat(c); err == nil && fi.IsDir() {
