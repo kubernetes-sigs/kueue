@@ -105,3 +105,17 @@ func SaturatingMul(a, b int64) int64 {
 	}
 	return res
 }
+
+// SaturatingCeil returns f rounded up to an integer, clamped to math.MinInt64
+// and math.MaxInt64, because the result of converting a float64 outside the
+// int64 range is implementation-dependent. f must not be NaN.
+func SaturatingCeil(f float64) int64 {
+	switch {
+	// float64(math.MaxInt64) rounds up to 2^63, one past the int64 range.
+	case f >= float64(stdmath.MaxInt64):
+		return stdmath.MaxInt64
+	case f < float64(stdmath.MinInt64):
+		return stdmath.MinInt64
+	}
+	return int64(stdmath.Ceil(f))
+}

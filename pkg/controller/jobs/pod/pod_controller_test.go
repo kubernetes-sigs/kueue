@@ -48,6 +48,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -84,10 +85,10 @@ func TestPodsReady(t *testing.T) {
 	groupDriverWrapper := basePodWrapper.Clone().Name("driver").GroupNameLabel("test-group")
 
 	testCases := map[string]struct {
-		pod                           *corev1.Pod
-		groupPods                     []corev1.Pod
-		countSucceededPodsAsReadyGate bool
-		want                          bool
+		pod          *corev1.Pod
+		groupPods    []corev1.Pod
+		featureGates map[featuregate.Feature]bool
+		want         bool
 	}{
 		"single pod is ready": {
 			pod:  readyPodWrapper.Clone().Obj(),
@@ -123,12 +124,17 @@ func TestPodsReady(t *testing.T) {
 			want: false,
 		},
 		"single pod succeeded": {
-			pod:                           succeededPodWrapper.Clone().Obj(),
-			countSucceededPodsAsReadyGate: true,
-			want:                          true,
+			pod: succeededPodWrapper.Clone().Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: true,
 		},
 		"single pod succeeded, gate disabled": {
-			pod:  succeededPodWrapper.Clone().Obj(),
+			pod: succeededPodWrapper.Clone().Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: false,
+			},
 			want: false,
 		},
 		"pod group with some pods succeeded and the rest ready": {
@@ -138,8 +144,10 @@ func TestPodsReady(t *testing.T) {
 				*readyPodWrapper.Clone().Name("worker-1").Obj(),
 				*readyPodWrapper.Clone().Name("worker-2").Obj(),
 			},
-			countSucceededPodsAsReadyGate: true,
-			want:                          true,
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: true,
 		},
 		"pod group with some pods succeeded and the rest ready, gate disabled": {
 			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
@@ -147,6 +155,9 @@ func TestPodsReady(t *testing.T) {
 				*succeededPodWrapper.Clone().Name("driver").Obj(),
 				*readyPodWrapper.Clone().Name("worker-1").Obj(),
 				*readyPodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: false,
 			},
 			want: false,
 		},
@@ -157,8 +168,10 @@ func TestPodsReady(t *testing.T) {
 				*succeededPodWrapper.Clone().Name("worker-1").Obj(),
 				*succeededPodWrapper.Clone().Name("worker-2").Obj(),
 			},
-			countSucceededPodsAsReadyGate: true,
-			want:                          true,
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: true,
 		},
 		"pod group with all pods succeeded, gate disabled": {
 			pod: groupDriverWrapper.Clone().GroupTotalCount("3").Obj(),
@@ -166,6 +179,9 @@ func TestPodsReady(t *testing.T) {
 				*succeededPodWrapper.Clone().Name("driver").Obj(),
 				*succeededPodWrapper.Clone().Name("worker-1").Obj(),
 				*succeededPodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: false,
 			},
 			want: false,
 		},
@@ -176,8 +192,10 @@ func TestPodsReady(t *testing.T) {
 				*readyPodWrapper.Clone().Name("worker-1").Obj(),
 				*basePodWrapper.Clone().Name("worker-2").Obj(),
 			},
-			countSucceededPodsAsReadyGate: true,
-			want:                          false,
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: false,
 		},
 		"serving pod group with some pods succeeded and the rest ready": {
 			pod: groupDriverWrapper.Clone().GroupTotalCount("3").PodGroupServingAnnotation().Obj(),
@@ -186,8 +204,10 @@ func TestPodsReady(t *testing.T) {
 				*readyPodWrapper.Clone().Name("worker-1").Obj(),
 				*readyPodWrapper.Clone().Name("worker-2").Obj(),
 			},
-			countSucceededPodsAsReadyGate: true,
-			want:                          false,
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: false,
 		},
 		"serving pod group with all pods ready": {
 			pod: groupDriverWrapper.Clone().GroupTotalCount("3").PodGroupServingAnnotation().Obj(),
@@ -196,8 +216,10 @@ func TestPodsReady(t *testing.T) {
 				*readyPodWrapper.Clone().Name("worker-1").Obj(),
 				*readyPodWrapper.Clone().Name("worker-2").Obj(),
 			},
-			countSucceededPodsAsReadyGate: true,
-			want:                          true,
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+			},
+			want: true,
 		},
 		"pod group without total count annotation": {
 			pod: groupDriverWrapper.Clone().Obj(),
@@ -215,11 +237,167 @@ func TestPodsReady(t *testing.T) {
 			},
 			want: false,
 		},
+		"pod group within max not-ready count with gate enabled": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: true,
+		},
+		"pod group within max not-ready count even when fewer than total pods are created": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: true,
+		},
+		"pod group within max not-ready count with succeeded and ready pods": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*succeededPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PodIntegrationCountSucceededPodsAsReady: true,
+				features.WaitForPodsReadyMaxNotReady:             true,
+			},
+			want: true,
+		},
+		"pod group within max not-ready count with gate disabled": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: false,
+			},
+			want: false,
+		},
+		"pod group exceeding max not-ready count with gate enabled": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with divergent max not-ready count annotations uses the strictest": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("2").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("2").Obj(),
+				*basePodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("0").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("0").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with partially propagated max not-ready count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with zero max not-ready count requires all pods ready": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("0").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("0").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("0").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("0").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with negative max not-ready count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("-1").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("-1").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("-1").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("-1").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with max not-ready count equal to total count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("3").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("3").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("3").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("3").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with max not-ready count exceeding total count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("5").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("5").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("5").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("5").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
+		"pod group with max not-ready count exceeding total count succeeds when all total pods ready": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("5").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("5").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("5").Obj(),
+				*readyPodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("5").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: true,
+		},
+		"pod group with malformed max not-ready count falls back to 0": {
+			pod: groupDriverWrapper.Clone().GroupTotalCount("3").GroupMaxNotReadyCount("invalid").Obj(),
+			groupPods: []corev1.Pod{
+				*readyPodWrapper.Clone().Name("driver").GroupMaxNotReadyCount("invalid").Obj(),
+				*readyPodWrapper.Clone().Name("worker-1").GroupMaxNotReadyCount("invalid").Obj(),
+				*basePodWrapper.Clone().Name("worker-2").GroupMaxNotReadyCount("invalid").Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			want: false,
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.PodIntegrationCountSucceededPodsAsReady, tc.countSucceededPodsAsReadyGate)
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			pod := FromObject(tc.pod)
 			if len(tc.groupPods) != 0 {
@@ -326,6 +504,266 @@ func TestConstructComposableWorkloadPodGroupRoleLimit(t *testing.T) {
 				t.Fatalf("podSets count = %d, want %d", len(wl.Spec.PodSets), tc.roleCount)
 			}
 		})
+	}
+}
+func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: false,
+	})
+
+	leader := *testingpod.MakePod("", "").
+		RoleHash("zzzz").
+		Request(corev1.ResourceCPU, "1").
+		Obj()
+	leader.Spec.Containers[0].Name = "leader"
+
+	worker := *testingpod.MakePod("", "").
+		RoleHash("aaaa").
+		Request(corev1.ResourceCPU, "4").
+		Obj()
+	worker.Spec.Containers[0].Name = "worker"
+
+	got, err := constructGroupPodSets([]corev1.Pod{leader, worker}, nil)
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() error = %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("constructGroupPodSets() returned %d PodSets, want 2", len(got))
+	}
+
+	gotOrder := []string{
+		got[0].Template.Spec.Containers[0].Name,
+		got[1].Template.Spec.Containers[0].Name,
+	}
+
+	wantOrder := []string{"worker", "leader"}
+	if diff := cmp.Diff(wantOrder, gotOrder); diff != "" {
+		t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
+	}
+}
+
+func TestConstructGroupPodSetsSameShapeOrdering(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: true,
+	})
+
+	makePod := func(name, roleHash string) corev1.Pod {
+		return *testingpod.MakePod(name, "").
+			RoleHash(roleHash).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+	}
+
+	testCases := map[string]struct {
+		pods         []corev1.Pod
+		reversedPods []corev1.Pod
+		wantOrder    []string
+	}{
+		"same shape and count uses PodSet name as tie-breaker": {
+			pods: []corev1.Pod{
+				makePod("worker", "zzzz"),
+				makePod("leader", "aaaa"),
+			},
+			wantOrder: []string{
+				string(kueue.NewPodSetReference("aaaa")),
+				string(kueue.NewPodSetReference("zzzz")),
+			},
+		},
+		"same shape uses count before PodSet name": {
+			pods: []corev1.Pod{
+				makePod("small-1", "zzzz"),
+				makePod("small-2", "zzzz"),
+				makePod("large-1", "aaaa"),
+				makePod("large-2", "aaaa"),
+				makePod("large-3", "aaaa"),
+			},
+			reversedPods: []corev1.Pod{
+				makePod("large-1", "aaaa"),
+				makePod("large-2", "aaaa"),
+				makePod("large-3", "aaaa"),
+				makePod("small-1", "zzzz"),
+				makePod("small-2", "zzzz"),
+			},
+			wantOrder: []string{
+				string(kueue.NewPodSetReference("zzzz")),
+				string(kueue.NewPodSetReference("aaaa")),
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got, err := constructGroupPodSets(tc.pods, nil)
+			if err != nil {
+				t.Fatalf("constructGroupPodSets() error = %v", err)
+			}
+
+			if len(got) != len(tc.wantOrder) {
+				t.Fatalf("constructGroupPodSets() returned %d PodSets, want %d", len(got), len(tc.wantOrder))
+			}
+
+			gotOrder := make([]string, len(got))
+			for i := range got {
+				gotOrder[i] = string(got[i].Name)
+			}
+
+			if diff := cmp.Diff(tc.wantOrder, gotOrder); diff != "" {
+				t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
+			}
+
+			if tc.reversedPods == nil {
+				return
+			}
+
+			gotReversed, err := constructGroupPodSets(tc.reversedPods, nil)
+			if err != nil {
+				t.Fatalf("constructGroupPodSets() with reversed input error = %v", err)
+			}
+
+			gotReversedOrder := make([]string, len(gotReversed))
+			for i := range gotReversed {
+				gotReversedOrder[i] = string(gotReversed[i].Name)
+			}
+
+			if diff := cmp.Diff(gotOrder, gotReversedOrder); diff != "" {
+				t.Errorf("PodSet order depends on input pod order (-first, +second):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: true,
+	})
+
+	leader := *testingpod.MakePod("", "").
+		Request(corev1.ResourceCPU, "1").
+		Obj()
+	leader.Spec.Containers[0].Name = "leader"
+
+	worker := *testingpod.MakePod("", "").
+		Request(corev1.ResourceCPU, "4").
+		Obj()
+	worker.Spec.Containers[0].Name = "worker"
+
+	leaderShapeHash, err := utilpod.GenerateRoleHash(&leader.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate leader shape hash: %v", err)
+	}
+	workerShapeHash, err := utilpod.GenerateRoleHash(&worker.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate worker shape hash: %v", err)
+	}
+
+	// Make the client-supplied role-hash ordering intentionally opposite
+	// to the shape-derived ordering.
+	if leaderShapeHash < workerShapeHash {
+		leader.Annotations[podconstants.RoleHashAnnotation] = "zzzz"
+		worker.Annotations[podconstants.RoleHashAnnotation] = "aaaa"
+	} else {
+		leader.Annotations[podconstants.RoleHashAnnotation] = "aaaa"
+		worker.Annotations[podconstants.RoleHashAnnotation] = "zzzz"
+	}
+
+	pods := []corev1.Pod{leader, worker}
+
+	got, err := constructGroupPodSets(pods, nil)
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() error = %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("constructGroupPodSets() returned %d PodSets, want 2", len(got))
+	}
+
+	// Record the order before changing the role-hashes.
+	firstOrder := []string{
+		got[0].Template.Spec.Containers[0].Name,
+		got[1].Template.Spec.Containers[0].Name,
+	}
+
+	// Swap only the client-supplied role-hashes.
+	leader.Annotations[podconstants.RoleHashAnnotation],
+		worker.Annotations[podconstants.RoleHashAnnotation] =
+		worker.Annotations[podconstants.RoleHashAnnotation],
+		leader.Annotations[podconstants.RoleHashAnnotation]
+
+	got, err = constructGroupPodSets(pods, nil)
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() after swapping role-hashes error = %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("constructGroupPodSets() after swapping role-hashes returned %d PodSets, want 2", len(got))
+	}
+
+	secondOrder := []string{
+		got[0].Template.Spec.Containers[0].Name,
+		got[1].Template.Spec.Containers[0].Name,
+	}
+
+	if diff := cmp.Diff(firstOrder, secondOrder); diff != "" {
+		t.Errorf("PodSet order changed after swapping client-supplied role-hashes (-before, +after):\n%s", diff)
+	}
+}
+
+func TestConstructGroupPodSetsOrderIndependentOfInputOrder(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.PodGroupSchedulingShapeOrdering: true,
+	})
+
+	leader := *testingpod.MakePod("leader", "").
+		RoleHash("zzzz").
+		Request(corev1.ResourceCPU, "1").
+		Obj()
+
+	worker := *testingpod.MakePod("worker", "").
+		RoleHash("aaaa").
+		Request(corev1.ResourceCPU, "1").
+		Obj()
+
+	leaderShapeHash, err := utilpod.GenerateRoleHash(&leader.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate leader shape hash: %v", err)
+	}
+	workerShapeHash, err := utilpod.GenerateRoleHash(&worker.Spec)
+	if err != nil {
+		t.Fatalf("failed to calculate worker shape hash: %v", err)
+	}
+
+	if leaderShapeHash != workerShapeHash {
+		t.Fatalf("expected identical PodSpecs to have the same shape hash, got %q and %q",
+			leaderShapeHash, workerShapeHash)
+	}
+
+	got1, err := constructGroupPodSets([]corev1.Pod{leader, worker}, nil)
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() error = %v", err)
+	}
+
+	got2, err := constructGroupPodSets([]corev1.Pod{worker, leader}, nil)
+	if err != nil {
+		t.Fatalf("constructGroupPodSets() with reversed input error = %v", err)
+	}
+
+	if len(got1) != 2 || len(got2) != 2 {
+		t.Fatalf("expected 2 PodSets, got %d and %d", len(got1), len(got2))
+	}
+
+	firstOrder := []string{
+		string(got1[0].Name),
+		string(got1[1].Name),
+	}
+
+	secondOrder := []string{
+		string(got2[0].Name),
+		string(got2[1].Name),
+	}
+
+	if diff := cmp.Diff(firstOrder, secondOrder); diff != "" {
+		t.Errorf("PodSet order depends on input pod order (-first, +second):\n%s", diff)
 	}
 }
 
@@ -735,6 +1173,43 @@ func TestReconciler(t *testing.T) {
 		Image("", nil)
 
 	podUID := "dc85db45"
+	emptyGroupOwner := &appsv1.StatefulSet{
+		Name:      "sts",
+		Namespace: "ns",
+		UID:       "sts-uid",
+	}
+	emptyGroupIntegrationManager := jobframework.NewIntegrationManager()
+	t.Cleanup(emptyGroupIntegrationManager.EnableExternalIntegrationsForTest(t, "StatefulSet.v1.apps"))
+	emptyGroupWorkload := utiltestingapi.MakeWorkload("test-group", "ns").Group().
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Queue(localUserQueueName).
+		OwnerReference(appsv1.SchemeGroupVersion.WithKind("StatefulSet"), "sts", "sts-uid").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).Obj(), now).
+		AdmittedAt(true, now.Add(-time.Second)).
+		Condition(metav1.Condition{
+			Type:    kueue.WorkloadEvicted,
+			Status:  metav1.ConditionTrue,
+			Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+			Message: "Exceeded the PodsReady timeout",
+		}).
+		Obj()
+	emptyGroupWantWorkload := emptyGroupWorkload.DeepCopy()
+	emptyGroupWantWorkload.Status.Admission = nil
+	workload.SetRequeuedCondition(emptyGroupWantWorkload, kueue.WorkloadEvictedByPodsReadyTimeout, "Exceeded the PodsReady timeout", false)
+	workload.UnsetQuotaReservationWithCondition(
+		emptyGroupWantWorkload,
+		workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
+		"Exceeded the PodsReady timeout",
+		now,
+	)
+	emptyGroupFinalizedWorkload := emptyGroupWorkload.DeepCopy()
+	emptyGroupFinalizedWorkload.Finalizers = nil
+	unmanagedOwner := metav1.OwnerReference{
+		APIVersion: corev1.SchemeGroupVersion.String(),
+		Kind:       "ConfigMap",
+		Name:       "config",
+		UID:        "config-uid",
+	}
 
 	testCases := map[string]struct {
 		reconcileKey           *types.NamespacedName
@@ -3864,7 +4339,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Reason:  kueue.WorkloadFinishedReasonFailed,
 						Message: "Pods succeeded: 1/3.",
 					}).
 					Obj(),
@@ -4760,6 +5235,91 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted-pod", "deleted-pod-uid").
 					Obj(),
 			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"empty pod group with a live StatefulSet owner completes eviction with FinishOrphanedWorkloads disabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: false},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects:  []client.Object{emptyGroupOwner.DeepCopy()},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithIntegrationManager(emptyGroupIntegrationManager),
+			},
+			workloads: []kueue.Workload{*emptyGroupWorkload.DeepCopy()},
+			wantWorkloads: []kueue.Workload{
+				*emptyGroupWantWorkload.DeepCopy(),
+			},
+			workloadCmpOpts: cmp.Options{
+				defaultWorkloadCmpOpts,
+				cmpopts.IgnoreFields(kueue.WorkloadStatus{}, "Admission"),
+			},
+		},
+		"empty pod group with a live StatefulSet owner completes eviction with FinishOrphanedWorkloads enabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects:  []client.Object{emptyGroupOwner.DeepCopy()},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithIntegrationManager(emptyGroupIntegrationManager),
+			},
+			workloads: []kueue.Workload{*emptyGroupWorkload.DeepCopy()},
+			wantWorkloads: []kueue.Workload{
+				*emptyGroupWantWorkload.DeepCopy(),
+			},
+			workloadCmpOpts: cmp.Options{
+				defaultWorkloadCmpOpts,
+				cmpopts.IgnoreFields(kueue.WorkloadStatus{}, "Admission"),
+			},
+		},
+		"empty pod group with a UID-mismatched StatefulSet owner is finalized": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects: []client.Object{func() *appsv1.StatefulSet {
+				owner := emptyGroupOwner.DeepCopy()
+				owner.UID = "replacement-sts-uid"
+				return owner
+			}()},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithIntegrationManager(emptyGroupIntegrationManager),
+			},
+			workloads:       []kueue.Workload{*emptyGroupWorkload.DeepCopy()},
+			wantWorkloads:   []kueue.Workload{*emptyGroupFinalizedWorkload.DeepCopy()},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"empty pod group with a deleting StatefulSet owner is finalized": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects: []client.Object{func() *appsv1.StatefulSet {
+				owner := emptyGroupOwner.DeepCopy()
+				deletionTimestamp := metav1.NewTime(now)
+				owner.DeletionTimestamp = &deletionTimestamp
+				owner.Finalizers = []string{"test-finalizer"}
+				return owner
+			}()},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithIntegrationManager(emptyGroupIntegrationManager),
+			},
+			workloads:       []kueue.Workload{*emptyGroupWorkload.DeepCopy()},
+			wantWorkloads:   []kueue.Workload{*emptyGroupFinalizedWorkload.DeepCopy()},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"empty pod group with an unmanaged live owner is finalized": {
+			featureGates: map[featuregate.Feature]bool{features.FinishOrphanedWorkloads: true},
+			reconcileKey: &types.NamespacedName{Namespace: "group/ns", Name: "test-group"},
+			initObjects: []client.Object{&corev1.ConfigMap{
+				Name: "config", Namespace: "ns", UID: "config-uid",
+			}},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithIntegrationManager(emptyGroupIntegrationManager),
+			},
+			workloads: []kueue.Workload{*func() *kueue.Workload {
+				wl := emptyGroupWorkload.DeepCopy()
+				wl.OwnerReferences[0] = unmanagedOwner
+				return wl
+			}()},
+			wantWorkloads: []kueue.Workload{*func() *kueue.Workload {
+				wl := emptyGroupFinalizedWorkload.DeepCopy()
+				wl.OwnerReferences[0] = unmanagedOwner
+				return wl
+			}()},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"replacement pods are owning the workload": {
@@ -7224,6 +7784,95 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
+		"pod group with WaitForPodsReady marks workload PodsReady when within GroupMaxNotReadyCount": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyMaxNotReady: true,
+			},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}),
+			},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					StatusPhase(corev1.PodRunning).
+					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					GroupMaxNotReadyCount("1").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					GroupMaxNotReadyCount("1").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					StatusPhase(corev1.PodRunning).
+					StatusConditions(corev1.PodCondition{Type: corev1.PodReady, Status: corev1.ConditionTrue}).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					GroupMaxNotReadyCount("1").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					StatusPhase(corev1.PodPending).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					GroupMaxNotReadyCount("1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Count(2).Obj()).Obj(), now).
+					AdmittedAt(true, now).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadStarted,
+						Message: "All pods reached readiness and the workload is running",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
 	}
 
 	for name, tc := range testCases {
@@ -7267,7 +7916,10 @@ func TestReconciler(t *testing.T) {
 				}
 				recorder := &utiltesting.EventRecorder{}
 				reconciler, err := NewReconciler(ctx, kClient, indexer, recorder,
-					append(tc.reconcilerOptions, jobframework.WithClock(testingclock.NewFakeClock(now)))...)
+					append(tc.reconcilerOptions,
+						jobframework.WithClock(testingclock.NewFakeClock(now)),
+						jobframework.WithCache(schdcache.New(kClient)),
+					)...)
 				if err != nil {
 					t.Errorf("Error creating the reconciler: %v", err)
 				}
@@ -8415,6 +9067,67 @@ func TestStop(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("error mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+func TestReorderPodSets(t *testing.T) {
+	tests := map[string]struct {
+		podSets   []kueue.PodSet
+		reference []kueue.PodSetReference
+		want      []kueue.PodSet
+	}{
+		"reorders to match workload": {
+			podSets: []kueue.PodSet{
+				{Name: "worker"},
+				{Name: "leader"},
+			},
+			reference: []kueue.PodSetReference{
+				"leader",
+				"worker",
+			},
+			want: []kueue.PodSet{
+				{Name: "leader"},
+				{Name: "worker"},
+			},
+		},
+		"keeps unmatched podsets": {
+			podSets: []kueue.PodSet{
+				{Name: "worker"},
+				{Name: "extra"},
+				{Name: "leader"},
+			},
+			reference: []kueue.PodSetReference{
+				"leader",
+				"worker",
+			},
+			want: []kueue.PodSet{
+				{Name: "leader"},
+				{Name: "worker"},
+				{Name: "extra"},
+			},
+		},
+		"keeps podset order when already matching": {
+			podSets: []kueue.PodSet{
+				{Name: "leader"},
+				{Name: "worker"},
+			},
+			reference: []kueue.PodSetReference{
+				"leader",
+				"worker",
+			},
+			want: []kueue.PodSet{
+				{Name: "leader"},
+				{Name: "worker"},
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := reorderPodSets(tc.podSets, tc.reference)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("reorderPodSets() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

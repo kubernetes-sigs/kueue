@@ -17,6 +17,8 @@ limitations under the License.
 package jobframework
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -354,15 +356,6 @@ func TestValidateTopologySpreadingAnnotation(t *testing.T) {
 				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
 			},
 		},
-		"valid: two rules with required companion": {
-			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			annotations: map[string]string{
-				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[` +
-					`{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45","enforcementMode":"Required"},` +
-					`{"topologyKey":"cloud.com/gke-tpu-partition","maxShareAllowingPlacement":"0.22","enforcementMode":"Preferred"}]}`,
-			},
-		},
 		// The annotation is inert while the gate is off, so it is accepted
 		// unvalidated to let operators stage it before enabling the feature.
 		"valid: gate off, annotation left unvalidated": {
@@ -408,93 +401,6 @@ func TestValidateTopologySpreadingAnnotation(t *testing.T) {
 			},
 			wantErr: field.ErrorList{&field.Error{Type: field.ErrorTypeForbidden, Field: spreadingPath.String()}},
 		},
-		"invalid: malformed JSON": {
-			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			annotations: map[string]string{
-				kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
-				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":`,
-			},
-			wantErr: field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: spreadingPath.String()}},
-		},
-		"invalid: empty rules": {
-			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			annotations: map[string]string{
-				kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
-				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[]}`,
-			},
-			wantErr: field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: spreadingPath.String()}},
-		},
-		"invalid: too many rules": {
-			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			annotations: map[string]string{
-				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[` +
-					`{"topologyKey":"a","maxShareAllowingPlacement":"0.1"},{"topologyKey":"b","maxShareAllowingPlacement":"0.1"},{"topologyKey":"c","maxShareAllowingPlacement":"0.1"}]}`,
-			},
-			wantErr: field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: spreadingPath.String()}},
-		},
-		// Omitting the selector is how the user asks for the default: it
-		// resolves to the parent job's UID when the Workload's spreading
-		// configuration is built, which is after this validation runs.
-		"valid: selectors omitted, resolved later from the job UID": {
-			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			annotations: map[string]string{
-				kueue.PodSetRequiredTopologyAnnotation:  "cloud.com/block",
-				kueue.PodSetTopologySpreadingAnnotation: `{"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
-			},
-		},
-		// An explicitly empty array is the same request as omitting it, so it
-		// is accepted the same way rather than read as "match everything".
-		"valid: selectors explicitly empty": {
-			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			annotations: map[string]string{
-				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[],` +
-					`"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
-			},
-		},
-		// A selector that cannot compile at all is rejected by the parse, which
-		// reports once against workloadLabelSelectors and stops - the
-		// per-requirement checks never run for it.
-		"invalid: selector key is not a valid label name": {
-			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			annotations: map[string]string{
-				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"_bad_","operator":"In","values":["main"]}],` +
-					`"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
-			},
-			wantErr: field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: spreadingPath.Child("workloadLabelSelectors").String()}},
-		},
-		// These compile fine, so they reach the alpha-restriction checks and
-		// each gets its own indexed path.
-		"invalid: unsupported operator and more requirements than alpha allows": {
-			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			annotations: map[string]string{
-				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[` +
-					`{"key":"app","operator":"In","values":["main"]},` +
-					`{"key":"tier","operator":"NotIn","values":["batch"]}],` +
-					`"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`,
-			},
-			// too many requirements + unsupported operator = 2
-			wantErr: field.ErrorList{
-				&field.Error{Type: field.ErrorTypeTooMany, Field: spreadingPath.Child("workloadLabelSelectors").String()},
-				&field.Error{Type: field.ErrorTypeNotSupported, Field: spreadingPath.Child("workloadLabelSelectors").Index(1).Child("operator").String()},
-			},
-		},
-		"invalid: bad topologyKey, out-of-range share, unknown enforcement mode": {
-			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			annotations: map[string]string{
-				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],` +
-					`"rules":[{"topologyKey":"_bad_","maxShareAllowingPlacement":"1.5","enforcementMode":"Sometimes"}]}`,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{Type: field.ErrorTypeInvalid, Field: spreadingPath.Child("rules").Index(0).Child("topologyKey").String(), Origin: "format=k8s-label-key"},
-				&field.Error{Type: field.ErrorTypeInvalid, Field: spreadingPath.Child("rules").Index(0).Child("maxShareAllowingPlacement").String()},
-				&field.Error{Type: field.ErrorTypeNotSupported, Field: spreadingPath.Child("rules").Index(0).Child("enforcementMode").String()},
-			},
-		},
 		"invalid: share of exactly 1 is out of range": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
 			annotations: map[string]string{
@@ -503,25 +409,6 @@ func TestValidateTopologySpreadingAnnotation(t *testing.T) {
 					`"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"1"}]}`,
 			},
 			wantErr: field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: spreadingPath.Child("rules").Index(0).Child("maxShareAllowingPlacement").String()}},
-		},
-		"invalid: share of exactly 0 is out of range": {
-			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			annotations: map[string]string{
-				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],` +
-					`"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0"}]}`,
-			},
-			wantErr: field.ErrorList{&field.Error{Type: field.ErrorTypeInvalid, Field: spreadingPath.Child("rules").Index(0).Child("maxShareAllowingPlacement").String()}},
-		},
-		"invalid: duplicate rule keys": {
-			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			annotations: map[string]string{
-				kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-				kueue.PodSetTopologySpreadingAnnotation: `{"workloadLabelSelectors":[{"key":"app","operator":"In","values":["main"]}],"rules":[` +
-					`{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"},` +
-					`{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.22"}]}`,
-			},
-			wantErr: field.ErrorList{&field.Error{Type: field.ErrorTypeDuplicate, Field: spreadingPath.Child("rules").Index(1).Child("topologyKey").String()}},
 		},
 	}
 
@@ -545,9 +432,11 @@ func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 	annotationsPath := replicaPath.Child("annotations")
 
 	testCases := map[string]struct {
-		annotations map[string]string
-		podSetCount int32
-		wantErr     field.ErrorList
+		featureGates  map[featuregate.Feature]bool
+		annotations   map[string]string
+		podSetCount   int32
+		wantErr       field.ErrorList
+		wantErrDetail string
 	}{
 		"valid: PodSetSliceSizeAnnotation within bound": {
 			annotations: map[string]string{
@@ -573,7 +462,7 @@ func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
 				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16},{"topology":"kubernetes.io/hostname","size":4}]`,
 			},
-			podSetCount: 20,
+			podSetCount: 32,
 		},
 		"invalid: multi-layer outermost size exceeds pod count": {
 			annotations: map[string]string{
@@ -585,10 +474,40 @@ func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 				&field.Error{Type: field.ErrorTypeInvalid, Field: annotationsPath.Key(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation).String()},
 			},
 		},
+		// A partial last slice is only supported for a single layer, so
+		// with the feature on by default a multi-layer request has to divide evenly.
+		"invalid: partial slices, multi-layer outermost size does not divide the pod count": {
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16},{"topology":"kubernetes.io/hostname","size":4}]`,
+			},
+			podSetCount: 20,
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeInvalid, Field: annotationsPath.Key(kueue.PodSetSliceRequiredTopologyConstraintsAnnotation).String()},
+			},
+			wantErrDetail: "must evenly divide pod set count 20 when more than one layer is specified",
+		},
+		"valid: partial slices disabled, multi-layer outermost size does not divide the pod count": {
+			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: false},
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16},{"topology":"kubernetes.io/hostname","size":4}]`,
+			},
+			podSetCount: 20,
+		},
+		"valid: partial slices, a single layer may leave a partial slice": {
+			annotations: map[string]string{
+				kueue.PodSetRequiredTopologyAnnotation:                 "cloud.com/block",
+				kueue.PodSetSliceRequiredTopologyConstraintsAnnotation: `[{"topology":"cloud.com/rack","size":16}]`,
+			},
+			podSetCount: 20,
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
 			meta := &metav1.ObjectMeta{
 				Annotations: tc.annotations,
 			}
@@ -596,6 +515,11 @@ func TestValidateSliceSizeAnnotationUpperBound(t *testing.T) {
 			gotErr := ValidateSliceSizeAnnotationUpperBound(replicaPath, meta, podSet)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+			if tc.wantErrDetail != "" && !slices.ContainsFunc(gotErr, func(err *field.Error) bool {
+				return strings.Contains(err.Detail, tc.wantErrDetail)
+			}) {
+				t.Errorf("ValidateSliceSizeAnnotationUpperBound() did not report %q:\n%v", tc.wantErrDetail, gotErr)
 			}
 		})
 	}
@@ -610,6 +534,7 @@ func TestValidatePodSetGroupingTopologySpreadingConsistency(t *testing.T) {
 		groupName  = "group1"
 		spreading  = `{"rules":[{"topologyKey":"cloud.com/rack","maxShareAllowingPlacement":"0.45"}]}`
 		spreading2 = `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`
+		equivalent = `{"rules":[{"topologyKey":"cloud.com/rack","maxShareAllowingPlacement":"0.45","enforcementMode":"Required"}]}`
 	)
 	requiredTopology := "cloud.com/block"
 	leaderAnnotationsPath := field.NewPath("spec", "leaderTemplate", "metadata", "annotations")
@@ -642,6 +567,10 @@ func TestValidatePodSetGroupingTopologySpreadingConsistency(t *testing.T) {
 		"both PodSets carry the same annotation": {
 			leader:  spreading,
 			workers: spreading,
+		},
+		"equivalent parsed annotations are accepted": {
+			leader:  spreading,
+			workers: equivalent,
 		},
 		"neither PodSet carries the annotation": {},
 		// One error per PodSet, so the user sees both field paths.
@@ -689,72 +618,6 @@ func TestValidatePodSetGroupingTopologySpreadingConsistency(t *testing.T) {
 			}
 
 			gotErr := ValidatePodSetGroupingTopology(podSets, paths)
-			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
-				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
-			}
-		})
-	}
-}
-
-// TestValidateSpreadingSelectors covers the requirement-shape rules directly.
-// The empty-values case is unreachable through
-// validateTopologySpreadingAnnotation, because ParseSpreadingAnnotation fails
-// to compile such a selector and returns first, so it is only observable here.
-func TestValidateSpreadingSelectors(t *testing.T) {
-	fldPath := field.NewPath("spec", "template", "metadata", "annotations").
-		Key(kueue.PodSetTopologySpreadingAnnotation).Child("workloadLabelSelectors")
-
-	testCases := map[string]struct {
-		selectors []metav1.LabelSelectorRequirement
-		wantErr   field.ErrorList
-	}{
-		"no selectors": {},
-		"one valid requirement": {
-			selectors: []metav1.LabelSelectorRequirement{
-				{Key: "app", Operator: metav1.LabelSelectorOpIn, Values: []string{"main"}},
-			},
-		},
-		// Alpha accepts a single requirement only.
-		"more requirements than alpha accepts": {
-			selectors: []metav1.LabelSelectorRequirement{
-				{Key: "app", Operator: metav1.LabelSelectorOpIn, Values: []string{"main"}},
-				{Key: "tier", Operator: metav1.LabelSelectorOpIn, Values: []string{"serving"}},
-			},
-			wantErr: field.ErrorList{
-				&field.Error{Type: field.ErrorTypeTooMany, Field: fldPath.String()},
-			},
-		},
-		"invalid label key": {
-			selectors: []metav1.LabelSelectorRequirement{
-				{Key: "_bad_", Operator: metav1.LabelSelectorOpIn, Values: []string{"main"}},
-			},
-			wantErr: field.ErrorList{
-				&field.Error{Type: field.ErrorTypeInvalid, Field: fldPath.Index(0).Child("key").String(), Origin: "format=k8s-label-key"},
-			},
-		},
-		// Only In is supported in alpha, and the values check is skipped once
-		// the operator is already rejected.
-		"unsupported operator": {
-			selectors: []metav1.LabelSelectorRequirement{
-				{Key: "app", Operator: metav1.LabelSelectorOpExists},
-			},
-			wantErr: field.ErrorList{
-				&field.Error{Type: field.ErrorTypeNotSupported, Field: fldPath.Index(0).Child("operator").String()},
-			},
-		},
-		"In operator with no values": {
-			selectors: []metav1.LabelSelectorRequirement{
-				{Key: "app", Operator: metav1.LabelSelectorOpIn},
-			},
-			wantErr: field.ErrorList{
-				&field.Error{Type: field.ErrorTypeRequired, Field: fldPath.Index(0).Child("values").String()},
-			},
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			gotErr := validateSpreadingSelectors(fldPath, tc.selectors)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}

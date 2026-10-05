@@ -44,11 +44,13 @@ import (
 )
 
 func TestBaseWebhookDefault(t *testing.T) {
-	unmanagedNsSelector := *utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(metav1.LabelSelectorRequirement{
-		Key:      corev1.LabelMetadataName,
-		Operator: metav1.LabelSelectorOpNotIn,
-		Values:   []string{"unmanaged-ns"},
-	}).Obj()
+	unmanagedNsSelector := *utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(
+		utiltestingapi.MakeMatchExpression().
+			Key(corev1.LabelMetadataName).
+			Operator(metav1.LabelSelectorOpNotIn).
+			Values("unmanaged-ns").
+			Obj(),
+	).Obj()
 	unmanagedNs := []*corev1.Namespace{
 		utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj(),
 	}

@@ -166,6 +166,26 @@
   description: |
     The annotation key is used to allow admitting a PodGroup as soon as the first Pod in the group is created.
 
+- key: kueue.x-k8s.io/pod-group-max-not-ready-count
+  type: Annotation
+  example: '`kueue.x-k8s.io/pod-group-max-not-ready-count: "5"`'
+  used_on: |
+    [Plain Pods](/docs/tasks/run/plain_pods/).
+  description: |
+    The annotation key indicates the maximum number of not-ready Pods in the
+    group tolerated for the Workload to satisfy the `PodsReady` condition when
+    `WaitForPodsReady` is enabled. A valid value is an integer in
+    `[0, pod-group-total-count - 1]`. All Pods of a group are expected to carry
+    the same value; the strictest (lowest) value across the group is used, and
+    a missing or invalid value on any Pod falls back to `0`. The not-ready
+    count (`pod-group-total-count - readyCount`) is evaluated across the full
+    group size without distinguishing between PodSet roles.
+  note: |
+    This annotation is honored only when the `WaitForPodsReadyMaxNotReady` feature gate is enabled.
+    Setting a value greater than `0` relaxes the all-or-nothing safety mechanism of
+    `WaitForPodsReady`, keeping `PodsReady=True` as long as the number of not-ready Pods in the
+    group does not exceed this limit.
+
 - key: kueue.x-k8s.io/pod-group-name
   type: Label
   example: '`kueue.x-k8s.io/pod-group-name: "my-pod-group-name"`'
@@ -383,6 +403,20 @@
     When enabled, we use the value of pre-built workload from the annotation by default;
     if it is not present, we fall back to the label.
 
+- key: kueue.x-k8s.io/preemption-config-name
+  type: Annotation
+  example: '`kueue.x-k8s.io/preemption-config-name: "my-preemption-config"`'
+  used_on: |
+    [ClusterQueue](/docs/concepts/cluster_queue/).
+  description: |
+    It references a cluster-scoped `PreemptionConfig` resource containing declarative preemption rules.
+    In Alpha, preemption candidate outputs from the referenced `PreemptionConfig` are merged with candidates
+    from the classical or fair sharing preemption rules defined in `spec.preemption`.
+  note: |
+    This annotation requires the `ConfigurablePreemptions` feature gate.
+
+
+
 - key: kueue.x-k8s.io/priority-boost
   type: Annotation
   example: '`kueue.x-k8s.io/priority-boost: "10"`'
@@ -499,3 +533,30 @@
     This is a prefix for annotations that are passed to a ProvisioningRequest as Parameters.
     Any annotation with this prefix on the Job or Workload will be forwarded to the
     corresponding ProvisioningRequest.
+
+- key: kueue.x-k8s.io/wait-for-pods-ready
+  type: Annotation
+  example: '`kueue.x-k8s.io/wait-for-pods-ready: ''{"timeoutSeconds": 20, "recoveryTimeoutSeconds": 40}''`'
+  used_on: |
+    Any Kueue-managed resource (for example a [batch/Job](/docs/tasks/run/jobs/) or a
+    StatefulSet). Kueue propagates the annotation to the corresponding
+    [Workload](/docs/concepts/workload/).
+  description: |
+    The annotation sets a per-workload
+    [`waitForPodsReady`](/docs/tasks/manage/setup_wait_for_pods_ready/) timeout and,
+    optionally, a recovery timeout, both in seconds, overriding those fields in the cluster-wide
+    `waitForPodsReady` configuration for that single workload.
+
+    The value is a JSON object with the following fields:
+    - `timeoutSeconds` (required): the maximum time, in seconds, Kueue waits for the
+      admitted workload's Pods to become ready before evicting and requeuing it. Must be
+      greater than `0`.
+    - `recoveryTimeoutSeconds` (optional): the maximum time, in seconds, a previously
+      ready workload may stay with unready Pods before it is evicted. Must be greater
+      than `0` when set.
+
+    The admission webhook rejects the resource if the value is not a valid JSON object,
+    if either timeout is not greater than `0`, or if either timeout exceeds the
+    cluster-wide `maxTimeoutOnWorkload` limit, which defaults to 2 hours.
+
+    This annotation is alpha-level for the `WorkloadLevelWaitForPodsReady` feature gate.

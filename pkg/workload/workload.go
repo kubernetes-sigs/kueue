@@ -304,6 +304,9 @@ type PodSetResources struct {
 	Name kueue.PodSetReference
 	// Requests incorporates the requests from all pods in the podset.
 	Requests resources.Requests
+	// PerPodRequests preserves the processed, unscaled requests derived from the PodSet.
+	// It is nil when the requests come from status.admission.
+	PerPodRequests resources.Requests
 	// Count indicates how many pods are in the podset.
 	Count int32
 
@@ -354,9 +357,17 @@ func (p *PodSetResources) ScaledTo(newCount int32) *PodSetResources {
 		Count:    p.Count,
 		Flavors:  maps.Clone(p.Flavors),
 	}
+	if p.PerPodRequests != nil {
+		ret.PerPodRequests = p.PerPodRequests.Clone()
+	}
 
 	if p.Count != 0 && p.Count != newCount {
-		if ret.Requests != nil {
+		switch {
+		case p.PerPodRequests != nil:
+			// The total over all Pods may have saturated, so a pending PodSet
+			// is rebuilt from its per-Pod request rather than divided down.
+			ret.Requests = p.PerPodRequests.ScaledUp(int64(newCount))
+		case ret.Requests != nil:
 			ret.Requests.Divide(int64(ret.Count))
 			ret.Requests.Mul(int64(newCount))
 		}
@@ -434,7 +445,9 @@ func sameHashedRequests(prev, current []PodSetResources) bool {
 		return false
 	}
 	for i := range prev {
-		if prev[i].Count != current[i].Count || !resources.Equal(prev[i].Requests, current[i].Requests) {
+		if prev[i].Count != current[i].Count ||
+			!resources.Equal(prev[i].Requests, current[i].Requests) ||
+			!resources.Equal(prev[i].PerPodRequests, current[i].PerPodRequests) {
 			return false
 		}
 	}
@@ -471,8 +484,8 @@ func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
 
 // computeSchedulingHash returns a deterministic hash of the workload's
 // scheduling-relevant shape: effective workload priority, pod spec (via
-// SpecShape), effective count, minCount, topologyRequest, and the raw
-// topology-spreading annotation per PodSet.
+// SpecShape), effective count, total and per-Pod requests, minCount,
+// topologyRequest, and the raw topology-spreading annotation per PodSet.
 func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []PodSetResources, specs []corev1.PodSpec) EquivalenceHash {
 	if !features.Enabled(features.SchedulingEquivalenceHashing) {
 		return SchedulingHashUnknown
@@ -481,10 +494,11 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	podSetShapes := make([]map[string]any, 0, len(wl.Spec.PodSets))
 	for i, ps := range wl.Spec.PodSets {
 		effectiveCount := ps.Count
-		var effectiveRequests resources.Requests
+		var effectiveRequests, perPodRequests resources.Requests
 		if i < len(totalRequests) {
 			effectiveCount = totalRequests[i].Count
 			effectiveRequests = totalRequests[i].Requests
+			perPodRequests = totalRequests[i].PerPodRequests
 		}
 		spec := &ps.Template.Spec
 		if i < len(specs) {
@@ -494,6 +508,7 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 			"spec":              utilpod.SpecShape(spec),
 			"count":             effectiveCount,
 			"requests":          resources.ToMap(effectiveRequests),
+			"perPodRequests":    resources.ToMap(perPodRequests),
 			"minCount":          ps.MinCount,
 			"topologyRequest":   ps.TopologyRequest,
 			"topologySpreading": ps.Template.Annotations[kueue.PodSetTopologySpreadingAnnotation],
@@ -602,13 +617,13 @@ func (i *Info) ResourceUsage() ResourceUsage {
 	}
 	for _, psReqs := range i.TotalRequests {
 		if psReqs.Requests != nil {
-			psReqs.Requests.ForEach(func(res corev1.ResourceName, q int64) {
+			psReqs.Requests.ForEach(func(res corev1.ResourceName, q resources.Amount) {
 				flv := psReqs.Flavors[res]
 				if flv == "" {
-					ru.Unassigned[res] += q
+					ru.Unassigned[res] = ru.Unassigned[res].Add(q)
 				} else {
 					fr := resources.FlavorResource{Flavor: flv, Resource: res}
-					ru.Assigned[fr] = ru.Assigned[fr].AddInt64(q)
+					ru.Assigned[fr] = ru.Assigned[fr].Add(q)
 				}
 			})
 		}
@@ -857,7 +872,7 @@ func totalRequestsFromPodSets(wi *Info, info *InfoOptions) []PodSetResources {
 			Name:  ps.Name,
 			Count: count,
 		}
-		specRequests := resourcehelpers.PodRequests(&corev1.Pod{Spec: *wi.PodSpec(i)}, resourcehelpers.PodResourcesOptions{})
+		specRequests := resources.PodRequests(wi.PodSpec(i))
 		retained, generated := applyResourceTransformations(specRequests, specRequests, info.resourceTransformations)
 		retained = dropExcludedResources(retained, info.excludedResourcePrefixes)
 		if features.Enabled(features.KueueDRAIntegration) && info.preprocessedDRAResources != nil {
@@ -877,6 +892,7 @@ func totalRequestsFromPodSets(wi *Info, info *InfoOptions) []PodSetResources {
 		effectiveRequests := utilresource.MergeResourceListKeepSum(retained, generated)
 		setRes.Requests = resources.NewRequestsFromResourceList(effectiveRequests)
 		setRes.Requests.FloorToZero()
+		setRes.PerPodRequests = setRes.Requests.Clone()
 		setRes.Requests.Mul(int64(count))
 		res = append(res, setRes)
 	}
@@ -1077,6 +1093,13 @@ func QueuedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {
 		queuedTime = c.LastTransitionTime.Time
 	}
 	return clock.Since(queuedTime)
+}
+
+func QuotaReservedWaitTime(wl *kueue.Workload, clock clock.Clock) time.Duration {
+	if c := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved); c != nil {
+		return clock.Since(c.LastTransitionTime.Time)
+	}
+	return 0
 }
 
 // SetQuotaReservation records that quota has been reserved for the given Workload
@@ -1541,6 +1564,14 @@ func OwnedBySinglePod(w *kueue.Workload) bool {
 
 func HasUnhealthyNodes(w *kueue.Workload) bool {
 	return w != nil && len(w.Status.UnhealthyNodes) > 0
+}
+
+// FirstUnhealthyNodeName returns the next node queued for replacement, or an empty string if none.
+func FirstUnhealthyNodeName(w *kueue.Workload) string {
+	if !HasUnhealthyNodes(w) {
+		return ""
+	}
+	return w.Status.UnhealthyNodes[0].Name
 }
 
 func HasUnhealthyNode(w *kueue.Workload, nodeName string) bool {

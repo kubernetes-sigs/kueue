@@ -184,6 +184,15 @@ func ExpectAdmissionChecksWaitTimeMetric(cq *kueue.ClusterQueue, priorityClass s
 	expectHistogramMetric(metrics.AdmissionChecksWaitTime, gomega.Equal(count), cq.Name, priorityClass, roletracker.RoleStandalone)
 }
 
+func ExpectAdmissionChecksWaitTimeMetricAtLeast(cq *kueue.ClusterQueue, priorityClass string, seconds float64) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		value, err := testutil.GetHistogramMetricValue(metrics.AdmissionChecksWaitTime.WithLabelValues(cq.Name, priorityClass, roletracker.RoleStandalone))
+		g.Expect(err).NotTo(gomega.HaveOccurred())
+		g.Expect(value).To(gomega.BeNumerically(">=", seconds))
+	}, Timeout, Interval).Should(gomega.Succeed())
+}
+
 func ExpectExecutionTimeMetric(cq *kueue.ClusterQueue, priorityClass string, count int) {
 	ginkgo.GinkgoHelper()
 	expectHistogramMetric(metrics.ExecutionTimeSeconds, gomega.Equal(count), cq.Name, priorityClass, roletracker.RoleStandalone)

@@ -44,11 +44,13 @@ func TestWorkloadShouldBeSuspended(t *testing.T) {
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
 	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
 	parent := utiltestingjob.MakeJob("parent", managedNamespace.Name).UID("parent").Queue("default").Obj()
-	ls := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(metav1.LabelSelectorRequirement{
-		Key:      corev1.LabelMetadataName,
-		Operator: metav1.LabelSelectorOpNotIn,
-		Values:   []string{unmanagedNamespace.Name},
-	}).Obj()
+	ls := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(
+		utiltestingapi.MakeMatchExpression().
+			Key(corev1.LabelMetadataName).
+			Operator(metav1.LabelSelectorOpNotIn).
+			Values(unmanagedNamespace.Name).
+			Obj(),
+	).Obj()
 	namespaceSelector, _ := metav1.LabelSelectorAsSelector(ls)
 
 	cases := map[string]struct {
@@ -170,11 +172,13 @@ func TestApplyDefaultLocalQueue(t *testing.T) {
 	t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "batch/job"))
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
 	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
-	ls := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(metav1.LabelSelectorRequirement{
-		Key:      corev1.LabelMetadataName,
-		Operator: metav1.LabelSelectorOpNotIn,
-		Values:   []string{unmanagedNamespace.Name},
-	}).Obj()
+	ls := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(
+		utiltestingapi.MakeMatchExpression().
+			Key(corev1.LabelMetadataName).
+			Operator(metav1.LabelSelectorOpNotIn).
+			Values(unmanagedNamespace.Name).
+			Obj(),
+	).Obj()
 	namespaceSelector, _ := metav1.LabelSelectorAsSelector(ls)
 
 	cases := map[string]struct {
@@ -224,17 +228,20 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 	managedNamespace := utiltesting.MakeNamespaceWrapper("managed-ns").Label(corev1.LabelMetadataName, "managed-ns").Obj()
 	unmanagedNamespace := utiltesting.MakeNamespaceWrapper("unmanaged-ns").Label(corev1.LabelMetadataName, "unmanaged-ns").Obj()
 	parent := utiltestingjob.MakeJob("parent", managedNamespace.Name).UID("parent").Queue("default").Obj()
-	unmanagedNsSelector := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(metav1.LabelSelectorRequirement{
-		Key:      corev1.LabelMetadataName,
-		Operator: metav1.LabelSelectorOpNotIn,
-		Values:   []string{unmanagedNamespace.Name},
-	}).Obj()
+	unmanagedNsSelector := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(
+		utiltestingapi.MakeMatchExpression().
+			Key(corev1.LabelMetadataName).
+			Operator(metav1.LabelSelectorOpNotIn).
+			Values(unmanagedNamespace.Name).
+			Obj(),
+	).Obj()
 
 	defaultWPC := &kueue.WorkloadPriorityClass{
 		Name:  constants.DefaultWorkloadPriorityClassName,
 		Value: 100,
 	}
-	boomErr := errors.New("boom")
+	wpcBoomErr := errors.New("boom: workload priority class")
+	nsBoomErr := errors.New("boom: namespace")
 
 	cases := map[string]struct {
 		job          client.Object
@@ -301,7 +308,15 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
 			namespaceSelector:      unmanagedNsSelector,
 			wantPriorityClassLabel: "",
-			wantErr:                boomErr,
+			wantErr:                wpcBoomErr,
+		},
+		"feature gate enabled, namespace lookup fails": {
+			job:                    utiltestingjob.MakeJob("test-job", managedNamespace.Name).Obj(),
+			wpcObjects:             []client.Object{defaultWPC},
+			featureGates:           map[featuregate.Feature]bool{features.WorkloadPriorityClassDefaulting: true},
+			namespaceSelector:      unmanagedNsSelector,
+			wantPriorityClassLabel: "",
+			wantErr:                nsBoomErr,
 		},
 	}
 
@@ -315,8 +330,10 @@ func TestApplyDefaultWorkloadPriorityClass(t *testing.T) {
 			}
 			builder = builder.WithInterceptorFuncs(interceptor.Funcs{
 				Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-					if _, isWPC := obj.(*kueue.WorkloadPriorityClass); isWPC && errors.Is(tc.wantErr, boomErr) {
-						return boomErr
+					if _, isWPC := obj.(*kueue.WorkloadPriorityClass); isWPC && errors.Is(tc.wantErr, wpcBoomErr) {
+						return wpcBoomErr
+					} else if _, isNS := obj.(*corev1.Namespace); isNS && errors.Is(tc.wantErr, nsBoomErr) {
+						return nsBoomErr
 					}
 					return cl.Get(ctx, key, obj, opts...)
 				},

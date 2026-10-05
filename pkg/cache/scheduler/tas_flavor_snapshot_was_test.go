@@ -40,7 +40,7 @@ const wasRackLabel = "cloud.provider.com/topology-rack"
 
 // wasSnapshotWithVictim builds a TAS snapshot over one node whose single host port
 // is taken by victimKey, using the scheduler-library simulator rather than a stand-in.
-func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavorSnapshot, simulator.SimulatorSnapshot) {
+func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavorSnapshot, simulator.SchedulerSimulator) {
 	t.Helper()
 	ctx, log := utiltesting.ContextWithLog(t)
 
@@ -53,23 +53,23 @@ func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavor
 				corev1.ResourcePods: resource.MustParse("10"),
 			}).Ready().Obj(),
 	}
-	sim, err := was.NewWASSimulator(ctx, nil)
+	simulatorFactory, err := was.NewWASSimulatorFactory(ctx, nil)
 	if err != nil {
-		t.Fatalf("NewWASSimulator() error = %v", err)
+		t.Fatalf("NewWASSimulatorFactory() error = %v", err)
 	}
-	sim.TrackPod(ctx, testingpod.MakePod("victim-pod", victimKey.Namespace).
+	simulatorFactory.TrackPod(ctx, testingpod.MakePod("victim-pod", victimKey.Namespace).
 		UID("victim-pod").
 		Annotation(kueue.WorkloadAnnotation, victimKey.Name).
 		NodeName("n1").
 		StatusPhase(corev1.PodRunning).
 		Port(8080, 8080, corev1.ProtocolTCP).
 		Obj())
-	simSnapshot, err := sim.Snapshot(ctx, nodes)
+	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes)
 	if err != nil {
-		t.Fatalf("Snapshot() error = %v", err)
+		t.Fatalf("NewSimulator() error = %v", err)
 	}
 	tree := newTopologyTree([]string{wasRackLabel, corev1.LabelHostname}, nodes, 0)
-	return newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, simSnapshot), simSnapshot
+	return newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, schedulerSimulator), schedulerSimulator
 }
 
 // wantsTheSamePort is a PodSet asking for the host port the victim holds.
@@ -116,7 +116,7 @@ func TestMatchingLeavesCacheFollowsPreemption(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
 	ctx, log := utiltesting.ContextWithLog(t)
 	victim := client.ObjectKey{Namespace: "default", Name: "victim"}
-	snapshot, simSnapshot := wasSnapshotWithVictim(t, victim)
+	snapshot, schedulerSimulator := wasSnapshotWithVictim(t, victim)
 	requests := wantsTheSamePort()
 	wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
 	fits := func() bool {
@@ -127,7 +127,7 @@ func TestMatchingLeavesCacheFollowsPreemption(t *testing.T) {
 	if fits() {
 		t.Fatal("FindTopologyAssignmentsForFlavor() found a fit, want none while the victim holds the port")
 	}
-	revert, err := simSnapshot.PreemptWorkload(ctx, victim)
+	revert, err := schedulerSimulator.PreemptWorkload(ctx, victim)
 	if err != nil {
 		t.Fatalf("PreemptWorkload() error = %v", err)
 	}

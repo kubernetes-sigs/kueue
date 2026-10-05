@@ -19,9 +19,11 @@ package dra
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -117,6 +119,35 @@ func extendedResourceRequests(container corev1.Container) corev1.ResourceList {
 	return result
 }
 
+// ResolveDeviceClass returns the DeviceClass kube-scheduler would allocate resourceName
+// from, or nil when the name is an ordinary extended resource that no DeviceClass backs.
+//
+// A class answers to the extended resource name it declares and to an implicit name it
+// carries either way.
+func ResolveDeviceClass(ctx context.Context, cl client.Client, resourceName corev1.ResourceName) (*resourceapi.DeviceClass, error) {
+	if className, ok := strings.CutPrefix(string(resourceName), resourceapi.ResourceDeviceClassPrefix); ok {
+		deviceClass := &resourceapi.DeviceClass{}
+		if err := cl.Get(ctx, client.ObjectKey{Name: className}, deviceClass); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("getting DeviceClass %q for extended resource %q: %w", className, resourceName, err)
+		}
+		return deviceClass, nil
+	}
+
+	var dcList resourceapi.DeviceClassList
+	if err := cl.List(ctx, &dcList, client.MatchingFields{
+		"spec.extendedResourceName": string(resourceName),
+	}); err != nil {
+		return nil, fmt.Errorf("listing DeviceClasses for extended resource %q: %w", resourceName, err)
+	}
+	if len(dcList.Items) == 0 {
+		return nil, nil
+	}
+	return selectedDeviceClass(dcList.Items), nil
+}
+
 // resolveQuotaKey looks up the DeviceClasses backing resourceName by
 // spec.extendedResourceName, selects the one the scheduler would allocate from, and
 // returns that class's deviceClassMappings entry as the quota key; otherwise
@@ -132,23 +163,16 @@ func resolveQuotaKey(
 	log := ctrl.LoggerFrom(ctx)
 	log.V(4).Info("Checking extended resource for DRA backing", "resource", resourceName)
 
-	var deviceClasses resourceapi.DeviceClassList
-	if err := cl.List(ctx, &deviceClasses, client.MatchingFields{
-		"spec.extendedResourceName": string(resourceName),
-	}); err != nil {
+	selected, err := ResolveDeviceClass(ctx, cl, resourceName)
+	if err != nil {
 		return "", field.ErrorList{field.InternalError(
-			path.Child("resources", "requests", string(resourceName)),
-			fmt.Errorf("failed to list DeviceClasses for extended resource %q: %w", resourceName, err),
+			path.Child("resources", "requests", string(resourceName)), err,
 		)}
 	}
-
-	if len(deviceClasses.Items) == 0 {
+	if selected == nil {
 		log.V(4).Info("No DeviceClass found, not a DRA-backed extended resource", "resource", resourceName)
 		return "", nil
 	}
-
-	// The class the scheduler will allocate from, not whichever List returned first.
-	selected := selectedDeviceClass(deviceClasses.Items)
 
 	// Determine the quota key. If the DeviceClass is also in deviceClassMappings,
 	// use the mapped logical name to unify quota with the ResourceClaimTemplate path.
@@ -199,6 +223,38 @@ type containerExtendedResourceRequests struct {
 	restartPolicy *corev1.ContainerRestartPolicy
 }
 
+func collectContainerExtendedResourceRequests(containers []corev1.Container, containersPath *field.Path) []containerExtendedResourceRequests {
+	var entries []containerExtendedResourceRequests
+	for i, container := range containers {
+		res := extendedResourceRequests(container)
+		if len(res) == 0 {
+			continue
+		}
+		entries = append(entries, containerExtendedResourceRequests{
+			path:          containersPath.Index(i),
+			resources:     res,
+			restartPolicy: container.RestartPolicy,
+		})
+	}
+	return entries
+}
+
+func containersForPodRequests(entries []containerExtendedResourceRequests, firstPath map[corev1.ResourceName]*field.Path) []corev1.Container {
+	containers := make([]corev1.Container, 0, len(entries))
+	for _, entry := range entries {
+		for name := range entry.resources {
+			if _, found := firstPath[name]; !found {
+				firstPath[name] = entry.path
+			}
+		}
+		containers = append(containers, corev1.Container{
+			RestartPolicy: entry.restartPolicy,
+			Resources:     corev1.ResourceRequirements{Requests: entry.resources},
+		})
+	}
+	return containers
+}
+
 // ResolveExtendedResourceQuota converts extended resource requests across all PodSets
 // into DRA logical quota resources. Per PodSet each original name is aggregated with
 // `resourcehelpers.PodRequests` (overhead excluded; sidecars add to the app-container
@@ -223,48 +279,17 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 		ps := &wl.Spec.PodSets[i]
 		podSetPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec")
 
-		collect := func(containers []corev1.Container, pathSegment string) []containerExtendedResourceRequests {
-			var entries []containerExtendedResourceRequests
-			for j, container := range containers {
-				res := extendedResourceRequests(container)
-				if len(res) == 0 {
-					continue
-				}
-				entries = append(entries, containerExtendedResourceRequests{
-					path:          podSetPath.Child(pathSegment).Index(j),
-					resources:     res,
-					restartPolicy: container.RestartPolicy,
-				})
-			}
-			return entries
-		}
-
-		initEntries := collect(wi.PodSpec(i).InitContainers, "initContainers")
-		regularEntries := collect(wi.PodSpec(i).Containers, "containers")
+		initEntries := collectContainerExtendedResourceRequests(wi.PodSpec(i).InitContainers, podSetPath.Child("initContainers"))
+		regularEntries := collectContainerExtendedResourceRequests(wi.PodSpec(i).Containers, podSetPath.Child("containers"))
 
 		// The field path of the first container an original resource name is seen in,
 		// for error reporting once that name is resolved below.
 		firstPath := map[corev1.ResourceName]*field.Path{}
-		charged := func(entries []containerExtendedResourceRequests) []corev1.Container {
-			out := make([]corev1.Container, 0, len(entries))
-			for _, e := range entries {
-				for name := range e.resources {
-					if _, ok := firstPath[name]; !ok {
-						firstPath[name] = e.path
-					}
-				}
-				out = append(out, corev1.Container{
-					RestartPolicy: e.restartPolicy,
-					Resources:     corev1.ResourceRequirements{Requests: e.resources},
-				})
-			}
-			return out
-		}
-		initCharged := charged(initEntries)
-		regularCharged := charged(regularEntries)
+		initContainersForPodRequests := containersForPodRequests(initEntries, firstPath)
+		regularContainersForPodRequests := containersForPodRequests(regularEntries, firstPath)
 		// PodRequests adds a sidecar to the regular containers rather than maxing it against them.
 		podRequests := resourcehelpers.PodRequests(
-			&corev1.Pod{Spec: corev1.PodSpec{InitContainers: initCharged, Containers: regularCharged}},
+			&corev1.Pod{Spec: corev1.PodSpec{InitContainers: initContainersForPodRequests, Containers: regularContainersForPodRequests}},
 			resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
 
 		aggregated := corev1.ResourceList{}

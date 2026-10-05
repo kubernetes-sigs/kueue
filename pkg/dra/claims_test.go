@@ -28,10 +28,13 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/component-base/featuregate"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
@@ -81,9 +84,44 @@ func Test_GetResourceRequests(t *testing.T) {
 		modifyWL     func(w *kueue.Workload)
 		extraObjects []runtime.Object
 		lookup       func(corev1.ResourceName) (corev1.ResourceName, bool)
+		// mappings replaces the default res-1/res-2 mappings when set.
+		mappings     []configapi.DeviceClassMapping
+		featureGates map[featuregate.Feature]bool
 		want         map[kueue.PodSetReference]corev1.ResourceList
 		wantErr      field.ErrorList
 	}{
+		{
+			name: "An Exactly request on a logical resource named cpu is charged in whole units",
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-1")},
+				}
+			},
+			lookup:   defaultLookup,
+			mappings: []configapi.DeviceClassMapping{{Name: corev1.ResourceCPU, DeviceClassNames: []corev1.ResourceName{"test-deviceclass-1"}}},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {corev1.ResourceCPU: resource.MustParse("2")},
+			},
+		},
+		{
+			name: "A prioritized list on a logical resource named cpu is charged in whole units like an Exactly request",
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-1", ResourceClaimTemplateName: new("claim-tmpl-fa")},
+				}
+			},
+			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-fa", "ns1").
+					DeviceRequests(testingdra.MakeFirstAvailableRequest("r", testingdra.MakeDeviceSubRequest("fast", "test-deviceclass-1", 2).Obj()).Obj()).
+					Obj(),
+			},
+			lookup:       defaultLookup,
+			mappings:     []configapi.DeviceClassMapping{{Name: corev1.ResourceCPU, DeviceClassNames: []corev1.ResourceName{"test-deviceclass-1"}}},
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
+			want: map[kueue.PodSetReference]corev1.ResourceList{
+				"main": {corev1.ResourceCPU: resource.MustParse("2")},
+			},
+		},
 		{
 			name: "Single claim template with single device",
 			lookup: func(dc corev1.ResourceName) (corev1.ResourceName, bool) {
@@ -251,17 +289,11 @@ func Test_GetResourceRequests(t *testing.T) {
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
-				&resourcev1.ResourceSlice{
-					Name: "slice-1",
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "test-driver",
-						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{Name: "dev-0"},
-							{Name: "dev-1"},
-						},
-					},
-				},
+				testingdra.MakeResourceSlice("slice-1", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Device("dev-1").
+					Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -285,28 +317,16 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("gpu-class").
 					CELSelector("device.driver == \"gpu-driver\"").
 					Obj(),
-				&resourcev1.ResourceSlice{
-					Name: "gpu-slice",
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "gpu-driver",
-						Pool:   resourcev1.ResourcePool{Name: "gpu-pool", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{Name: "gpu-0"},
-						},
-					},
-				},
-				&resourcev1.ResourceSlice{
-					Name: "nic-slice",
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "nic-driver",
-						Pool:   resourcev1.ResourcePool{Name: "nic-pool", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{Name: "nic-0"},
-							{Name: "nic-1"},
-							{Name: "nic-2"},
-						},
-					},
-				},
+				testingdra.MakeResourceSlice("gpu-slice", "gpu-driver").
+					Pool("gpu-pool", 1, 1).
+					Device("gpu-0").
+					Obj(),
+				testingdra.MakeResourceSlice("nic-slice", "nic-driver").
+					Pool("nic-pool", 1, 1).
+					Device("nic-0").
+					Device("nic-1").
+					Device("nic-2").
+					Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -333,16 +353,10 @@ func Test_GetResourceRequests(t *testing.T) {
 					WithCELSelectors("device.driver == \"nonexistent-driver\"").
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
-				&resourcev1.ResourceSlice{
-					Name: "slice-2",
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "test-driver",
-						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{Name: "dev-0"},
-						},
-					},
-				},
+				testingdra.MakeResourceSlice("slice-2", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -365,17 +379,11 @@ func Test_GetResourceRequests(t *testing.T) {
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
-				&resourcev1.ResourceSlice{
-					Name: "slice-3",
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "test-driver",
-						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{Name: "dev-0"},
-							{Name: "dev-1"},
-						},
-					},
-				},
+				testingdra.MakeResourceSlice("slice-3", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Device("dev-1").
+					Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -401,16 +409,10 @@ func Test_GetResourceRequests(t *testing.T) {
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
-				&resourcev1.ResourceSlice{
-					Name: "slice-multi",
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "test-driver",
-						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{Name: "dev-0"},
-						},
-					},
-				},
+				testingdra.MakeResourceSlice("slice-multi", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -551,16 +553,10 @@ func Test_GetResourceRequests(t *testing.T) {
 					DeviceRequest("req", "nonexistent-class", 1).
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
-				&resourcev1.ResourceSlice{
-					Name: "slice-noclass",
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "test-driver",
-						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{Name: "dev-0"},
-						},
-					},
-				},
+				testingdra.MakeResourceSlice("slice-noclass", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -584,16 +580,10 @@ func Test_GetResourceRequests(t *testing.T) {
 					DeviceRequest("req", "", 1).
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
-				&resourcev1.ResourceSlice{
-					Name: "slice-nodc",
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "test-driver",
-						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{Name: "dev-0"},
-						},
-					},
-				},
+				testingdra.MakeResourceSlice("slice-nodc", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -626,6 +616,9 @@ func Test_GetResourceRequests(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			for fg, on := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, on)
+			}
 			var testMapper *ResourceMapper
 			if tc.lookup != nil {
 				mappings := []configapi.DeviceClassMapping{
@@ -640,6 +633,9 @@ func Test_GetResourceRequests(t *testing.T) {
 				}
 				if tc.name == "Unmapped DeviceClass returns error" {
 					mappings = []configapi.DeviceClassMapping{}
+				}
+				if tc.mappings != nil {
+					mappings = tc.mappings
 				}
 				mapper := NewResourceMapper()
 				err := mapper.PopulateFromConfiguration(mappings)
@@ -686,35 +682,188 @@ func Test_GetResourceRequests(t *testing.T) {
 	}
 }
 
-func Test_countDevicesPerClass_overflow(t *testing.T) {
+func TestChargesForClaimSpec(t *testing.T) {
+	mapper := NewResourceMapper()
+	if err := mapper.PopulateFromConfiguration([]configapi.DeviceClassMapping{{
+		Name:             "example.com/gpu",
+		DeviceClassNames: []corev1.ResourceName{"fast.example.com", "slow.example.com"},
+	}}); err != nil {
+		t.Fatalf("PopulateFromConfiguration() = %v", err)
+	}
+
 	cases := map[string]struct {
-		requests  []resourcev1.DeviceRequest
-		wantCount int64
+		spec         resourcev1.ResourceClaimSpec
+		featureGates map[featuregate.Feature]bool
+		// perLogicalResource is always allocated, so an empty map is the expectation
+		// when no prioritized list is charged; ToMap reports no class charges as nil.
+		wantLogical map[corev1.ResourceName]resources.Amount
+		wantClasses map[corev1.ResourceName]resources.Amount
+		wantErr     bool
+		// Set these when which error comes back is the point of the case, since
+		// several guards on this path reject the same spec for different reasons.
+		wantErrField string
+		wantErrType  field.ErrorType
 	}{
-		"normal sum across requests": {
-			requests: []resourcev1.DeviceRequest{
-				testingdra.MakeDeviceRequest("r0", "gpu", 2).Obj(),
-				testingdra.MakeDeviceRequest("r1", "gpu", 3).Obj(),
-			},
-			wantCount: 5,
+		"exactly requests on one class add up": {
+			spec: utiltesting.NewResourceClaimSpecBuilder().
+				DeviceRequests(
+					testingdra.MakeDeviceRequest("r0", "gpu", 2).Obj(),
+					testingdra.MakeDeviceRequest("r1", "gpu", 3).Obj(),
+				).
+				Build(),
+			wantLogical: map[corev1.ResourceName]resources.Amount{},
+			wantClasses: map[corev1.ResourceName]resources.Amount{"gpu": resources.NewAmount(5)},
 		},
-		"sum saturates at MaxInt64 instead of wrapping negative": {
-			requests: []resourcev1.DeviceRequest{
-				testingdra.MakeDeviceRequest("r0", "gpu", math.MaxInt64).Obj(),
-				testingdra.MakeDeviceRequest("r1", "gpu", math.MaxInt64).Obj(),
-			},
-			wantCount: math.MaxInt64,
+		"an exactly sum past MaxInt64 stays exact": {
+			spec: utiltesting.NewResourceClaimSpecBuilder().
+				DeviceRequests(
+					testingdra.MakeDeviceRequest("r0", "gpu", math.MaxInt64).Obj(),
+					testingdra.MakeDeviceRequest("r1", "gpu", math.MaxInt64).Obj(),
+				).
+				Build(),
+			wantLogical: map[corev1.ResourceName]resources.Amount{},
+			wantClasses: map[corev1.ResourceName]resources.Amount{"gpu": resources.NewAmount(math.MaxInt64).MulInt64(2)},
+		},
+		"with the gate off a prioritized list is still refused": {
+			spec: utiltesting.NewResourceClaimSpecBuilder().
+				DeviceRequests(
+					testingdra.MakeFirstAvailableRequest("r", testingdra.MakeDeviceSubRequest("fast", "fast.example.com", 1).Obj()).Obj(),
+				).
+				Build(),
+			wantErr: true,
+		},
+		"independent requests add their own counts": {
+			spec: utiltesting.NewResourceClaimSpecBuilder().
+				DeviceRequests(
+					testingdra.MakeFirstAvailableRequest("r0",
+						testingdra.MakeDeviceSubRequest("fast", "fast.example.com", 3).Obj(),
+						testingdra.MakeDeviceSubRequest("slow", "slow.example.com", 3).Obj(),
+					).Obj(),
+					testingdra.MakeFirstAvailableRequest("r1",
+						testingdra.MakeDeviceSubRequest("fast", "fast.example.com", 5).Obj(),
+						testingdra.MakeDeviceSubRequest("slow", "slow.example.com", 5).Obj(),
+					).Obj(),
+				).
+				Build(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
+			wantLogical:  map[corev1.ResourceName]resources.Amount{"example.com/gpu": resources.NewAmount(8)},
+		},
+		"a request whose alternatives differ in count refuses the whole claim": {
+			spec: utiltesting.NewResourceClaimSpecBuilder().
+				DeviceRequests(
+					testingdra.MakeFirstAvailableRequest("r0",
+						testingdra.MakeDeviceSubRequest("fast", "fast.example.com", 2).Obj(),
+						testingdra.MakeDeviceSubRequest("slow", "slow.example.com", 2).Obj(),
+					).Obj(),
+					testingdra.MakeFirstAvailableRequest("r1",
+						testingdra.MakeDeviceSubRequest("fast", "fast.example.com", 1).Obj(),
+						testingdra.MakeDeviceSubRequest("slow", "slow.example.com", 3).Obj(),
+					).Obj(),
+				).
+				Build(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
+			wantErr:      true,
+			wantErrField: "devices.requests[1].firstAvailable[1].count",
+			wantErrType:  field.ErrorTypeInvalid,
+		},
+		"an Exactly request beside a prioritized list is counted once each": {
+			spec: utiltesting.NewResourceClaimSpecBuilder().
+				DeviceRequests(
+					testingdra.MakeDeviceRequest("r0", "fast.example.com", 2).Obj(),
+					testingdra.MakeFirstAvailableRequest("r1",
+						testingdra.MakeDeviceSubRequest("fast", "fast.example.com", 4).Obj(),
+						testingdra.MakeDeviceSubRequest("slow", "slow.example.com", 4).Obj(),
+					).Obj(),
+				).
+				Build(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
+			wantLogical:  map[corev1.ResourceName]resources.Amount{"example.com/gpu": resources.NewAmount(4)},
+			wantClasses:  map[corev1.ResourceName]resources.Amount{"fast.example.com": resources.NewAmount(2)},
+		},
+		"a sum past the int64 range is kept exactly rather than saturated": {
+			spec: utiltesting.NewResourceClaimSpecBuilder().
+				DeviceRequests(
+					testingdra.MakeFirstAvailableRequest("r0", testingdra.MakeDeviceSubRequest("fast", "fast.example.com", math.MaxInt64).Obj()).Obj(),
+					testingdra.MakeFirstAvailableRequest("r1", testingdra.MakeDeviceSubRequest("fast", "fast.example.com", 1).Obj()).Obj(),
+				).
+				Build(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
+			wantLogical:  map[corev1.ResourceName]resources.Amount{"example.com/gpu": resources.NewAmount(math.MaxInt64).AddInt64(1)},
+		},
+		// The claim is charged the sum of the per-request counts, so 1+4+7+6+9,
+		// whatever alternative each request ends up with.
+		"five requests with several alternatives each charge the sum of their counts": {
+			spec: utiltesting.NewResourceClaimSpecBuilder().
+				DeviceRequests(
+					testingdra.MakeFirstAvailableRequest("r0", testingdra.MakeDeviceSubRequest("a", "fast.example.com", 1).Obj()).Obj(),
+					testingdra.MakeFirstAvailableRequest("r1",
+						testingdra.MakeDeviceSubRequest("a", "fast.example.com", 4).Obj(),
+						testingdra.MakeDeviceSubRequest("b", "slow.example.com", 4).Obj(),
+					).Obj(),
+					testingdra.MakeFirstAvailableRequest("r2",
+						testingdra.MakeDeviceSubRequest("a", "fast.example.com", 7).Obj(),
+						testingdra.MakeDeviceSubRequest("b", "slow.example.com", 7).Obj(),
+						testingdra.MakeDeviceSubRequest("c", "fast.example.com", 7).Obj(),
+					).Obj(),
+					testingdra.MakeFirstAvailableRequest("r3",
+						testingdra.MakeDeviceSubRequest("a", "fast.example.com", 6).Obj(),
+						testingdra.MakeDeviceSubRequest("b", "slow.example.com", 6).Obj(),
+					).Obj(),
+					testingdra.MakeFirstAvailableRequest("r4",
+						testingdra.MakeDeviceSubRequest("a", "fast.example.com", 9).Obj(),
+						testingdra.MakeDeviceSubRequest("b", "slow.example.com", 9).Obj(),
+						testingdra.MakeDeviceSubRequest("c", "fast.example.com", 9).Obj(),
+						testingdra.MakeDeviceSubRequest("d", "slow.example.com", 9).Obj(),
+					).Obj(),
+				).
+				Build(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
+			wantLogical:  map[corev1.ResourceName]resources.Amount{"example.com/gpu": resources.NewAmount(27)},
+		},
+		"an empty firstAvailable is reported against firstAvailable, not as a missing exactly": {
+			spec: utiltesting.NewResourceClaimSpecBuilder().
+				DeviceRequests(
+					resourcev1.DeviceRequest{
+						Name:           "r",
+						FirstAvailable: []resourcev1.DeviceSubRequest{},
+					},
+				).
+				Build(),
+			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
+			wantErr:      true,
+			wantErrField: "devices.requests[0].firstAvailable",
+			wantErrType:  field.ErrorTypeRequired,
 		},
 	}
+
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			spec := &resourcev1.ResourceClaimSpec{Devices: resourcev1.DeviceClaim{Requests: tc.requests}}
-			out, errs := countDevicesPerClass(spec)
+			for fg, on := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, on)
+			}
+			got, errs := chargesForClaimSpec(&tc.spec, mapper)
+			if tc.wantErr {
+				if len(errs) == 0 {
+					t.Fatalf("want an error, got %v", got.perLogicalResource)
+				}
+				if tc.wantErrField != "" {
+					if len(errs) != 1 {
+						t.Fatalf("want one error, got %v", errs)
+					}
+					if errs[0].Field != tc.wantErrField || errs[0].Type != tc.wantErrType {
+						t.Errorf("got %v on %s, want %v on %s", errs[0].Type, errs[0].Field, tc.wantErrType, tc.wantErrField)
+					}
+				}
+				return
+			}
 			if len(errs) != 0 {
 				t.Fatalf("unexpected errors: %v", errs)
 			}
-			if got := out.ResourceValue("gpu"); got != tc.wantCount {
-				t.Errorf("count = %d, want %d", got, tc.wantCount)
+			if diff := cmp.Diff(tc.wantLogical, got.perLogicalResource, cmp.Comparer(resources.Amount.Equal)); diff != "" {
+				t.Errorf("logical charges (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantClasses, resources.ToMap(got.perDeviceClass)); diff != "" {
+				t.Errorf("class charges (-want +got):\n%s", diff)
 			}
 		})
 	}

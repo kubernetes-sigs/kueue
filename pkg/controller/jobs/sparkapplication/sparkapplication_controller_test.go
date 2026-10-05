@@ -504,6 +504,11 @@ func TestRestorePodSetsInfo(t *testing.T) {
 	nodeSelector := map[string]string{"disktype": "ssd"}
 	schedulingGate := corev1.PodSchedulingGate{Name: "test-scheduling-gate-1"}
 	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "ns")
+	sparkAppWithoutExecutorInstances := testSparkApp.Clone().
+		DriverTemplate(emptyDriverPodTemplateSpec.DeepCopy()).
+		ExecutorTemplate(emptyExecutorPodTemplateSpec.DeepCopy()).
+		Obj()
+	sparkAppWithoutExecutorInstances.Spec.Executor.Instances = nil
 
 	cases := map[string]struct {
 		sparkApp     *sparkappv1beta2.SparkApplication
@@ -653,6 +658,15 @@ func TestRestorePodSetsInfo(t *testing.T) {
 				Obj(),
 			wantChanged: true,
 		},
+		"should keep executor instances unset when the executor PodSet count is 0": {
+			sparkApp: sparkAppWithoutExecutorInstances.DeepCopy(),
+			podsetsInfo: []podset.PodSetInfo{
+				{Name: "driver"},
+				{Name: "executor", Count: 0},
+			},
+			wantSparkApp: sparkAppWithoutExecutorInstances.DeepCopy(),
+			wantChanged:  false,
+		},
 		"should not modify the SparkApplication  if the wrong number of PodSet infos is provided": {
 			sparkApp: testSparkApp.DeepCopy(),
 			podsetsInfo: []podset.PodSetInfo{
@@ -679,6 +693,45 @@ func TestRestorePodSetsInfo(t *testing.T) {
 			if diff := cmp.Diff(tc.wantSparkApp, tc.sparkApp, sparkAppCmpOpts); diff != "" {
 				t.Errorf("RunWithPodSetsInfo() mismatch (-want,+got):\n%s", diff)
 				return
+			}
+		})
+	}
+}
+
+func TestFinished(t *testing.T) {
+	cases := map[string]struct {
+		state        sparkappv1beta2.ApplicationStateType
+		wantSuccess  bool
+		wantFinished bool
+	}{
+		"running": {
+			state: sparkappv1beta2.ApplicationStateRunning,
+		},
+		"submission failed, the operator may still resubmit": {
+			state: sparkappv1beta2.ApplicationStateFailedSubmission,
+		},
+		"completed": {
+			state:        sparkappv1beta2.ApplicationStateCompleted,
+			wantSuccess:  true,
+			wantFinished: true,
+		},
+		"failed": {
+			state:        sparkappv1beta2.ApplicationStateFailed,
+			wantFinished: true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			sparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "ns").Obj()
+			sparkApp.Status.AppState.State = tc.state
+
+			_, gotSuccess, gotFinished := (*SparkApplication)(sparkApp).Finished(t.Context())
+			if gotSuccess != tc.wantSuccess {
+				t.Errorf("unexpected success: want %v, got %v", tc.wantSuccess, gotSuccess)
+			}
+			if gotFinished != tc.wantFinished {
+				t.Errorf("unexpected finished: want %v, got %v", tc.wantFinished, gotFinished)
 			}
 		})
 	}

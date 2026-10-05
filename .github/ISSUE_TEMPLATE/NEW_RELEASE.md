@@ -11,13 +11,13 @@ labels: area/release
 <!--
 Please do not remove items from the checklist
 -->
-- [ ] Verify that the changelog in this issue is up-to-date by running `/sync-release-notes` (or locally `./hack/releasing/sync-notes.sh $VERSION`).
+- [ ] Verify that the changelog in this issue is up-to-date by running `/sync-release-notes` (or locally `GITHUB_USER=<your-user> ./hack/releasing/sync-notes.sh $VERSION`).
 - [ ] (Optional) For major and minor releases, run ChatOps command `/create-release-candidate` on this issue to publish a pre-release build for community testing.
 - [ ] [OWNERS](https://github.com/kubernetes-sigs/kueue/blob/main/OWNERS) must LGTM the release proposal.
   At least two for minor or major releases. At least one for a patch release.
 - [ ] For major or minor releases (`v$MAJ.$MIN.0`), use the `/create-release-branch` ChatOps command to create a new release branch.
 - [ ] Update the release branch:
-  - [ ] Run `./hack/releasing/prepare_pull.sh --target release $VERSION` locally.
+  - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/prepare_pull.sh --target release $VERSION` locally.
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_RELEASE --> <!-- example #211 -->
 - [ ] Run ChatOps command `/tag-release` on this issue. This will:
   - Extract the changelog from the issue description.
@@ -33,36 +33,37 @@ Please do not remove items from the checklist
   - Generate the SBOM and add it to the release.
 - [ ] Promote images and Helm Charts to production:
   - [ ] Use `/wait-for-images` to await for the staging images.
-  - [ ] Run `./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR
+  - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR
   - [ ] Wait for the PR to be merged <!-- K8S_IO_PULL --> <!-- example kubernetes/k8s.io#7899 -->
   - [ ] Use `/wait-for-prod-images` to verify that the promoted images are available.
 - [ ] Use `/publish-release` to publish the release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
       Link: <!-- RELEASE_LINK --> <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
+- [ ] For the latest published release, run ChatOps command `/update-krew-index` on this issue to submit the krew plugin release.
 - [ ] Update the `main` branch :
-  - [ ] Run `./hack/releasing/prepare_pull.sh --target main $VERSION` locally.
-        *Note: The script automatically detects if a newer version is already out and skips version updates if so. Specifying `--skip-version-updates` is not necessary in a default workflow.*
-  - [ ] Versioned docs are handled automatically during releases -- major, minor, and patch: the
+  - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/prepare_pull.sh --target main $VERSION` locally.
+    - *Note: The script automatically detects if a newer version is already out and skips version updates if so. Specifying `--skip-version-updates` is not necessary in a default workflow.*
+    - *Note: Versioned docs are handled automatically during releases -- major, minor, and patch: the
     `main`-update PR from `prepare_pull.sh` runs `hack/releasing/snapshot-docs.py`, which
     freezes the release's docs into `site/content/<locale>/v$MAJ.$MIN/docs`, adds it to the
     version dropdown, and prunes old snapshots. Patch releases re-freeze the existing snapshot
     to the new patch version (e.g. v0.17.7 -> v0.17.8). No Netlify/DNS steps are required. Just
-    confirm the snapshot dirs and the `[[params.versions]]` entry are present in that PR.
+    confirm the snapshot dirs and the `[[params.versions]]` entry are present in that PR.*
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_MAIN --> <!-- example #214 -->
-  - [ ] Cherry-pick the pull request onto the `website` branch
-- [ ] For major and minor releases, merge the `main` branch into the `website` branch to publish the updated documentation.
+  - [ ] For patch release, cherry-pick the pull request onto the `website` branch.
+- [ ] For major and minor releases, use `/merge-main-into-website` to merge the `main` branch into the `website` branch to publish the updated documentation.
 - [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`.   <!--Link: example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
 - [ ] For a major or minor release, prepare the repo for the next version:
-  - [ ] Create an unannotated _devel_ tag in the
-        `main` branch, on the first commit that gets merged after the release
-         branch has been created (presumably the README update commit above), and, push the tag:
-        `DEVEL=v$MAJ.$(($MIN+1)).0-devel; git tag $DEVEL main && git push upstream $DEVEL`
-        This ensures that the devel builds on the `main` branch will have a meaningful version number.
+  - [ ] Run the ChatOps command `/create-devel-tag` on this issue. This will:
+        create and push an unannotated `_devel` tag
+        (`v$MAJ.$(($MIN+1)).0-devel`) on `main`, so that development builds
+        from the `main` branch have a meaningful version number.
   - [ ] Create a milestone for the next minor release and update prow to set it automatically for new PRs:
-        <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
+    - [ ] Run the ChatOps command `/create-milestone` on this issue to create the `v$MAJ.$(($MIN+1))` milestone.
+    - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/milestone_pull.sh $VERSION` to submit the `milestone_applier` PR.
+    - [ ] Wait for this PR to merge <!-- MILESTONE_PULL --> <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
   - [ ] Create the presubmits and periodic jobs for the next patch release, and remove the CI jobs for testing the unsupported branch:
-        <!-- example: https://github.com/kubernetes/test-infra/pull/34561 -->
-    - [ ] Run `./hack/releasing/ci_pull.sh $VERSION` locally.
-    - [ ] Wait for this PR to merge <!-- CI_PULL --> <!-- example #211 -->
+    - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/ci_pull.sh $VERSION` locally.
+    - [ ] Wait for this PR to merge <!-- CI_PULL --> <!-- example https://github.com/kubernetes/test-infra/pull/37948 -->
 
 
 ## Changelog

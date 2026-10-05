@@ -37,21 +37,6 @@ import (
 	"sigs.k8s.io/kueue/test/util"
 )
 
-// blockOfNode maps each e2e TAS cluster node to the topology block it
-// belongs to (see hack/testing/kind-cluster-tas.yaml): kind-worker through
-// kind-worker4 are in block "b1", kind-worker5 through kind-worker8 are in
-// block "b2".
-var blockOfNode = map[string]string{
-	"kind-worker":  "b1",
-	"kind-worker2": "b1",
-	"kind-worker3": "b1",
-	"kind-worker4": "b1",
-	"kind-worker5": "b2",
-	"kind-worker6": "b2",
-	"kind-worker7": "b2",
-	"kind-worker8": "b2",
-}
-
 var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.Label("area:tas", "feature:leaderworkerset"), func() {
 	var (
 		ns           *corev1.Namespace
@@ -778,6 +763,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 
 			ginkgo.By("verifying each replica's leader+worker land in the same block, and no block holds more than 2 of the 3 replicas", func() {
 				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				blockOfNode := util.GetTopologyDomainByNode(ctx, k8sClient, utiltesting.DefaultBlockTopologyLevel)
 
 				blockByReplicaIndex := make(map[string]string, replicas)
 				for _, pod := range pods.Items {
