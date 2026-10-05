@@ -367,6 +367,73 @@ func TestResyncClusterQueueGaugeMetrics(t *testing.T) {
 	expectFinished("beta", 1)
 }
 
+type mutableStatusChecker struct {
+	active bool
+}
+
+func (c *mutableStatusChecker) ClusterQueueActive(kueue.ClusterQueueReference) bool {
+	return c.active
+}
+
+func TestResyncClusterQueueGaugeMetricsWithWorkloadCustomLabels(t *testing.T) {
+	cases := map[string]struct {
+		// cqActiveStates is the sequence of ClusterQueue states, with metrics resynced after each one.
+		cqActiveStates []bool
+		wantWorkloads  map[string]float64
+	}{
+		"active": {
+			cqActiveStates: []bool{true},
+			wantWorkloads:  map[string]float64{"active/kind1": 1, "active/kind2": 1},
+		},
+		"stopped": {
+			cqActiveStates: []bool{true, false},
+			wantWorkloads:  map[string]float64{"inadmissible/kind1": 1, "inadmissible/kind2": 1},
+		},
+		"resumed": {
+			cqActiveStates: []bool{true, false, true},
+			wantWorkloads:  map[string]float64{"active/kind1": 1, "active/kind2": 1},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+			ctx, log := utiltesting.ContextWithLog(t)
+			customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+				utiltestingapi.MakeCustomLabel("wl_kind").SourceLabelKey("workload-kind").SourceKind(configapi.SourceKindWorkload).TrackedValues("kind1", "kind2").Obj(),
+			})
+			checker := &mutableStatusChecker{active: true}
+			manager := NewManagerForUnitTests(utiltesting.NewFakeClient(), checker,
+				WithCustomLabels(customLabels), WithPreemptionExpectations(preemptexpectations.New()))
+			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("Failed adding clusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("Failed adding queue: %v", err)
+			}
+			for name, kind := range map[string]string{"wl1": "kind1", "wl2": "kind2"} {
+				wl := utiltestingapi.MakeWorkload(name, defaultNamespace).Label("workload-kind", kind).Queue("lq").Obj()
+				if err := manager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
+					t.Fatalf("Failed adding workload: %v", err)
+				}
+			}
+
+			for _, active := range tc.cqActiveStates {
+				checker.active = active
+				manager.ResyncClusterQueueGaugeMetrics("cq")
+			}
+
+			gotWorkloads := make(map[string]float64)
+			for _, dp := range testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{"cluster_queue": "cq"}) {
+				gotWorkloads[dp.Labels["status"]+"/"+dp.Labels["custom_wl_kind"]] = dp.Value
+			}
+			if diff := gocmp.Diff(tc.wantWorkloads, gotWorkloads); diff != "" {
+				t.Errorf("Unexpected pending workload metrics (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestResyncLocalQueueGaugeMetrics(t *testing.T) {
 	ctx, log := utiltesting.ContextWithLog(t)
 	defer metrics.InitMetricVectors(nil)

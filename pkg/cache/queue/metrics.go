@@ -55,10 +55,9 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 	cqCustomLabels := m.customLabels.CQGet(cq.name)
 
 	if features.Enabled(features.CustomMetricLabels) && m.customLabels.KindConfigured(config.SourceKindWorkload) {
-		// Clear zero count label sets.
-		clearZeroWorkloadCounts(m, cq.name, active, metrics.PendingStatusActive)
-		clearZeroWorkloadCounts(m, cq.name, inadmissible, metrics.PendingStatusInadmissible)
-		// Populate metrics for non-zero counts.
+		// Clear all existing series before re-reporting to remove stale label combinations,
+		// including those moved between statuses when the ClusterQueue is stopped or resumed.
+		metrics.ClearPendingWorkloadsSeries(cq.name)
 		reportPendingWorkloadCounts(m, cq.name, active, metrics.PendingStatusActive)
 		reportPendingWorkloadCounts(m, cq.name, inadmissible, metrics.PendingStatusInadmissible)
 	} else {
@@ -87,20 +86,12 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 	}
 }
 
-func clearZeroWorkloadCounts(m *Manager, cq kueue.ClusterQueueReference, tracker *metrics.LabelValsTracker, pendingStatus string) {
-	cqCustomLabels := m.customLabels.CQGet(cq)
-	for wlLabelVals := range tracker.PopZeroCounts() {
-		customLabels := m.customLabels.CombineLabelValues(map[config.SourceKind][]string{
-			config.SourceKindClusterQueue: cqCustomLabels,
-			config.SourceKindWorkload:     wlLabelVals.OrderedList(),
-		})
-		metrics.ClearPendingWorkloads(cq, pendingStatus, customLabels, m.roleTracker)
-	}
-}
-
 func reportPendingWorkloadCounts(m *Manager, cq kueue.ClusterQueueReference, tracker *metrics.LabelValsTracker, pendingStatus string) {
 	cqCustomLabels := m.customLabels.CQGet(cq)
 	for wlLabelVals, count := range tracker.Iter() {
+		if count == 0 {
+			continue
+		}
 		customLabels := m.customLabels.CombineLabelValues(map[config.SourceKind][]string{
 			config.SourceKindClusterQueue: cqCustomLabels,
 			config.SourceKindWorkload:     wlLabelVals.OrderedList(),
