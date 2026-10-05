@@ -908,15 +908,6 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 	}
 	tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
 
-	if features.Enabled(features.SchedulerLibraryIntegration) {
-		// Building errors (e.g., metadata conflicts or missing snapshots) will be propagated in a follow-up when wiring the simulator.
-		candidatePods, err := assignment.CandidateVirtualPods(a.wl, a.cq)
-		if err != nil {
-			log.Error(err, "Failed to build candidate virtual pods for workload", "workload", a.wl.Obj.Name)
-		}
-		// Candidate virtual pods will be consumed by the scheduler simulator for WAS placement evaluation in the upcoming step.
-		_ = candidatePods
-	}
 	if assignment.RepresentativeMode() == Fit {
 		result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(a.wl))
 		if failure := result.Failure(); failure != nil {
