@@ -270,7 +270,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 		})
 	})
 
-	ginkgo.It("Should finish the replaced slice on the worker when the scheduler did not after the worker autoscales an in-tree autoscaling RayJob", func() {
+	ginkgo.It("Should finish a replaced slice on the worker when the scheduler failed to", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueRayInTreeAutoscaling, true)
 
@@ -385,6 +385,16 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 				g.Expect(finished.Status).To(gomega.Equal(metav1.ConditionTrue))
 				g.Expect(finished.Reason).To(gomega.Equal(kueue.WorkloadSliceReplaced))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("observing the replacement slice and the remote objects are kept on worker2", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				replacement := &kueue.Workload{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, replacementSliceKey, replacement)).To(gomega.Succeed())
+				g.Expect(apimeta.IsStatusConditionTrue(replacement.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeFalse())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayJob), &rayv1.RayJob{})).To(gomega.Succeed())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, childKey, &rayv1.RayCluster{})).To(gomega.Succeed())
+			}, util.ShortConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 
