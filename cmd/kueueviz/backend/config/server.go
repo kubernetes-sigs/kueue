@@ -22,6 +22,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -172,8 +173,12 @@ func (c *ServerConfig) GetServerAddress() string {
 
 func normalizeListenAddress(listen string) string {
 	// Allow bare port ("8181") or ":8181" as well as "host:port".
+	// A host without a port (e.g. "127.0.0.1") gets the default port appended.
 	if !strings.Contains(listen, ":") {
-		return net.JoinHostPort("", listen)
+		if _, err := strconv.Atoi(listen); err == nil {
+			return net.JoinHostPort("", listen)
+		}
+		return net.JoinHostPort(listen, defaultPort)
 	}
 	host, port, err := net.SplitHostPort(listen)
 	if err != nil {

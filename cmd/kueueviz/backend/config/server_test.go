@@ -69,6 +69,11 @@ func TestGetServerAddress(t *testing.T) {
 			want:   ":8181",
 		},
 		{
+			name:   "listen host without port appends default",
+			listen: "127.0.0.1",
+			want:   "127.0.0.1:8080",
+		},
+		{
 			name: "empty port falls back to default",
 			want: ":8080",
 		},
