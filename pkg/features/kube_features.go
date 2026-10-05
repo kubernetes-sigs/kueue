@@ -341,10 +341,11 @@ const (
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/6803
 	// Run the AllAtOnce MultiKueue dispatcher as a dedicated controller in the
 	// workloaddispatcher package, instead of inline in the MultiKueue workload
-	// reconciler. When disabled, falls back to the legacy inline AllAtOnce
-	// nomination path. The synchronizer in the MultiKueue workload reconciler
-	// reads Status.NominatedClusterNames in either case; only the producer of
-	// that field changes.
+	// reconciler. The controller nominates the Active MultiKueueClusters of the
+	// Workload's MultiKueueConfig and does not nominate while the Workload is being
+	// evicted. When disabled, the MultiKueue workload reconciler nominates the
+	// clusters it is connected to, as before.
+	// TODO(#6803): remove the inline path once this gate is GA.
 	MultiKueueAllAtOnceExternal featuregate.Feature = "MultiKueueAllAtOnceExternal"
 
 	// owner: @kannon92
@@ -1058,7 +1059,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	MultiKueueAllAtOnceExternal: {
-		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TLSOptions: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.20

@@ -22,13 +22,11 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
-	"k8s.io/utils/clock"
+	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -37,93 +35,54 @@ import (
 
 	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
-	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
-	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
-	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 type AllAtOnceDispatcherReconciler struct {
-	client      client.Client
-	helper      *admissioncheck.MultiKueueStoreHelper
-	clock       clock.Clock
-	roleTracker *roletracker.RoleTracker
+	dispatcher
 }
 
 var _ reconcile.Reconciler = (*AllAtOnceDispatcherReconciler)(nil)
 
 const AllAtOnceDispatcherControllerName = "multikueue_all_at_once_dispatcher"
 
+// SetupWithManager registers the controller. The nominated clusters depend on the
+// MultiKueueConfig of a Workload's AdmissionCheck, on the clusters that config lists
+// and on which of them are Active, so a change to any of these requeues the affected
+// Workloads. AdmissionCheck and MultiKueueConfig changes are handled as they are for
+// the MultiKueue workload reconciler.
 func (r *AllAtOnceDispatcherReconciler) SetupWithManager(mgr ctrl.Manager, cfg *kueueconfig.Configuration) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(AllAtOnceDispatcherControllerName).
 		For(&kueue.Workload{}).
-		Watches(&kueue.MultiKueueConfig{}, &allAtOnceConfigHandler{client: r.client}).
+		Watches(&kueue.AdmissionCheck{}, multikueue.NewWorkloadAdmissionCheckHandler(r.client, constants.UpdatesBatchPeriod)).
+		Watches(&kueue.MultiKueueConfig{}, multikueue.NewWorkloadConfigHandler(r.client, constants.UpdatesBatchPeriod)).
 		Watches(&kueue.MultiKueueCluster{}, &allAtOnceClusterHandler{client: r.client}).
 		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, AllAtOnceDispatcherControllerName)).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
 func NewAllAtOnceDispatcherReconciler(c client.Client, helper *admissioncheck.MultiKueueStoreHelper, roleTracker *roletracker.RoleTracker) *AllAtOnceDispatcherReconciler {
-	return &AllAtOnceDispatcherReconciler{
-		client:      c,
-		helper:      helper,
-		clock:       realClock,
-		roleTracker: roleTracker,
-	}
+	return &AllAtOnceDispatcherReconciler{dispatcher: newDispatcher(c, helper, roleTracker)}
 }
 
 func (r *AllAtOnceDispatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	wl := &kueue.Workload{}
-	if err := r.client.Get(ctx, req.NamespacedName, wl); err != nil {
-		if apierrors.IsNotFound(err) {
-			// The Workload was deleted between enqueue and reconcile; nothing to
-			// nominate. Return without error to avoid needless requeue/backoff.
-			log.V(3).Info("Workload not found, skip the reconciliation")
-			return reconcile.Result{}, nil
-		}
-		log.Error(err, "Failed to retrieve Workload, skip the reconciliation")
+	wl, remoteClusters, err := r.workloadToNominate(ctx, req, nil)
+	if wl == nil || err != nil {
 		return reconcile.Result{}, err
-	}
-
-	if !wl.DeletionTimestamp.IsZero() {
-		log.V(3).Info("Workload is deleted, skip the reconciliation")
-		return reconcile.Result{}, nil
-	}
-
-	mkAc, err := admissioncheck.GetMultiKueueAdmissionCheck(ctx, r.client, wl)
-	if err != nil {
-		log.Error(err, "Can not get MultiKueue AdmissionCheckState")
-		return reconcile.Result{}, err
-	}
-
-	if workload.ShouldSkipClusterNomination(mkAc, wl, workloadslicing.IsElasticWorkload(wl)) {
-		log.V(3).Info("Skipping cluster nomination phase")
-		return reconcile.Result{}, nil
-	}
-
-	remoteClusters, err := admissioncheck.GetRemoteClusters(ctx, r.helper, mkAc.Name)
-	if err != nil {
-		log.Error(err, "Can not get workload group")
-		return reconcile.Result{}, err
-	}
-
-	if workloadfinish.IsFinished(wl) || !workload.HasQuotaReservation(wl) {
-		log.V(3).Info("Workload is already finished or has no quota reserved, skip the reconciliation")
-		return reconcile.Result{}, nil
 	}
 
 	// The workload is being evicted; let the core eviction flow complete (the Job
-	// reconciler will UnsetQuotaReservation once the job is no longer active, and
-	// the scheduler will requeue it) before re-nominating clusters. Re-nominating
-	// during eviction races with the post-eviction cleanup and prevents the
-	// workload from re-entering the queue.
+	// reconciler clears the quota reservation once the job is no longer active, and
+	// the Workload controller requeues the workload) before re-nominating clusters.
+	// Re-nominating during eviction races with the post-eviction cleanup and prevents
+	// the workload from re-entering the queue.
 	if workloadevict.IsEvicted(wl) {
 		log.V(3).Info("Workload is being evicted, skip the reconciliation")
 		return reconcile.Result{}, nil
@@ -140,8 +99,7 @@ func (r *AllAtOnceDispatcherReconciler) Reconcile(ctx context.Context, req ctrl.
 }
 
 // filterActiveClusters returns the subset of remoteClusters whose MultiKueueCluster
-// has the MultiKueueClusterActive condition set to True. Clusters that are missing
-// or not active are excluded so they are not nominated for workload placement.
+// exists and is Active, so that missing or inactive clusters are not nominated.
 func (r *AllAtOnceDispatcherReconciler) filterActiveClusters(ctx context.Context, remoteClusters []string) (sets.Set[string], error) {
 	active := sets.New[string]()
 	for _, clusterName := range remoteClusters {
@@ -150,10 +108,9 @@ func (r *AllAtOnceDispatcherReconciler) filterActiveClusters(ctx context.Context
 			if client.IgnoreNotFound(err) != nil {
 				return nil, err
 			}
-			// Missing cluster: skip.
 			continue
 		}
-		if apimeta.IsStatusConditionTrue(cluster.Status.Conditions, kueue.MultiKueueClusterActive) {
+		if isActive(cluster) {
 			active.Insert(clusterName)
 		}
 	}
@@ -169,152 +126,60 @@ func (r *AllAtOnceDispatcherReconciler) nominateWorkers(ctx context.Context, wl 
 	}
 
 	log.V(5).Info("Nominating worker clusters", "nominatedClusterNames", nominatedWorkers)
-	if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-		wl.Status.NominatedClusterNames = nominatedWorkers
-		return true, nil
-	}); err != nil {
-		log.V(2).Error(err, "Failed to patch nominated clusters")
-		return reconcile.Result{}, err
-	}
-
-	return reconcile.Result{}, nil
+	return reconcile.Result{}, r.nominate(ctx, wl, nominatedWorkers)
 }
 
-// Inline version had access to config and cluster handlers for free, we need to add them here.
-// allAtOnceConfigHandler enqueues all Workloads referencing AdmissionChecks that
-// use a given MultiKueueConfig whenever the config is created, updated or deleted.
-type allAtOnceConfigHandler struct {
-	client client.Client
-}
-
-var _ handler.EventHandler = (*allAtOnceConfigHandler)(nil)
-
-func (h *allAtOnceConfigHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	cfg, ok := e.Object.(*kueue.MultiKueueConfig)
-	if !ok {
-		return
-	}
-	if err := queueWorkloadsForConfig(ctx, h.client, cfg.Name, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on config create", "multiKueueConfig", cfg.Name)
-	}
-}
-
-func (h *allAtOnceConfigHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	oldCfg, isOld := e.ObjectOld.(*kueue.MultiKueueConfig)
-	newCfg, isNew := e.ObjectNew.(*kueue.MultiKueueConfig)
-	if !isOld || !isNew {
-		return
-	}
-	if equality.Semantic.DeepEqual(oldCfg.Spec.Clusters, newCfg.Spec.Clusters) {
-		return
-	}
-	if err := queueWorkloadsForConfig(ctx, h.client, newCfg.Name, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on config update", "multiKueueConfig", newCfg.Name)
-	}
-}
-
-func (h *allAtOnceConfigHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	cfg, ok := e.Object.(*kueue.MultiKueueConfig)
-	if !ok {
-		return
-	}
-	if err := queueWorkloadsForConfig(ctx, h.client, cfg.Name, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on config delete", "multiKueueConfig", cfg.Name)
-	}
-}
-
-func (h *allAtOnceConfigHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-}
-
-// allAtOnceClusterHandler enqueues all Workloads referencing AdmissionChecks
-// whose MultiKueueConfig contains the cluster, but only when the cluster's
-// activity status (MultiKueueClusterActive) actually transitions.
+// allAtOnceClusterHandler requeues the Workloads of the MultiKueueConfigs that list
+// a MultiKueueCluster when the cluster becomes Active or inactive, or is deleted.
+// Creating a cluster needs no requeue: it cannot be Active before its first update.
 type allAtOnceClusterHandler struct {
 	client client.Client
 }
 
 var _ handler.EventHandler = (*allAtOnceClusterHandler)(nil)
 
-func (h *allAtOnceClusterHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	cluster, ok := e.Object.(*kueue.MultiKueueCluster)
-	if !ok {
-		return
-	}
-	if err := h.queueForCluster(ctx, cluster.Name, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on cluster create", "multiKueueCluster", cluster.Name)
-	}
+func (h *allAtOnceClusterHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
 func (h *allAtOnceClusterHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	oldCluster, isOld := e.ObjectOld.(*kueue.MultiKueueCluster)
 	newCluster, isNew := e.ObjectNew.(*kueue.MultiKueueCluster)
-	if !isOld || !isNew {
+	if !isOld || !isNew || isActive(oldCluster) == isActive(newCluster) {
 		return
 	}
-	oldActive := apimeta.FindStatusCondition(oldCluster.Status.Conditions, kueue.MultiKueueClusterActive)
-	newActive := apimeta.FindStatusCondition(newCluster.Status.Conditions, kueue.MultiKueueClusterActive)
-	if conditionStatusEqual(oldActive, newActive) {
-		return
-	}
-	if err := h.queueForCluster(ctx, newCluster.Name, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on cluster update", "multiKueueCluster", newCluster.Name)
+	if err := h.queueWorkloads(ctx, newCluster.Name, q); err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on cluster update", "multiKueueCluster", klog.KObj(newCluster))
 	}
 }
 
 func (h *allAtOnceClusterHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	cluster, ok := e.Object.(*kueue.MultiKueueCluster)
-	if !ok {
+	cluster, isCluster := e.Object.(*kueue.MultiKueueCluster)
+	if !isCluster {
 		return
 	}
-	if err := h.queueForCluster(ctx, cluster.Name, q); err != nil {
-		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on cluster delete", "multiKueueCluster", cluster.Name)
+	if err := h.queueWorkloads(ctx, cluster.Name, q); err != nil {
+		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on cluster delete", "multiKueueCluster", klog.KObj(cluster))
 	}
 }
 
 func (h *allAtOnceClusterHandler) Generic(context.Context, event.GenericEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-func (h *allAtOnceClusterHandler) queueForCluster(ctx context.Context, clusterName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
+func (h *allAtOnceClusterHandler) queueWorkloads(ctx context.Context, clusterName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	configs := &kueue.MultiKueueConfigList{}
 	if err := h.client.List(ctx, configs, client.MatchingFields{multikueue.UsingMultiKueueClusters: clusterName}); err != nil {
 		return err
 	}
 	var errs []error
-	for _, cfg := range configs.Items {
-		if err := queueWorkloadsForConfig(ctx, h.client, cfg.Name, q); err != nil {
+	for _, config := range configs.Items {
+		if err := multikueue.QueueWorkloadsForConfig(ctx, h.client, config.Name, constants.UpdatesBatchPeriod, q); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
 }
 
-// queueWorkloadsForConfig enqueues every workload that has a pending MultiKueue
-// admission check whose MultiKueueConfig parameter matches the given config name.
-func queueWorkloadsForConfig(ctx context.Context, c client.Client, configName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
-	admissionChecks := &kueue.AdmissionCheckList{}
-	if err := c.List(ctx, admissionChecks, client.MatchingFields{multikueue.AdmissionCheckUsingConfigKey: configName}); err != nil {
-		return err
-	}
-	var errs []error
-	for _, ac := range admissionChecks.Items {
-		workloads := &kueue.WorkloadList{}
-		if err := c.List(ctx, workloads, client.MatchingFields{multikueue.WorkloadsWithAdmissionCheckKey: ac.Name}); err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		for _, wl := range workloads.Items {
-			q.Add(reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&wl)})
-		}
-	}
-	return errors.Join(errs...)
-}
-
-func conditionStatusEqual(a, b *metav1.Condition) bool {
-	if a == b {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	return a.Status == b.Status && a.Reason == b.Reason
+// isActive reports whether cluster can be nominated.
+func isActive(cluster *kueue.MultiKueueCluster) bool {
+	return apimeta.IsStatusConditionTrue(cluster.Status.Conditions, kueue.MultiKueueClusterActive)
 }

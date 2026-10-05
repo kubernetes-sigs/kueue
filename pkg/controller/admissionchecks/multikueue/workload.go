@@ -913,11 +913,10 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	if clusterName := workload.ClusterName(group.local); group.IsElasticWorkload() && clusterName != "" {
 		nominatedWorkers = []string{clusterName}
 	} else if !features.Enabled(features.MultiKueueAllAtOnceExternal) && w.dispatcherName == config.MultiKueueDispatcherModeAllAtOnce {
-		// Legacy inline AllAtOnce nomination path. Kept under feature gate so
-		// operators can roll back to the pre-#10937 behavior if the dedicated
-		// AllAtOnceDispatcherReconciler controller misbehaves. When the
-		// MultiKueueAllAtOnceExternal gate goes GA, this branch (and the
-		// surrounding gate check) can be removed.
+		// Inline AllAtOnce nomination, which disabling MultiKueueAllAtOnceExternal
+		// falls back to if the AllAtOnceDispatcherReconciler misbehaves.
+		// TODO(#6803): remove this branch, together with the gate check in
+		// workloaddispatcher.SetupControllers, once MultiKueueAllAtOnceExternal is GA.
 		for workerName := range group.remotes {
 			nominatedWorkers = append(nominatedWorkers, workerName)
 		}
@@ -964,17 +963,6 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 				}
 			}
 		} else if remoteWl != nil {
-			// Keep a remote that still carries WorkloadEvicted=True. reconcileGroup's
-			// eviction handling keys off bestMatchByCondition(WorkloadEvicted) to drive
-			// recovery: SyncJob for a manager-side eviction, or resetting the
-			// AdmissionCheck for re-admission after a worker-side eviction. Deleting the
-			// remote here erases that signal, so neither path runs and the eviction is
-			// never processed. It is cleaned up later, once the local workload is
-			// re-admitted, finishes, or loses its quota reservation.
-			if workloadevict.IsEvicted(remoteWl) {
-				log.V(3).Info("Preserving evicted remote workload to allow eviction-recovery sync", "remote", rem)
-				continue
-			}
 			if err := client.IgnoreNotFound(group.RemoveRemoteObjects(ctx, rem)); err != nil {
 				log.V(2).Error(err, "removing non-nominated remote object", "remote", rem)
 				errs = append(errs, err)
@@ -1039,6 +1027,21 @@ type admissionCheckHandler struct {
 	eventsBatchPeriod time.Duration
 }
 
+// NewWorkloadConfigHandler returns the MultiKueueConfig event handler of the
+// MultiKueue workload reconciler: it queues, after batchPeriod, the Workloads
+// whose MultiKueue AdmissionCheck uses a config whose clusters change or that is
+// deleted.
+func NewWorkloadConfigHandler(c client.Client, batchPeriod time.Duration) handler.EventHandler {
+	return &configHandler{client: c, eventsBatchPeriod: batchPeriod}
+}
+
+// NewWorkloadAdmissionCheckHandler returns the AdmissionCheck event handler of the
+// MultiKueue workload reconciler: it queues, after batchPeriod, the Workloads of a
+// MultiKueue AdmissionCheck that is created or pointed at another MultiKueueConfig.
+func NewWorkloadAdmissionCheckHandler(c client.Client, batchPeriod time.Duration) handler.EventHandler {
+	return &admissionCheckHandler{client: c, eventsBatchPeriod: batchPeriod}
+}
+
 func (c *configHandler) Create(context.Context, event.CreateEvent, workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	// no-op as we don't need to react to new configs
 }
@@ -1052,7 +1055,7 @@ func (c *configHandler) Update(ctx context.Context, e event.UpdateEvent, q workq
 	if equality.Semantic.DeepEqual(oldConfig.Spec.Clusters, newConfig.Spec.Clusters) {
 		return
 	}
-	if err := c.queueWorkloadsForConfig(ctx, oldConfig.Name, q); err != nil {
+	if err := QueueWorkloadsForConfig(ctx, c.client, oldConfig.Name, c.eventsBatchPeriod, q); err != nil {
 		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on config update", "multiKueueConfig", klog.KObj(oldConfig))
 	}
 }
@@ -1062,7 +1065,7 @@ func (c *configHandler) Delete(ctx context.Context, e event.DeleteEvent, q workq
 	if !isConfig {
 		return
 	}
-	if err := c.queueWorkloadsForConfig(ctx, config.Name, q); err != nil {
+	if err := QueueWorkloadsForConfig(ctx, c.client, config.Name, c.eventsBatchPeriod, q); err != nil {
 		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to queue workloads on config deletion", "multiKueueConfig", klog.KObj(config))
 	}
 }
@@ -1071,17 +1074,17 @@ func (c *configHandler) Generic(context.Context, event.GenericEvent, workqueue.T
 	// no-op as we don't need to react to generic
 }
 
-func (c *configHandler) queueWorkloadsForConfig(ctx context.Context, configName string, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
+// QueueWorkloadsForConfig queues, after batchPeriod, every Workload that lists an
+// AdmissionCheck using the MultiKueueConfig named configName.
+func QueueWorkloadsForConfig(ctx context.Context, c client.Client, configName string, batchPeriod time.Duration, q workqueue.TypedRateLimitingInterface[reconcile.Request]) error {
 	admissionChecks := &kueue.AdmissionCheckList{}
-	var errs []error
-
-	if err := c.client.List(ctx, admissionChecks, client.MatchingFields{AdmissionCheckUsingConfigKey: configName}); err != nil {
-		errs = append(errs, err)
-		return errors.Join(errs...)
+	if err := c.List(ctx, admissionChecks, client.MatchingFields{AdmissionCheckUsingConfigKey: configName}); err != nil {
+		return err
 	}
 
+	var errs []error
 	for _, admissionCheck := range admissionChecks.Items {
-		if err := queueWorkloadsForAdmissionCheck(ctx, c.client, admissionCheck.Name, c.eventsBatchPeriod, q); err != nil {
+		if err := queueWorkloadsForAdmissionCheck(ctx, c, admissionCheck.Name, batchPeriod, q); err != nil {
 			errs = append(errs, err)
 		}
 	}

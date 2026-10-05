@@ -2543,7 +2543,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 	tests := []struct {
 		name                      string
 		dispatcherMode            string
-		allAtOnceExternalGate     *bool // nil = use default; otherwise overrides MultiKueueAllAtOnceExternal for this case
+		featureGates              map[featuregate.Feature]bool
 		remotes                   map[string]*kueue.Workload
 		nominatedWorkers          []string
 		localClusterName          *string
@@ -2554,7 +2554,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 		wantNominatedClusterNames []string // if non-nil, asserts NominatedClusterNames after reconcile
 	}{
 		{
-			name:             "AllClusters: clone to all remotes, nominates all",
+			name:             "AllClusters: clone to all nominated remotes",
 			dispatcherMode:   config.MultiKueueDispatcherModeAllAtOnce,
 			remotes:          map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
 			nominatedWorkers: []string{remoteNames[0], remoteNames[1]},
@@ -2571,16 +2571,16 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 			// Legacy inline AllAtOnce path: with the feature gate disabled,
 			// nominateAndSynchronizeWorkers itself populates NominatedClusterNames
 			// from group.remotes (no pre-populated nominatedWorkers needed).
-			name:                  "AllClusters legacy: gate off, inline branch nominates from group.remotes",
-			dispatcherMode:        config.MultiKueueDispatcherModeAllAtOnce,
-			allAtOnceExternalGate: new(bool),
-			remotes:               map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
-			wantCreated:           []string{remoteNames[0], remoteNames[1]},
+			name:           "AllClusters legacy: gate off, inline branch nominates from group.remotes",
+			dispatcherMode: config.MultiKueueDispatcherModeAllAtOnce,
+			featureGates:   map[featuregate.Feature]bool{features.MultiKueueAllAtOnceExternal: false},
+			remotes:        map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
+			wantCreated:    []string{remoteNames[0], remoteNames[1]},
 		},
 		{
 			name:                      "AllClusters legacy: gate off, nominate all workers when called directly with ClusterName set",
 			dispatcherMode:            config.MultiKueueDispatcherModeAllAtOnce,
-			allAtOnceExternalGate:     new(bool),
+			featureGates:              map[featuregate.Feature]bool{features.MultiKueueAllAtOnceExternal: false},
 			remotes:                   map[string]*kueue.Workload{remoteNames[0]: nil, remoteNames[1]: nil},
 			localClusterName:          new(remoteNames[0]),
 			wantCreated:               []string{remoteNames[0], remoteNames[1]},
@@ -2589,7 +2589,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 		{
 			name:                      "AllClusters legacy: gate off, same set in reversed order does not trigger unnecessary patch",
 			dispatcherMode:            config.MultiKueueDispatcherModeAllAtOnce,
-			allAtOnceExternalGate:     new(bool),
+			featureGates:              map[featuregate.Feature]bool{features.MultiKueueAllAtOnceExternal: false},
 			remotes:                   map[string]*kueue.Workload{remoteNames[0]: {}, remoteNames[1]: {}},
 			nominatedWorkers:          []string{remoteNames[1], remoteNames[0]}, // reversed (not sorted)
 			wantCreated:               nil,
@@ -2629,9 +2629,7 @@ func TestNominateAndSynchronizeWorkers_MoreCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if tt.allAtOnceExternalGate != nil {
-				features.SetFeatureGateDuringTest(t, features.MultiKueueAllAtOnceExternal, *tt.allAtOnceExternalGate)
-			}
+			features.SetFeatureGatesDuringTest(t, tt.featureGates)
 			fakeClock := testingclock.NewFakeClock(now)
 
 			local := &kueue.Workload{

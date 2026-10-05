@@ -24,154 +24,85 @@ import (
 	"github.com/google/go-cmp/cmp"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/util/workqueue"
 	testingclock "k8s.io/utils/clock/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	"sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestAllAtOnceDispatcherReconciler_Reconcile(t *testing.T) {
-	const workloadName = "test-workload"
+	const (
+		workloadName = "test-workload"
+		acName       = "ac1"
+	)
 
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)
-	baseWorkload := utiltestingapi.MakeWorkload(workloadName, metav1.NamespaceDefault)
+	baseWorkload := utiltestingapi.MakeWorkload(workloadName, metav1.NamespaceDefault).
+		AdmissionCheck(kueue.AdmissionCheckState{Name: acName, State: kueue.CheckStatePending}).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now)
+	activeCluster := func(name string) kueue.MultiKueueCluster {
+		return *utiltestingapi.MakeMultiKueueCluster(name).
+			Active(metav1.ConditionTrue, "Active", "", 1).
+			Obj()
+	}
 
 	tests := map[string]struct {
-		workload       *kueue.Workload
-		mkAcState      *kueue.AdmissionCheckState
-		wantErr        error
-		remoteClusters []string
-		clusters       []kueue.MultiKueueCluster
+		workload              *kueue.Workload
+		clusters              []kueue.MultiKueueCluster
+		wantNominatedClusters []string
 	}{
-		"workload not found": {
-			// Deleted between enqueue and reconcile: treated as a no-op, not an error.
-			workload: nil,
-			wantErr:  nil,
+		"nominates all active clusters": {
+			workload:              baseWorkload.Clone().Obj(),
+			clusters:              []kueue.MultiKueueCluster{activeCluster("cluster1"), activeCluster("cluster2")},
+			wantNominatedClusters: []string{"cluster1", "cluster2"},
 		},
-		"workload deleted": {
-			workload: baseWorkload.Clone().DeletionTimestamp(now).Finalizers("kubernetes").Obj(),
-		},
-		"admission check nil": {
+		"inactive cluster is not nominated": {
 			workload: baseWorkload.Clone().Obj(),
-		},
-		"admission check is rejected": {
-			workload: baseWorkload.Clone().Obj(),
-			mkAcState: &kueue.AdmissionCheckState{
-				Name:  "ac1",
-				State: kueue.CheckStateRejected,
-			},
-		},
-		"admission check is ready": {
-			workload: baseWorkload.Clone().Obj(),
-			mkAcState: &kueue.AdmissionCheckState{
-				Name:  "ac1",
-				State: kueue.CheckStateReady,
-			},
-		},
-		"already assigned to cluster": {
-			workload: baseWorkload.Clone().ClusterName("assigned").Obj(),
-			mkAcState: &kueue.AdmissionCheckState{
-				Name:  "ac1",
-				State: kueue.CheckStatePending,
-			},
-		},
-		"workload is already finished": {
-			workload: baseWorkload.Clone().Finished().Obj(),
-			mkAcState: &kueue.AdmissionCheckState{
-				Name:  "ac1",
-				State: kueue.CheckStatePending,
-			},
-			remoteClusters: []string{"cluster1"},
 			clusters: []kueue.MultiKueueCluster{
-				*utiltestingapi.MakeMultiKueueCluster("cluster1").
-					KubeConfig(kueue.SecretLocationType, "cluster1").
-					Generation(1).
-					Obj(),
+				activeCluster("cluster1"),
+				*utiltestingapi.MakeMultiKueueCluster("cluster2").Active(metav1.ConditionFalse, "Inactive", "", 1).Obj(),
 			},
+			wantNominatedClusters: []string{"cluster1"},
 		},
-		"workload has quota reserved": {
-			workload: baseWorkload.Clone().Obj(),
-			mkAcState: &kueue.AdmissionCheckState{
-				Name:  "ac1",
-				State: kueue.CheckStatePending,
-			},
-			remoteClusters: []string{"cluster1"},
-			clusters: []kueue.MultiKueueCluster{
-				*utiltestingapi.MakeMultiKueueCluster("cluster1").
-					KubeConfig(kueue.SecretLocationType, "cluster1").
-					Generation(1).
-					Obj(),
-			},
-		},
-		"workload is being evicted": {
+		"workload being evicted is not nominated": {
 			workload: baseWorkload.Clone().EvictedAt(now).Obj(),
-			mkAcState: &kueue.AdmissionCheckState{
-				Name:  "ac1",
-				State: kueue.CheckStatePending,
-			},
-			remoteClusters: []string{"cluster1"},
-			clusters: []kueue.MultiKueueCluster{
-				*utiltestingapi.MakeMultiKueueCluster("cluster1").
-					KubeConfig(kueue.SecretLocationType, "cluster1").
-					Generation(1).
-					Obj(),
-			},
+			clusters: []kueue.MultiKueueCluster{activeCluster("cluster1"), activeCluster("cluster2")},
 		},
 	}
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			objs := []client.Object{}
-			if tc.mkAcState != nil {
-				tc.workload.Status.AdmissionChecks = []kueue.AdmissionCheckState{*tc.mkAcState}
-				ac := utiltestingapi.MakeAdmissionCheck(string(tc.mkAcState.Name)).
-					ControllerName(kueue.MultiKueueControllerName).
-					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", string(tc.mkAcState.Name)).
-					Obj()
+			objs := append(multiKueueObjects(acName, "cluster1", "cluster2"), tc.workload)
+			for i := range tc.clusters {
+				objs = append(objs, &tc.clusters[i])
+			}
+			cl := utiltesting.NewClientBuilder().WithObjects(objs...).WithStatusSubresource(tc.workload).Build()
+			rec := &AllAtOnceDispatcherReconciler{dispatcher: newTestDispatcher(t, cl, fakeClock)}
 
-				objs = append(objs, ac)
-			}
-
-			if tc.workload != nil {
-				objs = append(objs, tc.workload)
-			}
-
-			if tc.mkAcState != nil {
-				mkConfig := utiltestingapi.MakeMultiKueueConfig(string(tc.mkAcState.Name)).Clusters("cluster1").Obj()
-				objs = append(objs, mkConfig)
-			}
-			scheme := runtime.NewScheme()
-			if err := kueue.AddToScheme(scheme); err != nil {
-				t.Fatalf("Fail to add to scheme %s", err)
-			}
-
-			if tc.clusters != nil {
-				for _, cluster := range tc.clusters {
-					objs = append(objs, &cluster)
-				}
-			}
-			cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
-			helper, _ := admissioncheck.NewMultiKueueStoreHelper(cl)
-			rec := &AllAtOnceDispatcherReconciler{
-				client: cl,
-				helper: helper,
-				clock:  fakeClock,
-			}
-
-			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: metav1.NamespaceDefault, Name: workloadName}}
+			req := ctrl.Request{NamespacedName: client.ObjectKeyFromObject(tc.workload)}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			_, gotErr := rec.Reconcile(ctx, req)
-			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
-				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
+			if _, err := rec.Reconcile(ctx, req); err != nil {
+				t.Fatalf("Reconcile returned unexpected error: %v", err)
+			}
+
+			gotWl := &kueue.Workload{}
+			if err := cl.Get(ctx, req.NamespacedName, gotWl); err != nil {
+				t.Fatalf("Fail to get workload: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantNominatedClusters, gotWl.Status.NominatedClusterNames); diff != "" {
+				t.Errorf("Unexpected nominated clusters (-want/+got)\n%s", diff)
 			}
 		})
 	}
@@ -191,6 +122,7 @@ func TestAllAtOnceDispatcherNominateWorkers(t *testing.T) {
 		remoteClusters        sets.Set[string]
 		workload              *kueue.Workload
 		wantNominatedClusters []string
+		wantPatched           bool
 	}{
 		"no remotes": {
 			remoteClusters:        make(sets.Set[string]),
@@ -201,16 +133,19 @@ func TestAllAtOnceDispatcherNominateWorkers(t *testing.T) {
 			remoteClusters:        sets.New("A"),
 			workload:              baseWl.Clone().Obj(),
 			wantNominatedClusters: []string{"A"},
+			wantPatched:           true,
 		},
 		"three remotes": {
 			remoteClusters:        sets.New("A", "B", "C"),
 			workload:              baseWl.Clone().Obj(),
 			wantNominatedClusters: []string{"A", "B", "C"},
+			wantPatched:           true,
 		},
 		"remotes returned in sorted order": {
 			remoteClusters:        sets.New("C", "A", "B"),
 			workload:              baseWl.Clone().Obj(),
 			wantNominatedClusters: []string{"A", "B", "C"},
+			wantPatched:           true,
 		},
 		"all already nominated, no patch needed": {
 			remoteClusters:        sets.New("A", "B", "C"),
@@ -221,29 +156,23 @@ func TestAllAtOnceDispatcherNominateWorkers(t *testing.T) {
 			remoteClusters:        sets.New("A", "B", "C", "D"),
 			workload:              baseWl.Clone().NominatedClusterNames("A", "B").Obj(),
 			wantNominatedClusters: []string{"A", "B", "C", "D"},
+			wantPatched:           true,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			scheme := runtime.NewScheme()
-			if err := kueue.AddToScheme(scheme); err != nil {
-				t.Fatalf("Fail to add to scheme %s", err)
-			}
-
-			objs := []client.Object{tc.workload}
-			cl := fake.NewClientBuilder().WithScheme(scheme).
+			patched := false
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(tc.workload).WithStatusSubresource(tc.workload).
 				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-						tc.workload.Status.NominatedClusterNames = obj.(*kueue.Workload).Status.NominatedClusterNames
-						return utiltesting.TreatSSAAsStrategicMerge(ctx, client, subResourceName, obj, patch, opts...)
+					SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, obj runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+						patched = true
+						return c.SubResource(subResourceName).Apply(ctx, obj, opts...)
 					},
-				}).WithObjects(objs...).WithStatusSubresource(objs...).Build()
+				}).Build()
 
-			reconciler := &AllAtOnceDispatcherReconciler{
-				client: cl,
-				clock:  fakeClock,
-			}
+			reconciler := &AllAtOnceDispatcherReconciler{client: cl, clock: fakeClock}
 
 			ctx, log := utiltesting.ContextWithLog(t)
 			if _, err := reconciler.nominateWorkers(ctx, tc.workload, tc.remoteClusters, log); err != nil {
@@ -253,6 +182,101 @@ func TestAllAtOnceDispatcherNominateWorkers(t *testing.T) {
 			if diff := cmp.Diff(tc.wantNominatedClusters, tc.workload.Status.NominatedClusterNames); diff != "" {
 				t.Errorf("unexpected nominated clusters (-want/+got):\n%s", diff)
 			}
+			if patched != tc.wantPatched {
+				t.Errorf("unexpected status patch: want %t, got %t", tc.wantPatched, patched)
+			}
 		})
 	}
+}
+
+func TestAllAtOnceClusterHandler(t *testing.T) {
+	const acName = "ac1"
+	cluster := func(status metav1.ConditionStatus, reason, message string) *kueue.MultiKueueCluster {
+		return utiltestingapi.MakeMultiKueueCluster("cluster1").Active(status, reason, message, 1).Obj()
+	}
+	active := cluster(metav1.ConditionTrue, "Active", "Connected")
+	inactive := cluster(metav1.ConditionFalse, "ClientConnectionFailed", "connection refused")
+	queued := []reconcile.Request{{Namespace: metav1.NamespaceDefault, Name: "wl1"}}
+
+	type queue = workqueue.TypedRateLimitingInterface[reconcile.Request]
+	tests := map[string]struct {
+		send       func(ctx context.Context, h *allAtOnceClusterHandler, q queue)
+		wantQueued []reconcile.Request
+	}{
+		"create": {
+			send: func(ctx context.Context, h *allAtOnceClusterHandler, q queue) {
+				h.Create(ctx, event.CreateEvent{Object: utiltestingapi.MakeMultiKueueCluster("cluster1").Obj()}, q)
+			},
+		},
+		"update deactivating the cluster": {
+			send: func(ctx context.Context, h *allAtOnceClusterHandler, q queue) {
+				h.Update(ctx, event.UpdateEvent{ObjectOld: active, ObjectNew: inactive}, q)
+			},
+			wantQueued: queued,
+		},
+		"update activating the cluster": {
+			send: func(ctx context.Context, h *allAtOnceClusterHandler, q queue) {
+				h.Update(ctx, event.UpdateEvent{ObjectOld: inactive, ObjectNew: active}, q)
+			},
+			wantQueued: queued,
+		},
+		"update activating a new cluster": {
+			send: func(ctx context.Context, h *allAtOnceClusterHandler, q queue) {
+				h.Update(ctx, event.UpdateEvent{ObjectOld: utiltestingapi.MakeMultiKueueCluster("cluster1").Obj(), ObjectNew: active}, q)
+			},
+			wantQueued: queued,
+		},
+		"update changing the reason of an active cluster": {
+			send: func(ctx context.Context, h *allAtOnceClusterHandler, q queue) {
+				h.Update(ctx, event.UpdateEvent{ObjectOld: active, ObjectNew: cluster(metav1.ConditionTrue, "Reconnected", "Connected")}, q)
+			},
+		},
+		"update changing the message of an inactive cluster": {
+			send: func(ctx context.Context, h *allAtOnceClusterHandler, q queue) {
+				h.Update(ctx, event.UpdateEvent{ObjectOld: inactive, ObjectNew: cluster(metav1.ConditionFalse, "ClientConnectionFailed", "timeout")}, q)
+			},
+		},
+		"delete": {
+			send: func(ctx context.Context, h *allAtOnceClusterHandler, q queue) {
+				h.Delete(ctx, event.DeleteEvent{Object: active}, q)
+			},
+			wantQueued: queued,
+		},
+		"delete a cluster no config lists": {
+			send: func(ctx context.Context, h *allAtOnceClusterHandler, q queue) {
+				h.Delete(ctx, event.DeleteEvent{Object: utiltestingapi.MakeMultiKueueCluster("cluster2").Obj()}, q)
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			objs := append(multiKueueObjects(acName, "cluster1"),
+				utiltestingapi.MakeWorkload("wl1", metav1.NamespaceDefault).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: acName, State: kueue.CheckStatePending}).
+					Obj(),
+			)
+			cl := newIndexedClientBuilder(ctx, t).WithObjects(objs...).Build()
+			q := &utiltesting.MockTypedRateLimitingInterface{}
+
+			tc.send(ctx, &allAtOnceClusterHandler{client: cl}, q)
+
+			if diff := cmp.Diff(tc.wantQueued, q.Items); diff != "" {
+				t.Errorf("Unexpected queued requests (-want/+got)\n%s", diff)
+			}
+		})
+	}
+}
+
+// newIndexedClientBuilder returns a fake client builder with the field indexes the
+// AllAtOnce dispatcher's event handlers list through.
+func newIndexedClientBuilder(ctx context.Context, t *testing.T) *fake.ClientBuilder {
+	t.Helper()
+	builder := utiltesting.NewClientBuilder().
+		WithIndex(&kueue.Workload{}, indexer.WorkloadAdmissionCheckKey, indexer.IndexWorkloadAdmissionCheck)
+	if err := multikueue.SetupIndexer(ctx, utiltesting.AsIndexer(builder), metav1.NamespaceDefault); err != nil {
+		t.Fatalf("Failed to set up the MultiKueue indexes: %v", err)
+	}
+	return builder
 }

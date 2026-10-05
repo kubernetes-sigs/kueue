@@ -42,6 +42,8 @@ func SetupControllers(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracke
 		// handled inline in the MultiKueue workload reconciler; do not register
 		// the dedicated dispatcher controller, otherwise it would race the
 		// inline path on Status.NominatedClusterNames.
+		// TODO(#6803): remove this check, together with the inline path, once
+		// MultiKueueAllAtOnceExternal is GA.
 		if !features.Enabled(features.MultiKueueAllAtOnceExternal) {
 			return "", nil
 		}

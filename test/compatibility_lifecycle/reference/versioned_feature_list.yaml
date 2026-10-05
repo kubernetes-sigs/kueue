@@ -318,7 +318,7 @@
   - default: true
     lockToDefault: false
     preRelease: Beta
-    version: "0.18"
+    version: "0.21"
 - name: MultiKueueBatchJobClearingTTLSecondsAfterFinishedOnWorkerCluster
   versionedSpecs:
   - default: false
