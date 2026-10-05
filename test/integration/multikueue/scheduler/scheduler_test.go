@@ -542,7 +542,6 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				RequestAndLimit(corev1.ResourceCPU, "0.1").
 				RequestAndLimit(corev1.ResourceMemory, "0.1G").
 				TerminationGracePeriod(1).
-				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				Obj()
 
 			ginkgo.By("Creating the job", func() {
