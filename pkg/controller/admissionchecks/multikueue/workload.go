@@ -55,6 +55,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -103,7 +104,9 @@ type wlReconciler struct {
 	roleTracker       *roletracker.RoleTracker
 
 	// previousClusterNames keeps the cluster a workload was admitted on after an eviction
-	// clears its status.clusterName, so its remote objects there can still be removed.
+	// clears its status.clusterName, until the next reconcile persists it in
+	// MultiKueuePreviousClusterAnnotation. The update event handler cannot write it to the
+	// workload, and the annotation keeps a pending cleanup across a restart.
 	previousClusterNames *utilmaps.SyncMap[string, string]
 }
 
@@ -299,20 +302,28 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group *wlGroup, key string) (time.Duration, error) {
 	clusterName, found := w.previousClusterNames.Get(key)
 	if !found {
+		clusterName = group.local.Annotations[constants.MultiKueuePreviousClusterAnnotation]
+	}
+	if clusterName == "" {
 		return 0, nil
 	}
 	if _, inGroup := group.remoteClients[clusterName]; inGroup || slices.Contains(group.unavailableClusters, clusterName) {
 		// The group reads this cluster, so the regular flow removes its remote objects.
-		w.previousClusterNames.Delete(key)
-		return 0, nil
+		return 0, w.forgetPreviousCluster(ctx, group.local, key)
 	}
-	rc, found := w.clusters.controllerFor(clusterName)
-	if !found {
+	if err := w.client.Get(ctx, types.NamespacedName{Name: clusterName}, &kueue.MultiKueueCluster{}); err != nil {
+		if client.IgnoreNotFound(err) != nil {
+			return 0, err
+		}
 		// Without a MultiKueueCluster the cluster cannot be reached.
-		w.previousClusterNames.Delete(key)
-		return 0, nil
+		return 0, w.forgetPreviousCluster(ctx, group.local, key)
 	}
-	if !rc.connState.isConnected() {
+	if err := w.persistPreviousCluster(ctx, group.local, key, clusterName); err != nil {
+		return 0, err
+	}
+	// After a restart, the remote client is missing until the MultiKueueCluster is reconciled.
+	rc, found := w.clusters.controllerFor(clusterName)
+	if !found || !rc.connState.isConnected() {
 		// A reconnected watch does not replay the remote workloads, so nothing else
 		// triggers a reconcile once the cluster is back.
 		return w.workerLostTimeout, nil
@@ -330,8 +341,37 @@ func (w *wlReconciler) removeObjectsOnPreviousCluster(ctx context.Context, group
 		return 0, fmt.Errorf("removing remote objects on cluster %q: %w", clusterName, err)
 	}
 	ctrl.LoggerFrom(ctx).V(3).Info("Removed remote objects on a cluster removed from the MultiKueueConfig", "workerCluster", clusterName)
+	return 0, w.forgetPreviousCluster(ctx, group.local, key)
+}
+
+// persistPreviousCluster moves clusterName from previousClusterNames to the workload's
+// MultiKueuePreviousClusterAnnotation, so the cleanup resumes after a restart.
+func (w *wlReconciler) persistPreviousCluster(ctx context.Context, wl *kueue.Workload, key, clusterName string) error {
+	if wl.Annotations[constants.MultiKueuePreviousClusterAnnotation] != clusterName {
+		err := clientutil.Patch(ctx, w.client, wl, func() (bool, error) {
+			metav1.SetMetaDataAnnotation(&wl.ObjectMeta, constants.MultiKueuePreviousClusterAnnotation, clusterName)
+			return true, nil
+		})
+		// A deleted workload is not persisted; GC removes its remote objects once the cluster reconnects.
+		if client.IgnoreNotFound(err) != nil {
+			return err
+		}
+	}
 	w.previousClusterNames.Delete(key)
-	return 0, nil
+	return nil
+}
+
+// forgetPreviousCluster drops the previous cluster of the workload once no cleanup is pending there.
+func (w *wlReconciler) forgetPreviousCluster(ctx context.Context, wl *kueue.Workload, key string) error {
+	w.previousClusterNames.Delete(key)
+	if _, found := wl.Annotations[constants.MultiKueuePreviousClusterAnnotation]; !found {
+		return nil
+	}
+	err := clientutil.Patch(ctx, w.client, wl, func() (bool, error) {
+		delete(wl.Annotations, constants.MultiKueuePreviousClusterAnnotation)
+		return true, nil
+	})
+	return client.IgnoreNotFound(err)
 }
 
 func (w *wlReconciler) updateACS(ctx context.Context, wl *kueue.Workload, acs *kueue.AdmissionCheckState, status kueue.CheckState, message string) error {
@@ -1490,6 +1530,7 @@ func cloneForCreate(orig *kueue.Workload, origin string, preemptionGated bool) *
 	remoteWl := &kueue.Workload{}
 	remoteWl.ObjectMeta = api.CloneObjectMetaForCreation(&orig.ObjectMeta)
 	delete(remoteWl.Labels, constants.JobUIDLabel)
+	delete(remoteWl.Annotations, constants.MultiKueuePreviousClusterAnnotation)
 	if remoteWl.Labels == nil {
 		remoteWl.Labels = make(map[string]string, 1)
 	}
