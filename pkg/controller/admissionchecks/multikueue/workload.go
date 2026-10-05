@@ -184,6 +184,28 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 	return nil
 }
 
+// removeRemoteWorkload removes only the remote workload object, leaving the remote job
+// in place. Used when the local workload slice was replaced by a newer slice: the remote
+// job is still in use by the replacement and must not be deleted, but the stale remote
+// workload must be cleaned up.
+func (g *wlGroup) removeRemoteWorkload(ctx context.Context, cluster string) error {
+	remoteClient := g.remoteClients[cluster].getClient()
+	remWl := g.remotes[cluster]
+	if remWl == nil {
+		return nil
+	}
+	if controllerutil.RemoveFinalizer(remWl, kueue.ResourceInUseFinalizerName) {
+		if err := remoteClient.Update(ctx, remWl); err != nil {
+			return fmt.Errorf("removing remote workload finalizer: %w", err)
+		}
+	}
+	if err := remoteClient.Delete(ctx, remWl); client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("deleting remote workload: %w", err)
+	}
+	g.remotes[cluster] = nil
+	return nil
+}
+
 func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Workload")
@@ -377,10 +399,27 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		!workload.HasQuotaReservation(group.local) &&
 		workloadslicing.ScaledUp(group.local) &&
 		!workloadevict.IsEvicted(group.local)
-	if group.IsElasticWorkload() &&
-		((group.IsFinished() && workloadslicing.IsReplaced(group.local.Status)) ||
-			scaleUpInProgress) {
-		return reconcile.Result{}, nil
+	if group.IsElasticWorkload() {
+		if scaleUpInProgress {
+			return reconcile.Result{}, nil
+		}
+		if group.IsFinished() && workloadslicing.IsReplaced(group.local.Status) {
+			// The remote job is still live and owned by the replacement slice, so it
+			// must not be deleted. The stale remote workload must be removed so the
+			// worker cluster no longer exposes two live slices with the same slice name.
+			var errs []error
+			for rem := range group.remotes {
+				if err := group.removeRemoteWorkload(ctx, rem); err != nil {
+					errs = append(errs, err)
+					log.V(2).Error(err, "Deleting remote workload for replaced slice", "workerCluster", rem)
+				}
+			}
+			if len(group.unavailableClusters) > 0 {
+				log.V(3).Info("Retrying replaced-slice remote workload cleanup, some clusters are unavailable", "unavailableClusters", group.unavailableClusters, "retryAfter", w.workerLostTimeout)
+				return reconcile.Result{RequeueAfter: w.workerLostTimeout}, errors.Join(errs...)
+			}
+			return reconcile.Result{}, errors.Join(errs...)
+		}
 	}
 
 	// 2. Delete all remote workloads when the local workload is finished or has no quota reservation.
