@@ -24,12 +24,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/component-base/metrics/testutil"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
@@ -1380,57 +1378,6 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kueue.x-k8s.io/_UNTRACKED_VALUE_")
 		})
 
-		ginkgo.It("should track inadmissible pending workloads", func() {
-			cq = utiltestingapi.MakeClusterQueue("cq").
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
-						Resource(corev1.ResourceCPU, "5").
-						Obj(),
-				).Label("team", "ml-team").Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
-
-			lq := utiltestingapi.MakeLocalQueue("lq", ns.Name).
-				ClusterQueue(cq.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
-
-			wl3 := utiltestingapi.MakeWorkload("wl3", ns.Name).
-				Label("workload-kind", "kind2").
-				Queue(kueue.LocalQueueName(lq.Name)).
-				Request(corev1.ResourceCPU, "1").Obj()
-			util.MustCreate(ctx, k8sClient, wl3)
-
-			ginkgo.By("waiting for wl3 to be present in the queue manager active heap")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(qManager.PendingWorkloadsInfo(kueue.ClusterQueueReference(cq.Name))).To(gomega.HaveLen(1))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("popping wl3 from the queue manager to increment popCycle and clear it from active heap")
-			popped := qManager.Heads(ctx)
-			gomega.Expect(popped).To(gomega.HaveLen(1))
-			gomega.Expect(workload.Key(popped[0].Obj)).To(gomega.Equal(workload.Key(wl3)))
-
-			ginkgo.By("making popped workload (wl3) inadmissible")
-			var fetchedWl3 kueue.Workload
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), &fetchedWl3)).To(gomega.Succeed())
-			qManager.RequeueWorkload(ctx, workload.NewInfo(ctrl.LoggerFrom(ctx), &fetchedWl3), qcache.RequeueReasonGeneric, "")
-
-			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
-				Label("workload-kind", "kind1").
-				Queue(kueue.LocalQueueName(lq.Name)).
-				Request(corev1.ResourceCPU, "1").Obj()
-			util.MustCreate(ctx, k8sClient, wl1)
-
-			wl2 := utiltestingapi.MakeWorkload("wl2", ns.Name).
-				Label("workload-kind", "kind2").
-				Queue(kueue.LocalQueueName(lq.Name)).
-				Request(corev1.ResourceCPU, "1").Obj()
-			util.MustCreate(ctx, k8sClient, wl2)
-
-			ginkgo.By("verifying counts: wl1 active kind1, wl2 active kind2, wl3 inadmissible kind2")
-			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind1")
-			util.ExpectPendingWorkloadsMetric(cq, 1, 1, "ml-team", "kind2")
-		})
-
 		ginkgo.It("should count workloads correctly on CQ stop/resume", func() {
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				ResourceGroup(
@@ -1450,26 +1397,15 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				Request(corev1.ResourceCPU, "1").Obj()
 			util.MustCreate(ctx, k8sClient, wl3)
 
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(qManager.PendingWorkloadsInfo(kueue.ClusterQueueReference(cq.Name))).To(gomega.HaveLen(1))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-
-			popped := qManager.Heads(ctx)
-			gomega.Expect(popped).To(gomega.HaveLen(1))
-
-			var fetchedWl3 kueue.Workload
-			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), &fetchedWl3)).To(gomega.Succeed())
-			qManager.RequeueWorkload(ctx, workload.NewInfo(ctrl.LoggerFrom(ctx), &fetchedWl3), qcache.RequeueReasonGeneric, "")
-
 			wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
 				Label("workload-kind", "kind1").
 				Queue(kueue.LocalQueueName(lq.Name)).
 				Request(corev1.ResourceCPU, "1").Obj()
 			util.MustCreate(ctx, k8sClient, wl1)
 
-			ginkgo.By("verifying initial active vs inadmissible counts")
+			ginkgo.By("verifying initial active counts")
 			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind1")
-			util.ExpectPendingWorkloadsMetric(cq, 0, 1, "ml-team", "kind2")
+			util.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind2")
 
 			ginkgo.By("stopping the ClusterQueue to make it inactive")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1479,7 +1415,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				g.Expect(k8sClient.Update(ctx, &updatedCq)).To(gomega.Succeed())
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("verifying both active and inadmissible workloads are reported as inadmissible")
+			ginkgo.By("verifying pending workloads are reported as inadmissible")
 			util.ExpectPendingWorkloadsMetric(cq, 0, 1, "ml-team", "kind1")
 			util.ExpectPendingWorkloadsMetric(cq, 0, 1, "ml-team", "kind2")
 
