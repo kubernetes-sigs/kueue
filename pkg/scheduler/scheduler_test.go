@@ -8148,7 +8148,7 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             "AdmissionGated",
+						Reason:             kueue.PreemptionGated,
 						Message:            "Workload requires preemption, but it's gated",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
@@ -10279,6 +10279,7 @@ func TestRequeueAndUpdate(t *testing.T) {
 
 	cases := []struct {
 		name              string
+		wl                *kueue.Workload
 		e                 entry
 		wantWorkloads     map[kueue.ClusterQueueReference][]workload.Reference
 		wantInadmissible  map[kueue.ClusterQueueReference][]workload.Reference
@@ -10367,20 +10368,70 @@ func TestRequeueAndUpdate(t *testing.T) {
 			e: entry{
 				status:              preemptionGated,
 				inadmissibleMsg:     "preemption gated",
-				quotaReservedReason: kueue.WorkloadAdmissionGated,
+				quotaReservedReason: kueue.PreemptionGated,
 			},
 			wantStatus: kueue.WorkloadStatus{
 				Conditions: []metav1.Condition{
 					{
 						Type:    kueue.WorkloadQuotaReserved,
 						Status:  metav1.ConditionFalse,
-						Reason:  kueue.WorkloadAdmissionGated,
+						Reason:  kueue.PreemptionGated,
 						Message: "preemption gated",
 					},
 					{
 						Type:    kueue.WorkloadBlockedOnPreemptionGates,
 						Status:  metav1.ConditionTrue,
 						Reason:  "PreemptionGated",
+						Message: "preemption gated",
+					},
+					{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+						Message: "The workload has no reservation",
+					},
+				},
+				ResourceRequests: []kueue.PodSetRequest{{Name: kueue.DefaultPodSetName}},
+			},
+			wantWorkloads: map[kueue.ClusterQueueReference][]workload.Reference{
+				"cq": {workload.Key(w1)},
+			},
+			wantStatusUpdates: 1,
+		},
+		{
+			name: "preemption gated while BlockedOnPreemptionGates is already set",
+			wl: utiltestingapi.MakeWorkload("w1", "ns1").
+				Queue(kueue.LocalQueueName(q1.Name)).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+					Message: "didn't fit",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadBlockedOnPreemptionGates,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.PreemptionGated,
+					Message: "preemption gated",
+				}).
+				Obj(),
+			e: entry{
+				status:              preemptionGated,
+				inadmissibleMsg:     "preemption gated",
+				quotaReservedReason: kueue.PreemptionGated,
+			},
+			wantStatus: kueue.WorkloadStatus{
+				Conditions: []metav1.Condition{
+					{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.PreemptionGated,
+						Message: "preemption gated",
+					},
+					{
+						Type:    kueue.WorkloadBlockedOnPreemptionGates,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.PreemptionGated,
 						Message: "preemption gated",
 					},
 					{
@@ -10406,7 +10457,11 @@ func TestRequeueAndUpdate(t *testing.T) {
 				ctx, _ := utiltesting.ContextWithLog(t)
 
 				updates := 0
-				objs := []client.Object{w1, q1, utiltesting.MakeNamespace("ns1")}
+				wl := w1
+				if tc.wl != nil {
+					wl = tc.wl
+				}
+				objs := []client.Object{wl, q1, utiltesting.MakeNamespace("ns1")}
 				cl := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
 					SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 						updates++
