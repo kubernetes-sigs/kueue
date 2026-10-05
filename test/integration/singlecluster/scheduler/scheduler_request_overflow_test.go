@@ -27,6 +27,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util"
 )
@@ -50,6 +51,10 @@ var _ = ginkgo.Describe("Scheduler requests past int64", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
+		// On 0.19 this gate is off, so a quota failure is recorded as Pending.
+		// The condition reason below is the granular one.
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
+
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "overflow-")
 
 		flavor = utiltestingapi.MakeResourceFlavor("overflow-flavor").Obj()
