@@ -2388,11 +2388,17 @@ func TestRemoveObjectsOnPreviousCluster(t *testing.T) {
 	cases := map[string]struct {
 		configClusters      []string
 		previousClusterName string
-		worker1Disconnected bool
+		// previousClusterAnnotation is set on the manager's workload without an eviction event,
+		// as seen by a restarted reconciler.
+		previousClusterAnnotation string
+		worker1Disconnected       bool
+		// worker1Unregistered leaves worker1 out of the clusters reconciler, as before its
+		// MultiKueueCluster is reconciled after a restart.
+		worker1Unregistered bool
 
-		wantWorker1Objects       bool
-		wantPreviousClusterNames int
-		wantRequeueAfter         time.Duration
+		wantWorker1Objects bool
+		wantAnnotation     string
+		wantRequeueAfter   time.Duration
 	}{
 		"remote objects on a cluster removed from the config are deleted after the eviction": {
 			configClusters:      []string{"worker2"},
@@ -2403,12 +2409,36 @@ func TestRemoveObjectsOnPreviousCluster(t *testing.T) {
 			previousClusterName: "worker1",
 		},
 		"remote objects on a disconnected cluster removed from the config are kept for a later retry": {
-			configClusters:           []string{"worker2"},
-			previousClusterName:      "worker1",
-			worker1Disconnected:      true,
-			wantWorker1Objects:       true,
-			wantPreviousClusterNames: 1,
-			wantRequeueAfter:         defaultWorkerLostTimeout,
+			configClusters:      []string{"worker2"},
+			previousClusterName: "worker1",
+			worker1Disconnected: true,
+			wantWorker1Objects:  true,
+			wantAnnotation:      "worker1",
+			wantRequeueAfter:    defaultWorkerLostTimeout,
+		},
+		"after a restart, remote objects on a cluster removed from the config are deleted": {
+			configClusters:            []string{"worker2"},
+			previousClusterAnnotation: "worker1",
+		},
+		"after a restart, remote objects on a disconnected cluster removed from the config are kept for a later retry": {
+			configClusters:            []string{"worker2"},
+			previousClusterAnnotation: "worker1",
+			worker1Disconnected:       true,
+			wantWorker1Objects:        true,
+			wantAnnotation:            "worker1",
+			wantRequeueAfter:          defaultWorkerLostTimeout,
+		},
+		"after a restart, remote objects on a cluster removed from the config whose client is not set up yet are kept for a later retry": {
+			configClusters:            []string{"worker2"},
+			previousClusterAnnotation: "worker1",
+			worker1Unregistered:       true,
+			wantWorker1Objects:        true,
+			wantAnnotation:            "worker1",
+			wantRequeueAfter:          defaultWorkerLostTimeout,
+		},
+		"after a restart, a previous cluster back in the config is left to the regular flow": {
+			configClusters:            []string{"worker1", "worker2"},
+			previousClusterAnnotation: "worker1",
 		},
 		"a previous cluster without a MultiKueueCluster is forgotten": {
 			configClusters:      []string{"worker2"},
@@ -2423,10 +2453,13 @@ func TestRemoveObjectsOnPreviousCluster(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace)
-			managerWl := baseWorkloadBuilder.Clone().
+			managerWlBuilder := baseWorkloadBuilder.Clone().
 				AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
-				Obj()
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1")
+			if tc.previousClusterAnnotation != "" {
+				managerWlBuilder.Annotation(constants.MultiKueuePreviousClusterAnnotation, tc.previousClusterAnnotation)
+			}
+			managerWl := managerWlBuilder.Obj()
 			remoteWl := baseWorkloadBuilder.Clone().
 				Label(kueue.MultiKueueOriginLabel, defaultOrigin).
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), time.Now()).
@@ -2444,6 +2477,8 @@ func TestRemoveObjectsOnPreviousCluster(t *testing.T) {
 					managerWl,
 					testingjob.MakeJob("job1", TestNamespace).ManagedBy(kueue.MultiKueueControllerName).Obj(),
 					utiltestingapi.MakeMultiKueueConfig("config1").Clusters(tc.configClusters...).Obj(),
+					utiltestingapi.MakeMultiKueueCluster("worker1").Obj(),
+					utiltestingapi.MakeMultiKueueCluster("worker2").Obj(),
 					utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
 						Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
 						Obj(),
@@ -2463,7 +2498,9 @@ func TestRemoveObjectsOnPreviousCluster(t *testing.T) {
 			if !tc.worker1Disconnected {
 				w1remoteClient.connState.markConnected()
 			}
-			cRec.remoteClients["worker1"] = w1remoteClient
+			if !tc.worker1Unregistered {
+				cRec.remoteClients["worker1"] = w1remoteClient
+			}
 
 			w2remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "worker2", adapters)
 			w2remoteClient.client = NewNeverCachingClient(getClientBuilder(ctx).WithStatusSubresource(&kueue.Workload{}).Build())
@@ -2484,11 +2521,13 @@ func TestRemoveObjectsOnPreviousCluster(t *testing.T) {
 				nil,
 			)
 
-			// The eviction cleared the cluster name of the manager's workload.
-			reconciler.Update(event.UpdateEvent{
-				ObjectOld: baseWorkloadBuilder.Clone().ClusterName(tc.previousClusterName).Obj(),
-				ObjectNew: managerWl,
-			})
+			if tc.previousClusterName != "" {
+				// The eviction cleared the cluster name of the manager's workload.
+				reconciler.Update(event.UpdateEvent{
+					ObjectOld: baseWorkloadBuilder.Clone().ClusterName(tc.previousClusterName).Obj(),
+					ObjectNew: managerWl,
+				})
+			}
 
 			gotResult, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "wl1", Namespace: TestNamespace})
 			if err != nil {
@@ -2507,8 +2546,15 @@ func TestRemoveObjectsOnPreviousCluster(t *testing.T) {
 			} else if !apierrors.IsNotFound(gotWlErr) || !apierrors.IsNotFound(gotJobErr) {
 				t.Errorf("expected worker1 objects to be deleted, got workload error %v, job error %v", gotWlErr, gotJobErr)
 			}
-			if got := reconciler.previousClusterNames.Len(); got != tc.wantPreviousClusterNames {
-				t.Errorf("unexpected previousClusterNames length: want %d, got %d", tc.wantPreviousClusterNames, got)
+			if got := reconciler.previousClusterNames.Len(); got != 0 {
+				t.Errorf("expected previousClusterNames to be empty after the reconcile, got %d entries", got)
+			}
+			gotManagerWl := &kueue.Workload{}
+			if err := managerClient.Get(ctx, client.ObjectKeyFromObject(managerWl), gotManagerWl); err != nil {
+				t.Fatalf("unexpected error getting the manager's workload: %v", err)
+			}
+			if got := gotManagerWl.Annotations[constants.MultiKueuePreviousClusterAnnotation]; got != tc.wantAnnotation {
+				t.Errorf("unexpected %s annotation: want %q, got %q", constants.MultiKueuePreviousClusterAnnotation, tc.wantAnnotation, got)
 			}
 		})
 	}

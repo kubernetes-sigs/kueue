@@ -77,6 +77,11 @@ const (
 	// This gate is automatically applied to remote Workloads to eliminate parallel preemptions.
 	MultiKueuePreemptionGate = "kueue.x-k8s.io/multikueue"
 
+	// MultiKueuePreviousClusterAnnotation is the annotation key in a manager workload that holds the
+	// worker cluster it was admitted on before an eviction cleared its cluster name, while the remote
+	// objects there are still waiting to be removed.
+	MultiKueuePreviousClusterAnnotation = "kueue.x-k8s.io/multikueue-previous-cluster"
+
 	// ConcurrentAdmissionPreemptionGate is the name of the preemption gate managed by ConcurrentAdmission.
 	// It is applied to every Variant so that only one Variant per Parent issues preemptions at a time.
 	ConcurrentAdmissionPreemptionGate = "kueue.x-k8s.io/concurrent-admission"
