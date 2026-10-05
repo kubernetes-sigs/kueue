@@ -152,8 +152,8 @@ func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count i
 	baseSpec := &ps.Template.Spec
 	if opts.PodSpec != nil {
 		baseSpec = opts.PodSpec
-		info.NodeSelector = maps.Clone(baseSpec.NodeSelector)
-		info.Tolerations = slices.Clone(baseSpec.Tolerations)
+		info.NodeSelector = maps.Clone(opts.PodSpec.NodeSelector)
+		info.Tolerations = slices.Clone(opts.PodSpec.Tolerations)
 	}
 
 	if len(opts.FlavorNodeLabels) > 0 || len(opts.FlavorTolerations) > 0 {
