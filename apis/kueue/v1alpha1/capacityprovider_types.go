@@ -98,7 +98,10 @@ type CapacityProviderStatus struct {
 }
 
 type CapacityProviderNormalizedCapacity struct {
-	// flavors contains capacity per flavor and resource.
+	// flavors reports capacity for each flavor and resource.
+	// The list must contain at least one flavor.
+	// It should contain the same flavors as spec.orchestratedFlavors.
+	// An empty resources map means zero capacity for all resources of the flavor.
 	//
 	// +required
 	// +listType=map
@@ -146,14 +149,15 @@ const (
 	CapacityProviderReasonMisconfigured string = "Misconfigured"
 )
 
+// CapacityProvider reports capacity for ResourceFlavors.
+// DQO uses this capacity only when CapacitySynchronized=True.
+//
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName={cp}
-
-// CapacityProvider is the Schema for the capacityproviders API
 type CapacityProvider struct {
 	metav1.TypeMeta `json:",inline"`
 

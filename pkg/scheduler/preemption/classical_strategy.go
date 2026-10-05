@@ -92,9 +92,6 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 						preemptionCtx.snapshot,
 						&preemptionCtx.preemptor,
 						preemptionCtx.frsNeedPreemption,
-						func(a, b *workload.Info) int {
-							return common.CandidatesOrdering(log, preemptor.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, preemptor.clock.Now())
-						},
 						func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing) },
 						yieldCandidate,
 					)

@@ -1497,7 +1497,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				testingdra.MakeDeviceClass("gpu.example.com").
 					ExtendedResourceName("example.com/gpu").
 					Obj(),
-				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+				testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").
 					NodeName("x2").
 					Pool("x2-pool", 1, 1).
 					Device("gpu-0").
@@ -1554,7 +1554,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				testingdra.MakeDeviceClass("gpu.example.com").
 					ExtendedResourceName("example.com/gpu").
 					Obj(),
-				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+				testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").
 					NodeName("x2").
 					Pool("x2-pool", 1, 1).
 					Device("gpu-0").
@@ -1680,7 +1680,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				testingdra.MakeDeviceClass("gpu.example.com").
 					ExtendedResourceName("example.com/gpu").
 					Obj(),
-				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+				testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").
 					NodeName("x2").
 					Pool("x2-pool", 1, 1).
 					Device("gpu-0").
@@ -1732,7 +1732,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				utiltesting.MakeResourceClaimTemplate("gpu-claim", "ns").
 					DeviceRequest("gpu", "gpu.example.com", 1).
 					Obj(),
-				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+				testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").
 					NodeName("x2").
 					Pool("x2-pool", 1, 1).
 					Device("gpu-0").
@@ -2372,12 +2372,12 @@ func TestFindTopologyAssignments(t *testing.T) {
 			priorOwnUsage: []workload.TopologyDomainRequests{
 				{
 					Values:            []string{"b1", "r2"},
-					SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
+					SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
 					Count:             1,
 				},
 				{
 					Values:            []string{"b2", "r2"},
-					SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1500}),
+					SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1500}),
 					Count:             1,
 				},
 			},
@@ -6107,7 +6107,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: new(tasRackLabel),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 1000,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6127,7 +6127,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: new(tasRackLabel),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 2000,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6189,7 +6189,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: new(tasRackLabel),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 1000,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6211,7 +6211,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						PodSetSliceRequiredTopology: new(corev1.LabelHostname),
 						PodSetSliceSize:             new(int32(2)),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 1000,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6262,7 +6262,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Preferred: new(corev1.LabelHostname),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 1000,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6282,7 +6282,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Preferred: new(corev1.LabelHostname),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 2000,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6330,7 +6330,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Unconstrained: new(true),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 1000,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6350,7 +6350,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Unconstrained: new(true),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						"example.com/gpu": 1,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6397,7 +6397,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						PodSetSliceRequiredTopology: new(tasRackLabel),
 						PodSetSliceSize:             new(int32(1)),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 1000,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6419,7 +6419,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						PodSetSliceRequiredTopology: new(tasRackLabel),
 						PodSetSliceSize:             new(int32(1)),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						"example.com/gpu": 1,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -9902,7 +9902,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// workers: 25, sliceSize: 8, required: block, slices at the rack level
 			//
 			// r1 takes 2 whole slices (16 pods) and still has room for the 1-pod
-			// partial slice (sliceCountWithTail = 2). For the remaining 1 whole
+			// partial slice (sliceCount[obligationTail] = 2). For the remaining 1 whole
 			// slice, best-fit should pick r2 (8 pods) rather than r3 (15 pods), and
 			// place the partial slice in r1 (17 pods total, moved last).
 			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
@@ -9955,9 +9955,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 			// workers: 10, sliceSize: 4, required: block, slices at the rack level
 			//
 			// Both blocks hold 2 whole slices alongside the 2-pod partial
-			// slice (sliceCountWithTail = 2), and b1 sorts first because it
-			// holds 3 whole slices without the tail (sliceCount = 3 > 2). Best
-			// fit must prefer b2 (10 pods, 2 whole slices) over b1 (12 pods, 3
+			// slice (sliceCount[obligationTail] = 2), and b1 sorts first because it
+			// holds 3 whole slices without the tail (sliceCount[obligationNone] = 3 > 2).
+			// Best fit must prefer b2 (10 pods, 2 whole slices) over b1 (12 pods, 3
 			// whole slices).
 			featureGates: map[featuregate.Feature]bool{features.TASPartialSlices: true},
 			nodes: []corev1.Node{
@@ -11158,7 +11158,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
 				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 2000},
 				count:           2,
-				wantReason:      `topology "default" doesn't allow to fit any of 2 pod(s). Total nodes: 6; excluded: resource "cpu": 4`,
+				wantReason: `topology "default" doesn't allow to fit any of 2 pod(s). Total nodes: 6; excluded: resource "cpu": 4` +
+					`; topology spreading excluded 1 topology domain(s) at level: cloud.com/topology-block`,
 			}},
 		},
 		"topology spreading: Preferred rule only deprioritizes the over-allowance domain": {
@@ -11664,7 +11665,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						undelegated := resources.NewRequestsFromMap(ps.requests).Clone()
 						names := slices.Sorted(maps.Keys(ps.draBackedRequests))
 						for _, name := range names {
-							undelegated.Set(name, ps.draBackedRequests[name])
+							undelegated.Set(name, resources.NewAmount(ps.draBackedRequests[name]))
 						}
 						tasInput.DRADelegation = &DRADelegation{Resources: names, Undelegated: undelegated}
 					}

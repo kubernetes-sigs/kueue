@@ -42,6 +42,7 @@ import (
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/heap"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
@@ -301,7 +302,7 @@ func newClusterQueueImpl(ctx context.Context, cl *metrics.CustomLabels, wo workl
 			activeTracker:         metrics.NewLabelValsTracker(),
 			inadmissible:          make(inadmissibleWorkloads),
 			inadmissibleTracker:   metrics.NewLabelValsTracker(),
-			pendingResourcesTotal: make(map[corev1.ResourceName]int64),
+			pendingResourcesTotal: make(map[corev1.ResourceName]resources.Amount),
 			schedulingHashes:      newSchedulingHashCounts(),
 			inflight:              make(map[workload.Reference]*workload.Info),
 		},
@@ -636,7 +637,7 @@ func (c *ClusterQueue) handleInadmissibleHash(hash workload.EquivalenceHash, rea
 
 // PendingResources returns the total resources requested by all pending workloads,
 // aggregated by resource name. Pending workloads have not yet been assigned to flavors.
-func (c *ClusterQueue) pendingResources() map[corev1.ResourceName]int64 {
+func (c *ClusterQueue) pendingResources() map[corev1.ResourceName]resources.Amount {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	return c.workloads.PendingResources()

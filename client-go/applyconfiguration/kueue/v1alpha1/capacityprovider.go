@@ -27,7 +27,8 @@ import (
 // CapacityProviderApplyConfiguration represents a declarative configuration of the CapacityProvider type for use
 // with apply.
 //
-// CapacityProvider is the Schema for the capacityproviders API
+// CapacityProvider reports capacity for ResourceFlavors.
+// DQO uses this capacity only when CapacitySynchronized=True.
 type CapacityProviderApplyConfiguration struct {
 	v1.TypeMetaApplyConfiguration `json:""`
 	// metadata is the standard object metadata.

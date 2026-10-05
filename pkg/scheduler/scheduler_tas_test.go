@@ -4147,8 +4147,16 @@ type tasScheduleTestCase struct {
 	cohorts         []kueue.Cohort
 	resourceFlavors []kueue.ResourceFlavor
 	clusterQueues   []kueue.ClusterQueue
+	admissionChecks []kueue.AdmissionCheck
 	workloads       []kueue.Workload
 	wantWorkloads   []kueue.Workload
+
+	// prequeuedSecondPasses are the Workloads with a second pass already pending when the cycle runs.
+	prequeuedSecondPasses []workload.Reference
+
+	// wantWorkloadsAfterSecondSchedule, when set, is the Workloads after one more cycle,
+	// in which the pending second passes run.
+	wantWorkloadsAfterSecondSchedule []kueue.Workload
 
 	// wantNewAssignments is a summary of all new admissions in the cache after this cycle.
 	wantNewAssignments map[workload.Reference]kueue.Admission
@@ -4323,16 +4331,20 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					features.SetFeatureGatesDuringTest(t, scenario)
 					features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
-					var wantWorkloads []kueue.Workload
-					if tc.wantWorkloads != nil {
-						wantWorkloads = make([]kueue.Workload, len(tc.wantWorkloads))
-						for i := range tc.wantWorkloads {
-							wantWorkloads[i] = *tc.wantWorkloads[i].DeepCopy()
+					adjustWantWorkloads := func(want []kueue.Workload) []kueue.Workload {
+						if want == nil {
+							return nil
+						}
+						adjusted := make([]kueue.Workload, len(want))
+						for i := range want {
+							adjusted[i] = *want[i].DeepCopy()
 						}
 						if !scenario[features.UnadmittedWorkloadsObservability] {
-							utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(wantWorkloads)
+							utiltesting.AdjustWorkloadsForDisabledObservabilityInScheduler(adjusted)
 						}
+						return adjusted
 					}
+					wantWorkloads := adjustWantWorkloads(tc.wantWorkloads)
 
 					ctx, log := utiltesting.ContextWithLog(t)
 					testWls := make([]kueue.Workload, 0, len(tc.workloads))
@@ -4371,7 +4383,8 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						cacheOptions = append(cacheOptions, schdcache.WithSimulatorFactory(recordingFactory))
 					}
 					cqCache := schdcache.New(cl, cacheOptions...)
-					qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+					fakeClock := testingclock.NewFakeClock(cfg.now)
+					qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithClock(fakeClock))
 					topologyByName := slices.ToMap(tc.topologies, func(i int) (kueue.TopologyReference, kueue.Topology) {
 						return kueue.TopologyReference(tc.topologies[i].Name), tc.topologies[i]
 					})
@@ -4380,6 +4393,9 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					}
 					for i := range tc.pods {
 						cqCache.TASCache().TrackPod(ctx, &tc.pods[i])
+					}
+					for i := range tc.admissionChecks {
+						cqCache.AddOrUpdateAdmissionCheck(log, &tc.admissionChecks[i])
 					}
 					for _, flavor := range tc.resourceFlavors {
 						cqCache.AddOrUpdateResourceFlavor(log, &flavor)
@@ -4409,13 +4425,27 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 							t.Fatalf("Inserting queue %s/%s in manager: %v", q.Namespace, q.Name, err)
 						}
 					}
-					initiallyAdmittedWorkloads := sets.New[workload.Reference]()
+					initiallyReservedWorkloads := sets.New[workload.Reference]()
 					for _, w := range testWls {
-						if workload.IsAdmitted(&w) {
-							initiallyAdmittedWorkloads.Insert(workload.Key(&w))
+						if workload.HasQuotaReservation(&w) {
+							initiallyReservedWorkloads.Insert(workload.Key(&w))
 						}
 					}
-					scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, testingclock.NewFakeClock(cfg.now)), WithPreemptionExpectations(preemptexpectations.New()))
+					prequeued := sets.New(tc.prequeuedSecondPasses...)
+					for i := range testWls {
+						wl := &testWls[i]
+						if !prequeued.Has(workload.Key(wl)) {
+							continue
+						}
+						if !qManager.QueueSecondPassIfNeeded(ctx, wl, 0) {
+							t.Fatalf("expected workload %s to be queued for a second pass", workload.Key(wl))
+						}
+						fakeClock.Step(time.Second)
+						if !qManager.QueueSecondPassIfNeeded(ctx, wl, 0) {
+							t.Fatalf("expected workload %s to be prequeued again for a second pass", workload.Key(wl))
+						}
+					}
+					scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
 					wg := sync.WaitGroup{}
 					scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 						func() { wg.Add(1) },
@@ -4454,7 +4484,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					gotAssignments := make(map[workload.Reference]kueue.Admission)
 					for cqName, c := range snapshot.ClusterQueues() {
 						for name, w := range c.Workloads {
-							if initiallyAdmittedWorkloads.Has(workload.Key(w.Obj)) {
+							if initiallyReservedWorkloads.Has(workload.Key(w.Obj)) {
 								continue
 							}
 							switch {
@@ -4493,6 +4523,18 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					}
 					if diff := cmp.Diff(tc.wantInadmissibleLeft, qDumpInadmissible, cmpDump...); diff != "" {
 						t.Errorf("Unexpected elements left in inadmissible workloads (-want,+got):\n%s", diff)
+					}
+					if tc.wantWorkloadsAfterSecondSchedule != nil {
+						fakeClock.Step(time.Second)
+						scheduler.schedule(ctx)
+						wg.Wait()
+						gotWorkloads := &kueue.WorkloadList{}
+						if err := cl.List(ctx, gotWorkloads); err != nil {
+							t.Fatalf("Unexpected list workloads error: %v", err)
+						}
+						if diff := cmp.Diff(adjustWantWorkloads(tc.wantWorkloadsAfterSecondSchedule), gotWorkloads.Items, defaultWorkloadCmpOpts); diff != "" {
+							t.Errorf("Unexpected workloads after the second schedule (-want,+got):\n%s", diff)
+						}
 					}
 					var wantEvents []utiltesting.EventRecord
 					if tc.wantEvents != nil {
@@ -11147,4 +11189,116 @@ func TestSecondPassSkipsWaitForPodsReadyBlock(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A second pass that fails while an update has already queued the next one must
+// leave the Workload, and its reservation, with the second-pass queue.
+// See https://github.com/kubernetes-sigs/kueue/issues/16330.
+func TestFailedSecondPassKeepsReservationWhenAlreadyPrequeued(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	ns := utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).Obj()
+	topology := utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
+	rf := utiltestingapi.MakeResourceFlavor("tas-default").
+		NodeLabel("tas-node", "true").
+		TopologyName(topology.Name).
+		Obj()
+	provCheck := utiltestingapi.MakeAdmissionCheck("prov-check").
+		ControllerName(kueue.ProvisioningRequestControllerName).
+		Condition(metav1.Condition{
+			Type:   kueue.AdmissionCheckActive,
+			Status: metav1.ConditionTrue,
+		}).
+		Obj()
+	cqWrapper := utiltestingapi.MakeClusterQueue("tas-main").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+			Resource(corev1.ResourceCPU, "50").Obj()).
+		AdmissionChecks(kueue.AdmissionCheckReference(provCheck.Name))
+	cq := cqWrapper.Clone().Obj()
+	stoppedCQ := cqWrapper.Clone().StopPolicy(kueue.Hold).Obj()
+	lq := utiltestingapi.MakeLocalQueue("tas-main", ns.Name).ClusterQueue(cq.Name).Obj()
+	// No node is ready, so every second pass fails.
+	node := testingnode.MakeNode("x1").
+		Label("tas-node", "true").
+		Label(corev1.LabelHostname, "x1").
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("1"),
+			corev1.ResourcePods: resource.MustParse("10"),
+		}).
+		NotReady().
+		Obj()
+	podSet := *utiltestingapi.MakePodSet("one", 1).
+		RequiredTopologyRequest(corev1.LabelHostname).
+		Request(corev1.ResourceCPU, "1").
+		Obj()
+
+	failedNodeWorkload := utiltestingapi.MakeWorkload("wl", ns.Name).
+		Queue("tas-main").
+		UnhealthyNodes("x1").
+		PodSets(podSet).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("tas-main").
+				PodSets(utiltestingapi.MakePodSetAssignment("one").
+					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Obj()).
+					Obj()).
+				Obj(),
+			now,
+		).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:  "prov-check",
+			State: kueue.CheckStateReady,
+		}).
+		AdmittedAt(true, now).
+		Obj()
+
+	delayedWorkload := utiltestingapi.MakeWorkload("wl", ns.Name).
+		Queue("tas-main").
+		PodSets(podSet).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("tas-main").
+				PodSets(utiltestingapi.MakePodSetAssignment("one").
+					Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+					Obj()).
+				Obj(),
+			now,
+		).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:  "prov-check",
+			State: kueue.CheckStateReady,
+		}).
+		Obj()
+
+	newCase := func(wl *kueue.Workload, clusterQueue *kueue.ClusterQueue, failure string) tasScheduleTestCase {
+		failed := utiltesting.MakeEventRecord(ns.Name, "wl", "SecondPassFailed", corev1.EventTypeWarning).Message(failure).Obj()
+		return tasScheduleTestCase{
+			nodes:                            []corev1.Node{*node},
+			topologies:                       []kueue.Topology{*topology},
+			resourceFlavors:                  []kueue.ResourceFlavor{*rf},
+			clusterQueues:                    []kueue.ClusterQueue{*clusterQueue},
+			admissionChecks:                  []kueue.AdmissionCheck{*provCheck},
+			workloads:                        []kueue.Workload{*wl},
+			prequeuedSecondPasses:            []workload.Reference{workload.Key(wl)},
+			wantWorkloads:                    []kueue.Workload{*wl},
+			wantWorkloadsAfterSecondSchedule: []kueue.Workload{*wl},
+			wantEvents:                       []utiltesting.EventRecord{failed, failed},
+		}
+	}
+	noDomains := "couldn't assign flavors to pod set one: no topology domains at level: kubernetes.io/hostname"
+	failedNodeReplacement := newCase(failedNodeWorkload, cq, noDomains)
+	// With fail-fast, a failed topology assignment evicts the Workload instead.
+	failedNodeReplacement.featureGates = map[featuregate.Feature]bool{features.TASFailedNodeReplacementFailFast: false}
+
+	runTASScheduleTestCases(t, tasScheduleTestConfig{
+		queues: []kueue.LocalQueue{*lq},
+		now:    now,
+	}, map[string]tasScheduleTestCase{
+		"delayed topology assignment": newCase(delayedWorkload, cq, noDomains),
+		"failed node replacement":     failedNodeReplacement,
+		// Reachable with default gates: fail-fast only applies to a nominated pass.
+		"failed node replacement in a stopped ClusterQueue": newCase(failedNodeWorkload, stoppedCQ, "ClusterQueue tas-main is inactive"),
+	})
 }

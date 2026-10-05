@@ -130,3 +130,13 @@ func (f *ResourceFormatter) AmountQuantityString(name corev1.ResourceName, a Amo
 	q := f.AmountQuantity(name, a)
 	return q.String()
 }
+
+// ExactAmountString renders a as the API would when that spelling is the same
+// number, and as the exact accounted value when a Quantity would cap it.
+func (f *ResourceFormatter) ExactAmountString(name corev1.ResourceName, a Amount) string {
+	q := f.AmountQuantity(name, a)
+	if AmountFromQuantity(name, q).Equal(a) {
+		return q.String()
+	}
+	return a.String()
+}

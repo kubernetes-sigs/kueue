@@ -147,7 +147,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadRequeued),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadInadmissible),
+					gomega.HaveField("Reason", kueue.WorkloadDRAResourcesUnresolved),
 				)))
 			}, util.Timeout, util.Interval).Should(gomega.Succeed())
 
@@ -509,7 +509,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
 					gomega.HaveField("Message", gomega.And(
 						gomega.ContainSubstring("DeviceClass"),
 						gomega.ContainSubstring("is not mapped"),
@@ -626,7 +626,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
 					gomega.HaveField("Message", gomega.ContainSubstring("AllocationMode 'All' is not supported")),
 				)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
@@ -634,22 +634,11 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should admit workload with CEL selectors", func() {
 			ginkgo.By("Creating a ResourceSlice with devices matching the CEL selector")
-			slice := &resourcev1.ResourceSlice{
-				Name: "cel-test-slice",
-				Spec: resourcev1.ResourceSliceSpec{
-					Driver: "test-driver",
-					Pool: resourcev1.ResourcePool{
-						Name:               "test-pool",
-						Generation:         1,
-						ResourceSliceCount: 1,
-					},
-					NodeName: new("fake-node"),
-					Devices: []resourcev1.Device{
-						{Name: "dev-0"},
-						{Name: "dev-1"},
-					},
-				},
-			}
+			slice := testingdra.MakeResourceSlice("cel-test-slice", "test-driver").
+				Pool("test-pool", 1, 1).
+				Device("dev-0").
+				Device("dev-1").
+				Obj()
 			util.MustCreate(ctx, k8sClient, slice)
 			resourceSlices = append(resourceSlices, slice)
 
@@ -687,21 +676,10 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 		ginkgo.It("Should reject workload with unsatisfiable CEL selectors", func() {
 			ginkgo.By("Creating a ResourceSlice with devices that won't match the CEL selector")
-			slice := &resourcev1.ResourceSlice{
-				Name: "cel-reject-slice",
-				Spec: resourcev1.ResourceSliceSpec{
-					Driver: "real-driver",
-					Pool: resourcev1.ResourcePool{
-						Name:               "test-pool",
-						Generation:         1,
-						ResourceSliceCount: 1,
-					},
-					NodeName: new("fake-node"),
-					Devices: []resourcev1.Device{
-						{Name: "dev-0"},
-					},
-				},
-			}
+			slice := testingdra.MakeResourceSlice("cel-reject-slice", "real-driver").
+				Pool("test-pool", 1, 1).
+				Device("dev-0").
+				Obj()
 			util.MustCreate(ctx, k8sClient, slice)
 			resourceSlices = append(resourceSlices, slice)
 
@@ -732,7 +710,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
 					gomega.HaveField("Message", gomega.ContainSubstring("insufficient matching devices for CEL selector")),
 				)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
@@ -887,7 +865,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				g.Expect(updatedWl.Status.Conditions).To(gomega.ContainElement(gomega.And(
 					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
 					gomega.HaveField("Status", metav1.ConditionFalse),
-					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonMisconfigured),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
 					gomega.HaveField("Message", gomega.ContainSubstring("FirstAvailable device selection is not supported")),
 				)))
 			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())

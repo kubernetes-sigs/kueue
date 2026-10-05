@@ -40,11 +40,17 @@ type Target struct {
 }
 
 type ConfigurablePreemptionReasonData struct {
-	ConfigName string
+	ConfigName PreemptionConfigReference
 	// RuleNameToSelectorIndexes maps rule names to the indexes of selectors
 	// that the workload satisfies.
-	RuleNameToSelectorIndexes map[string][]int
+	RuleNameToSelectorIndexes map[PreemptionConfigRuleReference][]int
 }
+
+// PreemptionConfigReference is a dedicated type to reference PreemptionConfig
+type PreemptionConfigReference string
+
+// PreemptionConfigRuleReference is a dedicated type to reference PreemptionConfigPreemptionRule
+type PreemptionConfigRuleReference string
 
 func (d *ConfigurablePreemptionReasonData) EvictionMessage(preemptor *kueue.Workload) string {
 	return fmt.Sprintf("Preempted by %s because of preemption config %s rule %s",

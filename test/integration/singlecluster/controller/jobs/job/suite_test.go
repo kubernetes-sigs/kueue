@@ -124,7 +124,8 @@ func managerAndControllersSetup(
 		}
 		mgr.GetScheme().Default(configuration)
 
-		lqMetrics := metrics.NewLocalQueueMetricsConfig(configuration.Metrics.LocalQueueMetrics)
+		lqMetrics, err := metrics.NewLocalQueueMetricsConfig(configuration.Metrics.LocalQueueMetrics)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		customLabels := metrics.NewCustomLabels(configuration.Metrics.CustomLabels)
 
 		cCache := schdcache.New(mgr.GetClient(),

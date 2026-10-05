@@ -1,0 +1,56 @@
+name: Create Next Milestone
+description: Creates the next minor milestone (vX.Y+1) after a major or minor release.
+
+inputs:
+  version:
+    description: Release version, formatted as vX.Y.Z (e.g. v0.20.0)
+    required: true
+  repo:
+    description: Target repository in owner/name format
+    required: true
+
+outputs:
+  message:
+    description: Human-readable result message.
+    value: ${{ steps.create.outputs.message }}
+
+runs:
+  using: composite
+  steps:
+    - name: Create Next Milestone
+      id: create
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        VERSION: ${{ inputs.version }}
+        TARGET_REPO: ${{ inputs.repo }}
+      run: |
+        if [[ "$VERSION" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+          NEXT_MINOR=$((MINOR + 1))
+          MILESTONE="v${MAJOR}.${NEXT_MINOR}"
+        else
+          echo "message=❌ Failed to parse version \`$VERSION\`." >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
+
+        if [ "$PATCH" != "0" ]; then
+          echo "message=❌ Milestone creation is only applicable for major and minor releases, not patch releases." >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
+
+        EXISTING=$(gh api "repos/$TARGET_REPO/milestones?state=all&per_page=100" --paginate \
+          --jq ".[] | select(.title == \"$MILESTONE\") | .number")
+
+        if [ -n "$EXISTING" ]; then
+          echo "message=✅ Milestone \`$MILESTONE\` already exists." >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        gh api repos/$TARGET_REPO/milestones \
+          -f title="$MILESTONE" \
+          -f state="open"
+
+        echo "message=✅ Milestone \`$MILESTONE\` has been successfully created." >> "$GITHUB_OUTPUT"

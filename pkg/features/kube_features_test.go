@@ -159,6 +159,14 @@ func TestSetFeatureGateDuringTest(t *testing.T) {
 				TopologyAwareScheduling:          true,
 			},
 		},
+		"enable child SchedulerLibraryIntegration sets TopologyAwareScheduling": {
+			feature: SchedulerLibraryIntegration,
+			value:   true,
+			wantState: map[featuregate.Feature]bool{
+				SchedulerLibraryIntegration: true,
+				TopologyAwareScheduling:     true,
+			},
+		},
 	}
 
 	for name, tc := range cases {

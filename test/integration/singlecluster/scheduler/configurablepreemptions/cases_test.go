@@ -22,7 +22,9 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -276,6 +278,107 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 
 			util.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
 			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlA)
+		})
+	})
+
+	ginkgo.When("an Always selector cannot be built", func() {
+		var (
+			flavor *kueue.ResourceFlavor
+			cq     *kueue.ClusterQueue
+			lq     *kueue.LocalQueue
+			config *kueuealpha.PreemptionConfig
+		)
+
+		ginkgo.BeforeEach(func() {
+			preemptorSelector := &metav1.LabelSelector{MatchLabels: map[string]string{"preemptor": "true"}}
+			config = kueuetestalpha1.MakePreemptionConfig("invalid-always-selector").
+				Rules(
+					kueuetestalpha1.MakePreemptionRule("select-a", kueuealpha.Always,
+						kueuetestalpha1.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+							LabelSelector(&metav1.LabelSelector{
+								MatchExpressions: []metav1.LabelSelectorRequirement{
+									// This unsupported operator makes the candidate selector fail to build.
+									{Key: "preemptible", Operator: "invalid", Values: []string{"true"}},
+								},
+							}).Obj(),
+					).PreemptorSelector(preemptorSelector).Obj(),
+					kueuetestalpha1.MakePreemptionRule("select-b", kueuealpha.InsufficientQuota,
+						kueuetestalpha1.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+							LabelSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"fallback": "true"}}).Obj(),
+					).PreemptorSelector(preemptorSelector).Obj(),
+				).Obj()
+			util.MustCreate(ctx, k8sClient, config)
+
+			flavor = utiltestingapi.MakeResourceFlavor("rf-invalid-selector").Obj()
+			util.MustCreate(ctx, k8sClient, flavor)
+
+			cq = utiltestingapi.MakeClusterQueue("cq-invalid-selector").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).
+					Resource(corev1.ResourceCPU, "2").Obj()).
+				Annotation(kueuealpha.PreemptionConfigNameAnnotation, config.Name).
+				Obj()
+			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+			lq = utiltestingapi.MakeLocalQueue("lq-invalid-selector", ns.Name).ClusterQueue(cq.Name).Obj()
+			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, config, true)
+		})
+
+		ginkgo.It("stops before evaluating the InsufficientQuota rule", func() {
+			wlA := utiltestingapi.MakeWorkload("a", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Label("preemptible", "true").
+				Priority(10).
+				Request(corev1.ResourceCPU, "1").Obj()
+			wlB := utiltestingapi.MakeWorkload("b", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Label("fallback", "true").
+				Priority(10).
+				Request(corev1.ResourceCPU, "1").Obj()
+			util.MustCreate(ctx, k8sClient, wlA)
+			util.MustCreate(ctx, k8sClient, wlB)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA, wlB)
+
+			_ = fwk.ObservedLogs.TakeAll()
+			newPreemptor := func() *kueue.Workload {
+				return utiltestingapi.MakeWorkload("c", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					Label("preemptor", "true").
+					Priority(100).
+					Request(corev1.ResourceCPU, "1").Obj()
+			}
+			wlC := newPreemptor()
+			util.MustCreate(ctx, k8sClient, wlC)
+			gomega.Eventually(func() int {
+				return len(fwk.ObservedLogs.FilterMessage("Failed to get candidates for preemption").All())
+			}, util.Timeout, util.Interval).Should(gomega.BeNumerically(">", 0))
+			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlC)
+			gomega.Consistently(func(g gomega.Gomega) {
+				for _, wl := range []*kueue.Workload{wlA, wlB} {
+					updated := &kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updated)).To(gomega.Succeed())
+					g.Expect(updated.Status.Admission).NotTo(gomega.BeNil())
+					g.Expect(meta.IsStatusConditionTrue(updated.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+				}
+			}, util.LongConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+
+			util.ExpectObjectToBeDeleted(ctx, k8sClient, wlC, true)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(config), config)).To(gomega.Succeed())
+			config.Spec.Rules[0].CandidateSelectors[0].LabelSelector.MatchExpressions[0].Operator = metav1.LabelSelectorOpIn
+			gomega.Expect(k8sClient.Update(ctx, config)).To(gomega.Succeed())
+
+			wlC = newPreemptor()
+			util.MustCreate(ctx, k8sClient, wlC)
+			util.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
+			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlC)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlB), wlB)).To(gomega.Succeed())
+			gomega.Expect(meta.IsStatusConditionTrue(wlB.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
 		})
 	})
 

@@ -553,7 +553,8 @@ func ExpectWorkloadsToBeInadmissibleByKeys(ctx context.Context, k8sClient client
 			wl := &kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			if cond != nil && cond.Status == metav1.ConditionFalse && (cond.Reason == kueue.WorkloadInadmissible || cond.Reason == kueue.WorkloadQuotaReservedReasonMisconfigured) {
+			if cond != nil && cond.Status == metav1.ConditionFalse &&
+				(cond.Reason == kueue.WorkloadInadmissible || cond.Reason == kueue.WorkloadQuotaReservedReasonMisconfigured || cond.Reason == kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved) {
 				inadmissible = append(inadmissible, wlKey)
 			}
 			wlObjects[i] = wl
@@ -1861,4 +1862,18 @@ func ExpectWorkloadToHaveConditions(
 			g.Expect(*cond).To(gomega.BeComparableTo(wantCond, opts...))
 		}
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload conditions did not match expectations", wl))
+}
+
+// GetTopologyDomainByNode returns a map from the name of every node that
+// carries the given topology level label to its value at that level, e.g. the
+// block the node belongs to.
+func GetTopologyDomainByNode(ctx context.Context, c client.Client, levelLabel string) map[string]string {
+	ginkgo.GinkgoHelper()
+	nodes := &corev1.NodeList{}
+	gomega.Expect(c.List(ctx, nodes, client.HasLabels{levelLabel})).To(gomega.Succeed())
+	domains := make(map[string]string, len(nodes.Items))
+	for _, node := range nodes.Items {
+		domains[node.Name] = node.Labels[levelLabel]
+	}
+	return domains
 }

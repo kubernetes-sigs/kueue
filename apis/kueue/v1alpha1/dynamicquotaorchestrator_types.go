@@ -119,14 +119,20 @@ type DynamicQuotaOrchestratorStatus struct {
 	// +kubebuilder:validation:MaxItems=16
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
 
-	// effectiveCapacity is the capacity aggregated from the referenced providers.
+	// effectiveCapacity is the combined capacity from the referenced providers.
+	// Each provider's capacity is multiplied by its effectiveCapacityMultiplier.
+	// DQO clears this field if any referenced provider is missing or does not
+	// have CapacitySynchronized=True.
 	//
 	// +optional
 	EffectiveCapacity *EffectiveCapacity `json:"effectiveCapacity,omitempty"`
 }
 
 type EffectiveCapacity struct {
-	// flavors contains capacity per flavor and resource.
+	// flavors contains the total capacity for each flavor and resource.
+	// It includes all flavors listed in spec.orchestratedFlavors of the
+	// referenced providers. The list is never empty.
+	// An empty resources map means zero capacity for all resources of the flavor.
 	//
 	// +required
 	// +listType=map

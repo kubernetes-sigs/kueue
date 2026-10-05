@@ -120,7 +120,8 @@ func managerAndControllerSetup(
 
 		controllersCfg.Metrics.EnableClusterQueueResources = true
 
-		lqMetrics := metrics.NewLocalQueueMetricsConfig(controllersCfg.Metrics.LocalQueueMetrics)
+		lqMetrics, err := metrics.NewLocalQueueMetricsConfig(controllersCfg.Metrics.LocalQueueMetrics)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		var customLabels *metrics.CustomLabels
 		if features.Enabled(features.CustomMetricLabels) && len(controllersCfg.Metrics.CustomLabels) > 0 {

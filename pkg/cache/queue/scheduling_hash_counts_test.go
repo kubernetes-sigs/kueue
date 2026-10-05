@@ -32,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -47,10 +48,10 @@ func makeSchedulingHashInfo(log logr.Logger, now time.Time, name string, hash wo
 	return info
 }
 
-func totalCPURequest(wInfo *workload.Info) int64 {
-	var result int64
+func totalCPURequest(wInfo *workload.Info) resources.Amount {
+	var result resources.Amount
 	for _, ps := range wInfo.TotalRequests {
-		result += ps.Requests.ResourceValue(corev1.ResourceCPU)
+		result = result.Add(ps.Requests.ResourceValue(corev1.ResourceCPU))
 	}
 	return result
 }
@@ -440,12 +441,12 @@ func TestSchedulingHashCountsInadmissibleTransitions(t *testing.T) {
 			if active != tc.wantActive || inadmissible != tc.wantInadmissible {
 				t.Errorf("PendingSchedulingHashes() active=%d inadmissible=%d, want active=%d inadmissible=%d", active, inadmissible, tc.wantActive, tc.wantInadmissible)
 			}
-			wantCPU := int64(0)
+			wantCPU := resources.Amount{}
 			if tc.wantCPU {
 				wantCPU = totalCPURequest(storedInfo)
 			}
-			if gotCPU := cq.pendingResources()[corev1.ResourceCPU]; gotCPU != wantCPU {
-				t.Errorf("pending CPU = %d, want %d", gotCPU, wantCPU)
+			if gotCPU := cq.pendingResources()[corev1.ResourceCPU]; !gotCPU.Equal(wantCPU) {
+				t.Errorf("pending CPU = %s, want %s", gotCPU, wantCPU)
 			}
 		})
 	}

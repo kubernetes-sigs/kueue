@@ -203,14 +203,16 @@ func admissionUpdateForPodSet(wl *kueue.Workload, podSetName kueue.PodSetReferen
 			if psUpdate.Name != podSetName {
 				continue
 			}
-			// consume-provisioning-request is the only admission annotation that
-			// changes per ProvisioningRequest; everything else reaches the Pod via
-			// the job template.
-			if value, found := psUpdate.Annotations[autoscaling.ProvisioningRequestPodAnnotationKey]; found {
-				if old, exists := update.annotations[autoscaling.ProvisioningRequestPodAnnotationKey]; exists && old != value {
-					return podAdmissionUpdate{}, fmt.Errorf("conflicting %q annotation updates for PodSet %q", autoscaling.ProvisioningRequestPodAnnotationKey, podSetName)
+			// Stamp every admission annotation, not just consume-provisioning-request:
+			// Pods created before the job template was stamped (the first
+			// PRQ-backed slice in a chain) carry none of them, and a consume
+			// annotation without its provisioning-class-name is ambiguous to the
+			// autoscaler.
+			for key, value := range psUpdate.Annotations {
+				if old, exists := update.annotations[key]; exists && old != value {
+					return podAdmissionUpdate{}, fmt.Errorf("conflicting %q annotation updates for PodSet %q", key, podSetName)
 				}
-				update.annotations[autoscaling.ProvisioningRequestPodAnnotationKey] = value
+				update.annotations[key] = value
 			}
 			for key, value := range psUpdate.NodeSelector {
 				if old, exists := update.nodeSelector[key]; exists && old != value {
