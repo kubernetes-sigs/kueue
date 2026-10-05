@@ -53,21 +53,25 @@ func MatchesPriorityClassSelector(selector *kueuealpha.PreemptionConfigPriorityC
 	return !slices.Contains(selector.NotMatchNames, name)
 }
 
+func isEmptyPriorityConstraint(priority *kueuealpha.PreemptionConfigPriorityConstraint) bool {
+	return priority == nil || (priority.Mode == nil && priority.Comparison == nil && len(priority.MatchNames) == 0 && len(priority.NotMatchNames) == 0)
+}
+
 // NewPriorityFilter creates a WorkloadFilter to evaluate candidate workloads
 // based on the priority constraint compared against the preemptor workload.
 func NewPriorityFilter(log logr.Logger, constraint kueuealpha.PreemptionConfigPriorityConstraint, preemptor *workload.Info) (WorkloadFilter, *FilterBuildError) {
-	if (constraint.Mode != nil) != (constraint.Comparison != nil) {
+	if constraint.Mode == nil && constraint.Comparison == nil {
+		return &priorityFilter{
+			classSelector: constraint.PreemptionConfigPriorityClassSelector,
+		}, nil
+	}
+
+	if constraint.Mode == nil || constraint.Comparison == nil {
 		return nil, &FilterBuildError{
 			Filter: FilterPriority,
 			Reason: ReasonMissingModeOrComparison,
 			Err:    errors.New("mode and comparison must be specified together"),
 		}
-	}
-
-	if constraint.Mode == nil && constraint.Comparison == nil {
-		return &priorityFilter{
-			classSelector: constraint.PreemptionConfigPriorityClassSelector,
-		}, nil
 	}
 
 	if !isSupportedComparison(*constraint.Comparison) {
