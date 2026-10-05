@@ -70,7 +70,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -4989,7 +4988,6 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 			ginkgo.It("should delete orphaned Workload after finishing if the Job is deleted with PropagationPolicy=DeletePropagationOrphan", func() {
 				job := testingjob.MakeJob("job", ns.Name).
 					Queue(kueue.LocalQueueName(lq.Name)).
-					Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 					Obj()
 				behavioral.MustCreate(ctx, k8sClient, job)
 
@@ -7090,7 +7088,6 @@ var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
 		job := testingjob.MakeJob("unmanaged-job", unmanagedNs.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
 			Suspend(true).
-			Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
 			Obj()
 
 		gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
@@ -7106,7 +7103,6 @@ var _ = ginkgo.Describe("Job reconciliation", ginkgo.Ordered, func() {
 		job := testingjob.MakeJob("managed-job", managedNs.Name).
 			Queue(kueue.LocalQueueName(lq.Name)).
 			Suspend(true).
-			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			Obj()
 
 		gomega.Expect(k8sClient.Create(ctx, job)).To(gomega.Succeed())
