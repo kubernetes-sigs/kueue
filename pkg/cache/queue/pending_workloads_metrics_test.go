@@ -111,6 +111,7 @@ func TestPendingWorkloadsMetricsWithCustomLabels(t *testing.T) {
 				}
 			}
 			if tc.requeue {
+				// Report the stopped queue first so the retry must refresh metrics after it resumes.
 				checker.active = false
 				reportPendingWorkloads(m, "cq")
 			}
