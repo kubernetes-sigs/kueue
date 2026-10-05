@@ -33,7 +33,7 @@ TEST_INFRA_WORK_BRANCH=""
 function usage() {
   echo "${0} <release-version>"
   echo
-  echo "  Create the next minor's milestone and the prow milestone_applier PR in test-infra."
+  echo "  Create the prow milestone_applier PR in test-infra, and optionally the next minor's milestone."
   echo
   echo "  Example:"
   echo "    $0 v0.20.0"
@@ -43,8 +43,10 @@ function usage() {
   echo "  Set the DRY_RUN environment var to skip the milestone creation, git push and PR."
   echo "  When DRY_RUN is set the script will leave you in a branch containing the commits."
   echo
-  echo "  Set SKIP_MILESTONE to skip the milestone phase, or SKIP_PR to skip the pull request"
-  echo "  phase. The two phases write to different repositories and need different credentials."
+  echo "  The next minor's milestone is created by the /create-milestone ChatOps command. Set CREATE_MILESTONE"
+  echo "  to create it from this script instead; that needs write access to the Kueue repository."
+  echo
+  echo "  Set SKIP_PR to skip the pull request phase."
   echo
   echo "  Set KUBERNETES_TEST_INFRA_UPSTREAM_REMOTE (default: upstream) and KUBERNETES_TEST_INFRA_FORK_REMOTE (default: origin)"
   echo "  to override the default remote names to what you have locally."
@@ -144,15 +146,20 @@ function apply_mapping_edit() {
   ' "$1" > "$2"
 }
 
-# ensure_milestone creates the milestone when absent and leaves any existing one alone,
-# including a closed one — reopening it would be a surprising write to state the release
-# team owns. The lookup uses state=all so a closed milestone is found rather than duplicated,
-# which GitHub would reject with a 422.
+# ensure_milestone, when CREATE_MILESTONE is set, creates the milestone when absent and leaves any
+# existing one alone, including a closed one — reopening it would be a surprising write to state
+# the release team owns. The lookup uses state=all so a closed milestone is found rather than
+# duplicated, which GitHub would reject with a 422.
 #
 # $1 - repository, e.g. kubernetes-sigs/kueue
 # $2 - milestone title, e.g. v0.21
 function ensure_milestone() {
   local repo="$1" title="$2" state
+
+  if [[ -z "${CREATE_MILESTONE:-}" ]]; then
+    MILESTONE_RESULT="skipped (use /create-milestone, or set CREATE_MILESTONE)"
+    return 0
+  fi
 
   state=$(gh api "repos/${repo}/milestones?state=all" --paginate \
     | jq -r --arg t "${title}" 'first(.[] | select(.title == $t) | .state) // empty')
@@ -418,11 +425,7 @@ function main() {
 
   trap on_exit EXIT
 
-  if [[ -n "${SKIP_MILESTONE:-}" ]]; then
-    MILESTONE_RESULT="skipped (SKIP_MILESTONE)"
-  else
-    ensure_milestone "${kueue_repo}" "${MILESTONE_TITLE}"
-  fi
+  ensure_milestone "${kueue_repo}" "${MILESTONE_TITLE}"
 
   if [[ -n "${SKIP_PR:-}" ]]; then
     PR_RESULT="skipped (SKIP_PR)"
