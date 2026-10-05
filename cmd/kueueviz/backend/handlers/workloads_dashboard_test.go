@@ -19,6 +19,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"maps"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -138,6 +139,42 @@ func TestFetchWorkloadsDashboardDataKeepsPodsNamespaceScoped(t *testing.T) {
 		if got, want := len(item.Pods), wantPodCounts[item.Name]; got != want {
 			t.Fatalf("workload %s has %d pods, want %d", item.Name, got, want)
 		}
+	}
+}
+
+func TestFetchWorkloadsDashboardDataSkipsPodsWithoutControllerUID(t *testing.T) {
+	client := &fakeDashboardClient{
+		workloads: []kueueapi.Workload{
+			makeDashboardWorkload("wl-1", "ns-1", "wl-uid-1", "job-uid-1"),
+			// Pod group Workloads have no job UID label.
+			{ObjectMeta: metav1.ObjectMeta{Name: "pod-group-1", Namespace: "ns-1", UID: "wl-uid-2"}},
+			{ObjectMeta: metav1.ObjectMeta{Name: "pod-group-2", Namespace: "ns-1", UID: "wl-uid-3"}},
+		},
+		pods: []corev1.Pod{
+			makeDashboardPod("pod-1", "ns-1", "job-uid-1"),
+			// Pods not created by a batch Job have no controller UID label.
+			{ObjectMeta: metav1.ObjectMeta{Name: "pod-group-1-0", Namespace: "ns-1"}},
+			{ObjectMeta: metav1.ObjectMeta{Name: "pod-group-2-0", Namespace: "ns-1"}},
+		},
+	}
+	h := &Handlers{client: client}
+
+	got, err := h.fetchWorkloadsDashboardData(t.Context(), "ns-1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	gotPodCounts := make(map[string]int)
+	for _, item := range dashboardWorkloadItems(t, got) {
+		gotPodCounts[item.Name] = len(item.Pods)
+	}
+	wantPodCounts := map[string]int{
+		"wl-1":        1,
+		"pod-group-1": 0,
+		"pod-group-2": 0,
+	}
+	if !maps.Equal(wantPodCounts, gotPodCounts) {
+		t.Errorf("pod counts = %v, want %v", gotPodCounts, wantPodCounts)
 	}
 }
 
