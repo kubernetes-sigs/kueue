@@ -48,7 +48,6 @@ import (
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -1220,8 +1219,6 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 					PodAnnotations: map[string]string{
 						kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
 					},
-					Image: e2e.GetAgnHostImage(),
-					Args:  e2e.BehaviorExitFast,
 				},
 				testingjobset.ReplicatedJobRequirements{
 					Name:        "rj2",
@@ -1231,8 +1228,6 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 					PodAnnotations: map[string]string{
 						kueue.PodSetPreferredTopologyAnnotation: utiltesting.DefaultRackTopologyLevel,
 					},
-					Image: e2e.GetAgnHostImage(),
-					Args:  e2e.BehaviorExitFast,
 				},
 			).
 			Request("rj1", corev1.ResourceCPU, "100m").

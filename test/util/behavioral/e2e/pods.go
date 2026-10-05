@@ -21,10 +21,9 @@ import (
 	"context"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
-
-	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
 )
 
 func KExecute(ctx context.Context, cfg *rest.Config, client *rest.RESTClient, ns, pod, container string, command []string) ([]byte, []byte, error) {

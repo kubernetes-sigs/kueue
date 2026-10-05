@@ -26,7 +26,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("JobSet Webhook", func() {
@@ -83,8 +82,6 @@ var _ = ginkgo.Describe("JobSet Webhook", func() {
 				Queue("indexed_job").
 				ReplicatedJobs(testingjob.ReplicatedJobRequirements{
 					Name:        "replicated-job-1",
-					Image:       e2e.GetAgnHostImage(),
-					Args:        e2e.BehaviorExitFast,
 					Replicas:    replicas,
 					Parallelism: parallelism,
 					Completions: parallelism,
