@@ -19,7 +19,6 @@ package scheduler
 import (
 	"context"
 	"errors"
-	"fmt"
 	"math"
 	"slices"
 	"testing"
@@ -874,31 +873,29 @@ func TestResyncGaugeMetrics_SkipsCohortInfoForCycle(t *testing.T) {
 }
 
 func TestCohortAdmittedWorkloadsFollowHierarchyChanges(t *testing.T) {
-	admittedWorkloads := func(cq kueue.ClusterQueueReference, n int) []*kueue.Workload {
-		now := time.Now()
-		wls := make([]*kueue.Workload, 0, n)
-		for i := range n {
-			wls = append(wls, utiltestingapi.MakeWorkload(fmt.Sprintf("%s-wl-%d", cq, i), "ns").
-				Request(corev1.ResourceCPU, "1").
-				ReserveQuotaAt(utiltestingapi.MakeAdmission(cq).
-					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Assignment(corev1.ResourceCPU, "default", "1").
-						Obj()).
-					Obj(), now).
-				AdmittedAt(true, now).
-				Obj())
-		}
-		return wls
-	}
-	clusterQueue := func(name kueue.ClusterQueueReference, cohort kueue.CohortReference) *kueue.ClusterQueue {
-		return utiltestingapi.MakeClusterQueue(string(name)).
-			Cohort(cohort).
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
-			Obj()
-	}
-	cohort := func(name, parent kueue.CohortReference) *kueue.Cohort {
-		return utiltestingapi.MakeCohort(name).Parent(parent).Obj()
-	}
+	now := time.Now()
+	cq1Workload := utiltestingapi.MakeWorkload("cq1-wl", "ns").
+		Request(corev1.ResourceCPU, "1").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "default", "1").
+				Obj()).
+			Obj(), now).
+		AdmittedAt(true, now)
+	cq2Workload := utiltestingapi.MakeWorkload("cq2-wl", "ns").
+		Request(corev1.ResourceCPU, "1").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq2").
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "default", "1").
+				Obj()).
+			Obj(), now).
+		AdmittedAt(true, now)
+	cq0 := utiltestingapi.MakeClusterQueue("cq0").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj())
+	cq1 := utiltestingapi.MakeClusterQueue("cq1").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj())
+	cq2 := utiltestingapi.MakeClusterQueue("cq2").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj())
 	// A Cohort closing a cycle is rejected but stays in the hierarchy.
 	addCohortMayCycle := func(t *testing.T, cache *Cache, ch *kueue.Cohort) {
 		t.Helper()
@@ -921,32 +918,47 @@ func TestCohortAdmittedWorkloadsFollowHierarchyChanges(t *testing.T) {
 		wantNoGauge []kueue.CohortReference
 	}{
 		"cohort reconciled with unchanged parent keeps implicit root count": {
-			cohorts:   []*kueue.Cohort{cohort("ch1", "root1")},
-			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "ch1")},
-			workloads: admittedWorkloads("cq1", 3),
+			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("ch1").Parent("root1").Obj()},
+			cqs:     []*kueue.ClusterQueue{cq1.Clone().Cohort("ch1").Obj()},
+			workloads: []*kueue.Workload{
+				cq1Workload.Clone().Name("cq1-wl-0").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-1").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-2").Obj(),
+			},
 			change: func(t *testing.T, _ logr.Logger, cache *Cache) {
-				if err := cache.AddOrUpdateCohort(cohort("ch1", "root1")); err != nil {
+				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("ch1").Parent("root1").Obj()); err != nil {
 					t.Fatal(err)
 				}
 			},
 			want: map[kueue.CohortReference]int{"ch1": 3, "root1": 3},
 		},
 		"cluster queue updated with unchanged implicit parent keeps its count": {
-			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "implicit")},
-			workloads: admittedWorkloads("cq1", 3),
+			cqs: []*kueue.ClusterQueue{cq1.Clone().Cohort("implicit").Obj()},
+			workloads: []*kueue.Workload{
+				cq1Workload.Clone().Name("cq1-wl-0").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-1").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-2").Obj(),
+			},
 			change: func(t *testing.T, log logr.Logger, cache *Cache) {
-				if err := cache.UpdateClusterQueue(log, clusterQueue("cq1", "implicit")); err != nil {
+				if err := cache.UpdateClusterQueue(log, cq1.Clone().Cohort("implicit").Obj()); err != nil {
 					t.Fatal(err)
 				}
 			},
 			want: map[kueue.CohortReference]int{"implicit": 3},
 		},
 		"cluster queue moved to another cohort": {
-			cohorts:   []*kueue.Cohort{cohort("a", ""), cohort("b", "")},
-			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "a")},
-			workloads: admittedWorkloads("cq1", 3),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("a").Obj(),
+				utiltestingapi.MakeCohort("b").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{cq1.Clone().Cohort("a").Obj()},
+			workloads: []*kueue.Workload{
+				cq1Workload.Clone().Name("cq1-wl-0").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-1").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-2").Obj(),
+			},
 			change: func(t *testing.T, log logr.Logger, cache *Cache) {
-				if err := cache.UpdateClusterQueue(log, clusterQueue("cq1", "b")); err != nil {
+				if err := cache.UpdateClusterQueue(log, cq1.Clone().Cohort("b").Obj()); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -954,12 +966,21 @@ func TestCohortAdmittedWorkloadsFollowHierarchyChanges(t *testing.T) {
 			wantNoGauge: []kueue.CohortReference{"a"},
 		},
 		"cohort moved to another root": {
-			cohorts: []*kueue.Cohort{cohort("root1", ""), cohort("root2", ""), cohort("ch1", "root1")},
-			cqs:     []*kueue.ClusterQueue{clusterQueue("cq1", "ch1"), clusterQueue("cq2", "root2")},
-			workloads: append(admittedWorkloads("cq1", 3),
-				admittedWorkloads("cq2", 2)...),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root1").Obj(),
+				utiltestingapi.MakeCohort("root2").Obj(),
+				utiltestingapi.MakeCohort("ch1").Parent("root1").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{cq1.Clone().Cohort("ch1").Obj(), cq2.Clone().Cohort("root2").Obj()},
+			workloads: []*kueue.Workload{
+				cq1Workload.Clone().Name("cq1-wl-0").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-1").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-2").Obj(),
+				cq2Workload.Clone().Name("cq2-wl-0").Obj(),
+				cq2Workload.Clone().Name("cq2-wl-1").Obj(),
+			},
 			change: func(t *testing.T, _ logr.Logger, cache *Cache) {
-				if err := cache.AddOrUpdateCohort(cohort("ch1", "root2")); err != nil {
+				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("ch1").Parent("root2").Obj()); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -967,9 +988,16 @@ func TestCohortAdmittedWorkloadsFollowHierarchyChanges(t *testing.T) {
 			wantNoGauge: []kueue.CohortReference{"root1"},
 		},
 		"explicit cohort with children deleted": {
-			cohorts:   []*kueue.Cohort{cohort("root", ""), cohort("mid", "root")},
-			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "mid")},
-			workloads: admittedWorkloads("cq1", 3),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("mid").Parent("root").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{cq1.Clone().Cohort("mid").Obj()},
+			workloads: []*kueue.Workload{
+				cq1Workload.Clone().Name("cq1-wl-0").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-1").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-2").Obj(),
+			},
 			change: func(_ *testing.T, _ logr.Logger, cache *Cache) {
 				cache.DeleteCohort("mid")
 			},
@@ -977,61 +1005,95 @@ func TestCohortAdmittedWorkloadsFollowHierarchyChanges(t *testing.T) {
 			wantNoGauge: []kueue.CohortReference{"root"},
 		},
 		"workloads admitted while the hierarchy has a cycle": {
-			cohorts:   []*kueue.Cohort{cohort("x", "y"), cohort("y", "x")},
-			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "x")},
-			workloads: admittedWorkloads("cq1", 3),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("x").Parent("y").Obj(),
+				utiltestingapi.MakeCohort("y").Parent("x").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{cq1.Clone().Cohort("x").Obj()},
+			workloads: []*kueue.Workload{
+				cq1Workload.Clone().Name("cq1-wl-0").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-1").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-2").Obj(),
+			},
 			change: func(t *testing.T, _ logr.Logger, cache *Cache) {
-				if err := cache.AddOrUpdateCohort(cohort("y", "")); err != nil {
+				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("y").Obj()); err != nil {
 					t.Fatal(err)
 				}
 			},
 			want: map[kueue.CohortReference]int{"x": 3, "y": 3},
 		},
 		"workloads finished while the hierarchy has a cycle": {
-			cohorts:   []*kueue.Cohort{cohort("x", "y"), cohort("y", "")},
-			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "x")},
-			workloads: admittedWorkloads("cq1", 3),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("x").Parent("y").Obj(),
+				utiltestingapi.MakeCohort("y").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{cq1.Clone().Cohort("x").Obj()},
+			workloads: []*kueue.Workload{
+				cq1Workload.Clone().Name("cq1-wl-0").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-1").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-2").Obj(),
+			},
 			change: func(t *testing.T, log logr.Logger, cache *Cache) {
-				addCohortMayCycle(t, cache, cohort("y", "x"))
-				for _, wl := range admittedWorkloads("cq1", 3) {
-					if err := cache.DeleteWorkload(log, workload.Key(wl)); err != nil {
+				addCohortMayCycle(t, cache, utiltestingapi.MakeCohort("y").Parent("x").Obj())
+				for _, name := range []string{"cq1-wl-0", "cq1-wl-1", "cq1-wl-2"} {
+					if err := cache.DeleteWorkload(log, workload.NewReference("ns", name)); err != nil {
 						t.Fatal(err)
 					}
 				}
-				if err := cache.AddOrUpdateCohort(cohort("y", "")); err != nil {
+				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("y").Obj()); err != nil {
 					t.Fatal(err)
 				}
 			},
 			want: map[kueue.CohortReference]int{"x": 0, "y": 0},
 		},
 		"cluster queue deleted while holding workloads": {
-			cohorts:   []*kueue.Cohort{cohort("a", "")},
-			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "a")},
-			workloads: admittedWorkloads("cq1", 3),
+			cohorts: []*kueue.Cohort{utiltestingapi.MakeCohort("a").Obj()},
+			cqs:     []*kueue.ClusterQueue{cq1.Clone().Cohort("a").Obj()},
+			workloads: []*kueue.Workload{
+				cq1Workload.Clone().Name("cq1-wl-0").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-1").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-2").Obj(),
+			},
 			change: func(_ *testing.T, _ logr.Logger, cache *Cache) {
-				cache.DeleteClusterQueue(clusterQueue("cq1", "a"))
+				cache.DeleteClusterQueue(cq1.Clone().Cohort("a").Obj())
 			},
 			want:        map[kueue.CohortReference]int{"a": 0},
 			wantNoGauge: []kueue.CohortReference{"a"},
 		},
 		"cohort moved into a cycle": {
-			cohorts:   []*kueue.Cohort{cohort("p", ""), cohort("a", "p"), cohort("b", "a")},
-			cqs:       []*kueue.ClusterQueue{clusterQueue("cq0", "p"), clusterQueue("cq1", "a")},
-			workloads: admittedWorkloads("cq1", 3),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("p").Obj(),
+				utiltestingapi.MakeCohort("a").Parent("p").Obj(),
+				utiltestingapi.MakeCohort("b").Parent("a").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{cq0.Clone().Cohort("p").Obj(), cq1.Clone().Cohort("a").Obj()},
+			workloads: []*kueue.Workload{
+				cq1Workload.Clone().Name("cq1-wl-0").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-1").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-2").Obj(),
+			},
 			change: func(t *testing.T, _ logr.Logger, cache *Cache) {
-				if err := cache.AddOrUpdateCohort(cohort("a", "b")); !errors.Is(err, ErrCohortHasCycle) {
+				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("a").Parent("b").Obj()); !errors.Is(err, ErrCohortHasCycle) {
 					t.Fatalf("got error %v, want %v", err, ErrCohortHasCycle)
 				}
 			},
 			want: map[kueue.CohortReference]int{"p": 0},
 		},
 		"cohort moved into a cycle and out of it again": {
-			cohorts:   []*kueue.Cohort{cohort("p", ""), cohort("a", "p"), cohort("b", "a")},
-			cqs:       []*kueue.ClusterQueue{clusterQueue("cq0", "p"), clusterQueue("cq1", "a")},
-			workloads: admittedWorkloads("cq1", 3),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("p").Obj(),
+				utiltestingapi.MakeCohort("a").Parent("p").Obj(),
+				utiltestingapi.MakeCohort("b").Parent("a").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{cq0.Clone().Cohort("p").Obj(), cq1.Clone().Cohort("a").Obj()},
+			workloads: []*kueue.Workload{
+				cq1Workload.Clone().Name("cq1-wl-0").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-1").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-2").Obj(),
+			},
 			change: func(t *testing.T, _ logr.Logger, cache *Cache) {
-				addCohortMayCycle(t, cache, cohort("a", "b"))
-				if err := cache.AddOrUpdateCohort(cohort("a", "")); err != nil {
+				addCohortMayCycle(t, cache, utiltestingapi.MakeCohort("a").Parent("b").Obj())
+				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("a").Obj()); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -1039,12 +1101,20 @@ func TestCohortAdmittedWorkloadsFollowHierarchyChanges(t *testing.T) {
 			wantNoGauge: []kueue.CohortReference{"b"},
 		},
 		"cohort moved into a cycle leaves explicit root without cluster queues": {
-			cohorts:   []*kueue.Cohort{cohort("p", ""), cohort("a", "p"), cohort("b", "a")},
-			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "a")},
-			workloads: admittedWorkloads("cq1", 3),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("p").Obj(),
+				utiltestingapi.MakeCohort("a").Parent("p").Obj(),
+				utiltestingapi.MakeCohort("b").Parent("a").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{cq1.Clone().Cohort("a").Obj()},
+			workloads: []*kueue.Workload{
+				cq1Workload.Clone().Name("cq1-wl-0").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-1").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-2").Obj(),
+			},
 			change: func(t *testing.T, _ logr.Logger, cache *Cache) {
-				addCohortMayCycle(t, cache, cohort("a", "b"))
-				if err := cache.AddOrUpdateCohort(cohort("a", "")); err != nil {
+				addCohortMayCycle(t, cache, utiltestingapi.MakeCohort("a").Parent("b").Obj())
+				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("a").Obj()); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -1052,18 +1122,35 @@ func TestCohortAdmittedWorkloadsFollowHierarchyChanges(t *testing.T) {
 			wantNoGauge: []kueue.CohortReference{"p"},
 		},
 		"cycle resolved by deleting a cohort": {
-			cohorts:   []*kueue.Cohort{cohort("x", "y"), cohort("y", "x")},
-			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "x")},
-			workloads: admittedWorkloads("cq1", 3),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("x").Parent("y").Obj(),
+				utiltestingapi.MakeCohort("y").Parent("x").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{cq1.Clone().Cohort("x").Obj()},
+			workloads: []*kueue.Workload{
+				cq1Workload.Clone().Name("cq1-wl-0").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-1").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-2").Obj(),
+			},
 			change: func(_ *testing.T, _ logr.Logger, cache *Cache) {
 				cache.DeleteCohort("y")
 			},
 			want: map[kueue.CohortReference]int{"x": 3, "y": 3},
 		},
 		"cycle of three resolved by deleting a cohort": {
-			cohorts:   []*kueue.Cohort{cohort("x", "y"), cohort("y", "z"), cohort("z", "x")},
-			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "x"), clusterQueue("cq2", "z")},
-			workloads: append(admittedWorkloads("cq1", 3), admittedWorkloads("cq2", 2)...),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("x").Parent("y").Obj(),
+				utiltestingapi.MakeCohort("y").Parent("z").Obj(),
+				utiltestingapi.MakeCohort("z").Parent("x").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{cq1.Clone().Cohort("x").Obj(), cq2.Clone().Cohort("z").Obj()},
+			workloads: []*kueue.Workload{
+				cq1Workload.Clone().Name("cq1-wl-0").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-1").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-2").Obj(),
+				cq2Workload.Clone().Name("cq2-wl-0").Obj(),
+				cq2Workload.Clone().Name("cq2-wl-1").Obj(),
+			},
 			change: func(_ *testing.T, _ logr.Logger, cache *Cache) {
 				cache.DeleteCohort("x")
 			},
@@ -1071,24 +1158,36 @@ func TestCohortAdmittedWorkloadsFollowHierarchyChanges(t *testing.T) {
 			wantNoGauge: []kueue.CohortReference{"y"},
 		},
 		"cohort added with a parent after its cluster queue has workloads": {
-			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "c")},
-			workloads: admittedWorkloads("cq1", 3),
+			cqs: []*kueue.ClusterQueue{cq1.Clone().Cohort("c").Obj()},
+			workloads: []*kueue.Workload{
+				cq1Workload.Clone().Name("cq1-wl-0").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-1").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-2").Obj(),
+			},
 			change: func(t *testing.T, _ logr.Logger, cache *Cache) {
-				if err := cache.AddOrUpdateCohort(cohort("c", "p")); err != nil {
+				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("c").Parent("p").Obj()); err != nil {
 					t.Fatal(err)
 				}
 			},
 			want: map[kueue.CohortReference]int{"c": 3, "p": 3},
 		},
 		"cluster queue moved into a cycle that is then resolved": {
-			cohorts:   []*kueue.Cohort{cohort("a", ""), cohort("x", "y"), cohort("y", "x")},
-			cqs:       []*kueue.ClusterQueue{clusterQueue("cq1", "a")},
-			workloads: admittedWorkloads("cq1", 3),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("a").Obj(),
+				utiltestingapi.MakeCohort("x").Parent("y").Obj(),
+				utiltestingapi.MakeCohort("y").Parent("x").Obj(),
+			},
+			cqs: []*kueue.ClusterQueue{cq1.Clone().Cohort("a").Obj()},
+			workloads: []*kueue.Workload{
+				cq1Workload.Clone().Name("cq1-wl-0").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-1").Obj(),
+				cq1Workload.Clone().Name("cq1-wl-2").Obj(),
+			},
 			change: func(t *testing.T, log logr.Logger, cache *Cache) {
-				if err := cache.UpdateClusterQueue(log, clusterQueue("cq1", "x")); err != nil {
+				if err := cache.UpdateClusterQueue(log, cq1.Clone().Cohort("x").Obj()); err != nil {
 					t.Fatal(err)
 				}
-				if err := cache.AddOrUpdateCohort(cohort("y", "")); err != nil {
+				if err := cache.AddOrUpdateCohort(utiltestingapi.MakeCohort("y").Obj()); err != nil {
 					t.Fatal(err)
 				}
 			},
@@ -1151,15 +1250,16 @@ func TestCohortAdmittedWorkloadsDropsSeriesOfMovedClusterQueueCustomLabels(t *te
 			t.Fatal(err)
 		}
 	}
-	clusterQueue := func(name string, cohort kueue.CohortReference, team string) *kueue.ClusterQueue {
-		return utiltestingapi.MakeClusterQueue(name).
-			Cohort(cohort).
-			Label("team", team).
-			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj()).
-			Obj()
-	}
+	cq1 := utiltestingapi.MakeClusterQueue("cq1").
+		Cohort("a").
+		Label("team", "alpha").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj())
+	cq2 := utiltestingapi.MakeClusterQueue("cq2").
+		Cohort("a").
+		Label("team", "beta").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "5").Obj())
 	now := time.Now()
-	for _, cq := range []*kueue.ClusterQueue{clusterQueue("cq1", "a", "alpha"), clusterQueue("cq2", "a", "beta")} {
+	for _, cq := range []*kueue.ClusterQueue{cq1.Clone().Obj(), cq2.Clone().Obj()} {
 		customLabels.CQStore(kueue.ClusterQueueReference(cq.Name), cq.Labels, cq.Annotations)
 		if err := cache.AddClusterQueue(ctx, cq); err != nil {
 			t.Fatal(err)
@@ -1178,7 +1278,7 @@ func TestCohortAdmittedWorkloadsDropsSeriesOfMovedClusterQueueCustomLabels(t *te
 		}
 	}
 
-	if err := cache.UpdateClusterQueue(log, clusterQueue("cq1", "b", "alpha")); err != nil {
+	if err := cache.UpdateClusterQueue(log, cq1.Clone().Cohort("b").Obj()); err != nil {
 		t.Fatal(err)
 	}
 
