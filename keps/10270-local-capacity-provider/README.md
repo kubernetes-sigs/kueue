@@ -364,6 +364,11 @@ At every step, each cluster's quota matches the nodes it actually has.
 - **The ResourceFlavor is the node selector.** Which nodes count for a flavor is
   decided entirely by its `nodeLabels`. These are the same labels Kueue uses to
   place workloads, so counting and placement always agree.
+- **Trust the label source.** The same `nodeLabels` decide both capacity and
+  placement, so use labels that only a trusted component sets (for example keys
+  under the `node-restriction.kubernetes.io/` prefix, which the `NodeRestriction`
+  admission plugin prevents kubelets from setting), not ones a node's kubelet can
+  set for itself. See [Risks and Mitigations](#risks-and-mitigations).
 - **Zeros need a DQO change.** Before #16168, if no provider reported a
   (flavor, resource) pair, DQO kept the spec value for it. Without a
   configuration API, the provider only knows the resources that the nodes
@@ -403,6 +408,8 @@ At every step, each cluster's quota matches the nodes it actually has.
 | **Capacity drops below usage.** | Running workloads continue and new admissions wait. This matches lowering quota by hand today. |
 | **Non-Kueue pods use node resources** (DaemonSets, agents). | Use DQO's `effectiveCapacityMultiplier` (for example `0.95`) as headroom. |
 | **GPU node counted before its GPUs appear.** Its CPU and memory count while the device plugin is still starting. | This lasts only a short time and GPU quota itself is correct. If needed, add a required-resources option in Beta. |
+| **A node labels itself into a flavor.** A kubelet that self-applies a flavor label gets its node's capacity counted for that flavor and the flavor's workloads placed on it. This risk already exists for placement; counting capacity from the same labels widens its impact to quota. | Use flavor labels that only a trusted component can set, for example the `node-restriction.kubernetes.io/` prefix protected by the `NodeRestriction` admission plugin, not labels a kubelet can self-apply. |
+| **Two orchestrators share one provider.** Two DynamicQuotaOrchestrators with disjoint subtree roots that reference the same CapacityProvider each receive its full capacity, so the pool is handed out twice. DQO soft validation does not detect this. | Split the pool with a per-orchestrator `effectiveCapacityMultiplier` (for example `0.5` on each), as described in KEP-12382. |
 | **Scalability.** Clusters with thousands of nodes produce many Node events. | Node updates that cannot change capacity, such as kubelet heartbeats, are filtered out, and no-op status writes are skipped. Beta requires a scale test. |
 
 ## Design Details
