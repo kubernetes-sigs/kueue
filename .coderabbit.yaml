@@ -74,8 +74,8 @@ reviews:
       instructions: |
         Review reconciliation logic for correctness, idempotency, and proper
         error handling. Ensure status updates use the status subresource.
-        Verify that new controller behavior has corresponding unit and
-        integration tests.
+        Verify that new controller behavior is covered as described in
+        site/content/en/community/contribution_guidelines/writing_tests.md.
 
     - path: "pkg/webhooks/**/*.go"
       instructions: |
@@ -94,19 +94,6 @@ reviews:
         proper handling of resource flavors, cohort borrowing, and
         preemption policies.
 
-    - path: "test/integration/**/*.go"
-      instructions: |
-        Verify tests use envtest and follow the existing Ginkgo/Gomega
-        patterns. Each scenario belongs in its own `ginkgo.It`; do not suggest
-        `ginkgo.DescribeTable`. Ensure new test cases cover both positive and
-        negative scenarios.
-
-    - path: "test/e2e/**/*.go"
-      instructions: |
-        Verify E2E tests are self-contained and clean up resources. Tests
-        should use Ginkgo/Gomega and follow the existing patterns in the
-        suite.
-
     - path: "charts/**"
       instructions: |
         Verify Helm template correctness and that values.yaml defaults are
@@ -120,10 +107,8 @@ reviews:
 
     - path: "**/*_test.go"
       instructions: |
-        Unit tests use the standard `testing` package with map-based
-        table-driven cases. Ginkgo/Gomega tests (integration and e2e) cover
-        each scenario in its own `ginkgo.It`; do not suggest
-        `ginkgo.DescribeTable`.
+        Follow site/content/en/community/contribution_guidelines/writing_tests.md.
+        Do not suggest `ginkgo.DescribeTable`.
 
   auto_review:
     enabled: true
