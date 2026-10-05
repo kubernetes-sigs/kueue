@@ -27,6 +27,7 @@ import (
 	eventsv1 "k8s.io/api/events/v1"
 	nodev1 "k8s.io/api/node/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1366,6 +1367,170 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(count).To(gomega.Equal(1))
 				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should update recorded resource usage when runtime class overhead changes while waiting for admission check", framework.SlowSpec, func() {
+			check := utiltestingapi.MakeAdmissionCheck("check").ControllerName("ctrl").Obj()
+			behavioral.MustCreate(ctx, k8sClient, check)
+			behavioral.SetAdmissionCheckActive(ctx, k8sClient, check, metav1.ConditionTrue)
+			defer func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var cq kueue.ClusterQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).To(gomega.Succeed())
+					cq.Spec.AdmissionChecksStrategy = nil
+					g.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, check, true)
+			}()
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var cq kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).To(gomega.Succeed())
+				cq.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+					AdmissionChecks: []kueue.AdmissionCheckStrategyRule{{Name: "check"}},
+				}
+				g.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("updating runtime class with initial overhead of 250m CPU", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var rc nodev1.RuntimeClass
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(runtimeClass), &rc)).To(gomega.Succeed())
+					rc.Overhead = &nodev1.Overhead{
+						PodFixed: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("250m"),
+						},
+					}
+					g.Expect(k8sClient.Update(ctx, &rc)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			wl = utiltestingapi.MakeWorkload("wl-rc-overhead", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				RuntimeClass(runtimeClassName).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			wlKey := client.ObjectKeyFromObject(wl)
+
+			ginkgo.By("waiting for QuotaReserved=True with initial overhead (1250m total CPU)", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var read kueue.Workload
+					g.Expect(k8sClient.Get(ctx, wlKey, &read)).To(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(&read)).To(gomega.BeTrue())
+					g.Expect(workload.IsAdmitted(&read)).To(gomega.BeFalse())
+					g.Expect(read.Status.Admission).NotTo(gomega.BeNil())
+					g.Expect(read.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+					g.Expect(read.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU]).
+						To(gomega.Equal(resource.MustParse("1250m")))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("updating runtime class overhead to 500m CPU", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var rc nodev1.RuntimeClass
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(runtimeClass), &rc)).To(gomega.Succeed())
+					rc.Overhead.PodFixed[corev1.ResourceCPU] = resource.MustParse("500m")
+					g.Expect(k8sClient.Update(ctx, &rc)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying workload recorded resource usage updates to 1500m CPU", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var read kueue.Workload
+					g.Expect(k8sClient.Get(ctx, wlKey, &read)).To(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(&read)).To(gomega.BeTrue())
+					g.Expect(read.Status.Admission).NotTo(gomega.BeNil())
+					g.Expect(read.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU]).
+						To(gomega.Equal(resource.MustParse("1500m")))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("should keep recorded resource usage unchanged when runtime class metadata changes without overhead modification", framework.SlowSpec, func() {
+			check := utiltestingapi.MakeAdmissionCheck("check").ControllerName("ctrl").Obj()
+			behavioral.MustCreate(ctx, k8sClient, check)
+			behavioral.SetAdmissionCheckActive(ctx, k8sClient, check, metav1.ConditionTrue)
+			defer func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var cq kueue.ClusterQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).To(gomega.Succeed())
+					cq.Spec.AdmissionChecksStrategy = nil
+					g.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, check, true)
+			}()
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var cq kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).To(gomega.Succeed())
+				cq.Spec.AdmissionChecksStrategy = &kueue.AdmissionChecksStrategy{
+					AdmissionChecks: []kueue.AdmissionCheckStrategyRule{{Name: "check"}},
+				}
+				g.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("updating runtime class with initial overhead of 250m CPU", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var rc nodev1.RuntimeClass
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(runtimeClass), &rc)).To(gomega.Succeed())
+					rc.Overhead = &nodev1.Overhead{
+						PodFixed: corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("250m"),
+						},
+					}
+					g.Expect(k8sClient.Update(ctx, &rc)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			wl = utiltestingapi.MakeWorkload("wl-rc-metadata", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Request(corev1.ResourceCPU, "1").
+				RuntimeClass(runtimeClassName).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			wlKey := client.ObjectKeyFromObject(wl)
+
+			ginkgo.By("waiting for QuotaReserved=True with initial overhead (1250m total CPU)", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var read kueue.Workload
+					g.Expect(k8sClient.Get(ctx, wlKey, &read)).To(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(&read)).To(gomega.BeTrue())
+					g.Expect(workload.IsAdmitted(&read)).To(gomega.BeFalse())
+					g.Expect(read.Status.Admission).NotTo(gomega.BeNil())
+					g.Expect(read.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+					g.Expect(read.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU]).
+						To(gomega.Equal(resource.MustParse("1250m")))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("updating runtime class metadata with an annotation without modifying overhead", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var rc nodev1.RuntimeClass
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(runtimeClass), &rc)).To(gomega.Succeed())
+					if rc.Annotations == nil {
+						rc.Annotations = make(map[string]string)
+					}
+					rc.Annotations["example.com/updated"] = "true"
+					g.Expect(k8sClient.Update(ctx, &rc)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying workload recorded resource usage remains consistently unchanged at 1250m CPU", func() {
+				// LongConsistentDuration, not ConsistentDuration: the workload controller reacts
+				// to runtime class update events via informer and workqueue, so a 300ms window can
+				// close before reconciliation runs on a loaded runner, making the check pass vacuously.
+				gomega.Consistently(func(g gomega.Gomega) {
+					var read kueue.Workload
+					g.Expect(k8sClient.Get(ctx, wlKey, &read)).To(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(&read)).To(gomega.BeTrue())
+					g.Expect(workload.IsAdmitted(&read)).To(gomega.BeFalse())
+					g.Expect(read.Status.Admission).NotTo(gomega.BeNil())
+					g.Expect(read.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+					g.Expect(read.Status.Admission.PodSetAssignments[0].ResourceUsage[corev1.ResourceCPU]).
+						To(gomega.Equal(resource.MustParse("1250m")))
+				}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 			})
 		})
 	})
