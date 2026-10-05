@@ -408,6 +408,7 @@ func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk c
 		client.MatchingFields{indexer.WorkloadSliceNameKey: SliceName(wl)}); err != nil {
 		return fmt.Errorf("failed to find prebuilt workload slices: %w", err)
 	}
+	log := ctrl.LoggerFrom(ctx)
 	replaced := sets.New[workload.Reference]()
 	for i := range list.Items {
 		if key := replacementTarget(&list.Items[i]); key != nil {
@@ -416,9 +417,10 @@ func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk c
 	}
 	for i := range list.Items {
 		predecessor := &list.Items[i]
-		if !replaced.Has(workload.Key(predecessor)) {
+		if !replaced.Has(workload.Key(predecessor)) || workloadfinish.IsFinished(predecessor) {
 			continue
 		}
+		log.V(2).Info("Finishing workload slice that was not finished by the scheduler", "workload", workload.Key(predecessor))
 		if err := workloadfinish.Finish(ctx, clnt, predecessor, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice", clk); err != nil {
 			return err
 		}
