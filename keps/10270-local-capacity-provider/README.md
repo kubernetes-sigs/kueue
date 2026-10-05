@@ -112,6 +112,7 @@ which was closed in favour of building on DQO.
    resources.
 3. A new feature gate, `LocalCapacityProvider` (alpha, disabled by default),
    which requires `DynamicQuotaOrchestration`.
+   Enabling it without `DynamicQuotaOrchestration` fails at startup.
 4. It relies on a small DQO change, merged in
    [#16168](https://github.com/kubernetes-sigs/kueue/pull/16168) and needed for
    correct zeros (see [Notes](#notesconstraintscaveats)): a provider orchestrates
@@ -410,6 +411,7 @@ At every step, each cluster's quota matches the nodes it actually has.
 | **GPU node counted before its GPUs appear.** Its CPU and memory count while the device plugin is still starting. | This lasts only a short time and GPU quota itself is correct. If needed, add a required-resources option in Beta. |
 | **A node labels itself into a flavor.** A kubelet that self-applies a flavor label gets its node's capacity counted for that flavor and the flavor's workloads placed on it. This risk already exists for placement; counting capacity from the same labels widens its impact to quota. | Use flavor labels that only a trusted component can set, for example the `node-restriction.kubernetes.io/` prefix protected by the `NodeRestriction` admission plugin, not labels a kubelet can self-apply. |
 | **Two orchestrators share one provider.** Two DynamicQuotaOrchestrators with disjoint subtree roots that reference the same CapacityProvider each receive its full capacity, so the pool is handed out twice. DQO soft validation does not detect this. | Split the pool with a per-orchestrator `effectiveCapacityMultiplier` (for example `0.5` on each), as described in KEP-12382. |
+| **Nodes advertise more than 64 resources.** The provider reports every allocatable resource of a flavor's nodes, and the API allows at most 64 per flavor. Above that, the provider is `Misconfigured` and all of its flavors keep their last quota. | Documented Alpha limit; the condition message names the flavor and the count. Beta adds an explicit per-flavor resource list, so only the listed resources are reported. |
 | **Scalability.** Clusters with thousands of nodes produce many Node events. | Node updates that cannot change capacity, such as kubelet heartbeats, are filtered out, and no-op status writes are skipped. Beta requires a scale test. |
 
 ## Design Details
@@ -540,7 +542,7 @@ feature gate is disabled by default.
 |---|---|
 | Normal, including zero nodes | `True`, `Synchronized`, with a message summarizing counted and excluded nodes per flavor |
 | Nodes cannot be read | `False`, `SourceUnavailable`; the last capacity is kept |
-| Missing flavor, flavor claimed twice, or node matching several flavors | `False`, `Misconfigured`, with a message naming the flavor or node; the last capacity is kept |
+| Missing flavor, flavor claimed twice, node matching several flavors, or more than 64 resources in a flavor | `False`, `Misconfigured`, with a message naming the flavor or node; the last capacity is kept |
 
 Because DQO requires `CapacitySynchronized=True`, a provider in either `False`
 state makes DQO stop redistributing and keep the last effective quotas.
@@ -575,8 +577,10 @@ None.
 
 - `pkg/controller/core/localcapacity`: node eligibility (Ready, cordoned,
   deleting, taints vs. tolerations and nodeTaints, label match), summing
-  allocatable, flavors without nodes published as empty, overlap detection, missing flavors, providers of
-  other controllers ignored, feature gate disabled.
+  allocatable, flavors without nodes published as empty, overlap detection,
+  missing flavors, more than 64 resources, a failure to list Nodes keeping the
+  last capacity (`SourceUnavailable`), unchanged status not rewritten, providers
+  of other controllers ignored, feature gate disabled.
 - `pkg/controller/core/dqo` (in #16168): unreported orchestrated flavors appear
   in `effectiveCapacity` with empty `resources`, their declared pairs are
   distributed as 0, and pairs of non-orchestrated flavors keep their spec value.
@@ -586,7 +590,10 @@ None.
 - Adding, cordoning or removing Nodes updates the CapacityProvider, then DQO,
   then the Cohort and ClusterQueue `effectiveQuotas`.
 - Removing all nodes of a flavor drops quota to 0, not back to the spec value.
-- Overlapping flavors set `Misconfigured` and effective quotas stay unchanged.
+- Overlapping flavors set `Misconfigured` and effective quotas stay unchanged,
+  even when more nodes join.
+- `effectiveCapacityMultiplier` scales the distributed quota (for example 80
+  GPUs with `0.95` give 76).
 - The scheduler admits workloads according to the node-derived quota.
 
 #### e2e tests
@@ -609,6 +616,10 @@ None.
 - User feedback is addressed.
 - A scale test with thousands of nodes.
 - Events and metrics for excluded nodes and sync time.
+- An explicit per-flavor resource list, so the provider is not limited by the
+  64-resource cap and can support per-resource headroom.
+- A Node cache transform that keeps only the fields the provider and TAS read,
+  agreed with TAS owners because the Node informer is shared.
 - Freshness and expiry of effective quota are revisited together with DQO.
 - Decide whether any of the knobs listed under Alternatives are needed.
 
@@ -637,7 +648,7 @@ A cluster-scoped `LocalCapacity` object, referenced from
 `CapacityProvider.spec.parameters`, could hold:
 
 - an explicit resource list, which would let the provider publish explicit zeros
-  per resource;
+  per resource and lift the 64-resource limit (planned for Beta);
 - a per-node reserve for DaemonSets;
 - required resources, such as GPUs, before a node counts;
 - a delay before newly Ready nodes count;
