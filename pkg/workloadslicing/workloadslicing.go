@@ -432,8 +432,7 @@ func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk c
 // not full admission.
 func replacementTarget(wl *kueue.Workload) *workload.Reference {
 	key := ReplacementForKey(wl)
-	if key == nil || *key == workload.Key(wl) ||
-		!workload.HasQuotaReservation(wl) || workloadevict.IsEvicted(wl) || workloadfinish.IsFinished(wl) {
+	if key == nil || !workload.HasQuotaReservation(wl) || workloadevict.IsEvicted(wl) || workloadfinish.IsFinished(wl) {
 		return nil
 	}
 	return key
