@@ -23,6 +23,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -56,6 +57,7 @@ var podCmpOpts = []gocmp.Option{
 }
 
 var rayClusterGVK = schema.GroupVersionKind{Group: "ray.io", Version: "v1", Kind: "RayCluster"}
+var batchJobGVK = batchv1.SchemeGroupVersion.WithKind("Job")
 
 const (
 	headPodSet    kueue.PodSetReference = "head"
@@ -285,6 +287,77 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod-2", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Obj(),
+			},
+		},
+		"ungates lowest completion-index pods first when the job-completion-index label is present": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(batchJobGVK, "job", "job-uid").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor", "2").
+								Count(2).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			// Pod names sort alphabetically in the opposite order of their completion
+			// index, so a name-only sort would ungate the wrong (higher-index) pods first.
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-a", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(batchv1.JobCompletionIndexAnnotation, "3").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*testingpod.MakePod("pod-b", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(batchv1.JobCompletionIndexAnnotation, "2").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*testingpod.MakePod("pod-c", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*testingpod.MakePod("pod-d", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod-a", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(batchv1.JobCompletionIndexAnnotation, "3").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*testingpod.MakePod("pod-b", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(batchv1.JobCompletionIndexAnnotation, "2").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*testingpod.MakePod("pod-c", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Obj(),
+				*testingpod.MakePod("pod-d", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
 					Obj(),
 			},
 		},
@@ -1133,6 +1206,7 @@ func TestReconcile(t *testing.T) {
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithIndex(&corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName).
 				WithIndex(&kueue.Workload{}, coreindexer.OwnerReferenceIndexKey(rayClusterGVK), coreindexer.WorkloadOwnerIndexFunc(rayClusterGVK)).
+				WithIndex(&kueue.Workload{}, coreindexer.OwnerReferenceIndexKey(batchJobGVK), coreindexer.WorkloadOwnerIndexFunc(batchJobGVK)).
 				WithIndex(&kueue.Workload{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexWorkloadSliceName).
 				WithInterceptorFuncs(interceptor.Funcs{
 					Patch: func(ctx context.Context, clnt client.WithWatch, obj client.Object, _ client.Patch, _ ...client.PatchOption) error {
