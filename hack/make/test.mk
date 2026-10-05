@@ -944,7 +944,8 @@ test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz with
 
 .PHONY: test-kueueviz-backend
 test-kueueviz-backend: ## Run KueueViz backend tests.
-	cd $(PROJECT_DIR)/cmd/kueueviz/backend && $(GO_CMD) test $(GOFLAGS) $(GO_TEST_FLAGS) ./...
+	cd $(PROJECT_DIR)/cmd/kueueviz/backend && $(NETWORK_INSTALL_RETRY) $(GO_CMD) mod download && \
+	$(GO_CMD) test $(GOFLAGS) $(GO_TEST_FLAGS) ./...
 
 .PHONY: test-e2e-kueueviz
 test-e2e-kueueviz: test-kueueviz-backend setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.
