@@ -358,6 +358,13 @@ func (c *LabelValsTracker) Add(ls labelValsSet, incr int) {
 	c.total += newCount - oldCount
 }
 
+// Count returns the number of workloads tracked for the label values set ls.
+func (c *LabelValsTracker) Count(ls labelValsSet) int {
+	c.RLock()
+	defer c.RUnlock()
+	return c.counts[ls]
+}
+
 func (c *LabelValsTracker) Iter() iter.Seq2[labelValsSet, int] {
 	return func(yield func(labelValsSet, int) bool) {
 		c.RLock()

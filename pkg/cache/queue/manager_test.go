@@ -379,7 +379,9 @@ func TestResyncClusterQueueGaugeMetricsWithWorkloadCustomLabels(t *testing.T) {
 	cases := map[string]struct {
 		// cqActiveStates is the sequence of ClusterQueue states, with metrics resynced after each one.
 		cqActiveStates []bool
-		wantWorkloads  map[string]float64
+		// deletedWorkload is deleted after the sequence, followed by another resync.
+		deletedWorkload workload.Reference
+		wantWorkloads   map[string]float64
 	}{
 		"active": {
 			cqActiveStates: []bool{true},
@@ -392,6 +394,11 @@ func TestResyncClusterQueueGaugeMetricsWithWorkloadCustomLabels(t *testing.T) {
 		"resumed": {
 			cqActiveStates: []bool{true, false, true},
 			wantWorkloads:  map[string]float64{"active/kind1": 1, "active/kind2": 1},
+		},
+		"workload deleted": {
+			cqActiveStates:  []bool{true},
+			deletedWorkload: workload.NewReference(defaultNamespace, "wl2"),
+			wantWorkloads:   map[string]float64{"active/kind1": 1},
 		},
 	}
 	for name, tc := range cases {
@@ -420,6 +427,10 @@ func TestResyncClusterQueueGaugeMetricsWithWorkloadCustomLabels(t *testing.T) {
 
 			for _, active := range tc.cqActiveStates {
 				checker.active = active
+				manager.ResyncClusterQueueGaugeMetrics("cq")
+			}
+			if tc.deletedWorkload != "" {
+				manager.DeleteWorkload(log, tc.deletedWorkload)
 				manager.ResyncClusterQueueGaugeMetrics("cq")
 			}
 
