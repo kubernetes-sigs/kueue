@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
@@ -34,7 +33,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
-	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
@@ -115,11 +113,8 @@ func countDevicesPerClass(claimSpec *resourcev1.ResourceClaimSpec) (resources.Re
 		if dc == "" {
 			continue
 		}
-		// Device counts are user-controlled and effectively unbounded (the
-		// apiserver accepts up to MaxInt64), so accumulate with a saturating add
-		// (matching the scheduler's Amount arithmetic) rather than letting the
-		// sum wrap to a negative count.
-		out.Set(dc, utilmath.SaturatingAdd(out.ResourceValue(dc), q))
+		// Counts are user-controlled up to MaxInt64, and the sum is exact.
+		out.Set(dc, out.ResourceValue(dc).AddInt64(q))
 	}
 	return out, nil
 }
@@ -224,7 +219,7 @@ func GetResourceRequestsForResourceClaimTemplates(
 				if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) && len(mapper.getCapacityConfigs(dc)) > 0 {
 					continue
 				}
-				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: resource.MustParse(strconv.FormatInt(qty, 10))})
+				aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{logical: resource.MustParse(qty.String())})
 			}
 		}
 

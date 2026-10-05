@@ -33,6 +33,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -747,15 +748,15 @@ func exactReq(name, deviceClass string, count int64) resourcev1.DeviceRequest {
 func Test_countDevicesPerClass_overflow(t *testing.T) {
 	cases := map[string]struct {
 		requests  []resourcev1.DeviceRequest
-		wantCount int64
+		wantCount resources.Amount
 	}{
 		"normal sum across requests": {
 			requests:  []resourcev1.DeviceRequest{exactReq("r0", "gpu", 2), exactReq("r1", "gpu", 3)},
-			wantCount: 5,
+			wantCount: resources.NewAmount(5),
 		},
-		"sum saturates at MaxInt64 instead of wrapping negative": {
+		"an exactly sum past MaxInt64 stays exact": {
 			requests:  []resourcev1.DeviceRequest{exactReq("r0", "gpu", math.MaxInt64), exactReq("r1", "gpu", math.MaxInt64)},
-			wantCount: math.MaxInt64,
+			wantCount: resources.NewAmount(math.MaxInt64).MulInt64(2),
 		},
 	}
 	for name, tc := range cases {
@@ -765,8 +766,8 @@ func Test_countDevicesPerClass_overflow(t *testing.T) {
 			if len(errs) != 0 {
 				t.Fatalf("unexpected errors: %v", errs)
 			}
-			if got := out.ResourceValue("gpu"); got != tc.wantCount {
-				t.Errorf("count = %d, want %d", got, tc.wantCount)
+			if got := out.ResourceValue("gpu"); !got.Equal(tc.wantCount) {
+				t.Errorf("count = %s, want %s", got, tc.wantCount)
 			}
 		})
 	}

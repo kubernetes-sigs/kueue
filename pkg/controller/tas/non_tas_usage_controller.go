@@ -18,7 +18,6 @@ package tas
 
 import (
 	"context"
-	"maps"
 	"sync"
 	"time"
 
@@ -231,9 +230,9 @@ func podUsageChanged(oldPod, newPod *corev1.Pod) bool {
 	if oldPod.Generation == newPod.Generation {
 		return false
 	}
-	return !maps.Equal(
-		resources.ToMap(resources.NewRequestsFromPodSpec(&oldPod.Spec)),
-		resources.ToMap(resources.NewRequestsFromPodSpec(&newPod.Spec)),
+	return !resources.Equal(
+		resources.NewRequestsFromPodSpec(&oldPod.Spec),
+		resources.NewRequestsFromPodSpec(&newPod.Spec),
 	)
 }
 

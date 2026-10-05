@@ -405,8 +405,8 @@ func (s *TASFlavorSnapshot) resourceDetails(requests resources.Requests) map[cor
 		return map[corev1.ResourceName]string{}
 	}
 	details := make(map[corev1.ResourceName]string, requests.Len())
-	requests.ForEach(func(resourceName corev1.ResourceName, value int64) {
-		details[resourceName] = s.resourceFormatter.ResourceQuantityString(resourceName, value)
+	requests.ForEach(func(resourceName corev1.ResourceName, value resources.Amount) {
+		details[resourceName] = s.resourceFormatter.AmountQuantityString(resourceName, value)
 	})
 	return details
 }

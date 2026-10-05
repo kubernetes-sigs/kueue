@@ -207,7 +207,7 @@ func checkPodSetAndFlavorMatchForTAS(cq *schdcache.ClusterQueueSnapshot, ps *kue
 func hasOverlapWithPodRequestedResources(ps *kueue.PodSet, flavorResources sets.Set[corev1.ResourceName]) bool {
 	requests := resources.NewRequestsFromPodSpec(&ps.Template.Spec)
 	has := false
-	requests.ForEach(func(name corev1.ResourceName, _ int64) {
+	requests.ForEach(func(name corev1.ResourceName, _ resources.Amount) {
 		if flavorResources.Has(name) {
 			has = true
 		}
