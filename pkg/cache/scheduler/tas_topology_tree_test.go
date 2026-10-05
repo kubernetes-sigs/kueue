@@ -64,7 +64,7 @@ func treeTestBalancedRequests(name kueue.PodSetReference) FlavorTASRequests {
 				Preferred: &preferredLevel,
 			},
 		},
-		SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
+		SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
 		Count:             6,
 	}}
 }
@@ -196,7 +196,7 @@ func TestSnapshotWithReusedTreeMatchesColdBuild(t *testing.T) {
 			)
 			fc.addUsage(log, "wl", []workload.TopologyDomainRequests{{
 				Values:            tc.tasUsageValues,
-				SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
+				SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
 				Count:             2,
 			}})
 
@@ -252,8 +252,8 @@ func TestSnapshotsSharingTreeAreIsolated(t *testing.T) {
 
 	// Mutating one snapshot, as the scheduler does during a cycle, must not
 	// leak into snapshots of other cycles.
-	second.addTASUsage(leafID, resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}))
-	second.addNonTASUsage(leafID, resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 500}))
+	second.addTASUsage(leafID, resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}))
+	second.addNonTASUsage(leafID, resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 500}))
 	third, err := fc.snapshot(ctx, log, nil)
 	if err != nil {
 		t.Fatalf("snapshot failed: %v", err)
@@ -401,8 +401,8 @@ func TestTopologyTreeInvalidation(t *testing.T) {
 			},
 			validate: func(t *testing.T, snapshot *TASFlavorSnapshot) {
 				n1Capacity := snapshot.leafCapacityOf(snapshot.leaves[utiltas.TopologyDomainID("n1")])
-				if gotCapacity := n1Capacity.freeCapacity.ResourceValue(corev1.ResourceCPU); gotCapacity != 8000 {
-					t.Errorf("snapshot has cpu capacity %d, want 8000", gotCapacity)
+				if gotCapacity := n1Capacity.freeCapacity.ResourceValue(corev1.ResourceCPU); gotCapacity.CmpInt64(8000) != 0 {
+					t.Errorf("snapshot has cpu capacity %s, want 8000", gotCapacity)
 				}
 			},
 		},
@@ -489,7 +489,7 @@ func dumpTopologyTree(tree *topologyTree) map[domainKey]topologyTreeDomainDump {
 			slices.SortFunc(d.Children, domainKey.compare)
 			if leaf, found := tree.leaves[id]; found && &leaf.domain == dom {
 				d.Leaf = true
-				d.CPUCapacity = leaf.capacity.ResourceValue(corev1.ResourceCPU)
+				d.CPUCapacity, _ = leaf.capacity.ResourceValue(corev1.ResourceCPU).Int64()
 				if leaf.node != nil {
 					d.NodeName = leaf.node.Name
 				}

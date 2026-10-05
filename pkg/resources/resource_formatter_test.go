@@ -129,6 +129,13 @@ func TestAmountQuantity(t *testing.T) {
 			if got := f.AmountQuantityString(tc.name, tc.amount); got != tc.want {
 				t.Errorf("AmountQuantityString() = %s, want %s", got, tc.want)
 			}
+			wantShown := tc.want
+			if !tc.wantExact {
+				wantShown = tc.amount.String()
+			}
+			if got := f.ExactAmountString(tc.name, tc.amount); got != wantShown {
+				t.Errorf("ExactAmountString() = %s, want %s", got, wantShown)
+			}
 			// The Quantity must be the number, not only a string that reads back as itself.
 			want := tc.amount
 			if !tc.wantExact {

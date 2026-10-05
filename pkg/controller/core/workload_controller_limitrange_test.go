@@ -159,8 +159,8 @@ func TestLimitRangeUpdateRetriesWorkloadPoppedWithStaleDefaults(t *testing.T) {
 	if len(heads) != 1 {
 		t.Fatalf("popped workloads = %d, want 1", len(heads))
 	}
-	if got := heads[0].TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got != 3000 {
-		t.Fatalf("popped CPU = %d, want 3000", got)
+	if got := heads[0].TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got.CmpInt64(3000) != 0 {
+		t.Fatalf("popped CPU = %s, want 3000", got)
 	}
 
 	newLr := oldLr.DeepCopy()
@@ -187,8 +187,8 @@ func TestLimitRangeUpdateRetriesWorkloadPoppedWithStaleDefaults(t *testing.T) {
 	if len(refreshedHeads) != 1 {
 		t.Fatalf("active workloads after LimitRange update = %d, want 1", len(refreshedHeads))
 	}
-	if got := refreshedHeads[0].TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got != 1000 {
-		t.Errorf("requeued CPU = %d, want 1000", got)
+	if got := refreshedHeads[0].TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got.CmpInt64(1000) != 0 {
+		t.Errorf("requeued CPU = %s, want 1000", got)
 	}
 	if got := client.ObjectKeyFromObject(refreshedHeads[0].Obj); got != client.ObjectKeyFromObject(wl) {
 		t.Errorf("requeued workload = %v, want %v", got, client.ObjectKeyFromObject(wl))

@@ -42,6 +42,7 @@ import (
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/heap"
 	utilpriority "sigs.k8s.io/kueue/pkg/util/priority"
@@ -227,7 +228,7 @@ type ClusterQueue struct {
 	// pendingResources() is O(1) rather than O(N).
 	// Configured resources are seeded at 0 by Update() so they appear in metrics
 	// even when no workloads are pending; stale zero entries are pruned on Update().
-	pendingResourcesTotal map[corev1.ResourceName]int64
+	pendingResourcesTotal map[corev1.ResourceName]resources.Amount
 }
 
 func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
@@ -328,7 +329,7 @@ func newClusterQueueImpl(ctx context.Context, wo workload.Ordering, clock clock.
 		afsUsageLedger:         options.afsUsageLedger,
 		lqWeights:              lqWeights,
 		pw:                     &pw,
-		pendingResourcesTotal:  make(map[corev1.ResourceName]int64),
+		pendingResourcesTotal:  make(map[corev1.ResourceName]resources.Amount),
 	}
 }
 
@@ -361,13 +362,13 @@ func (c *ClusterQueue) updateConfiguredResources(apiCQ *kueue.ClusterQueue) {
 			for _, r := range fq.Resources {
 				newConfigured.Insert(r.Name)
 				if _, exists := c.pendingResourcesTotal[r.Name]; !exists {
-					c.pendingResourcesTotal[r.Name] = 0
+					c.pendingResourcesTotal[r.Name] = resources.Amount{}
 				}
 			}
 		}
 	}
 	for r, v := range c.pendingResourcesTotal {
-		if v == 0 && !newConfigured.Has(r) {
+		if v.Sign() == 0 && !newConfigured.Has(r) {
 			delete(c.pendingResourcesTotal, r)
 		}
 	}
@@ -521,8 +522,8 @@ func (c *ClusterQueue) backoffWaitingTimeExpired(wInfo *workload.Info) bool {
 func (c *ClusterQueue) addPendingResources(wInfo *workload.Info) {
 	for _, ps := range wInfo.TotalRequests {
 		if ps.Requests != nil {
-			ps.Requests.ForEach(func(name corev1.ResourceName, q int64) {
-				c.pendingResourcesTotal[name] += q
+			ps.Requests.ForEach(func(name corev1.ResourceName, q resources.Amount) {
+				c.pendingResourcesTotal[name] = c.pendingResourcesTotal[name].Add(q)
 			})
 		}
 	}
@@ -531,8 +532,8 @@ func (c *ClusterQueue) addPendingResources(wInfo *workload.Info) {
 func (c *ClusterQueue) subtractPendingResources(wInfo *workload.Info) {
 	for _, ps := range wInfo.TotalRequests {
 		if ps.Requests != nil {
-			ps.Requests.ForEach(func(name corev1.ResourceName, q int64) {
-				c.pendingResourcesTotal[name] -= q
+			ps.Requests.ForEach(func(name corev1.ResourceName, q resources.Amount) {
+				c.pendingResourcesTotal[name] = c.pendingResourcesTotal[name].Sub(q)
 			})
 		}
 	}
@@ -763,15 +764,15 @@ func (c *ClusterQueue) handleInadmissibleHash(hash workload.EquivalenceHash, rea
 
 // PendingResources returns the total resources requested by all pending workloads,
 // aggregated by resource name. Pending workloads have not yet been assigned to flavors.
-func (c *ClusterQueue) pendingResources() map[corev1.ResourceName]int64 {
+func (c *ClusterQueue) pendingResources() map[corev1.ResourceName]resources.Amount {
 	c.rwm.RLock()
 	defer c.rwm.RUnlock()
 	result := maps.Clone(c.pendingResourcesTotal)
 	if c.inflight != nil {
 		for _, ps := range c.inflight.TotalRequests {
 			if ps.Requests != nil {
-				ps.Requests.ForEach(func(name corev1.ResourceName, q int64) {
-					result[name] += q
+				ps.Requests.ForEach(func(name corev1.ResourceName, q resources.Amount) {
+					result[name] = result[name].Add(q)
 				})
 			}
 		}
