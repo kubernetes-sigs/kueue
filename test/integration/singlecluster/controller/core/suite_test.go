@@ -48,6 +48,9 @@ var (
 	ctx       context.Context
 	fwk       *framework.Framework
 	qManager  *qcache.Manager
+	// managerClient reads the manager's cache, which is what effective-resource
+	// resolution reads.
+	managerClient client.Client
 	// customMetricLabels is the instance handed to the controllers, caches and
 	// scheduler by managerAndControllerSetup. Tests read it to assert that the
 	// cached label values of deleted objects are dropped.
@@ -147,6 +150,7 @@ func managerAndControllerSetup(
 		cCache := schdcache.New(mgr.GetClient(), cacheOpts...)
 		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOpts...)
 		qManager = queues
+		managerClient = mgr.GetClient()
 
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, core.SetupControllersOpts{
 			RoleTracker:            opts.roleTracker,
