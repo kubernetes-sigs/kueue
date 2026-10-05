@@ -33,8 +33,24 @@ runs:
         TARGET_REPO: ${{ inputs.repo }}
         GH_TOKEN: ${{ github.token }}
       run: |
-        RELEASE_STATE=$(gh release view "$VERSION" --repo "$TARGET_REPO" --json isDraft \
-            --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo "")
+        # Query published and draft releases together. Only a successful lookup
+        # returning no release permits the missing-release path.
+        # shellcheck disable=SC2016
+        if ! RELEASE_STATE=$(gh api graphql \
+            -f query='query($owner: String!, $name: String!, $tag: String!) {
+              repository(owner: $owner, name: $name) {
+                release(tagName: $tag) { isDraft }
+              }
+            }' \
+            -f owner="${TARGET_REPO%/*}" -f name="${TARGET_REPO#*/}" -f tag="$VERSION" \
+            --jq 'if .data.repository == null then error("Repository lookup failed")
+                  elif .data.repository.release == null then "missing"
+                  elif .data.repository.release.isDraft == true then "draft"
+                  elif .data.repository.release.isDraft == false then "published"
+                  else error("Invalid release response") end'); then
+          echo "message=❌ Failed to look up release \`$VERSION\`. Check workflow logs for details." >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
         
         if [ "$RELEASE_STATE" = "published" ]; then
           BODY="❌ Release \`$VERSION\` is already published. Skipping tag creation/update to avoid overwriting a live release."
@@ -50,6 +66,7 @@ runs:
 
         # Prepare tag message
         NOTES_FILE=$(mktemp)
+        trap 'rm -f "$NOTES_FILE"' EXIT
         printf "%s\n\n%s\n" "$VERSION" "$CHANGELOG" > "$NOTES_FILE"
 
         # Configure git identity
@@ -57,33 +74,30 @@ runs:
         git config --global user.email "kueue-release-bot@kubernetes.io"
         gh auth setup-git
 
-        # Clear existing tag
-        TAG_EXISTS=false
-        if git tag -l | grep -q "^${VERSION}$" || git ls-remote --tags origin "$VERSION" | grep -q "refs/tags/${VERSION}$"; then
-          TAG_EXISTS=true
-          git tag -d "$VERSION" 2>/dev/null || true
-          git push origin --delete "$VERSION" 2>/dev/null || true
+        # Record the remote tag object, not the peeled commit or a stale local tag.
+        # A failed lookup must not be interpreted as an absent tag.
+        TAG_REF="refs/tags/${VERSION}"
+        if ! REMOTE_TAG=$(git ls-remote --refs origin "$TAG_REF"); then
+          echo "message=❌ Failed to look up remote tag \`$VERSION\`. Check workflow logs for details." >> "$GITHUB_OUTPUT"
+          exit 1
+        fi
+        REMOTE_OID="${REMOTE_TAG%%[[:space:]]*}"
+
+        # Prepare the replacement locally without deleting the remote tag.
+        if ! git tag -a -f "$VERSION" -F "$NOTES_FILE"; then
+          echo "message=❌ Failed to create release tag \`$VERSION\`. Check workflow logs for details." >> "$GITHUB_OUTPUT"
+          exit 1
         fi
 
-        # Create and push the tag
-        PUSH_EXIT=0
-        set +e
-        git tag -a "$VERSION" -F "$NOTES_FILE"
-        TAG_EXIT=$?
-        if [ $TAG_EXIT -eq 0 ]; then
-          git push origin "$VERSION"
-          PUSH_EXIT=$?
-        fi
-        set -e
-        rm -f "$NOTES_FILE"
-
-        if [ $TAG_EXIT -ne 0 ] || [ $PUSH_EXIT -ne 0 ]; then
-          echo "message=❌ Failed to create or push release tag \`$VERSION\`." >> "$GITHUB_OUTPUT"
+        # Replace only the value observed above. An empty OID requires the tag
+        # to still be absent, protecting concurrent creation as well as updates.
+        if ! git push --force-with-lease="${TAG_REF}:${REMOTE_OID}" origin "${TAG_REF}:${TAG_REF}"; then
+          echo "message=❌ Failed to push release tag \`$VERSION\`. Check workflow logs for details." >> "$GITHUB_OUTPUT"
           exit 1
         fi
 
         OUTCOME="created"
-        if [ "$TAG_EXISTS" = "true" ]; then
+        if [ -n "$REMOTE_OID" ]; then
           OUTCOME="updated"
         fi
 
