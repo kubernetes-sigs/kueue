@@ -56,6 +56,11 @@ If you specify only limits, Kueue will treat the limit values as requests. See [
 Note that you do not need to create the Job in a [suspended state](https://kubernetes.io/docs/concepts/workloads/controllers/job/#suspending-a-job).
 Kueue automatically manages the Job's suspension via webhook and decides when it's the best time to start the Job.
 
+You can change or remove the `kueue.x-k8s.io/queue-name` label only while the Job
+is suspended and its corresponding Workload has no quota reservation. This
+restriction also applies while the Job remains suspended waiting for
+AdmissionChecks to pass after quota is reserved.
+
 Here is a sample Job with three Pods that just sleep for a few seconds.
 
 {{< include "examples/jobs/sample-job.yaml" "yaml" >}}

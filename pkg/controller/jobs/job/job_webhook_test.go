@@ -17,6 +17,8 @@ limitations under the License.
 package job
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -33,6 +35,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	jobsetapi "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -740,6 +744,8 @@ func TestValidateCreate(t *testing.T) {
 }
 
 func TestValidateUpdate(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ShortWorkloadNames, false)
+	longJobName := strings.Repeat("j", 60)
 	testcases := []struct {
 		name                 string
 		oldJob               *batchv1.Job
@@ -748,6 +754,7 @@ func TestValidateUpdate(t *testing.T) {
 		wantErr              error
 		featureGates         map[featuregate.Feature]bool
 		maxTimeoutOnWorkload *metav1.Duration
+		objs                 []runtime.Object
 	}{
 		{
 			name:               "normal update",
@@ -782,6 +789,188 @@ func TestValidateUpdate(t *testing.T) {
 			oldJob:             testingutil.MakeJob("job", "default").Obj(),
 			newJob:             testingutil.MakeJob("job", "default").Queue("queue").Suspend(true).Obj(),
 			wantValidationErrs: nil,
+		},
+		{
+			name:   "change queue name while suspended with quota reserved and admission checks pending",
+			oldJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue").Obj(),
+			newJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue2").Obj(),
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadNameForJob("job", "job-uid"), "default").
+					Queue("queue").
+					SimpleReserveQuota("cluster-queue", "default", time.Now()).
+					AdmissionChecks(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending}).
+					Obj(),
+			},
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(queueNameLabelPath, kueue.LocalQueueName("queue2"), apivalidation.FieldImmutableErrorMsg),
+			},
+		},
+		{
+			name:   "remove queue name while suspended with quota reserved",
+			oldJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue").Obj(),
+			newJob: testingutil.MakeJob("job", "default").UID("job-uid").Obj(),
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadNameForJob("job", "job-uid"), "default").
+					Queue("queue").
+					SimpleReserveQuota("cluster-queue", "default", time.Now()).
+					Obj(),
+			},
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(queueNameLabelPath, kueue.LocalQueueName(""), apivalidation.FieldImmutableErrorMsg),
+			},
+		},
+		{
+			name:   "change queue name with quota reserved under the old workload naming scheme",
+			oldJob: testingutil.MakeJob(longJobName, "default").UID("job-uid").Queue("queue").Obj(),
+			newJob: testingutil.MakeJob(longJobName, "default").UID("job-uid").Queue("queue2").Obj(),
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadNameForJob(longJobName, "job-uid"), "default").
+					ControllerReference(gvk, longJobName, "job-uid").
+					Queue("queue").
+					SimpleReserveQuota("cluster-queue", "default", time.Now()).
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.ShortWorkloadNames: true},
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(queueNameLabelPath, kueue.LocalQueueName("queue2"), apivalidation.FieldImmutableErrorMsg),
+			},
+		},
+		{
+			name:   "change queue name after removing the prebuilt workload reference with quota reserved",
+			oldJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue").Obj(),
+			newJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue2").Obj(),
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload("prebuilt", "default").
+					ControllerReference(gvk, "job", "job-uid").
+					Queue("queue").
+					SimpleReserveQuota("cluster-queue", "default", time.Now()).
+					Obj(),
+			},
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(queueNameLabelPath, kueue.LocalQueueName("queue2"), apivalidation.FieldImmutableErrorMsg),
+			},
+		},
+		{
+			name:   "unreserved named workload does not hide a reserved owned workload",
+			oldJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue").Obj(),
+			newJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue2").Obj(),
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadNameForJob("job", "job-uid"), "default").
+					ControllerReference(gvk, "job", "job-uid").
+					Queue("queue").
+					Obj(),
+				utiltestingapi.MakeWorkload("prebuilt", "default").
+					ControllerReference(gvk, "job", "job-uid").
+					Queue("queue").
+					SimpleReserveQuota("cluster-queue", "default", time.Now()).
+					Obj(),
+			},
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(queueNameLabelPath, kueue.LocalQueueName("queue2"), apivalidation.FieldImmutableErrorMsg),
+			},
+		},
+		{
+			name:   "change queue name after an owned workload releases quota",
+			oldJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue").Obj(),
+			newJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue2").Obj(),
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload("prebuilt", "default").
+					ControllerReference(gvk, "job", "job-uid").
+					Queue("queue").
+					Condition(metav1.Condition{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse}).
+					Obj(),
+			},
+		},
+		{
+			name:   "reserved workload owned by an older Job with the same name does not block queue changes",
+			oldJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue").Obj(),
+			newJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue2").Obj(),
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload("prebuilt", "default").
+					ControllerReference(gvk, "job", "old-job-uid").
+					Queue("queue").
+					SimpleReserveQuota("cluster-queue", "default", time.Now()).
+					Obj(),
+			},
+		},
+		{
+			name:   "reserved workload with a non-controller owner reference does not block queue changes",
+			oldJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue").Obj(),
+			newJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue2").Obj(),
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload("prebuilt", "default").
+					OwnerReference(gvk, "job", "job-uid").
+					Queue("queue").
+					SimpleReserveQuota("cluster-queue", "default", time.Now()).
+					Obj(),
+			},
+		},
+		{
+			name:   "reserved workload in another namespace does not block queue changes",
+			oldJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue").Obj(),
+			newJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue2").Obj(),
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload("prebuilt", "other").
+					ControllerReference(gvk, "job", "job-uid").
+					Queue("queue").
+					SimpleReserveQuota("cluster-queue", "default", time.Now()).
+					Obj(),
+			},
+		},
+		{
+			name:   "unchanged queue name while suspended with quota reserved",
+			oldJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue").Obj(),
+			newJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue").Obj(),
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadNameForJob("job", "job-uid"), "default").
+					Queue("queue").
+					SimpleReserveQuota("cluster-queue", "default", time.Now()).
+					Obj(),
+			},
+		},
+		{
+			name:   "change queue name while suspended after quota released",
+			oldJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue").Obj(),
+			newJob: testingutil.MakeJob("job", "default").UID("job-uid").Queue("queue2").Obj(),
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadNameForJob("job", "job-uid"), "default").
+					Queue("queue").
+					Condition(metav1.Condition{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse}).
+					Obj(),
+			},
+		},
+		{
+			name: "change queue name while suspended with quota reserved in a prebuilt workload",
+			oldJob: testingutil.MakeJob("job", "default").Queue("queue").
+				PrebuiltWorkloadLabel("prebuilt").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Queue("queue2").
+				PrebuiltWorkloadLabel("prebuilt").Obj(),
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload("prebuilt", "default").
+					Queue("queue").
+					SimpleReserveQuota("cluster-queue", "default", time.Now()).
+					Obj(),
+			},
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(queueNameLabelPath, kueue.LocalQueueName("queue2"), apivalidation.FieldImmutableErrorMsg),
+			},
+		},
+		{
+			name: "change queue name while suspended with quota reserved in an annotated prebuilt workload",
+			oldJob: testingutil.MakeJob("job", "default").Queue("queue").
+				PrebuiltWorkloadAnnotation("prebuilt").Obj(),
+			newJob: testingutil.MakeJob("job", "default").Queue("queue2").
+				PrebuiltWorkloadAnnotation("prebuilt").Obj(),
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload("prebuilt", "default").
+					Queue("queue").
+					SimpleReserveQuota("cluster-queue", "default", time.Now()).
+					Obj(),
+			},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(queueNameLabelPath, kueue.LocalQueueName("queue2"), apivalidation.FieldImmutableErrorMsg),
+			},
 		},
 		{
 			name:   "change queue name with suspend is true, but invalid value",
@@ -1287,12 +1476,69 @@ func TestValidateUpdate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotValidationErrs, gotErr := new(JobWebhook{maxTimeoutOnWorkload: tc.maxTimeoutOnWorkload}).validateUpdate(ctx, (*Job)(tc.oldJob), (*Job)(tc.newJob))
+			cl := utiltesting.NewClientBuilder().WithRuntimeObjects(tc.objs...).Build()
+			queues := qcache.NewManagerForUnitTests(cl, nil)
+			wh := &JobWebhook{
+				client:               cl,
+				workloadReader:       cl,
+				queues:               queues,
+				maxTimeoutOnWorkload: tc.maxTimeoutOnWorkload,
+			}
+			gotValidationErrs, gotErr := wh.validateUpdate(ctx, (*Job)(tc.oldJob), (*Job)(tc.newJob))
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
 				t.Errorf("validateUpdate() error mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantValidationErrs, gotValidationErrs, cmpopts.IgnoreFields(field.Error{})); diff != "" {
 				t.Errorf("validateUpdate() validation errors mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateUpdateQueueNameWorkloadLookupError(t *testing.T) {
+	lookupErr := errors.New("workload lookup failed")
+	testcases := map[string]struct {
+		newQueue kueue.LocalQueueName
+		getErr   error
+		listErr  error
+		wantErr  error
+	}{
+		"changed queue propagates lookup error": {
+			newQueue: "queue2",
+			getErr:   lookupErr,
+			wantErr:  lookupErr,
+		},
+		"changed queue propagates ownership lookup error": {
+			newQueue: "queue2",
+			listErr:  lookupErr,
+			wantErr:  lookupErr,
+		},
+		"unchanged queue does not look up workload": {
+			newQueue: "queue",
+			getErr:   lookupErr,
+			listErr:  lookupErr,
+		},
+	}
+	for name, tc := range testcases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if tc.getErr != nil {
+						return tc.getErr
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+				List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+					return tc.listErr
+				},
+			}).Build()
+			wh := &JobWebhook{client: cl, workloadReader: cl, queues: qcache.NewManagerForUnitTests(cl, nil)}
+			oldJob := testingutil.MakeJob("job", "default").Queue("queue").Obj()
+			newJob := testingutil.MakeJob("job", "default").Queue(tc.newQueue).Obj()
+			_, err := wh.ValidateUpdate(ctx, oldJob, newJob)
+			if !errors.Is(err, tc.wantErr) {
+				t.Errorf("ValidateUpdate() error = %v, want %v", err, tc.wantErr)
 			}
 		})
 	}

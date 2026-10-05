@@ -17,13 +17,18 @@ limitations under the License.
 package jobs
 
 import (
+	"strings"
+	"time"
+
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/rand"
 	"k8s.io/client-go/discovery"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -35,6 +40,8 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
+	"sigs.k8s.io/kueue/pkg/webhooks"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util"
 )
 
@@ -155,7 +162,12 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", f
 var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(job.SetupWebhook, jobframework.WithManageJobsWithoutQueueName(false)))
+		fwk.StartManager(ctx, cfg, managerSetup(func(mgr ctrl.Manager, opts ...jobframework.Option) error {
+			if _, err := webhooks.Setup(mgr, nil); err != nil {
+				return err
+			}
+			return job.SetupWebhook(mgr, opts...)
+		}, jobframework.WithManageJobsWithoutQueueName(false)))
 		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "job-")
 	})
 	ginkgo.AfterEach(func() {
@@ -199,6 +211,66 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 		createdJob.Spec.Suspend = new(false)
 		gomega.Expect(k8sClient.Update(ctx, createdJob)).ShouldNot(gomega.Succeed())
 	})
+
+	ginkgo.DescribeTable("should reject queue changes while a suspended Job has quota reserved and allow them after quota is released",
+		func(shortWorkloadNames, removePrebuiltReference bool) {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ShortWorkloadNames, false)
+			jobName := "job-with-queue-name"
+			if shortWorkloadNames {
+				jobName = strings.Repeat("j", 60)
+			}
+			jw := testingjob.MakeJob(jobName, ns.Name).Queue("queue")
+			if removePrebuiltReference {
+				jw.PrebuiltWorkloadLabel("prebuilt")
+			}
+			j := jw.Obj()
+			util.MustCreate(ctx, k8sClient, j)
+
+			wlName := job.GetWorkloadNameForJob(j.Name, j.UID)
+			if removePrebuiltReference {
+				wlName = "prebuilt"
+			}
+			wl := utiltestingapi.MakeWorkload(wlName, ns.Name).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), j.Name, string(j.UID)).
+				Queue("queue")
+			util.MustCreate(ctx, k8sClient, wl.Obj())
+			wl.SimpleReserveQuota("cluster-queue", "default", time.Now()).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:               "check",
+					State:              kueue.CheckStatePending,
+					LastTransitionTime: metav1.Now(),
+				})
+			gomega.Expect(k8sClient.Status().Update(ctx, wl.Obj())).To(gomega.Succeed())
+			gomega.Expect(j.Spec.Suspend).To(gomega.Equal(new(true)))
+			gomega.Expect(workload.IsAdmitted(wl.Obj())).To(gomega.BeFalse())
+
+			if shortWorkloadNames {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ShortWorkloadNames, true)
+				gomega.Expect(job.GetWorkloadNameForJob(j.Name, j.UID)).NotTo(gomega.Equal(wlName))
+			}
+			if removePrebuiltReference {
+				delete(j.Labels, constants.PrebuiltWorkloadLabel)
+				gomega.Expect(k8sClient.Update(ctx, j)).To(gomega.Succeed())
+			}
+
+			j.Labels[constants.QueueLabel] = "queue2"
+			gomega.Expect(k8sClient.Update(ctx, j)).To(utiltesting.BeForbiddenError())
+
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(j), j)).To(gomega.Succeed())
+			gomega.Expect(j.Labels[constants.QueueLabel]).To(gomega.Equal("queue"))
+			delete(j.Labels, constants.QueueLabel)
+			gomega.Expect(k8sClient.Update(ctx, j)).To(utiltesting.BeForbiddenError())
+
+			workload.UnsetQuotaReservationWithCondition(wl.Obj(), "Pending", "Quota released by test", time.Now())
+			gomega.Expect(k8sClient.Status().Update(ctx, wl.Obj())).To(gomega.Succeed())
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(j), j)).To(gomega.Succeed())
+			j.Labels[constants.QueueLabel] = "queue2"
+			gomega.Expect(k8sClient.Update(ctx, j)).To(gomega.Succeed())
+		},
+		ginkgo.Entry("with the generated workload name", false, false),
+		ginkgo.Entry("after enabling ShortWorkloadNames", true, false),
+		ginkgo.Entry("after removing the prebuilt workload reference", false, true),
+	)
 
 	ginkgo.It("should allow unsuspending a partially admissible job with its minimum parallelism", func() {
 		job := testingjob.MakeJob("job-with-queue-name", ns.Name).Queue("queue").

@@ -34,10 +34,12 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -69,6 +71,7 @@ func applyWorkloadSliceSchedulingGate(job *Job) {
 type JobWebhook struct {
 	integrationManager           *jobframework.IntegrationManager
 	client                       client.Client
+	workloadReader               client.Reader
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	queues                       *qcache.Manager
@@ -82,6 +85,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 	wh := &JobWebhook{
 		integrationManager:           options.IntegrationManager,
 		client:                       mgr.GetClient(),
+		workloadReader:               mgr.GetAPIReader(),
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
@@ -223,6 +227,38 @@ func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (f
 	}
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(newJob)...)
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)...)
+	if newJob.IsSuspended() && jobframework.QueueName(newJob) != jobframework.QueueName(oldJob) {
+		wlName := jobframework.PrebuiltWorkloadNameFor(oldJob.Object())
+		if wlName == "" {
+			wlName = GetWorkloadNameForJob(oldJob.Name, oldJob.UID)
+		}
+		wl := &kueue.Workload{}
+		// Read directly from the API server so a stale cache cannot hide a quota reservation.
+		if err := w.workloadReader.Get(ctx, client.ObjectKey{Namespace: oldJob.Namespace, Name: wlName}, wl); client.IgnoreNotFound(err) != nil {
+			return nil, err
+		}
+		quotaReserved := workload.HasQuotaReservation(wl)
+		if !quotaReserved {
+			// Workload names can change, but controller ownership still identifies the Job.
+			ownedWorkloads := &kueue.WorkloadList{}
+			if err := w.workloadReader.List(ctx, ownedWorkloads, client.InNamespace(oldJob.Namespace)); err != nil {
+				return nil, fmt.Errorf("list workloads for queue name validation: %w", err)
+			}
+			for i := range ownedWorkloads.Items {
+				wl := &ownedWorkloads.Items[i]
+				if metav1.IsControlledBy(wl, oldJob.Object()) && workload.HasQuotaReservation(wl) {
+					quotaReserved = true
+					break
+				}
+			}
+		}
+		if quotaReserved {
+			allErrs = append(allErrs, apivalidation.ValidateImmutableField(
+				jobframework.QueueName(newJob), jobframework.QueueName(oldJob),
+				field.NewPath("metadata", "labels").Key(constants.QueueLabel),
+			)...)
+		}
+	}
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, newJob)
