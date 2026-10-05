@@ -22,7 +22,6 @@ import (
 	"maps"
 	"math"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -724,11 +723,11 @@ func (a *FlavorAssigner) AssignFlavors(
 	log logr.Logger,
 	counts []int32,
 ) Assignment {
-	// On the second pass the requests come from the admission, which keeps each group's
-	// PodSets together. Everything else follows the Workload's order, so pair them by name.
-	specIndexes := make([]int, len(a.wl.TotalRequests))
-	for i, ps := range a.wl.TotalRequests {
-		specIndexes[i] = slices.IndexFunc(a.wl.Obj.Spec.PodSets, func(p kueue.PodSet) bool { return p.Name == ps.Name })
+	// Second-pass requests follow admission order, while counts and flavor scan state
+	// follow spec order. Use the request's spec index for the lookups below.
+	specIndexes := podset.SpecIndexes(a.wl.Obj.Spec.PodSets, a.wl.TotalRequests,
+		func(ps *workload.PodSetResources) kueue.PodSetReference { return ps.Name })
+	for i := range specIndexes {
 		if specIndexes[i] == -1 {
 			specIndexes[i] = i
 		}
@@ -764,7 +763,7 @@ func (a *FlavorAssigner) AssignFlavors(
 		replaceWorkloadSlice: a.replaceWorkloadSlice,
 	}
 
-	groupedRequests := orderedgroups.NewOrderedGroups[string, indexedPodSet]()
+	groupedRequests := orderedgroups.NewOrderedGroups[tas.PodSetGroupKey, indexedPodSet]()
 
 	for i, podSet := range requests {
 		if a.cq.RGByResource(corev1.ResourcePods) != nil {
@@ -807,10 +806,7 @@ func (a *FlavorAssigner) AssignFlavors(
 		}
 
 		psIdx := specIndexes[i]
-		groupKey := strconv.Itoa(psIdx)
-		if tr := a.wl.Obj.Spec.PodSets[psIdx].TopologyRequest; tr != nil && tr.PodSetGroupName != nil {
-			groupKey = *tr.PodSetGroupName
-		}
+		groupKey := tas.GroupKeyForPodSet(&a.wl.Obj.Spec.PodSets[psIdx])
 
 		groupedRequests.Insert(groupKey, indexedPodSet{originalIndex: psIdx, podSet: &podSet, podSetAssignment: &psAssignment})
 	}
@@ -1248,7 +1244,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 					// The replaced slice's requests come from its admission, which is in group order.
 					preemptWorkloadRequests := podSetResourcesByName(a.replaceWorkloadSlice.TotalRequests, a.wl.Obj.Spec.PodSets[psID].Name)
 					if preemptWorkloadRequests == nil {
-						log.V(1).Info("PodSet not found in the replaced workload slice", "podSet", a.wl.TotalRequests[psID].Name)
+						log.V(1).Info("PodSet not found in the replaced workload slice", "podSet", a.wl.Obj.Spec.PodSets[psID].Name)
 						continue
 					}
 
