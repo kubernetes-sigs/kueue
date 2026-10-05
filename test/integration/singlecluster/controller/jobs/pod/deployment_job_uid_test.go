@@ -47,7 +47,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // deploymentJobUIDManagerSetup enables the Deployment integration, which the shared
@@ -109,7 +108,7 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-deployment-uid-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-deployment-uid-")
 	})
 
 	ginkgo.AfterEach(func() {

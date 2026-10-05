@@ -54,7 +54,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-e2e-")
 		resourceFlavorName = "lws-rf-" + ns.Name
 		clusterQueueName = "lws-cq-" + ns.Name
 		localQueueName = "lws-lq-" + ns.Name

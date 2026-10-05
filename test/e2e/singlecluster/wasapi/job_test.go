@@ -48,7 +48,7 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", 
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-was-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-was-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())

@@ -38,7 +38,6 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingsparkapplication "sigs.k8s.io/kueue/pkg/util/testingjobs/sparkapplication"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -61,7 +60,7 @@ var _ = ginkgo.Describe("SparkApplication controller", ginkgo.Label("job:sparkap
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -102,7 +101,7 @@ var _ = ginkgo.Describe("SparkApplication controller when waitForPodsReady enabl
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -186,7 +185,7 @@ var _ = ginkgo.Describe("SparkApplication controller interacting with scheduler"
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
@@ -265,7 +264,7 @@ var _ = ginkgo.Describe("SparkApplication controller with TopologyAwareSchedulin
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-sparkapplication-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-sparkapplication-")
 
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("b1r1").

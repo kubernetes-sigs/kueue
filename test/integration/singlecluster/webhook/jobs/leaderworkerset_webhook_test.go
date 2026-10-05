@@ -31,7 +31,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
@@ -42,7 +41,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet Webhook", func() {
 			leaderworkerset.SetupWebhook,
 			jobframework.WithManageJobsWithoutQueueName(false),
 		))
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-webhook-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lws-webhook-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())

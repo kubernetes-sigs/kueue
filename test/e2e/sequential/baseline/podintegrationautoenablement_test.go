@@ -59,7 +59,7 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-disabled-pod-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-disabled-pod-")
 		defaultRf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultRf)
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").

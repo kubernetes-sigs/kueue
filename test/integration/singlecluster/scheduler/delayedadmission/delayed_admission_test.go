@@ -31,7 +31,6 @@ import (
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
@@ -51,7 +50,7 @@ var _ = ginkgo.Describe("SchedulerWithDelayedAdmissionChecks", func() {
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "delayed-retry-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "delayed-retry-")
 
 		delayedCheck = utiltestingapi.MakeAdmissionCheck("delayed-check").ControllerName("ctrl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, delayedCheck)

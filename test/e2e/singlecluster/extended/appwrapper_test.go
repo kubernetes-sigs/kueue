@@ -48,7 +48,7 @@ var _ = ginkgo.Describe("AppWrapper", ginkgo.Label("area:singlecluster", "featur
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "appwrapper-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "appwrapper-e2e-")
 		resourceFlavorName = "appwrapper-rf-" + ns.Name
 		clusterQueueName = "appwrapper-cq-" + ns.Name
 		localQueueName = "appwrapper-lq-" + ns.Name

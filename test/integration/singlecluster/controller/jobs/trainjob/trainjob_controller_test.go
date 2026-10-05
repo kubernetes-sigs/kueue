@@ -47,7 +47,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -89,7 +88,7 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "trainjob-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "trainjob-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -374,7 +373,7 @@ var _ = ginkgo.Describe("TrainJob controller for workloads when only jobs with q
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "trainjob-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "trainjob-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -442,7 +441,7 @@ var _ = ginkgo.Describe("TrainJob controller interacting with scheduler", ginkgo
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "trainjob-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "trainjob-")
 
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
@@ -658,7 +657,7 @@ var _ = ginkgo.Describe("TrainJob controller with TopologyAwareScheduling", gink
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-jobset-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-jobset-")
 
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("b1r1").

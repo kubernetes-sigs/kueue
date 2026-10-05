@@ -27,7 +27,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -74,9 +73,9 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		managerNs = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-")
-		worker1Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
-		worker2Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
+		managerNs = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-")
+		worker1Ns = behavioral.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
+		worker2Ns = behavioral.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
 
 		workerCluster1 = utiltestingapi.MakeMultiKueueClusterWithGeneratedName("worker1-").KubeConfig(kueue.SecretLocationType, "multikueue1").Obj()
 		behavioral.MustCreate(ctx, k8sManagerClient, workerCluster1)

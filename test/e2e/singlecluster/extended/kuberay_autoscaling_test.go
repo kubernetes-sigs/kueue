@@ -78,7 +78,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-autoscaling-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "kuberay-autoscaling-e2e-")
 		rf = utiltestingapi.MakeResourceFlavor("kuberay-autoscaling-rf-"+ns.Name).
 			NodeLabel("instance-type", "on-demand").
 			Obj()

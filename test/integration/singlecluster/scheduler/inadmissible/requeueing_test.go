@@ -27,7 +27,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Scheduler", func() {
@@ -39,7 +38,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "inadmissible-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "inadmissible-")
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
 	})

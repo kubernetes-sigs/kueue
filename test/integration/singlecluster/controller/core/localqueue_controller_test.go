@@ -31,7 +31,6 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue", "area:core"), func() {
@@ -78,7 +77,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-")
 	})
 
 	ginkgo.BeforeEach(func() {
@@ -569,7 +568,7 @@ var _ = ginkgo.Describe("Queue controller metrics filtering", ginkgo.Label("cont
 			},
 		}
 		fwk.StartManager(ctx, cfg, managerAndControllerSetup(customCfg))
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-metrics-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-queue-metrics-")
 
 		ac = utiltestingapi.MakeAdmissionCheck("ac").ControllerName("ac-controller").Obj()
 		behavioral.MustCreate(ctx, k8sClient, ac)

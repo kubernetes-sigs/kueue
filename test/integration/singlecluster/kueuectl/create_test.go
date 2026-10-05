@@ -36,7 +36,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Kueuectl Create", func() {
@@ -46,7 +45,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 
 		cq = utiltestingapi.MakeClusterQueue("cq").Obj()
 		behavioral.MustCreate(ctx, k8sClient, cq)

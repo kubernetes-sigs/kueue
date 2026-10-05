@@ -27,7 +27,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // Requests over all Pods of a PodSet are int64 values that saturate at
@@ -70,7 +69,7 @@ var _ = ginkgo.Describe("Scheduler request scaling", func() {
 	}
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "scaling-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "scaling-")
 
 		flavor = utiltestingapi.MakeResourceFlavor("scaling-flavor").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor)

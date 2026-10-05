@@ -120,9 +120,15 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 			localWorkload := getWorkload(gomega.Default, manager.ctx, manager.client, workloadKey)
 			gomega.Eventually(func(g gomega.Gomega) {
 				workload := getWorkload(g, worker1.ctx, worker1.client, workloadKey)
+<<<<<<< HEAD
 				g.Expect(workload.Spec).To(gomega.BeComparableTo(localWorkload.Spec))
 				workload = getWorkload(g, worker2.ctx, worker2.client, workloadKey)
 				g.Expect(workload.Spec).To(gomega.BeComparableTo(localWorkload.Spec))
+=======
+				behavioral.ExpectRemoteWorkloadSpec(g, workload, localWorkload)
+				workload = getWorkload(g, worker2.ctx, worker2.client, workloadKey)
+				behavioral.ExpectRemoteWorkloadSpec(g, workload, localWorkload)
+>>>>>>> Reorganize helpers.
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
@@ -216,7 +222,11 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 		gomega.Eventually(func(g gomega.Gomega) {
 			local := getWorkload(g, manager.ctx, manager.client, newWorkloadKey)
 			remote := getWorkload(g, worker1.ctx, worker1.client, newWorkloadKey)
+<<<<<<< HEAD
 			g.Expect(remote.Spec).To(gomega.BeComparableTo(local.Spec))
+=======
+			behavioral.ExpectRemoteWorkloadSpec(g, remote, local)
+>>>>>>> Reorganize helpers.
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("observe: there are no workloads or jobs in the worker2 cluster", func() {
@@ -518,9 +528,15 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 			localWorkload := getWorkload(gomega.Default, manager.ctx, manager.client, workloadKey)
 			gomega.Eventually(func(g gomega.Gomega) {
 				wl := getWorkload(g, worker1.ctx, worker1.client, workloadKey)
+<<<<<<< HEAD
 				g.Expect(wl.Spec).To(gomega.BeComparableTo(localWorkload.Spec))
 				wl = getWorkload(g, worker2.ctx, worker2.client, workloadKey)
 				g.Expect(wl.Spec).To(gomega.BeComparableTo(localWorkload.Spec))
+=======
+				behavioral.ExpectRemoteWorkloadSpec(g, wl, localWorkload)
+				wl = getWorkload(g, worker2.ctx, worker2.client, workloadKey)
+				behavioral.ExpectRemoteWorkloadSpec(g, wl, localWorkload)
+>>>>>>> Reorganize helpers.
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 

@@ -1,0 +1,145 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package rayjob
+
+import (
+	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/component-base/featuregate"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+)
+
+// KEP-12100: partial replica scale-up for a RayJob. The RayCluster integration is covered in its
+// own suite; this one exists because RayJob derives its workload slice name differently, so the
+// scale-up probe has to be verified separately for it.
+var _ = ginkgo.Describe("RayJob with partial replica scale-up for elastic jobs", ginkgo.Label("job:ray", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	// The RayJob workload has the head PodSet at index 0 and the single worker group at index 1;
+	// the submitter PodSet is only added in K8sJobMode, which these specs avoid.
+	const (
+		workersPodSet    = 1
+		workersGroupName = "workers-group-0"
+	)
+
+	var (
+		ns             *corev1.Namespace
+		resourceFlavor *kueue.ResourceFlavor
+		clusterQueue   *kueue.ClusterQueue
+		localQueue     *kueue.LocalQueue
+	)
+
+	scaleFirstWorkerGroup := func(job *rayv1.RayJob, replicas int32) {
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
+			job.Spec.RayClusterSpec.WorkerGroupSpecs[0].Replicas = new(replicas)
+			g.Expect(k8sClient.Update(ctx, job)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	}
+
+	ginkgo.BeforeAll(func() {
+		features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), map[featuregate.Feature]bool{
+			features.ElasticJobsViaWorkloadSlices:                          true,
+			features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+		})
+		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup())
+	})
+	ginkgo.AfterAll(func() {
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.BeforeEach(func() {
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayjob-scale-up-")
+
+		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
+		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
+
+		// "pods" is the constrained resource so every assertion is a plain pod count; cpu is
+		// declared generously because Kueue only admits a Workload whose every requested resource
+		// is covered by a resource group.
+		clusterQueue = utiltestingapi.MakeClusterQueue("default").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(resourceFlavor.Name).
+				Resource(corev1.ResourcePods, "4").
+				Resource(corev1.ResourceCPU, "100").
+				Obj()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
+
+		localQueue = utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
+	})
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+	})
+
+	ginkgo.It("Should partially admit a RayJob scale-up and create a scale-up probe", func() {
+		// 1 head + 2 workers = 3 pods, fitting the 4-pod quota.
+		testRayJob := testingrayjob.MakeJob("foo", ns.Name).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Annotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+			Queue(localQueue.Name).
+			WithSubmissionMode(rayv1.InteractiveMode).
+			RequestWorkerGroup(corev1.ResourceCPU, "1").
+			Obj()
+		testRayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Replicas = new(int32(2))
+
+		ginkgo.By("creating the rayjob with 2 worker replicas")
+		behavioral.MustCreate(ctx, k8sClient, testRayJob)
+		setInitStatus(testRayJob.Name, ns.Name)
+
+		ginkgo.By("admitting the rayjob's workload fully")
+		initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		gomega.Expect(initialSlice.Spec.PodSets).Should(gomega.HaveLen(2))
+		gomega.Expect(initialSlice.Spec.PodSets[workersPodSet].Count).Should(gomega.Equal(int32(2)))
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, workersGroupName, 2)
+
+		// The full request is 1 + 5 = 6 pods against a 4-pod quota, so only 3 workers fit.
+		ginkgo.By("scaling the worker group to 5 replicas")
+		scaleFirstWorkerGroup(testRayJob, 5)
+
+		ginkgo.By("a new workload slice replaces the admitted one, requesting the full 5 workers")
+		partialSlice := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
+		gomega.Expect(partialSlice.Spec.PodSets[workersPodSet].Count).Should(gomega.Equal(int32(5)))
+		// MinCount is copied forward from initialSlice's own floor, which was bootstrapped
+		// to its own request (2) at creation - MinReplicas is not consulted.
+		gomega.Expect(partialSlice.Spec.PodSets[workersPodSet].MinCount).Should(gomega.Equal(new(int32(2))))
+
+		ginkgo.By("only 3 of the 5 requested workers fit: 1 head + 3 workers = the whole quota")
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, partialSlice, workersGroupName, 3)
+
+		// This is what the RayCluster suite verifies too. RayJob overrides the workload slice name
+		// extra part with its own generation-derived value, so if that discards the probe's extra
+		// parameter the probe cannot get a distinct name and never appears.
+		ginkgo.By("a scale-up probe workload is created for the full 5 workers")
+		probe := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, partialSlice)
+		gomega.Expect(probe.Spec.PodSets[workersPodSet].Count).Should(gomega.Equal(int32(5)))
+
+		ginkgo.By("the probe workload stays pending while the quota is exhausted")
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, probe)
+	})
+})

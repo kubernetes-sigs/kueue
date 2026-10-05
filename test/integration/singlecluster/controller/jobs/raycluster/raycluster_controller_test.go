@@ -52,7 +52,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob" // to enable the framework
 )
@@ -77,7 +76,7 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:j
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -249,7 +248,7 @@ var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs 
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -333,7 +332,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -497,7 +496,7 @@ var _ = ginkgo.Describe("RayCluster Job controller interacting with scheduler", 
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
@@ -599,7 +598,7 @@ var _ = ginkgo.Describe("Job controller with preemption enabled", ginkgo.Ordered
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
@@ -717,7 +716,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)

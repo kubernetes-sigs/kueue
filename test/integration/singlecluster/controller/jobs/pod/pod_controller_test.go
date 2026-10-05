@@ -59,7 +59,6 @@ import (
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -129,7 +128,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-")
 
 			fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 			behavioral.MustCreate(ctx, k8sClient, fl)
@@ -617,7 +616,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				)
 
 				ginkgo.BeforeEach(func() {
-					ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-ac-namespace-")
+					ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-ac-namespace-")
 					admissionCheck = utiltestingapi.MakeAdmissionCheck("check").ControllerName("ac-controller").Obj()
 					behavioral.MustCreate(ctx, k8sClient, admissionCheck)
 					behavioral.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
@@ -2601,7 +2600,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-sched-namespace-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-sched-namespace-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -2841,7 +2840,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -3037,7 +3036,7 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -3236,6 +3235,273 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
+<<<<<<< HEAD
+=======
+
+	ginkgo.It("should mark workload PodsReady when within max not-ready count and only evict on recoveryTimeout when not-ready pods exceed max count", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyMaxNotReady, true)
+		podGroupName := "pod-group-max-not-ready"
+		pods := make([]*corev1.Pod, 3)
+		for i := range pods {
+			pods[i] = testingpod.MakePod(fmt.Sprintf("pod-%d", i), ns.Name).
+				GroupNameLabel(podGroupName).
+				GroupTotalCount("3").
+				GroupMaxNotReadyCount("1").
+				Queue(lq.Name).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+		}
+		ginkgo.By("creating the pod group", func() {
+			for _, pod := range pods {
+				behavioral.MustCreate(ctx, k8sClient, pod)
+			}
+		})
+
+		wlKey := types.NamespacedName{Name: podGroupName, Namespace: ns.Name}
+		wl := utiltestingapi.MakeWorkload(wlKey.Name, wlKey.Namespace).Obj()
+
+		ginkgo.By("admitting the workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(wl.Spec.PodSets[0].Name).
+					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "3").
+					Count(wl.Spec.PodSets[0].Count).
+					Obj()).
+				Obj()
+			behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+		})
+
+		ginkgo.By("running only 1 pod (2 not-ready pods > max not-ready count of 1) and verifying workload is not PodsReady yet", func() {
+			behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods[0])
+			setPodReady(ctx, k8sClient, pods[0], corev1.ConditionTrue)
+
+			behavioral.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForStart,
+				Message: "Not all pods are ready or succeeded",
+			})
+		})
+
+		ginkgo.By("updating max not-ready count annotation to 2 and verifying workload becomes PodsReady with 1 ready pod", func() {
+			setGroupMaxNotReadyCount(ctx, k8sClient, pods, "2")
+
+			behavioral.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
+			})
+		})
+
+		ginkgo.By("running the 2nd pod and updating max not-ready count annotation back to 1 while 3rd pod stays Pending", func() {
+			behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods[1])
+			setPodReady(ctx, k8sClient, pods[1], corev1.ConditionTrue)
+			setGroupMaxNotReadyCount(ctx, k8sClient, pods, "1")
+
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPodsReady))
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("running the 3rd pod and then making it unready (1 of 3 not ready <= max not-ready count of 1)", func() {
+			behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods[2])
+			setPodReady(ctx, k8sClient, pods[2], corev1.ConditionTrue)
+			setPodReady(ctx, k8sClient, pods[2], corev1.ConditionFalse)
+
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPodsReady))
+				g.Expect(wl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+				g.Expect(wl.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("updating max not-ready count annotation to 0 (while 1 of 3 pods is not ready) and verifying workload becomes PodsReady=False and is evicted on recoveryTimeout", func() {
+			setGroupMaxNotReadyCount(ctx, k8sClient, pods, "0")
+
+			behavioral.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
+					Message: "Not all pods are ready or succeeded",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
+				},
+			)
+		})
+	})
+
+	ginkgo.It("should respect both pod-group-max-not-ready-count and per-workload wait-for-pods-ready annotation", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyMaxNotReady, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadLevelWaitForPodsReady, true)
+		podGroupName := "pod-group-max-not-ready-wfpr"
+		pods := make([]*corev1.Pod, 3)
+		for i := range pods {
+			pods[i] = testingpod.MakePod(fmt.Sprintf("pod-%d", i), ns.Name).
+				GroupNameLabel(podGroupName).
+				GroupTotalCount("3").
+				GroupMaxNotReadyCount("1").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":60,"recoveryTimeoutSeconds":300}`).
+				Queue(lq.Name).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+		}
+		ginkgo.By("creating the pod group", func() {
+			for _, pod := range pods {
+				behavioral.MustCreate(ctx, k8sClient, pod)
+			}
+		})
+
+		wlKey := types.NamespacedName{Name: podGroupName, Namespace: ns.Name}
+		wl := utiltestingapi.MakeWorkload(wlKey.Name, wlKey.Namespace).Obj()
+
+		ginkgo.By("ensuring the wait-for-pods-ready annotation is propagated to the workload and admitting it", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue(
+					controllerconstants.WaitForPodsReadyAnnotation,
+					`{"timeoutSeconds":60,"recoveryTimeoutSeconds":300}`,
+				))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(wl.Spec.PodSets[0].Name).
+					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "3").
+					Count(wl.Spec.PodSets[0].Count).
+					Obj()).
+				Obj()
+			behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+		})
+
+		ginkgo.By("making 2 of 3 pods ready (1 not-ready pod <= max not-ready count of 1) and verifying workload becomes PodsReady", func() {
+			for _, pod := range pods[:2] {
+				behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod)
+				setPodReady(ctx, k8sClient, pod, corev1.ConditionTrue)
+			}
+
+			behavioral.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueue.WorkloadStarted,
+				Message: "All pods reached readiness and the workload is running",
+			})
+		})
+
+		ginkgo.By("making 1 ready pod unready (2 of 3 not ready > max not-ready count of 1) and verifying per-workload recoveryTimeoutSeconds=300 prevents TinyTimeout eviction", func() {
+			setPodReady(ctx, k8sClient, pods[1], corev1.ConditionFalse)
+
+			behavioral.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForRecovery,
+				Message: "At least one pod has failed, waiting for recovery",
+			})
+
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("shortening per-workload recoveryTimeoutSeconds to 1 and verifying the workload is evicted", func() {
+			for _, pod := range pods {
+				updatedPod := &corev1.Pod{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), updatedPod)).To(gomega.Succeed())
+					updatedPod.Annotations[controllerconstants.WaitForPodsReadyAnnotation] = `{"timeoutSeconds":60,"recoveryTimeoutSeconds":1}`
+					g.Expect(k8sClient.Update(ctx, updatedPod)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			}
+
+			behavioral.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
+				metav1.Condition{
+					Type:    kueue.WorkloadPodsReady,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadWaitForStart,
+					Message: "Not all pods are ready or succeeded",
+				},
+				metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message: fmt.Sprintf("Exceeded the PodsReady timeout %s", wlKey.String()),
+				},
+			)
+		})
+	})
+})
+
+var _ = ginkgo.Describe("Pod controller when waitForPodsReady enabled with scheduling observations", ginkgo.Label("job:pod", "area:jobs"), func() {
+	ginkgo.DescribeTable("propagates the scheduling observation",
+		func(gateEnabled, podGroup bool, wantReason string) {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyUnscheduledTimeout, gateEnabled)
+			fwk.StartManager(ctx, cfg, managerSetup(false, false,
+				&configapi.Configuration{WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout:            metav1.Duration{Duration: 5 * time.Minute},
+					UnscheduledTimeout: &metav1.Duration{Duration: time.Minute},
+				}},
+				jobframework.WithEnabledFrameworks([]string{"pod"}),
+			))
+			ginkgo.DeferCleanup(func() { fwk.StopManager(ctx) })
+			ns := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "podsready-")
+			ginkgo.DeferCleanup(func() { gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed()) })
+			flavor := utiltestingapi.MakeResourceFlavor("default").Obj()
+			behavioral.MustCreate(ctx, k8sClient, flavor)
+			ginkgo.DeferCleanup(func() { behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true) })
+
+			pod := testingpod.MakePod("pod", ns.Name).
+				Queue("test-queue").
+				Request(corev1.ResourceCPU, "1")
+			if podGroup {
+				pod.GroupNameLabel("pod-group").
+					GroupTotalCount("1")
+			}
+			behavioral.MustCreate(ctx, k8sClient, pod.Obj())
+			wlKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Obj().Name, pod.Obj().UID), Namespace: ns.Name}
+			if podGroup {
+				wlKey.Name = "pod-group"
+			}
+			wl := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			admission := utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(wl.Spec.PodSets[0].Name).
+					Assignment(corev1.ResourceCPU, "default", "1").
+					Count(1).
+					Obj()).
+				Obj()
+			behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+			behavioral.SetPodsScheduledCondition(ctx, k8sClient, wlKey, metav1.Condition{
+				Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForScheduling,
+			})
+			behavioral.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  wantReason,
+				Message: workload.PodsNotReadyMessage,
+			})
+		},
+		ginkgo.Entry("Unscheduled Pods", true, false, kueue.WorkloadWaitForScheduling),
+		ginkgo.Entry("Unscheduled Pods in a group", true, true, kueue.WorkloadWaitForScheduling),
+		ginkgo.Entry("Scheduling observation ignored with feature disabled", false, false, kueue.WorkloadWaitForStart),
+		ginkgo.Entry("Scheduling observation for a group ignored with feature disabled", false, true, kueue.WorkloadWaitForStart),
+	)
+>>>>>>> Reorganize helpers.
 })
 
 var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Label("job:pod", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -3271,7 +3537,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -3504,7 +3770,7 @@ var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.La
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pod-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pod-")
 
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("b1").
@@ -3688,7 +3954,7 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pod-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pod-")
 
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("x1").
@@ -3966,7 +4232,7 @@ var _ = ginkgo.Describe("Pod controller with TASFailedNodeReplacementFailFast di
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pod-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pod-")
 
 		// Two nodes with room for exactly one 1-CPU pod each, so a two-pod
 		// group fills both and no domain has a spare slot for a replacement.
@@ -4262,7 +4528,7 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "deploy-pod-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "deploy-pod-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -4374,7 +4640,7 @@ var _ = ginkgo.Describe("Pod controller finalizer consistency on eviction", gink
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "finrepro-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "finrepro-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -4587,7 +4853,7 @@ var _ = ginkgo.Describe("Pod controller with CustomMetricLabels", ginkgo.Ordered
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-custom-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-custom-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -4723,7 +4989,7 @@ var _ = ginkgo.Describe("Pod controller with CustomMetricLabels disabled", ginkg
 		))
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-custom-disabled-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-custom-disabled-")
 	})
 
 	ginkgo.AfterEach(func() {
@@ -4796,7 +5062,7 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 				),
 			)
 
-			ns = e2e.CreateNamespaceFromPrefixWithLog(
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(
 				ctx, k8sClient, "pod-shape-ordering-",
 			)
 

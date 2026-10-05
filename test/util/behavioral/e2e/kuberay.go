@@ -76,7 +76,7 @@ func ExecuteCommandInRayClusterHead(
 	}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 	gomega.Eventually(func(g gomega.Gomega) {
-		_, stderr, err := behavioral.KExecute(
+		_, stderr, err := KExecute(
 			ctx,
 			cfg,
 			restClient,

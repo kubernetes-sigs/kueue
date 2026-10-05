@@ -58,7 +58,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 func createPodsForWorkload(wl *kueue.Workload, nsName string, withTopologyRequestAnnotation bool, running bool) {
@@ -182,7 +181,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
 	})
 
 	ginkgo.AfterEach(func() {
@@ -8960,7 +8959,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling – Resource Transformation: 
 		}
 		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
 
 		topology = utiltestingapi.MakeDefaultOneLevelTopology("topology")
 		behavioral.MustCreate(ctx, k8sClient, topology)
@@ -9190,7 +9189,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling – WaitForPodsReady with Unh
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-podsready-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-podsready-")
 	})
 
 	ginkgo.AfterEach(func() {

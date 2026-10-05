@@ -40,7 +40,6 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // We test the interoperability of the Cluster Queues, where one is dedicated to manager Non-MultiKueue workloads
@@ -90,9 +89,9 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 	})
 
 	ginkgo.BeforeEach(func() {
-		managerNs = e2e.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-")
-		worker1Ns = e2e.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, managerNs.Name)
-		worker2Ns = e2e.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, managerNs.Name)
+		managerNs = behavioral.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-")
+		worker1Ns = behavioral.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, managerNs.Name)
+		worker2Ns = behavioral.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, managerNs.Name)
 
 		w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -240,9 +239,15 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlMkLookupKey, managerWl)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlMkLookupKey, createdMkWorkload)).To(gomega.Succeed())
+<<<<<<< HEAD
 				g.Expect(createdMkWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlMkLookupKey, createdMkWorkload)).To(gomega.Succeed())
 				g.Expect(createdMkWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+=======
+				behavioral.ExpectRemoteWorkloadSpec(g, createdMkWorkload, managerWl)
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlMkLookupKey, createdMkWorkload)).To(gomega.Succeed())
+				behavioral.ExpectRemoteWorkloadSpec(g, createdMkWorkload, managerWl)
+>>>>>>> Reorganize helpers.
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
@@ -423,9 +428,15 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlMkLookupKey, managerWl)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlMkLookupKey, createdMkWorkload)).To(gomega.Succeed())
+<<<<<<< HEAD
 				g.Expect(createdMkWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlMkLookupKey, createdMkWorkload)).To(gomega.Succeed())
 				g.Expect(createdMkWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+=======
+				behavioral.ExpectRemoteWorkloadSpec(g, createdMkWorkload, managerWl)
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlMkLookupKey, createdMkWorkload)).To(gomega.Succeed())
+				behavioral.ExpectRemoteWorkloadSpec(g, createdMkWorkload, managerWl)
+>>>>>>> Reorganize helpers.
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 

@@ -28,7 +28,6 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // Watches of different kinds are not ordered, so a Workload created right
@@ -59,7 +58,7 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-freshness-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-freshness-")
 
 		limitRange = utiltesting.MakeLimitRange("limits", ns.Name).
 			WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()

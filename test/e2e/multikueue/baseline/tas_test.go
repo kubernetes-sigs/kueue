@@ -98,9 +98,9 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		managerNs = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-tas-")
-		worker1Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
-		worker2Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
+		managerNs = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-tas-")
+		worker1Ns = behavioral.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
+		worker2Ns = behavioral.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
 
 		workerCluster1 = utiltestingapi.MakeMultiKueueClusterWithGeneratedName("worker1-").KubeConfig(kueue.SecretLocationType, "multikueue1").Obj()
 		behavioral.MustCreate(ctx, k8sManagerClient, workerCluster1)
@@ -408,9 +408,9 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		managerNs = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-tas-")
-		worker1Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
-		worker2Ns = e2e.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
+		managerNs = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sManagerClient, "multikueue-tas-")
+		worker1Ns = behavioral.CreateNamespaceWithLog(ctx, k8sWorker1Client, managerNs.Name)
+		worker2Ns = behavioral.CreateNamespaceWithLog(ctx, k8sWorker2Client, managerNs.Name)
 
 		managerTopology = utiltestingapi.MakeDefaultOneLevelTopology("default-" + managerNs.Name)
 		behavioral.MustCreate(ctx, k8sManagerClient, managerTopology)

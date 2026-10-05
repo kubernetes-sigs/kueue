@@ -29,7 +29,6 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -42,7 +41,7 @@ var _ = ginkgo.Describe("Pod termination controller", func() {
 	var matchingPodWrapper *testingpod.PodWrapper
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-fr-namespace-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-fr-namespace-")
 
 		matchingPodWrapper = testingpod.MakePod("matching-pod", ns.Name).
 			StatusPhase(corev1.PodPending).

@@ -27,14 +27,13 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobstfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("TFJob Webhook", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(tfjob.SetupTFJobWebhook))
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tf-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tf-")
 	})
 
 	ginkgo.AfterEach(func() {

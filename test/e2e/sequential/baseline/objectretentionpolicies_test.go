@@ -45,7 +45,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies", ginkgo.Label("feature:objectr
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "orp-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "orp-")
 
 		rf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, rf)).Should(gomega.Succeed())
@@ -154,7 +154,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout", ginkgo.Label
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "orp-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "orp-")
 
 		rf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, rf)).Should(gomega.Succeed())
@@ -297,7 +297,7 @@ var _ = ginkgo.Describe("ObjectRetentionPolicies with TinyTimeout and RequeuingL
 	})
 
 	ginkgo.JustBeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "orp-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "orp-")
 
 		rf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		gomega.Expect(k8sClient.Create(ctx, rf)).Should(gomega.Succeed())

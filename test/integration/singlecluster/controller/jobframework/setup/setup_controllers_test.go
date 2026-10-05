@@ -37,7 +37,6 @@ import (
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Setup Controllers", ginkgo.Label("controller:jobframework", "area:jobs"), func() {
@@ -54,7 +53,7 @@ var _ = ginkgo.Describe("Setup Controllers", ginkgo.Label("controller:jobframewo
 		ctx, k8sClient = fwk.SetupClient(cfg)
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithEnabledFrameworks([]string{jobset.FrameworkName})))
 
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jobset-")
 
 		flavor = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor)

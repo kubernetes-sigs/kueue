@@ -27,7 +27,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Label("controller:admissioncheck", "area:core"), func() {
@@ -35,7 +34,7 @@ var _ = ginkgo.Describe("AdmissionCheck controller", ginkgo.Label("controller:ad
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-admissioncheck-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-admissioncheck-")
 	})
 
 	ginkgo.AfterEach(func() {

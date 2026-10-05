@@ -27,7 +27,6 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -45,7 +44,7 @@ var _ = ginkgo.Describe("Workload eviction to pending metrics", ginkgo.Label("co
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pe-pending-metrics-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pe-pending-metrics-")
 		alphaFlavor = utiltestingapi.MakeResourceFlavor("alpha").Obj()
 		behavioral.MustCreate(ctx, k8sClient, alphaFlavor)
 

@@ -36,7 +36,6 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", func() {
@@ -60,7 +59,7 @@ var _ = ginkgo.Describe("Job Webhook With manageJobsWithoutQueueName enabled", f
 		))
 		unmanagedNs = utiltesting.MakeNamespace(unmanagedNsName)
 		behavioral.MustCreate(ctx, k8sClient, unmanagedNs)
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "job-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "job-")
 	})
 
 	ginkgo.AfterEach(func() {
@@ -157,7 +156,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(job.SetupWebhook, jobframework.WithManageJobsWithoutQueueName(false)))
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "job-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "job-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -286,7 +285,7 @@ var _ = ginkgo.Describe("Job Webhook with WorkloadPriorityClassDefaulting enable
 	})
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadPriorityClassDefaulting, true)
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wpc-defaulting-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wpc-defaulting-")
 		defaultWPC = utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
 		behavioral.MustCreate(ctx, k8sClient, defaultWPC)
 	})

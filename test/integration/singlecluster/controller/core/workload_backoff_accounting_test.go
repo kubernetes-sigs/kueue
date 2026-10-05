@@ -34,7 +34,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Workload accounting after requeue backoff", ginkgo.Label("controller:workload", "area:core"), func() {
@@ -48,7 +47,7 @@ var _ = ginkgo.Describe("Workload accounting after requeue backoff", ginkgo.Labe
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "backoff-accounting-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "backoff-accounting-")
 		flavor = utiltestingapi.MakeResourceFlavor("backoff-flavor").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor)
 		runtimeClass = utiltesting.MakeRuntimeClass("backoff-runtime", "handler").

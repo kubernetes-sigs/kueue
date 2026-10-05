@@ -34,7 +34,7 @@ import (
 var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", ginkgo.Label(e2e.Shard1, "area:tas", "feature:pod"), func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-pod-group-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-pod-group-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
