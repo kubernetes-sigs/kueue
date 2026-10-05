@@ -11,19 +11,19 @@ labels: area/release
 <!--
 Please do not remove items from the checklist
 -->
-- [ ] Verify that the changelog in this issue is up-to-date by running `/sync-release-notes` (or locally `./hack/releasing/sync-notes.sh $VERSION`).
-- [ ] (Optional) For major and minor releases, run ChatOps command `/create-release-candidate` on this issue to publish a pre-release build for community testing.
+- [ ] Verify that the changelog in this issue is up-to-date by running `/sync-release-notes` (or locally `./hack/releasing/sync-notes.sh $VERSION`). <!-- step:sync-release-notes -->
+- [ ] (Optional) For major and minor releases, run ChatOps command `/create-release-candidate` on this issue to publish a pre-release build for community testing. <!-- step:create-release-candidate -->
 - [ ] [OWNERS](https://github.com/kubernetes-sigs/kueue/blob/main/OWNERS) must LGTM the release proposal.
   At least two for minor or major releases. At least one for a patch release.
-- [ ] For major or minor releases (`v$MAJ.$MIN.0`), use the `/create-release-branch` ChatOps command to create a new release branch.
+- [ ] For major or minor releases (`v$MAJ.$MIN.0`), use the `/create-release-branch` ChatOps command to create a new release branch. <!-- step:create-release-branch -->
 - [ ] Update the release branch:
   - [ ] Run `./hack/releasing/prepare_pull.sh --target release $VERSION` locally.
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_RELEASE --> <!-- example #211 -->
-- [ ] Run ChatOps command `/tag-release` on this issue. This will:
+- [ ] Run ChatOps command `/tag-release` on this issue. This will: <!-- step:tag-release -->
   - Extract the changelog from the issue description.
   - Create the release tag at the tip of the release branch.
   - Push the tag upstream (triggers Prow to build and publish staging container image: `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$VERSION`).
-- [ ] Run ChatOps command `/create-draft-release` on this issue. This will:
+- [ ] Run ChatOps command `/create-draft-release` on this issue. This will: <!-- step:create-draft-release -->
   - Extract the changelog from the issue description.
   - Create the draft release pointing out to the created tag.
   - Write the change log into the draft release.
@@ -32,11 +32,11 @@ Please do not remove items from the checklist
   - Generate openvex data.
   - Generate the SBOM and add it to the release.
 - [ ] Promote images and Helm Charts to production:
-  - [ ] Use `/wait-for-images` to await for the staging images.
+  - [ ] Use `/wait-for-images` to await for the staging images. <!-- step:wait-for-images -->
   - [ ] Run `./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR
   - [ ] Wait for the PR to be merged <!-- K8S_IO_PULL --> <!-- example kubernetes/k8s.io#7899 -->
-  - [ ] Use `/wait-for-prod-images` to verify that the promoted images are available.
-- [ ] Use `/publish-release` to publish the release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
+  - [ ] Use `/wait-for-prod-images` to verify that the promoted images are available. <!-- step:wait-for-prod-images -->
+- [ ] Use `/publish-release` to publish the release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases). <!-- step:publish-release -->
       Link: <!-- RELEASE_LINK --> <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
 - [ ] Update the `main` branch :
   - [ ] Run `./hack/releasing/prepare_pull.sh --target main $VERSION` locally.
@@ -49,10 +49,10 @@ Please do not remove items from the checklist
     confirm the snapshot dirs and the `[[params.versions]]` entry are present in that PR.
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_MAIN --> <!-- example #214 -->
   - [ ] Cherry-pick the pull request onto the `website` branch
-- [ ] For major and minor releases, merge the `main` branch into the `website` branch to publish the updated documentation.
+- [ ] For major and minor releases, merge the `main` branch into the `website` branch to publish the updated documentation. <!-- step:merge-main-into-website -->
 - [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`.   <!--Link: example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
 - [ ] For a major or minor release, prepare the repo for the next version:
-  - [ ] Run the ChatOps command `/create-devel-tag` on this issue. This will:
+  - [ ] Run the ChatOps command `/create-devel-tag` on this issue. This will: <!-- step:create-devel-tag -->
         create and push an unannotated `_devel` tag
         (`v$MAJ.$(($MIN+1)).0-devel`) on `main`, so that development builds
         from the `main` branch have a meaningful version number.
