@@ -17,9 +17,9 @@ limitations under the License.
 package queue
 
 import (
-	"strings"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -124,18 +124,14 @@ func TestPendingWorkloadsMetricsWithCustomLabels(t *testing.T) {
 			} else {
 				reportPendingWorkloads(m, "cq")
 			}
-			for labelValues, want := range tc.wantWorkloads {
-				status, kind, _ := strings.Cut(labelValues, "/")
-				got := testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
-					"cluster_queue": "cq", "replica_role": roletracker.RoleStandalone,
-					"custom_team_cq": "ml-team", "status": status, "custom_wl_kind": kind,
-				})
-				if len(got) != 1 {
-					t.Fatalf("Expected one pending workload metric for %s, got %v", labelValues, got)
-				}
-				if got[0].Value != want {
-					t.Errorf("Pending workload metric for %s = %g, want %g", labelValues, got[0].Value, want)
-				}
+			gotWorkloads := make(map[string]float64)
+			for _, dp := range testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
+				"cluster_queue": "cq", "replica_role": roletracker.RoleStandalone, "custom_team_cq": "ml-team",
+			}) {
+				gotWorkloads[dp.Labels["status"]+"/"+dp.Labels["custom_wl_kind"]] = dp.Value
+			}
+			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads); diff != "" {
+				t.Errorf("Unexpected pending workload metrics (-want +got):\n%s", diff)
 			}
 		})
 	}

@@ -341,21 +341,6 @@ func Copy(t *LabelValsTracker) *LabelValsTracker {
 	return NewLabelValsTracker().merge(t)
 }
 
-func (c *LabelValsTracker) PopZeroCounts() iter.Seq[*labelValsSet] {
-	return func(yield func(*labelValsSet) bool) {
-		c.Lock()
-		defer c.Unlock()
-		for lv, count := range c.counts {
-			if count == 0 {
-				delete(c.counts, lv)
-				if !yield(&lv) {
-					return
-				}
-			}
-		}
-	}
-}
-
 func (c *LabelValsTracker) Incr(ls labelValsSet) {
 	c.Add(ls, 1)
 }
