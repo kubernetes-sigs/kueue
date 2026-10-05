@@ -2905,11 +2905,11 @@ func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
 		PrebuiltWorkloadLabel("new").
 		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).Obj()
 	// The scheduler admitted the replacement but failed to finish the old slice.
-	old := utiltestingapi.MakeWorkload("old", "ns").Creation(now.Add(-time.Minute)).
+	old := utiltestingapi.MakeWorkload("old", "ns").
 		ControllerReference(gvk, obj.Name, string(obj.UID)).
 		PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj()
-	replacement := utiltestingapi.MakeWorkload("new", "ns").Queue("q").Creation(now).
+	replacement := utiltestingapi.MakeWorkload("new", "ns").Queue("q").
 		Annotation(kueue.WorkloadSliceNameAnnotation, "old").
 		Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").
 		PodSets(*utiltestingapi.MakePodSet("main", 2).Obj()).
