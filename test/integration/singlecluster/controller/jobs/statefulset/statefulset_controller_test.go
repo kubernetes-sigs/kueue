@@ -80,6 +80,33 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		fwk.StopManager(ctx)
 	})
 
+	ginkgo.It("Should reject queue changes while a Workload reserves quota and no replicas are ready", func() {
+		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
+			Queue("lq").
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		util.MustCreate(ctx, k8sClient, sts)
+
+		wl := &kueue.Workload{}
+		wlKey := types.NamespacedName{
+			Name:      statefulset.GetWorkloadName(sts.UID, sts.Name),
+			Namespace: ns.Name,
+		}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeTrue())
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).To(gomega.Succeed())
+		gomega.Expect(createdSTS.Status.ReadyReplicas).To(gomega.BeZero())
+		createdSTS.Labels[controllerconstants.QueueLabel] = "another-lq"
+		gomega.Expect(k8sClient.Update(ctx, createdSTS)).To(gomega.MatchError(gomega.ContainSubstring("field is immutable")))
+
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).To(gomega.Succeed())
+		gomega.Expect(createdSTS.Labels[controllerconstants.QueueLabel]).To(gomega.Equal("lq"))
+	})
+
 	ginkgo.It("Should create distinct workloads for StatefulSets with generateName", func() {
 		ginkgo.By("Creating two StatefulSets with the same generateName prefix")
 		sts1 := testingstatefulset.MakeStatefulSet("", ns.Name).

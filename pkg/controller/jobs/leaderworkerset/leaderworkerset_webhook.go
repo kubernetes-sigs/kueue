@@ -35,12 +35,14 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type Webhook struct {
@@ -193,11 +195,23 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 
 	isSuspended := oldLeaderWorkerSet.Status.ReadyReplicas == 0
 
-	// Prevents updating the queue-name if at least one replica is ready
-	// or if the queue-name has been deleted.
-	if !isSuspended || newQueueName == "" {
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
+	queueErrs, err := jobframework.ValidateQueueNameUpdate(oldQueueName, newQueueName, isSuspended, func() (bool, error) {
+		workloads := &kueue.WorkloadList{}
+		if err := wh.client.List(ctx, workloads, client.InNamespace(oldObj.Namespace),
+			client.MatchingFields{indexer.OwnerReferenceUID: string(oldObj.UID)}); err != nil {
+			return false, err
+		}
+		for i := range workloads.Items {
+			if workload.HasQuotaReservation(&workloads.Items[i]) {
+				return true, nil
+			}
+		}
+		return false, nil
+	})
+	if err != nil {
+		return nil, err
 	}
+	allErrs = append(allErrs, queueErrs...)
 
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
 		isSuspended,

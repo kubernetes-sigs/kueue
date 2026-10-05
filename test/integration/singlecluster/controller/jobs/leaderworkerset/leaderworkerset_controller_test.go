@@ -80,6 +80,34 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 		fwk.StopManager(ctx)
 	})
 
+	ginkgo.It("Should reject queue changes while a Workload reserves quota and no replicas are ready", func() {
+		lws := testinglws.MakeLeaderWorkerSet("test-lws", ns.Name).
+			Queue("lq").
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		lws.Spec.RolloutStrategy.Type = leaderworkersetv1.RollingUpdateStrategyType
+		util.MustCreate(ctx, k8sClient, lws)
+
+		wl := &kueue.Workload{}
+		wlKey := types.NamespacedName{
+			Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"),
+			Namespace: ns.Name,
+		}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+			g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeTrue())
+		}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+
+		createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).To(gomega.Succeed())
+		gomega.Expect(createdLWS.Status.ReadyReplicas).To(gomega.BeZero())
+		createdLWS.Labels[controllerconstants.QueueLabel] = "another-lq"
+		gomega.Expect(k8sClient.Update(ctx, createdLWS)).To(gomega.MatchError(gomega.ContainSubstring("field is immutable")))
+
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).To(gomega.Succeed())
+		gomega.Expect(createdLWS.Labels[controllerconstants.QueueLabel]).To(gomega.Equal("lq"))
+	})
+
 	ginkgo.It("Should complete eviction for an empty PodGroup with a live LeaderWorkerSet owner", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FinishOrphanedWorkloads, true)
 
