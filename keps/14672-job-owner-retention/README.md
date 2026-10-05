@@ -68,12 +68,17 @@ in most clusters.
 - Providing per-owner-type (Job vs. JobSet vs. ...) retention configuration in
   the initial version; this KEP proposes a single, integration-agnostic
   retention duration that applies to any Kueue-managed owner.
-- Collecting owners that finished before the feature was enabled. The
-  retention clock starts from the annotation, which is only written when a
-  Workload's `WorkloadFinished` condition is set with reason `Succeeded` or
-  `Failed`. An owner that finished earlier — particularly one whose Workload
-  has already been deleted under `workloads.afterFinished` — carries no
-  annotation and is never evaluated.
+- Collecting owners whose Workload no longer exists. The retention clock
+  starts from the annotation, which is written when `finalizeJob` runs for a
+  Workload finished with `Succeeded` or `Failed`. An owner whose Workload has
+  already been deleted — under `workloads.afterFinished`, or by a user — has
+  no path to a stamp and is never evaluated.
+
+  This is narrower than "owners that finished before the feature was enabled."
+  A Workload that finished earlier but still exists is reconciled on startup
+  like any other, reaches the `IsFinished(wl)` branch in
+  `ReconcileGenericJob`, and is stamped with its original
+  `WorkloadFinished.LastTransitionTime`.
 
   Backfilling these is not proposed. It would require knowing when each
   owner finished, and `GenericJob` exposes only
@@ -251,6 +256,13 @@ the blast radius noted under Risks.
 
    The stamp is written only when the annotation is absent, so repeated
    reconciles do not move the timestamp forward.
+
+   On enablement, owners whose Workloads finished earlier are stamped with their
+   original finish timestamp, not with the time of enablement. Retention therefore
+   applies retroactively: an owner whose `jobs.afterFinished` has already elapsed
+   becomes eligible for deletion on the first reconcile after the feature is
+   enabled. This matches `workloads.afterFinished`, which behaves the same way.   
+   
 2. During Kueue's reconciliation loop, an owner carrying this annotation is
    evaluated against `jobs.afterFinished`: if the retention period has
    elapsed, the owner is deleted (cascading to its dependent objects via
