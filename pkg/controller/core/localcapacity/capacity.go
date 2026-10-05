@@ -23,7 +23,6 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/sets"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"k8s.io/klog/v2"
@@ -32,9 +31,12 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 // maxResourcesPerFlavor mirrors the CapacityProvider API validation limit.
+// The provider reports every allocatable resource of a flavor's nodes, so nodes
+// that advertise more than this many resources make the provider Misconfigured.
 const maxResourcesPerFlavor = 64
 
 // inputs is a consistent snapshot of everything the capacity computation depends on.
@@ -99,7 +101,7 @@ func computeCapacity(provider *kueuealpha.CapacityProvider, in *inputs) result {
 			return result{misconfigured: fmt.Sprintf("ResourceFlavor %q is orchestrated by multiple local-capacity CapacityProviders: %s", name, strings.Join(owners, ", "))}
 		}
 	}
-	allFlavors := sets.KeySet(claimedBy)
+	allFlavors := sets.List(sets.KeySet(claimedBy))
 	ownSet := sets.New(ownFlavors...)
 
 	totals := make(map[kueuealpha.ResourceFlavorReference]corev1.ResourceList, len(ownFlavors))
@@ -108,7 +110,7 @@ func computeCapacity(provider *kueuealpha.CapacityProvider, in *inputs) result {
 	for i := range in.nodes {
 		node := &in.nodes[i]
 		var matched []kueuealpha.ResourceFlavorReference
-		for _, name := range sets.List(allFlavors) {
+		for _, name := range allFlavors {
 			if rf, ok := in.flavors[name]; ok && nodeMatchesFlavor(node, rf) {
 				matched = append(matched, name)
 			}
@@ -116,6 +118,8 @@ func computeCapacity(provider *kueuealpha.CapacityProvider, in *inputs) result {
 		if !slices.ContainsFunc(matched, ownSet.Has) {
 			continue
 		}
+		// Overlap is checked before eligibility on purpose: overlapping nodeLabels
+		// are a configuration error whatever the node's current health.
 		if len(matched) > 1 {
 			return result{misconfigured: fmt.Sprintf("Node %q matches multiple orchestrated ResourceFlavors: %s", node.Name, joinFlavors(matched))}
 		}
@@ -147,7 +151,7 @@ func computeCapacity(provider *kueuealpha.CapacityProvider, in *inputs) result {
 }
 
 func nodeMatchesFlavor(node *corev1.Node, rf *kueue.ResourceFlavor) bool {
-	return labels.SelectorFromSet(rf.Spec.NodeLabels).Matches(labels.Set(node.Labels))
+	return utiltas.NodeMatchesFlavor(node.Labels, rf.Spec.NodeLabels, nil)
 }
 
 // ineligibleReason returns why a node matching a flavor must not be counted, or "" if it is eligible.
@@ -191,11 +195,11 @@ func joinFlavors(flavors []kueuealpha.ResourceFlavorReference) string {
 	return strings.Join(names, ", ")
 }
 
-// summarize produces e.g. "h100: 10 nodes; a100: 0 nodes; excluded: NotReady=1".
+// summarize produces e.g. "h100: 10 nodes; a100: 1 node; excluded: NotReady=1".
 func summarize(flavors []kueuealpha.ResourceFlavorReference, counted map[kueuealpha.ResourceFlavorReference]int, excluded map[string]int) string {
 	parts := make([]string, 0, len(flavors)+1)
 	for _, name := range flavors {
-		parts = append(parts, fmt.Sprintf("%s: %d nodes", name, counted[name]))
+		parts = append(parts, fmt.Sprintf("%s: %s", name, pluralizeNodes(counted[name])))
 	}
 	if len(excluded) > 0 {
 		reasons := make([]string, 0, len(excluded))
@@ -205,4 +209,11 @@ func summarize(flavors []kueuealpha.ResourceFlavorReference, counted map[kueueal
 		parts = append(parts, "excluded: "+strings.Join(reasons, ", "))
 	}
 	return strings.Join(parts, "; ")
+}
+
+func pluralizeNodes(n int) string {
+	if n == 1 {
+		return "1 node"
+	}
+	return fmt.Sprintf("%d nodes", n)
 }

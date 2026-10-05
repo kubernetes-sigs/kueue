@@ -17,6 +17,9 @@ limitations under the License.
 package localcapacity
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -26,6 +29,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -58,6 +62,29 @@ func synced(message string) metav1.Condition {
 	}
 }
 
+// manyResourcesNode returns an h100 node that advertises count allocatable resources.
+func manyResourcesNode(name string, count int) *corev1.Node {
+	allocatable := corev1.ResourceList{}
+	for i := range count {
+		allocatable[corev1.ResourceName(fmt.Sprintf("example.com/res-%d", i))] = resource.MustParse("1")
+	}
+	return testingnode.MakeNode(name).
+		Label("example.com/gpu-type", "h100").
+		StatusAllocatable(allocatable).
+		Ready().
+		Obj()
+}
+
+// failNodeList makes listing Nodes fail, to simulate an unavailable capacity source.
+var failNodeList = interceptor.Funcs{
+	List: func(ctx context.Context, cl client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+		if _, ok := list.(*corev1.NodeList); ok {
+			return errors.New("listing nodes failed")
+		}
+		return cl.List(ctx, list, opts...)
+	},
+}
+
 func misconfigured(message string) metav1.Condition {
 	return metav1.Condition{
 		Type:    kueuealpha.CapacityProviderCapacitySynchronized,
@@ -76,11 +103,13 @@ func TestReconcile(t *testing.T) {
 
 	cases := map[string]struct {
 		disableFeatureGate bool
+		failNodeList       bool
 		provider           *kueuealpha.CapacityProvider
 		otherProviders     []*kueuealpha.CapacityProvider
 		flavors            []*kueue.ResourceFlavor
 		nodes              []*corev1.Node
 		wantStatus         kueuealpha.CapacityProviderStatus
+		wantErr            bool
 	}{
 		"sums allocatable of eligible nodes per flavor": {
 			provider: utiltestingalpha.MakeCapacityProvider("nodes").
@@ -109,7 +138,7 @@ func TestReconcile(t *testing.T) {
 							Obj(),
 					).
 					Obj(),
-				Conditions: []metav1.Condition{synced("a100: 1 nodes; h100: 2 nodes")},
+				Conditions: []metav1.Condition{synced("a100: 1 node; h100: 2 nodes")},
 			},
 		},
 		"excludes NotReady, unschedulable and untolerated-tainted nodes": {
@@ -266,17 +295,41 @@ func TestReconcile(t *testing.T) {
 							Obj(),
 					).
 					Obj(),
-				Conditions: []metav1.Condition{synced("h100: 1 nodes")},
+				Conditions: []metav1.Condition{synced("h100: 1 node")},
 			},
 		},
-		"ignores providers served by other controllers": {
-			provider: utiltestingalpha.MakeCapacityProvider("external").
-				ControllerName("example.com/external").
+		"keeps the last capacity when Nodes cannot be listed": {
+			failNodeList: true,
+			provider: utiltestingalpha.MakeCapacityProvider("nodes").
+				ControllerName(ControllerName).
 				OrchestratedFlavors("h100").
+				Capacity(previousCapacity).
 				Obj(),
-			flavors:    []*kueue.ResourceFlavor{h100Flavor},
-			nodes:      []*corev1.Node{gpuNode("h100-1", "h100").Ready().Obj()},
-			wantStatus: kueuealpha.CapacityProviderStatus{},
+			flavors: []*kueue.ResourceFlavor{h100Flavor},
+			nodes:   []*corev1.Node{gpuNode("h100-1", "h100").Ready().Obj()},
+			wantStatus: kueuealpha.CapacityProviderStatus{
+				Capacity: previousCapacity,
+				Conditions: []metav1.Condition{{
+					Type:    kueuealpha.CapacityProviderCapacitySynchronized,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.CapacityProviderReasonSourceUnavailable,
+					Message: "listing nodes failed",
+				}},
+			},
+			wantErr: true,
+		},
+		"more resources than the cap is misconfigured and keeps the last capacity": {
+			provider: utiltestingalpha.MakeCapacityProvider("nodes").
+				ControllerName(ControllerName).
+				OrchestratedFlavors("h100").
+				Capacity(previousCapacity).
+				Obj(),
+			flavors: []*kueue.ResourceFlavor{h100Flavor},
+			nodes:   []*corev1.Node{manyResourcesNode("h100-1", maxResourcesPerFlavor+1)},
+			wantStatus: kueuealpha.CapacityProviderStatus{
+				Capacity:   previousCapacity,
+				Conditions: []metav1.Condition{misconfigured(`ResourceFlavor "h100" has 65 resources, more than the maximum of 64`)},
+			},
 		},
 		"does nothing when the feature gate is disabled": {
 			disableFeatureGate: true,
@@ -291,6 +344,7 @@ func TestReconcile(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
 			features.SetFeatureGateDuringTest(t, features.LocalCapacityProvider, !tc.disableFeatureGate)
 
 			objs := []client.Object{tc.provider}
@@ -305,12 +359,16 @@ func TestReconcile(t *testing.T) {
 			for _, n := range tc.nodes {
 				objs = append(objs, n)
 			}
-			cl := utiltesting.NewClientBuilder().WithObjects(objs...).WithStatusSubresource(statusObjs...).Build()
+			builder := utiltesting.NewClientBuilder().WithObjects(objs...).WithStatusSubresource(statusObjs...)
+			if tc.failNodeList {
+				builder = builder.WithInterceptorFuncs(failNodeList)
+			}
+			cl := builder.Build()
 			r := NewReconciler(cl)
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			if _, err := r.Reconcile(ctx, reconcile.Request{Name: tc.provider.Name}); err != nil {
-				t.Fatalf("Reconcile() error = %v", err)
+			if _, err := r.Reconcile(ctx, reconcile.Request{Name: tc.provider.Name}); (err != nil) != tc.wantErr {
+				t.Fatalf("Reconcile() error = %v, wantErr %v", err, tc.wantErr)
 			}
 
 			var got kueuealpha.CapacityProvider
@@ -322,6 +380,64 @@ func TestReconcile(t *testing.T) {
 				cmpopts.EquateEmpty(),
 			); diff != "" {
 				t.Errorf("Unexpected status (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestReconcileSkipsUnchangedStatus(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
+	features.SetFeatureGateDuringTest(t, features.LocalCapacityProvider, true)
+
+	provider := utiltestingalpha.MakeCapacityProvider("nodes").
+		ControllerName(ControllerName).
+		OrchestratedFlavors("h100").
+		Obj()
+	var statusUpdates int
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(
+			provider,
+			utiltestingapi.MakeResourceFlavor("h100").NodeLabel("example.com/gpu-type", "h100").Obj(),
+			gpuNode("h100-1", "h100").Ready().Obj(),
+		).
+		WithStatusSubresource(provider).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourceUpdate: utiltesting.CountSubResourceUpdates(&statusUpdates)}).
+		Build()
+	r := NewReconciler(cl)
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	for range 2 {
+		if _, err := r.Reconcile(ctx, reconcile.Request{Name: provider.Name}); err != nil {
+			t.Fatalf("Reconcile() error = %v", err)
+		}
+	}
+	if statusUpdates != 1 {
+		t.Errorf("Unexpected number of status updates: want 1, got %d", statusUpdates)
+	}
+}
+
+func TestIsLocalCapacityProvider(t *testing.T) {
+	cases := map[string]struct {
+		obj  client.Object
+		want bool
+	}{
+		"local-capacity provider": {
+			obj:  utiltestingalpha.MakeCapacityProvider("nodes").ControllerName(ControllerName).Obj(),
+			want: true,
+		},
+		"provider served by another controller": {
+			obj:  utiltestingalpha.MakeCapacityProvider("external").ControllerName("example.com/external").Obj(),
+			want: false,
+		},
+		"not a CapacityProvider": {
+			obj:  utiltestingapi.MakeResourceFlavor("h100").Obj(),
+			want: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := isLocalCapacityProvider(tc.obj); got != tc.want {
+				t.Errorf("isLocalCapacityProvider() = %v, want %v", got, tc.want)
 			}
 		})
 	}
