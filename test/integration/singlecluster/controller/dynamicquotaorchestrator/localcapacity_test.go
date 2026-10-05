@@ -20,6 +20,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -218,6 +219,37 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("16"))
 			}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should recover when an overlapping provider is deleted", func() {
+		createNodes("h100-1", "h100-2")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("16"))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		duplicate := utiltestingalpha.MakeCapacityProvider("nodes-duplicate").
+			ControllerName(localcapacity.ControllerName).
+			OrchestratedFlavors("h100").
+			Obj()
+		expectProviderReason := func(reason string) {
+			ginkgo.GinkgoHelper()
+			gomega.Eventually(func(g gomega.Gomega) {
+				latest := &kueuealpha.CapacityProvider{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(provider), latest)).To(gomega.Succeed())
+				g.Expect(apimeta.FindStatusCondition(latest.Status.Conditions, kueuealpha.CapacityProviderCapacitySynchronized)).
+					To(gomega.HaveField("Reason", reason))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
+		ginkgo.By("Creating a second provider for the same flavor", func() {
+			behavioral.MustCreate(ctx, k8sClient, duplicate)
+			expectProviderReason(kueuealpha.CapacityProviderReasonMisconfigured)
+		})
+
+		ginkgo.By("Deleting the second provider resolves the overlap", func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, duplicate, true)
+			expectProviderReason(kueuealpha.CapacityProviderReasonSynchronized)
 		})
 	})
 

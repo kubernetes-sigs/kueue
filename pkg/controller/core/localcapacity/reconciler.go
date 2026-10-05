@@ -89,6 +89,16 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			predicate.NewPredicateFuncs(isLocalCapacityProvider),
 			predicate.GenerationChangedPredicate{},
 		)).
+		// A provider being created, deleted or changing its flavors can start or
+		// resolve an overlap with any other local-capacity provider.
+		Watches(
+			&kueuealpha.CapacityProvider{},
+			handler.EnqueueRequestsFromMapFunc(r.mapToAllProviders),
+			builder.WithPredicates(
+				predicate.NewPredicateFuncs(isLocalCapacityProvider),
+				predicate.GenerationChangedPredicate{},
+			),
+		).
 		Watches(
 			&corev1.Node{},
 			handler.EnqueueRequestsFromMapFunc(r.mapToAllProviders),
@@ -125,8 +135,9 @@ var nodeCapacityChangedPredicate = predicate.Funcs{
 	},
 }
 
-// mapToAllProviders enqueues every local-capacity CapacityProvider. Any Node or
-// ResourceFlavor change may affect any provider, including through overlap detection.
+// mapToAllProviders enqueues every local-capacity CapacityProvider. Any Node,
+// ResourceFlavor or CapacityProvider change may affect any provider, including
+// through overlap detection.
 func (r *Reconciler) mapToAllProviders(ctx context.Context, _ client.Object) []ctrl.Request {
 	providers, err := r.listLocalCapacityProviders(ctx)
 	if err != nil {
