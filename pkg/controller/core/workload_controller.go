@@ -848,7 +848,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
-		if updated, err := r.reconcileOnClusterQueueActiveState(ctx, &wl, cqName); updated || err != nil {
+		if updated, err := r.reconcileOnClusterQueueActiveState(ctx, &wl, ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue); updated || err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
