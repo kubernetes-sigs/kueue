@@ -25,9 +25,9 @@ import (
 // PreemptionConfigPriorityConstraintApplyConfiguration represents a declarative configuration of the PreemptionConfigPriorityConstraint type for use
 // with apply.
 //
-// PreemptionConfigPriorityConstraint defines how candidate priority is evaluated.
+// PreemptionConfigPriorityConstraint defines the requirements for the priority of preemption candidates.
 type PreemptionConfigPriorityConstraintApplyConfiguration struct {
-	// mode specifies which priority value to compare.
+	// mode specifies whether priority comparison uses base or boosted (effective) priority.
 	// Must be specified together with comparison.
 	//
 	Mode *kueuev1alpha1.PreemptionConfigPriorityMode `json:"mode,omitempty"`

@@ -40,6 +40,7 @@
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+  - [Priority Class Selectors](#priority-class-selectors)
 - [Future Work Ideas](#future-work-ideas)
 <!-- /toc -->
 
@@ -418,8 +419,8 @@ Requested functionalities from the community can be satisfied with the following
                mode: "Base"
                comparison: "LessThan"
                matchNames:
-                 - "low-priority"
                  - "batch-low"
+                 - "dev-preemptible"
    ```
 
 > [!NOTE]
@@ -825,10 +826,10 @@ const (
 // This maintains consistency with equality comparisons, enhances YAML readability, and provides
 // clear, intuitive semantics for cluster administrators.
 
-// PreemptionConfigPriorityConstraint defines how candidate priority is evaluated.
+// PreemptionConfigPriorityConstraint defines the requirements for the priority of preemption candidates.
 // +kubebuilder:validation:XValidation:rule="has(self.mode) == has(self.comparison)",message="mode and comparison must be specified together"
 type PreemptionConfigPriorityConstraint struct {
-  // mode specifies which priority value to compare.
+  // mode specifies whether priority comparison uses base or boosted (effective) priority.
   // Must be specified together with comparison.
   //
   // +optional
@@ -1107,7 +1108,11 @@ Why should this KEP _not_ be implemented?
    - If a formal field `spec.preemptionConfigName` were added in Alpha with merged behavior alongside `spec.preemption`, changing it to mutually exclusive in Beta would be a breaking change to the field's semantics.
    - Using an annotation (`kueue.x-k8s.io/preemption-config-name`) avoids creating a premature field contract while allowing the outputs of both strategies to be merged cleanly for Alpha. When `PreemptionConfig` reaches full feature parity in Beta, both strategies can be made mutually exclusive via a formal API field without breaking backward compatibility.
 
-6. **Workload `labelSelector` (Alpha Workaround)**:
+### Priority Class Selectors
+
+Instead of matching `Workload.spec.priorityClassRef.name` directly via `PreemptionConfigPriorityClassSelector` (`matchNames` and `notMatchNames`), the following alternatives were considered for filtering workloads by priority tier:
+
+1. **Workload `labelSelector` (Alpha Workaround)**:
    Filtering candidates via `labelSelector` matching `kueue.x-k8s.io/priority-class`.
    - _Drawbacks_:
      - Creates **two sources of truth** and data duplication, since `Workload.spec.priorityClassRef` already authoritatively stores the priority class.
@@ -1116,7 +1121,7 @@ Why should this KEP _not_ be implemented?
    - _Advantages_:
      - Can be fully set up on the user side without any code changes in OSS Kueue.
 
-7. **Absolute Priority Value Bounds (`minValue` / `maxValue`)**:
+2. **Absolute Priority Value Bounds (`minValue` / `maxValue`)**:
    Adding absolute integer thresholds (e.g. `maxValue: 1000` or `minValue: 0`) to `PreemptionConfigPriorityConstraint`.
    - _Drawbacks_:
      - Hardcodes numeric values into cluster policies rather than semantic names. Policies break when integer mappings change or vary between environments.
@@ -1125,7 +1130,7 @@ Why should this KEP _not_ be implemented?
      - Can easily take into account boosted values.
      - Can cover many priority classes at once without referencing them all by name.
 
-8. **Priority class `labelSelector`**:
+3. **Priority class `labelSelector`**:
    Filtering candidates by matching labels defined on `PriorityClass` or `WorkloadPriorityClass` resources via a `metav1.LabelSelector`.
    - _Drawbacks_:
      - **Semantics spanning two different resource types**: Priority in Kueue can originate from either Kubernetes core `PriorityClass` (`scheduling.k8s.io/v1`) or Kueue's `WorkloadPriorityClass` (`kueue.x-k8s.io/v1beta1`). Evaluating label selectors across two distinct resource types introduces semantic ambiguity and operational inconsistency, as administrators would need to manage and align label schemes across separate kinds with different lifecycles and scopes.

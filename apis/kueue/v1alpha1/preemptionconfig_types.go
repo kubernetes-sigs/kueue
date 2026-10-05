@@ -299,10 +299,10 @@ type PreemptionConfigPreemptionCandidateSelector struct {
 	Priority *PreemptionConfigPriorityConstraint `json:"priority,omitempty"`
 }
 
-// PreemptionConfigPriorityConstraint defines how candidate priority is evaluated.
+// PreemptionConfigPriorityConstraint defines the requirements for the priority of preemption candidates.
 // +kubebuilder:validation:XValidation:rule="has(self.mode) == has(self.comparison)",message="mode and comparison must be specified together"
 type PreemptionConfigPriorityConstraint struct {
-	// mode specifies which priority value to compare.
+	// mode specifies whether priority comparison uses base or boosted (effective) priority.
 	// Must be specified together with comparison.
 	//
 	// +optional

@@ -306,7 +306,7 @@ spec:
                                   x-kubernetes-list-type: set
                                 mode:
                                   description: |-
-                                    mode specifies which priority value to compare.
+                                    mode specifies whether priority comparison uses base or boosted (effective) priority.
                                     Must be specified together with comparison.
                                   enum:
                                     - Base

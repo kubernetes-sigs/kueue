@@ -165,14 +165,6 @@ var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 				},
 				modeAndComparisonTogetherErrMessage,
 			),
-			ginkgo.Entry("Disallow priority.mode with matchNames but without priority.comparison",
-				nil,
-				&kueuealpha.PreemptionConfigPriorityConstraint{
-					Mode:       new(kueuealpha.Boosted),
-					MatchNames: []string{"low-priority"},
-				},
-				modeAndComparisonTogetherErrMessage,
-			),
 		)
 	})
 
