@@ -30,7 +30,6 @@ import (
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("RayService Webhook", func() {
@@ -39,7 +38,7 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeEach(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(rayservice.SetupRayServiceWebhook))
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-")
 		})
 
 		ginkgo.AfterEach(func() {

@@ -44,7 +44,6 @@ import (
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload", "area:core"), func() {
@@ -62,7 +61,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 	})
 
 	ginkgo.AfterEach(func() {
@@ -1186,7 +1185,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 
 		ginkgo.BeforeEach(func() {
 			startManager()
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			behavioral.MustCreate(ctx, k8sClient, flavor)
 			clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
@@ -1381,7 +1380,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 		ginkgo.BeforeEach(func() {
 			startManager()
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
 			clusterQueue = utiltestingapi.MakeClusterQueue("cq").
@@ -1535,7 +1534,7 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 			startManager()
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 
 			rf = utiltestingapi.MakeResourceFlavor("default-flavor").Obj()
 			behavioral.MustCreate(ctx, k8sClient, rf)
@@ -1630,7 +1629,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 					},
 				),
 			)
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
 			clusterQueue = utiltestingapi.MakeClusterQueue("cq").
@@ -1728,7 +1727,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalQueueMetrics, true)
 			startManager()
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-")
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
 			clusterQueue = utiltestingapi.MakeClusterQueue("cq").
@@ -1995,7 +1994,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 		ginkgo.BeforeEach(func() {
 			startManager()
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-ns-selector-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-workload-ns-selector-")
 			flavor = utiltestingapi.MakeResourceFlavor(flavorOnDemand).Obj()
 			gomega.Expect(k8sClient.Create(ctx, flavor)).Should(gomega.Succeed())
 			clusterQueue = utiltestingapi.MakeClusterQueue("cq-ns-selector").

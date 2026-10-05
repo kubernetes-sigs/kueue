@@ -29,7 +29,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingspark "sigs.k8s.io/kueue/pkg/util/testingjobs/sparkapplication"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("SparkApplication Webhook", func() {
@@ -38,7 +37,7 @@ var _ = ginkgo.Describe("SparkApplication Webhook", func() {
 	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeEach(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(sparkapplication.SetupWebhook))
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sparkapplication-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sparkapplication-")
 		})
 
 		ginkgo.AfterEach(func() {

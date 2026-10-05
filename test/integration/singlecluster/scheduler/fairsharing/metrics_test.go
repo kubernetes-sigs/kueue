@@ -31,7 +31,6 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Cohorts", func() {
@@ -110,7 +109,7 @@ var _ = ginkgo.Describe("Cohorts", func() {
 			flavor2 = utiltestingapi.MakeResourceFlavor("flavor2").Obj()
 			behavioral.MustCreate(ctx, k8sClient, flavor2)
 
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 		})
 
 		ginkgo.AfterEach(func() {

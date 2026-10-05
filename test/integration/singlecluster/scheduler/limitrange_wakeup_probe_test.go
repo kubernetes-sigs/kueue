@@ -30,7 +30,6 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // Probe for: a Workload rejected for exceeding a LimitRange max is never
@@ -48,7 +47,7 @@ var _ = ginkgo.Describe("LimitRange constraint relaxation wake-up probe", func()
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lr-max-probe-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lr-max-probe-")
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
 		clusterQueue = utiltestingapi.MakeClusterQueue("cq-lr-max").

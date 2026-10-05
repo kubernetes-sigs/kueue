@@ -68,7 +68,7 @@ var _ = ginkgo.Describe("HA tests", ginkgo.Label("feature:ha", e2e.Shard0), gink
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-certs-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-certs-")
 			onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand-"+ns.Name).
 				NodeLabel("instance-type", "on-demand").Obj()
 			behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
@@ -196,7 +196,7 @@ var _ = ginkgo.Describe("HA tests", ginkgo.Label("feature:ha", e2e.Shard0), gink
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ha-failover-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ha-failover-")
 
 			rf = utiltestingapi.MakeResourceFlavor("rf").Obj()
 			behavioral.MustCreate(ctx, k8sClient, rf)

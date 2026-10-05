@@ -54,7 +54,7 @@ var _ = ginkgo.Describe("Admission Fair Sharing", ginkgo.Label("feature:admissio
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "afs-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "afs-")
 	})
 
 	ginkgo.JustAfterEach(func() {

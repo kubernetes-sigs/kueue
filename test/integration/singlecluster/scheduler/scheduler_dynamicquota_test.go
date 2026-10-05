@@ -28,7 +28,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, func() {
@@ -45,7 +44,7 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicQuotaOrchestration, true)
 
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dynquota-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dynquota-")
 
 		flavor = utiltestingapi.MakeResourceFlavor("dynquota-flavor").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor)

@@ -32,7 +32,6 @@ import (
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Workload Unadmitted Observability Status and Metrics", func() {
@@ -47,7 +46,7 @@ var _ = ginkgo.Describe("Workload Unadmitted Observability Status and Metrics", 
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsExplicitStatus, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "obs-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "obs-")
 
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)

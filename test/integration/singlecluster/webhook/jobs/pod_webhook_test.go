@@ -36,7 +36,6 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Pod Webhook", func() {
@@ -67,7 +66,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 			))
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-")
 		})
 
 		ginkgo.AfterEach(func() {
@@ -190,7 +189,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 			))
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-owner-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-owner-")
 
 			parentJob = testingjob.MakeJob("parent-job", ns.Name).Queue("user-queue").Obj()
 			behavioral.MustCreate(ctx, k8sClient, parentJob)
@@ -279,7 +278,7 @@ var _ = ginkgo.Describe("Pod Webhook", func() {
 				jobframework.WithManagedJobsNamespaceSelector(mjnsSelector),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 			))
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-")
 		})
 
 		ginkgo.AfterEach(func() {

@@ -56,7 +56,7 @@ var _ = ginkgo.Describe("LocalQueue metrics", ginkgo.Label("feature:localqueueme
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-customconfig-lq-metrics-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-customconfig-lq-metrics-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("test-flavor-" + ns.Name).Obj()
 		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)

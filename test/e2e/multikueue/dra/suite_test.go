@@ -105,9 +105,9 @@ var _ = ginkgo.BeforeSuite(func() {
 	e2e.WaitForKueueAvailability(ctx, k8sWorker2Client)
 
 	// Wait for DRA example driver availability on all clusters
-	behavioral.WaitForDRAExampleDriverAvailability(ctx, k8sManagerClient, managerClusterName)
-	behavioral.WaitForDRAExampleDriverAvailability(ctx, k8sWorker1Client, worker1ClusterName)
-	behavioral.WaitForDRAExampleDriverAvailability(ctx, k8sWorker2Client, worker2ClusterName)
+	e2e.WaitForDRAExampleDriverAvailability(ctx, k8sManagerClient, managerClusterName)
+	e2e.WaitForDRAExampleDriverAvailability(ctx, k8sWorker1Client, worker1ClusterName)
+	e2e.WaitForDRAExampleDriverAvailability(ctx, k8sWorker2Client, worker2ClusterName)
 
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and DRA example driver are available in all clusters",

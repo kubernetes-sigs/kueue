@@ -29,7 +29,6 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // Watches of different kinds are not ordered, so a Workload created right
@@ -41,7 +40,7 @@ func expectLimitRangesInManagerCache(lrs ...*corev1.LimitRange) {
 		for _, lr := range lrs {
 			g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(lr), &corev1.LimitRange{})).To(gomega.Succeed())
 		}
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 // Pins that the scheduling equivalence hash follows the effective resources:
@@ -60,7 +59,7 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-freshness-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-freshness-")
 
 		limitRange = utiltesting.MakeLimitRange("limits", ns.Name).
 			WithValue("DefaultRequest", corev1.ResourceCPU, "3").Obj()
@@ -163,8 +162,8 @@ var _ = ginkgo.Describe("Pending scheduling hashes under differing LimitRange de
 	)
 
 	ginkgo.BeforeEach(func() {
-		nsSmall = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-small-")
-		nsLarge = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-large-")
+		nsSmall = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-small-")
+		nsLarge = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "hash-defaults-large-")
 
 		lrSmall := utiltesting.MakeLimitRange("limits", nsSmall.Name).
 			WithValue("DefaultRequest", corev1.ResourceCPU, "1").Obj()

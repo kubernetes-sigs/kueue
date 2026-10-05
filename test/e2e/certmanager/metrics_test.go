@@ -55,7 +55,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-metrics-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("test-flavor").Obj()
 		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
@@ -208,7 +208,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 
 			var initialCertContent []byte
 			ginkgo.By("reading initial certificate content from curl-pod", func() {
-				certContent, _, err := behavioral.KExecute(ctx, cfg, restClient, kueueNS, curlPod.Name, curlContainerName,
+				certContent, _, err := e2e.KExecute(ctx, cfg, restClient, kueueNS, curlPod.Name, curlContainerName,
 					[]string{"/bin/sh", "-c", fmt.Sprintf("cat %s/ca.crt", certMountPath)})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
 				initialCertContent = certContent
@@ -231,7 +231,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 
 			ginkgo.By("verifying certificate content changed in curl-pod", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					newCertContent, _, err := behavioral.KExecute(ctx, cfg, restClient, kueueNS, curlPod.Name, curlContainerName,
+					newCertContent, _, err := e2e.KExecute(ctx, cfg, restClient, kueueNS, curlPod.Name, curlContainerName,
 						[]string{"/bin/sh", "-c", fmt.Sprintf("cat %s/ca.crt", certMountPath)})
 					g.Expect(err).NotTo(gomega.HaveOccurred())
 					g.Expect(initialCertContent).NotTo(gomega.BeEmpty())
@@ -252,7 +252,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 })
 
 func getKueueMetricsSecure(curlPodName, curlContainerName string) ([]byte, error) {
-	metricsOutput, _, err := behavioral.KExecute(ctx, cfg, restClient, kueueNS, curlPodName, curlContainerName,
+	metricsOutput, _, err := e2e.KExecute(ctx, cfg, restClient, kueueNS, curlPodName, curlContainerName,
 		[]string{
 			"/bin/sh",
 			"-c",

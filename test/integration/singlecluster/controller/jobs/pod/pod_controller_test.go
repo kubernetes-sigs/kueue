@@ -61,7 +61,6 @@ import (
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -131,7 +130,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 		)
 
 		ginkgo.BeforeEach(func() {
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-")
 
 			fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 			behavioral.MustCreate(ctx, k8sClient, fl)
@@ -619,7 +618,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				)
 
 				ginkgo.BeforeEach(func() {
-					ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-ac-namespace-")
+					ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-ac-namespace-")
 					admissionCheck = utiltestingapi.MakeAdmissionCheck("check").ControllerName("ac-controller").Obj()
 					behavioral.MustCreate(ctx, k8sClient, admissionCheck)
 					behavioral.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
@@ -2603,7 +2602,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-sched-namespace-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-sched-namespace-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
@@ -2843,7 +2842,7 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -3039,7 +3038,7 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -3456,7 +3455,7 @@ var _ = ginkgo.Describe("Pod controller when waitForPodsReady enabled with sched
 				jobframework.WithEnabledFrameworks([]string{"pod"}),
 			))
 			ginkgo.DeferCleanup(func() { fwk.StopManager(ctx) })
-			ns := e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "podsready-")
+			ns := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "podsready-")
 			ginkgo.DeferCleanup(func() { gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed()) })
 			flavor := utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, flavor)
@@ -3537,7 +3536,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -3770,7 +3769,7 @@ var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.La
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pod-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pod-")
 
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("b1").
@@ -3954,7 +3953,7 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pod-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pod-")
 
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("x1").
@@ -4232,7 +4231,7 @@ var _ = ginkgo.Describe("Pod controller with TASFailedNodeReplacementFailFast di
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pod-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-pod-")
 
 		// Two nodes with room for exactly one 1-CPU pod each, so a two-pod
 		// group fills both and no domain has a spare slot for a replacement.
@@ -4528,7 +4527,7 @@ var _ = ginkgo.Describe("Pod controller with deployment-owned pods and waitForPo
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "deploy-pod-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "deploy-pod-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -4640,7 +4639,7 @@ var _ = ginkgo.Describe("Pod controller finalizer consistency on eviction", gink
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "finrepro-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "finrepro-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -4853,7 +4852,7 @@ var _ = ginkgo.Describe("Pod controller with CustomMetricLabels", ginkgo.Ordered
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-custom-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-custom-")
 
 		fl = utiltestingapi.MakeResourceFlavor("fl").Obj()
 		behavioral.MustCreate(ctx, k8sClient, fl)
@@ -4989,7 +4988,7 @@ var _ = ginkgo.Describe("Pod controller with CustomMetricLabels disabled", ginkg
 		))
 		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-custom-disabled-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-custom-disabled-")
 	})
 
 	ginkgo.AfterEach(func() {
@@ -5068,7 +5067,7 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 				),
 			)
 
-			ns = e2e.CreateNamespaceFromPrefixWithLog(
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(
 				ctx, k8sClient, "pod-shape-ordering-",
 			)
 

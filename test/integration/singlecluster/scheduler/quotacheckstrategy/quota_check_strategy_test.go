@@ -34,7 +34,6 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.Label("feature:quotacheckstrategy"), func() {
@@ -61,7 +60,7 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 		})
 
 		ginkgo.BeforeEach(func() {
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "quota-check-strategy-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "quota-check-strategy-")
 
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
@@ -169,7 +168,7 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.QuotaCheckStrategy, false)
-			ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "quota-check-gate-off-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "quota-check-gate-off-")
 
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)

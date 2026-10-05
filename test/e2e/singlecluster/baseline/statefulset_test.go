@@ -50,7 +50,7 @@ var _ = ginkgo.Describe("StatefulSet integration", ginkgo.Label("area:singleclus
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sts-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "sts-e2e-")
 		resourceFlavorName = "sts-rf-" + ns.Name
 		clusterQueueName = "sts-cq-" + ns.Name
 		localQueueName = "sts-lq-" + ns.Name

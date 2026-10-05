@@ -44,7 +44,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for PyTorchJob", ginkgo.Label("
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-pytorchjob-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-pytorchjob-")
 
 		topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
 		behavioral.MustCreate(ctx, k8sClient, topology)

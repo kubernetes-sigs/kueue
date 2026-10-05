@@ -32,7 +32,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Deployment Webhook", func() {
@@ -52,7 +51,7 @@ var _ = ginkgo.Describe("Deployment Webhook", func() {
 			deploymentcontroller.SetupWebhook,
 			jobframework.WithKubeServerVersion(serverVersionFetcher),
 		))
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "deployment-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "deployment-")
 	})
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())

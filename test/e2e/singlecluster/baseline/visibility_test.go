@@ -60,8 +60,8 @@ var _ = ginkgo.Describe("Kueue visibility server", ginkgo.Label("area:singleclus
 	)
 
 	ginkgo.BeforeEach(func() {
-		nsA = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
-		nsB = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		nsA = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		nsB = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		defaultFlavor = "default-flavor-" + nsA.Name
 	})
 	ginkgo.AfterEach(func() {

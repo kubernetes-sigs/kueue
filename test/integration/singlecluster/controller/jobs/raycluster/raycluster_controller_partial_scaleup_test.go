@@ -35,7 +35,6 @@ import (
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // The RayCluster workload has two PodSets: the head, which cannot be shrunk, and the single
@@ -94,7 +93,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "scale-up-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "scale-up-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
@@ -226,7 +225,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		ginkgo.By("raising the ClusterQueue's pod quota from 7 to 15")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
-			e2e.SetResourceNominalQuota(clusterQueue, corev1.ResourcePods, "15")
+			behavioral.SetResourceNominalQuota(clusterQueue, corev1.ResourcePods, "15")
 			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
@@ -350,10 +349,10 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			).
 			Obj()
 
-		util.MustCreate(ctx, k8sClient, testRayCluster)
-		initialSlice := &util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, groupA, 4)
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, groupB, 2)
+		behavioral.MustCreate(ctx, k8sClient, testRayCluster)
+		initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, groupA, 4)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, groupB, 2)
 		expectPodsUsage(7)
 
 		// The full replacement needs eight pods, but 1 head + 1 groupA + 5 groupB fits.
@@ -362,12 +361,12 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(1))
 			testRayCluster.Spec.WorkerGroupSpecs[1].Replicas = new(int32(6))
 			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-		replacement := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
+		replacement := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
 		gomega.Expect(replacement.Spec.PodSets[1].MinCount).Should(gomega.Equal(new(int32(1))))
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, replacement, groupA, 1)
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, replacement, groupB, 5)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, replacement, groupA, 1)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, replacement, groupB, 5)
 		expectPodsUsage(7)
 	})
 

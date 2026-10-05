@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("WorkloadPriorityClassDefaulting", ginkgo.Label("feature
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wpc-defaulting-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wpc-defaulting-")
 		lq = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue("cluster-queue").Obj()
 		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 

@@ -45,7 +45,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-rayjob-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-rayjob-")
 
 		topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
 		behavioral.MustCreate(ctx, k8sClient, topology)

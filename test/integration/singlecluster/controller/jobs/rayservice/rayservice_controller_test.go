@@ -39,7 +39,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices support", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -60,7 +59,7 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-elastic-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-elastic-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("flavor").Obj()
 		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)

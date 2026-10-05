@@ -45,7 +45,7 @@ var _ = ginkgo.Describe("PyTorch integration", ginkgo.Label("area:singlecluster"
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pytorch-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pytorch-e2e-")
 		resourceFlavorName = "pytorch-rf-" + ns.Name
 		clusterQueueName = "pytorch-cq-" + ns.Name
 		localQueueName = "pytorch-lq-" + ns.Name

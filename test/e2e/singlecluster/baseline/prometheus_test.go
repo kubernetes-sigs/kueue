@@ -54,7 +54,7 @@ var _ = ginkgo.Describe("Prometheus", ginkgo.Label("area:prometheus", "feature:p
 	})
 
 	ginkgo.It("should report workload admission metrics via PromQL", func() {
-		ns := e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-prom-")
+		ns := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-prom-")
 		ginkgo.DeferCleanup(func() {
 			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		})

@@ -45,7 +45,7 @@ var _ = ginkgo.Describe("JAX integration", ginkgo.Label("area:singlecluster", "f
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jax-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "jax-e2e-")
 		resourceFlavorName = "jax-rf-" + ns.Name
 		clusterQueueName = "jax-cq-" + ns.Name
 		localQueueName = "jax-lq-" + ns.Name

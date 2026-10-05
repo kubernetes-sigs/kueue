@@ -116,7 +116,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with tiny Timeout and no RecoveryTimeo
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wfpr-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wfpr-")
 
 		rf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, rf)
@@ -279,7 +279,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wfpr-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wfpr-")
 
 		rf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, rf)
@@ -369,7 +369,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a tiny Recove
 		// so that its unreadiness does not depend on how quickly it is replaced.
 		makeNotReady := func(podName string) {
 			ginkgo.GinkgoHelper()
-			_, stderr, err := behavioral.KExecute(ctx, cfg, restClient, ns.Name, podName, sts.Spec.Template.Spec.Containers[0].Name,
+			_, stderr, err := e2e.KExecute(ctx, cfg, restClient, ns.Name, podName, sts.Spec.Template.Spec.Containers[0].Name,
 				[]string{"touch", notReadyMarkerFile})
 			gomega.Expect(err).To(gomega.Succeed(), string(stderr))
 		}
@@ -516,7 +516,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with default Timeout and a long Recove
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wfpr-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wfpr-")
 
 		rf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, rf)
@@ -684,7 +684,7 @@ var _ = ginkgo.Describe("WaitForPodsReady with a short UnscheduledTimeout", gink
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wfpr-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "wfpr-")
 
 		rf = utiltestingapi.MakeResourceFlavor("default").Obj()
 		behavioral.MustCreate(ctx, k8sClient, rf)

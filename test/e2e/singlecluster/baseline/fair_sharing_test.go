@@ -44,7 +44,7 @@ var _ = ginkgo.Describe("Fair Sharing", ginkgo.Label("area:singlecluster", "feat
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 
 		rf = utiltestingapi.MakeResourceFlavor("rf-" + ns.Name).Obj()
 		behavioral.MustCreate(ctx, k8sClient, rf)

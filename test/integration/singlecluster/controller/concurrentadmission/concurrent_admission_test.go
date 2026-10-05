@@ -40,7 +40,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util/behavioral"
-	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Concurrent Admission", func() {
@@ -51,7 +50,7 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConcurrentAdmission, true)
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(&configapi.Configuration{}))
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "concurrent-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "concurrent-")
 	})
 
 	ginkgo.AfterEach(func() {

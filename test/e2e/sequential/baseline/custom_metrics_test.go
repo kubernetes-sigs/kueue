@@ -43,7 +43,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-e2e-")
 		flavorOnDemand = "on-demand-" + ns.Name
 		onDemandRF = utiltestingapi.MakeResourceFlavor(flavorOnDemand).NodeLabel("instance-type", "on-demand").Obj()
 		behavioral.MustCreate(ctx, k8sClient, onDemandRF)
