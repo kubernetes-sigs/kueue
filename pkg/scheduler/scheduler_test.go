@@ -3905,7 +3905,8 @@ func TestSchedule(t *testing.T) {
 				*utiltestingapi.MakeClusterQueue("other-alpha").
 					Cohort("other").
 					Preemption(kueue.ClusterQueuePreemption{
-						WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 					}).
 					ResourceGroup(
 						*utiltestingapi.MakeFlavorQuotas("on-demand").
