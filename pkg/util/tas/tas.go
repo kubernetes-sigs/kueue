@@ -17,6 +17,7 @@ limitations under the License.
 package tas
 
 import (
+	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -93,6 +94,44 @@ func GroupKeyForPodSet(ps *kueue.PodSet) PodSetGroupKey {
 		return PodSetGroupKey(podSetGroupKeyGroupPrefix + *ps.TopologyRequest.PodSetGroupName)
 	}
 	return PodSetGroupKey(podSetGroupKeyPodSetPrefix + string(ps.Name))
+}
+
+// PodSetRankOffsets returns, per PodSet, the index of its first pod (rankOffsets),
+// derived from how the assignments are grouped by PodSetGroupName.
+func PodSetRankOffsets(
+	psas []kueue.PodSetAssignment,
+	psNameToTopologyRequest map[kueue.PodSetReference]*kueue.PodSetTopologyRequest,
+) map[kueue.PodSetReference]int32 {
+	groupedPodSetAssignments := make(map[string][]*kueue.PodSetAssignment)
+	for i := range psas {
+		psa := &psas[i]
+		groupName := strconv.Itoa(i)
+		if tr := psNameToTopologyRequest[psa.Name]; tr != nil && tr.PodSetGroupName != nil {
+			groupName = *tr.PodSetGroupName
+		}
+		groupedPodSetAssignments[groupName] = append(groupedPodSetAssignments[groupName], psa)
+	}
+
+	rankOffsets := make(map[kueue.PodSetReference]int32)
+	for _, group := range groupedPodSetAssignments {
+		if len(group) > 1 {
+			// In case of LeaderWorkerSet, in each Workload there will be
+			// 1 leader and N workers. Leader will get rank 0 and workers
+			// 1, 2, ..., N. To detect the leader we are selecting PodSet
+			// which is smaller.
+			smallerPsa := group[0]
+			largerPsa := group[1]
+			if *smallerPsa.Count > *largerPsa.Count {
+				smallerPsa = group[1]
+				largerPsa = group[0]
+			}
+			rankOffsets[smallerPsa.Name] = 0
+			rankOffsets[largerPsa.Name] = *smallerPsa.Count
+		} else {
+			rankOffsets[group[0].Name] = 0
+		}
+	}
+	return rankOffsets
 }
 
 func IsTAS(pod *corev1.Pod) bool {
