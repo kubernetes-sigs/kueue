@@ -120,8 +120,9 @@ func TestPendingWorkloadsMetricsWithCustomLabels(t *testing.T) {
 				if moved := requeuer.ProcessRequeues(ctx); moved != 1 {
 					t.Fatalf("Expected one inadmissible workload to move, got %d", moved)
 				}
+			} else {
+				reportPendingWorkloads(m, "cq")
 			}
-			reportPendingWorkloads(m, "cq")
 			for labelValues, want := range tc.wantWorkloads {
 				status, kind, _ := strings.Cut(labelValues, "/")
 				got := testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
