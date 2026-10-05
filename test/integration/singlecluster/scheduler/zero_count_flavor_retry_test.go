@@ -32,7 +32,8 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Zero-count flavor retry", ginkgo.Label("area:scheduler"), func() {
@@ -44,7 +45,7 @@ var _ = ginkgo.Describe("Zero-count flavor retry", ginkgo.Label("area:scheduler"
 		paused, resume := make(chan struct{}), make(chan struct{})
 		var pauseOnce, resumeOnce sync.Once
 		const gpu = corev1.ResourceName("example.com/gpu")
-		ns := util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "flavor-retry-")
+		ns := behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "flavor-retry-")
 		large := utiltestingapi.MakeResourceFlavor("large").NodeLabel("instance-type", "large").Obj()
 		empty := utiltestingapi.MakeResourceFlavor("empty").NodeLabel("instance-type", "empty").Obj()
 		cq := utiltestingapi.MakeClusterQueue("flavor-retry").ResourceGroup(
@@ -54,25 +55,25 @@ var _ = ginkgo.Describe("Zero-count flavor retry", ginkgo.Label("area:scheduler"
 		ginkgo.DeferCleanup(func() {
 			resumeOnce.Do(func() { close(resume) })
 			setFakeSubResourcePatchResponseHookSpec(nil)
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, large, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, empty, true)
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, large, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, empty, true)
 		})
 		for _, obj := range []client.Object{large, empty, cq} {
-			util.MustCreate(ctx, k8sClient, obj)
+			behavioral.MustCreate(ctx, k8sClient, obj)
 		}
-		util.MustCreate(ctx, k8sClient, utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj())
+		behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj())
 		blocker := utiltestingapi.MakeWorkload("blocker", ns.Name).Queue("queue").Request(gpu, "2").Obj()
-		util.MustCreate(ctx, k8sClient, blocker)
-		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, blocker)
+		behavioral.MustCreate(ctx, k8sClient, blocker)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, blocker)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
 			g.Expect(cq.Status.FlavorsReservation).To(gomega.HaveLen(2))
 			g.Expect(cq.Status.FlavorsReservation[0].Name).To(gomega.Equal(kueue.ResourceFlavorReference("large")))
 			g.Expect(cq.Status.FlavorsReservation[0].Resources).To(gomega.HaveLen(1))
 			g.Expect(cq.Status.FlavorsReservation[0].Resources[0].Total).To(gomega.Equal(resource.MustParse("2")))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		root := utiltestingapi.MakeWorkload("retry", ns.Name).Queue("queue").
 			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -96,11 +97,11 @@ var _ = ginkgo.Describe("Zero-count flavor retry", ginkgo.Label("area:scheduler"
 			}
 			return fallThrough, nil
 		})
-		util.MustCreate(ctx, k8sClient, root)
-		gomega.Eventually(paused, util.Timeout).Should(gomega.BeClosed())
+		behavioral.MustCreate(ctx, k8sClient, root)
+		gomega.Eventually(paused, behavioral.Timeout).Should(gomega.BeClosed())
 
 		ginkgo.By("freeing quota before retrying the unchanged Workload")
-		util.FinishWorkloads(ctx, k8sClient, blocker)
+		integration.FinishWorkloads(ctx, k8sClient, blocker)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
 			g.Expect(cq.Status.FlavorsReservation).To(gomega.HaveLen(2))
@@ -109,11 +110,11 @@ var _ = ginkgo.Describe("Zero-count flavor retry", ginkgo.Label("area:scheduler"
 					g.Expect(usage.Total.IsZero()).To(gomega.BeTrue())
 				}
 			}
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		resumeOnce.Do(func() { close(resume) })
 
 		ginkgo.By("admitting both PodSets on a flavor with GPU capacity")
-		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, root)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, root)
 		gomega.Expect(k8sClient.Get(ctx, rootKey, root)).To(gomega.Succeed())
 		gomega.Expect(root.Status.Admission.PodSetAssignments).To(gomega.HaveLen(2))
 		for _, ps := range root.Status.Admission.PodSetAssignments {
@@ -133,8 +134,8 @@ var _ = ginkgo.Describe("Zero-count flavor retry", ginkgo.Label("area:scheduler"
 				*utiltestingapi.MakePodSet("scaled-down", 1).Request(gpu, "1").Obj(),
 				*utiltestingapi.MakePodSet("active", 1).Request(gpu, "1").Obj(),
 			).Obj()
-		util.MustCreate(ctx, k8sClient, replacement)
-		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, replacement)
+		behavioral.MustCreate(ctx, k8sClient, replacement)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, replacement)
 		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(replacement), replacement)).To(gomega.Succeed())
 		gomega.Expect(replacement.Status.Admission.PodSetAssignments).To(gomega.HaveLen(2))
 		for _, ps := range replacement.Status.Admission.PodSetAssignments {

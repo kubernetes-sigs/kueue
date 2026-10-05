@@ -219,6 +219,7 @@ func TestAssignFlavors(t *testing.T) {
 		secondaryClusterQueue      *kueue.ClusterQueue
 		secondaryClusterQueueUsage resources.FlavorResourceQuantities
 		wantRepMode                FlavorAssignmentMode
+		wantPendingFlavors         *bool
 		wantAssignment             Assignment
 		enableFairSharing          bool
 		simulationResult           map[resources.FlavorResource]simulationResultForFlavor
@@ -2693,7 +2694,7 @@ func TestAssignFlavors(t *testing.T) {
 				}}},
 			},
 		},
-		"zero-count PodSet ignores saved progress and prefers the first suitable flavor": {
+		"zero-count PodSet rechecks earlier suitable flavors on retry": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 0).
 					Request("example.com/gpu", "1").Obj(),
@@ -2847,7 +2848,8 @@ func TestAssignFlavors(t *testing.T) {
 					*utiltestingapi.MakeFlavorQuotas("one").Resource("example.com/gpu", "0").Obj(),
 					*utiltestingapi.MakeFlavorQuotas("two").Resource("example.com/gpu", "0").Obj(),
 				).Obj(),
-			wantRepMode: Fit,
+			wantPendingFlavors: new(false),
+			wantRepMode:        Fit,
 			wantAssignment: Assignment{
 				ZeroCountFlavorFallback: "Assigned flavor one to zero-count PodSets [main] for resources [example.com/gpu] in ClusterQueue test-clusterqueue. " +
 					"No considered flavor could satisfy one pod per PodSet: " +
@@ -2857,13 +2859,219 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
-						"example.com/gpu": {Name: "one", Mode: Fit, TriedFlavors: sets.New[kueue.ResourceFlavorReference]("one")},
+						"example.com/gpu": {Name: "one", Mode: Fit},
 					},
 					Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("0")},
 				}},
 				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: "example.com/gpu"}: resources.NewAmount(0),
 				}}},
+			},
+		},
+		"zero-count probe revisits a suitable flavor before falling back": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("worker", 0).Request("example.com/gpu", "1").Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("one").Resource("example.com/gpu", "2").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("two").Resource("example.com/gpu", "0").Obj(),
+			).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.FlavorFungibility: true},
+			flavorScanState: &workload.FlavorScanState{
+				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+					{"example.com/gpu": sets.New[kueue.ResourceFlavorReference]("one")},
+				},
+			},
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name:     "worker",
+					Flavors:  ResourceAssignment{"example.com/gpu": {Name: "one", Mode: Fit}},
+					Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("0")},
+				}},
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "one", Resource: "example.com/gpu"}: resources.NewAmount(0),
+				}}},
+			},
+		},
+		"zero-count probe does not request another retry while another PodSet waits": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("worker", 0).Request("example.com/gpu", "1").Obj(),
+				*utiltestingapi.MakePodSet("active", 1).Request("example.com/gpu", "1").Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("one").Resource("example.com/gpu", "2").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("two").Resource("example.com/gpu", "0").Obj(),
+			).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.FlavorFungibility: true},
+			flavorScanState: &workload.FlavorScanState{
+				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+					{"example.com/gpu": sets.New[kueue.ResourceFlavorReference]("one")},
+					{"example.com/gpu": nil},
+				},
+			},
+			clusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "one", Resource: "example.com/gpu"}: resources.NewAmount(2),
+			},
+			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
+				{Flavor: "one", Resource: "example.com/gpu"}: {preemptionPossiblity: policy.NoCandidates},
+			},
+			wantPendingFlavors: new(false),
+			wantRepMode:        Preempt,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name:     "worker",
+					Flavors:  ResourceAssignment{"example.com/gpu": {Name: "one", Mode: Fit}},
+					Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("0")},
+				}, {
+					Name:  "active",
+					Count: 1,
+					Status: *NewStatus(
+						"insufficient unused quota for example.com/gpu in flavor one, 1 more needed",
+						"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0)",
+					),
+					Flavors:  ResourceAssignment{"example.com/gpu": {Name: "one", Mode: Preempt}},
+					Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				}},
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "one", Resource: "example.com/gpu"}: resources.NewAmount(1),
+				}}},
+			},
+		},
+		"zero-count fallback retries from the first compatible flavor": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("worker", 0).Request("example.com/gpu", "1").Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("one").Resource("example.com/gpu", "0").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("two").Resource("example.com/gpu", "0").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("three").Resource("example.com/gpu", "0").Obj(),
+			).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.FlavorFungibility: true},
+			flavorScanState: &workload.FlavorScanState{
+				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+					{"example.com/gpu": sets.New[kueue.ResourceFlavorReference]("one", "two")},
+				},
+			},
+			wantPendingFlavors: new(false),
+			wantRepMode:        Fit,
+			wantAssignment: Assignment{
+				ZeroCountFlavorFallback: "Assigned flavor one to zero-count PodSets [worker] for resources [example.com/gpu] in ClusterQueue test-clusterqueue. " +
+					"No considered flavor could satisfy one pod per PodSet: " +
+					"insufficient quota for example.com/gpu in flavor one, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0), " +
+					"insufficient quota for example.com/gpu in flavor three, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0), " +
+					"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0). " +
+					"Review capacity and flavor constraints before scaling up.",
+				PodSets: []PodSetAssignment{{
+					Name:     "worker",
+					Flavors:  ResourceAssignment{"example.com/gpu": {Name: "one", Mode: Fit}},
+					Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("0")},
+				}},
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "one", Resource: "example.com/gpu"}: resources.NewAmount(0),
+				}}},
+			},
+		},
+		"zero-count fallback does not request another retry while another PodSet waits": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("worker", 0).Request("example.com/gpu", "1").Obj(),
+				*utiltestingapi.MakePodSet("active", 1).Request("example.com/gpu", "1").Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("one").Resource("example.com/gpu", "0").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("two").Resource("example.com/gpu", "0").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("three").Resource("example.com/gpu", "0").Obj(),
+			).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.FlavorFungibility: true},
+			flavorScanState: &workload.FlavorScanState{
+				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+					{"example.com/gpu": sets.New[kueue.ResourceFlavorReference]("one")},
+					{"example.com/gpu": nil},
+				},
+			},
+			wantPendingFlavors: new(false),
+			wantRepMode:        NoFit,
+			wantAssignment: Assignment{
+				ZeroCountFlavorFallback: "Assigned flavor one to zero-count PodSets [worker] for resources [example.com/gpu] in ClusterQueue test-clusterqueue. " +
+					"No considered flavor could satisfy one pod per PodSet: " +
+					"insufficient quota for example.com/gpu in flavor one, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0), " +
+					"insufficient quota for example.com/gpu in flavor three, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0), " +
+					"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0). " +
+					"Review capacity and flavor constraints before scaling up.",
+				PodSets: []PodSetAssignment{{
+					Name:     "worker",
+					Flavors:  ResourceAssignment{"example.com/gpu": {Name: "one", Mode: Fit}},
+					Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("0")},
+				}, {
+					Name:     "active",
+					Count:    1,
+					Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+					Status: *NewStatus(
+						"insufficient quota for example.com/gpu in flavor one, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0)",
+						"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0)",
+						"insufficient quota for example.com/gpu in flavor three, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0)",
+					),
+				}},
+				NoFitReason: "ExceedsMaxQuota",
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "one", Resource: "example.com/gpu"}: resources.NewAmount(0),
+				}}},
+			},
+		},
+		"zero-count fallback respects node affinity on retry": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("worker", 0).Request("example.com/gpu", "1").NodeSelector(map[string]string{"type": "two"}).Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("one").Resource("example.com/gpu", "2").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("two").Resource("example.com/gpu", "0").Obj(),
+			).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.FlavorFungibility: true},
+			flavorScanState: &workload.FlavorScanState{
+				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+					{"example.com/gpu": sets.New[kueue.ResourceFlavorReference]("one")},
+				},
+			},
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				ZeroCountFlavorFallback: "Assigned flavor two to zero-count PodSets [worker] for resources [example.com/gpu] in ClusterQueue test-clusterqueue. " +
+					"No considered flavor could satisfy one pod per PodSet: flavor one doesn't match node affinity, " +
+					"insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0). " +
+					"Review capacity and flavor constraints before scaling up.",
+				PodSets: []PodSetAssignment{{
+					Name:     "worker",
+					Flavors:  ResourceAssignment{"example.com/gpu": {Name: "two", Mode: Fit}},
+					Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("0")},
+				}},
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "two", Resource: "example.com/gpu"}: resources.NewAmount(0),
+				}}},
+			},
+		},
+		"positive count continues without revisiting earlier flavors": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("worker", 1).Request("example.com/gpu", "1").Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("one").Resource("example.com/gpu", "2").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("two").Resource("example.com/gpu", "0").Obj(),
+			).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.FlavorFungibility: true},
+			flavorScanState: &workload.FlavorScanState{
+				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+					{"example.com/gpu": sets.New[kueue.ResourceFlavorReference]("one")},
+				},
+			},
+			wantRepMode: NoFit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name:     "worker",
+					Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+					Count:    1,
+					Status:   *NewStatus("insufficient quota for example.com/gpu in flavor two, previously considered podsets requests (0) + current podset request (1) > maximum capacity (0)"),
+				}},
+				Usage:       workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
+				NoFitReason: "ExceedsMaxQuota",
 			},
 		},
 		"num pods fit": {
@@ -4958,6 +5166,12 @@ func TestAssignFlavors(t *testing.T) {
 				assignment := flvAssigner.AssignFlavors(ctx, log, tc.counts)
 				if repMode := assignment.RepresentativeMode(); repMode != tc.wantRepMode {
 					t.Errorf("e.assignFlavors(_).RepresentativeMode()=%s, want %s", repMode, tc.wantRepMode)
+				}
+
+				if tc.wantPendingFlavors != nil {
+					if got := assignment.FlavorScanState.PendingFlavors(); got != *tc.wantPendingFlavors {
+						t.Errorf("PendingFlavors() = %t, want %t", got, *tc.wantPendingFlavors)
+					}
 				}
 
 				var cmpOpts []cmp.Option
