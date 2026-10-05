@@ -165,7 +165,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Resu
 	if err := r.client.Get(ctx, req.NamespacedName, &provider); err != nil {
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
-	if provider.Spec.ControllerName != ControllerName || !provider.DeletionTimestamp.IsZero() {
+	if !provider.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, nil
 	}
 	log.V(3).Info("Reconcile local-capacity CapacityProvider")
