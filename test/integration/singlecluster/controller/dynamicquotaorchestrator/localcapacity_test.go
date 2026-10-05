@@ -31,7 +31,7 @@ import (
 	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Label("controller:localcapacity", "area:dynamicquotaorchestration"), func() {
@@ -60,7 +60,7 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 	createNodes := func(names ...string) {
 		for _, name := range names {
 			n := makeNode(name)
-			util.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*n})
+			behavioral.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*n})
 			nodes = append(nodes, n)
 		}
 	}
@@ -76,18 +76,23 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 			eq = o.Status.EffectiveQuotas
 		}
 		g.Expect(eq).NotTo(gomega.BeNil())
-		var quota *resource.Quantity
+		var quota string
+		found := false
 		for _, rg := range eq.ResourceGroups {
 			for _, fq := range rg.Flavors {
+				if fq.Name != kueue.ResourceFlavorReference(flavor.Name) {
+					continue
+				}
 				for _, rq := range fq.Resources {
-					if fq.Name == kueue.ResourceFlavorReference(flavor.Name) && rq.Name == gpu {
-						quota = &rq.NominalQuota
+					if rq.Name == gpu {
+						quota, found = rq.NominalQuota.String(), true
+						break
 					}
 				}
 			}
 		}
-		g.Expect(quota).NotTo(gomega.BeNil(), "gpu quota not found in effectiveQuotas")
-		return quota.String()
+		g.Expect(found).To(gomega.BeTrue(), "gpu quota not found in effectiveQuotas")
+		return quota
 	}
 
 	ginkgo.BeforeEach(func() {
@@ -95,43 +100,43 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LocalCapacityProvider, true)
 
 		flavor = utiltestingapi.MakeResourceFlavor("h100").NodeLabel("example.com/gpu-type", "h100").Obj()
-		util.MustCreate(ctx, k8sClient, flavor)
+		behavioral.MustCreate(ctx, k8sClient, flavor)
 
 		// The shared Cohort is the only participant with a positive weight, so it receives all capacity.
 		cohort = utiltestingapi.MakeCohort("shared-pool").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("h100").Resource(gpu, "1").Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cohort)
+		behavioral.MustCreate(ctx, k8sClient, cohort)
 
 		teamCQ = utiltestingapi.MakeClusterQueue("team-a").
 			Cohort("shared-pool").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("h100").Resource(gpu, "0").Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, teamCQ)
+		behavioral.MustCreate(ctx, k8sClient, teamCQ)
 
 		provider = utiltestingalpha.MakeCapacityProvider("nodes").
 			ControllerName(localcapacity.ControllerName).
 			OrchestratedFlavors("h100").
 			Obj()
-		util.MustCreate(ctx, k8sClient, provider)
+		behavioral.MustCreate(ctx, k8sClient, provider)
 
 		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("nodes").
 			DiscoveryProvider(provider.Name, nil).
 			SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "shared-pool").
 			Obj()
-		util.MustCreate(ctx, k8sClient, dqo)
+		behavioral.MustCreate(ctx, k8sClient, dqo)
 	})
 
 	ginkgo.AfterEach(func() {
 		for _, n := range nodes {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, n, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, n, true)
 		}
 		nodes = nil
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, dqo, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, provider, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, teamCQ, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, dqo, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, provider, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, teamCQ, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 	})
 
 	ginkgo.It("Should make quota follow the eligible nodes", func() {
@@ -140,7 +145,7 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("16"))
 				g.Expect(effectiveGPUQuota(g, teamCQ)).To(gomega.Equal("0"))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			latest := &kueuealpha.CapacityProvider{}
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(provider), latest)).To(gomega.Succeed())
@@ -152,7 +157,7 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 			createNodes("h100-3")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("24"))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Cordoning a node decreases quota", func() {
@@ -161,20 +166,78 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "h100-3"}, n)).To(gomega.Succeed())
 				n.Spec.Unschedulable = true
 				g.Expect(k8sClient.Update(ctx, n)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("16"))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Removing all nodes drops quota to zero instead of falling back to spec", func() {
 			for _, n := range nodes {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, n, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, n, true)
 			}
 			nodes = nil
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("0"))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should keep the last good quota when the provider becomes Misconfigured", func() {
+		ginkgo.By("Publishing the capacity of two ready nodes", func() {
+			createNodes("h100-1", "h100-2")
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("16"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		// A label-less flavor matches every node, so orchestrating it overlaps with h100.
+		defaultFlavor := utiltestingapi.MakeResourceFlavor("default").Obj()
+		ginkgo.By("Orchestrating an overlapping flavor", func() {
+			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
+			gomega.Eventually(func(g gomega.Gomega) {
+				latest := &kueuealpha.CapacityProvider{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(provider), latest)).To(gomega.Succeed())
+				latest.Spec.OrchestratedFlavors = append(latest.Spec.OrchestratedFlavors, kueuealpha.CapacityProviderOrchestratedFlavor{Name: "default"})
+				g.Expect(k8sClient.Update(ctx, latest)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			})
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				latest := &kueuealpha.CapacityProvider{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(provider), latest)).To(gomega.Succeed())
+				g.Expect(latest.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(
+					kueuealpha.CapacityProviderCapacitySynchronized, kueuealpha.CapacityProviderReasonMisconfigured))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Adding a node does not change the quota while the provider is Misconfigured", func() {
+			createNodes("h100-3")
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("16"))
+			}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should apply effectiveCapacityMultiplier to the distributed quota", func() {
+		createNodes("h100-1", "h100-2", "h100-3", "h100-4", "h100-5", "h100-6", "h100-7", "h100-8", "h100-9", "h100-10")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("80"))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Keeping 5% of the capacity as headroom", func() {
+			multiplier := resource.MustParse("0.95")
+			gomega.Eventually(func(g gomega.Gomega) {
+				latest := &kueuealpha.DynamicQuotaOrchestrator{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dqo), latest)).To(gomega.Succeed())
+				latest.Spec.CapacityDiscovery.Providers[0].EffectiveCapacityMultiplier = &multiplier
+				g.Expect(k8sClient.Update(ctx, latest)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("76"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })

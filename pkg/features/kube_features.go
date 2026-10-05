@@ -907,6 +907,7 @@ func init() {
 }
 
 var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Feature{
+	LocalCapacityProvider:                               {DynamicQuotaOrchestration},
 	TASFailedNodeReplacement:                            {TopologyAwareScheduling},
 	TASFailedNodeReplacementFailFast:                    {TopologyAwareScheduling, TASFailedNodeReplacement},
 	TASReplaceNodeOnPodTermination:                      {TopologyAwareScheduling, TASFailedNodeReplacement},
