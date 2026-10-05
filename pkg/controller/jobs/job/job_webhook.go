@@ -34,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -44,6 +45,7 @@ import (
 var (
 	minPodsCountAnnotationsPath   = field.NewPath("metadata", "annotations").Key(JobMinParallelismAnnotation)
 	syncCompletionAnnotationsPath = field.NewPath("metadata", "annotations").Key(JobCompletionsEqualParallelismAnnotation)
+	completionModePath            = field.NewPath("spec", "completionMode")
 	replicaMetaPath               = field.NewPath("spec", "template", "metadata")
 )
 
@@ -146,6 +148,7 @@ func (w *JobWebhook) validateCreate(ctx context.Context, job *Job) (field.ErrorL
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(job, w.maxTimeoutOnWorkload)...)
 	allErrs = append(allErrs, w.validatePartialAdmissionCreate(job)...)
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(job)...)
+	allErrs = append(allErrs, w.validateElasticJobPartialScaleUp(job)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, job)
 		if err != nil {
@@ -198,6 +201,27 @@ func (w *JobWebhook) validateSyncCompletionCreate(job *Job) field.ErrorList {
 	return allErrs
 }
 
+// validateElasticJobPartialScaleUp mirrors upstream's constraint that a running Job's
+// parallelism and completions can only be mutated together, and only under Indexed mode.
+func (w *JobWebhook) validateElasticJobPartialScaleUp(job *Job) field.ErrorList {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) ||
+		!workloadslicing.Enabled(job.Object()) ||
+		job.Annotations[kueueconstants.ElasticJobScaleUpStrategyAnnotationKey] != kueueconstants.ElasticJobScaleUpStrategyPartial {
+		return nil
+	}
+
+	var allErrs field.ErrorList
+	if job.Spec.CompletionMode == nil || *job.Spec.CompletionMode != batchv1.IndexedCompletion {
+		allErrs = append(allErrs, field.Invalid(completionModePath, job.Spec.CompletionMode,
+			"elastic job partial scale-up requires Indexed completion mode"))
+	}
+	if ptr.Deref(job.Spec.Parallelism, 1) != ptr.Deref(job.Spec.Completions, 1) {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "completions"), job.Spec.Completions,
+			"elastic job partial scale-up requires completions to equal parallelism"))
+	}
+	return allErrs
+}
+
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *batchv1.Job) (admission.Warnings, error) {
 	oldJob := fromObject(oldObj)
@@ -222,6 +246,7 @@ func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (f
 		allErrs = append(allErrs, w.validatePartialAdmissionCreate(newJob)...)
 	}
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(newJob)...)
+	allErrs = append(allErrs, w.validateElasticJobPartialScaleUp(newJob)...)
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)...)
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
