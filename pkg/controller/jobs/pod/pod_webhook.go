@@ -110,6 +110,13 @@ func (w *PodWebhook) Default(ctx context.Context, obj *corev1.Pod) error {
 	log := ctrl.LoggerFrom(ctx).WithName("pod-webhook")
 	log.V(5).Info("Applying defaults")
 
+	// The implicitly enabled Pod controller only handles Pods suspended by a parent.
+	// Do not add gates or finalizers to Pods that it will skip.
+	if w.integrationManager.HasImplicitlyEnabledFramework(pod.GVK()) &&
+		pod.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation] == "" {
+		return nil
+	}
+
 	_, suspendByParent := pod.pod.GetAnnotations()[podconstants.SuspendedByParentAnnotation]
 
 	suspend := suspendByParent
