@@ -7,9 +7,12 @@ FROM --platform=${BUILDPLATFORM} node:26-slim@sha256:ec7758ee051e457b468b32bde57
 
 WORKDIR /app
 
+# The `retry` build context is passed by the kueueviz-image-build Makefile target.
+COPY --from=retry retry.sh /usr/local/bin/retry.sh
+
 COPY package*.json ./
 
-RUN npm install
+RUN retry.sh --attempts 5 --delay 5 --stream --exponential -- npm install
 
 COPY . .
 
@@ -18,7 +21,7 @@ RUN npm run build
 # Install `serve` into a self-contained prefix on BUILDPLATFORM. `serve` is
 # pure JavaScript, so its node_modules tree can be copied verbatim into the
 # target-arch runtime image without re-running npm there.
-RUN npm install --prefix /opt/serve \
+RUN retry.sh --attempts 5 --delay 5 --stream --exponential -- npm install --prefix /opt/serve \
   "serve@$(node -p "require('./package-lock.json').packages['node_modules/serve'].version")"
 
 # Runtime stage uses TARGETPLATFORM so the produced image carries correct
