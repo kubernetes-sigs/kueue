@@ -438,6 +438,10 @@ func (o *WorkloadOptions) localQueues(ctx context.Context, list *kueue.WorkloadL
 		if wl.Status.Admission != nil && len(wl.Status.Admission.ClusterQueue) > 0 {
 			continue
 		}
+		// A Workload without a queue name has no LocalQueue, and Get rejects an empty name.
+		if len(wl.Spec.QueueName) == 0 {
+			continue
+		}
 		if _, ok := localQueues[localQueueKeyForWorkload(&wl)]; !ok {
 			lq, err := o.ClientSet.KueueV1beta2().LocalQueues(wl.Namespace).Get(ctx, string(wl.Spec.QueueName), metav1.GetOptions{})
 			if client.IgnoreNotFound(err) != nil {
