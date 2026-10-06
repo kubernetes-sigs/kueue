@@ -773,7 +773,8 @@ func findLeaderAndWorkers(trs FlavorTASRequests) (*TASPodSetRequests, TASPodSetR
 	if len(trs) > 1 {
 		leader = &trs[1]
 
-		if leader.Count > workers.Count {
+		if leader.Count > workers.Count ||
+			(leader.Count == workers.Count && leader.PreviousAssignment == nil && workers.PreviousAssignment != nil) {
 			leader = &trs[0]
 			workers = trs[1]
 		}
