@@ -5,9 +5,11 @@ authors:
 status: provisional
 creation-date: 2026-10-01
 reviewers:
-  - TBD
+  - "@mimowo"
+  - "@sohankunkerkar"
 approvers:
-  - TBD
+  - "@mimowo"
+  - "@sohankunkerkar"
 see-also:
   - "/keps/4377-metrics-tls"
   - "/keps/8190-tls-security-profiles"

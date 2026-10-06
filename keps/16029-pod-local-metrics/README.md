@@ -158,8 +158,8 @@ provisioning a bearer token for that scraper.
   transport, and shared-network-namespace exposure without logging credentials.
 
 Kueue maintainers should review the security boundary and configuration behavior
-before marking this KEP implementable. Reviewers and approvers are not yet
-assigned; this document does not imply their endorsement.
+before marking this KEP implementable. Listing reviewers and approvers in the
+metadata does not imply their endorsement.
 
 ## Design Details
 
