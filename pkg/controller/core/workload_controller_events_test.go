@@ -89,8 +89,11 @@ func TestWorkloadEventHandlerUpdatesQueuesBeforeReconcile(t *testing.T) {
 				if len(infos) != tc.wantPending {
 					t.Fatalf("pending workloads = %d, want %d", len(infos), tc.wantPending)
 				}
-				if tc.wantPending > 0 && infos[0].TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU) != tc.wantCPU {
-					t.Errorf("pending CPU = %d, want %d", infos[0].TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU), tc.wantCPU)
+				if tc.wantPending > 0 {
+					got := infos[0].TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU)
+					if got.CmpInt64(tc.wantCPU) != 0 {
+						t.Errorf("pending CPU = %s, want %d", got, tc.wantCPU)
+					}
 				}
 			}
 			r.watchers = []WorkloadUpdateWatcher{workloadEventWatcherFunc(func(_, _ *kueue.Workload) {

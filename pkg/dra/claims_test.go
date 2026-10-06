@@ -289,17 +289,11 @@ func Test_GetResourceRequests(t *testing.T) {
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
-				&resourcev1.ResourceSlice{
-					Name: "slice-1",
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "test-driver",
-						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{Name: "dev-0"},
-							{Name: "dev-1"},
-						},
-					},
-				},
+				testingdra.MakeResourceSlice("slice-1", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Device("dev-1").
+					Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -323,28 +317,16 @@ func Test_GetResourceRequests(t *testing.T) {
 				testingdra.MakeDeviceClass("gpu-class").
 					CELSelector("device.driver == \"gpu-driver\"").
 					Obj(),
-				&resourcev1.ResourceSlice{
-					Name: "gpu-slice",
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "gpu-driver",
-						Pool:   resourcev1.ResourcePool{Name: "gpu-pool", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{Name: "gpu-0"},
-						},
-					},
-				},
-				&resourcev1.ResourceSlice{
-					Name: "nic-slice",
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "nic-driver",
-						Pool:   resourcev1.ResourcePool{Name: "nic-pool", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{Name: "nic-0"},
-							{Name: "nic-1"},
-							{Name: "nic-2"},
-						},
-					},
-				},
+				testingdra.MakeResourceSlice("gpu-slice", "gpu-driver").
+					Pool("gpu-pool", 1, 1).
+					Device("gpu-0").
+					Obj(),
+				testingdra.MakeResourceSlice("nic-slice", "nic-driver").
+					Pool("nic-pool", 1, 1).
+					Device("nic-0").
+					Device("nic-1").
+					Device("nic-2").
+					Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -371,16 +353,10 @@ func Test_GetResourceRequests(t *testing.T) {
 					WithCELSelectors("device.driver == \"nonexistent-driver\"").
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
-				&resourcev1.ResourceSlice{
-					Name: "slice-2",
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "test-driver",
-						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{Name: "dev-0"},
-						},
-					},
-				},
+				testingdra.MakeResourceSlice("slice-2", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -403,17 +379,11 @@ func Test_GetResourceRequests(t *testing.T) {
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
-				&resourcev1.ResourceSlice{
-					Name: "slice-3",
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "test-driver",
-						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{Name: "dev-0"},
-							{Name: "dev-1"},
-						},
-					},
-				},
+				testingdra.MakeResourceSlice("slice-3", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Device("dev-1").
+					Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -439,16 +409,10 @@ func Test_GetResourceRequests(t *testing.T) {
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
-				&resourcev1.ResourceSlice{
-					Name: "slice-multi",
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "test-driver",
-						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{Name: "dev-0"},
-						},
-					},
-				},
+				testingdra.MakeResourceSlice("slice-multi", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -589,16 +553,10 @@ func Test_GetResourceRequests(t *testing.T) {
 					DeviceRequest("req", "nonexistent-class", 1).
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
-				&resourcev1.ResourceSlice{
-					Name: "slice-noclass",
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "test-driver",
-						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{Name: "dev-0"},
-						},
-					},
-				},
+				testingdra.MakeResourceSlice("slice-noclass", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -622,16 +580,10 @@ func Test_GetResourceRequests(t *testing.T) {
 					DeviceRequest("req", "", 1).
 					WithCELSelectors("device.driver == \"test-driver\"").
 					Obj(),
-				&resourcev1.ResourceSlice{
-					Name: "slice-nodc",
-					Spec: resourcev1.ResourceSliceSpec{
-						Driver: "test-driver",
-						Pool:   resourcev1.ResourcePool{Name: "pool-1", Generation: 1, ResourceSliceCount: 1},
-						Devices: []resourcev1.Device{
-							{Name: "dev-0"},
-						},
-					},
-				},
+				testingdra.MakeResourceSlice("slice-nodc", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Obj(),
 			},
 			modifyWL: func(w *kueue.Workload) {
 				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
@@ -745,7 +697,7 @@ func TestChargesForClaimSpec(t *testing.T) {
 		// perLogicalResource is always allocated, so an empty map is the expectation
 		// when no prioritized list is charged; ToMap reports no class charges as nil.
 		wantLogical map[corev1.ResourceName]resources.Amount
-		wantClasses map[corev1.ResourceName]int64
+		wantClasses map[corev1.ResourceName]resources.Amount
 		wantErr     bool
 		// Set these when which error comes back is the point of the case, since
 		// several guards on this path reject the same spec for different reasons.
@@ -760,9 +712,9 @@ func TestChargesForClaimSpec(t *testing.T) {
 				).
 				Build(),
 			wantLogical: map[corev1.ResourceName]resources.Amount{},
-			wantClasses: map[corev1.ResourceName]int64{"gpu": 5},
+			wantClasses: map[corev1.ResourceName]resources.Amount{"gpu": resources.NewAmount(5)},
 		},
-		"an exactly sum saturates at MaxInt64 instead of wrapping negative": {
+		"an exactly sum past MaxInt64 stays exact": {
 			spec: utiltesting.NewResourceClaimSpecBuilder().
 				DeviceRequests(
 					testingdra.MakeDeviceRequest("r0", "gpu", math.MaxInt64).Obj(),
@@ -770,7 +722,7 @@ func TestChargesForClaimSpec(t *testing.T) {
 				).
 				Build(),
 			wantLogical: map[corev1.ResourceName]resources.Amount{},
-			wantClasses: map[corev1.ResourceName]int64{"gpu": math.MaxInt64},
+			wantClasses: map[corev1.ResourceName]resources.Amount{"gpu": resources.NewAmount(math.MaxInt64).MulInt64(2)},
 		},
 		"with the gate off a prioritized list is still refused": {
 			spec: utiltesting.NewResourceClaimSpecBuilder().
@@ -826,7 +778,7 @@ func TestChargesForClaimSpec(t *testing.T) {
 				Build(),
 			featureGates: map[featuregate.Feature]bool{features.KueueDRAIntegrationPrioritizedList: true},
 			wantLogical:  map[corev1.ResourceName]resources.Amount{"example.com/gpu": resources.NewAmount(4)},
-			wantClasses:  map[corev1.ResourceName]int64{"fast.example.com": 2},
+			wantClasses:  map[corev1.ResourceName]resources.Amount{"fast.example.com": resources.NewAmount(2)},
 		},
 		"a sum past the int64 range is kept exactly rather than saturated": {
 			spec: utiltesting.NewResourceClaimSpecBuilder().

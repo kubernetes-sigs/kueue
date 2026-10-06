@@ -1,0 +1,5 @@
+# Use LF line endings for repository text files.
+* text=auto eol=lf
+
+# Preserve the existing attributes and Git configuration of vendored files.
+vendor/** !text !eol

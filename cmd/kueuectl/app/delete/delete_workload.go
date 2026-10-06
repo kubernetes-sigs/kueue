@@ -342,7 +342,10 @@ func (o *WorkloadOptions) confirmation(message string) bool {
 
 func (o *WorkloadOptions) deleteWorkloads(ctx context.Context, workloadNameResources map[*kueue.Workload][]GroupVersionResourceRef) error {
 	for wl, nrs := range workloadNameResources {
-		deleteOptions := metav1.DeleteOptions{}
+		// Like kubectl delete; otherwise deleting a batch/v1 Job orphans its Pods.
+		deleteOptions := metav1.DeleteOptions{
+			PropagationPolicy: new(metav1.DeletePropagationBackground),
+		}
 
 		if o.DryRunStrategy == dryrun.Server {
 			deleteOptions.DryRun = []string{metav1.DryRunAll}

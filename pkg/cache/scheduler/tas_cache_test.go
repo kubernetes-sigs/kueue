@@ -505,6 +505,54 @@ func TestFindTopologyAssignments(t *testing.T) {
 		*testingpod.MakePod("survivor-pod", "test-ns").NodeName("x5").Request(corev1.ResourceCPU, "1").Obj(),
 	}
 
+	// Multi pod-set fixtures: podset-a runs on node-1..3 (r1), podset-b on
+	// node-4..5 (r2). node-1 and node-4 failed, so only the healthy nodes are
+	// listed; node-6 is the only free one.
+	multiPodSetNodes := []corev1.Node{
+		*testingnode.MakeNode("node-2").
+			Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "node-2").
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+			Ready().Obj(),
+		*testingnode.MakeNode("node-3").
+			Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "node-3").
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+			Ready().Obj(),
+		*testingnode.MakeNode("node-5").
+			Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "node-5").
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+			Ready().Obj(),
+		*testingnode.MakeNode("node-6").
+			Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "node-6").
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+			Ready().Obj(),
+	}
+	// Running pods fill node-2, node-3 and node-5.
+	multiPodSetPods := []corev1.Pod{
+		*testingpod.MakePod("podset-a-1", "test-ns").NodeName("node-2").Request(corev1.ResourceCPU, "1").Obj(),
+		*testingpod.MakePod("podset-a-2", "test-ns").NodeName("node-3").Request(corev1.ResourceCPU, "1").Obj(),
+		*testingpod.MakePod("podset-b-1", "test-ns").NodeName("node-5").Request(corev1.ResourceCPU, "1").Obj(),
+	}
+	multiPodSetWorkload := utiltestingapi.MakeWorkload("test-wl", "test-ns").
+		Admission(utiltestingapi.MakeAdmission("test-cq").
+			PodSets(
+				utiltestingapi.MakePodSetAssignment("podset-a").
+					Count(3).
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultOneLevel).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-1"}}).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-2"}}).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-3"}}).
+						Obj()).
+					Obj(),
+				utiltestingapi.MakePodSetAssignment("podset-b").
+					Count(2).
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultOneLevel).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-4"}}).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-5"}}).
+						Obj()).
+					Obj(),
+			).
+			Obj())
+
 	cases := map[string]struct {
 		featureGates           map[featuregate.Feature]bool
 		nodes                  []corev1.Node
@@ -1497,7 +1545,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				testingdra.MakeDeviceClass("gpu.example.com").
 					ExtendedResourceName("example.com/gpu").
 					Obj(),
-				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+				testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").
 					NodeName("x2").
 					Pool("x2-pool", 1, 1).
 					Device("gpu-0").
@@ -1554,7 +1602,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				testingdra.MakeDeviceClass("gpu.example.com").
 					ExtendedResourceName("example.com/gpu").
 					Obj(),
-				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+				testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").
 					NodeName("x2").
 					Pool("x2-pool", 1, 1).
 					Device("gpu-0").
@@ -1680,7 +1728,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				testingdra.MakeDeviceClass("gpu.example.com").
 					ExtendedResourceName("example.com/gpu").
 					Obj(),
-				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+				testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").
 					NodeName("x2").
 					Pool("x2-pool", 1, 1).
 					Device("gpu-0").
@@ -1732,7 +1780,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 				utiltesting.MakeResourceClaimTemplate("gpu-claim", "ns").
 					DeviceRequest("gpu", "gpu.example.com", 1).
 					Obj(),
-				utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").
+				testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").
 					NodeName("x2").
 					Pool("x2-pool", 1, 1).
 					Device("gpu-0").
@@ -2372,12 +2420,12 @@ func TestFindTopologyAssignments(t *testing.T) {
 			priorOwnUsage: []workload.TopologyDomainRequests{
 				{
 					Values:            []string{"b1", "r2"},
-					SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1000}),
+					SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000}),
 					Count:             1,
 				},
 				{
 					Values:            []string{"b2", "r2"},
-					SinglePodRequests: resources.NewRequestsFromMap(resources.MapRequests{corev1.ResourceCPU: 1500}),
+					SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 1500}),
 					Count:             1,
 				},
 			},
@@ -6107,7 +6155,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: new(tasRackLabel),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 1000,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6127,7 +6175,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: new(tasRackLabel),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 2000,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6189,7 +6237,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Required: new(tasRackLabel),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 1000,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6211,7 +6259,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						PodSetSliceRequiredTopology: new(corev1.LabelHostname),
 						PodSetSliceSize:             new(int32(2)),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 1000,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6262,7 +6310,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Preferred: new(corev1.LabelHostname),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 1000,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6282,7 +6330,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Preferred: new(corev1.LabelHostname),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 2000,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6330,7 +6378,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Unconstrained: new(true),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 1000,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6350,7 +6398,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{
 						Unconstrained: new(true),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						"example.com/gpu": 1,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6397,7 +6445,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						PodSetSliceRequiredTopology: new(tasRackLabel),
 						PodSetSliceSize:             new(int32(1)),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 1000,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -6419,7 +6467,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						PodSetSliceRequiredTopology: new(tasRackLabel),
 						PodSetSliceSize:             new(int32(1)),
 					},
-					requests: resources.MapRequests{
+					requests: map[corev1.ResourceName]int64{
 						"example.com/gpu": 1,
 					},
 					podSetGroupName: new("sameGroup"),
@@ -10505,6 +10553,121 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			}},
 		},
+		"multi-node replacement, multi pod-set: replaces the head node within its own pod set and keeps the other pod set": {
+			// https://github.com/kubernetes-sigs/kueue/issues/16283
+			// The head node-1 (podset-a) is replaced by the spare node-7 in r1.
+			// podset-b does not hold the head and is kept, including node-4.
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: true},
+			nodes: append(slices.Clone(multiPodSetNodes),
+				*testingnode.MakeNode("node-7").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "node-7").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			),
+			pods:     multiPodSetPods,
+			levels:   defaultThreeLevels,
+			workload: multiPodSetWorkload.Clone().UnhealthyNodes("node-1", "node-4").Obj(),
+			podSets: []PodSetTestCase{
+				{
+					podSetName:      "podset-a",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           3,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"node-2"}},
+							{Count: 1, Values: []string{"node-3"}},
+							{Count: 1, Values: []string{"node-7"}},
+						},
+					},
+				},
+				{
+					podSetName:      "podset-b",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           2,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"node-4"}},
+							{Count: 1, Values: []string{"node-5"}},
+						},
+					},
+				},
+			},
+		},
+		"multi-node replacement, multi pod-set: replaces the head node in the second pod set and keeps the first": {
+			// The head node-4 (podset-b) is replaced by node-6 in r2.
+			// podset-a does not hold the head and is kept, including node-1.
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: true},
+			nodes:        multiPodSetNodes,
+			pods:         multiPodSetPods,
+			levels:       defaultThreeLevels,
+			workload:     multiPodSetWorkload.Clone().UnhealthyNodes("node-4", "node-1").Obj(),
+			podSets: []PodSetTestCase{
+				{
+					podSetName:      "podset-a",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           3,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"node-1"}},
+							{Count: 1, Values: []string{"node-2"}},
+							{Count: 1, Values: []string{"node-3"}},
+						},
+					},
+				},
+				{
+					podSetName:      "podset-b",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           2,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"node-5"}},
+							{Count: 1, Values: []string{"node-6"}},
+						},
+					},
+				},
+			},
+		},
+		"multi-node replacement, multi pod-set: an unreplaceable head node blocks replacing a later node in another pod set": {
+			// https://github.com/kubernetes-sigs/kueue/pull/12344#discussion_r4108013684
+			// The head node-1 cannot be replaced since r1 is full, so node-4 is
+			// not attempted even though node-6 in r2 would fit. podset-b is
+			// listed first because a failing PodSet returns early.
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: true},
+			nodes:        multiPodSetNodes,
+			pods:         multiPodSetPods,
+			levels:       defaultThreeLevels,
+			workload:     multiPodSetWorkload.Clone().UnhealthyNodes("node-1", "node-4").Obj(),
+			podSets: []PodSetTestCase{
+				{
+					podSetName:      "podset-b",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           2,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"node-4"}},
+							{Count: 1, Values: []string{"node-5"}},
+						},
+					},
+				},
+				{
+					podSetName:      "podset-a",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           3,
+					wantReason:      `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 4; excluded: resource "cpu": 2, topologyDomain: 2`,
+				},
+			},
+		},
 		"multi-node replacement: reusing a node already in the assignment is allowed": {
 			// https://github.com/kubernetes-sigs/kueue/pull/12344#discussion_r3457906799
 			// The only replacement capacity spans an already assigned node and a new node.
@@ -11665,7 +11828,7 @@ func TestFindTopologyAssignments(t *testing.T) {
 						undelegated := resources.NewRequestsFromMap(ps.requests).Clone()
 						names := slices.Sorted(maps.Keys(ps.draBackedRequests))
 						for _, name := range names {
-							undelegated.Set(name, ps.draBackedRequests[name])
+							undelegated.Set(name, resources.NewAmount(ps.draBackedRequests[name]))
 						}
 						tasInput.DRADelegation = &DRADelegation{Resources: names, Undelegated: undelegated}
 					}

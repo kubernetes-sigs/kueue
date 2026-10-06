@@ -157,7 +157,7 @@ include hack/make/verify.mk
 manifests: controller-gen generate-code ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) \
 		crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/bases\
-		paths="./apis/kueue/v1beta1/...;./apis/kueue/v1beta2/...;./apis/visibility/...;./apis/config/..."
+		paths="./apis/kueue/v1beta2/...;./apis/visibility/...;./apis/config/..."
 	$(CONTROLLER_GEN) \
 		crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/alpha/bases\
 		paths="./apis/kueue/v1alpha1/..."
@@ -516,6 +516,7 @@ kueueviz-image-build:
 		-t $(IMAGE_TAG_KUEUEVIZ_FRONTEND) \
 		-t $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(RELEASE_BRANCH) \
 		--platform=$(VIZ_PLATFORMS) \
+		--build-context retry=./hack/testing \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
 		-f ./cmd/kueueviz/frontend/Dockerfile ./cmd/kueueviz/frontend

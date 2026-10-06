@@ -25,7 +25,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 // The shape of issue #9345: refill-rich is already borrowing 6 of refill-poor's
@@ -52,37 +52,37 @@ var _ = ginkgo.Describe("Scheduler with fair sharing refill", ginkgo.Label("feat
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup(nil))
 
 		defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
-		util.MustCreate(ctx, k8sClient, defaultFlavor)
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "refill-")
+		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "refill-")
 
 		poorCQ = utiltestingapi.MakeClusterQueue("refill-poor").
 			Cohort("refill").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
 				Resource(corev1.ResourceCPU, "8", "0").Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, poorCQ)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, poorCQ)
+		behavioral.MustCreate(ctx, k8sClient, poorCQ)
+		behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, poorCQ)
 
 		richCQ = utiltestingapi.MakeClusterQueue("refill-rich").
 			Cohort("refill").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
 				Resource(corev1.ResourceCPU, "2", "8").Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, richCQ)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, richCQ)
+		behavioral.MustCreate(ctx, k8sClient, richCQ)
+		behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, richCQ)
 
 		poorLQ = utiltestingapi.MakeLocalQueue("poor-lq", ns.Name).ClusterQueue("refill-poor").Obj()
-		util.MustCreate(ctx, k8sClient, poorLQ)
+		behavioral.MustCreate(ctx, k8sClient, poorLQ)
 		richLQ = utiltestingapi.MakeLocalQueue("rich-lq", ns.Name).ClusterQueue("refill-rich").Obj()
-		util.MustCreate(ctx, k8sClient, richLQ)
+		behavioral.MustCreate(ctx, k8sClient, richLQ)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, poorCQ, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, richCQ, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, poorCQ, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, richCQ, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 		fwk.StopManager(ctx)
 	})
 
@@ -94,53 +94,53 @@ var _ = ginkgo.Describe("Scheduler with fair sharing refill", ginkgo.Label("feat
 		ginkgo.By("letting refill-rich borrow the whole cohort", func() {
 			richFill = utiltestingapi.MakeWorkload("rich-fill", ns.Name).
 				Queue("rich-lq").Request(corev1.ResourceCPU, "8").Obj()
-			util.MustCreate(ctx, k8sClient, richFill)
+			behavioral.MustCreate(ctx, k8sClient, richFill)
 			richSpare = utiltestingapi.MakeWorkload("rich-spare", ns.Name).
 				Queue("rich-lq").Request(corev1.ResourceCPU, "2").Obj()
-			util.MustCreate(ctx, k8sClient, richSpare)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, richFill, richSpare)
+			behavioral.MustCreate(ctx, k8sClient, richSpare)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, richFill, richSpare)
 		})
 
 		var poorA, poorB, richPending *kueue.Workload
 		ginkgo.By("queueing two workloads behind the poor queue's head and one behind rich's", func() {
 			poorA = utiltestingapi.MakeWorkload("poor-a", ns.Name).
 				Queue("poor-lq").Request(corev1.ResourceCPU, "1").Obj()
-			util.MustCreate(ctx, k8sClient, poorA)
+			behavioral.MustCreate(ctx, k8sClient, poorA)
 			poorB = utiltestingapi.MakeWorkload("poor-b", ns.Name).
 				Queue("poor-lq").Request(corev1.ResourceCPU, "1").Obj()
-			util.MustCreate(ctx, k8sClient, poorB)
+			behavioral.MustCreate(ctx, k8sClient, poorB)
 			richPending = utiltestingapi.MakeWorkload("rich-pending", ns.Name).
 				Queue("rich-lq").Request(corev1.ResourceCPU, "1").Obj()
-			util.MustCreate(ctx, k8sClient, richPending)
+			behavioral.MustCreate(ctx, k8sClient, richPending)
 			// Only the heads carry a pending condition; poor-b was never
 			// nominated, which is the point.
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, poorA, richPending)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, poorA, richPending)
 			// Parked, not queued: poor-a's NoFit requeue sweeps its
 			// equivalence-hash peers into inadmissible with it, and releasing
 			// capacity flushes them back for the cycle that sees both heads.
-			util.ExpectPendingWorkloadsMetric(poorCQ, 0, 2)
-			util.ExpectPendingWorkloadsMetric(richCQ, 0, 1)
+			behavioral.ExpectPendingWorkloadsMetric(poorCQ, 0, 2)
+			behavioral.ExpectPendingWorkloadsMetric(richCQ, 0, 1)
 		})
 
 		// Finishing models the normal return of capacity; a delete would do.
 		ginkgo.By("freeing exactly two CPU in a single step", func() {
-			util.FinishWorkloads(ctx, k8sClient, richSpare)
+			behavioral.FinishWorkloads(ctx, k8sClient, richSpare)
 		})
 
 		// Poor takes the first CPU either way; the second is refill's.
 		ginkgo.By("admitting both of the poor queue's workloads", func() {
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, poorA, poorB)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, poorA, poorB)
 		})
 
 		ginkgo.By("leaving the over-share sibling's workload pending", func() {
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, richPending)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, richPending)
 			// Asserted inline: the util helpers poll on their own, so nesting
 			// one here would retry the violation away.
 			gomega.Consistently(func(g gomega.Gomega) {
 				var wl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(richPending), &wl)).To(gomega.Succeed())
 				g.Expect(wl.Status.Admission).To(gomega.BeNil())
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })

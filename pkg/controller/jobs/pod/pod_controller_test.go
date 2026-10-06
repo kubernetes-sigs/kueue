@@ -32,7 +32,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -512,37 +511,17 @@ func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testi
 		features.PodGroupSchedulingShapeOrdering: false,
 	})
 
-	leader := corev1.Pod{
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "zzzz",
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "leader",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
-					},
-				},
-			}},
-		},
-	}
+	leader := *testingpod.MakePod("", "").
+		RoleHash("zzzz").
+		Request(corev1.ResourceCPU, "1").
+		ContainerName("leader").
+		Obj()
 
-	worker := corev1.Pod{
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "aaaa",
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "worker",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("4"),
-					},
-				},
-			}},
-		},
-	}
+	worker := *testingpod.MakePod("", "").
+		RoleHash("aaaa").
+		Request(corev1.ResourceCPU, "4").
+		ContainerName("worker").
+		Obj()
 
 	got, err := constructGroupPodSets([]corev1.Pod{leader, worker}, nil)
 	if err != nil {
@@ -570,22 +549,10 @@ func TestConstructGroupPodSetsSameShapeOrdering(t *testing.T) {
 	})
 
 	makePod := func(name, roleHash string) corev1.Pod {
-		return corev1.Pod{
-			Name: name,
-			Annotations: map[string]string{
-				podconstants.RoleHashAnnotation: roleHash,
-			},
-			Spec: corev1.PodSpec{
-				Containers: []corev1.Container{{
-					Name: "container",
-					Resources: corev1.ResourceRequirements{
-						Requests: corev1.ResourceList{
-							corev1.ResourceCPU: resource.MustParse("1"),
-						},
-					},
-				}},
-			},
-		}
+		return *testingpod.MakePod(name, "").
+			RoleHash(roleHash).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
 	}
 
 	testCases := map[string]struct {
@@ -670,33 +637,16 @@ func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 		features.PodGroupSchedulingShapeOrdering: true,
 	})
-	leader := corev1.Pod{
-		Annotations: map[string]string{},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "leader",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
-					},
-				},
-			}},
-		},
-	}
 
-	worker := corev1.Pod{
-		Annotations: map[string]string{},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "worker",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("4"),
-					},
-				},
-			}},
-		},
-	}
+	leader := *testingpod.MakePod("", "").
+		Request(corev1.ResourceCPU, "1").
+		ContainerName("leader").
+		Obj()
+
+	worker := *testingpod.MakePod("", "").
+		Request(corev1.ResourceCPU, "4").
+		ContainerName("worker").
+		Obj()
 
 	leaderShapeHash, err := utilpod.GenerateRoleHash(&leader.Spec)
 	if err != nil {
@@ -763,39 +713,16 @@ func TestConstructGroupPodSetsOrderIndependentOfInputOrder(t *testing.T) {
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 		features.PodGroupSchedulingShapeOrdering: true,
 	})
-	leader := corev1.Pod{
-		Name: "leader",
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "zzzz",
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "container",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
-					},
-				},
-			}},
-		},
-	}
 
-	worker := corev1.Pod{
-		Name: "worker",
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "aaaa",
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "container",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
-					},
-				},
-			}},
-		},
-	}
+	leader := *testingpod.MakePod("leader", "").
+		RoleHash("zzzz").
+		Request(corev1.ResourceCPU, "1").
+		Obj()
+
+	worker := *testingpod.MakePod("worker", "").
+		RoleHash("aaaa").
+		Request(corev1.ResourceCPU, "1").
+		Obj()
 
 	leaderShapeHash, err := utilpod.GenerateRoleHash(&leader.Spec)
 	if err != nil {
@@ -4412,7 +4339,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Reason:  kueue.WorkloadFinishedReasonFailed,
 						Message: "Pods succeeded: 1/3.",
 					}).
 					Obj(),

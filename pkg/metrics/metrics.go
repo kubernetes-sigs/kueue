@@ -1726,6 +1726,7 @@ func Register() {
 		QueuedUntilReadyWaitTime,
 		AdmittedUntilReadyWaitTime,
 		EvictedWorkloadsTotal,
+		ReplacedWorkloadSlicesTotal,
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
 		WorkloadEvictionLatencySeconds,
@@ -1750,9 +1751,7 @@ func Register() {
 		UnadmittedWorkloads,
 		ExecutionTimeSeconds,
 	)
-	if features.Enabled(features.MetricForWorkloadCreationLatency) {
-		metrics.Registry.MustRegister(WorkloadCreationLatency)
-	}
+	metrics.Registry.MustRegister(WorkloadCreationLatency)
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
 	}
