@@ -295,13 +295,14 @@ spec:
                                 matchNames:
                                   description: |-
                                     matchNames is an allowlist of PriorityClass or WorkloadPriorityClass names.
-                                    A workload matches if its spec.priorityClassRef.name equals any name in this list (OR semantics).
-                                    Workloads without a priorityClassRef do not match when matchNames is non-empty.
+                                    If specified, a workload matches only if its spec.priorityClassRef.name equals
+                                    any name in this list (OR semantics); workloads without a priorityClassRef do not match.
                                   items:
                                     maxLength: 253
                                     minLength: 1
                                     type: string
                                   maxItems: 32
+                                  minItems: 1
                                   type: array
                                   x-kubernetes-list-type: set
                                 mode:
@@ -315,14 +316,15 @@ spec:
                                 notMatchNames:
                                   description: |-
                                     notMatchNames is a denylist of PriorityClass or WorkloadPriorityClass names.
-                                    A workload matches only if its spec.priorityClassRef.name does not equal any name in this list.
-                                    Workloads without a priorityClassRef match any notMatchNames constraint.
+                                    If specified, a workload matches only if its spec.priorityClassRef.name does not equal
+                                    any name in this list; workloads without a priorityClassRef always match.
                                     If both matchNames and notMatchNames are specified, both conditions must be satisfied (AND semantics).
                                   items:
                                     maxLength: 253
                                     minLength: 1
                                     type: string
                                   maxItems: 32
+                                  minItems: 1
                                   type: array
                                   x-kubernetes-list-type: set
                               type: object
@@ -359,26 +361,28 @@ spec:
                           matchNames:
                             description: |-
                               matchNames is an allowlist of PriorityClass or WorkloadPriorityClass names.
-                              A workload matches if its spec.priorityClassRef.name equals any name in this list (OR semantics).
-                              Workloads without a priorityClassRef do not match when matchNames is non-empty.
+                              If specified, a workload matches only if its spec.priorityClassRef.name equals
+                              any name in this list (OR semantics); workloads without a priorityClassRef do not match.
                             items:
                               maxLength: 253
                               minLength: 1
                               type: string
                             maxItems: 32
+                            minItems: 1
                             type: array
                             x-kubernetes-list-type: set
                           notMatchNames:
                             description: |-
                               notMatchNames is a denylist of PriorityClass or WorkloadPriorityClass names.
-                              A workload matches only if its spec.priorityClassRef.name does not equal any name in this list.
-                              Workloads without a priorityClassRef match any notMatchNames constraint.
+                              If specified, a workload matches only if its spec.priorityClassRef.name does not equal
+                              any name in this list; workloads without a priorityClassRef always match.
                               If both matchNames and notMatchNames are specified, both conditions must be satisfied (AND semantics).
                             items:
                               maxLength: 253
                               minLength: 1
                               type: string
                             maxItems: 32
+                            minItems: 1
                             type: array
                             x-kubernetes-list-type: set
                         type: object

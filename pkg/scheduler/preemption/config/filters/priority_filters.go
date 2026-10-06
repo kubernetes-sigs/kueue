@@ -17,7 +17,6 @@ limitations under the License.
 package filters
 
 import (
-	"errors"
 	"fmt"
 	"slices"
 
@@ -32,12 +31,77 @@ import (
 
 type priorityGetter func(log logr.Logger, wl *workload.Info) int64
 
-type priorityFilter struct {
+type priorityComparisonFilter struct {
 	log               logr.Logger
-	comparison        *kueuealpha.NumericComparison
-	classSelector     kueuealpha.PreemptionConfigPriorityClassSelector
+	comparison        kueuealpha.NumericComparison
 	priorityFn        priorityGetter
 	preemptorPriority int64
+}
+
+// NewPriorityComparisonFilter creates a WorkloadFilter to evaluate candidate workloads
+// based on the priority mode and comparison against the preemptor workload.
+func NewPriorityComparisonFilter(log logr.Logger, mode kueuealpha.PreemptionConfigPriorityMode, comparison kueuealpha.NumericComparison, preemptor *workload.Info) (WorkloadFilter, *FilterBuildError) {
+	if !isSupportedComparison(comparison) {
+		return nil, &FilterBuildError{
+			Filter: FilterPriority,
+			Reason: ReasonUnsupportedComparison,
+			Err:    fmt.Errorf("unsupported comparison %q", comparison),
+		}
+	}
+
+	filterLog := log.WithValues("filter", "Priority", "mode", mode, "comparison", comparison)
+	preemptorLog := filterLog.WithValues("preemptor", klog.KObj(preemptor.Obj))
+
+	var priorityFn priorityGetter
+	switch mode {
+	case kueuealpha.Base:
+		priorityFn = func(_ logr.Logger, wl *workload.Info) int64 {
+			return int64(priority.Priority(wl.Obj))
+		}
+	case kueuealpha.Boosted:
+		priorityFn = func(log logr.Logger, wl *workload.Info) int64 {
+			return priority.EffectivePriority(log, wl.Obj)
+		}
+	default:
+		return nil, &FilterBuildError{
+			Filter: FilterPriority,
+			Reason: ReasonUnsupportedMode,
+			Err:    fmt.Errorf("unsupported mode %q", mode),
+		}
+	}
+
+	preemptorPriority := priorityFn(preemptorLog, preemptor)
+
+	return &priorityComparisonFilter{
+		log:               filterLog,
+		comparison:        comparison,
+		priorityFn:        priorityFn,
+		preemptorPriority: preemptorPriority,
+	}, nil
+}
+
+// Matches evaluates a candidate workload's priority against the preemptor's priority.
+func (f *priorityComparisonFilter) Matches(wl *workload.Info) bool {
+	candLog := f.log.WithValues("candidate", klog.KObj(wl.Obj))
+	candPriority := f.priorityFn(candLog, wl)
+	return matchesComparison(candLog, &f.comparison, candPriority, f.preemptorPriority)
+}
+
+type priorityClassFilter struct {
+	selector kueuealpha.PreemptionConfigPriorityClassSelector
+}
+
+// NewPriorityClassFilter creates a WorkloadFilter to evaluate candidate workloads
+// based on their priority class name.
+func NewPriorityClassFilter(selector kueuealpha.PreemptionConfigPriorityClassSelector) WorkloadFilter {
+	return &priorityClassFilter{
+		selector: selector,
+	}
+}
+
+// Matches evaluates a candidate workload against the priority class selector.
+func (f *priorityClassFilter) Matches(wl *workload.Info) bool {
+	return MatchesPriorityClassSelector(&f.selector, wl)
 }
 
 // MatchesPriorityClassSelector evaluates whether a workload's spec.priorityClassRef.name
@@ -51,79 +115,4 @@ func MatchesPriorityClassSelector(selector *kueuealpha.PreemptionConfigPriorityC
 		return false
 	}
 	return !slices.Contains(selector.NotMatchNames, name)
-}
-
-func isEmptyPriorityConstraint(priority *kueuealpha.PreemptionConfigPriorityConstraint) bool {
-	return priority == nil || (priority.Mode == nil && priority.Comparison == nil && len(priority.MatchNames) == 0 && len(priority.NotMatchNames) == 0)
-}
-
-// NewPriorityFilter creates a WorkloadFilter to evaluate candidate workloads
-// based on the priority constraint compared against the preemptor workload.
-func NewPriorityFilter(log logr.Logger, constraint kueuealpha.PreemptionConfigPriorityConstraint, preemptor *workload.Info) (WorkloadFilter, *FilterBuildError) {
-	if constraint.Mode == nil && constraint.Comparison == nil {
-		return &priorityFilter{
-			classSelector: constraint.PreemptionConfigPriorityClassSelector,
-		}, nil
-	}
-
-	if constraint.Mode == nil || constraint.Comparison == nil {
-		return nil, &FilterBuildError{
-			Filter: FilterPriority,
-			Reason: ReasonMissingModeOrComparison,
-			Err:    errors.New("mode and comparison must be specified together"),
-		}
-	}
-
-	if !isSupportedComparison(*constraint.Comparison) {
-		return nil, &FilterBuildError{
-			Filter: FilterPriority,
-			Reason: ReasonUnsupportedComparison,
-			Err:    fmt.Errorf("unsupported comparison %q", *constraint.Comparison),
-		}
-	}
-
-	filterLog := log.WithValues("filter", "Priority", "mode", *constraint.Mode, "comparison", *constraint.Comparison)
-	preemptorLog := filterLog.WithValues("preemptor", klog.KObj(preemptor.Obj))
-
-	var priorityFn priorityGetter
-	switch *constraint.Mode {
-	case kueuealpha.Base:
-		priorityFn = func(_ logr.Logger, wl *workload.Info) int64 {
-			return int64(priority.Priority(wl.Obj))
-		}
-	case kueuealpha.Boosted:
-		priorityFn = func(log logr.Logger, wl *workload.Info) int64 {
-			return priority.EffectivePriority(log, wl.Obj)
-		}
-	default:
-		return nil, &FilterBuildError{
-			Filter: FilterPriority,
-			Reason: ReasonUnsupportedMode,
-			Err:    fmt.Errorf("unsupported mode %q", *constraint.Mode),
-		}
-	}
-
-	preemptorPriority := priorityFn(preemptorLog, preemptor)
-
-	return &priorityFilter{
-		log:               filterLog,
-		comparison:        constraint.Comparison,
-		classSelector:     constraint.PreemptionConfigPriorityClassSelector,
-		priorityFn:        priorityFn,
-		preemptorPriority: preemptorPriority,
-	}, nil
-}
-
-// Matches evaluates a candidate workload against the priority class selector
-// and, if configured, compares its priority against the preemptor's priority.
-func (f *priorityFilter) Matches(wl *workload.Info) bool {
-	if !MatchesPriorityClassSelector(&f.classSelector, wl) {
-		return false
-	}
-	if f.comparison != nil {
-		candLog := f.log.WithValues("candidate", klog.KObj(wl.Obj))
-		candPriority := f.priorityFn(candLog, wl)
-		return matchesComparison(candLog, f.comparison, candPriority, f.preemptorPriority)
-	}
-	return true
 }

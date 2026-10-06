@@ -325,23 +325,25 @@ type PreemptionConfigPriorityConstraint struct {
 // for both WorkloadPriorityClass and Pod PriorityClass).
 type PreemptionConfigPriorityClassSelector struct {
 	// matchNames is an allowlist of PriorityClass or WorkloadPriorityClass names.
-	// A workload matches if its spec.priorityClassRef.name equals any name in this list (OR semantics).
-	// Workloads without a priorityClassRef do not match when matchNames is non-empty.
+	// If specified, a workload matches only if its spec.priorityClassRef.name equals
+	// any name in this list (OR semantics); workloads without a priorityClassRef do not match.
 	//
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=32
 	// +kubebuilder:validation:items:MinLength=1
 	// +kubebuilder:validation:items:MaxLength=253
 	MatchNames []string `json:"matchNames,omitempty"`
 
 	// notMatchNames is a denylist of PriorityClass or WorkloadPriorityClass names.
-	// A workload matches only if its spec.priorityClassRef.name does not equal any name in this list.
-	// Workloads without a priorityClassRef match any notMatchNames constraint.
+	// If specified, a workload matches only if its spec.priorityClassRef.name does not equal
+	// any name in this list; workloads without a priorityClassRef always match.
 	// If both matchNames and notMatchNames are specified, both conditions must be satisfied (AND semantics).
 	//
 	// +optional
 	// +listType=set
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=32
 	// +kubebuilder:validation:items:MinLength=1
 	// +kubebuilder:validation:items:MaxLength=253

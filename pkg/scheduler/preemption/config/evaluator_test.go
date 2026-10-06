@@ -489,25 +489,27 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			preemptorCq:    "a",
 			wantCandidates: []string{"a1"},
 		},
-		"rule with matching preemptor priority class selector is triggered for matching workload": {
+		"rule with matching preemptor priority class selector and candidate priority notMatchNames": {
 			clusterQueues: baseCqs,
 			config: *utiltestingalpha.MakePreemptionConfig("test").
 				Rules(
 					utiltestingalpha.MakePreemptionRule(
 						"priority-class-rule",
 						kueuealpha.Always,
-						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
+						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+							PriorityNotMatchNames("protected-priority").
+							Obj(),
 					).PreemptorPriorityClassMatchNames("high-priority").Obj(),
 				).Obj(),
 			admitted: []kueue.Workload{
-				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
-				*unitWl.Clone().Name("a2").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a1").WorkloadPriorityClassRef("low-priority").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").WorkloadPriorityClassRef("protected-priority").SimpleReserveQuota("a", "default", now).Obj(),
 			},
 			preemptorWl:    unitWl.Clone().Name("a-incoming").WorkloadPriorityClassRef("high-priority").Obj(),
 			preemptorCq:    "a",
-			wantCandidates: []string{"a1", "a2"},
+			wantCandidates: []string{"a1"},
 		},
-		"rule does not apply because of not matching preemptor priority class selector": {
+		"rule does not apply because of excluded preemptor priority class selector": {
 			clusterQueues: baseCqs,
 			config: *utiltestingalpha.MakePreemptionConfig("test").
 				Rules(
@@ -515,7 +517,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 						"priority-class-rule",
 						kueuealpha.Always,
 						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
-					).PreemptorPriorityClassMatchNames("high-priority").Obj(),
+					).PreemptorPriorityClassNotMatchNames("low-priority").Obj(),
 				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
