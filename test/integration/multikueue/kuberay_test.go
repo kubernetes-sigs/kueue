@@ -288,7 +288,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			WithSubmissionMode(rayv1.K8sJobMode).
 			EnableInTreeAutoscaling().
 			Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayJob)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayJob)
 
 		var originSliceKey types.NamespacedName
 		ginkgo.By("admitting the initial RayJob slice on worker2", func() {
@@ -297,7 +297,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 				g.Expect(managerTestCluster.client.List(managerTestCluster.ctx, workloads, client.InNamespace(rayJob.Namespace))).To(gomega.Succeed())
 				g.Expect(workloads.Items).To(gomega.HaveLen(1))
 				originSliceKey = client.ObjectKeyFromObject(&workloads.Items[0])
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, originSliceKey, admission(1))
 		})
 
@@ -307,7 +307,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayJob), remoteRayJob)).To(gomega.Succeed())
 				g.Expect(remoteRayJob.Spec.Suspend).To(gomega.BeFalse())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			child := &rayv1.RayCluster{
 				Name:            childKey.Name,
@@ -317,13 +317,13 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			}
 			child.Spec.Suspend = new(false)
 			jobframework.SetMultiKueueMeta(child, originSliceKey.Name, remoteRayJob.Labels[kueue.MultiKueueOriginLabel])
-			util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, child)
+			behavioral.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, child)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayJob), remoteRayJob)).To(gomega.Succeed())
 				remoteRayJob.Status.RayClusterName = child.Name
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, remoteRayJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("autoscaling the child RayCluster on worker2 to create a replacement slice", func() {
@@ -332,7 +332,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, childKey, child)).To(gomega.Succeed())
 				child.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
 				g.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, child)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		var replacementSliceKey types.NamespacedName
@@ -347,7 +347,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 					}
 				}
 				g.Expect(replacementSliceKey.Name).NotTo(gomega.BeEmpty())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		// This suite does not run a scheduler, so the steps it would perform when admitting the
@@ -360,20 +360,20 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, replacementSliceKey, replacement)).To(gomega.Succeed())
 				replacement.Status.ClusterName = originSlice.Status.ClusterName
 				g.Expect(managerTestCluster.client.Status().Update(managerTestCluster.ctx, replacement)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
-			util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, replacementSliceKey, admission(2).Obj())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, replacementSliceKey, admission(2).Obj())
 		})
 
 		ginkgo.By("observing the replacement slice in the worker2 cluster", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, replacementSliceKey, &kueue.Workload{})).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		// The scheduler admits the replacement, but its attempt to finish the origin slice fails,
 		// so the origin slice is left unfinished on the worker.
 		ginkgo.By("emulating the scheduler admitting the replacement slice on worker2 without finishing the origin slice", func() {
-			util.SetQuotaReservation(worker2TestCluster.ctx, worker2TestCluster.client, replacementSliceKey, admission(2).Obj())
+			behavioral.SetQuotaReservation(worker2TestCluster.ctx, worker2TestCluster.client, replacementSliceKey, admission(2).Obj())
 		})
 
 		ginkgo.By("observing the job reconciler finish the origin slice on worker2", func() {
@@ -384,7 +384,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 				g.Expect(finished).NotTo(gomega.BeNil())
 				g.Expect(finished.Status).To(gomega.Equal(metav1.ConditionTrue))
 				g.Expect(finished.Reason).To(gomega.Equal(kueue.WorkloadSliceReplaced))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("observing the replacement slice and the remote objects are kept on worker2", func() {
@@ -394,7 +394,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 				g.Expect(apimeta.IsStatusConditionTrue(replacement.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeFalse())
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayJob), &rayv1.RayJob{})).To(gomega.Succeed())
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, childKey, &rayv1.RayCluster{})).To(gomega.Succeed())
-			}, util.ShortConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			}, behavioral.ShortConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 
