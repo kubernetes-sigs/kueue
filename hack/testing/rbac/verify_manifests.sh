@@ -22,5 +22,5 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
 cd "${ROOT_DIR}"
 
 echo "Verifying generated RBAC manifests..."
-go test -v ./test/util -run TestRBACManifests
+go test -v ./test/util/behavioral -run TestRBACManifests
 echo "RBAC manifest verification passed."

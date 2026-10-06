@@ -33,7 +33,7 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueOnFailure, ginkgo.Label("feature:quotacheckstrategy"), func() {
@@ -60,10 +60,10 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 		})
 
 		ginkgo.BeforeEach(func() {
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "quota-check-strategy-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "quota-check-strategy-")
 
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
-			util.MustCreate(ctx, k8sClient, defaultFlavor)
+			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 
 			cq = utiltestingapi.MakeClusterQueue("test-cq").
 				ResourceGroup(
@@ -71,18 +71,18 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 						Resource(corev1.ResourceCPU, "10").
 						Obj(),
 				).Obj()
-			util.MustCreate(ctx, k8sClient, cq)
-			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+			behavioral.MustCreate(ctx, k8sClient, cq)
+			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
 			lq = utiltestingapi.MakeLocalQueue("test-lq", ns.Name).ClusterQueue(cq.Name).Obj()
-			util.MustCreate(ctx, k8sClient, lq)
-			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+			behavioral.MustCreate(ctx, k8sClient, lq)
+			behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 		})
 
 		ginkgo.It("should ignore undeclared resources and not use them to calculate entry penalty", func() {
@@ -92,7 +92,7 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 				Request(corev1.ResourceCPU, "2").
 				Request("example.com/gpu", "100").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
 
 			wlKey := types.NamespacedName{Name: wl.Name, Namespace: ns.Name}
 
@@ -100,7 +100,7 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verifying the undeclared resource is not in admission resource usage")
 			gomega.Expect(wl.Status.Admission).NotTo(gomega.BeNil())
@@ -123,14 +123,14 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 						},
 					},
 				}}))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verifying the entry penalty does not include the undeclared resource")
 			lqKey := utilqueue.NewLocalQueueReference(ns.Name, kueue.LocalQueueName(lq.Name))
 			gomega.Eventually(func(g gomega.Gomega) {
 				penalty := qManager.AfsUsageLedger.PeekPenalty(lqKey)
 				g.Expect(penalty).NotTo(gomega.HaveKey(corev1.ResourceName("example.com/gpu")))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 		ginkgo.It("should admit workload when nominalQuota is 1E for cpu", func() {
 			updatedCq := &kueue.ClusterQueue{}
@@ -138,7 +138,7 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), updatedCq)).To(gomega.Succeed())
 				updatedCq.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("1E")
 				g.Expect(k8sClient.Update(ctx, updatedCq)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			wl := utiltestingapi.MakeWorkload("wl-1", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
@@ -147,7 +147,7 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
 			wlKey := client.ObjectKeyFromObject(wl)
-			util.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKey)
+			behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKey)
 		})
 	})
 	ginkgo.When("quota check strategy is set to IgnoreUndeclared and feature gate is disabled", func() {
@@ -168,10 +168,10 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.QuotaCheckStrategy, false)
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "quota-check-gate-off-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "quota-check-gate-off-")
 
 			defaultFlavor = utiltestingapi.MakeResourceFlavor("default").Obj()
-			util.MustCreate(ctx, k8sClient, defaultFlavor)
+			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 
 			cq = utiltestingapi.MakeClusterQueue("test-cq-gate-off").
 				ResourceGroup(
@@ -179,18 +179,18 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 						Resource(corev1.ResourceCPU, "10").
 						Obj(),
 				).Obj()
-			util.MustCreate(ctx, k8sClient, cq)
-			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
+			behavioral.MustCreate(ctx, k8sClient, cq)
+			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, cq)
 
 			lq = utiltestingapi.MakeLocalQueue("test-lq", ns.Name).ClusterQueue(cq.Name).Obj()
-			util.MustCreate(ctx, k8sClient, lq)
-			util.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
+			behavioral.MustCreate(ctx, k8sClient, lq)
+			behavioral.ExpectLocalQueuesToBeActive(ctx, k8sClient, lq)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 		})
 
 		ginkgo.It("should not admit workload with undeclared resources", func() {
@@ -199,9 +199,9 @@ var _ = ginkgo.Describe("Quota check strategy", ginkgo.Ordered, ginkgo.ContinueO
 				Request(corev1.ResourceCPU, "2").
 				Request("example.com/gpu", "100").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
 
-			util.ExpectPendingWorkloadsMetric(cq, 0, 1)
+			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 1)
 		})
 	})
 })

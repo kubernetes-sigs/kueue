@@ -2696,8 +2696,11 @@ func TestQueueSecondPassReadErrorRetried(t *testing.T) {
 	}
 }
 
-func secondPassUnhealthyNodeWorkload(now time.Time) *kueue.Workload {
-	return utiltestingapi.MakeWorkload("foo", "default").
+// A node failure recorded while the pending pass re-reads an older version still gets a pass.
+func TestQueueSecondPassRequestDuringReReadNotLost(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	wl := utiltestingapi.MakeWorkload("foo", "default").
 		Queue("tas-main").
 		PodSets(*utiltestingapi.MakePodSet("one", 2).
 			RequiredTopologyRequest(corev1.LabelHostname).
@@ -2718,13 +2721,6 @@ func secondPassUnhealthyNodeWorkload(now time.Time) *kueue.Workload {
 		AdmittedAt(true, now).
 		UnhealthyNodes("x1").
 		Obj()
-}
-
-// A node failure recorded while the pending pass re-reads an older version still gets a pass.
-func TestQueueSecondPassRequestDuringReReadNotLost(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
-	now := time.Now()
-	wl := secondPassUnhealthyNodeWorkload(now)
 
 	healed := wl.DeepCopy()
 	healed.Status.UnhealthyNodes = nil
@@ -2792,7 +2788,27 @@ func TestQueueSecondPassRequestDuringReReadNotLost(t *testing.T) {
 func TestQueueSecondPassUpdateKeepsPendingRetry(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	now := time.Now()
-	wl := secondPassUnhealthyNodeWorkload(now)
+	wl := utiltestingapi.MakeWorkload("foo", "default").
+		Queue("tas-main").
+		PodSets(*utiltestingapi.MakePodSet("one", 2).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("tas-main").
+				PodSets(utiltestingapi.MakePodSetAssignment("one").
+					Assignment(corev1.ResourceCPU, "tas-default", "2").
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+						Obj()).
+					Obj()).
+				Obj(),
+			now,
+		).
+		AdmittedAt(true, now).
+		UnhealthyNodes("x1").
+		Obj()
 
 	fakeClock := testingclock.NewFakeClock(now)
 	manager := NewManagerForUnitTests(utiltesting.NewFakeClient(wl.DeepCopy()), nil, WithClock(fakeClock))
