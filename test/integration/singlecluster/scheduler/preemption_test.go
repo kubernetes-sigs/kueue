@@ -1567,6 +1567,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueOrchestratedPreemption, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 
 			cq = utiltestingapi.MakeClusterQueue("cq").
 				QueueingStrategy(kueue.StrictFIFO).
