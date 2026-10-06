@@ -38,7 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices support", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -59,26 +59,26 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-elastic-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-elastic-")
 
 		resourceFlavor = utiltestingapi.MakeResourceFlavor("flavor").Obj()
-		util.MustCreate(ctx, k8sClient, resourceFlavor)
+		behavioral.MustCreate(ctx, k8sClient, resourceFlavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cq").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor").
 				Resource(corev1.ResourceCPU, "10").
 				Resource(corev1.ResourceMemory, "5Gi").Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
 	})
 
 	ginkgo.It("Should ungate chain pods after the origin workload slice is deleted", framework.SlowSpec, func() {
@@ -91,7 +91,7 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 			Obj()
 
 		ginkgo.By("creating and admitting the rayservice's origin workload slice")
-		util.MustCreate(ctx, k8sClient, service)
+		behavioral.MustCreate(ctx, k8sClient, service)
 		var originSlice *kueue.Workload
 		gomega.Eventually(func(g gomega.Gomega) {
 			workloads := &kueue.WorkloadList{}
@@ -99,7 +99,7 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 			g.Expect(workloads.Items).Should(gomega.HaveLen(1))
 			originSlice = &workloads.Items[0]
 			g.Expect(workload.IsAdmitted(originSlice)).Should(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		originSliceName := originSlice.Name
 
 		ginkgo.By("creating the child RayCluster owned by the RayService, as KubeRay would")
@@ -118,36 +118,36 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 			Controller:         new(true),
 			BlockOwnerDeletion: new(true),
 		}}
-		util.MustCreate(ctx, k8sClient, childCluster)
+		behavioral.MustCreate(ctx, k8sClient, childCluster)
 
 		ginkgo.By("promoting the child cluster to active in the RayService status, as KubeRay would")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(service), service)).Should(gomega.Succeed())
 			service.Status.ActiveServiceStatus.RayClusterName = childCluster.Name
 			g.Expect(k8sClient.Status().Update(ctx, service)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("scaling up the child RayCluster's worker replicas, as the Ray autoscaler would")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(childCluster), childCluster)).Should(gomega.Succeed())
 			childCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(2))
 			g.Expect(k8sClient.Update(ctx, childCluster)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		var activeSlice *kueue.Workload
 		gomega.Eventually(func(g gomega.Gomega) {
 			workloads := &kueue.WorkloadList{}
 			g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
 			g.Expect(workloads.Items).Should(gomega.HaveLen(2))
-			activeWorkloads := util.FindNonFinishedWorkloads(workloads.Items)
+			activeWorkloads := behavioral.FindNonFinishedWorkloads(workloads.Items)
 			g.Expect(activeWorkloads).Should(gomega.HaveLen(1))
 			activeSlice = &activeWorkloads[0]
 			g.Expect(activeSlice.Name).ShouldNot(gomega.Equal(originSliceName))
 			g.Expect(workload.IsAdmitted(activeSlice)).Should(gomega.BeTrue())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("deleting the origin slice to emulate a rollout GC of the old cluster's workloads")
-		util.DeleteWorkloadSliceAndAwaitDeletion(ctx, k8sClient, types.NamespacedName{Namespace: ns.Name, Name: originSliceName})
+		behavioral.DeleteWorkloadSliceAndAwaitDeletion(ctx, k8sClient, types.NamespacedName{Namespace: ns.Name, Name: originSliceName})
 
 		ginkgo.By("creating still-gated pods that point at the now-deleted origin slice, owned by the child RayCluster")
 		var workerPodSet kueue.PodSetReference
@@ -176,7 +176,7 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 				Controller:         new(true),
 				BlockOwnerDeletion: new(true),
 			}}
-			util.MustCreate(ctx, k8sClient, gatedPods[i])
+			behavioral.MustCreate(ctx, k8sClient, gatedPods[i])
 		}
 
 		hasElasticGate := func(g gomega.Gomega, pod *corev1.Pod) bool {
@@ -189,11 +189,11 @@ var _ = ginkgo.Describe("RayService with elastic jobs via workload-slices suppor
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(hasElasticGate(g, gatedPods[0])).Should(gomega.BeFalse())
 			g.Expect(hasElasticGate(g, gatedPods[1])).Should(gomega.BeFalse())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the pod beyond the active slice's granted worker count stays gated")
 		gomega.Consistently(func(g gomega.Gomega) {
 			g.Expect(hasElasticGate(g, gatedPods[2])).Should(gomega.BeTrue())
-		}, util.LongConsistentDuration, util.Interval).Should(gomega.Succeed())
+		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 	})
 })

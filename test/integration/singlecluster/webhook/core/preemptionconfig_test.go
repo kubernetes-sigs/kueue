@@ -24,7 +24,7 @@ import (
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
@@ -75,7 +75,7 @@ var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 					return
 				}
 				gomega.Expect(err).To(gomega.Succeed())
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, pc, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pc, true)
 			},
 			ginkgo.Entry("Allow neither minValue nor maxValue", nil, nil, ""),
 			ginkgo.Entry("Allow only minValue", ptr.To[int32](5), nil, ""),
@@ -172,9 +172,9 @@ var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 		ginkgo.It("Should validate numericLabels minValue and maxValue on update", func() {
 			const maxValue int32 = 10
 			pc := makePreemptionConfigWithNumericLabel("pc-numeric-label-update", ptr.To[int32](1), ptr.To(maxValue))
-			util.MustCreate(ctx, k8sClient, pc)
+			behavioral.MustCreate(ctx, k8sClient, pc)
 			ginkgo.DeferCleanup(func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, pc, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pc, true)
 			})
 
 			ginkgo.By("Rejecting an update that sets minValue greater than maxValue", func() {

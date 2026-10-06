@@ -477,6 +477,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: SchedulerLibraryDeepIntegration
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: SchedulerLibraryIntegration
   versionedSpecs:
   - default: false
