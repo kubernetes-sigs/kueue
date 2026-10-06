@@ -22,7 +22,6 @@ import (
 	"maps"
 	"math"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -724,6 +723,15 @@ func (a *FlavorAssigner) AssignFlavors(
 	log logr.Logger,
 	counts []int32,
 ) Assignment {
+	// Second-pass requests follow admission order, while counts and flavor scan state
+	// follow spec order. Use the request's spec index for the lookups below.
+	specIndexes := podset.SpecIndexes(a.wl.Obj.Spec.PodSets, a.wl.TotalRequests,
+		func(ps *workload.PodSetResources) kueue.PodSetReference { return ps.Name })
+	for i := range specIndexes {
+		if specIndexes[i] == -1 {
+			specIndexes[i] = i
+		}
+	}
 	requests := make([]workload.PodSetResources, len(a.wl.TotalRequests))
 	if len(counts) == 0 {
 		for i, ps := range a.wl.TotalRequests {
@@ -734,7 +742,7 @@ func (a *FlavorAssigner) AssignFlavors(
 		}
 	} else {
 		for i := range a.wl.TotalRequests {
-			requests[i] = *a.wl.TotalRequests[i].ScaledTo(counts[i])
+			requests[i] = *a.wl.TotalRequests[i].ScaledTo(counts[specIndexes[i]])
 		}
 	}
 	assignment := Assignment{
@@ -755,7 +763,7 @@ func (a *FlavorAssigner) AssignFlavors(
 		replaceWorkloadSlice: a.replaceWorkloadSlice,
 	}
 
-	groupedRequests := orderedgroups.NewOrderedGroups[string, indexedPodSet]()
+	groupedRequests := orderedgroups.NewOrderedGroups[tas.PodSetGroupKey, indexedPodSet]()
 
 	for i, podSet := range requests {
 		if a.cq.RGByResource(corev1.ResourcePods) != nil {
@@ -797,12 +805,10 @@ func (a *FlavorAssigner) AssignFlavors(
 			}
 		}
 
-		groupKey := strconv.Itoa(i)
-		if tr := a.wl.Obj.Spec.PodSets[i].TopologyRequest; tr != nil && tr.PodSetGroupName != nil {
-			groupKey = *tr.PodSetGroupName
-		}
+		psIdx := specIndexes[i]
+		groupKey := tas.GroupKeyForPodSet(&a.wl.Obj.Spec.PodSets[psIdx])
 
-		groupedRequests.Insert(groupKey, indexedPodSet{originalIndex: i, podSet: &podSet, podSetAssignment: &psAssignment})
+		groupedRequests.Insert(groupKey, indexedPodSet{originalIndex: psIdx, podSet: &podSet, podSetAssignment: &psAssignment})
 	}
 
 	// The probe needs the earlier PodSets' full requests. Quota usage may only
@@ -875,7 +881,7 @@ func (a *FlavorAssigner) AssignFlavors(
 			podSet.podSetAssignment.Status = groupStatus
 			podSet.podSetAssignment.FlavorAssignmentAttempts = finalConsidered
 
-			assignment.append(podSet.podSet.Requests, podSet.podSetAssignment)
+			assignment.append(podSet.originalIndex, podSet.podSet.Requests, podSet.podSetAssignment)
 			if podSet.podSet.Requests != nil {
 				for resName, flavor := range podSet.podSetAssignment.Flavors {
 					fr := resources.FlavorResource{Flavor: flavor.Name, Resource: resName}
@@ -1060,7 +1066,7 @@ func findRGIndicesByFlavor(cq *schdcache.ClusterQueueSnapshot, flavor kueue.Reso
 	return indices
 }
 
-func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAssignment) {
+func (a *Assignment) append(psIdx int, requests resources.Requests, psAssignment *PodSetAssignment) {
 	flavorIdx := make(map[corev1.ResourceName]int, len(psAssignment.Flavors))
 	a.PodSets = append(a.PodSets, *psAssignment)
 	for resource, flvAssignment := range psAssignment.Flavors {
@@ -1083,7 +1089,12 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 		a.Usage.Quota.Assigned[fr] = a.Usage.Quota.Assigned[fr].Add(requestAmount)
 		flavorIdx[resource] = flvAssignment.TriedFlavorIdx
 	}
-	a.FlavorScanState.LastTriedFlavorIndexes = append(a.FlavorScanState.LastTriedFlavorIndexes, flavorIdx)
+	// The next attempt resumes each PodSet by its position in the Workload, not by the
+	// order in which the groups were assigned.
+	if missing := psIdx + 1 - len(a.FlavorScanState.LastTriedFlavorIndexes); missing > 0 {
+		a.FlavorScanState.LastTriedFlavorIndexes = append(a.FlavorScanState.LastTriedFlavorIndexes, make([]map[corev1.ResourceName]int, missing)...)
+	}
+	a.FlavorScanState.LastTriedFlavorIndexes[psIdx] = flavorIdx
 }
 
 func podSetResourcesByName(podSets []workload.PodSetResources, name kueue.PodSetReference) *workload.PodSetResources {
@@ -1231,9 +1242,9 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.replaceWorkloadSlice != nil {
 				for _, psID := range psIDs {
 					// The replaced slice's requests come from its admission, which is in group order.
-					preemptWorkloadRequests := podSetResourcesByName(a.replaceWorkloadSlice.TotalRequests, a.wl.TotalRequests[psID].Name)
+					preemptWorkloadRequests := podSetResourcesByName(a.replaceWorkloadSlice.TotalRequests, a.wl.Obj.Spec.PodSets[psID].Name)
 					if preemptWorkloadRequests == nil {
-						log.V(1).Info("PodSet not found in the replaced workload slice", "podSet", a.wl.TotalRequests[psID].Name)
+						log.V(1).Info("PodSet not found in the replaced workload slice", "podSet", a.wl.Obj.Spec.PodSets[psID].Name)
 						continue
 					}
 
