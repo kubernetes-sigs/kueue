@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package util
+package e2e
 
 import (
 	"context"
@@ -42,10 +42,9 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 func PolicyRule(group, resource string, verbs ...string) rbacv1.PolicyRule {
@@ -279,70 +278,12 @@ func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, k8sClient 
 	ginkgo.GinkgoHelper()
 	createdWorkload := &kueue.Workload{}
 	var workerName string
-	ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, MediumTimeout, wlLookupKey)
+	behavioral.ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, behavioral.MediumTimeout, wlLookupKey)
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 		admissionCheckMessage := admissioncheck.FindAdmissionCheck(createdWorkload.Status.AdmissionChecks, kueue.AdmissionCheckReference(acName)).Message
 		workerName = GetMultiKueueClusterNameFromAdmissionCheckMessage(admissionCheckMessage)
 		g.Expect(workerName).NotTo(gomega.BeEmpty())
-	}, MediumTimeout, Interval).Should(gomega.Succeed())
+	}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 	return workerName
-}
-
-type ClusterInfo struct {
-	Name   string
-	Client client.Client
-	Ctx    context.Context
-}
-
-//revive:disable:context-as-argument
-
-func DefaultClusterInfosForTests(
-	ctx1 context.Context,
-	client1 client.Client,
-	ctx2 context.Context,
-	client2 client.Client,
-) []ClusterInfo {
-	return []ClusterInfo{
-		{
-			Name:   "worker1",
-			Client: client1,
-			Ctx:    ctx1,
-		},
-		{
-			Name:   "worker2",
-			Client: client2,
-			Ctx:    ctx2,
-		},
-	}
-}
-
-//revive:enable:context-as-argument
-
-func GetClientForSelectedWorkerCluster(g gomega.Gomega, managerWl *kueue.Workload, clusters ...ClusterInfo) ClusterInfo {
-	ginkgo.GinkgoHelper()
-
-	clusterName := managerWl.Status.ClusterName
-	g.Expect(clusterName).ToNot(gomega.BeNil())
-
-	for _, cluster := range clusters {
-		if cluster.Name == *clusterName {
-			return cluster
-		}
-	}
-
-	ginkgo.Fail("none of the supplied clusters was selected")
-	return ClusterInfo{}
-}
-
-func ExpectRemoteWorkloadSpec(g gomega.Gomega, remoteWl, managerWl *kueue.Workload) {
-	ginkgo.GinkgoHelper()
-
-	wantSpec := managerWl.Spec.DeepCopy()
-	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
-		// The manager's preemption gates are not copied and the MultiKueue
-		// preemption gate is set instead.
-		wantSpec.PreemptionGates = []kueue.PreemptionGate{{Name: constants.MultiKueuePreemptionGate}}
-	}
-	g.Expect(remoteWl.Spec).To(gomega.BeComparableTo(*wantSpec))
 }

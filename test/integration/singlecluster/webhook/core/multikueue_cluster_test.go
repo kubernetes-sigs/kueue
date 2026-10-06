@@ -31,7 +31,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
@@ -50,9 +50,9 @@ var _ = ginkgo.Describe("MultiKueueCluster Webhook", func() {
 	})
 	ginkgo.When("Creating a MultiKueueCluster", func() {
 		ginkgo.DescribeTable("Defaulting on creation", func(mkc, wantMKC kueue.MultiKueueCluster) {
-			util.MustCreate(ctx, k8sClient, &mkc)
+			behavioral.MustCreate(ctx, k8sClient, &mkc)
 			defer func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, &mkc, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &mkc, true)
 			}()
 			gomega.Expect(mkc).To(gomega.BeComparableTo(wantMKC,
 				cmpopts.IgnoreTypes(kueue.MultiKueueClusterStatus{}),
@@ -109,9 +109,9 @@ var _ = ginkgo.Describe("MultiKueueCluster Webhook", func() {
 	ginkgo.When("Updating a MultiKueueCluster status", func() {
 		ginkgo.DescribeTable("Validate status conditions on update", func(conditionCount int, matcher types.GomegaMatcher) {
 			mkc := utiltestingapi.MakeMultiKueueCluster("worker").KubeConfig(kueue.SecretLocationType, "worker-secret").Obj()
-			util.MustCreate(ctx, k8sClient, mkc)
+			behavioral.MustCreate(ctx, k8sClient, mkc)
 			defer func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, mkc, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, mkc, true)
 			}()
 
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(mkc), mkc)).To(gomega.Succeed())

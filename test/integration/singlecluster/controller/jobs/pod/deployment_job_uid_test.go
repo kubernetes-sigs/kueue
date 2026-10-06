@@ -47,7 +47,7 @@ import (
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 // deploymentJobUIDManagerSetup enables the Deployment integration, which the shared
@@ -64,7 +64,7 @@ func deploymentJobUIDManagerSetup(opts ...jobframework.Option) framework.Manager
 		preemptionExpectations := preemptexpectations.New()
 		customLabels := metrics.NewCustomLabels(nil)
 		cCache := schdcache.New(mgr.GetClient(), schdcache.WithCustomLabels(customLabels))
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache,
+		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache,
 			qcache.WithPreemptionExpectations(preemptionExpectations),
 			qcache.WithCustomLabels(customLabels),
 		)
@@ -111,11 +111,11 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-deployment-uid-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-deployment-uid-")
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	// envtest runs no controller-manager, so the ownership chain a Deployment would
@@ -127,7 +127,7 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 			depWrapper = depWrapper.Queue("lq")
 		}
 		dep := depWrapper.Obj()
-		util.MustCreate(ctx, k8sClient, dep)
+		behavioral.MustCreate(ctx, k8sClient, dep)
 
 		rs := &appsv1.ReplicaSet{
 			Name:      "dep-abc123",
@@ -142,7 +142,7 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 				Selector: dep.Spec.Selector,
 				Template: dep.Spec.Template,
 			}}
-		util.MustCreate(ctx, k8sClient, rs)
+		behavioral.MustCreate(ctx, k8sClient, rs)
 
 		// The Deployment webhook puts these on the pod template; envtest has no
 		// Deployment controller to propagate them.
@@ -159,7 +159,7 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 			UID:        rs.UID,
 			Controller: new(true),
 		}}
-		util.MustCreate(ctx, k8sClient, pod)
+		behavioral.MustCreate(ctx, k8sClient, pod)
 		return dep, pod
 	}
 
@@ -174,7 +174,7 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			g.Expect(createdWorkload.Labels).To(gomega.HaveKeyWithValue(controllerconsts.JobUIDLabel, string(dep.UID)))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("checking the Pod itself was not modified")
 		createdPod := &corev1.Pod{}
@@ -193,7 +193,7 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			g.Expect(createdWorkload.Labels).To(gomega.HaveKeyWithValue(controllerconsts.JobUIDLabel, string(pod.UID)))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("should keep the Pod UID when only the Pod carries the queue-name", func() {
@@ -207,6 +207,6 @@ var _ = ginkgo.Describe("Pod controller with DeploymentJobUIDLabel", ginkgo.Labe
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			g.Expect(createdWorkload.Labels).To(gomega.HaveKeyWithValue(controllerconsts.JobUIDLabel, string(pod.UID)))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })

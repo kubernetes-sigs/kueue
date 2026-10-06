@@ -33,10 +33,11 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	deploymenttesting "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling for Deployment", ginkgo.Label(util.Shard1, "area:tas", "feature:deployment"), func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling for Deployment", ginkgo.Label(e2e.Shard1, "area:tas", "feature:deployment"), func() {
 	var (
 		ns           *corev1.Namespace
 		topology     *kueue.Topology
@@ -46,32 +47,32 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Deployment", ginkgo.Label(u
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-deployment-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-tas-deployment-")
 
 		topology = utiltestingapi.MakeDefaultThreeLevelTopology("datacenter")
-		util.MustCreate(ctx, k8sClient, topology)
+		behavioral.MustCreate(ctx, k8sClient, topology)
 
 		tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 			NodeLabel(tasNodeGroupLabel, instanceType).
 			TopologyName(topology.Name).
 			Obj()
-		util.MustCreate(ctx, k8sClient, tasFlavor)
+		behavioral.MustCreate(ctx, k8sClient, tasFlavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-flavor").Resource(corev1.ResourceCPU, "2").Obj()).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("test-queue", ns.Name).ClusterQueue("cluster-queue").Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("Creating a Deployment with topology spreading across replicas", func() {
@@ -94,7 +95,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Deployment", ginkgo.Label(u
 			)
 
 			deployment := deploymenttesting.MakeDeployment("deployment", ns.Name).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "10m").
 				Replicas(replicas).
 				Queue(localQueue.Name).
@@ -104,7 +105,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Deployment", ginkgo.Label(u
 				Obj()
 
 			ginkgo.By("Creating a Deployment", func() {
-				util.MustCreate(ctx, k8sClient, deployment)
+				behavioral.MustCreate(ctx, k8sClient, deployment)
 			})
 
 			ginkgo.By("Waiting for replicas to be ready", func() {
@@ -112,7 +113,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Deployment", ginkgo.Label(u
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deployment), createdDeployment)).To(gomega.Succeed())
 					g.Expect(createdDeployment.Status.ReadyReplicas).To(gomega.Equal(replicas))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			pods := &corev1.PodList{}
@@ -123,7 +124,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Deployment", ginkgo.Label(u
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(int(replicas)))
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Verifying every replica's Workload is labelled with the Deployment UID", func() {
@@ -136,7 +137,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Deployment", ginkgo.Label(u
 			})
 
 			ginkgo.By("Verifying each block holds exactly 2 of the 4 replicas", func() {
-				blockOfNode := util.GetTopologyDomainByNode(ctx, k8sClient, utiltesting.DefaultBlockTopologyLevel)
+				blockOfNode := behavioral.GetTopologyDomainByNode(ctx, k8sClient, utiltesting.DefaultBlockTopologyLevel)
 				podsPerBlock := make(map[string]int, 2)
 				for _, p := range pods.Items {
 					block, found := blockOfNode[p.Spec.NodeName]
