@@ -11356,20 +11356,114 @@ func TestSecondPassAdmissionWriteFailureKeepsReservation(t *testing.T) {
 		AdmittedAt(true, now).
 		Obj()
 
+	type secondPassFixture struct {
+		wl              *kueue.Workload
+		cq              *kueue.ClusterQueue
+		admissionChecks []*kueue.AdmissionCheck
+		// verify checks the workload stored by the retried pass.
+		verify func(t *testing.T, got *kueue.Workload, useMergePatch bool)
+	}
+	failedNodePass := secondPassFixture{
+		wl: wl,
+		cq: cq,
+		verify: func(t *testing.T, got *kueue.Workload, useMergePatch bool) {
+			t.Helper()
+			gotNodes := sets.New[string]()
+			if got.Status.Admission != nil {
+				for value := range utiltas.LowestLevelValues(got.Status.Admission.PodSetAssignments[0].TopologyAssignment) {
+					gotNodes.Insert(value)
+				}
+			}
+			if diff := cmp.Diff(sets.New("x2"), gotNodes); diff != "" {
+				t.Errorf("unexpected nodes in the stored topology assignment (-want,+got):\n%s", diff)
+			}
+			// The fake client with patch.Apply cannot reset the UnhealthyNodes field (patch.Merge can).
+			if useMergePatch && len(got.Status.UnhealthyNodes) != 0 {
+				t.Errorf("the stored workload still has unhealthy nodes %v after the replacement", got.Status.UnhealthyNodes)
+			}
+		},
+	}
+	// A delayed topology assignment takes its second pass once its ProvisioningRequest check is Ready.
+	provCheck := utiltestingapi.MakeAdmissionCheck("prov-check").
+		ControllerName(kueue.ProvisioningRequestControllerName).
+		Condition(metav1.Condition{
+			Type:   kueue.AdmissionCheckActive,
+			Status: metav1.ConditionTrue,
+		}).
+		Obj()
+	delayedPass := secondPassFixture{
+		wl: utiltestingapi.MakeWorkload("wl", ns.Name).
+			Queue("tas-main").
+			PodSets(*utiltestingapi.MakePodSet("one", 1).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Request(corev1.ResourceCPU, "1").
+				Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+						Obj()).
+					Obj(),
+				now,
+			).
+			AdmissionCheck(kueue.AdmissionCheckState{
+				Name:  kueue.AdmissionCheckReference(provCheck.Name),
+				State: kueue.CheckStateReady,
+			}).
+			Obj(),
+		cq: utiltestingapi.MakeClusterQueue("tas-main").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+				Resource(corev1.ResourceCPU, "50").Obj()).
+			AdmissionChecks(kueue.AdmissionCheckReference(provCheck.Name)).
+			Obj(),
+		admissionChecks: []*kueue.AdmissionCheck{provCheck},
+		verify: func(t *testing.T, got *kueue.Workload, _ bool) {
+			t.Helper()
+			if got.Status.Admission == nil {
+				t.Fatal("the stored workload has no admission")
+			}
+			psa := got.Status.Admission.PodSetAssignments[0]
+			if psa.TopologyAssignment == nil || psa.DelayedTopologyRequest == nil ||
+				*psa.DelayedTopologyRequest != kueue.DelayedTopologyRequestStateReady {
+				t.Errorf("expected the retried pass to complete the delayed topology assignment, got assignment %v, delayed state %v",
+					psa.TopologyAssignment, psa.DelayedTopologyRequest)
+			}
+		},
+	}
+
 	cases := map[string]struct {
+		secondPass secondPassFixture
 		// writeErr fails the first status write; later writes reach the client.
 		writeErr   error
 		wantEvents []utiltesting.EventRecord
 	}{
 		"conflict": {
-			writeErr: apierrors.NewConflict(kueue.Resource("workloads"), wl.Name, errors.New("the object has been modified")),
+			secondPass: failedNodePass,
+			writeErr:   apierrors.NewConflict(kueue.Resource("workloads"), wl.Name, errors.New("the object has been modified")),
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord(ns.Name, wl.Name, "OutdatedScheduleCycle", corev1.EventTypeWarning).Obj(),
 				utiltesting.MakeEventRecord(ns.Name, wl.Name, "SecondPassFailed", corev1.EventTypeWarning).Obj(),
 			},
 		},
 		"internal error": {
-			writeErr: apierrors.NewInternalError(errors.New("etcd unavailable")),
+			secondPass: failedNodePass,
+			writeErr:   apierrors.NewInternalError(errors.New("etcd unavailable")),
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord(ns.Name, wl.Name, "SecondPassFailed", corev1.EventTypeWarning).Obj(),
+			},
+		},
+		"conflict on a delayed topology assignment": {
+			secondPass: delayedPass,
+			writeErr:   apierrors.NewConflict(kueue.Resource("workloads"), wl.Name, errors.New("the object has been modified")),
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord(ns.Name, wl.Name, "OutdatedScheduleCycle", corev1.EventTypeWarning).Obj(),
+				utiltesting.MakeEventRecord(ns.Name, wl.Name, "SecondPassFailed", corev1.EventTypeWarning).Obj(),
+			},
+		},
+		"internal error on a delayed topology assignment": {
+			secondPass: delayedPass,
+			writeErr:   apierrors.NewInternalError(errors.New("etcd unavailable")),
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord(ns.Name, wl.Name, "SecondPassFailed", corev1.EventTypeWarning).Obj(),
 			},
@@ -11381,6 +11475,7 @@ func TestSecondPassAdmissionWriteFailureKeepsReservation(t *testing.T) {
 			t.Run(fmt.Sprintf("%s when the WorkloadRequestUseMergePatch feature is %t", name, useMergePatch), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
 				ctx, log := utiltesting.ContextWithLog(t)
+				wl, cq := tc.secondPass.wl, tc.secondPass.cq
 
 				var statusWrites int
 				var storedRV string
@@ -11444,6 +11539,9 @@ func TestSecondPassAdmissionWriteFailureKeepsReservation(t *testing.T) {
 				for _, node := range nodes {
 					cqCache.TASCache().SyncNode(&node)
 				}
+				for _, ac := range tc.secondPass.admissionChecks {
+					cqCache.AddOrUpdateAdmissionCheck(log, ac.DeepCopy())
+				}
 				cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
 				cqCache.AddOrUpdateTopology(log, topology.DeepCopy())
 				if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
@@ -11506,19 +11604,7 @@ func TestSecondPassAdmissionWriteFailureKeepsReservation(t *testing.T) {
 				if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &got); err != nil {
 					t.Fatalf("Getting workload %s: %v", wl.Name, err)
 				}
-				gotNodes := sets.New[string]()
-				if got.Status.Admission != nil {
-					for value := range utiltas.LowestLevelValues(got.Status.Admission.PodSetAssignments[0].TopologyAssignment) {
-						gotNodes.Insert(value)
-					}
-				}
-				if diff := cmp.Diff(sets.New("x2"), gotNodes); diff != "" {
-					t.Errorf("unexpected nodes in the stored topology assignment (-want,+got):\n%s", diff)
-				}
-				// The fake client with patch.Apply cannot reset the UnhealthyNodes field (patch.Merge can).
-				if useMergePatch && len(got.Status.UnhealthyNodes) != 0 {
-					t.Errorf("the stored workload still has unhealthy nodes %v after the replacement", got.Status.UnhealthyNodes)
-				}
+				tc.secondPass.verify(t, &got, useMergePatch)
 			})
 		}
 	}
@@ -11800,6 +11886,9 @@ func TestSecondPassRestoreKeepsNewerCacheState(t *testing.T) {
 			for _, node := range nodes {
 				cqCache.TASCache().SyncNode(&node)
 			}
+			for _, ac := range tc.secondPass.admissionChecks {
+				cqCache.AddOrUpdateAdmissionCheck(log, ac.DeepCopy())
+			}
 			cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
 			cqCache.AddOrUpdateTopology(log, topology.DeepCopy())
 			if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
@@ -11887,13 +11976,74 @@ func TestSecondPassSkipsAssumeWhenWorkloadChangedInCache(t *testing.T) {
 		AdmittedAt(true, now).
 		Obj()
 
+	type secondPassFixture struct {
+		wl              *kueue.Workload
+		cq              *kueue.ClusterQueue
+		admissionChecks []*kueue.AdmissionCheck
+	}
+	failedNodePass := secondPassFixture{wl: wl, cq: cq}
+	// A delayed topology assignment takes its second pass once its ProvisioningRequest check is Ready.
+	provCheck := utiltestingapi.MakeAdmissionCheck("prov-check").
+		ControllerName(kueue.ProvisioningRequestControllerName).
+		Condition(metav1.Condition{
+			Type:   kueue.AdmissionCheckActive,
+			Status: metav1.ConditionTrue,
+		}).
+		Obj()
+	delayedPass := secondPassFixture{
+		wl: utiltestingapi.MakeWorkload("wl", ns.Name).
+			Queue("tas-main").
+			PodSets(*utiltestingapi.MakePodSet("one", 1).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Request(corev1.ResourceCPU, "1").
+				Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+						Obj()).
+					Obj(),
+				now,
+			).
+			AdmissionCheck(kueue.AdmissionCheckState{
+				Name:  kueue.AdmissionCheckReference(provCheck.Name),
+				State: kueue.CheckStateReady,
+			}).
+			Obj(),
+		cq: utiltestingapi.MakeClusterQueue("tas-main").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
+				Resource(corev1.ResourceCPU, "50").Obj()).
+			AdmissionChecks(kueue.AdmissionCheckReference(provCheck.Name)).
+			Obj(),
+		admissionChecks: []*kueue.AdmissionCheck{provCheck},
+	}
+
+	releaseReservation := func(t *testing.T, ctx context.Context, log logr.Logger, cl client.Client, cqCache *schdcache.Cache, stored *kueue.Workload) {
+		released := stored.DeepCopy()
+		workload.UnsetQuotaReservationWithCondition(released, "Evicted", "Evicted by test", now)
+		if err := cl.Status().Update(ctx, released); err != nil {
+			t.Fatalf("Unsetting the quota reservation: %v", err)
+		}
+		if err := cqCache.DeleteWorkload(log, workload.Key(released)); err != nil {
+			t.Fatalf("Deleting the workload from the cache: %v", err)
+		}
+	}
+	verifyNoQuotaLeft := func(t *testing.T, _ context.Context, cqCache *schdcache.Cache, _ *kueue.Workload) {
+		if !cqCache.ClusterQueueEmpty(kueue.ClusterQueueReference(cq.Name)) {
+			t.Error("the second pass left quota for a released reservation in the ClusterQueue cache")
+		}
+	}
+
 	cases := map[string]struct {
+		secondPass secondPassFixture
 		// update lands a change in the API after the pass read the workload and feeds it to the cache, as the workload controller does.
 		update func(t *testing.T, ctx context.Context, log logr.Logger, cl client.Client, cqCache *schdcache.Cache, stored *kueue.Workload)
 		// verify checks that the cache still reflects the update rather than this pass's assignment.
 		verify func(t *testing.T, ctx context.Context, cqCache *schdcache.Cache, stored *kueue.Workload)
 	}{
 		"node recovered during the pass": {
+			secondPass: failedNodePass,
 			update: func(t *testing.T, ctx context.Context, log logr.Logger, cl client.Client, cqCache *schdcache.Cache, stored *kueue.Workload) {
 				recovered := stored.DeepCopy()
 				recovered.Status.UnhealthyNodes = nil
@@ -11924,27 +12074,52 @@ func TestSecondPassSkipsAssumeWhenWorkloadChangedInCache(t *testing.T) {
 			},
 		},
 		"reservation released during the pass": {
+			secondPass: failedNodePass,
+			update:     releaseReservation,
+			verify:     verifyNoQuotaLeft,
+		},
+		"delayed topology assignment updated during the pass": {
+			secondPass: delayedPass,
 			update: func(t *testing.T, ctx context.Context, log logr.Logger, cl client.Client, cqCache *schdcache.Cache, stored *kueue.Workload) {
-				released := stored.DeepCopy()
-				workload.UnsetQuotaReservationWithCondition(released, "Evicted", "Evicted by test", now)
-				if err := cl.Status().Update(ctx, released); err != nil {
-					t.Fatalf("Unsetting the quota reservation: %v", err)
+				// An unrelated status change that leaves the workload waiting for its delayed topology assignment.
+				updated := stored.DeepCopy()
+				updated.Status.AdmissionChecks[0].Message = "provisioned"
+				if err := cl.Status().Update(ctx, updated); err != nil {
+					t.Fatalf("Updating the admission check message: %v", err)
 				}
-				if err := cqCache.DeleteWorkload(log, workload.Key(released)); err != nil {
-					t.Fatalf("Deleting the workload from the cache: %v", err)
+				if !workload.NeedsSecondPass(updated) {
+					t.Fatal("expected the updated workload to still need its delayed second pass")
+				}
+				cqCache.AddOrUpdateWorkload(ctx, log, updated)
+			},
+			verify: func(t *testing.T, ctx context.Context, cqCache *schdcache.Cache, stored *kueue.Workload) {
+				snapshot, err := cqCache.Snapshot(ctx)
+				if err != nil {
+					t.Fatalf("Taking a cache snapshot: %v", err)
+				}
+				cached, found := snapshot.ClusterQueue(kueue.ClusterQueueReference(cq.Name)).Workloads[workload.Key(stored)]
+				if !found {
+					t.Fatal("the workload is missing from the ClusterQueue cache")
+				}
+				if cached.Obj.ResourceVersion == stored.ResourceVersion {
+					t.Errorf("the cache holds resourceVersion %q read by the pass, want the newer one", cached.Obj.ResourceVersion)
+				}
+				if !workload.HasTopologyAssignmentsPending(cached.Obj) {
+					t.Errorf("the cache holds this pass's topology assignment instead of the pending one, got %v", cached.Obj.Status.Admission.PodSetAssignments[0])
 				}
 			},
-			verify: func(t *testing.T, _ context.Context, cqCache *schdcache.Cache, _ *kueue.Workload) {
-				if !cqCache.ClusterQueueEmpty(kueue.ClusterQueueReference(cq.Name)) {
-					t.Error("the second pass left quota for a released reservation in the ClusterQueue cache")
-				}
-			},
+		},
+		"delayed topology assignment released during the pass": {
+			secondPass: delayedPass,
+			update:     releaseReservation,
+			verify:     verifyNoQuotaLeft,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
+			wl, cq := tc.secondPass.wl, tc.secondPass.cq
 
 			var statusWrites int
 			conflict := apierrors.NewConflict(kueue.Resource("workloads"), wl.Name, errors.New("the object has been modified"))
