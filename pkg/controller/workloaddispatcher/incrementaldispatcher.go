@@ -69,6 +69,7 @@ func (r *IncrementalDispatcherReconciler) SetupWithManager(mgr ctrl.Manager, cfg
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(IncrementalDispatcherControllerName).
 		For(&kueue.Workload{}).
+		Watches(&kueue.MultiKueueCluster{}, admissioncheck.NewMultiKueueClusterHandler(r.client, 0)).
 		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, IncrementalDispatcherControllerName)).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
@@ -118,7 +119,7 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 		return reconcile.Result{}, nil
 	}
 
-	remoteClusters, err := admissioncheck.GetRemoteClusters(ctx, r.helper, mkAc.Name)
+	remoteClusters, err := admissioncheck.GetSchedulableRemoteClusters(ctx, r.helper, mkAc.Name)
 	if err != nil {
 		log.Error(err, "Can not get workload group")
 		return reconcile.Result{}, err

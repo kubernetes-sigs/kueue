@@ -330,6 +330,12 @@ const (
 	// Enables ClusterProfile integration for MultiKueue.
 	MultiKueueClusterProfile featuregate.Feature = "MultiKueueClusterProfile"
 
+	// owner: @kevin85421
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/693-multikueue
+	//
+	// Enables cordoning worker clusters to stop new MultiKueue workload dispatch.
+	MultiKueueClusterCordon featuregate.Feature = "MultiKueueClusterCordon"
+
 	// owner: @kshalot
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/6757
@@ -1048,6 +1054,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ReclaimablePods: {
 		{Version: version.MustParse("0.15"), Default: true, PreRelease: featuregate.Beta},
+	},
+	MultiKueueClusterCordon: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	MultiKueueClusterProfile: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},

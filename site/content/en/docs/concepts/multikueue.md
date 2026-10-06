@@ -226,3 +226,37 @@ configuration details.
   local job controller continuously updates status based on local (gated) pods. The job execution
   on the worker cluster is not affected - only the status visibility on the manager is limited.
   Check the Workload status for accurate admission state.
+## Cordoning a worker cluster
+
+{{< feature-state state="alpha" for_version="v0.21" >}}
+
+Enable the `MultiKueueClusterCordon` feature gate on the manager to temporarily
+stop dispatching new workloads to a worker cluster. Set
+`MultiKueueCluster.spec.unschedulable` to `true`:
+
+```shell
+kubectl patch multikueuecluster worker1 --type=merge \
+  -p '{"spec":{"unschedulable":true}}'
+```
+
+The manager keeps its connection to the worker and continues managing workloads
+already dispatched there, including queued workloads that have not yet been
+admitted. Existing jobs can finish and their status is synchronized normally.
+The cluster's `Active` condition continues to describe its connection health.
+Cordon applies to new remote workloads, including new workload slices and
+component workloads pinned to that cluster. Such workloads wait until the worker
+is uncordoned.
+
+When all configured workers are cordoned, new workloads wait on the manager.
+To resume dispatch, set the field to `false`:
+
+```shell
+kubectl patch multikueuecluster worker1 --type=merge \
+  -p '{"spec":{"unschedulable":false}}'
+```
+
+The setting defaults to `false` and is ignored when the feature gate is disabled.
+It only affects dispatch from this manager; jobs submitted directly on the worker
+or dispatched by another manager are unaffected. As with other controller-driven
+configuration changes, the policy takes effect once the manager observes it;
+dispatch already in progress may complete.

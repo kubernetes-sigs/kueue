@@ -2078,6 +2078,16 @@ workloads assigned to this LocalQueue.</p>
 <tbody>
     
   
+<tr><td><code>unschedulable</code><br/>
+<code>bool</code>
+</td>
+<td>
+   <p>unschedulable prevents MultiKueue from dispatching new workloads to this cluster.
+Workloads already dispatched to the cluster continue to be managed and may
+be admitted. This does not affect the cluster's Active condition.
+Requires the MultiKueueClusterCordon feature gate. Defaults to false.</p>
+</td>
+</tr>
 <tr><td><code>clusterSource</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ClusterSource"><code>ClusterSource</code></a>
 </td>
