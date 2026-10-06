@@ -3,27 +3,25 @@
 <!-- toc -->
 - [Summary](#summary)
 - [Motivation](#motivation)
+  - [Why TAS is not enough](#why-tas-is-not-enough)
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
-  - [Who creates what](#who-creates-what)
   - [User Stories](#user-stories)
-    - [Story 1: Quota follows a fixed GPU pool](#story-1-quota-follows-a-fixed-gpu-pool)
-    - [Story 2: One shared pool for several teams](#story-2-one-shared-pool-for-several-teams)
-    - [Story 3: Guaranteed shares that scale with the cluster](#story-3-guaranteed-shares-that-scale-with-the-cluster)
-    - [Story 4: Several GPU types in one cluster](#story-4-several-gpu-types-in-one-cluster)
-    - [Story 5: Leaving room for DaemonSets](#story-5-leaving-room-for-daemonsets)
-    - [Story 6: Moving nodes between clusters](#story-6-moving-nodes-between-clusters)
+    - [Story 1: Broken or cordoned nodes keep their quota, so admitted jobs stay Pending](#story-1-broken-or-cordoned-nodes-keep-their-quota-so-admitted-jobs-stay-pending)
+    - [Story 2: New nodes sit idle until someone edits quota](#story-2-new-nodes-sit-idle-until-someone-edits-quota)
+    - [Story 3: Team shares must follow a pool that changes size](#story-3-team-shares-must-follow-a-pool-that-changes-size)
+    - [Story 4: Quota lags behind nodes moved between clusters](#story-4-quota-lags-behind-nodes-moved-between-clusters)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
+    - [Quota based on current nodes blocks ProvisioningRequest scale-up](#quota-based-on-current-nodes-blocks-provisioningrequest-scale-up)
+    - [A node can label itself into a flavor](#a-node-can-label-itself-into-a-flavor)
+    - [Overlapping flavors would count a node twice](#overlapping-flavors-would-count-a-node-twice)
 - [Design Details](#design-details)
-  - [Example](#example)
   - [Which nodes count](#which-nodes-count)
   - [Calculation](#calculation)
   - [Controller](#controller)
-  - [DQO change](#dqo-change)
   - [Conditions and observability](#conditions-and-observability)
-  - [Worked example](#worked-example)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit tests](#unit-tests)
@@ -38,7 +36,12 @@
   - [A LocalCapacity configuration API](#a-localcapacity-configuration-api)
   - [Write quota into spec](#write-quota-into-spec)
   - [External controller only](#external-controller-only)
-  - [Remember reported resources instead of changing DQO](#remember-reported-resources-instead-of-changing-dqo)
+- [Examples](#examples)
+  - [Shared pool for several teams](#shared-pool-for-several-teams)
+  - [Proportional team shares](#proportional-team-shares)
+  - [Several GPU types in one cluster](#several-gpu-types-in-one-cluster)
+  - [Headroom for DaemonSets](#headroom-for-daemonsets)
+  - [Reported capacity as nodes change](#reported-capacity-as-nodes-change)
 <!-- /toc -->
 
 ## Summary
@@ -53,11 +56,10 @@ track. For each flavor, a new controller in kueue-controller-manager sums the
 allocatable resources of the healthy Nodes that match the flavor's `nodeLabels`,
 and publishes the totals in `CapacityProvider.status.capacity`. The existing DQO
 controller then distributes that capacity as quota across a Cohort/ClusterQueue
-tree through `status.effectiveQuotas`.
+tree.
 
 No new API types or fields are introduced. The feature uses only the existing
-`CapacityProvider`, `DynamicQuotaOrchestrator` and `ResourceFlavor` APIs, plus a
-small change to how DQO treats resources that a provider does not report.
+`CapacityProvider`, `DynamicQuotaOrchestrator` and `ResourceFlavor` APIs.
 
 ## Motivation
 
@@ -79,6 +81,19 @@ separate KEPs. This is that KEP for
 earlier proposal in [#10745](https://github.com/kubernetes-sigs/kueue/pull/10745),
 which was closed in favour of building on DQO.
 
+### Why TAS is not enough
+
+Topology-Aware Scheduling (TAS) closes part of the gap: it does not admit a
+workload when there are not enough physical nodes to place it. It does not close
+the gap fully:
+
+1. Not every setup uses TAS.
+2. TAS cannot increase quota when new physical capacity is added, so new nodes
+   still sit idle.
+3. It is easier to explain to a team why its jobs do not schedule with an
+   adjusted quota than with TAS placement failures, which are hard for end users
+   to see.
+
 ### Goals
 
 - Quota tracks the actual, healthy node capacity of each ResourceFlavor.
@@ -91,9 +106,6 @@ which was closed in favour of building on DQO.
 
 ### Non-Goals
 
-- Writing quota into ClusterQueue or Cohort `spec`.
-- A provider-specific configuration API. Possible knobs are listed under
-  [Alternatives](#alternatives), to be revisited for Beta.
 - DRA / ResourceSlice capacity, tracked separately in
   [#14977](https://github.com/kubernetes-sigs/kueue/issues/14977).
 - Counting capacity that does not exist yet, such as autoscaler maximums or
@@ -113,314 +125,26 @@ which was closed in favour of building on DQO.
 3. A new feature gate, `LocalCapacityProvider` (alpha, disabled by default),
    which requires `DynamicQuotaOrchestration`.
    Enabling it without `DynamicQuotaOrchestration` fails at startup.
-4. It relies on a small DQO change, merged in
-   [#16168](https://github.com/kubernetes-sigs/kueue/pull/16168) and needed for
-   correct zeros (see [Notes](#notesconstraintscaveats)): a provider orchestrates
-   all resources of the flavors in its `orchestratedFlavors`, so capacity it does
-   not report for such a flavor counts as `0` instead of falling back to the spec
-   value.
 
-### Who creates what
-
-Kueue never creates these objects on its own. Spec and status have separate
-owners, just as for a Deployment:
-
-| Object | `spec` written by | `status` written by |
-|---|---|---|
-| `ResourceFlavor` | Administrator | – |
-| `CapacityProvider` | Administrator | Local-capacity controller |
-| `DynamicQuotaOrchestrator` | Administrator | DQO controller |
-| `Cohort` / `ClusterQueue` | Administrator (quota structure and proportions) | DQO controller (`effectiveQuotas`) |
-
-The administrator creates these objects once, with `kubectl`, GitOps or Helm.
-After that, changes in the set of Nodes only change status: Nodes, then
-`CapacityProvider.status`, then `effectiveQuotas`. No spec is rewritten, so the
-configuration can live in Git while the frequently changing numbers stay in
-status.
-
-Opt-in is explicit, as in KEP-12382: nothing changes in a cluster until an
-administrator creates a `CapacityProvider` and a `DynamicQuotaOrchestrator`.
+Object ownership and opt-in follow [KEP-12382](../12382-dynamic-quota-orchestration/README.md):
+the administrator writes every spec, and this controller writes only
+`CapacityProvider.status`.
 
 ### User Stories
 
-All stories assume Kueue is installed with the alpha APIs and both feature gates
-enabled. With Helm:
+#### Story 1: Broken or cordoned nodes keep their quota, so admitted jobs stay Pending
 
-```yaml
-enableAlphaAPIs: true
-controllerManager:
-  featureGates:
-  - name: DynamicQuotaOrchestration
-    enabled: true
-  - name: LocalCapacityProvider
-    enabled: true
-```
+As a cluster administrator with a pool of H100 nodes, I want quota to equal the
+GPUs that are actually usable. Today, when a node fails or is cordoned, its GPUs
+stay in quota, so Kueue admits jobs that then stay Pending until someone lowers
+`nominalQuota` by hand.
 
-#### Story 1: Quota follows a fixed GPU pool
-
-*As a cluster administrator with a pool of H100 nodes and a single team, I want
-the team's quota to equal the GPUs that are actually usable, with no YAML edits
-when nodes fail or are replaced.*
-
-1. Describe the nodes with a ResourceFlavor, as today:
-
-   ```yaml
-   apiVersion: kueue.x-k8s.io/v1beta2
-   kind: ResourceFlavor
-   metadata:
-     name: h100
-   spec:
-     nodeLabels:
-       example.com/gpu-type: h100
-   ```
-
-2. Keep the ClusterQueue as it is. Its `nominalQuota` now acts as a distribution
-   weight and as the fallback, so leave it at today's value:
-
-   ```yaml
-   apiVersion: kueue.x-k8s.io/v1beta2
-   kind: ClusterQueue
-   metadata:
-     name: research
-   spec:
-     namespaceSelector: {}
-     resourceGroups:
-     - coveredResources: [cpu, memory, nvidia.com/gpu]
-       flavors:
-       - name: h100
-         resources:
-         - {name: cpu, nominalQuota: "1200"}
-         - {name: memory, nominalQuota: 9000Gi}
-         - {name: nvidia.com/gpu, nominalQuota: "80"}
-   ```
-
-3. Ask Kueue to track the flavor's nodes, and distribute the result to the
-   ClusterQueue:
-
-   ```yaml
-   apiVersion: kueue.x-k8s.io/v1alpha1
-   kind: CapacityProvider
-   metadata:
-     name: nodes
-   spec:
-     controllerName: kueue.x-k8s.io/local-capacity
-     orchestratedFlavors:
-     - name: h100
-   ---
-   apiVersion: kueue.x-k8s.io/v1alpha1
-   kind: DynamicQuotaOrchestrator
-   metadata:
-     name: research
-   spec:
-     capacityDiscovery:
-       providers:
-       - name: nodes
-     capacityDistribution:
-       subtreeRootQuotaRef: {kind: ClusterQueue, name: research}
-   ```
-
-4. Check what Kueue sees:
-
-   ```sh
-   kubectl get cp nodes -o yaml   # status.capacity and the "h100: 10 nodes" message
-   kubectl get clusterqueue research -o jsonpath='{.status.effectiveQuotas}'
-   ```
-
-When a node goes NotReady or is cordoned, `research` loses that node's GPUs
-within seconds. When the node is repaired or replaced, the GPUs come back.
-Running workloads are not evicted; only new admissions see the lower quota.
-
-#### Story 2: One shared pool for several teams
-
-*As a cluster administrator, I want all discovered capacity to land in one
-shared pool that every team borrows from, and I want to check the numbers
-before switching anything on.*
-
-1. Create a Cohort that holds all the capacity, and give each team ClusterQueue
-   `0` for the same flavor and resources. The Cohort is the only participant
-   with a non-zero value, so DQO gives it 100% of the capacity:
-
-   ```yaml
-   apiVersion: kueue.x-k8s.io/v1beta2
-   kind: Cohort
-   metadata:
-     name: shared-pool
-   spec:
-     resourceGroups:
-     - coveredResources: [nvidia.com/gpu]
-       flavors:
-       - name: h100
-         resources:
-         - {name: nvidia.com/gpu, nominalQuota: "80"}   # today's static quota: the fallback
-   ---
-   apiVersion: kueue.x-k8s.io/v1beta2
-   kind: ClusterQueue
-   metadata:
-     name: team-a        # the same for team-b, team-c
-   spec:
-     cohortName: shared-pool
-     namespaceSelector: {}
-     resourceGroups:
-     - coveredResources: [nvidia.com/gpu]
-       flavors:
-       - name: h100
-         resources:
-         - {name: nvidia.com/gpu, nominalQuota: "0"}
-   ```
-
-2. **Dry run.** Create the CapacityProvider from Story 1 and a DQO *without*
-   `capacityDistribution`. DQO only reports what it found; quota is unchanged:
-
-   ```yaml
-   apiVersion: kueue.x-k8s.io/v1alpha1
-   kind: DynamicQuotaOrchestrator
-   metadata:
-     name: shared-pool
-   spec:
-     capacityDiscovery:
-       providers:
-       - name: nodes
-   ```
-
-   Compare `kubectl get dqo shared-pool -o jsonpath='{.status.effectiveCapacity}'`
-   with the current quota.
-
-3. **Switch on.** Add distribution to the same DQO:
-
-   ```yaml
-     capacityDistribution:
-       subtreeRootQuotaRef: {kind: Cohort, name: shared-pool}
-   ```
-
-4. **Switch off.** Remove `capacityDistribution` and clear
-   `status.effectiveQuotas` on the Cohort and ClusterQueues. Kueue returns to
-   the spec values from step 1.
-
-The pool always equals the healthy nodes, and teams compete for it through
-borrowing, with fair sharing or priorities as configured today.
-
-#### Story 3: Guaranteed shares that scale with the cluster
-
-*As a cluster administrator, I want team-a to always own 60% of the GPUs and
-team-b 40%, whether the pool has 40 nodes or 60.*
-
-Use the setup from Story 2, but set the team ClusterQueues' spec `nominalQuota`
-to the ratio (for example `6` and `4`) and the Cohort's to `0`. DQO splits the
-discovered capacity in that proportion: with 10 nodes (80 GPUs), team-a gets 48
-and team-b 32; with 5 nodes left (40 GPUs), they get 24 and 16. Unused quota can
-still be borrowed through the Cohort.
-
-#### Story 4: Several GPU types in one cluster
-
-*As a cluster administrator with H100 and A100 pools, I want the quota of each
-pool tracked separately.*
-
-Create one ResourceFlavor per pool, with non-overlapping `nodeLabels`, and list
-both in the same CapacityProvider:
-
-```yaml
-spec:
-  controllerName: kueue.x-k8s.io/local-capacity
-  orchestratedFlavors:
-  - name: h100
-  - name: a100
-```
-
-Each flavor's quota follows only its own nodes. If the labels overlap, for
-example because a label-less `default` flavor matches every node, the provider
-reports `Misconfigured` and names the node. DQO keeps the last good quota until
-the flavors are fixed, so nothing is double-counted.
-
-#### Story 5: Leaving room for DaemonSets
-
-*As a cluster administrator, my nodes run monitoring and networking DaemonSets
-that use about 5% of each node, and Kueue should not hand that capacity out.*
-
-Set a multiplier on the provider in the DQO:
-
-```yaml
-  capacityDiscovery:
-    providers:
-    - name: nodes
-      effectiveCapacityMultiplier: "0.95"
-```
-
-80 discovered GPUs become 76 of quota, and 1200 CPUs become 1140.
-
-#### Story 6: Moving nodes between clusters
-
-*As an administrator replacing cluster A with cluster B, I move nodes over a few
-at a time and want quota on both clusters to follow without edits.*
-
-1. Set up Story 1 or 2 on both clusters, with the same flavor labels.
-2. On cluster A, cordon a node before draining it. Cordoning removes the node
-   from A's quota immediately, so A stops admitting work onto it.
-3. When the node joins cluster B and becomes Ready, B's quota grows
-   automatically.
-
-At every step, each cluster's quota matches the nodes it actually has.
-
-### Notes/Constraints/Caveats
-
-- **The ResourceFlavor is the node selector.** Which nodes count for a flavor is
-  decided entirely by its `nodeLabels`. These are the same labels Kueue uses to
-  place workloads, so counting and placement always agree.
-- **Trust the label source.** The same `nodeLabels` decide both capacity and
-  placement, so use labels that only a trusted component sets (for example keys
-  under the `node-restriction.kubernetes.io/` prefix, which the `NodeRestriction`
-  admission plugin prevents kubelets from setting), not ones a node's kubelet can
-  set for itself. See [Risks and Mitigations](#risks-and-mitigations).
-- **Zeros need a DQO change.** Before #16168, if no provider reported a
-  (flavor, resource) pair, DQO kept the spec value for it. Without a
-  configuration API, the provider only knows the resources that the nodes
-  currently advertise. If every GPU node disappears, `nvidia.com/gpu` would
-  simply be missing from the report, and quota would silently fall back to the
-  spec value instead of dropping to 0. With #16168, DQO adds every orchestrated
-  flavor to `status.effectiveCapacity` (with `resources: {}` when nothing is
-  reported) and distributes 0 for any declared pair missing from it. So when a
-  flavor has no eligible nodes, the provider publishes it with empty
-  `resources` and all of its resources count as 0; when a resource disappears
-  from all nodes of a flavor, that resource counts as 0.
-- **Only node resources belong on an orchestrated flavor.** Because the provider
-  orchestrates all resources of its flavors, a resource declared for such a
-  flavor in a ClusterQueue or Cohort that nodes do not advertise (for example a
-  license token) is distributed as 0. Keep such resources on a separate flavor
-  that is not orchestrated.
-- **How DQO distributes.** DQO splits capacity in proportion to the
-  `nominalQuota` values in spec. For a shared pool, the Cohort has a positive
-  spec value and its ClusterQueues have 0, so the Cohort receives 100%.
-  ClusterQueues must still list the same flavor/resource pairs (with 0) in order
-  to borrow.
-- **Only the resources used in quota matter.** The provider reports everything
-  in `allocatable` (cpu, memory, pods, extended resources and so on). DQO ignores
-  pairs that are not declared in the ClusterQueue/Cohort specs.
-- **Spec is the fallback.** Before DQO first writes `effectiveQuotas`, and
-  whenever the feature gates are disabled, the scheduler uses spec. We recommend
-  setting the spec quota of the shared Cohort to today's static quota, so that
-  the fallback stays sensible.
-
-### Risks and Mitigations
-
-| Risk | Mitigation |
-|---|---|
-| **Autoscaling.** Kueue's ProvisioningRequest flow needs quota above the current capacity to trigger scale-up; quota based on current nodes blocks that. | Document that this provider is for fixed or externally scaled pools. Emit a warning event when a tracked flavor is used by a ClusterQueue with a ProvisioningRequest admission check. |
-| **Double counting.** Flavors with overlapping `nodeLabels` match the same node, for example a label-less `default` flavor next to a GPU flavor. | The controller detects the overlap across all local-capacity providers. The provider is marked `Misconfigured`, so DQO keeps the last good quota. |
-| **Stale quota.** The controller is down, so quota stops updating. | DQO keeps the last value, which is its existing behavior. A last-sync metric together with an alert informs operators. |
-| **Capacity drops below usage.** | Running workloads continue and new admissions wait. This matches lowering quota by hand today. |
-| **Non-Kueue pods use node resources** (DaemonSets, agents). | Use DQO's `effectiveCapacityMultiplier` (for example `0.95`) as headroom. |
-| **GPU node counted before its GPUs appear.** Its CPU and memory count while the device plugin is still starting. | This lasts only a short time and GPU quota itself is correct. If needed, add a required-resources option in Beta. |
-| **A node labels itself into a flavor.** A kubelet that self-applies a flavor label gets its node's capacity counted for that flavor and the flavor's workloads placed on it. This risk already exists for placement; counting capacity from the same labels widens its impact to quota. | Use flavor labels that only a trusted component can set, for example the `node-restriction.kubernetes.io/` prefix protected by the `NodeRestriction` admission plugin, not labels a kubelet can self-apply. |
-| **Two orchestrators share one provider.** Two DynamicQuotaOrchestrators with disjoint subtree roots that reference the same CapacityProvider each receive its full capacity, so the pool is handed out twice. DQO soft validation does not detect this. | Split the pool with a per-orchestrator `effectiveCapacityMultiplier` (for example `0.5` on each), as described in KEP-12382. |
-| **Nodes advertise more than 64 resources.** The provider reports every allocatable resource of a flavor's nodes, and the API allows at most 64 per flavor. Above that, the provider is `Misconfigured` and all of its flavors keep their last quota. | Documented Alpha limit; the condition message names the flavor and the count. Beta adds an explicit per-flavor resource list, so only the listed resources are reported. |
-| **Scalability.** Clusters with thousands of nodes produce many Node events. | Node updates that cannot change capacity, such as kubelet heartbeats, are filtered out, and no-op status writes are skipped. Beta requires a scale test. |
-
-## Design Details
-
-### Example
+With this KEP the administrator keeps the ResourceFlavor and ClusterQueue as they
+are, and asks Kueue to track the flavor's nodes:
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta2
-kind: ResourceFlavor            # existing; its nodeLabels select the nodes
+kind: ResourceFlavor
 metadata:
   name: h100
 spec:
@@ -428,7 +152,7 @@ spec:
     example.com/gpu-type: h100
 ---
 apiVersion: kueue.x-k8s.io/v1alpha1
-kind: CapacityProvider          # existing DQO API, no parameters needed
+kind: CapacityProvider
 metadata:
   name: nodes
 spec:
@@ -437,21 +161,18 @@ spec:
   - name: h100
 ---
 apiVersion: kueue.x-k8s.io/v1alpha1
-kind: DynamicQuotaOrchestrator  # existing DQO API
+kind: DynamicQuotaOrchestrator
 metadata:
-  name: nodes
+  name: research
 spec:
   capacityDiscovery:
     providers:
     - name: nodes
-      effectiveCapacityMultiplier: "0.95"   # 5% headroom for non-Kueue pods
   capacityDistribution:
-    subtreeRootQuotaRef:
-      kind: Cohort
-      name: shared-pool
+    subtreeRootQuotaRef: {kind: ClusterQueue, name: research}
 ```
 
-The controller then writes:
+The controller then reports the healthy capacity:
 
 ```yaml
 status:
@@ -469,7 +190,92 @@ status:
     message: "h100: 10 nodes; excluded: NotReady=1"
 ```
 
+When a node goes NotReady or is cordoned, `research` loses that node's GPUs
+within seconds. When the node is repaired or replaced, the GPUs come back.
+Running workloads are not evicted; only new admissions see the lower quota.
+
+#### Story 2: New nodes sit idle until someone edits quota
+
+As a cluster administrator, I add nodes to a pool shared by several teams. Today
+the new GPUs sit idle until someone raises `nominalQuota`, and if only some of
+the requested nodes join, the edit has to be corrected again.
+
+With this KEP, a Cohort holds all the discovered capacity and every team borrows
+from it. Quota grows as soon as each new node becomes Ready, by exactly the
+capacity that joined. See [Shared pool for several teams](#shared-pool-for-several-teams).
+
+#### Story 3: Team shares must follow a pool that changes size
+
+As a cluster administrator, I want team-a to own 60% of the GPUs and team-b 40%,
+whether the pool has 40 nodes or 60. Today each resize means recomputing and
+editing both teams' quota.
+
+With this KEP, the teams' spec `nominalQuota` holds only the ratio, and DQO
+splits the node-derived capacity in that proportion.
+See [Proportional team shares](#proportional-team-shares).
+
+#### Story 4: Quota lags behind nodes moved between clusters
+
+As an administrator replacing cluster A with cluster B, I move nodes over a few
+at a time. Today both clusters' quota must be edited after every batch, and until
+then A admits work onto nodes it no longer has.
+
+With this KEP, both clusters run the setup from Story 1 or 2 with the same
+flavor labels. Cordoning a node on A removes it from A's quota immediately, and
+when it joins B and becomes Ready, B's quota grows. At every step, each cluster's
+quota matches the nodes it actually has.
+
+### Notes/Constraints/Caveats
+
+- **Only node resources belong on an orchestrated flavor.** A provider
+  orchestrates all resources of its flavors, so a resource declared for such a
+  flavor that nodes do not advertise (for example a license token) is
+  distributed as 0. Keep such resources on a separate flavor that is not
+  orchestrated.
+- **Only the resources used in quota matter.** The provider reports everything
+  in `allocatable` (cpu, memory, pods, extended resources and so on). DQO ignores
+  pairs that are not declared in the ClusterQueue/Cohort specs.
+
+### Risks and Mitigations
+
+Risks of DQO itself, such as stale quota when a provider stops updating or two
+orchestrators sharing one provider, are inherited and handled as described in
+[KEP-12382](../12382-dynamic-quota-orchestration/README.md#risks-and-mitigations).
+The risks below are specific to deriving capacity from Nodes.
+
+#### Quota based on current nodes blocks ProvisioningRequest scale-up
+
+Kueue's ProvisioningRequest flow needs quota above the current capacity to
+trigger scale-up, and quota based on current nodes never exceeds it.
+
+Mitigation: document that this provider is for fixed or externally scaled pools,
+and emit a warning event when a tracked flavor is used by a ClusterQueue with a
+ProvisioningRequest admission check.
+
+#### A node can label itself into a flavor
+
+A kubelet that self-applies a flavor label gets its node's capacity counted for
+that flavor and the flavor's workloads placed on it. This risk already exists for
+placement; counting capacity from the same labels widens its impact to quota.
+
+Mitigation: document that flavor labels must be set only by a trusted component,
+as described in [Which nodes count](#which-nodes-count).
+
+#### Overlapping flavors would count a node twice
+
+Flavors with overlapping `nodeLabels` match the same node, for example a
+label-less `default` flavor next to a GPU flavor.
+
+Mitigation: the controller detects the overlap across all local-capacity
+providers and marks the provider `Misconfigured`, so DQO keeps the last good
+quota and the condition message names the node.
+
+## Design Details
+
 ### Which nodes count
+
+The ResourceFlavor is the node selector. Its `nodeLabels` are the same labels
+Kueue uses to place workloads, so counting and placement always agree.
 
 A node contributes to a flavor only if all of the following hold:
 
@@ -480,6 +286,11 @@ A node contributes to a flavor only if all of the following hold:
 
 A node that stops meeting these conditions is removed on the next sync.
 
+Flavor labels should be set only by a trusted component, for example keys under
+the `node-restriction.kubernetes.io/` prefix, which the `NodeRestriction`
+admission plugin prevents kubelets from setting, not labels a node's kubelet can
+set for itself.
+
 ### Calculation
 
 ```
@@ -489,14 +300,17 @@ per flavor, per resource: sum of node.status.allocatable over eligible nodes
 - `status.allocatable` already excludes kubelet and system reservations.
 - Running workloads are not subtracted; Kueue already tracks usage against quota.
 - DQO applies `effectiveCapacityMultiplier` afterwards.
+- A flavor with no eligible nodes is published with empty `resources`, and DQO
+  then distributes 0 for its resources.
 
 ### Controller
 
 The controller watches `CapacityProvider`, `Node` and `ResourceFlavor` objects.
-Any change to a Node or ResourceFlavor enqueues all local-capacity providers,
-because it may affect any of them through overlap detection. Node updates that
-cannot affect capacity are filtered out: only changes to labels, taints,
-`unschedulable`, deletion, `allocatable` or readiness are considered.
+Any change to a Node, a ResourceFlavor or a local-capacity CapacityProvider
+enqueues all local-capacity providers, because it may affect any of them through
+overlap detection. Node updates that cannot affect capacity are filtered out:
+only changes to labels, taints, `unschedulable`, deletion, `allocatable` or
+readiness are considered.
 
 For each provider, the reconcile loop:
 
@@ -508,33 +322,12 @@ For each provider, the reconcile loop:
    local-capacity providers) it matches. A node matching more than one flavor
    makes the provider `Misconfigured`.
 4. Sums `allocatable` over the eligible nodes of each of the provider's flavors.
-   Flavors without eligible nodes are published with empty `resources` (the
-   status must list at least one flavor), which DQO distributes as zero.
 5. Writes `status.capacity` and the `CapacitySynchronized` condition, skipping
    writes that change nothing.
 
 The controller needs `get/list/watch` on Nodes, ResourceFlavors and
 CapacityProviders, which Kueue already has, and `get/update/patch` on
 `capacityproviders/status`, which is new.
-
-### DQO change
-
-Merged in [#16168](https://github.com/kubernetes-sigs/kueue/pull/16168):
-
-- A provider orchestrates all resources of the flavors in its
-  `spec.orchestratedFlavors`; partial orchestration of a flavor for a subset of
-  its resources is not supported. Empty `orchestratedFlavors` remains rejected.
-- During discovery, DQO adds every orchestrated flavor of the referenced,
-  synchronized providers to `status.effectiveCapacity`, with an empty
-  `resources` map when no capacity is reported for it. The CEL rule on
-  `resources` is relaxed from 1–64 to at most 64 entries to allow this.
-- During distribution, which reads only `status.effectiveCapacity`, every
-  (flavor, resource) pair declared in the subtree for a flavor present there but
-  missing from its `resources` is distributed as zero capacity. Pairs of flavors
-  that no provider orchestrates keep their spec value, as before.
-
-The zero is therefore visible in DQO status. The DQO API is alpha and the DQO
-feature gate is disabled by default.
 
 ### Conditions and observability
 
@@ -549,19 +342,6 @@ state makes DQO stop redistributing and keep the last effective quotas.
 
 For Beta we plan to add events for excluded nodes, and metrics for the number of
 eligible and excluded nodes per flavor and the time of the last successful sync.
-
-### Worked example
-
-10 nodes, each with 8 GPUs, 120 CPUs and 900Gi of allocatable memory. The DQO
-multiplier is 1.
-
-| Event | Reported (GPU / CPU / memory) |
-|---|---|
-| 10 nodes | 80 / 1200 / 9000Gi |
-| Pool target raised to 14, only 2 nodes join | 96 / 1440 / 10800Gi |
-| 3 nodes leave | 72 / 1080 / 8100Gi |
-| All nodes gone | flavor published with empty `resources`; all resources count as 0 |
-| A 16-GPU job starts | no change |
 
 ### Test Plan
 
@@ -581,9 +361,6 @@ None.
   missing flavors, more than 64 resources, a failure to list Nodes keeping the
   last capacity (`SourceUnavailable`), unchanged status not rewritten, providers
   of other controllers ignored, feature gate disabled.
-- `pkg/controller/core/dqo` (in #16168): unreported orchestrated flavors appear
-  in `effectiveCapacity` with empty `resources`, their declared pairs are
-  distributed as 0, and pairs of non-orchestrated flavors keep their spec value.
 
 #### Integration tests
 
@@ -592,6 +369,8 @@ None.
 - Removing all nodes of a flavor drops quota to 0, not back to the spec value.
 - Overlapping flavors set `Misconfigured` and effective quotas stay unchanged,
   even when more nodes join.
+- Deleting an overlapping provider brings the remaining provider back to
+  `Synchronized`.
 - `effectiveCapacityMultiplier` scales the distributed quota (for example 80
   GPUs with `0.95` give 76).
 - The scheduler admits workloads according to the node-derived quota.
@@ -606,8 +385,7 @@ None.
 
 #### Alpha
 
-- The controller and the `LocalCapacityProvider` feature gate are implemented,
-  on top of the DQO zero-handling change from #16168.
+- The controller and the `LocalCapacityProvider` feature gate are implemented.
 - The tests above are implemented.
 - Documentation describes the shared-Cohort setup and the user stories.
 
@@ -618,6 +396,8 @@ None.
 - Events and metrics for excluded nodes and sync time.
 - An explicit per-flavor resource list, so the provider is not limited by the
   64-resource cap and can support per-resource headroom.
+- An option to count a GPU node only once its GPUs are advertised, so its CPU and
+  memory do not count while the device plugin is still starting.
 - A Node cache transform that keeps only the fields the provider and TAS read,
   agreed with TAS owners because the Node informer is shared.
 - Freshness and expiry of effective quota are revisited together with DQO.
@@ -637,8 +417,7 @@ None.
   filter beyond the flavor's labels.
 - The quota in effect is in status rather than spec, which is less obvious to
   administrators. This is inherent to DQO.
-- Depends on the DQO change in #16168, which also means resources that nodes do
-  not advertise cannot share an orchestrated flavor.
+- Resources that nodes do not advertise cannot share an orchestrated flavor.
 
 ## Alternatives
 
@@ -675,13 +454,105 @@ supports.
 KEP-12382 already uses `kueue.x-k8s.io/local-capacity` as its example of a
 built-in provider.
 
-### Remember reported resources instead of changing DQO
+## Examples
 
-*Superseded by the DQO change in #16168.*
+These examples reuse the `h100` ResourceFlavor and the `nodes` CapacityProvider
+from [Story 1](#story-1-broken-or-cordoned-nodes-keep-their-quota-so-admitted-jobs-stay-pending).
 
-The provider could keep reporting, with value 0, every resource it has
-previously published, so that DQO never sees a missing pair.
+### Shared pool for several teams
 
-**Reasons for rejecting:** it is fragile. It does not work on the very first sync
-of a flavor without nodes, and it cannot tell a resource that was removed on
-purpose from one that disappeared temporarily.
+For [Story 2](#story-2-new-nodes-sit-idle-until-someone-edits-quota). The Cohort
+is the only participant with a non-zero spec value, so DQO gives it 100% of the
+capacity. Team ClusterQueues list the same flavor and resources with `0`, so they
+can borrow from it. The Cohort's spec value is the fallback before DQO first
+writes effective quota, so set it to today's static quota.
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: Cohort
+metadata:
+  name: shared-pool
+spec:
+  resourceGroups:
+  - coveredResources: [nvidia.com/gpu]
+    flavors:
+    - name: h100
+      resources:
+      - {name: nvidia.com/gpu, nominalQuota: "80"}
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: ClusterQueue
+metadata:
+  name: team-a        # the same for team-b, team-c
+spec:
+  cohortName: shared-pool
+  namespaceSelector: {}
+  resourceGroups:
+  - coveredResources: [nvidia.com/gpu]
+    flavors:
+    - name: h100
+      resources:
+      - {name: nvidia.com/gpu, nominalQuota: "0"}
+---
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: DynamicQuotaOrchestrator
+metadata:
+  name: shared-pool
+spec:
+  capacityDiscovery:
+    providers:
+    - name: nodes
+  capacityDistribution:
+    subtreeRootQuotaRef: {kind: Cohort, name: shared-pool}
+```
+
+To check the numbers before switching on, first create the DQO without
+`capacityDistribution` and compare `status.effectiveCapacity` with the current
+quota.
+
+### Proportional team shares
+
+For [Story 3](#story-3-team-shares-must-follow-a-pool-that-changes-size). Use the
+shared-pool setup, but set the team ClusterQueues' spec `nominalQuota` to the
+ratio (for example `6` and `4`) and the Cohort's to `0`. With 10 nodes (80 GPUs),
+team-a gets 48 and team-b 32; with 5 nodes left (40 GPUs), they get 24 and 16.
+Unused quota can still be borrowed through the Cohort.
+
+### Several GPU types in one cluster
+
+Create one ResourceFlavor per pool, with non-overlapping `nodeLabels`, and list
+both in the same CapacityProvider. Each flavor's quota follows only its own nodes.
+
+```yaml
+spec:
+  controllerName: kueue.x-k8s.io/local-capacity
+  orchestratedFlavors:
+  - name: h100
+  - name: a100
+```
+
+### Headroom for DaemonSets
+
+When monitoring and networking DaemonSets use about 5% of each node, set a
+multiplier on the provider in the DQO. 80 discovered GPUs become 76 of quota, and
+1200 CPUs become 1140.
+
+```yaml
+  capacityDiscovery:
+    providers:
+    - name: nodes
+      effectiveCapacityMultiplier: "0.95"
+```
+
+### Reported capacity as nodes change
+
+10 nodes, each with 8 GPUs, 120 CPUs and 900Gi of allocatable memory. The DQO
+multiplier is 1.
+
+| Event | Reported (GPU / CPU / memory) |
+|---|---|
+| 10 nodes | 80 / 1200 / 9000Gi |
+| Pool target raised to 14, only 2 nodes join | 96 / 1440 / 10800Gi |
+| 3 nodes leave | 72 / 1080 / 8100Gi |
+| All nodes gone | flavor published with empty `resources`; all resources count as 0 |
+| A 16-GPU job starts | no change |

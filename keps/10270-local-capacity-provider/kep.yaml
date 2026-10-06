@@ -11,6 +11,7 @@ reviewers:
   - "@j-skiba"
 approvers:
   - "@tenzen-y"
+  - "@mimowo"
 
 see-also:
   - "/keps/12382-dynamic-quota-orchestration"
