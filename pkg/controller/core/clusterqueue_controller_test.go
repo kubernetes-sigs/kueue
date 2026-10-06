@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
@@ -735,6 +736,125 @@ func TestRecordResourceMetrics(t *testing.T) {
 			endMetrics := allMetricsForQueue(tc.queue.Name)
 			if len(endMetrics.NominalDPs) != 0 || len(endMetrics.BorrowingDPs) != 0 || len(endMetrics.UsageDPs) != 0 {
 				t.Errorf("Unexpected metrics after cleanup:\n%v", endMetrics)
+			}
+		})
+	}
+}
+
+func TestClusterQueueDeleteCohortSubtreeMetrics(t *testing.T) {
+	testCases := map[string]struct {
+		cohorts            []*kueue.Cohort
+		clusterQueues      []*kueue.ClusterQueue
+		workload           *kueue.Workload
+		deleteClusterQueue string
+		wantQuota          map[string]float64
+		wantReservations   map[string]float64
+	}{
+		"last ClusterQueue in the cohort": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-a").
+					Cohort("team").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj(),
+			},
+			workload: workloadForReservation("cq-a", []kueue.FlavorUsage{{
+				Name:      "default",
+				Resources: []kueue.ResourceUsage{{Name: corev1.ResourceCPU, Total: resource.MustParse("2")}},
+			}}),
+			deleteClusterQueue: "cq-a",
+		},
+		"another ClusterQueue remains in the cohort": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-a").
+					Cohort("team").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("cq-b").
+					Cohort("team").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "6").Obj()).
+					Obj(),
+			},
+			workload: workloadForReservation("cq-b", []kueue.FlavorUsage{{
+				Name:      "default",
+				Resources: []kueue.ResourceUsage{{Name: corev1.ResourceCPU, Total: resource.MustParse("2")}},
+			}}),
+			deleteClusterQueue: "cq-a",
+			wantQuota:          map[string]float64{"team": 6},
+			wantReservations:   map[string]float64{"team": 2},
+		},
+		"a child cohort remains under the cohort": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("team").Parent("org").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-a").
+					Cohort("org").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj()).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("cq-b").
+					Cohort("team").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "6").Obj()).
+					Obj(),
+			},
+			workload: workloadForReservation("cq-b", []kueue.FlavorUsage{{
+				Name:      "default",
+				Resources: []kueue.ResourceUsage{{Name: corev1.ResourceCPU, Total: resource.MustParse("2")}},
+			}}),
+			deleteClusterQueue: "cq-a",
+			wantQuota:          map[string]float64{"org": 6, "team": 6},
+			wantReservations:   map[string]float64{"org": 2, "team": 2},
+		},
+	}
+
+	collectByCohort := func(dps []testingmetrics.MetricDataPoint) map[string]float64 {
+		got := make(map[string]float64, len(dps))
+		for _, dp := range dps {
+			got[dp.Labels["cohort"]] = dp.Value
+		}
+		return got
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			t.Cleanup(func() {
+				metrics.ClearCohortMetrics("org")
+				metrics.ClearCohortMetrics("team")
+			})
+
+			cl := utiltesting.NewClientBuilder().Build()
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+			r := NewClusterQueueReconciler(cl, qManager, cqCache)
+
+			for _, cohort := range tc.cohorts {
+				if err := cqCache.AddOrUpdateCohort(cohort); err != nil {
+					t.Fatalf("Adding cohort to cache: %v", err)
+				}
+				qManager.AddOrUpdateCohort(ctx, cohort)
+			}
+			var deleted *kueue.ClusterQueue
+			for _, cq := range tc.clusterQueues {
+				r.Create(event.TypedCreateEvent[*kueue.ClusterQueue]{Object: cq})
+				if cq.Name == tc.deleteClusterQueue {
+					deleted = cq
+				}
+			}
+			cqCache.AddOrUpdateWorkload(ctx, log, tc.workload)
+			// Mirror the per-ClusterQueue Reconcile, which records the metrics of its cohort.
+			for _, cq := range tc.clusterQueues {
+				cqCache.RecordCohortMetrics(log, cq.Spec.CohortName)
+			}
+
+			r.Delete(event.TypedDeleteEvent[*kueue.ClusterQueue]{Object: deleted})
+
+			gotQuota := collectByCohort(testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeQuota, map[string]string{"flavor": "default"}))
+			if diff := cmp.Diff(tc.wantQuota, gotQuota, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected cohort subtree quota (-want,+got):\n%s", diff)
+			}
+			gotReservations := collectByCohort(testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeResourceReservations, map[string]string{"flavor": "default"}))
+			if diff := cmp.Diff(tc.wantReservations, gotReservations, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected cohort subtree resource reservations (-want,+got):\n%s", diff)
 			}
 		})
 	}
