@@ -6805,6 +6805,10 @@ func TestIsNoFitDueToCapacityAndLimits(t *testing.T) {
 // (not just WorkloadsTopologyRequests in isolation) for PodSet groups where one member -
 // e.g. an LWS leader - requests none of the group's managed resources. Such a PodSet must
 // still end up with the group's resolved TAS flavor so it can be placed.
+//
+// The second-pass cases start from an admission, which keeps each group's PodSets together
+// even when they are not adjacent in the Workload. Each PodSet must keep its own flavor and
+// count, and the admission's order must not change, as the Workload webhook rejects that.
 func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 
@@ -6820,9 +6824,13 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 
 	cases := map[string]struct {
 		wlPods            []kueue.PodSet
+		admission         *kueue.Admission
+		counts            []int32
 		clusterQueue      kueue.ClusterQueue
 		wantPodSetErrors  map[kueue.PodSetReference]error
 		wantPodSetFlavors map[kueue.PodSetReference]ResourceAssignment
+		wantPodSets       []kueue.PodSetReference
+		wantCounts        map[kueue.PodSetReference]int32
 	}{
 		"leader without a managed request infers the group's TAS flavor": {
 			wlPods: []kueue.PodSet{
@@ -6988,13 +6996,110 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 				"worker": {"example.com/gpu-a": {Name: "non-tas", Mode: Fit, TriedFlavorIdx: -1}},
 			},
 		},
+		"second pass: a non-adjacent group keeps its own flavor": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).PodSetGroup("g").Obj(),
+				*utiltestingapi.MakePodSet("other", 1).Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).Obj(),
+				*utiltestingapi.MakePodSet("worker", 2).Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).PodSetGroup("g").Obj(),
+			},
+			admission: utiltestingapi.MakeAdmission("test-clusterqueue").PodSets(
+				utiltestingapi.MakePodSetAssignment("leader").Count(1).Assignment(corev1.ResourceCPU, "tas-a", "1").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).Obj(),
+				utiltestingapi.MakePodSetAssignment("worker").Count(2).Assignment(corev1.ResourceCPU, "tas-a", "2").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).Obj(),
+				utiltestingapi.MakePodSetAssignment("other").Count(1).Assignment(corev1.ResourceCPU, "tas-b", "1").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).Obj(),
+			).Obj(),
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").Resource(corev1.ResourceCPU, "10").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("tas-b").Resource(corev1.ResourceCPU, "10").Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"leader": {corev1.ResourceCPU: {Name: "tas-a", Mode: Fit}},
+				"worker": {corev1.ResourceCPU: {Name: "tas-a", Mode: Fit}},
+				"other":  {corev1.ResourceCPU: {Name: "tas-b", Mode: Fit}},
+			},
+			wantPodSets: []kueue.PodSetReference{"leader", "worker", "other"},
+		},
+		"second pass: a non-adjacent leader without requests keeps the group's TAS flavor": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("worker", 2).Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).PodSetGroup("g").Obj(),
+				*utiltestingapi.MakePodSet("other", 1).Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).Obj(),
+				*utiltestingapi.MakePodSet("leader", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).PodSetGroup("g").Obj(),
+			},
+			admission: utiltestingapi.MakeAdmission("test-clusterqueue").PodSets(
+				utiltestingapi.MakePodSetAssignment("worker").Count(2).Assignment(corev1.ResourceCPU, "tas-a", "2").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).Obj(),
+				utiltestingapi.MakePodSetAssignment("leader").Count(1).Flavor(corev1.ResourceCPU, "tas-a").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).Obj(),
+				utiltestingapi.MakePodSetAssignment("other").Count(1).Assignment(corev1.ResourceCPU, "tas-b", "1").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).Obj(),
+			).Obj(),
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").Resource(corev1.ResourceCPU, "10").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("tas-b").Resource(corev1.ResourceCPU, "10").Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"worker": {corev1.ResourceCPU: {Name: "tas-a", Mode: Fit}},
+				"leader": {corev1.ResourceCPU: {Name: "tas-a", Mode: Fit}},
+				"other":  {corev1.ResourceCPU: {Name: "tas-b", Mode: Fit}},
+			},
+			wantPodSets: []kueue.PodSetReference{"worker", "leader", "other"},
+		},
+		"second pass: reduced counts apply to their own non-adjacent PodSets": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).PodSetGroup("g").Obj(),
+				*utiltestingapi.MakePodSet("other", 3).Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).Obj(),
+				*utiltestingapi.MakePodSet("worker", 4).Request(corev1.ResourceCPU, "1").
+					RequiredTopologyRequest(corev1.LabelHostname).PodSetGroup("g").Obj(),
+			},
+			admission: utiltestingapi.MakeAdmission("test-clusterqueue").PodSets(
+				utiltestingapi.MakePodSetAssignment("leader").Count(1).Assignment(corev1.ResourceCPU, "tas-a", "1").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).Obj(),
+				utiltestingapi.MakePodSetAssignment("worker").Count(4).Assignment(corev1.ResourceCPU, "tas-a", "4").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).Obj(),
+				utiltestingapi.MakePodSetAssignment("other").Count(3).Assignment(corev1.ResourceCPU, "tas-b", "3").
+					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).Obj(),
+			).Obj(),
+			// Counts follow the Workload's PodSet order, not the admission's.
+			counts: []int32{1, 2, 3},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("tas-a").Resource(corev1.ResourceCPU, "10").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("tas-b").Resource(corev1.ResourceCPU, "10").Obj(),
+				).Obj(),
+			wantPodSetErrors: map[kueue.PodSetReference]error{},
+			wantPodSetFlavors: map[kueue.PodSetReference]ResourceAssignment{
+				"leader": {corev1.ResourceCPU: {Name: "tas-a", Mode: Fit}},
+				"worker": {corev1.ResourceCPU: {Name: "tas-a", Mode: Fit}},
+				"other":  {corev1.ResourceCPU: {Name: "tas-b", Mode: Fit}},
+			},
+			wantPodSets: []kueue.PodSetReference{"leader", "worker", "other"},
+			wantCounts:  map[kueue.PodSetReference]int32{"leader": 1, "worker": 3, "other": 2},
+		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 
-			wlInfo := workload.NewInfo(log, &kueue.Workload{Spec: kueue.WorkloadSpec{PodSets: tc.wlPods}})
+			wl := &kueue.Workload{Spec: kueue.WorkloadSpec{PodSets: tc.wlPods}}
+			if tc.admission != nil {
+				wl = utiltestingapi.MakeWorkload("wl", "default").PodSets(tc.wlPods...).ReserveQuotaAt(tc.admission, time.Now()).Obj()
+			}
+			wlInfo := workload.NewInfo(log, wl)
 
 			cache := schdcache.New(utiltesting.NewFakeClient())
 			if err := cache.AddClusterQueue(ctx, &tc.clusterQueue); err != nil {
@@ -7010,6 +7115,7 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 				*testingnode.MakeNode("tas-node-a").
 					Label(corev1.LabelHostname, "tas-node-a").
 					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("32"),
 						corev1.ResourcePods: resource.MustParse("32"),
 						"example.com/gpu-a": resource.MustParse("4"),
 						"example.com/gpu-b": resource.MustParse("4"),
@@ -7019,6 +7125,7 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 				*testingnode.MakeNode("tas-node-b").
 					Label(corev1.LabelHostname, "tas-node-b").
 					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("32"),
 						corev1.ResourcePods: resource.MustParse("32"),
 						"example.com/gpu-a": resource.MustParse("4"),
 						"example.com/gpu-b": resource.MustParse("4"),
@@ -7043,21 +7150,35 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 			}
 
 			flvAssigner := New(wlInfo, cq, resourceFlavors, false, &testOracle{}, nil, configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0)
-			assignment := flvAssigner.Assign(ctx, nil)
+			assignment := flvAssigner.Assign(ctx, tc.counts)
 
 			gotErrors := map[kueue.PodSetReference]error{}
 			gotFlavors := map[kueue.PodSetReference]ResourceAssignment{}
+			gotPodSets := make([]kueue.PodSetReference, 0, len(assignment.PodSets))
+			gotCounts := make(map[kueue.PodSetReference]int32, len(assignment.PodSets))
 			for _, ps := range assignment.PodSets {
 				if ps.Status.err != nil {
 					gotErrors[ps.Name] = ps.Status.err
 				}
 				gotFlavors[ps.Name] = ps.Flavors
+				gotPodSets = append(gotPodSets, ps.Name)
+				gotCounts[ps.Name] = ps.Count
 			}
 			if diff := cmp.Diff(tc.wantPodSetErrors, gotErrors, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("podSet errors mismatch (-want,+got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tc.wantPodSetFlavors, gotFlavors, cmpopts.IgnoreUnexported(FlavorAssignment{}), cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("podSet flavors mismatch (-want,+got):\n%s", diff)
+			}
+			if tc.wantPodSets != nil {
+				if diff := cmp.Diff(tc.wantPodSets, gotPodSets); diff != "" {
+					t.Errorf("podSet order mismatch (-want,+got):\n%s", diff)
+				}
+			}
+			if tc.wantCounts != nil {
+				if diff := cmp.Diff(tc.wantCounts, gotCounts); diff != "" {
+					t.Errorf("podSet counts mismatch (-want,+got):\n%s", diff)
+				}
 			}
 		})
 	}
@@ -7570,6 +7691,70 @@ func TestRecomputeRecordsLastTriedFlavorIdx(t *testing.T) {
 				t.Errorf("recomputation RepresentativeMode() = %s, want %s", got, Preempt)
 			}
 		})
+	}
+}
+
+// TestAssignFlavors_ResumesScanForNonAdjacentPodSetGroup covers that each PodSet resumes
+// its own flavor scan when its group's members are not adjacent in the Workload.
+func TestAssignFlavors_ResumesScanForNonAdjacentPodSetGroup(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	resourceFlavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+		"one":   utiltestingapi.MakeResourceFlavor("one").Obj(),
+		"two":   utiltestingapi.MakeResourceFlavor("two").Obj(),
+		"three": utiltestingapi.MakeResourceFlavor("three").Obj(),
+	}
+	clusterQueue := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("one").Resource(corev1.ResourceCPU, "5").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("two").Resource(corev1.ResourceCPU, "3").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("three").Resource(corev1.ResourceCPU, "3").Obj(),
+		).
+		Obj()
+	cache := schdcache.New(utiltesting.NewFakeClient())
+	if err := cache.AddClusterQueue(ctx, clusterQueue); err != nil {
+		t.Fatalf("Failed to add CQ to cache: %v", err)
+	}
+	for _, rf := range resourceFlavors {
+		cache.AddOrUpdateResourceFlavor(log, rf)
+	}
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error while building snapshot: %v", err)
+	}
+	cqSnapshot := snapshot.ClusterQueue(kueue.ClusterQueueReference(clusterQueue.Name))
+
+	wlInfo := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl", "default").
+		PodSets(
+			*utiltestingapi.MakePodSet("leader", 1).Request(corev1.ResourceCPU, "1").PodSetGroup("g").Obj(),
+			*utiltestingapi.MakePodSet("other", 1).Request(corev1.ResourceCPU, "4").Obj(),
+			*utiltestingapi.MakePodSet("worker", 1).Request(corev1.ResourceCPU, "1").PodSetGroup("g").Obj(),
+		).
+		Obj())
+	assignFlavors := func() Assignment {
+		return New(wlInfo, cqSnapshot, resourceFlavors, false, &testOracle{}, nil,
+			configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0).Assign(ctx, nil)
+	}
+
+	// The group stops at flavor one, which leaves too little for other there, and other
+	// does not fit on two or three.
+	first := assignFlavors()
+	if mode := first.RepresentativeMode(); mode != NoFit {
+		t.Fatalf("Unexpected representative mode of the first scan: got %s, want %s", mode, NoFit)
+	}
+
+	// The group resumes at flavor two, and other starts its scan over and fits on one.
+	wlInfo.FlavorScanState = &first.FlavorScanState
+	second := assignFlavors()
+	if mode := second.RepresentativeMode(); mode != Fit {
+		t.Fatalf("Unexpected representative mode of the resumed scan: got %s, want %s", mode, Fit)
+	}
+	got := make(map[kueue.PodSetReference]kueue.ResourceFlavorReference, len(second.PodSets))
+	for _, psa := range second.PodSets {
+		got[psa.Name] = psa.Flavors[corev1.ResourceCPU].Name
+	}
+	want := map[kueue.PodSetReference]kueue.ResourceFlavorReference{"leader": "two", "other": "one", "worker": "two"}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Unexpected flavors of the resumed scan (-want,+got):\n%s", diff)
 	}
 }
 
