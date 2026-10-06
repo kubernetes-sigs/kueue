@@ -330,16 +330,25 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	return gated, nil
 }
 
-// ungateOrder picks which gated Pods to ungate first:
-//   - lowest completion-index, for Indexed batch.Job Pods.
-//   - lowest name, for Pods without a parseable completion-index label.
+// ungateOrder picks which gated Pods to ungate first, treating indexed and
+// un-indexed Pods as separate ordered groups so the comparator stays a
+// strict weak ordering:
+//   - Pods with a parseable completion-index are ungated before the rest, lowest index first.
+//   - Pods without one follow, ordered by lowest name.
 func ungateOrder(a, b *corev1.Pod) int {
 	ai, aOK := completionIndex(a)
 	bi, bOK := completionIndex(b)
-	if aOK && bOK {
+	switch {
+	case aOK && bOK:
 		return cmp.Compare(ai, bi)
+	case aOK != bOK:
+		if aOK {
+			return -1
+		}
+		return 1
+	default:
+		return strings.Compare(a.Name, b.Name)
 	}
-	return strings.Compare(a.Name, b.Name)
 }
 
 func completionIndex(p *corev1.Pod) (int, bool) {
