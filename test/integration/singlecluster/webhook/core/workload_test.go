@@ -1834,7 +1834,6 @@ var _ = ginkgo.Describe("Workload v1beta1 CEL validation", func() {
 		fwk.StopManager(ctx)
 	})
 
-<<<<<<< HEAD
 	ginkgo.Context("When updating a Workload via v1beta1 API", func() {
 		ginkgo.DescribeTable("Validate v1beta1 CEL rules for priorityClassSource",
 			func(w func() *kueue.Workload, setQuotaReservation bool, updateWl func(newWL *kueuev1beta1.Workload), matcher gomegatypes.GomegaMatcher) {
@@ -1852,27 +1851,6 @@ var _ = ginkgo.Describe("Workload v1beta1 CEL validation", func() {
 					updateWl(&v1beta1WL)
 					g.Expect(k8sClient.Update(ctx, &v1beta1WL)).Should(matcher)
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-=======
-var _ = ginkgo.Describe("Workload topology-spreading validation", func() {
-	ginkgo.BeforeEach(func() {
-		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-spread-")
-	})
-
-	ginkgo.AfterEach(func() {
-		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		fwk.StopManager(ctx)
-	})
-
-	ginkgo.DescribeTable("Validate topology spreading on create",
-		func(w func() *kueue.Workload, matcher gomegatypes.GomegaMatcher) {
-			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASTopologySpreading, true)
-			gomega.Expect(k8sClient.Create(ctx, w())).Should(matcher)
-		},
-		ginkgo.Entry("accepts a valid spreading annotation with required topology",
-			func() *kueue.Workload {
-				return spreadingWorkloadForWebhook("valid-spread", webhookSpreadingJSON)
->>>>>>> Reorganize helpers.
 			},
 			ginkgo.Entry("can toggle active on workload without priorityClassRef when QuotaReserved=true",
 				func() *kueue.Workload {

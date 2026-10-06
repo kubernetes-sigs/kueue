@@ -41,7 +41,7 @@ var _ = ginkgo.Describe("Kueue v1beta1", ginkgo.Label("area:singlecluster", "fea
 	var jobKey types.NamespacedName
 
 	ginkgo.BeforeEach(func() {
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 		sampleJob = testingjob.MakeJob("test-job", ns.Name).
 			Queue("main").
 			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).

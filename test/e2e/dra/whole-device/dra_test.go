@@ -452,7 +452,6 @@ var _ = ginkgo.Describe("DRA", func() {
 		ginkgo.BeforeEach(func() {
 			// Create a DeviceClass with extendedResourceName that uses the same driver
 			// as dra-example-driver but exposes GPUs as extended resources
-<<<<<<< HEAD
 			extendedResDevClass = &resourceapi.DeviceClass{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: extendedResDevClassName,
@@ -462,7 +461,7 @@ var _ = ginkgo.Describe("DRA", func() {
 					Selectors: []resourceapi.DeviceSelector{
 						{
 							CEL: &resourceapi.CELDeviceSelector{
-								Expression: "device.driver == '" + behavioral.DRAExampleDriverName + "'",
+								Expression: "device.driver == '" + e2e.DRAExampleDriverName + "'",
 							},
 						},
 					},
@@ -470,12 +469,6 @@ var _ = ginkgo.Describe("DRA", func() {
 					ExtendedResourceName: new(extendedResourceName),
 				},
 			}
-=======
-			extendedResDevClass = testingdra.MakeDeviceClass(extendedResDevClassName).
-				CELSelector("device.driver == '" + e2e.DRAExampleDriverName + "'").
-				ExtendedResourceName(extendedResourceName).
-				Obj()
->>>>>>> Reorganize helpers.
 			behavioral.MustCreate(ctx, k8sClient, extendedResDevClass)
 
 			resourceFlavor = utiltestingapi.MakeResourceFlavor("ext-res-dra-flavor-" + ns.Name).Obj()
@@ -775,7 +768,6 @@ var _ = ginkgo.Describe("DRA", func() {
 			}, behavioral.ShortConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("Creating DeviceClass with extendedResourceName")
-<<<<<<< HEAD
 			deviceClass := &resourceapi.DeviceClass{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: lateDeviceClassName,
@@ -784,19 +776,13 @@ var _ = ginkgo.Describe("DRA", func() {
 					Selectors: []resourceapi.DeviceSelector{
 						{
 							CEL: &resourceapi.CELDeviceSelector{
-								Expression: "device.driver == '" + behavioral.DRAExampleDriverName + "'",
+								Expression: "device.driver == '" + e2e.DRAExampleDriverName + "'",
 							},
 						},
 					},
 					ExtendedResourceName: new(extendedResourceName),
 				},
 			}
-=======
-			deviceClass := testingdra.MakeDeviceClass(lateDeviceClassName).
-				CELSelector("device.driver == '" + e2e.DRAExampleDriverName + "'").
-				ExtendedResourceName(extendedResourceName).
-				Obj()
->>>>>>> Reorganize helpers.
 			behavioral.MustCreate(ctx, k8sClient, deviceClass)
 			defer func() {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)

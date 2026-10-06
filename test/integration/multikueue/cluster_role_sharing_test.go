@@ -239,15 +239,9 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlMkLookupKey, managerWl)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlMkLookupKey, createdMkWorkload)).To(gomega.Succeed())
-<<<<<<< HEAD
 				g.Expect(createdMkWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlMkLookupKey, createdMkWorkload)).To(gomega.Succeed())
 				g.Expect(createdMkWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-=======
-				behavioral.ExpectRemoteWorkloadSpec(g, createdMkWorkload, managerWl)
-				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlMkLookupKey, createdMkWorkload)).To(gomega.Succeed())
-				behavioral.ExpectRemoteWorkloadSpec(g, createdMkWorkload, managerWl)
->>>>>>> Reorganize helpers.
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
@@ -428,15 +422,9 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlMkLookupKey, managerWl)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlMkLookupKey, createdMkWorkload)).To(gomega.Succeed())
-<<<<<<< HEAD
 				g.Expect(createdMkWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlMkLookupKey, createdMkWorkload)).To(gomega.Succeed())
 				g.Expect(createdMkWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-=======
-				behavioral.ExpectRemoteWorkloadSpec(g, createdMkWorkload, managerWl)
-				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlMkLookupKey, createdMkWorkload)).To(gomega.Succeed())
-				behavioral.ExpectRemoteWorkloadSpec(g, createdMkWorkload, managerWl)
->>>>>>> Reorganize helpers.
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 

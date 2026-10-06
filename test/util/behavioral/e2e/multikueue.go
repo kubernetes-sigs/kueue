@@ -290,7 +290,6 @@ func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, k8sClient 
 	}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 	return workerName
 }
-<<<<<<< HEAD
 
 type ClusterInfo struct {
 	Name   string
@@ -337,5 +336,3 @@ func GetClientForSelectedWorkerCluster(g gomega.Gomega, managerWl *kueue.Workloa
 	ginkgo.Fail("none of the supplied clusters was selected")
 	return ClusterInfo{}
 }
-=======
->>>>>>> Reorganize helpers.

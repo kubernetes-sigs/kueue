@@ -51,15 +51,11 @@ var _ = ginkgo.Describe("Scheduler requests past int64", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-<<<<<<< HEAD
 		// On 0.19 this gate is off, so a quota failure is recorded as Pending.
 		// The condition reason below is the granular one.
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
 
-		ns = e2e.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "overflow-")
-=======
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "overflow-")
->>>>>>> Reorganize helpers.
 
 		flavor = utiltestingapi.MakeResourceFlavor("overflow-flavor").Obj()
 		behavioral.MustCreate(ctx, k8sClient, flavor)

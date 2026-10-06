@@ -170,17 +170,10 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:mu
 			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-<<<<<<< HEAD
 				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 				// The workload should be created in worker2 as well, since the job is managed
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-=======
-				behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
-				// The workload should be created in worker2 as well, since the job is managed
-				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
->>>>>>> Reorganize helpers.
 				// nominated workers should be updated in the manager
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 				ginkgo.GinkgoLogr.Info(fmt.Sprintf("Workload status in manager: %s, %v", managerWl.Status.NominatedClusterNames, managerWl.Status.Conditions))
@@ -381,11 +374,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 
 				// The workload should be only created in worker2
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-<<<<<<< HEAD
 				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-=======
-				behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
->>>>>>> Reorganize helpers.
 
 				// nominated workers should be updated in the manager
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
@@ -411,15 +400,9 @@ var _ = ginkgo.Describe("MultiKueueDispatcherExternal", ginkgo.Label("area:multi
 			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-<<<<<<< HEAD
 				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-=======
-				behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
-				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
->>>>>>> Reorganize helpers.
 				// nominated workers should be updated in the manager
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 				ginkgo.GinkgoLogr.Info(fmt.Sprintf("Workload status in manager: %s, %v", managerWl.Status.NominatedClusterNames, managerWl.Status.Conditions))
@@ -687,17 +670,10 @@ var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Label("area:mult
 			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-<<<<<<< HEAD
 				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 				// The workload should be created in worker2 as well, since the job is managed
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-=======
-				behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
-				// The workload should be created in worker2 as well, since the job is managed
-				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-				behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
->>>>>>> Reorganize helpers.
 				// nominated workers should be updated in the manager
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 				ginkgo.GinkgoLogr.Info(fmt.Sprintf("Workload status in manager: %s, %v", managerWl.Status.NominatedClusterNames, managerWl.Status.Conditions))

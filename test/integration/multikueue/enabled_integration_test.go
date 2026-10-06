@@ -145,11 +145,7 @@ var _ = ginkgo.Describe("MultiKueue when not all integrations are enabled", gink
 			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-<<<<<<< HEAD
 				g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-=======
-				behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
->>>>>>> Reorganize helpers.
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 

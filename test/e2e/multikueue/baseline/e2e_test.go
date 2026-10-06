@@ -709,11 +709,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, lowWlKey, workerLowWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerLowWorkload)).To(gomega.BeTrue())
-<<<<<<< HEAD
 					g.Expect(workerLowWorkload.Spec).To(gomega.BeComparableTo(managerLowWl.Spec))
-=======
-					behavioral.ExpectRemoteWorkloadSpec(g, workerLowWorkload, managerLowWl)
->>>>>>> Reorganize helpers.
 					g.Expect(k8sWorker2Client.Get(ctx, lowWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -744,11 +740,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, highWlKey, workerHighWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerHighWorkload)).To(gomega.BeTrue())
-<<<<<<< HEAD
 					g.Expect(workerHighWorkload.Spec).To(gomega.BeComparableTo(managerHighWl.Spec))
-=======
-					behavioral.ExpectRemoteWorkloadSpec(g, workerHighWorkload, managerHighWl)
->>>>>>> Reorganize helpers.
 					g.Expect(k8sWorker2Client.Get(ctx, highWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -794,11 +786,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue())
-<<<<<<< HEAD
 					g.Expect(workerWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-=======
-					behavioral.ExpectRemoteWorkloadSpec(g, workerWorkload, managerWl)
->>>>>>> Reorganize helpers.
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed(), e2e.AssertMsgForMk(ctx, "Workload not admitted in worker1", wlKey, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 			})
 
@@ -847,11 +835,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker2Client.Get(ctx, wlKey, workerWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWorkload)).To(gomega.BeTrue())
-<<<<<<< HEAD
 					g.Expect(workerWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-=======
-					behavioral.ExpectRemoteWorkloadSpec(g, workerWorkload, managerWl)
->>>>>>> Reorganize helpers.
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed(), e2e.AssertMsgForMk(ctx, "Workload not Admitted in worker2", wlKey, k8sManagerClient, k8sWorker1Client, k8sWorker2Client))
 			})
 
@@ -892,11 +876,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, lowWlKey, workerLowWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerLowWorkload)).To(gomega.BeTrue())
-<<<<<<< HEAD
 					g.Expect(workerLowWorkload.Spec).To(gomega.BeComparableTo(managerLowWl.Spec))
-=======
-					behavioral.ExpectRemoteWorkloadSpec(g, workerLowWorkload, managerLowWl)
->>>>>>> Reorganize helpers.
 					g.Expect(k8sWorker2Client.Get(ctx, lowWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -930,11 +910,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker2Client.Get(ctx, highWlKey, workerHighWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerHighWorkload)).To(gomega.BeTrue())
-<<<<<<< HEAD
 					g.Expect(workerHighWorkload.Spec).To(gomega.BeComparableTo(managerHighWl.Spec))
-=======
-					behavioral.ExpectRemoteWorkloadSpec(g, workerHighWorkload, managerHighWl)
->>>>>>> Reorganize helpers.
 					g.Expect(k8sWorker1Client.Get(ctx, highWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -992,11 +968,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker2Client.Get(ctx, lowWlKey, workerLowWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerLowWorkload)).To(gomega.BeTrue())
-<<<<<<< HEAD
 					g.Expect(workerLowWorkload.Spec).To(gomega.BeComparableTo(managerLowWl.Spec))
-=======
-					behavioral.ExpectRemoteWorkloadSpec(g, workerLowWorkload, managerLowWl)
->>>>>>> Reorganize helpers.
 					g.Expect(k8sWorker1Client.Get(ctx, lowWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -1038,11 +1010,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker2Client.Get(ctx, highWlKey, workerHighWorkload)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerHighWorkload)).To(gomega.BeTrue())
-<<<<<<< HEAD
 					g.Expect(workerHighWorkload.Spec).To(gomega.BeComparableTo(managerHighWl.Spec))
-=======
-					behavioral.ExpectRemoteWorkloadSpec(g, workerHighWorkload, managerHighWl)
->>>>>>> Reorganize helpers.
 					g.Expect(k8sWorker1Client.Get(ctx, highWlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -1117,11 +1085,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, wl1Key, workerWl1)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWl1)).To(gomega.BeTrue())
-<<<<<<< HEAD
 					g.Expect(workerWl1.Spec).To(gomega.BeComparableTo(managerWl1.Spec))
-=======
-					behavioral.ExpectRemoteWorkloadSpec(g, workerWl1, managerWl1)
->>>>>>> Reorganize helpers.
 					g.Expect(k8sWorker2Client.Get(ctx, wl1Key, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -1167,11 +1131,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 					g.Expect(k8sManagerClient.Get(ctx, wl2Key, managerWl2)).To(gomega.Succeed())
 					g.Expect(k8sWorker2Client.Get(ctx, wl2Key, workerWl2)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWl2)).To(gomega.BeTrue())
-<<<<<<< HEAD
 					g.Expect(workerWl2.Spec).To(gomega.BeComparableTo(managerWl2.Spec))
-=======
-					behavioral.ExpectRemoteWorkloadSpec(g, workerWl2, managerWl2)
->>>>>>> Reorganize helpers.
 					g.Expect(k8sWorker1Client.Get(ctx, wl2Key, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -1226,11 +1186,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWl)).To(gomega.BeTrue())
-<<<<<<< HEAD
 					g.Expect(workerWl.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-=======
-					behavioral.ExpectRemoteWorkloadSpec(g, workerWl, managerWl)
->>>>>>> Reorganize helpers.
 					g.Expect(k8sWorker2Client.Get(ctx, wlKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -1272,11 +1228,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sWorker1Client.Get(ctx, wlKey, workerWl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWl)).To(gomega.BeTrue())
-<<<<<<< HEAD
 					g.Expect(workerWl.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-=======
-					behavioral.ExpectRemoteWorkloadSpec(g, workerWl, managerWl)
->>>>>>> Reorganize helpers.
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})

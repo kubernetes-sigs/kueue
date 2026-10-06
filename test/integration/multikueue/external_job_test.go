@@ -493,17 +493,10 @@ var _ = ginkgo.Describe(
 						gomega.Eventually(func(g gomega.Gomega) {
 							g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).
 								To(gomega.Succeed())
-<<<<<<< HEAD
 							g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
 							g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).
 								To(gomega.Succeed())
 							g.Expect(createdWorkload.Spec).To(gomega.BeComparableTo(managerWl.Spec))
-=======
-							behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
-							g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, createdWorkload)).
-								To(gomega.Succeed())
-							behavioral.ExpectRemoteWorkloadSpec(g, createdWorkload, managerWl)
->>>>>>> Reorganize helpers.
 						}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 					})
 
