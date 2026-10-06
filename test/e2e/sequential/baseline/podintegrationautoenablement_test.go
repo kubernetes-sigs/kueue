@@ -124,7 +124,7 @@ var _ = ginkgo.Describe("Auto-Enablement of Pod Integration for Pod-Dependent Fr
 		if withDefaultQueue {
 			ginkgo.By("creating a default LocalQueue for StatefulSet workloads")
 			defaultQueue := utiltestingapi.MakeLocalQueue("default", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, defaultQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, defaultQueue)
 		}
 
 		testPod := testingpod.MakePod("plain-pod", ns.Name).
