@@ -1,0 +1,305 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package dra
+
+import (
+	resourcev1 "k8s.io/api/resource/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+)
+
+// DeviceClassWrapper wraps a resourcev1.DeviceClass.
+type DeviceClassWrapper struct {
+	resourcev1.DeviceClass
+}
+
+// MakeDeviceClass creates a DeviceClassWrapper with the provided name.
+func MakeDeviceClass(name string) *DeviceClassWrapper {
+	return &DeviceClassWrapper{
+		Name: name,
+	}
+}
+
+// Obj returns the inner DeviceClass.
+func (d *DeviceClassWrapper) Obj() *resourcev1.DeviceClass {
+	return &d.DeviceClass
+}
+
+// GeneratedName sets the generated name prefix and clears the name.
+func (d *DeviceClassWrapper) GeneratedName(name string) *DeviceClassWrapper {
+	d.GenerateName = name
+	d.Name = ""
+	return d
+}
+
+// CreationTimestamp sets the creation timestamp.
+func (d *DeviceClassWrapper) CreationTimestamp(timestamp metav1.Time) *DeviceClassWrapper {
+	d.ObjectMeta.CreationTimestamp = timestamp
+	return d
+}
+
+// ExtendedResourceName sets the extended resource name.
+func (d *DeviceClassWrapper) ExtendedResourceName(name string) *DeviceClassWrapper {
+	d.Spec.ExtendedResourceName = new(name)
+	return d
+}
+
+// CELSelector adds a CEL selector.
+func (d *DeviceClassWrapper) CELSelector(expression string) *DeviceClassWrapper {
+	d.Spec.Selectors = append(d.Spec.Selectors, resourcev1.DeviceSelector{
+		CEL: &resourcev1.CELDeviceSelector{Expression: expression},
+	})
+	return d
+}
+
+// DeviceRequestWrapper wraps a resourcev1.DeviceRequest.
+type DeviceRequestWrapper struct {
+	resourcev1.DeviceRequest
+}
+
+// MakeDeviceRequest creates an exact-count DeviceRequestWrapper.
+func MakeDeviceRequest(name, deviceClassName string, count int64) *DeviceRequestWrapper {
+	return &DeviceRequestWrapper{
+		Name: name,
+		Exactly: &resourcev1.ExactDeviceRequest{
+			DeviceClassName: deviceClassName,
+			AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+			Count:           count,
+		},
+	}
+}
+
+// Obj returns the inner DeviceRequest.
+func (d *DeviceRequestWrapper) Obj() resourcev1.DeviceRequest {
+	return d.DeviceRequest
+}
+
+// AllocationModeAll requests all matching devices.
+func (d *DeviceRequestWrapper) AllocationModeAll() *DeviceRequestWrapper {
+	if d.Exactly != nil {
+		d.Exactly.AllocationMode = resourcev1.DeviceAllocationModeAll
+		d.Exactly.Count = 0
+	}
+	return d
+}
+
+// CELSelector adds a CEL selector to the exact request.
+func (d *DeviceRequestWrapper) CELSelector(expression string) *DeviceRequestWrapper {
+	if d.Exactly != nil {
+		d.Exactly.Selectors = append(d.Exactly.Selectors, resourcev1.DeviceSelector{
+			CEL: &resourcev1.CELDeviceSelector{Expression: expression},
+		})
+	}
+	return d
+}
+
+// Toleration lets the request use devices carrying a taint with this key and effect.
+func (d *DeviceRequestWrapper) Toleration(key string, effect resourcev1.DeviceTaintEffect) *DeviceRequestWrapper {
+	if d.Exactly != nil {
+		d.Exactly.Tolerations = append(d.Exactly.Tolerations, resourcev1.DeviceToleration{
+			Key:      key,
+			Operator: resourcev1.DeviceTolerationOpExists,
+			Effect:   effect,
+		})
+	}
+	return d
+}
+
+// AdminAccess sets admin access on the exact request.
+func (d *DeviceRequestWrapper) AdminAccess(enabled bool) *DeviceRequestWrapper {
+	if d.Exactly != nil {
+		d.Exactly.AdminAccess = new(enabled)
+	}
+	return d
+}
+
+// CapacityRequests sets the requested device capacities on the exact request.
+func (d *DeviceRequestWrapper) CapacityRequests(requests map[string]string) *DeviceRequestWrapper {
+	if d.Exactly == nil {
+		return d
+	}
+
+	quantities := make(map[resourcev1.QualifiedName]resource.Quantity, len(requests))
+	for name, value := range requests {
+		quantities[resourcev1.QualifiedName(name)] = resource.MustParse(value)
+	}
+	d.Exactly.Capacity = &resourcev1.CapacityRequirements{Requests: quantities}
+	return d
+}
+
+// FirstAvailableRequest replaces the exact request with prioritized subrequests.
+func (d *DeviceRequestWrapper) FirstAvailableRequest(subrequests ...resourcev1.DeviceSubRequest) *DeviceRequestWrapper {
+	d.Exactly = nil
+	d.FirstAvailable = append(d.FirstAvailable, subrequests...)
+	return d
+}
+
+// MakeFirstAvailableRequest creates a DeviceRequestWrapper whose alternatives are
+// tried in order.
+func MakeFirstAvailableRequest(name string, alternatives ...resourcev1.DeviceSubRequest) *DeviceRequestWrapper {
+	return &DeviceRequestWrapper{Name: name, FirstAvailable: alternatives}
+}
+
+// DeviceSubRequestWrapper wraps a resourcev1.DeviceSubRequest.
+type DeviceSubRequestWrapper struct {
+	resourcev1.DeviceSubRequest
+}
+
+// MakeDeviceSubRequest creates an exact-count alternative of a firstAvailable request.
+// The name must be a DNS label, so it cannot be the DeviceClass name.
+func MakeDeviceSubRequest(name, deviceClassName string, count int64) *DeviceSubRequestWrapper {
+	return &DeviceSubRequestWrapper{
+		Name:            name,
+		DeviceClassName: deviceClassName,
+		AllocationMode:  resourcev1.DeviceAllocationModeExactCount,
+		Count:           count,
+	}
+}
+
+// Obj returns the inner DeviceSubRequest.
+func (d *DeviceSubRequestWrapper) Obj() resourcev1.DeviceSubRequest {
+	return d.DeviceSubRequest
+}
+
+// AllocationModeAll requests all matching devices.
+func (d *DeviceSubRequestWrapper) AllocationModeAll() *DeviceSubRequestWrapper {
+	d.AllocationMode = resourcev1.DeviceAllocationModeAll
+	d.Count = 0
+	return d
+}
+
+// CELSelector adds a CEL selector to the alternative.
+func (d *DeviceSubRequestWrapper) CELSelector(expression string) *DeviceSubRequestWrapper {
+	d.Selectors = append(d.Selectors, resourcev1.DeviceSelector{
+		CEL: &resourcev1.CELDeviceSelector{Expression: expression},
+	})
+	return d
+}
+
+// CapacityRequests sets the requested device capacities on the alternative.
+func (d *DeviceSubRequestWrapper) CapacityRequests(requests map[string]string) *DeviceSubRequestWrapper {
+	quantities := make(map[resourcev1.QualifiedName]resource.Quantity, len(requests))
+	for name, value := range requests {
+		quantities[resourcev1.QualifiedName(name)] = resource.MustParse(value)
+	}
+	d.Capacity = &resourcev1.CapacityRequirements{Requests: quantities}
+	return d
+}
+
+// ResourceSliceWrapper wraps a resourcev1.ResourceSlice.
+type ResourceSliceWrapper struct{ resourcev1.ResourceSlice }
+
+// MakeResourceSlice creates a ResourceSliceWrapper with the provided name and driver.
+func MakeResourceSlice(name, driver string) *ResourceSliceWrapper {
+	return &ResourceSliceWrapper{
+		resourcev1.ResourceSlice{
+			Name: name,
+			Spec: resourcev1.ResourceSliceSpec{
+				Driver: driver,
+				Pool: resourcev1.ResourcePool{
+					Name:               "default-pool",
+					Generation:         1,
+					ResourceSliceCount: 1,
+				},
+				NodeName: new("fake-node"),
+			},
+		},
+	}
+}
+
+func (w *ResourceSliceWrapper) Pool(name string, generation int64, sliceCount int64) *ResourceSliceWrapper {
+	w.Spec.Pool = resourcev1.ResourcePool{
+		Name:               name,
+		Generation:         generation,
+		ResourceSliceCount: sliceCount,
+	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) Device(name string) *ResourceSliceWrapper {
+	w.Spec.Devices = append(w.Spec.Devices, resourcev1.Device{
+		Name:       name,
+		Attributes: make(map[resourcev1.QualifiedName]resourcev1.DeviceAttribute),
+	})
+	return w
+}
+
+func (w *ResourceSliceWrapper) Attribute(name, value string) *ResourceSliceWrapper {
+	if len(w.Spec.Devices) > 0 {
+		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
+		last.Attributes[resourcev1.QualifiedName(name)] = resourcev1.DeviceAttribute{StringValue: new(value)}
+	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) CounterConsumption(counterSet, counterName, value string) *ResourceSliceWrapper {
+	if len(w.Spec.Devices) > 0 {
+		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
+		last.ConsumesCounters = append(last.ConsumesCounters, resourcev1.DeviceCounterConsumption{
+			CounterSet: counterSet,
+			Counters:   map[string]resourcev1.Counter{counterName: {Value: resource.MustParse(value)}},
+		})
+	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) DeviceCapacity(name, value string, policy *resourcev1.CapacityRequestPolicy) *ResourceSliceWrapper {
+	if len(w.Spec.Devices) > 0 {
+		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
+		if last.Capacity == nil {
+			last.Capacity = make(map[resourcev1.QualifiedName]resourcev1.DeviceCapacity)
+		}
+		last.Capacity[resourcev1.QualifiedName(name)] = resourcev1.DeviceCapacity{
+			Value:         resource.MustParse(value),
+			RequestPolicy: policy,
+		}
+	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) AllowMultipleAllocations(allow bool) *ResourceSliceWrapper {
+	if len(w.Spec.Devices) > 0 {
+		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
+		last.AllowMultipleAllocations = &allow
+	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) DeviceTaint(key string, effect resourcev1.DeviceTaintEffect) *ResourceSliceWrapper {
+	if len(w.Spec.Devices) > 0 {
+		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
+		last.Taints = append(last.Taints, resourcev1.DeviceTaint{Key: key, Effect: effect})
+	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) BindingConditions(conditions ...string) *ResourceSliceWrapper {
+	if len(w.Spec.Devices) > 0 {
+		last := &w.Spec.Devices[len(w.Spec.Devices)-1]
+		last.BindingConditions = append(last.BindingConditions, conditions...)
+	}
+	return w
+}
+
+func (w *ResourceSliceWrapper) NodeName(name string) *ResourceSliceWrapper {
+	w.Spec.NodeName = &name
+	return w
+}
+
+func (w *ResourceSliceWrapper) Obj() *resourcev1.ResourceSlice {
+	return &w.ResourceSlice
+}

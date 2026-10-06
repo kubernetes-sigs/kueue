@@ -158,7 +158,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 				roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
 			}
 
-			req := ctrl.Request{NamespacedName: types.NamespacedName{Namespace: metav1.NamespaceDefault, Name: workloadName}}
+			req := ctrl.Request{Namespace: metav1.NamespaceDefault, Name: workloadName}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			_, gotErr := rec.Reconcile(ctx, req)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {

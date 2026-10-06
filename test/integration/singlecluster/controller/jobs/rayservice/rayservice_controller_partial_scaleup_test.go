@@ -32,13 +32,15 @@ import (
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-// KEP-12100, Scenario D: two worker groups pinned to separate resource flavors by their node
-// selectors. The order-based shrink spends its whole budget from the last group before it can
-// touch the first, draining a group whose own flavor was never the constraint - so the give-back
-// phase has to restore it.
+// KEP-12100: two worker groups pinned to separate resource flavors by their node selectors. The
+// order-based shrink spends its whole budget from the last group before it can touch the first,
+// draining a group whose own flavor was never the constraint - so the give-back phase has to
+// restore it (Scenario D). Because the groups draw on separate capacity, one can be out of room
+// while the other still has plenty, which is where a scale-up has to make progress across the
+// Workload rather than group by group.
 var _ = ginkgo.Describe("RayService with partial replica scale-up across resource flavors", ginkgo.Label("job:ray", "area:jobs"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	const (
 		instanceTypeLabel = "instance-type"
@@ -61,7 +63,7 @@ var _ = ginkgo.Describe("RayService with partial replica scale-up across resourc
 			service.Spec.RayClusterSpec.WorkerGroupSpecs[0].Replicas = new(reservationReplicas)
 			service.Spec.RayClusterSpec.WorkerGroupSpecs[1].Replicas = new(spotReplicas)
 			g.Expect(k8sClient.Update(ctx, service)).Should(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	}
 
 	ginkgo.BeforeAll(func() {
@@ -76,14 +78,14 @@ var _ = ginkgo.Describe("RayService with partial replica scale-up across resourc
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-partial-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-partial-")
 
 		reservation = utiltestingapi.MakeResourceFlavor("reservation").
 			NodeLabel(instanceTypeLabel, "reservation").Obj()
-		util.MustCreate(ctx, k8sClient, reservation)
+		behavioral.MustCreate(ctx, k8sClient, reservation)
 		spot = utiltestingapi.MakeResourceFlavor("spot").
 			NodeLabel(instanceTypeLabel, "spot").Obj()
-		util.MustCreate(ctx, k8sClient, spot)
+		behavioral.MustCreate(ctx, k8sClient, spot)
 
 		// The reservation flavor is the scarce one: it can hold 2 workers, so a scale-up of the
 		// reservation group has to be cut. The spot flavor has room for every spot worker, so
@@ -94,17 +96,17 @@ var _ = ginkgo.Describe("RayService with partial replica scale-up across resourc
 				*utiltestingapi.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "20").Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, reservation, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, spot, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, reservation, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, spot, true)
 	})
 
 	ginkgo.It("Should give back a worker group drained for another group's flavor", func() {
@@ -131,32 +133,111 @@ var _ = ginkgo.Describe("RayService with partial replica scale-up across resourc
 			Obj()
 
 		ginkgo.By("admitting the rayservice at 1 reservation and 9 spot workers")
-		util.MustCreate(ctx, k8sClient, testRayService)
-		initialSlice := &util.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, reservationGroup, 1)
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, spotGroup, 9)
+		behavioral.MustCreate(ctx, k8sClient, testRayService)
+		initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, reservationGroup, 1)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, spotGroup, 9)
 
-		// Scaling both groups makes minCount = admitted + 1 for each: 2 for the reservation
-		// group and 10 for the spot one, matching the KEP's Scenario D shape.
+		// Scaling both groups makes minCount(baseline) each group is already running at: 1 for
+		// the reservation group and 9 for the spot one, matching the KEP's Scenario D shape.
 		ginkgo.By("scaling to 4 reservation and 20 spot workers")
 		scaleWorkerGroups(testRayService, 4, 20)
 
 		ginkgo.By("a new slice requests the full scale-up, with a floor under each worker group")
-		scaleUpSlice := util.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
+		scaleUpSlice := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
 		gomega.Expect(podset.FindPodSetByName(scaleUpSlice.Spec.PodSets, kueue.NewPodSetReference(reservationGroup)).Count).
 			Should(gomega.Equal(int32(4)))
 		gomega.Expect(podset.FindPodSetByName(scaleUpSlice.Spec.PodSets, kueue.NewPodSetReference(spotGroup)).Count).
 			Should(gomega.Equal(int32(20)))
 
-		// The reservation flavor holds 2, so the reservation group is cut from 4 to its floor of
-		// 2. Reaching that floor costs the shrink its whole budget, which means draining the spot
-		// group to its own floor of 10 first - even though the spot flavor had room for all 20.
-		// Give-back restores it; without that phase the spot group would stay at 10.
-		ginkgo.By("admitting the reservation group at its floor and the spot group in full")
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, scaleUpSlice, reservationGroup, 2)
-		util.ExpectPodSetAdmittedCount(ctx, k8sClient, scaleUpSlice, spotGroup, 20)
+		// The reservation flavor holds 2, so the reservation group is cut from 4 down to 2.
+		// Getting there costs the shrink nearly its whole budget, which means draining the spot
+		// group to its baseline of 9 first - even though the spot flavor had room for all 20.
+		// Give-back restores it; without that phase the spot group would stay at 9.
+		ginkgo.By("admitting the reservation group at what its flavor holds and the spot group in full")
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, scaleUpSlice, reservationGroup, 2)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, scaleUpSlice, spotGroup, 20)
 
 		ginkgo.By("the pre-scale-up slice is finished")
-		util.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(initialSlice))
+		behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(initialSlice))
+	})
+
+	ginkgo.It("Should grow the group that has room while the other stays at its baseline", func() {
+		// The reservation group already fills its flavor, so the scale-up cannot give it a single
+		// extra worker. Demanding growth from every growing group would leave the whole scale-up
+		// unadmitted; demanding it from the Workload as a whole lets the spot group grow.
+		testRayService := testingrayservice.MakeService("foo", ns.Name).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Annotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+			Queue(localQueue.Name).
+			WithWorkerGroups(
+				*testingraycluster.MakeWorkerGroup(reservationGroup, 2).
+					MaxReplicas(50).
+					Request(corev1.ResourceCPU, "1").
+					NodeSelector(instanceTypeLabel, "reservation").
+					Obj(),
+				*testingraycluster.MakeWorkerGroup(spotGroup, 9).
+					MaxReplicas(50).
+					Request(corev1.ResourceCPU, "1").
+					NodeSelector(instanceTypeLabel, "spot").
+					Obj(),
+			).
+			Obj()
+
+		ginkgo.By("admitting the rayservice at 2 reservation and 9 spot workers")
+		behavioral.MustCreate(ctx, k8sClient, testRayService)
+		initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, reservationGroup, 2)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, spotGroup, 9)
+
+		ginkgo.By("scaling to 4 reservation and 20 spot workers")
+		scaleWorkerGroups(testRayService, 4, 20)
+
+		scaleUpSlice := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
+
+		ginkgo.By("admitting the reservation group at its baseline and the spot group in full")
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, scaleUpSlice, reservationGroup, 2)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, scaleUpSlice, spotGroup, 20)
+	})
+
+	ginkgo.It("Should leave the scale-up pending when no group has room above its baseline", func() {
+		// Both flavors are full at the counts the job is already running, so the only assignment
+		// that fits is the one it already has. Admitting that would retire the running slice for
+		// a replacement of the same size, gaining the job nothing.
+		testRayService := testingrayservice.MakeService("foo", ns.Name).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Annotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+			Queue(localQueue.Name).
+			WithWorkerGroups(
+				*testingraycluster.MakeWorkerGroup(reservationGroup, 2).
+					MaxReplicas(50).
+					Request(corev1.ResourceCPU, "1").
+					NodeSelector(instanceTypeLabel, "reservation").
+					Obj(),
+				*testingraycluster.MakeWorkerGroup(spotGroup, 20).
+					MaxReplicas(50).
+					Request(corev1.ResourceCPU, "1").
+					NodeSelector(instanceTypeLabel, "spot").
+					Obj(),
+			).
+			Obj()
+
+		ginkgo.By("admitting the rayservice at the full capacity of both flavors")
+		behavioral.MustCreate(ctx, k8sClient, testRayService)
+		initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, reservationGroup, 2)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, spotGroup, 20)
+
+		ginkgo.By("scaling to 4 reservation and 25 spot workers")
+		scaleWorkerGroups(testRayService, 4, 25)
+
+		scaleUpSlice := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
+
+		ginkgo.By("the scale-up stays pending")
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, scaleUpSlice)
+
+		ginkgo.By("the running slice keeps its admission")
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, reservationGroup, 2)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, spotGroup, 20)
 	})
 })

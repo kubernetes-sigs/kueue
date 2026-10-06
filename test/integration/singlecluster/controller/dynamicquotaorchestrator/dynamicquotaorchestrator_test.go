@@ -37,7 +37,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("controller:dynamicquotaorchestrator", "area:dynamicquotaorchestration"), func() {
@@ -60,19 +60,19 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 	})
 
 	ginkgo.AfterEach(func() {
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, childDQO, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, ancestorDQO, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, dqo, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, childDQO, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ancestorDQO, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, dqo, true)
 		for _, cp := range cps {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cp, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cp, true)
 		}
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq3, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, grandchildCohort, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, childCohort, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, rootCohort, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq3, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, grandchildCohort, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, childCohort, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rootCohort, true)
 		childDQO, ancestorDQO, dqo = nil, nil, nil
 		cq, cq1, cq2, cq3 = nil, nil, nil, nil
 		childCohort, grandchildCohort, rootCohort = nil, nil, nil
@@ -106,7 +106,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("discovery-dqo").
 			DiscoveryProvider(cp.Name, nil).
 			Obj()
-		util.MustCreate(ctx, k8sClient, dqo)
+		behavioral.MustCreate(ctx, k8sClient, dqo)
 
 		dqoKey := types.NamespacedName{Name: dqo.Name}
 		latestDQO := &kueuealpha.DynamicQuotaOrchestrator{}
@@ -127,7 +127,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					).
 					Obj()
 				g.Expect(cmp.Diff(wantCapacity, latestDQO.Status.EffectiveCapacity, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Updating capacity in CapacityProvider and verifying dynamic DQO update", func() {
@@ -149,7 +149,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					).
 					Obj()
 				g.Expect(cmp.Diff(wantUpdatedCapacity, latestDQO.Status.EffectiveCapacity, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -180,7 +180,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("transition-dqo").
 			DiscoveryProvider(cp.Name, nil).
 			Obj()
-		util.MustCreate(ctx, k8sClient, dqo)
+		behavioral.MustCreate(ctx, k8sClient, dqo)
 
 		dqoKey := types.NamespacedName{Name: dqo.Name}
 		latestDQO := &kueuealpha.DynamicQuotaOrchestrator{}
@@ -192,7 +192,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
 					kueuealpha.DynamicQuotaOrchestratorReasonComputed,
 				))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Marking CapacityProvider as unsynchronized and verifying DQO transitions to ProviderNotReady", func() {
@@ -207,7 +207,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 				cond := apimeta.FindStatusCondition(latestDQO.Status.Conditions, kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed)
 				g.Expect(cond.Message).Should(gomega.ContainSubstring("\"transition-cp\" is not synchronized"))
 				g.Expect(latestDQO.Status.EffectiveCapacity).Should(gomega.BeNil())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Re-synchronizing CapacityProvider and verifying DQO recovers to Computed", func() {
@@ -228,7 +228,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					).
 					Obj()
 				g.Expect(cmp.Diff(wantCapacity, latestDQO.Status.EffectiveCapacity, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -286,7 +286,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 			DiscoveryProvider("multi-cp-1", nil).
 			DiscoveryProvider("multi-cp-2", nil).
 			Obj()
-		util.MustCreate(ctx, k8sClient, dqo)
+		behavioral.MustCreate(ctx, k8sClient, dqo)
 
 		dqoKey := types.NamespacedName{Name: dqo.Name}
 		latestDQO := &kueuealpha.DynamicQuotaOrchestrator{}
@@ -310,7 +310,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					).
 					Obj()
 				g.Expect(cmp.Diff(wantCapacity, latestDQO.Status.EffectiveCapacity, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Updating capacity in one provider and verifying dynamic re-aggregation", func() {
@@ -335,7 +335,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					).
 					Obj()
 				g.Expect(cmp.Diff(wantUpdatedCapacity, latestDQO.Status.EffectiveCapacity, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -343,7 +343,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("missing-provider-dqo").
 			DiscoveryProvider("late-cp", nil).
 			Obj()
-		util.MustCreate(ctx, k8sClient, dqo)
+		behavioral.MustCreate(ctx, k8sClient, dqo)
 
 		dqoKey := types.NamespacedName{Name: dqo.Name}
 		latestDQO := &kueuealpha.DynamicQuotaOrchestrator{}
@@ -358,7 +358,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 				cond := apimeta.FindStatusCondition(latestDQO.Status.Conditions, kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed)
 				g.Expect(cond.Message).Should(gomega.ContainSubstring("CapacityProvider \"late-cp\" not found"))
 				g.Expect(latestDQO.Status.EffectiveCapacity).Should(gomega.BeNil())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Creating late-arriving CapacityProvider and verifying recovery", func() {
@@ -400,7 +400,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					).
 					Obj()
 				g.Expect(cmp.Diff(wantCapacity, latestDQO.Status.EffectiveCapacity, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -436,7 +436,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("filter-dqo").
 			DiscoveryProvider("filter-cp", &halfMultiplier).
 			Obj()
-		util.MustCreate(ctx, k8sClient, dqo)
+		behavioral.MustCreate(ctx, k8sClient, dqo)
 
 		dqoKey := types.NamespacedName{Name: dqo.Name}
 		latestDQO := &kueuealpha.DynamicQuotaOrchestrator{}
@@ -458,7 +458,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					).
 					Obj()
 				g.Expect(cmp.Diff(wantCapacity, latestDQO.Status.EffectiveCapacity, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -494,13 +494,13 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq)
+		behavioral.MustCreate(ctx, k8sClient, cq)
 
 		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("dist-dqo").
 			DiscoveryProvider("dist-cq-cp", nil).
 			SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "dist-cq").
 			Obj()
-		util.MustCreate(ctx, k8sClient, dqo)
+		behavioral.MustCreate(ctx, k8sClient, dqo)
 
 		cqKey := types.NamespacedName{Name: cq.Name}
 		latestCQ := &kueue.ClusterQueue{}
@@ -523,7 +523,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 							Obj(),
 					),
 				)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Updating capacity and verifying ClusterQueue effective quota updates", func() {
@@ -546,7 +546,109 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 							Obj(),
 					),
 				)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should distribute zero for resources of orchestrated flavors that the provider stops reporting", func() {
+		const gpu corev1.ResourceName = "example.com/gpu"
+		const license corev1.ResourceName = "example.com/license"
+
+		cp := utiltestingalpha.MakeCapacityProvider("zero-cp").
+			ControllerName("example.com/test-provider").
+			OrchestratedFlavors("f1", "f2").
+			Capacity(
+				utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(
+						utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+							Resource(corev1.ResourceCPU, "100").
+							Resource(corev1.ResourceMemory, "50Gi").
+							Obj(),
+						utiltestingalpha.MakeNormalizedCapacityFlavor("f2").
+							Resource(gpu, "8").
+							Obj(),
+					).
+					Obj(),
+			).
+			Condition(metav1.Condition{
+				Type:    kueuealpha.CapacityProviderCapacitySynchronized,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueuealpha.CapacityProviderReasonSynchronized,
+				Message: "Capacity synchronized successfully",
+			}).
+			Obj()
+		cps = append(cps, cp)
+		createCapacityProvider(ctx, k8sClient, cp)
+
+		cq = utiltestingapi.MakeClusterQueue("zero-cq").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("f1").
+					Resource(corev1.ResourceCPU, "10").
+					Resource(corev1.ResourceMemory, "20Gi").
+					Obj(),
+			).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f2").Resource(gpu, "4").Obj()).
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f3").Resource(license, "5").Obj()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, cq)
+
+		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("zero-dqo").
+			DiscoveryProvider(cp.Name, nil).
+			SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, cq.Name).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, dqo)
+
+		cqKey := types.NamespacedName{Name: cq.Name}
+
+		ginkgo.By("Verifying that reported resources are distributed", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				expectClusterQueueEffectiveResourceGroups(g, cqKey,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "100").
+							Resource(corev1.ResourceMemory, "50Gi").
+							Obj(),
+					),
+					utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f2").Resource(gpu, "8").Obj()),
+					utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f3").Resource(license, "5").Obj()),
+				)
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Dropping a resource and a whole flavor from the provider report", func() {
+			setCapacityProviderCapacity(ctx, k8sClient, cp, utiltestingalpha.MakeNormalizedCapacity().
+				Flavors(
+					utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+						Resource(corev1.ResourceCPU, "100").
+						Obj(),
+				).
+				Obj())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				var latestDQO kueuealpha.DynamicQuotaOrchestrator
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(dqo), &latestDQO)).Should(gomega.Succeed())
+				g.Expect(cmp.Diff(
+					utiltestingalpha.MakeEffectiveCapacity().
+						Flavors(
+							*utiltestingalpha.MakeEffectiveCapacityFlavor("f1").Resource(corev1.ResourceCPU, "100").Obj(),
+							*utiltestingalpha.MakeEffectiveCapacityFlavor("f2").Obj(),
+						).
+						Obj(),
+					latestDQO.Status.EffectiveCapacity,
+					cmpopts.EquateEmpty(),
+				)).Should(gomega.BeEmpty())
+
+				expectClusterQueueEffectiveResourceGroups(g, cqKey,
+					utiltestingapi.ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("f1").
+							Resource(corev1.ResourceCPU, "100").
+							Resource(corev1.ResourceMemory, "0").
+							Obj(),
+					),
+					utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f2").Resource(gpu, "0").Obj()),
+					utiltestingapi.ResourceGroup(*utiltestingapi.MakeFlavorQuotas("f3").Resource(license, "5").Obj()),
+				)
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -600,7 +702,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 		createCapacityProvider(ctx, k8sClient, cp2)
 
 		rootCohort = utiltestingapi.MakeCohort("multi-dist-cohort").Obj()
-		util.MustCreate(ctx, k8sClient, rootCohort)
+		behavioral.MustCreate(ctx, k8sClient, rootCohort)
 
 		cq1 = utiltestingapi.MakeClusterQueue("multi-dist-cq-1").
 			Cohort("multi-dist-cohort").
@@ -611,7 +713,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq1)
+		behavioral.MustCreate(ctx, k8sClient, cq1)
 
 		cq2 = utiltestingapi.MakeClusterQueue("multi-dist-cq-2").
 			Cohort("multi-dist-cohort").
@@ -622,14 +724,14 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq2)
+		behavioral.MustCreate(ctx, k8sClient, cq2)
 
 		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("multi-dist-dqo").
 			DiscoveryProvider("multi-dist-cp-1", nil).
 			DiscoveryProvider("multi-dist-cp-2", nil).
 			SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "multi-dist-cohort").
 			Obj()
-		util.MustCreate(ctx, k8sClient, dqo)
+		behavioral.MustCreate(ctx, k8sClient, dqo)
 
 		cq1Key := types.NamespacedName{Name: cq1.Name}
 		cq2Key := types.NamespacedName{Name: cq2.Name}
@@ -652,7 +754,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 							Obj(),
 					),
 				)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Updating capacity in one provider and verifying dynamic re-aggregation and proportional re-distribution", func() {
@@ -683,7 +785,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 							Obj(),
 					),
 				)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -712,7 +814,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 		createCapacityProvider(ctx, k8sClient, cp)
 
 		rootCohort = utiltestingapi.MakeCohort("cq-watch-cohort").Obj()
-		util.MustCreate(ctx, k8sClient, rootCohort)
+		behavioral.MustCreate(ctx, k8sClient, rootCohort)
 
 		cq1 = utiltestingapi.MakeClusterQueue("cq-watch-1").
 			Cohort("cq-watch-cohort").
@@ -722,7 +824,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq1)
+		behavioral.MustCreate(ctx, k8sClient, cq1)
 
 		cq2 = utiltestingapi.MakeClusterQueue("cq-watch-2").
 			Cohort("cq-watch-cohort").
@@ -732,13 +834,13 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq2)
+		behavioral.MustCreate(ctx, k8sClient, cq2)
 
 		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("cq-watch-dqo").
 			DiscoveryProvider("cq-watch-cp", nil).
 			SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "cq-watch-cohort").
 			Obj()
-		util.MustCreate(ctx, k8sClient, dqo)
+		behavioral.MustCreate(ctx, k8sClient, dqo)
 
 		cq1Key := types.NamespacedName{Name: cq1.Name}
 		cq2Key := types.NamespacedName{Name: cq2.Name}
@@ -759,7 +861,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 							Obj(),
 					),
 				)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Updating nominal quota on one ClusterQueue and verifying dynamic rebalance via ClusterQueue watch", func() {
@@ -768,7 +870,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 				g.Expect(k8sClient.Get(ctx, cq1Key, &latestCQ1)).Should(gomega.Succeed())
 				latestCQ1.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("180")
 				g.Expect(k8sClient.Update(ctx, &latestCQ1)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				// 180 : 60 => 75% : 25% of 240 => 180 CPU : 60 CPU
@@ -786,7 +888,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 							Obj(),
 					),
 				)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Adding a third ClusterQueue to the Cohort and verifying dynamic redistribution via ClusterQueue watch", func() {
@@ -798,7 +900,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 						Obj(),
 				).
 				Obj()
-			util.MustCreate(ctx, k8sClient, cq3)
+			behavioral.MustCreate(ctx, k8sClient, cq3)
 			cq3Key := types.NamespacedName{Name: cq3.Name}
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -825,7 +927,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 							Obj(),
 					),
 				)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -863,7 +965,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 		createCapacityProvider(ctx, k8sClient, cp)
 
 		rootCohort = utiltestingapi.MakeCohort("root-cohort").Obj()
-		util.MustCreate(ctx, k8sClient, rootCohort)
+		behavioral.MustCreate(ctx, k8sClient, rootCohort)
 
 		childCohort = utiltestingapi.MakeCohort("child-cohort").
 			Parent("root-cohort").
@@ -871,10 +973,10 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 				*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "20").Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, childCohort)
+		behavioral.MustCreate(ctx, k8sClient, childCohort)
 
 		grandchildCohort = utiltestingapi.MakeCohort("grandchild-cohort").Parent("child-cohort").Obj()
-		util.MustCreate(ctx, k8sClient, grandchildCohort)
+		behavioral.MustCreate(ctx, k8sClient, grandchildCohort)
 
 		cq1 = utiltestingapi.MakeClusterQueue("cq-1").
 			Cohort("root-cohort").
@@ -882,7 +984,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 				*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "10").Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq1)
+		behavioral.MustCreate(ctx, k8sClient, cq1)
 
 		cq2 = utiltestingapi.MakeClusterQueue("cq-2").
 			Cohort("child-cohort").
@@ -890,7 +992,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 				*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "10").Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq2)
+		behavioral.MustCreate(ctx, k8sClient, cq2)
 
 		cq3 = utiltestingapi.MakeClusterQueue("cq-3").
 			Cohort("grandchild-cohort").
@@ -898,13 +1000,13 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 				*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "30").Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq3)
+		behavioral.MustCreate(ctx, k8sClient, cq3)
 
 		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("cohort-dqo").
 			DiscoveryProvider("cohort-tree-cp", nil).
 			SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "root-cohort").
 			Obj()
-		util.MustCreate(ctx, k8sClient, dqo)
+		behavioral.MustCreate(ctx, k8sClient, dqo)
 
 		childCohortKey := types.NamespacedName{Name: childCohort.Name}
 		cq1Key := types.NamespacedName{Name: cq1.Name}
@@ -933,7 +1035,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 						*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "30").Obj(),
 					),
 				)
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -961,10 +1063,10 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 		createCapacityProvider(ctx, k8sClient, cp)
 
 		rootCohort = utiltestingapi.MakeCohort("overlap-root").Obj()
-		util.MustCreate(ctx, k8sClient, rootCohort)
+		behavioral.MustCreate(ctx, k8sClient, rootCohort)
 
 		childCohort = utiltestingapi.MakeCohort("overlap-child").Parent("overlap-root").Obj()
-		util.MustCreate(ctx, k8sClient, childCohort)
+		behavioral.MustCreate(ctx, k8sClient, childCohort)
 
 		cq = utiltestingapi.MakeClusterQueue("overlap-cq").
 			Cohort("overlap-child").
@@ -972,19 +1074,19 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 				*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "50").Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq)
+		behavioral.MustCreate(ctx, k8sClient, cq)
 
 		ancestorDQO = utiltestingalpha.MakeDynamicQuotaOrchestrator("ancestor-dqo").
 			DiscoveryProvider("overlap-cp", nil).
 			SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "overlap-root").
 			Obj()
-		util.MustCreate(ctx, k8sClient, ancestorDQO)
+		behavioral.MustCreate(ctx, k8sClient, ancestorDQO)
 
 		childDQO = utiltestingalpha.MakeDynamicQuotaOrchestrator("child-dqo").
 			DiscoveryProvider("overlap-cp", nil).
 			SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "overlap-child").
 			Obj()
-		util.MustCreate(ctx, k8sClient, childDQO)
+		behavioral.MustCreate(ctx, k8sClient, childDQO)
 
 		childDQOKey := types.NamespacedName{Name: childDQO.Name}
 		latestChildDQO := &kueuealpha.DynamicQuotaOrchestrator{}
@@ -996,11 +1098,11 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					kueuealpha.DynamicQuotaOrchestratorDistributed,
 					kueuealpha.DynamicQuotaOrchestratorReasonConflictingDynamicQuotaOrchestrator,
 				))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Deleting ancestor DQO and verifying child DQO becomes active", func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, ancestorDQO, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ancestorDQO, true)
 			ancestorDQO = nil
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1009,7 +1111,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					kueuealpha.DynamicQuotaOrchestratorDistributed,
 					kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
 				))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -1037,7 +1139,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 		createCapacityProvider(ctx, k8sClient, cp)
 
 		rootCohort = utiltestingapi.MakeCohort("identical-root").Obj()
-		util.MustCreate(ctx, k8sClient, rootCohort)
+		behavioral.MustCreate(ctx, k8sClient, rootCohort)
 
 		cq = utiltestingapi.MakeClusterQueue("identical-cq").
 			Cohort("identical-root").
@@ -1045,13 +1147,13 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 				*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "50").Obj(),
 			).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cq)
+		behavioral.MustCreate(ctx, k8sClient, cq)
 
 		ancestorDQO = utiltestingalpha.MakeDynamicQuotaOrchestrator("older-dqo").
 			DiscoveryProvider("identical-cp", nil).
 			SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "identical-root").
 			Obj()
-		util.MustCreate(ctx, k8sClient, ancestorDQO)
+		behavioral.MustCreate(ctx, k8sClient, ancestorDQO)
 
 		olderDQOKey := types.NamespacedName{Name: ancestorDQO.Name}
 		latestOlderDQO := &kueuealpha.DynamicQuotaOrchestrator{}
@@ -1061,7 +1163,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 				kueuealpha.DynamicQuotaOrchestratorDistributed,
 				kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
 			))
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		// Ensure newer-dqo gets a strictly later CreationTimestamp.
 		time.Sleep(1 * time.Second)
@@ -1070,7 +1172,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 			DiscoveryProvider("identical-cp", nil).
 			SubtreeRoot(kueuealpha.CohortSubtreeRootRefKind, "identical-root").
 			Obj()
-		util.MustCreate(ctx, k8sClient, childDQO)
+		behavioral.MustCreate(ctx, k8sClient, childDQO)
 
 		newerDQOKey := types.NamespacedName{Name: childDQO.Name}
 		latestNewerDQO := &kueuealpha.DynamicQuotaOrchestrator{}
@@ -1088,11 +1190,11 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					kueuealpha.DynamicQuotaOrchestratorDistributed,
 					kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
 				))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Deleting older DQO and verifying newer DQO becomes active", func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, ancestorDQO, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ancestorDQO, true)
 			ancestorDQO = nil
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1101,7 +1203,145 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					kueuealpha.DynamicQuotaOrchestratorDistributed,
 					kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
 				))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should take over leftover ClusterQueue ownership when the managing DQO becomes inactive", func() {
+		cpA := utiltestingalpha.MakeCapacityProvider("leftover-cp-a").
+			ControllerName("example.com/test-provider").
+			OrchestratedFlavors("f1").
+			Capacity(
+				utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(
+						utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+							Resource(corev1.ResourceCPU, "100").
+							Obj(),
+					).
+					Obj(),
+			).
+			Condition(metav1.Condition{
+				Type:    kueuealpha.CapacityProviderCapacitySynchronized,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueuealpha.CapacityProviderReasonSynchronized,
+				Message: "Capacity synchronized successfully",
+			}).
+			Obj()
+		cpB := utiltestingalpha.MakeCapacityProvider("leftover-cp-b").
+			ControllerName("example.com/test-provider").
+			OrchestratedFlavors("f1").
+			Capacity(
+				utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(
+						utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+							Resource(corev1.ResourceCPU, "200").
+							Obj(),
+					).
+					Obj(),
+			).
+			Condition(metav1.Condition{
+				Type:    kueuealpha.CapacityProviderCapacitySynchronized,
+				Status:  metav1.ConditionTrue,
+				Reason:  kueuealpha.CapacityProviderReasonSynchronized,
+				Message: "Capacity synchronized successfully",
+			}).
+			Obj()
+		cps = append(cps, cpA, cpB)
+		createCapacityProvider(ctx, k8sClient, cpA)
+		createCapacityProvider(ctx, k8sClient, cpB)
+
+		cq1 = utiltestingapi.MakeClusterQueue("leftover-cq-x").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "10").Obj(),
+			).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, cq1)
+		cq2 = utiltestingapi.MakeClusterQueue("leftover-cq-y").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "10").Obj(),
+			).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, cq2)
+
+		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("leftover-a").
+			DiscoveryProvider(cpA.Name, nil).
+			SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, cq1.Name).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, dqo)
+
+		cqXKey := types.NamespacedName{Name: cq1.Name}
+		cqYKey := types.NamespacedName{Name: cq2.Name}
+		dqoAKey := types.NamespacedName{Name: dqo.Name}
+		wantQuotaA := utiltestingapi.ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "100").Obj(),
+		)
+		wantQuotaB := utiltestingapi.ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("f1").Resource(corev1.ResourceCPU, "200").Obj(),
+		)
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			expectClusterQueueOwnedBy(g, cqXKey, dqo.Name, wantQuotaA)
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Retargeting A to Y and leaving X's orchestratorRef", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				latestA := &kueuealpha.DynamicQuotaOrchestrator{}
+				g.Expect(k8sClient.Get(ctx, dqoAKey, latestA)).Should(gomega.Succeed())
+				latestA.Spec.CapacityDistribution.SubtreeRootQuotaRef.Name = cq2.Name
+				g.Expect(k8sClient.Update(ctx, latestA)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				expectClusterQueueOwnedBy(g, cqYKey, dqo.Name, wantQuotaA)
+				expectClusterQueueOwnedBy(g, cqXKey, dqo.Name, wantQuotaA)
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		childDQO = utiltestingalpha.MakeDynamicQuotaOrchestrator("leftover-b").
+			DiscoveryProvider(cpB.Name, nil).
+			SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, cq1.Name).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, childDQO)
+		dqoBKey := types.NamespacedName{Name: childDQO.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			latestB := &kueuealpha.DynamicQuotaOrchestrator{}
+			g.Expect(k8sClient.Get(ctx, dqoBKey, latestB)).Should(gomega.Succeed())
+			g.Expect(latestB.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(
+				kueuealpha.DynamicQuotaOrchestratorDistributed,
+				kueuealpha.DynamicQuotaOrchestratorReasonEffectiveQuotasConflict,
+			))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Marking A's provider unsynchronized so B can take X", func() {
+			setCapacityProviderSyncCondition(ctx, k8sClient, cpA, metav1.ConditionFalse, kueuealpha.CapacityProviderReasonSourceUnavailable, "Backend source is unreachable")
+			gomega.Eventually(func(g gomega.Gomega) {
+				latestA := &kueuealpha.DynamicQuotaOrchestrator{}
+				g.Expect(k8sClient.Get(ctx, dqoAKey, latestA)).Should(gomega.Succeed())
+				g.Expect(latestA.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(
+					kueuealpha.DynamicQuotaOrchestratorDistributed,
+					kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+				))
+				latestB := &kueuealpha.DynamicQuotaOrchestrator{}
+				g.Expect(k8sClient.Get(ctx, dqoBKey, latestB)).Should(gomega.Succeed())
+				g.Expect(latestB.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(
+					kueuealpha.DynamicQuotaOrchestratorDistributed,
+					kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+				))
+				expectClusterQueueOwnedBy(g, cqXKey, childDQO.Name, wantQuotaB)
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Restoring A's provider; A keeps Y and B keeps X", func() {
+			setCapacityProviderSyncCondition(ctx, k8sClient, cpA, metav1.ConditionTrue, kueuealpha.CapacityProviderReasonSynchronized, "Capacity synchronized successfully")
+			gomega.Eventually(func(g gomega.Gomega) {
+				latestA := &kueuealpha.DynamicQuotaOrchestrator{}
+				g.Expect(k8sClient.Get(ctx, dqoAKey, latestA)).Should(gomega.Succeed())
+				g.Expect(latestA.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(
+					kueuealpha.DynamicQuotaOrchestratorDistributed,
+					kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+				))
+				expectClusterQueueOwnedBy(g, cqYKey, dqo.Name, wantQuotaA)
+				expectClusterQueueOwnedBy(g, cqXKey, childDQO.Name, wantQuotaB)
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })
@@ -1113,7 +1353,7 @@ func createCapacityProvider(
 ) {
 	ginkgo.GinkgoHelper()
 	status := cp.Status.DeepCopy()
-	util.MustCreate(ctx, k8sClient, cp)
+	behavioral.MustCreate(ctx, k8sClient, cp)
 	if status.Capacity != nil || len(status.Conditions) > 0 {
 		for i := range status.Conditions {
 			if status.Conditions[i].LastTransitionTime.IsZero() {
@@ -1143,7 +1383,7 @@ func setCapacityProviderCapacity(
 			ObservedGeneration: latestCp.Generation,
 		})
 		g.Expect(k8sClient.Status().Update(ctx, &latestCp)).Should(gomega.Succeed())
-	}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("Failed to update CapacityProvider status", &latestCp))
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("Failed to update CapacityProvider status", &latestCp))
 }
 
 func setCapacityProviderSyncCondition(
@@ -1164,7 +1404,7 @@ func setCapacityProviderSyncCondition(
 			ObservedGeneration: latestCp.Generation,
 		})
 		g.Expect(k8sClient.Status().Update(ctx, &latestCp)).Should(gomega.Succeed())
-	}, util.Timeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("Failed to update CapacityProvider condition", &latestCp))
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("Failed to update CapacityProvider condition", &latestCp))
 }
 
 func expectClusterQueueEffectiveResourceGroups(
@@ -1189,4 +1429,22 @@ func expectCohortEffectiveResourceGroups(
 	g.Expect(k8sClient.Get(ctx, key, &cohort)).Should(gomega.Succeed())
 	g.Expect(cohort.Status.EffectiveQuotas).ShouldNot(gomega.BeNil())
 	g.Expect(cmp.Diff(want, cohort.Status.EffectiveQuotas.ResourceGroups, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
+}
+
+func expectClusterQueueOwnedBy(
+	g gomega.Gomega,
+	key types.NamespacedName,
+	owner string,
+	want ...kueue.ResourceGroup,
+) {
+	ginkgo.GinkgoHelper()
+	var cq kueue.ClusterQueue
+	g.Expect(k8sClient.Get(ctx, key, &cq)).Should(gomega.Succeed())
+	g.Expect(cq.Status.EffectiveQuotas).ShouldNot(gomega.BeNil())
+	g.Expect(cq.Status.EffectiveQuotas.OrchestratorRef).Should(gomega.Equal(kueue.EffectiveQuotaStatusOrchestratorRef{
+		APIGroup: "kueue.x-k8s.io",
+		Kind:     "DynamicQuotaOrchestrator",
+		Name:     owner,
+	}))
+	g.Expect(cmp.Diff(want, cq.Status.EffectiveQuotas.ResourceGroups, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
 }

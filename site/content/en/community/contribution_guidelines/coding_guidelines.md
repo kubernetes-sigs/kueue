@@ -358,13 +358,13 @@ if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
 }
 ```
 
-Use predefined comparison options from `test/util/constants.go`:
+Use predefined comparison options from `test/util/behavioral/constants.go`:
 
 ```go
 cmpOpts := cmp.Options{
     cmpopts.EquateEmpty(),
-    util.IgnoreConditionTimestamps,
-    util.IgnoreObjectMetaResourceVersion,
+    behavioral.IgnoreConditionTimestamps,
+    behavioral.IgnoreObjectMetaResourceVersion,
 }
 if diff := cmp.Diff(want, got, cmpOpts...); diff != "" {
     t.Errorf("unexpected result (-want,+got):\n%s", diff)
@@ -372,8 +372,8 @@ if diff := cmp.Diff(want, got, cmpOpts...); diff != "" {
 ```
 
 Common options:
-- `util.IgnoreConditionTimestamps` — ignore `LastTransitionTime` on conditions.
-- `util.IgnoreObjectMetaResourceVersion` — ignore `ResourceVersion` on
+- `behavioral.IgnoreConditionTimestamps` — ignore `LastTransitionTime` on conditions.
+- `behavioral.IgnoreObjectMetaResourceVersion` — ignore `ResourceVersion` on
   ObjectMeta.
 - `cmpopts.EquateEmpty()` — treat nil and empty slices/maps as equal.
 
@@ -385,7 +385,7 @@ Use `gomega.Eventually` for asynchronous assertions:
 gomega.Eventually(func(g gomega.Gomega) {
     g.Expect(k8sClient.Get(ctx, key, obj)).To(gomega.Succeed())
     g.Expect(obj.Status.Phase).To(gomega.Equal("Ready"))
-}, util.Timeout, util.Interval).Should(gomega.Succeed())
+}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 ```
 
 Use custom matchers from `pkg/util/testing/`:
@@ -402,7 +402,7 @@ var fwk *framework.Framework
 
 var _ = ginkgo.BeforeSuite(func() {
     fwk = &framework.Framework{
-        WebhookPath: util.WebhookPath,
+        WebhookPath: behavioral.WebhookPath,
     }
     cfg = fwk.Init()
     ctx, k8sClient = fwk.SetupClient(cfg)
@@ -419,7 +419,7 @@ var _ = ginkgo.AfterSuite(func() {
 
 ### Timeout Constants
 
-Use the predefined constants from `test/util/constants.go` for timeouts and polling intervals.
+Use the predefined constants from `test/util/behavioral/constants.go` for timeouts and polling intervals.
 
 ### Mocking and Error Injection
 
@@ -443,8 +443,8 @@ Follow this cleanup pattern:
 
 ```go
 ginkgo.AfterEach(func() {
-    gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-    util.ExpectObjectToBeDeleted(ctx, k8sClient, obj, true)
+    gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+    behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, obj, true)
 })
 ```
 

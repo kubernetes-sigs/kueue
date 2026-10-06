@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 )
@@ -38,7 +39,6 @@ var (
 
 const (
 	FrameworkName = "statefulset"
-	PodOwnerKey   = ".metadata.controller"
 )
 
 func RegisterIntegration(m *jobframework.IntegrationManager) error {
@@ -74,14 +74,16 @@ func IndexPodOwner(o client.Object) []string {
 		return nil
 	}
 
-	if controllerRef := metav1.GetControllerOf(pod); controllerRef != nil && controllerRef.Kind == gvk.Kind {
+	if controllerRef := metav1.GetControllerOf(pod); controllerRef != nil &&
+		controllerRef.Kind == gvk.Kind &&
+		controllerRef.APIVersion == gvk.GroupVersion().String() {
 		return []string{controllerRef.Name}
 	}
 	return nil
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
-	return indexer.IndexField(ctx, &corev1.Pod{}, PodOwnerKey, IndexPodOwner)
+	return indexer.IndexField(ctx, &corev1.Pod{}, coreindexer.OwnerReferenceIndexKey(gvk), IndexPodOwner)
 }
 
 func GetOwnerUID(sts *appsv1.StatefulSet) types.UID {

@@ -38,6 +38,8 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
+	schddra "sigs.k8s.io/kueue/pkg/cache/scheduler/dra"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -55,7 +57,7 @@ var snapCmpOpts = cmp.Options{
 	cmpopts.IgnoreUnexported(hierarchy.ClusterQueue[*CohortSnapshot]{}),
 	cmpopts.IgnoreUnexported(hierarchy.Manager[*ClusterQueueSnapshot, *CohortSnapshot]{}),
 	cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
-	cmpopts.IgnoreFields(Snapshot{}, "SimulatorSnapshot", "hostnameLeafTASFlavors"),
+	cmpopts.IgnoreFields(Snapshot{}, "SchedulerSimulator", "hostnameLeafTASFlavors", "released"),
 }
 
 func TestSnapshot(t *testing.T) {
@@ -443,6 +445,59 @@ func TestSnapshot(t *testing.T) {
 							FlavorFungibility:             defaultFlavorFungibility,
 							Preemption:                    defaultPreemption,
 							FairWeight:                    3.0,
+						},
+					},
+				),
+			},
+		},
+		"clusterQueue with labels": {
+			featureGates: map[featuregate.Feature]bool{features.ConfigurablePreemptions: true},
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("with-labels").
+					Label("env", "prod").
+					Label("tier", "batch").
+					Obj(),
+			},
+			wantSnapshot: Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*CohortSnapshot{},
+					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+						"with-labels": {
+							Name:                          "with-labels",
+							Labels:                        map[string]string{"env": "prod", "tier": "batch"},
+							NamespaceSelector:             labels.Everything(),
+							AllocatableResourceGeneration: 1,
+							Status:                        active,
+							Workloads:                     map[workload.Reference]*workload.Info{},
+							FlavorFungibility:             defaultFlavorFungibility,
+							Preemption:                    defaultPreemption,
+							FairWeight:                    defaultWeight,
+						},
+					},
+				),
+			},
+		},
+		"clusterQueue labels ignored when ConfigurablePreemptions is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ConfigurablePreemptions: false},
+			cqs: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("with-labels").
+					Label("env", "prod").
+					Label("tier", "batch").
+					Obj(),
+			},
+			wantSnapshot: Snapshot{
+				Manager: hierarchy.NewManagerForTest(
+					map[kueue.CohortReference]*CohortSnapshot{},
+					map[kueue.ClusterQueueReference]*ClusterQueueSnapshot{
+						"with-labels": {
+							Name:                          "with-labels",
+							NamespaceSelector:             labels.Everything(),
+							AllocatableResourceGeneration: 1,
+							Status:                        active,
+							Workloads:                     map[workload.Reference]*workload.Info{},
+							FlavorFungibility:             defaultFlavorFungibility,
+							Preemption:                    defaultPreemption,
+							FairWeight:                    defaultWeight,
 						},
 					},
 				),
@@ -1024,7 +1079,7 @@ func TestSnapshot(t *testing.T) {
 				cache.AddOrUpdateTopology(log, topology)
 			}
 			for _, wl := range tc.wls {
-				cache.AddOrUpdateWorkload(log, wl)
+				cache.AddOrUpdateWorkload(t.Context(), log, wl)
 			}
 			for _, n := range tc.nodes {
 				cache.TASCache().SyncNode(n)
@@ -1288,7 +1343,7 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 				cache.AddOrUpdateTopology(log, topology)
 			}
 			for _, wl := range tc.wls {
-				cache.AddOrUpdateWorkload(log, wl)
+				cache.AddOrUpdateWorkload(t.Context(), log, wl)
 			}
 			for _, n := range tc.nodes {
 				cache.TASCache().SyncNode(n)
@@ -1746,7 +1801,7 @@ func TestSnapshotAddRemoveWorkload(t *testing.T) {
 	cmpOpts := append(snapCmpOpts,
 		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
 		cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SchedulerSimulator"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -2245,7 +2300,7 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 	cmpOpts := append(snapCmpOpts,
 		cmpopts.IgnoreFields(ClusterQueueSnapshot{}, "NamespaceSelector", "Preemption", "Status", "AllocatableResourceGeneration"),
 		cmpopts.IgnoreFields(resourceNode{}, "Quotas"),
-		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SimulatorSnapshot"),
+		cmpopts.IgnoreFields(Snapshot{}, "ResourceFlavors", "SchedulerSimulator"),
 		cmpopts.IgnoreTypes(&workload.Info{}))
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -2261,6 +2316,138 @@ func TestSnapshotAddRemoveWorkloadWithLendingLimit(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.want, *snap, cmpOpts...); diff != "" {
 				t.Errorf("Unexpected snapshot state after operations (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// The device check wraps whichever simulator the cache holds, so it is available to a
+// cluster that does not run the scheduler library. Its gate no longer names that one.
+func TestSnapshotWrapsTheDeviceCheckOnEitherSimulator(t *testing.T) {
+	cases := map[string]struct {
+		simulator      simulator.Factory
+		featureEnabled bool
+		wantChecker    bool
+	}{
+		"default simulator, gate on":  {featureEnabled: true, wantChecker: true},
+		"default simulator, gate off": {},
+		"another simulator, gate on":  {simulator: newDefaultSimulatorFactory(), featureEnabled: true, wantChecker: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+			features.SetFeatureGateDuringTest(t, features.KueueDRADeviceFeasibility, tc.featureEnabled)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			opts := []Option{}
+			if tc.simulator != nil {
+				opts = append(opts, WithSimulatorFactory(tc.simulator))
+			}
+			cache := New(utiltesting.NewFakeClient(), opts...)
+			snap, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("Snapshot() returned error: %v", err)
+			}
+			if _, got := snap.SchedulerSimulator.(*schddra.Checker); got != tc.wantChecker {
+				t.Errorf("snapshot holds a *schddra.Checker = %v, want %v", got, tc.wantChecker)
+			}
+		})
+	}
+}
+
+func TestSnapshotReleaseWorkloadUsage(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	workloads := []kueue.Workload{
+		*utiltestingapi.MakeWorkload("kept", "").
+			Request(corev1.ResourceCPU, "1").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("c1").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "1").
+					Obj()).
+				Obj(), now).
+			Obj(),
+		*utiltestingapi.MakeWorkload("released", "").
+			Request(corev1.ResourceCPU, "2").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("c1").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "2").
+					Obj()).
+				Obj(), now).
+			Obj(),
+	}
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
+	cqCache := New(cl)
+	cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+	if err := cqCache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("c1").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "6").Obj()).
+		Obj()); err != nil {
+		t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
+	}
+	cpu := resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}
+
+	// Each case starts from a snapshot where "released" was released and
+	// only "kept" (1 CPU) is left in the ClusterQueue's usage.
+	cases := map[string]struct {
+		operate          func(s *Snapshot, kept, released *workload.Info) func()
+		wantUsage        int64
+		wantReleasedHeld bool
+	}{
+		"released workload stays in its ClusterQueue": {
+			operate:          func(*Snapshot, *workload.Info, *workload.Info) func() { return nil },
+			wantUsage:        1_000,
+			wantReleasedHeld: true,
+		},
+		"releasing again is a no-op": {
+			operate: func(s *Snapshot, _, released *workload.Info) func() {
+				s.ReleaseWorkloadUsage(released)
+				return nil
+			},
+			wantUsage:        1_000,
+			wantReleasedHeld: true,
+		},
+		"usage removal simulation skips the released workload": {
+			operate: func(s *Snapshot, kept, released *workload.Info) func() {
+				return s.SimulateWorkloadUsageRemoval([]*workload.Info{kept, released})
+			},
+			wantUsage:        0,
+			wantReleasedHeld: true,
+		},
+		"removal simulation leaves the released workload's usage": {
+			operate: func(s *Snapshot, _, released *workload.Info) func() {
+				return s.SimulateWorkloadRemoval([]*workload.Info{released})
+			},
+			wantUsage:        1_000,
+			wantReleasedHeld: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			snap, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+			cq := snap.ClusterQueue("c1")
+			kept, released := cq.Workloads["/kept"], cq.Workloads["/released"]
+			snap.ReleaseWorkloadUsage(released)
+
+			revert := tc.operate(snap, kept, released)
+			if got := cq.ResourceNode.Usage[cpu]; got.CmpInt64(tc.wantUsage) != 0 {
+				t.Errorf("Unexpected usage after the operation: got %v, want %v", got, tc.wantUsage)
+			}
+			if _, got := cq.Workloads["/released"]; got != tc.wantReleasedHeld {
+				t.Errorf("Unexpected presence of the released workload after the operation: got %t, want %t", got, tc.wantReleasedHeld)
+			}
+			if revert == nil {
+				return
+			}
+			revert()
+			if got := cq.ResourceNode.Usage[cpu]; got.CmpInt64(1_000) != 0 {
+				t.Errorf("Unexpected usage after the revert: got %v, want 1000", got)
+			}
+			if _, found := cq.Workloads["/released"]; !found {
+				t.Error("The released workload is missing from its ClusterQueue after the revert")
 			}
 		})
 	}

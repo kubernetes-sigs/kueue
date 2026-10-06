@@ -50,6 +50,7 @@ const (
 )
 
 var errInvalidLeaderWorkerSetReplicas = errors.New("invalid LeaderWorkerSet replicas")
+var errInvalidMaxSurge = errors.New("invalid maxSurge")
 
 func RegisterIntegration(m *jobframework.IntegrationManager) error {
 	return m.RegisterIntegration(FrameworkName, jobframework.IntegrationCallbacks{

@@ -27,10 +27,76 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
+
+func TestDeferAdmissionCheckNodeSelectorsToPods(t *testing.T) {
+	const (
+		podSetName = kueue.PodSetReference("workers")
+		flavorName = kueue.ResourceFlavorReference("flavor")
+	)
+	flavor := &kueue.ResourceFlavor{
+		Spec: kueue.ResourceFlavorSpec{
+			NodeLabels: map[string]string{
+				"stable.example.com/node-pool": "workers",
+				"shared.example.com/key":       "stable",
+			},
+		},
+	}
+	flavor.Name = string(flavorName)
+	cl := utiltesting.NewClientBuilder(kueue.AddToScheme).WithObjects(flavor).Build()
+	wl := &kueue.Workload{
+		Spec: kueue.WorkloadSpec{
+			PodSets: []kueue.PodSet{{
+				Name:  podSetName,
+				Count: 1,
+			}},
+		},
+		Status: kueue.WorkloadStatus{
+			Admission: &kueue.Admission{
+				PodSetAssignments: []kueue.PodSetAssignment{{
+					Name: podSetName,
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: flavorName,
+					},
+				}},
+			},
+			AdmissionChecks: []kueue.AdmissionCheckState{{
+				Name: "provisioning",
+				PodSetUpdates: []kueue.PodSetUpdate{{
+					Name: podSetName,
+					NodeSelector: map[string]string{
+						"request.example.com/id": "request-2",
+						"shared.example.com/key": "stable",
+					},
+				}},
+			}},
+		},
+	}
+	info := []podset.PodSetInfo{{
+		Name: podSetName,
+		NodeSelector: map[string]string{
+			"stable.example.com/node-pool": "workers",
+			"shared.example.com/key":       "stable",
+			"request.example.com/id":       "request-2",
+		},
+	}}
+
+	if err := deferAdmissionCheckNodeSelectorsToPods(t.Context(), cl, wl, info); err != nil {
+		t.Fatalf("deferAdmissionCheckNodeSelectorsToPods() error: %v", err)
+	}
+
+	want := map[string]string{
+		"stable.example.com/node-pool": "workers",
+		"shared.example.com/key":       "stable",
+	}
+	if diff := cmp.Diff(want, info[0].NodeSelector); diff != "" {
+		t.Errorf("NodeSelector mismatch (-want,+got):\n%s", diff)
+	}
+}
 
 func TestExpectedRunningPodSetsKeepsImplicitTASRequestInSync(t *testing.T) {
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{

@@ -74,6 +74,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilwait "sigs.k8s.io/kueue/pkg/util/wait"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -701,11 +702,29 @@ func (rc *remoteClient) StopWatchers() {
 }
 
 func (rc *remoteClient) queueWorkloadEvent(ctx context.Context, wlKey types.NamespacedName) {
-	localWl := &kueue.Workload{}
-	if err := rc.localClient.Get(ctx, wlKey, localWl); err == nil {
-		rc.wlUpdateCh <- event.GenericEvent{Object: localWl}
+	log := ctrl.LoggerFrom(ctx)
+	// Runtime children can retain the first slice's prebuilt-workload marker after
+	// their parent is repointed to a replacement slice. Resolve the marker through
+	// the slice chain so their events wake the currently admitted Workload.
+	active, err := workloadslicing.FindActiveWorkload(ctx, rc.localClient, wlKey, false)
+	if err != nil {
+		log.Error(err, "reading local workload", "workload", wlKey)
+		return
+	}
+	if active != nil {
+		rc.wlUpdateCh <- event.GenericEvent{Object: active}
+		if active.Name == wlKey.Name {
+			return
+		}
+	}
+	// The key may also name a replacement slice that is not admitted yet, e.g. when
+	// the event comes from its remote Workload. It still has to be reconciled itself,
+	// since reconciling the admitted slice does not advance the replacement.
+	exact := &kueue.Workload{}
+	if err := rc.localClient.Get(ctx, wlKey, exact); err == nil {
+		rc.wlUpdateCh <- event.GenericEvent{Object: exact}
 	} else if !apierrors.IsNotFound(err) {
-		ctrl.LoggerFrom(ctx).Error(err, "reading local workload")
+		log.Error(err, "reading local workload", "workload", wlKey)
 	}
 }
 
@@ -1231,7 +1250,7 @@ func (c *clustersReconciler) updateStatus(ctx context.Context, cl client.Client,
 
 	// if the condition is up-to-date
 	oldCondition := apimeta.FindStatusCondition(cluster.Status.Conditions, kueue.MultiKueueClusterActive)
-	if cmpConditionState(oldCondition, &newCondition) {
+	if isConditionEqual(oldCondition, &newCondition) && oldCondition.ObservedGeneration == newCondition.ObservedGeneration {
 		return nil
 	}
 
@@ -1376,18 +1395,16 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.C
 
 	syncHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-			q.Add(reconcile.Request{NamespacedName: types.NamespacedName{
-				Name: e.Object.GetName(),
-			}})
+			q.Add(reconcile.Request{
+				Name: e.Object.GetName()})
 		},
 	}
 
 	fsWatcherHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			// batch the events
-			q.AddAfter(reconcile.Request{NamespacedName: types.NamespacedName{
-				Name: e.Object.GetName(),
-			}}, 100*time.Millisecond)
+			q.AddAfter(reconcile.Request{
+				Name: e.Object.GetName()}, 100*time.Millisecond)
 		},
 	}
 
@@ -1540,9 +1557,7 @@ func (s *secretHandler) queue(ctx context.Context, secret *corev1.Secret, q work
 
 	for _, user := range users.Items {
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name: user.Name,
-			},
+			Name: user.Name,
 		}
 		q.Add(req)
 	}
@@ -1585,9 +1600,7 @@ func (cp *clusterProfileHandler) handleEvent(ctx context.Context, object client.
 
 	for _, mkc := range mkcList.Items {
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name: mkc.Name,
-			},
+			Name: mkc.Name,
 		}
 		q.Add(req)
 	}

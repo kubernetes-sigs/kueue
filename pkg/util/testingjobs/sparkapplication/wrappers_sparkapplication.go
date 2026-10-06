@@ -17,7 +17,6 @@ package sparkapplication
 import (
 	sparkappv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 )
@@ -30,10 +29,8 @@ type SparkApplicationWrapper struct {
 // MakeSparkApplication creates a wrapper for SparkApplication with some default values
 func MakeSparkApplication(name, ns string) *SparkApplicationWrapper {
 	return &SparkApplicationWrapper{sparkappv1beta2.SparkApplication{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: ns,
-		},
+		Name:      name,
+		Namespace: ns,
 		Spec: sparkappv1beta2.SparkApplicationSpec{
 			Type:                sparkappv1beta2.SparkApplicationTypeScala,
 			Mode:                sparkappv1beta2.DeployModeCluster,
@@ -42,14 +39,14 @@ func MakeSparkApplication(name, ns string) *SparkApplicationWrapper {
 			Arguments:           []string{"1000"},
 			Driver: sparkappv1beta2.DriverSpec{
 				SparkPodSpec: sparkappv1beta2.SparkPodSpec{
-					Memory:         new("512Mi"),
+					Memory:         new("512m"),
 					ServiceAccount: new("spark-operator-spark"),
 				},
 				CoreRequest: new("100m"),
 			},
 			Executor: sparkappv1beta2.ExecutorSpec{
 				SparkPodSpec: sparkappv1beta2.SparkPodSpec{
-					Memory:         new("512Mi"),
+					Memory:         new("512m"),
 					ServiceAccount: new("spark-operator-spark"),
 				},
 				CoreRequest:         new("100m"),

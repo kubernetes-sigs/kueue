@@ -19,13 +19,13 @@ package pod
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -41,8 +41,9 @@ import (
 )
 
 const (
-	testingNamespace  = "ns"
-	testingQueueLabel = "testing.lbl"
+	testingNamespace   = "ns"
+	testingQueueLabel  = "testing.lbl"
+	testingGPUResource = corev1.ResourceName("nvidia.com/gpu")
 )
 
 var errPodList = errors.New("pod list failed")
@@ -65,6 +66,9 @@ func failPagedPodList(err error) interceptor.Funcs {
 func TestCheckNamespace(t *testing.T) {
 	basePodWrapper := testingpod.MakePod("pod", testingNamespace).
 		Label(testingQueueLabel, "q1")
+	gpuPodWrapper := testingpod.MakePod("pod-gpu", testingNamespace).
+		Label(testingQueueLabel, "q1").
+		Request(testingGPUResource, "1")
 
 	baseLocalQueue := utiltestingapi.MakeLocalQueue("lq1", testingNamespace).ClusterQueue("cq1")
 	baseClusterQueue := utiltestingapi.MakeClusterQueue("cq1")
@@ -80,6 +84,20 @@ func TestCheckNamespace(t *testing.T) {
 			ToLocalQueue: "lq1",
 		},
 	}
+
+	gpuMapping := mapping.Rules{
+		mapping.Rule{
+			Match: mapping.Match{
+				Labels: map[string]string{
+					testingQueueLabel: "q1",
+				},
+				Resources: []corev1.ResourceName{testingGPUResource},
+			},
+			ToLocalQueue: "lq1",
+		},
+	}
+	gpuClusterQueue := utiltestingapi.MakeClusterQueue("cq1").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf1").Resource(testingGPUResource, "1").Obj())
 
 	cases := map[string]struct {
 		pods                     []corev1.Pod
@@ -246,7 +264,7 @@ func TestCheckNamespace(t *testing.T) {
 				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
 			},
 			priorityClasses: []schedulingv1.PriorityClass{
-				{ObjectMeta: metav1.ObjectMeta{Name: "p-class"}, Value: 100},
+				{Name: "p-class", Value: 100},
 			},
 		},
 		"pod references an unknown priority class": {
@@ -264,6 +282,39 @@ func TestCheckNamespace(t *testing.T) {
 				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
 			},
 			wantError: cache.ErrPCNotFound,
+		},
+		"pods not requesting the resource are skipped": {
+			pods: []corev1.Pod{
+				*gpuPodWrapper.DeepCopy(),
+				*basePodWrapper.DeepCopy(),
+			},
+			mapping: append(slices.Clone(gpuMapping), mapping.Rule{Skip: true}),
+			localQueues: []kueue.LocalQueue{
+				*baseLocalQueue.Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*gpuClusterQueue.Obj(),
+			},
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
+			},
+		},
+		"pods not requesting the resource have no mapping without a catch-all rule": {
+			pods: []corev1.Pod{
+				*gpuPodWrapper.DeepCopy(),
+				*basePodWrapper.DeepCopy(),
+			},
+			mapping: gpuMapping,
+			localQueues: []kueue.LocalQueue{
+				*baseLocalQueue.Obj(),
+			},
+			clusterQueues: []kueue.ClusterQueue{
+				*gpuClusterQueue.Obj(),
+			},
+			flavors: []kueue.ResourceFlavor{
+				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
+			},
+			wantError: mapping.ErrNoMapping,
 		},
 	}
 
@@ -310,7 +361,7 @@ func TestFlavorAssignmentsForRequests(t *testing.T) {
 	}{
 		"assigns covered non-zero resources": {
 			requests: resources.MapRequests{
-				corev1.ResourceCPU: 1000,
+				corev1.ResourceCPU: resources.NewAmount(1000),
 			},
 			want: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 				corev1.ResourceCPU: "cpu-flavor",
@@ -318,8 +369,8 @@ func TestFlavorAssignmentsForRequests(t *testing.T) {
 		},
 		"ignores uncovered zero-quantity resources": {
 			requests: resources.MapRequests{
-				corev1.ResourceCPU:                    1000,
-				corev1.ResourceName("nvidia.com/gpu"): 0,
+				corev1.ResourceCPU:                    resources.NewAmount(1000),
+				corev1.ResourceName("nvidia.com/gpu"): resources.NewAmount(0),
 			},
 			want: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 				corev1.ResourceCPU: "cpu-flavor",
@@ -327,14 +378,14 @@ func TestFlavorAssignmentsForRequests(t *testing.T) {
 		},
 		"fails for uncovered non-zero resources": {
 			requests: resources.MapRequests{
-				corev1.ResourceName("nvidia.com/gpu"): 1,
+				corev1.ResourceName("nvidia.com/gpu"): resources.NewAmount(1),
 			},
 			wantError: &resourceNotCoveredError{Resource: corev1.ResourceName("nvidia.com/gpu"), ClusterQueue: "cq"},
 		},
 		"fails with the lexicographically first uncovered non-zero resource": {
 			requests: resources.MapRequests{
-				corev1.ResourceName("z.example.com/resource"): 1,
-				corev1.ResourceName("a.example.com/resource"): 1,
+				corev1.ResourceName("z.example.com/resource"): resources.NewAmount(1),
+				corev1.ResourceName("a.example.com/resource"): resources.NewAmount(1),
 			},
 			wantError: &resourceNotCoveredError{Resource: corev1.ResourceName("a.example.com/resource"), ClusterQueue: "cq"},
 		},

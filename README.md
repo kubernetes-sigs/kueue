@@ -25,6 +25,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 - **Mixing training and inference**: Simultaneous management of batch workloads along with serving workloads (such as [Deployments](https://kueue.sigs.k8s.io/docs/tasks/run/deployment/) or [StatefulSets](https://kueue.sigs.k8s.io/docs/tasks/run/statefulset/))
 - **Multi-cluster job dispatching:** called [MultiKueue](https://kueue.sigs.k8s.io/docs/concepts/multikueue/), allows to search for capacity and off-load the main cluster.
 - **Topology-Aware Scheduling**: Allows to optimize the Pod-to-Pod communication throughput by [scheduling aware of the data-center topology](https://kueue.sigs.k8s.io/docs/concepts/topology_aware_scheduling/).
+- **Dynamic Resource Allocation (DRA):** Quota management for devices such as GPUs requested through [DRA](https://kueue.sigs.k8s.io/docs/concepts/dynamic_resource_allocation/), either with ResourceClaimTemplates or extended resources, including partitionable devices. Consumable capacity is available as an alpha feature.
 
 ## Production Readiness status
 
@@ -37,6 +38,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
       - ✔️ [shard-0](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-shard-0-main)
       - ✔️ [shard-1](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-shard-1-main)
       - ✔️ [shard-2](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-shard-2-main)
+      - ✔️ [shard-3](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-shard-3-main)
     - ✔️ MultiKueue suite [testgrid](https://testgrid.k8s.io/sig-scheduling#periodic-kueue-test-integration-multikueue-main).
   - ✔️ E2E tests:
     - ✔️ Baseline suites for Kubernetes
@@ -102,7 +104,7 @@ Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueu
 To install the latest release of Kueue in your cluster, run the following command:
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.19.4/manifests.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.20.0/manifests.yaml
 ```
 
 The controller runs in the `kueue-system` namespace.

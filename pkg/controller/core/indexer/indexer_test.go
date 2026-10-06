@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
@@ -540,15 +541,15 @@ func TestIndexDeviceClassExtendedResourceName(t *testing.T) {
 			want: nil,
 		},
 		"DeviceClass with nil ExtendedResourceName returns nil": {
-			obj:  utiltesting.MakeDeviceClass("dc").Obj(),
+			obj:  testingdra.MakeDeviceClass("dc").Obj(),
 			want: nil,
 		},
 		"DeviceClass with empty ExtendedResourceName returns nil": {
-			obj:  utiltesting.MakeDeviceClass("dc").ExtendedResourceName("").Obj(),
+			obj:  testingdra.MakeDeviceClass("dc").ExtendedResourceName("").Obj(),
 			want: nil,
 		},
 		"DeviceClass with valid ExtendedResourceName": {
-			obj:  utiltesting.MakeDeviceClass("dc").ExtendedResourceName("example.com/gpu").Obj(),
+			obj:  testingdra.MakeDeviceClass("dc").ExtendedResourceName("example.com/gpu").Obj(),
 			want: []string{"example.com/gpu"},
 		},
 	}

@@ -103,11 +103,9 @@ type ClusterWrapper struct{ rayv1.RayCluster }
 // MakeCluster creates a wrapper for rayCluster
 func MakeCluster(name, ns string) *ClusterWrapper {
 	return &ClusterWrapper{rayv1.RayCluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: rayv1.RayClusterSpec{
 			RayVersion: utiltesting.TestRayVersion(),
 			HeadGroupSpec: rayv1.HeadGroupSpec{
@@ -257,6 +255,15 @@ func (j *ClusterWrapper) ScaleFirstWorkerGroup(replicas int32) *ClusterWrapper {
 	return j
 }
 
+// FirstWorkerGroupReplicas pins replicas, minReplicas and maxReplicas of the first worker group.
+func (j *ClusterWrapper) FirstWorkerGroupReplicas(replicas, minReplicas, maxReplicas int32) *ClusterWrapper {
+	wgs := &j.Spec.WorkerGroupSpecs[0]
+	wgs.Replicas = new(replicas)
+	wgs.MinReplicas = new(minReplicas)
+	wgs.MaxReplicas = new(maxReplicas)
+	return j
+}
+
 func (j *ClusterWrapper) WithWorkerGroups(workers ...rayv1.WorkerGroupSpec) *ClusterWrapper {
 	j.Spec.WorkerGroupSpecs = workers
 	return j
@@ -403,6 +410,14 @@ func (j *ClusterWrapper) RayStartParam(rayType rayv1.RayNodeType, key, value str
 		j.Spec.WorkerGroupSpecs[0].RayStartParams[key] = value
 	default:
 		panic(fmt.Sprintf("unsupported RayNodeType: %v", rayType))
+	}
+	return j
+}
+
+func (j *ClusterWrapper) TerminationGracePeriod(seconds int64) *ClusterWrapper {
+	j.Spec.HeadGroupSpec.Template.Spec.TerminationGracePeriodSeconds = new(seconds)
+	for i := range j.Spec.WorkerGroupSpecs {
+		j.Spec.WorkerGroupSpecs[i].Template.Spec.TerminationGracePeriodSeconds = new(seconds)
 	}
 	return j
 }

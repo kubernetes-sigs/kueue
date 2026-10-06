@@ -115,7 +115,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.19.4
+RELEASE_VERSION=v0.20.0
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -157,7 +157,7 @@ include hack/make/verify.mk
 manifests: controller-gen generate-code ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) \
 		crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/bases\
-		paths="./apis/kueue/v1beta1/...;./apis/kueue/v1beta2/...;./apis/visibility/...;./apis/config/..."
+		paths="./apis/kueue/v1beta2/...;./apis/visibility/...;./apis/config/..."
 	$(CONTROLLER_GEN) \
 		crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/alpha/bases\
 		paths="./apis/kueue/v1alpha1/..."
@@ -273,18 +273,22 @@ image-pushing-periodic:
 
 .PHONY: image-pushing-postsubmit
 image-pushing-postsubmit:
-	$(MAKE) -j5 image-push helm-chart-push kueueviz-image-push kueue-populator-image-push kueue-priority-booster-image-push
+	$(MAKE) -j3 image-push helm-chart-push kueueviz-image-push kueue-populator-image-push kueue-priority-booster-image-push
 
 .PHONY: image-push
 image-push: PUSH=--push
 image-push: image-build
 
+define _helm_chart_package_recipe
+DEST_CHART_DIR=$(DEST_CHART_DIR) \
+HELM="$(HELM)" YQ="$(YQ)" GIT_TAG="$(GIT_TAG)" IMAGE_REGISTRY="$(IMAGE_REGISTRY)" \
+HELM_CHART_PUSH=$(HELM_CHART_PUSH) \
+./hack/helm-chart-package.sh
+endef
+
 .PHONY: helm-chart-package
 helm-chart-package: yq helm ## Package a chart into a versioned chart archive file.
-	DEST_CHART_DIR=$(DEST_CHART_DIR) \
-	HELM="$(HELM)" YQ="$(YQ)" GIT_TAG="$(GIT_TAG)" IMAGE_REGISTRY="$(IMAGE_REGISTRY)" \
-	HELM_CHART_PUSH=$(HELM_CHART_PUSH) \
-	./hack/helm-chart-package.sh
+	$(_helm_chart_package_recipe)
 
 .PHONY: helm-chart-push
 helm-chart-push: HELM_CHART_PUSH=true
@@ -314,7 +318,7 @@ ifndef ignore-not-found
   ignore-not-found = false
 endif
 
-clean-manifests = \
+set-release-branch-images = \
 	(cd config/components/manager && \
 		$(KUSTOMIZE) edit set image controller=$(STAGING_IMAGE_REGISTRY)/kueue:$(RELEASE_BRANCH)) && \
 	(cd config/components/kueueviz && \
@@ -344,7 +348,7 @@ uninstall-alpha-crds: compile-crd-manifests kustomize ## Uninstall alpha CRDs fr
 .PHONY: deploy
 deploy: compile-crd-manifests kustomize prepare-manifests ## Deploy controller to the K8s cluster specified in ~/.kube/config.
 	kubectl apply --server-side -k config/default
-	@$(call clean-manifests)
+	@$(call set-release-branch-images)
 
 .PHONY: prometheus
 prometheus:
@@ -367,15 +371,19 @@ clean-artifacts:
 clean-release-artifacts:
 	$(MAKE) clean-artifacts ARTIFACTS="$(RELEASE_ARTIFACTS)"
 
-.PHONY: prepare-manifests
-prepare-manifests:
-	cd config/components/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG)
-	cd config/components/kueueviz && $(KUSTOMIZE) edit set image backend=$(IMAGE_TAG_KUEUEVIZ_BACKEND)
-	cd config/components/kueueviz && $(KUSTOMIZE) edit set image frontend=$(IMAGE_TAG_KUEUEVIZ_FRONTEND)
-	cd cmd/experimental/kueue-populator/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_POPULATOR)
-	cd cmd/experimental/kueue-priority-booster/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_PRIORITY_BOOSTER)
+define _prepare_manifests_recipe
+cd config/components/manager && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG)
+cd config/components/kueueviz && $(KUSTOMIZE) edit set image backend=$(IMAGE_TAG_KUEUEVIZ_BACKEND)
+cd config/components/kueueviz && $(KUSTOMIZE) edit set image frontend=$(IMAGE_TAG_KUEUEVIZ_FRONTEND)
+cd cmd/experimental/kueue-populator/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_POPULATOR)
+cd cmd/experimental/kueue-priority-booster/config && $(KUSTOMIZE) edit set image controller=$(IMAGE_TAG_KUEUE_PRIORITY_BOOSTER)
+endef
 
-# Keep first so serial builds fail before helm-chart-package and
+.PHONY: prepare-manifests
+prepare-manifests: kustomize
+	$(_prepare_manifests_recipe)
+
+# Keep first so the build fails before helm-chart-package and
 # prepare-manifests rewrite tracked files.
 .PHONY: verify-git-tag
 verify-git-tag:
@@ -384,21 +392,31 @@ verify-git-tag:
 		exit 1; \
 	fi
 
+define _artifacts_recipe
+$(KUSTOMIZE) build config/default -o $(ARTIFACTS)/manifests.yaml
+$(KUSTOMIZE) build config/dev -o $(ARTIFACTS)/manifests-dev.yaml
+$(KUSTOMIZE) build config/alpha-enabled -o $(ARTIFACTS)/manifests-alpha-enabled.yaml
+$(KUSTOMIZE) build config/prometheus -o $(ARTIFACTS)/prometheus.yaml
+$(KUSTOMIZE) build config/visibility-apf -o $(ARTIFACTS)/visibility-apf.yaml
+$(KUSTOMIZE) build config/kueueviz -o $(ARTIFACTS)/kueueviz.yaml
+$(KUSTOMIZE) build config/kueueviz-single-host -o $(ARTIFACTS)/kueueviz-single-host.yaml
+$(KUSTOMIZE) build cmd/experimental/kueue-populator/config -o $(ARTIFACTS)/kueue-populator.yaml
+$(KUSTOMIZE) build cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS)/kueue-priority-booster.yaml
+$(KUSTOMIZE) build config/components/map -o $(ARTIFACTS)/workload-map.yaml
+$(KUSTOMIZE) build config/components/crd/alpha -o $(ARTIFACTS)/alpha-crds.yaml
+@$(call set-release-branch-images)
+CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
+endef
+
+# helm-chart-package and prepare-manifests write to the working tree, so they run from the recipe
+# body, not as prerequisites, which Make builds in parallel. See the note above the verify-*
+# wrappers in `hack/make/verify.mk`.
 .PHONY: artifacts
 artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
-artifacts: verify-git-tag clean-artifacts kustomize helm-chart-package prepare-manifests ## Generate local artifacts.
-	$(KUSTOMIZE) build config/default -o $(ARTIFACTS)/manifests.yaml
-	$(KUSTOMIZE) build config/dev -o $(ARTIFACTS)/manifests-dev.yaml
-	$(KUSTOMIZE) build config/alpha-enabled -o $(ARTIFACTS)/manifests-alpha-enabled.yaml
-	$(KUSTOMIZE) build config/prometheus -o $(ARTIFACTS)/prometheus.yaml
-	$(KUSTOMIZE) build config/visibility-apf -o $(ARTIFACTS)/visibility-apf.yaml
-	$(KUSTOMIZE) build config/kueueviz -o $(ARTIFACTS)/kueueviz.yaml
-	$(KUSTOMIZE) build cmd/experimental/kueue-populator/config -o $(ARTIFACTS)/kueue-populator.yaml
-	$(KUSTOMIZE) build cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS)/kueue-priority-booster.yaml
-	$(KUSTOMIZE) build config/components/map -o $(ARTIFACTS)/workload-map.yaml
-	$(KUSTOMIZE) build config/components/crd/alpha -o $(ARTIFACTS)/alpha-crds.yaml
-	@$(call clean-manifests)
-	CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
+artifacts: verify-git-tag clean-artifacts kustomize helm yq ## Generate local artifacts.
+	$(_helm_chart_package_recipe)
+	$(_prepare_manifests_recipe)
+	$(_artifacts_recipe)
 
 .PHONY: release-artifacts
 release-artifacts: ## Generate release artifacts.
@@ -406,6 +424,7 @@ release-artifacts: ## Generate release artifacts.
 
 .PHONY: prepare-release-branch
 prepare-release-branch: yq kustomize ## Prepare the release branch with the release version.
+	@$(call set-release-branch-images)
 	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml -i cmd/kueueviz/INSTALL.md
 	$(SED) -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "$(APP_VERSION)/g' -i README.md -i site/hugo.toml
 	$(SED) -r 's/--version="[0-9]+\.[0-9]+\.[0-9]+/--version="$(APP_VERSION)/g' -i charts/kueue/README.md.gotmpl -i cmd/kueueviz/INSTALL.md
@@ -497,6 +516,7 @@ kueueviz-image-build:
 		-t $(IMAGE_TAG_KUEUEVIZ_FRONTEND) \
 		-t $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(RELEASE_BRANCH) \
 		--platform=$(VIZ_PLATFORMS) \
+		--build-context retry=./hack/testing \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
 		-f ./cmd/kueueviz/frontend/Dockerfile ./cmd/kueueviz/frontend

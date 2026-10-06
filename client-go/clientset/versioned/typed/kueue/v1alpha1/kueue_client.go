@@ -30,6 +30,7 @@ type KueueV1alpha1Interface interface {
 	RESTClient() rest.Interface
 	CapacityProvidersGetter
 	DynamicQuotaOrchestratorsGetter
+	PreemptionConfigsGetter
 }
 
 // KueueV1alpha1Client is used to interact with features provided by the kueue.x-k8s.io group.
@@ -43,6 +44,10 @@ func (c *KueueV1alpha1Client) CapacityProviders() CapacityProviderInterface {
 
 func (c *KueueV1alpha1Client) DynamicQuotaOrchestrators() DynamicQuotaOrchestratorInterface {
 	return newDynamicQuotaOrchestrators(c)
+}
+
+func (c *KueueV1alpha1Client) PreemptionConfigs() PreemptionConfigInterface {
+	return newPreemptionConfigs(c)
 }
 
 // NewForConfig creates a new KueueV1alpha1Client for the given config.

@@ -151,10 +151,8 @@ func testRestConfigInvalid() *rest.Config {
 
 func makeTestClusterProfile(name string, providerName string) inventoryv1alpha1.ClusterProfile {
 	return inventoryv1alpha1.ClusterProfile{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: TestNamespace,
-		},
+		Name:      name,
+		Namespace: TestNamespace,
 		Status: inventoryv1alpha1.ClusterProfileStatus{
 			AccessProviders: []inventoryv1alpha1.AccessProvider{
 				{
@@ -732,11 +730,7 @@ func TestUpdateConfig(t *testing.T) {
 			}
 
 			cancelCalledCount = 0
-			res, gotErr := reconciler.Reconcile(
-				ctx,
-				reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}},
-				c,
-			)
+			res, gotErr := reconciler.Reconcile(ctx, reconcile.Request{Name: tc.reconcileFor}, c)
 			if diff := cmp.Diff(gotErr, tc.wantErr, cmp.Comparer(func(a, b error) bool {
 				if a == nil || b == nil {
 					return a == b
@@ -896,7 +890,7 @@ func TestReconnectBackoff(t *testing.T) {
 			reconciler.remoteClients["worker1"] = rc
 			t.Cleanup(rc.StopWatchers)
 
-			req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}}
+			req := reconcile.Request{Name: "worker1"}
 
 			for i, s := range tc.steps {
 				fc.Step(s.advance)
@@ -956,7 +950,7 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	reconciler.remoteClients["worker1"] = rc
 	defer rc.StopWatchers()
 
-	_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}}, c)
+	_, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"}, c)
 	if err != nil {
 		t.Fatalf("unexpected reconcile error: %v", err)
 	}
@@ -1057,6 +1051,19 @@ func TestActiveConditionSurfacesBackoff(t *testing.T) {
 	if act := apimeta.FindStatusCondition(got2.Status.Conditions, kueue.MultiKueueClusterActive); act == nil ||
 		act.Status != metav1.ConditionTrue || act.Message != "Connected" {
 		t.Fatalf("want Active=True message %q, got %+v", "Connected", act)
+	}
+
+	got2.Generation = 2
+	if err := cRec.updateStatus(ctx, managerClient, got2, true, "Active", "Connected"); err != nil {
+		t.Fatalf("updateStatus with stale observed generation: %v", err)
+	}
+	got3 := &kueue.MultiKueueCluster{}
+	if err := managerClient.Get(ctx, client.ObjectKeyFromObject(got2), got3); err != nil {
+		t.Fatalf("get cluster after generation update: %v", err)
+	}
+	if act := apimeta.FindStatusCondition(got3.Status.Conditions, kueue.MultiKueueClusterActive); act == nil ||
+		act.ObservedGeneration != 2 {
+		t.Fatalf("want Active observed generation 2, got %+v", act)
 	}
 }
 
@@ -1617,7 +1624,7 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 	slowDone := make(chan struct{})
 	go func() {
 		defer close(slowDone)
-		req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-slow"}}
+		req := reconcile.Request{Name: "cluster-slow"}
 		_, _ = reconciler.Reconcile(ctx, req, localClient)
 	}()
 
@@ -1629,7 +1636,7 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 
 	fastDone := make(chan error, 1)
 	go func() {
-		req := reconcile.Request{NamespacedName: types.NamespacedName{Name: "cluster-fast"}}
+		req := reconcile.Request{Name: "cluster-fast"}
 		_, err := reconciler.Reconcile(ctx, req, localClient)
 		fastDone <- err
 	}()
@@ -2068,7 +2075,7 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 				return fakeClientBuilder(ctx)(builderCtx, cfg, opts)
 			}
 
-			if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: "worker1"}}, c); err != nil {
+			if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"}, c); err != nil {
 				t.Fatalf("unexpected reconcile error: %v", err)
 			}
 

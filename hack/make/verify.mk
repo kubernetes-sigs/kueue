@@ -99,7 +99,7 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-skills-lint
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-test-performance-multikueue-runner verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -137,7 +137,9 @@ define _ci_lint_recipe
 endef
 
 define _lint_api_recipe
-$(GOLANGCI_LINT_KAL) run -v --config $(PROJECT_DIR)/.golangci-kal.yaml $(GOLANGCI_LINT_FIX)
+$(GOLANGCI_LINT_KAL) run -v \
+	--config $(PROJECT_DIR)/.golangci-kal.yaml $(GOLANGCI_LINT_FIX) \
+	./apis/kueue/...
 endef
 
 define _fmt_verify_recipe
@@ -154,6 +156,25 @@ endef
 
 define _e2e_common_test_recipe
 bash $(PROJECT_DIR)/hack/testing/e2e-common_test.sh
+endef
+
+define _release_utils_test_recipe
+@venv_dir=$$(mktemp -d); \
+trap 'rm -r "$$venv_dir"' EXIT; \
+python3 -m venv "$$venv_dir"; \
+"$$venv_dir/bin/python" -m pip install \
+	--disable-pip-version-check \
+	--no-deps \
+	--only-binary=:all: \
+	--require-hashes \
+	--requirement $(PROJECT_DIR)/hack/releasing/requirements.txt; \
+PYTHONPATH=$(PROJECT_DIR)/hack/releasing "$$venv_dir/bin/python" -m unittest discover \
+	-s $(PROJECT_DIR)/hack/releasing \
+	-p '*_test.py'
+endef
+
+define _milestone_pull_test_recipe
+bash $(PROJECT_DIR)/hack/testing/milestone_pull_test.sh
 endef
 
 define _helm_verify_recipe
@@ -184,14 +205,42 @@ $(KUSTOMIZE) build config/alpha-enabled > /dev/null
 $(KUSTOMIZE) build config/components/crd/alpha > /dev/null
 endef
 
+define _rbac_role_coverage_verify_recipe
+YQ=$(YQ) $(PROJECT_DIR)/hack/testing/rbac/verify.sh
+endef
+
+define _kustomization_resources_verify_recipe
+YQ=$(YQ) $(PROJECT_DIR)/hack/testing/kustomization/verify.sh
+endef
+
+define _rbac_verify_recipe
+$(PROJECT_DIR)/hack/testing/rbac/verify_manifests.sh
+endef
+
 # Validates skills against https://agentskills.io/specification
 define _skills_lint_recipe
 mkdir -p $(ARTIFACTS)
 $(CONTAINER_ENGINE) run --rm --user "$(shell id -u):$(shell id -g)" $(CONTAINER_SECURITY_OPTS) -v $(PROJECT_DIR):/workspace$(VOLUME_FLAGS) -v $(ARTIFACTS):/out$(VOLUME_FLAGS) $(SKILLSAW_IMAGE) --output /out/skillsaw-summary.html
 endef
 
+# ray-project-mini-image-build pip-installs ray==RAY_VERSION, but rayproject/ray also tags
+# X.Y.Z.<short-sha> release-branch builds, which Dependabot can propose and PyPI lacks.
+define _ray_version_verify_recipe
+@printf '%s\n' "$${RAY_VERSION}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' || { \
+	printf 'ERROR: RAY_VERSION=%s from hack/testing/ray/Dockerfile must be a plain X.Y.Z ray release published on PyPI\n' "$${RAY_VERSION}" >&2; \
+	exit 1; \
+}
+endef
+
 
 # ---- verify-* wrappers (generation prereqs + shared recipe) ---------------
+
+.PHONY: verify-artifacts
+verify-artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
+verify-artifacts: verify-tree-prereqs verify-git-tag clean-artifacts kustomize helm yq ## Build artifacts after ensuring generated code is up to date.
+	$(_helm_chart_package_recipe)
+	$(_prepare_manifests_recipe)
+	$(_artifacts_recipe)
 
 .PHONY: verify-ci-lint
 verify-ci-lint: verify-tree-prereqs gomod-verify golangci-lint ## CI-style golangci-lint (includes generation + go.mod checks)
@@ -213,6 +262,18 @@ verify-shell-lint: verify-tree-prereqs ## Shell lint after generation
 verify-e2e-common-test: verify-tree-prereqs ## e2e-common shell helper tests after generation
 	$(_e2e_common_test_recipe)
 
+.PHONY: verify-release-utils-test
+verify-release-utils-test: verify-tree-prereqs ## Release utility Python unit tests after generation
+	$(_release_utils_test_recipe)
+
+.PHONY: verify-milestone-pull-test
+verify-milestone-pull-test: verify-tree-prereqs ## milestone_pull shell tests after generation
+	$(_milestone_pull_test_recipe)
+
+.PHONY: verify-test-performance-multikueue-runner
+verify-test-performance-multikueue-runner: verify-tree-prereqs ## MultiKueue performance runner unit tests after generation
+	$(MAKE) test-performance-multikueue-runner
+
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation
 	$(_helm_verify_recipe)
@@ -229,9 +290,26 @@ verify-npm-depcheck: verify-tree-prereqs prepare-release-branch ## Depcheck afte
 verify-kustomize-build: verify-tree-prereqs kustomize ## Verify alpha-enabled manifests render after generation
 	$(_kustomize_build_verify_recipe)
 
+.PHONY: verify-rbac-role-coverage
+verify-rbac-role-coverage: verify-tree-prereqs yq ## Verify every resource granted to the manager has editor and viewer ClusterRoles after generation
+	$(_rbac_role_coverage_verify_recipe)
+
+.PHONY: verify-kustomization-resources
+verify-kustomization-resources: verify-tree-prereqs yq ## Verify manifests shipped by the Helm chart are listed in kustomizations after generation
+	$(_kustomization_resources_verify_recipe)
+
+.PHONY: verify-rbac
+verify-rbac: verify-tree-prereqs ## Verify RBAC subject and roleRef relationships after generation
+	$(_rbac_verify_recipe)
+
 .PHONY: verify-skills-lint
 verify-skills-lint: ## Lint agent skills with skillsaw
 	$(_skills_lint_recipe)
+
+.PHONY: verify-ray-version
+verify-ray-version: export RAY_VERSION := $(RAY_VERSION)
+verify-ray-version: ## Verify the rayproject/ray tag is a plain X.Y.Z release
+	$(_ray_version_verify_recipe)
 
 # ---- Standalone targets (lightweight, for local use) ----------------------
 
@@ -271,6 +349,14 @@ shell-lint: ## Run shell script linting (via shellcheck).
 e2e-common-test: ## Run e2e-common shell helper tests.
 	$(_e2e_common_test_recipe)
 
+.PHONY: release-utils-test
+release-utils-test: ## Run release utility Python unit tests.
+	$(_release_utils_test_recipe)
+
+.PHONY: milestone-pull-test
+milestone-pull-test: ## Run milestone_pull shell tests.
+	$(_milestone_pull_test_recipe)
+
 .PHONY: helm-verify
 helm-verify: helm helm-lint ## Validate Helm chart rendering with various configuration combinations.
 	$(_helm_verify_recipe)
@@ -287,9 +373,26 @@ npm-depcheck: ## Verify frontend and e2e npm dependencies.
 kustomize-build-verify: kustomize ## Validate alpha-enabled manifests render.
 	$(_kustomize_build_verify_recipe)
 
+.PHONY: rbac-role-coverage-verify
+rbac-role-coverage-verify: yq ## Validate every resource granted to the manager has editor and viewer ClusterRoles.
+	$(_rbac_role_coverage_verify_recipe)
+
+.PHONY: kustomization-resources-verify
+kustomization-resources-verify: yq ## Validate manifests shipped by the Helm chart are listed in kustomizations.
+	$(_kustomization_resources_verify_recipe)
+
+.PHONY: rbac-verify
+rbac-verify: ## Verify RBAC subject and roleRef relationships (standalone).
+	$(_rbac_verify_recipe)
+
 .PHONY: skills-lint
 skills-lint: ## Lint agent skills with skillsaw.
 	$(_skills_lint_recipe)
+
+.PHONY: ray-version-verify
+ray-version-verify: export RAY_VERSION := $(RAY_VERSION)
+ray-version-verify: ## Verify the rayproject/ray tag is a plain X.Y.Z release (standalone).
+	$(_ray_version_verify_recipe)
 
 .PHONY: verify-website-links
 verify-website-links: ## Check for broken internal links on the public website.

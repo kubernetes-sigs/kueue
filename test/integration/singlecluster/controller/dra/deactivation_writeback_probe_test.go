@@ -29,7 +29,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 // Probe for: handleDRA runs AdjustResources on the reconciler's own object
@@ -51,7 +52,7 @@ var _ = ginkgo.Describe("Workload spec on the DRA deactivation path", func() {
 
 		ns = utiltesting.MakeNamespaceWithGenerateName("dra-writeback-")
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
-		deviceClass = utiltesting.MakeDeviceClass("").GeneratedName("gpu-wb-").
+		deviceClass = testingdra.MakeDeviceClass("").GeneratedName("gpu-wb-").
 			ExtendedResourceName(probeExtResource).
 			Obj()
 		gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
@@ -65,17 +66,17 @@ var _ = ginkgo.Describe("Workload spec on the DRA deactivation path", func() {
 					Obj(),
 			).Obj()
 		gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+		behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 		localQueue = utiltestingapi.MakeLocalQueue("test-lq", ns.Name).
 			ClusterQueue(clusterQueue.Name).Obj()
 		gomega.Expect(k8sClient.Create(ctx, localQueue)).To(gomega.Succeed())
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
 		fwk.StopManager(ctx)
 	})
 
@@ -95,7 +96,7 @@ var _ = ginkgo.Describe("Workload spec on the DRA deactivation path", func() {
 				read := kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
 				g.Expect(read.Status.Conditions).NotTo(gomega.BeEmpty())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("marking the workload as a deactivation target", func() {
@@ -109,7 +110,7 @@ var _ = ginkgo.Describe("Workload spec on the DRA deactivation path", func() {
 					Message: "deactivated by the probe",
 				})
 				g.Expect(k8sClient.Status().Update(ctx, &read)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("waiting for the deactivation to be executed", func() {
@@ -118,7 +119,7 @@ var _ = ginkgo.Describe("Workload spec on the DRA deactivation path", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
 				g.Expect(read.Spec.Active).NotTo(gomega.BeNil())
 				g.Expect(*read.Spec.Active).To(gomega.BeFalse())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying the persisted spec still has no cpu request", func() {

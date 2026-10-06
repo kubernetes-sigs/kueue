@@ -21,8 +21,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"kueueviz/middleware"
@@ -143,6 +143,42 @@ func TestFetchWorkloadsDashboardDataKeepsPodsNamespaceScoped(t *testing.T) {
 	}
 }
 
+func TestFetchWorkloadsDashboardDataSkipsPodsWithoutControllerUID(t *testing.T) {
+	client := &fakeDashboardClient{
+		workloads: []kueueapi.Workload{
+			makeDashboardWorkload("wl-1", "ns-1", "wl-uid-1", "job-uid-1"),
+			// Pod group Workloads have no job UID label.
+			{Name: "pod-group-1", Namespace: "ns-1", UID: "wl-uid-2"},
+			{Name: "pod-group-2", Namespace: "ns-1", UID: "wl-uid-3"},
+		},
+		pods: []corev1.Pod{
+			makeDashboardPod("pod-1", "ns-1", "job-uid-1"),
+			// Pods not created by a batch Job have no controller UID label.
+			{Name: "pod-group-1-0", Namespace: "ns-1"},
+			{Name: "pod-group-2-0", Namespace: "ns-1"},
+		},
+	}
+	h := &Handlers{client: client}
+
+	got, _, err := h.fetchWorkloadsDashboardData(t.Context(), "ns-1", middleware.Identity{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	gotPodCounts := make(map[string]int)
+	for _, item := range dashboardWorkloadItems(t, got) {
+		gotPodCounts[item.Name] = len(item.Pods)
+	}
+	wantPodCounts := map[string]int{
+		"wl-1":        1,
+		"pod-group-1": 0,
+		"pod-group-2": 0,
+	}
+	if diff := cmp.Diff(wantPodCounts, gotPodCounts); diff != "" {
+		t.Errorf("unexpected pod counts (-want,+got):\n%s", diff)
+	}
+}
+
 func dashboardWorkloadItems(t *testing.T, got any) []workloadResult {
 	t.Helper()
 
@@ -159,25 +195,21 @@ func dashboardWorkloadItems(t *testing.T, got any) []workloadResult {
 
 func makeDashboardWorkload(name, namespace, uid, jobUID string) kueueapi.Workload {
 	return kueueapi.Workload{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			UID:       types.UID(uid),
-			Labels: map[string]string{
-				"kueue.x-k8s.io/job-uid": jobUID,
-			},
+		Name:      name,
+		Namespace: namespace,
+		UID:       types.UID(uid),
+		Labels: map[string]string{
+			"kueue.x-k8s.io/job-uid": jobUID,
 		},
 	}
 }
 
 func makeDashboardPod(name, namespace, controllerUID string) corev1.Pod {
 	return corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-			Labels: map[string]string{
-				"controller-uid": controllerUID,
-			},
+		Name:      name,
+		Namespace: namespace,
+		Labels: map[string]string{
+			"controller-uid": controllerUID,
 		},
 	}
 }

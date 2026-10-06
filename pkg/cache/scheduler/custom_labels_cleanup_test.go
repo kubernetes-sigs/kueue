@@ -90,14 +90,14 @@ func TestWorkloadCustomLabelsCleanup(t *testing.T) {
 		},
 		"workload finished": {
 			operation: func(log logr.Logger, cache *Cache, _ *kueue.ClusterQueue) error {
-				cache.AddOrUpdateWorkload(log, admittedWorkload("wl1", "training", "cq", now).Finished().Obj())
+				cache.AddOrUpdateWorkload(t.Context(), log, admittedWorkload("wl1", "training", "cq", now).Finished().Obj())
 				return nil
 			},
 			wantRefs: []string{"ns/wl2"},
 		},
 		"workload deactivated": {
 			operation: func(log logr.Logger, cache *Cache, _ *kueue.ClusterQueue) error {
-				cache.AddOrUpdateWorkload(log, admittedWorkload("wl1", "training", "cq", now).Active(false).Obj())
+				cache.AddOrUpdateWorkload(t.Context(), log, admittedWorkload("wl1", "training", "cq", now).Active(false).Obj())
 				return nil
 			},
 			wantRefs: []string{"ns/wl2"},
@@ -106,7 +106,7 @@ func TestWorkloadCustomLabelsCleanup(t *testing.T) {
 		// must be re-stored rather than dropped when it moves.
 		"workload moved to another ClusterQueue": {
 			operation: func(log logr.Logger, cache *Cache, _ *kueue.ClusterQueue) error {
-				cache.AddOrUpdateWorkload(log, admittedWorkload("wl1", "training", "other-cq", now).Obj())
+				cache.AddOrUpdateWorkload(t.Context(), log, admittedWorkload("wl1", "training", "other-cq", now).Obj())
 				return nil
 			},
 			wantRefs: []string{"ns/wl1", "ns/wl2"},
@@ -131,8 +131,8 @@ func TestWorkloadCustomLabelsCleanup(t *testing.T) {
 					t.Fatalf("Failed to add ClusterQueue %s: %v", q.Name, err)
 				}
 			}
-			cache.AddOrUpdateWorkload(log, admittedWorkload("wl1", "training", "cq", now).Obj())
-			cache.AddOrUpdateWorkload(log, admittedWorkload("wl2", "inference", "cq", now).Obj())
+			cache.AddOrUpdateWorkload(t.Context(), log, admittedWorkload("wl1", "training", "cq", now).Obj())
+			cache.AddOrUpdateWorkload(t.Context(), log, admittedWorkload("wl2", "inference", "cq", now).Obj())
 			if diff := cmp.Diff([]string{"ns/wl1", "ns/wl2"}, storedWorkloadRefs(customLabels)); diff != "" {
 				t.Fatalf("Unexpected stored workload references before the operation (-want +got):\n%s", diff)
 			}
@@ -162,8 +162,8 @@ func TestDeleteClusterQueueClearsCustomLabelledSeries(t *testing.T) {
 	if err := cache.AddClusterQueue(ctx, cq); err != nil {
 		t.Fatalf("Failed to add ClusterQueue: %v", err)
 	}
-	cache.AddOrUpdateWorkload(log, admittedWorkload("wl1", "training", "cq", now).Obj())
-	cache.AddOrUpdateWorkload(log, admittedWorkload("wl2", "inference", "cq", now).Obj())
+	cache.AddOrUpdateWorkload(t.Context(), log, admittedWorkload("wl1", "training", "cq", now).Obj())
+	cache.AddOrUpdateWorkload(t.Context(), log, admittedWorkload("wl2", "inference", "cq", now).Obj())
 
 	cqSeries := map[string]string{"cluster_queue": cq.Name}
 	cqScopedMetrics := map[string]*prometheus.GaugeVec{

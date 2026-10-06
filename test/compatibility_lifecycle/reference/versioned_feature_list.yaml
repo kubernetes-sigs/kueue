@@ -11,6 +11,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.15"
+- name: AdmissionFairSharingAnchorAtQuotaReservation
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: AdmissionGatedBy
   versionedSpecs:
   - default: false
@@ -39,6 +45,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+- name: ConfigurablePreemptions
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: CustomMetricLabels
   versionedSpecs:
   - default: false
@@ -54,6 +66,12 @@
   - default: false
     lockToDefault: false
     preRelease: Deprecated
+    version: "0.20"
+- name: DeploymentJobUIDLabel
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
     version: "0.20"
 - name: DisableWaitForPodsReady
   versionedSpecs:
@@ -77,6 +95,18 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: ElasticJobsViaWorkloadSlicesFlavorChangeFromZero
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
+- name: ElasticJobsViaWorkloadSlicesForProvisioningRequests
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp
   versionedSpecs:
   - default: false
@@ -89,6 +119,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: EnforceProvisioningPodTemplateContents
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: FailureRecoveryPolicy
   versionedSpecs:
   - default: false
@@ -113,12 +149,24 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.20"
+- name: FairSharingRefill
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: FastQuotaReleaseInPodIntegration
   versionedSpecs:
   - default: false
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+- name: FinalizeTerminatingPodGroups
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: FinishOrphanedWorkloads
   versionedSpecs:
   - default: true
@@ -137,6 +185,18 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: HighMaxParallelismWithinReconcile
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
+- name: KueueDRADeviceFeasibility
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: KueueDRAIntegration
   versionedSpecs:
   - default: true
@@ -149,6 +209,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.19"
+- name: KueueDRAIntegrationDeviceTaints
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: KueueDRAIntegrationExtendedResource
   versionedSpecs:
   - default: false
@@ -169,6 +235,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: KueueDRAIntegrationPrioritizedList
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: KueueDRARejectWorkloadsWhenDRADisabled
   versionedSpecs:
   - default: true
@@ -211,6 +283,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.21"
 - name: MetricsForCohorts
   versionedSpecs:
   - default: true
@@ -283,6 +359,16 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.17"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
+- name: MultiKueueRayInTreeAutoscaling
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: MultiKueueRemoteSpecSync
   versionedSpecs:
   - default: true
@@ -305,6 +391,18 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.5"
+- name: PodGroupSchedulingShapeOrdering
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
+- name: PodIntegrationCountSucceededPodsAsReady
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: PodIntegrationValidateGroupOwner
   versionedSpecs:
   - default: true
@@ -339,6 +437,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: RayServiceValidateUpgradeStrategy
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: ReclaimablePods
   versionedSpecs:
   - default: true
@@ -373,6 +477,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: SchedulerLibraryDeepIntegration
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: SchedulerLibraryIntegration
   versionedSpecs:
   - default: false
@@ -406,6 +516,12 @@
   - default: true
     lockToDefault: false
     preRelease: Beta
+    version: "0.20"
+- name: SkipChildJobSuspension
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
     version: "0.20"
 - name: SkipReassignmentForPodOwnedWorkloads
   versionedSpecs:
@@ -503,6 +619,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: TASPartialSlices
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.20"
 - name: TASProfileMixed
   versionedSpecs:
   - default: false
@@ -519,6 +641,18 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.19"
+- name: TASRejectFalseUnconstrainedTopology
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
+- name: TASReplaceMultipleFailedNodes
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: TASReplaceNodeDueToNotReadyOverFixedTime
   versionedSpecs:
   - default: true
@@ -551,6 +685,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.18"
+- name: TASTopologySpreading
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: TASValidateWorkloadSliceSize
   versionedSpecs:
   - default: true
@@ -581,14 +721,18 @@
   versionedSpecs:
   - default: false
     lockToDefault: false
-    preRelease: Beta
+    preRelease: Alpha
     version: "0.19"
 - name: UnadmittedWorkloadsObservability
   versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.19"
   - default: true
     lockToDefault: false
     preRelease: Beta
-    version: "0.19"
+    version: "0.20"
 - name: ValidateRayAndSparkJobUpdates
   versionedSpecs:
   - default: true
@@ -611,6 +755,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.9"
+- name: WaitForPodsReadyMaxNotReady
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: WaitForPodsReadyUnscheduledTimeout
   versionedSpecs:
   - default: false
@@ -623,6 +773,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: WorkloadLevelWaitForPodsReady
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.20"
 - name: WorkloadPriorityClassDefaulting
   versionedSpecs:
   - default: false

@@ -69,16 +69,34 @@ func (m podsByWorkload) forgetPod(wlKey client.ObjectKey, podKey client.ObjectKe
 	}
 }
 
-func (t *podTracker) snapshot() (allPods []*corev1.Pod, workloadPods podsByWorkload) {
+func (p podsByKey) toSlice() []*corev1.Pod {
+	if len(p) == 0 {
+		return nil
+	}
+	return slices.Collect(maps.Values(p))
+}
+
+func (t *podTracker) copy() *podTracker {
 	t.RLock()
 	defer t.RUnlock()
 
-	allPods = slices.Collect(maps.Values(t.pods))
-	workloadPods = podsByWorkload{}
-	for k, v := range t.workloadPods {
-		workloadPods[k] = maps.Clone(v)
+	copyTracker := &podTracker{
+		pods:         maps.Clone(t.pods),
+		workloadPods: make(podsByWorkload, len(t.workloadPods)),
 	}
-	return
+	for k, v := range t.workloadPods {
+		copyTracker.workloadPods[k] = maps.Clone(v)
+	}
+	return copyTracker
+}
+
+func (t *podTracker) clearWorkload(wlKey client.ObjectKey) {
+	if pods, ok := t.workloadPods[wlKey]; ok {
+		for podKey := range pods {
+			delete(t.pods, podKey)
+		}
+		delete(t.workloadPods, wlKey)
+	}
 }
 
 func (t *podTracker) track(pod *corev1.Pod) {

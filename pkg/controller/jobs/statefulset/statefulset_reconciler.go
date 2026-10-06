@@ -28,7 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -45,6 +45,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
@@ -55,6 +56,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
@@ -76,6 +78,8 @@ type Reconciler struct {
 	logName                      string
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
+	labelKeysToCopy              sets.Set[string]
+	annotationsToCopy            sets.Set[string]
 	roleTracker                  *roletracker.RoleTracker
 	customLabels                 *metrics.CustomLabels
 }
@@ -90,13 +94,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 			return ctrl.Result{}, err
 		}
 		sts = nil
-	}
-
-	podList := &corev1.PodList{}
-	if err := r.client.List(ctx, podList, client.InNamespace(req.Namespace), client.MatchingFields{
-		PodOwnerKey: req.Name,
-	}); err != nil {
-		return ctrl.Result{}, err
 	}
 
 	var wlName string
@@ -117,7 +114,7 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	var eg errgroup.Group
 
 	eg.Go(func() error {
-		return r.ungatePods(ctx, sts, wlName, podList.Items)
+		return r.ungatePods(ctx, req, sts, wlName)
 	})
 
 	if sts != nil {
@@ -129,9 +126,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	return ctrl.Result{}, eg.Wait()
 }
 
-func (r *Reconciler) ungatePods(ctx context.Context, sts *appsv1.StatefulSet, wlName string, pods []corev1.Pod) error {
-	return parallelize.Until(ctx, len(pods), func(i int) error {
-		return r.ungatePod(ctx, sts, wlName, &pods[i])
+func (r *Reconciler) ungatePods(ctx context.Context, req reconcile.Request, sts *appsv1.StatefulSet, wlName string) error {
+	pods := &corev1.PodList{}
+	if err := r.client.List(ctx, pods, client.InNamespace(req.Namespace), client.MatchingFields{
+		coreindexer.OwnerReferenceIndexKey(gvk): req.Name,
+	}); err != nil {
+		return err
+	}
+
+	return parallelize.Until(ctx, len(pods.Items), func(i int) error {
+		return r.ungatePod(ctx, sts, wlName, &pods.Items[i])
 	})
 }
 
@@ -140,16 +144,17 @@ func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlN
 	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 		var updated bool
 		log = log.WithValues("pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
-		if r.syncQueueLabel(sts, pod) {
-			log.V(3).Info("Syncing queue label")
-			updated = true
-		}
 		if r.setDefault(sts, wlName, pod) {
 			log.V(3).Info("Updating pod in group")
 			updated = true
 		}
-		if utilstatefulset.UngatePod(sts, pod, false) {
+		// Kueue stops managing the Pods of a deleted StatefulSet, so it releases them.
+		if sts == nil && utilstatefulset.UngatePod(pod) {
 			log.V(3).Info("Ungating pod in group")
+			updated = true
+		}
+		if r.syncQueueLabel(sts, pod) {
+			log.V(3).Info("Syncing queue label")
 			updated = true
 		}
 		return updated, nil
@@ -158,6 +163,10 @@ func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlN
 
 func (r *Reconciler) syncQueueLabel(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
 	if sts == nil || ptr.Deref(sts.Spec.Replicas, 1) == 0 {
+		return false
+	}
+	// Only gated pods qualify: the pod webhook rejects the change on others.
+	if !utilpod.HasGate(pod, podconstants.SchedulingGateName) {
 		return false
 	}
 	queueName := string(jobframework.QueueNameForObject(sts))
@@ -308,6 +317,15 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		shouldUpdate = admissionGatedByUpdated || shouldUpdate
 	}
 
+	var waitForPodsReadyUpdated bool
+	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		waitForPodsReadyUpdated, err = jobframework.PropagateWaitForPodsReadyAnnotation(sts, wl)
+		if err != nil {
+			return err
+		}
+		shouldUpdate = waitForPodsReadyUpdated || shouldUpdate
+	}
+
 	if shouldUpdate {
 		if err := r.client.Update(ctx, wl); err != nil {
 			return err
@@ -317,6 +335,9 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, sts)
 	}
 
+	if waitForPodsReadyUpdated {
+		jobframework.RecordWaitForPodsReadyUpdateEvent(r.record, sts)
+	}
 	if shouldReleaseReservation {
 		return r.releaseScaleDownReservation(ctx, wl)
 	}
@@ -412,7 +433,7 @@ func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet) (*kueue.Workload
 		podSet.TopologyRequest = topologyRequest
 	}
 
-	wl := podcontroller.NewGroupWorkload(GetWorkloadName(GetOwnerUID(sts), sts.Name), sts, []kueue.PodSet{podSet}, nil, nil)
+	wl := podcontroller.NewGroupWorkload(GetWorkloadName(GetOwnerUID(sts), sts.Name), sts, []kueue.PodSet{podSet}, r.labelKeysToCopy, r.annotationsToCopy)
 
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string, 1)
@@ -457,6 +478,8 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 		logName:                      "statefulset-reconciler",
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		labelKeysToCopy:              options.LabelKeysToCopy,
+		annotationsToCopy:            options.AnnotationsToCopy,
 		roleTracker:                  options.RoleTracker,
 		customLabels:                 options.CustomLabels,
 	}, nil
@@ -537,10 +560,8 @@ func (h *podHandler) handle(obj client.Object, q workqueue.TypedRateLimitingInte
 			return
 		}
 		q.AddAfter(reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Namespace: pod.Namespace,
-				Name:      controllerRef.Name,
-			},
+			Namespace: pod.Namespace,
+			Name:      controllerRef.Name,
 		}, podBatchPeriod)
 	}
 }

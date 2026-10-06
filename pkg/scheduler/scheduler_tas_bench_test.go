@@ -279,7 +279,7 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 				}
 				for i := range workloads {
 					// Admitted workloads go to scheduling cache directly
-					if !cqCache.AddOrUpdateWorkload(log, &workloads[i]) {
+					if !cqCache.AddOrUpdateWorkload(b.Context(), log, &workloads[i]) {
 						b.Fatalf("Failed to add workload %s to cqCache", workloads[i].Name)
 					}
 				}
@@ -291,7 +291,7 @@ func BenchmarkSchedulerTAS(b *testing.B) {
 					func() { wg.Done() },
 				))
 
-				if err := qManager.AddOrUpdateWorkload(log, requestedWl); err != nil {
+				if err := qManager.AddOrUpdateWorkload(ctx, log, requestedWl); err != nil {
 					b.Fatalf("Failed to add requested workload to qManager: %v", err)
 				}
 

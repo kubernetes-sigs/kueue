@@ -263,7 +263,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 				t.Fatalf("Inserting localQueue in manager: %v", err)
 			}
 			for _, wl := range defaultWls.Items {
-				cqCache.AddOrUpdateWorkload(log, &wl)
+				cqCache.AddOrUpdateWorkload(t.Context(), log, &wl)
 			}
 			r := &ClusterQueueReconciler{
 				client:   cl,
@@ -272,7 +272,7 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 				qManager: qManager,
 			}
 			if tc.newWl != nil {
-				if err := r.qManager.AddOrUpdateWorkload(log, tc.newWl); err != nil {
+				if err := r.qManager.AddOrUpdateWorkload(ctx, log, tc.newWl); err != nil {
 					t.Fatalf("Failed to add or update workload : %v", err)
 				}
 			}
@@ -344,7 +344,7 @@ func TestClusterQueueReconcile(t *testing.T) {
 				t.Fatalf("Inserting clusterQueue in manager: %v", err)
 			}
 
-			cqCache.AddOrUpdateWorkload(log, tc.workload)
+			cqCache.AddOrUpdateWorkload(t.Context(), log, tc.workload)
 
 			r := &ClusterQueueReconciler{
 				client:   cl,
@@ -357,7 +357,7 @@ func TestClusterQueueReconcile(t *testing.T) {
 				t.Fatalf("Failed to delete ClusterQueue: %v", err)
 			}
 
-			if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: types.NamespacedName{Name: cqName}}); err != nil {
+			if _, err := r.Reconcile(ctx, ctrl.Request{Name: cqName}); err != nil {
 				t.Fatalf("Reconcile failed: %v", err)
 			}
 
@@ -445,9 +445,7 @@ func workloadForReservation(cqName string, reservation []kueue.FlavorUsage) *kue
 
 func TestRecordResourceMetrics(t *testing.T) {
 	baseQueue := &kueue.ClusterQueue{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "name",
-		},
+		Name: "name",
 		Spec: kueue.ClusterQueueSpec{
 			CohortName: "cohort",
 			ResourceGroups: []kueue.ResourceGroup{
@@ -712,7 +710,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 			}
 
 			wl := workloadForReservation("name", tc.queue.Status.FlavorsReservation)
-			cqCache.AddOrUpdateWorkload(log, wl)
+			cqCache.AddOrUpdateWorkload(t.Context(), log, wl)
 
 			cqCache.RecordClusterQueueResourceMetrics(log, kueue.ClusterQueueReference(tc.queue.Name))
 			gotMetrics := allMetricsForQueue(tc.queue.Name)
@@ -722,7 +720,7 @@ func TestRecordResourceMetrics(t *testing.T) {
 
 			if tc.updatedQueue != nil {
 				wl := workloadForReservation("name", tc.updatedQueue.Status.FlavorsReservation)
-				cqCache.AddOrUpdateWorkload(log, wl)
+				cqCache.AddOrUpdateWorkload(t.Context(), log, wl)
 				if err := cqCache.UpdateClusterQueue(log, tc.updatedQueue); err != nil {
 					t.Fatalf("Updating clusterQueue in cache: %v", err)
 				}

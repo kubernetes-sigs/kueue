@@ -26,6 +26,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -473,6 +474,27 @@ func TestClearMultiKueueClusterQueueMetrics(t *testing.T) {
 	}
 }
 
+func TestReportMultiKueueWorkloadEvicted(t *testing.T) {
+	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
+
+	ReportMultiKueueWorkloadEvicted("evict-cq1", "evict-worker1", kueue.WorkloadEvictedByPreemption, leaderTracker)
+	ReportMultiKueueWorkloadEvicted("evict-cq1", "evict-worker1", kueue.WorkloadEvictedByPreemption, leaderTracker)
+	ReportMultiKueueWorkloadEvicted("evict-cq1", "evict-worker1", kueue.WorkloadEvictedByPodsReadyTimeout, leaderTracker)
+
+	if got := testutil.ToFloat64(MultiKueueWorkloadsEvictedTotal.WithLabelValues("evict-cq1", "evict-worker1", kueue.WorkloadEvictedByPreemption, roletracker.RoleLeader)); got != 2 {
+		t.Errorf("expected 2 evictions by preemption for evict-worker1, got %v", got)
+	}
+	if got := testutil.ToFloat64(MultiKueueWorkloadsEvictedTotal.WithLabelValues("evict-cq1", "evict-worker1", kueue.WorkloadEvictedByPodsReadyTimeout, roletracker.RoleLeader)); got != 1 {
+		t.Errorf("expected 1 eviction by PodsReadyTimeout for evict-worker1, got %v", got)
+	}
+
+	// A nil tracker must be reported as standalone and not panic.
+	ReportMultiKueueWorkloadEvicted("evict-cq2", "evict-worker2", kueue.WorkloadEvictedByPreemption, nil)
+	if got := testutil.ToFloat64(MultiKueueWorkloadsEvictedTotal.WithLabelValues("evict-cq2", "evict-worker2", kueue.WorkloadEvictedByPreemption, roletracker.RoleStandalone)); got != 1 {
+		t.Errorf("expected 1 eviction for evict-worker2 with standalone role, got %v", got)
+	}
+}
+
 func TestReportAndCleanupWorkloadEvictionLatency(t *testing.T) {
 	ReportWorkloadEvictionLatency("cq-preempt-unique", kueue.WorkloadEvictedByPreemption, time.Second, nil, nil)
 	n := testutil.CollectAndCount(WorkloadEvictionLatencySeconds)
@@ -646,6 +668,29 @@ func TestMetricsWithDifferentRoles(t *testing.T) {
 	ClearClusterQueueResourceMetrics("queue_follower")
 	ClearClusterQueueMetrics("cq_leader")
 	ClearClusterQueueMetrics("cq_follower")
+}
+
+func TestRegisterExposesReplacedWorkloadSlicesTotal(t *testing.T) {
+	const cqName = "cq-registered"
+
+	registry := prometheus.NewRegistry()
+	originalRegistry := ctrlmetrics.Registry
+	ctrlmetrics.Registry = registry
+	t.Cleanup(func() {
+		ctrlmetrics.Registry = originalRegistry
+		ClearClusterQueueMetrics(cqName)
+	})
+
+	Register()
+	ReportReplacedWorkloadSlices(cqName, nil, nil)
+
+	count, err := testutil.GatherAndCount(registry, "kueue_replaced_workload_slices_total")
+	if err != nil {
+		t.Fatalf("Failed to gather metrics: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("Unexpected number of kueue_replaced_workload_slices_total series in the registry: got %d, want 1", count)
+	}
 }
 
 func TestClearClusterQueueMetricsOnLabelChangeOnlyClearsScopedGaugeMetrics(t *testing.T) {

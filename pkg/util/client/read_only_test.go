@@ -20,7 +20,6 @@ import (
 	"testing"
 
 	batchv1 "k8s.io/api/batch/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -29,10 +28,8 @@ import (
 func TestReadOnlyClient(t *testing.T) {
 	ctx := t.Context()
 	existingJob := &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Namespace: "default",
-			Name:      "test-job",
-		},
+		Namespace: "default",
+		Name:      "test-job",
 	}
 
 	fakeClient := utiltesting.NewFakeClient(existingJob)
@@ -59,7 +56,7 @@ func TestReadOnlyClient(t *testing.T) {
 
 	t.Run("Create fails", func(t *testing.T) {
 		newJob := &batchv1.Job{
-			ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "new-job"},
+			Namespace: "default", Name: "new-job",
 		}
 		err := readOnlyCl.Create(ctx, newJob)
 		if err == nil {
