@@ -1,5 +1,5 @@
 ---
-name: integration-tests-for-updates
+name: integration-coverage
 description: Review integration coverage of component interactions, event wiring, and API-server behavior.
 license: Apache-2.0
 metadata:

@@ -19,8 +19,10 @@ requirements below come from `.github/PULL_REQUEST_TEMPLATE.md` and `.github/ISS
 - Before submitting or updating the description, check it against the template.
 - CodeRabbit AI (@coderabbitai) may append its `AI summary` section,
   including `Suggested release note`.
-- Run and report tests as described in
-  [Writing tests](../../../../site/content/en/community/contribution_guidelines/writing_tests.md).
+- Run the relevant tests and report the results. Choose them with
+  [Writing tests](../../../../site/content/en/community/contribution_guidelines/writing_tests.md)
+  and run them as described in
+  [Running and debugging tests](../../../../site/content/en/community/contribution_guidelines/testing.md).
 
 ## Opening issues
 

@@ -22,7 +22,9 @@ guidelines and examples.
   case that fails without the fix.
 
 - Build fixture objects and their variants with the wrappers in
-  `pkg/util/testing` and `pkg/util/testingjobs`, not with helper functions.
+  `pkg/util/testing` and `pkg/util/testingjobs`, not with helper functions or
+  closures. Declare objects in each test case, or clone a shared base object
+  per case. Extend the wrappers if needed.
 
 - Write integration and E2E tests with Ginkgo/Gomega and the shared suite
   setup. Keep independent scenarios in separate `ginkgo.It` blocks; the
@@ -42,11 +44,12 @@ Use unit tests for decisions or helpers with controlled inputs and dependencies.
   comparisons, instead of assertion libraries.
 
 - Extend a suitable map-based table and reuse its runner, assertions, and
-  cleanup. Start a separate table only when the setup differs or the runner
-  would need many case-specific branches.
+  cleanup. If the runner lacks a setting that a case needs, add it rather than
+  writing a separate setup. Start a separate table only when the setup differs
+  or the runner would need many case-specific branches.
 
-- Check the error details that matter: use `wantErr` verifying the the error type
-  or its structure. Avoid asserting on error/no error with just `wantErr bool`.
+- Check the error details that matter, for example, the error type
+  or its structure. Avoid asserting on error/no error by a boolean assert.
 
 - Use the existing fake clocks for deadlines, and hooks or channels to
   coordinate concurrent operations. Avoid fixed sleeps and repeated attempts to
