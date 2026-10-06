@@ -40,7 +40,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 // A second-pass admission write fails with Conflict if the workload changed after the pass read it.
@@ -81,41 +81,41 @@ var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass admission wr
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-fence-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-fence-")
 		topology = utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
-		util.MustCreate(ctx, k8sClient, topology)
+		behavioral.MustCreate(ctx, k8sClient, topology)
 
 		tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 			NodeLabel("tas-node", "true").
 			TopologyName(topology.Name).
 			Obj()
-		util.MustCreate(ctx, k8sClient, tasFlavor)
+		behavioral.MustCreate(ctx, k8sClient, tasFlavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
 				Resource(corev1.ResourceCPU, "1").
 				Obj()).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).
 			ClusterQueue(clusterQueue.Name).
 			Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 
 		nodeX1 = newNode("x1")
 		nodeX2 = newNode("x2")
-		util.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*nodeX1, *nodeX2})
+		behavioral.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*nodeX1, *nodeX2})
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeX1, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, nodeX2, true)
+		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, nodeX1, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, nodeX2, true)
 		gomega.Expect(forceDeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
@@ -137,12 +137,12 @@ var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass admission wr
 		var wl *kueue.Workload
 		ginkgo.By("admitting a workload onto x1", func() {
 			wl = newWorkload("wl")
-			util.MustCreate(ctx, k8sClient, wl)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 		})
 
 		ginkgo.By("dropping x1 so a second pass is queued", func() {
-			util.SetNodeCondition(ctx, k8sClient, nodeX1, &corev1.NodeCondition{
+			behavioral.SetNodeCondition(ctx, k8sClient, nodeX1, &corev1.NodeCondition{
 				Type:               corev1.NodeReady,
 				Status:             corev1.ConditionFalse,
 				LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
@@ -159,7 +159,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass admission wr
 					}
 				}
 				return false
-			}, util.Timeout, util.Interval).Should(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeTrue())
 			gomega.Expect(fired.Load()).To(gomega.BeTrue(), "the extra write must have landed before the second-pass write")
 		})
 
@@ -168,15 +168,15 @@ var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass admission wr
 		var wl2 *kueue.Workload
 		ginkgo.By("creating a competing workload that stays pending behind wl's reservation", func() {
 			wl2 = newWorkload("wl2")
-			util.MustCreate(ctx, k8sClient, wl2)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+			behavioral.MustCreate(ctx, k8sClient, wl2)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 		})
 
 		ginkgo.By("the competing workload does not get wl's quota after the conflict", func() {
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), wl2)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(wl2)).To(gomega.BeFalse())
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		x2Assignment := utiltas.V1Beta2From(&utiltas.TopologyAssignment{
@@ -193,11 +193,11 @@ var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass admission wr
 				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(x2Assignment))
 				g.Expect(wl.Status.UnhealthyNodes).To(gomega.BeEmpty())
 				g.Expect(apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadQuotaReserved)).To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("the competing workload is still pending", func() {
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 		})
 	}
 
