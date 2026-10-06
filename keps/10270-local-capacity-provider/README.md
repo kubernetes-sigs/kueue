@@ -3,7 +3,6 @@
 <!-- toc -->
 - [Summary](#summary)
 - [Motivation](#motivation)
-  - [Why TAS is not enough](#why-tas-is-not-enough)
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
@@ -73,19 +72,8 @@ the cluster:
 If quota is higher than the real capacity, workloads are admitted but stay
 Pending. If it is lower, capacity sits idle. Administrators have to keep quota in
 sync by hand or with custom scripts.
-
-DQO (alpha in v0.20) provides the machinery to turn reported capacity into quota,
-but it deliberately leaves concrete providers, such as a node-based one, to
-separate KEPs. This is that KEP for
-[#10270](https://github.com/kubernetes-sigs/kueue/issues/10270). It replaces the
-earlier proposal in [#10745](https://github.com/kubernetes-sigs/kueue/pull/10745),
-which was closed in favour of building on DQO.
-
-### Why TAS is not enough
-
-Topology-Aware Scheduling (TAS) closes part of the gap: it does not admit a
-workload when there are not enough physical nodes to place it. It does not close
-the gap fully:
+Topology-Aware Scheduling (TAS) closes part of this gap, because it does not admit
+a workload when there are not enough physical nodes to place it, but not fully:
 
 1. Not every setup uses TAS.
 2. TAS cannot increase quota when new physical capacity is added, so new nodes
@@ -93,6 +81,13 @@ the gap fully:
 3. It is easier to explain to a team why its jobs do not schedule with an
    adjusted quota than with TAS placement failures, which are hard for end users
    to see.
+
+DQO (alpha in v0.20) provides the machinery to turn reported capacity into quota,
+but it deliberately leaves concrete providers, such as a node-based one, to
+separate KEPs. This is that KEP for
+[#10270](https://github.com/kubernetes-sigs/kueue/issues/10270). It replaces the
+earlier proposal in [#10745](https://github.com/kubernetes-sigs/kueue/pull/10745),
+which was closed in favour of building on DQO.
 
 ### Goals
 
