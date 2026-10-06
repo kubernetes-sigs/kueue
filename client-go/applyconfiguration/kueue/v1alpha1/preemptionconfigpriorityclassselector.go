@@ -24,15 +24,18 @@ package v1alpha1
 // PreemptionConfigPriorityClassSelector filters workloads by their priority class name
 // (matched against the Workload's spec.priorityClassRef.name, which is populated by Kueue
 // for both WorkloadPriorityClass and Pod PriorityClass).
+// When WorkloadPriorityClassDefaulting is enabled and a "default" WorkloadPriorityClass exists,
+// or when a globalDefault Pod PriorityClass is configured, its name (e.g., "default") can be used
+// in matchNames or notMatchNames to match or exclude workloads that do not explicitly specify a priority class.
 type PreemptionConfigPriorityClassSelectorApplyConfiguration struct {
 	// matchNames is an allowlist of PriorityClass or WorkloadPriorityClass names.
 	// If specified, a workload matches only if its spec.priorityClassRef.name equals
-	// any name in this list (OR semantics); workloads without a priorityClassRef do not match.
+	// any name in this list (OR semantics); if specified workloads without a priorityClassRef do not match. If not specified does not impose any class names restrictions on workloads.
 	//
 	MatchNames []string `json:"matchNames,omitempty"`
 	// notMatchNames is a denylist of PriorityClass or WorkloadPriorityClass names.
 	// If specified, a workload matches only if its spec.priorityClassRef.name does not equal
-	// any name in this list; workloads without a priorityClassRef always match.
+	// any name in this list; workloads without a priorityClassRef always match. If not specified does not impose any class names restrictions on workloads.
 	// If both matchNames and notMatchNames are specified, both conditions must be satisfied (AND semantics).
 	//
 	NotMatchNames []string `json:"notMatchNames,omitempty"`

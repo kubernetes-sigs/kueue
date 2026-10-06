@@ -117,7 +117,7 @@ var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 					return
 				}
 				gomega.Expect(err).To(gomega.Succeed())
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, pc, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pc, true)
 			},
 			ginkgo.Entry("Allow preemptorPriorityClassSelector with matchNames and notMatchNames",
 				&kueuealpha.PreemptionConfigPriorityClassSelector{
@@ -130,7 +130,7 @@ var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 			ginkgo.Entry("Allow priority with matchNames only",
 				nil,
 				&kueuealpha.PreemptionConfigPriorityConstraint{
-					MatchNames: []string{"low-priority", "very-low-priority"},
+					MatchNames: []string{"low-priority", "default"},
 				},
 				"",
 			),
@@ -146,7 +146,7 @@ var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 				&kueuealpha.PreemptionConfigPriorityConstraint{
 					Mode:          new(kueuealpha.Base),
 					Comparison:    new(kueuealpha.LessThan),
-					MatchNames:    []string{"low-priority", "very-low-priority"},
+					MatchNames:    []string{"low-priority", "default"},
 					NotMatchNames: []string{"mid-priority"},
 				},
 				"",
@@ -164,6 +164,13 @@ var _ = ginkgo.Describe("PreemptionConfig Validation", func() {
 					Comparison: new(kueuealpha.LessThan),
 				},
 				modeAndComparisonTogetherErrMessage,
+			),
+			ginkgo.Entry("Disallow invalid DNS-subdomain name in matchNames",
+				nil,
+				&kueuealpha.PreemptionConfigPriorityConstraint{
+					MatchNames: []string{"Invalid_Name"},
+				},
+				"spec.rules[0].candidateSelectors[0].priority.matchNames[0]",
 			),
 		)
 	})

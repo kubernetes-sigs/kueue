@@ -296,10 +296,11 @@ spec:
                                   description: |-
                                     matchNames is an allowlist of PriorityClass or WorkloadPriorityClass names.
                                     If specified, a workload matches only if its spec.priorityClassRef.name equals
-                                    any name in this list (OR semantics); workloads without a priorityClassRef do not match.
+                                    any name in this list (OR semantics); if specified workloads without a priorityClassRef do not match. If not specified does not impose any class names restrictions on workloads.
                                   items:
                                     maxLength: 253
                                     minLength: 1
+                                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                                     type: string
                                   maxItems: 32
                                   minItems: 1
@@ -317,11 +318,12 @@ spec:
                                   description: |-
                                     notMatchNames is a denylist of PriorityClass or WorkloadPriorityClass names.
                                     If specified, a workload matches only if its spec.priorityClassRef.name does not equal
-                                    any name in this list; workloads without a priorityClassRef always match.
+                                    any name in this list; workloads without a priorityClassRef always match. If not specified does not impose any class names restrictions on workloads.
                                     If both matchNames and notMatchNames are specified, both conditions must be satisfied (AND semantics).
                                   items:
                                     maxLength: 253
                                     minLength: 1
+                                    pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                                     type: string
                                   maxItems: 32
                                   minItems: 1
@@ -362,10 +364,11 @@ spec:
                             description: |-
                               matchNames is an allowlist of PriorityClass or WorkloadPriorityClass names.
                               If specified, a workload matches only if its spec.priorityClassRef.name equals
-                              any name in this list (OR semantics); workloads without a priorityClassRef do not match.
+                              any name in this list (OR semantics); if specified workloads without a priorityClassRef do not match. If not specified does not impose any class names restrictions on workloads.
                             items:
                               maxLength: 253
                               minLength: 1
+                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                               type: string
                             maxItems: 32
                             minItems: 1
@@ -375,11 +378,12 @@ spec:
                             description: |-
                               notMatchNames is a denylist of PriorityClass or WorkloadPriorityClass names.
                               If specified, a workload matches only if its spec.priorityClassRef.name does not equal
-                              any name in this list; workloads without a priorityClassRef always match.
+                              any name in this list; workloads without a priorityClassRef always match. If not specified does not impose any class names restrictions on workloads.
                               If both matchNames and notMatchNames are specified, both conditions must be satisfied (AND semantics).
                             items:
                               maxLength: 253
                               minLength: 1
+                              pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                               type: string
                             maxItems: 32
                             minItems: 1
