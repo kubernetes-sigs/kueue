@@ -270,6 +270,134 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 		})
 	})
 
+	ginkgo.It("Should finish a replaced slice on the worker when the scheduler failed to", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueRayInTreeAutoscaling, true)
+
+		admission := func(workerCount int32) *utiltestingapi.AdmissionWrapper {
+			return utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).PodSets(
+				utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+				utiltestingapi.MakePodSetAssignment("workers-group-0").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Count(workerCount).Obj(),
+				utiltestingapi.MakePodSetAssignment("submitter").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+			)
+		}
+
+		rayJob := testingrayjob.MakeJob("autoscaling-rayjob-missed-finish", f.managerNs.Name).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(f.managerLq.Name).
+			WithSubmissionMode(rayv1.K8sJobMode).
+			EnableInTreeAutoscaling().
+			Obj()
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayJob)
+
+		var originSliceKey types.NamespacedName
+		ginkgo.By("admitting the initial RayJob slice on worker2", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(managerTestCluster.client.List(managerTestCluster.ctx, workloads, client.InNamespace(rayJob.Namespace))).To(gomega.Succeed())
+				g.Expect(workloads.Items).To(gomega.HaveLen(1))
+				originSliceKey = client.ObjectKeyFromObject(&workloads.Items[0])
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, originSliceKey, admission(1))
+		})
+
+		remoteRayJob := &rayv1.RayJob{}
+		childKey := types.NamespacedName{Name: "autoscaling-rayjob-missed-finish-child", Namespace: rayJob.Namespace}
+		ginkgo.By("creating the child RayCluster on worker2 as KubeRay would", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayJob), remoteRayJob)).To(gomega.Succeed())
+				g.Expect(remoteRayJob.Spec.Suspend).To(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			child := &rayv1.RayCluster{
+				Name:            childKey.Name,
+				Namespace:       childKey.Namespace,
+				OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(remoteRayJob, rayv1.GroupVersion.WithKind("RayJob"))},
+				Spec:            *remoteRayJob.Spec.RayClusterSpec.DeepCopy(),
+			}
+			child.Spec.Suspend = new(false)
+			jobframework.SetMultiKueueMeta(child, originSliceKey.Name, remoteRayJob.Labels[kueue.MultiKueueOriginLabel])
+			behavioral.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, child)
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayJob), remoteRayJob)).To(gomega.Succeed())
+				remoteRayJob.Status.RayClusterName = child.Name
+				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, remoteRayJob)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("autoscaling the child RayCluster on worker2 to create a replacement slice", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				child := &rayv1.RayCluster{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, childKey, child)).To(gomega.Succeed())
+				child.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
+				g.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, child)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		var replacementSliceKey types.NamespacedName
+		ginkgo.By("observing the replacement slice in the manager cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(managerTestCluster.client.List(managerTestCluster.ctx, workloads, client.InNamespace(rayJob.Namespace))).To(gomega.Succeed())
+				g.Expect(workloads.Items).To(gomega.HaveLen(2))
+				for i := range workloads.Items {
+					if key := client.ObjectKeyFromObject(&workloads.Items[i]); key != originSliceKey {
+						replacementSliceKey = key
+					}
+				}
+				g.Expect(replacementSliceKey.Name).NotTo(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		// This suite does not run a scheduler, so the steps it would perform when admitting the
+		// replacement are emulated.
+		ginkgo.By("emulating the scheduler admitting the replacement slice on the manager cluster", func() {
+			originSlice := &kueue.Workload{}
+			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, originSliceKey, originSlice)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				replacement := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, replacementSliceKey, replacement)).To(gomega.Succeed())
+				replacement.Status.ClusterName = originSlice.Status.ClusterName
+				g.Expect(managerTestCluster.client.Status().Update(managerTestCluster.ctx, replacement)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, replacementSliceKey, admission(2).Obj())
+		})
+
+		ginkgo.By("observing the replacement slice in the worker2 cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, replacementSliceKey, &kueue.Workload{})).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		// The scheduler admits the replacement, but its attempt to finish the origin slice fails,
+		// so the origin slice is left unfinished on the worker.
+		ginkgo.By("emulating the scheduler admitting the replacement slice on worker2 without finishing the origin slice", func() {
+			behavioral.SetQuotaReservation(worker2TestCluster.ctx, worker2TestCluster.client, replacementSliceKey, admission(2).Obj())
+		})
+
+		ginkgo.By("observing the job reconciler finish the origin slice on worker2", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				originSlice := &kueue.Workload{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, originSliceKey, originSlice)).To(gomega.Succeed())
+				finished := apimeta.FindStatusCondition(originSlice.Status.Conditions, kueue.WorkloadFinished)
+				g.Expect(finished).NotTo(gomega.BeNil())
+				g.Expect(finished.Status).To(gomega.Equal(metav1.ConditionTrue))
+				g.Expect(finished.Reason).To(gomega.Equal(kueue.WorkloadSliceReplaced))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("observing the replacement slice and the remote objects are kept on worker2", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				replacement := &kueue.Workload{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, replacementSliceKey, replacement)).To(gomega.Succeed())
+				g.Expect(apimeta.IsStatusConditionTrue(replacement.Status.Conditions, kueue.WorkloadFinished)).To(gomega.BeFalse())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayJob), &rayv1.RayJob{})).To(gomega.Succeed())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, childKey, &rayv1.RayCluster{})).To(gomega.Succeed())
+			}, behavioral.ShortConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("Should run a RayCluster on worker if admitted", func() {
 		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).PodSets(
 			utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),

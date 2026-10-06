@@ -58,6 +58,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
@@ -69,6 +70,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
 	. "sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -1949,6 +1951,30 @@ func TestProcessOptions(t *testing.T) {
 				Clock:                      fakeClock,
 			},
 		},
+		"Kueue's internal labels and annotations are dropped from the keys to copy": {
+			inputOpts: []Option{
+				WithLabelKeysToCopy(sets.New("toCopyKey",
+					kueue.MultiKueueOriginLabel,
+					constants.ConcurrentAdmissionParentLabelKey,
+					constants.JobUIDLabel,
+				)),
+				WithAnnotationsToCopy(sets.New("toCopyAnnotation",
+					constants.ComponentWorkloadIndexAnnotation,
+					constants.JobOwnerGVKAnnotation,
+					constants.JobOwnerNameAnnotation,
+					constants.PriorityBoostAnnotationKey,
+					constants.WorkloadAllowedResourceFlavorAnnotation,
+					kueue.WorkloadSliceNameAnnotation,
+					workloadslicing.WorkloadSliceReplacementFor,
+					podconstants.IsGroupWorkloadAnnotationKey,
+				)),
+			},
+			wantOpts: Options{
+				LabelKeysToCopy:   sets.New("toCopyKey"),
+				AnnotationsToCopy: sets.New("toCopyAnnotation"),
+				Clock:             clock.RealClock{},
+			},
+		},
 		"a single option is passed": {
 			inputOpts: []Option{
 				WithManageJobsWithoutQueueName(true),
@@ -2892,5 +2918,67 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now().Truncate(time.Second)
+	gvk := batchv1.SchemeGroupVersion.WithKind("Job")
+	obj := testingjob.MakeJob("job", "ns").UID("job-uid").Queue("q").Suspend(false).
+		PrebuiltWorkloadLabel("new").
+		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).Obj()
+	// The scheduler admitted the replacement but failed to finish the old slice.
+	old := utiltestingapi.MakeWorkload("old", "ns").
+		ControllerReference(gvk, obj.Name, string(obj.UID)).
+		PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj()
+	replacement := utiltestingapi.MakeWorkload("new", "ns").Queue("q").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+		Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").
+		PodSets(*utiltestingapi.MakePodSet("main", 2).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj()
+	workloads := []*kueue.Workload{old, replacement}
+
+	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), obj, old, replacement).
+		WithStatusSubresource(&kueue.Workload{}).
+		WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
+		Build()
+	mgj := mocks.NewMockGenericJob(gomock.NewController(t))
+	mgj.EXPECT().Object().Return(obj).AnyTimes()
+	mgj.EXPECT().GVK().Return(gvk).AnyTimes()
+	mgj.EXPECT().IsSuspended().Return(false).AnyTimes()
+	mgj.EXPECT().IsActive().Return(true).AnyTimes()
+	mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+	mgj.EXPECT().PodsReady(gomock.Any(), gomock.Any()).Return(false).AnyTimes()
+	mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(replacement.Spec.PodSets, nil).AnyTimes()
+	rec := NewReconciler(cl, &utiltesting.EventRecorder{})
+	req := controllerruntime.Request{NamespacedName: client.ObjectKeyFromObject(obj)}
+
+	if _, err := rec.ReconcileGenericJob(ctx, req, mgj); err != nil {
+		t.Fatal(err)
+	}
+
+	list := &kueue.WorkloadList{}
+	if err := cl.List(ctx, list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != len(workloads) {
+		t.Fatalf("workload count = %d, want %d", len(list.Items), len(workloads))
+	}
+	for _, before := range workloads {
+		got := &kueue.Workload{}
+		if err := cl.Get(ctx, client.ObjectKeyFromObject(before), got); err != nil {
+			t.Fatal(err)
+		}
+		if diff := cmp.Diff(before.Spec.PodSets, got.Spec.PodSets, cmpopts.EquateEmpty()); diff != "" {
+			t.Errorf("PodSets changed: %s", diff)
+		}
+		wantFinished := before.Name == "old"
+		if workloadfinish.IsFinished(got) != wantFinished {
+			t.Errorf("%s Finished = %v, want %v", got.Name, workloadfinish.IsFinished(got), wantFinished)
+		}
 	}
 }

@@ -57,6 +57,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -224,17 +225,37 @@ func WithManagerName(n string) Option {
 	}
 }
 
-// WithLabelKeysToCopy adds the label keys
+// These labels and annotations control how Kueue handles a Workload, so they
+// are never copied from the Job or Pod, whose author could otherwise set them.
+var (
+	nonInheritableLabels = []string{
+		kueue.MultiKueueOriginLabel,
+		controllerconsts.ConcurrentAdmissionParentLabelKey,
+		controllerconsts.JobUIDLabel,
+	}
+	nonInheritableAnnotations = []string{
+		controllerconsts.ComponentWorkloadIndexAnnotation,
+		controllerconsts.JobOwnerGVKAnnotation,
+		controllerconsts.JobOwnerNameAnnotation,
+		controllerconsts.PriorityBoostAnnotationKey,
+		controllerconsts.WorkloadAllowedResourceFlavorAnnotation,
+		kueue.WorkloadSliceNameAnnotation,
+		workloadslicing.WorkloadSliceReplacementFor,
+		podconstants.IsGroupWorkloadAnnotationKey,
+	}
+)
+
+// WithLabelKeysToCopy adds the label keys to copy, except nonInheritableLabels.
 func WithLabelKeysToCopy(s sets.Set[string]) Option {
 	return func(o *Options) {
-		o.LabelKeysToCopy = s
+		o.LabelKeysToCopy = s.Clone().Delete(nonInheritableLabels...)
 	}
 }
 
-// WithAnnotationsToCopy adds the annotation keys
+// WithAnnotationsToCopy adds the annotation keys to copy, except nonInheritableAnnotations.
 func WithAnnotationsToCopy(s sets.Set[string]) Option {
 	return func(o *Options) {
-		o.AnnotationsToCopy = s
+		o.AnnotationsToCopy = s.Clone().Delete(nonInheritableAnnotations...)
 	}
 }
 
@@ -1108,6 +1129,15 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		}
 		if err != nil {
 			return nil, err
+		}
+
+		if workloadslicing.Enabled(object) {
+			// TODO(kevin85421): Currently this only handles slices that the scheduler
+			// failed to finish after admitting the replacement. More cases may need
+			// to be handled in the future.
+			if err := workloadslicing.FinishReplacedWorkloadSlices(ctx, r.client, r.clock, wl); err != nil {
+				return nil, err
+			}
 		}
 
 		// Skip the in-sync check for ElasticJob workloads if the workload is a
