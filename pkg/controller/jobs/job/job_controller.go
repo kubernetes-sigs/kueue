@@ -46,6 +46,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
+	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -425,13 +427,36 @@ func (j *Job) Finished(ctx context.Context) (message string, success, finished b
 	return "", true, false
 }
 
-func (j *Job) PodsReady(ctx context.Context, _ client.Client) bool {
+func (j *Job) PodsReady(ctx context.Context, c client.Client) bool {
 	ready := ptr.Deref(j.Status.Ready, 0)
 	uncountedTerminatedSucceeded := 0
 	if j.Status.UncountedTerminatedPods != nil {
 		uncountedTerminatedSucceeded = len(j.Status.UncountedTerminatedPods.Succeeded)
 	}
-	return j.Status.Succeeded+ready+int32(uncountedTerminatedSucceeded) >= j.podsCount()
+	target := j.podsCount()
+	if granted, ok := j.partialScaleUpGrantedCount(ctx, c); ok && granted < target {
+		target = granted
+	}
+	return j.Status.Succeeded+ready+int32(uncountedTerminatedSucceeded) >= target
+}
+
+// partialScaleUpGrantedCount returns how many pods Kueue has actually granted so far during
+// an elastic partial scale-up, since the Job's spec already jumps to the full target before
+// admission catches up.
+func (j *Job) partialScaleUpGrantedCount(ctx context.Context, c client.Client) (int32, bool) {
+	if !jobframework.ElasticPartialScaleUpEnabled(j) {
+		return 0, false
+	}
+	wl, err := workloadslicing.FindLatestActiveWorkload(ctx, c, j.Object(), j.GVK())
+	if err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "Failed to find active workload for partial scale-up")
+		return 0, false
+	}
+	if wl == nil || !workload.IsAdmitted(wl) {
+		return 0, false
+	}
+	granted, ok := workload.ExtractGrantedPodSetCounts(wl)[kueue.DefaultPodSetName]
+	return granted, ok
 }
 
 func (j *Job) CanDefaultManagedBy() bool {
