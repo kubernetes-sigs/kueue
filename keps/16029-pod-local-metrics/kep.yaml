@@ -1,4 +1,4 @@
-title: Metrics access for pod-local scrapers
+title: Loopback metrics authentication opt-out
 kep-number: 16029
 authors:
   - "@ankushbbbr"
@@ -13,7 +13,8 @@ see-also:
   - "/keps/8190-tls-security-profiles"
 replaces: []
 # Proposed maturity; release milestones remain unset pending design acceptance.
-stage: stable
-feature-gates: []
+stage: alpha
+feature-gates:
+  - name: MetricsAuthenticationOptOut
 disable-supported: true
 metrics: []

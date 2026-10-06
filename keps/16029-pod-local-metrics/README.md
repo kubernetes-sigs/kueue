@@ -1,17 +1,17 @@
-# KEP-16029: Metrics access for pod-local scrapers
+# KEP-16029: Loopback metrics authentication opt-out
 
 <!-- toc -->
 - [Summary](#summary)
 - [Motivation](#motivation)
   - [Why existing authentication cannot simply be configured](#why-existing-authentication-cannot-simply-be-configured)
-  - [Separate motivation for HTTP](#separate-motivation-for-http)
   - [Goals](#goals)
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
-  - [Options and startup validation](#options-and-startup-validation)
+  - [Configuration API and feature gate](#configuration-api-and-feature-gate)
+  - [Startup validation and server options](#startup-validation-and-server-options)
   - [Certificates and deployment](#certificates-and-deployment)
   - [Compatibility and rollback](#compatibility-and-rollback)
   - [Test Plan](#test-plan)
@@ -20,6 +20,8 @@
     - [Integration tests](#integration-tests)
     - [e2e tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
+    - [Alpha](#alpha)
+    - [Beta and stable](#beta-and-stable)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
@@ -27,20 +29,22 @@
 
 ## Summary
 
-Allow an administrator to explicitly disable Kubernetes API-mediated metrics
+Introduce an alpha Configuration API field, `metrics.authentication`, that lets
+an administrator explicitly disable Kubernetes API-mediated metrics
 authentication and authorization for a trusted scraper sharing the manager's
-network namespace. Authenticated HTTPS remains the default. An unauthenticated
-endpoint must bind to an explicit loopback IP and port, validated before startup.
+network namespace. The field defaults to `true`. Opting out requires the
+default-off `MetricsAuthenticationOptOut` feature gate and an explicit loopback
+IP and port, validated before startup.
 
-This proposal also presents an independent, default-off HTTP option for the same
-loopback-only use case. Whether to include HTTP is an open design decision:
-authentication opt-out works with HTTPS and can be accepted on its own. HTTP
-would deliberately introduce a narrow exception to
+Authenticated HTTPS remains the default, and HTTPS remains required when
+authentication is disabled. This proposal preserves
 [KEP-4377's requirement for secure metrics serving](../4377-metrics-tls/README.md).
+HTTP and non-loopback unauthenticated access are outside its scope.
 
 The proposal is provisional. [Issue #16029] tracks the authentication requirement;
 [issue #4841] records the earlier HTTP and alternative authentication discussion.
-[PR #16035] is an implementation prototype, not evidence of design acceptance.
+[PR #16035] is an earlier flag-based prototype; it must be aligned with this
+narrower configuration-based design before implementation can be accepted.
 
 ## Motivation
 
@@ -68,31 +72,18 @@ Kueue currently exposes no option to use those certificates to authenticate the
 metrics client instead of the token filter.
 
 Provisioning and rotating a suitable token would resolve this requirement where
-the platform supports it. Introducing a new token lifecycle or an authentication
-proxy solely for a pod-local scrape adds dependencies that these deployments do
-not otherwise need. This proposal permits administrators to deliberately trust
-the shared network namespace instead, with narrower exposure than an anonymous
-endpoint on a pod IP or wildcard address.
+the platform supports it. [Maintainer feedback on client certificates] also
+reports a prototype using client-certificate authentication with RBAC checks.
+That is a viable alternative to investigate for platforms with workload
+certificates; this proposal does not claim that authenticated scraping is
+impossible in those environments.
 
-### Separate motivation for HTTP
-
-With `internalCertManagement.enable: false`, the manager loads metrics serving
-certificates from `/etc/kueue/metrics/certs/tls.crt` and `tls.key`; missing or
-invalid files prevent startup. A platform using external webhook certificates
-therefore also has to supply metrics serving certificates, even for a scraper
-sharing pod loopback.
-
-A centrally issued certificate may cover only a service DNS identity, without
-`localhost` or loopback IP SANs. That does **not** make verified HTTPS impossible:
-a scraper can dial `127.0.0.1` while verifying a DNS name present in the serving
-certificate, using a trusted CA and its TLS server-name setting. Scraper support
-for that setting and deployment wiring must be checked first. Disabling TLS
-verification is not a proposed workaround.
-
-The independent HTTP request is to avoid metrics certificate provisioning,
-mounting, rotation, and client TLS configuration for trusted processes sharing a
-network namespace. It is not needed to solve the missing bearer-token problem,
-and no performance or startup-time improvement is claimed without measurements.
+The opt-out addresses deployments that deliberately trust all processes in the
+shared network namespace and do not need a separate metrics caller identity.
+It avoids adding a scraper credential lifecycle or authentication proxy solely
+for pod-local metrics, with narrower exposure than an anonymous endpoint on a
+pod IP or wildcard address. Serving certificates and client TLS verification
+remain required independently of scraper authentication.
 
 ### Goals
 
@@ -100,12 +91,14 @@ and no performance or startup-time improvement is claimed without measurements.
   token or metrics TokenReview/SubjectAccessReview calls.
 - Retain authenticated HTTPS by default and reject unsafe opt-out addresses.
 - Preserve verified HTTPS, serving-certificate rotation, and webhook behavior.
-- Decide explicitly whether eliminating the metrics certificate dependency
-  justifies optional loopback HTTP.
+- Introduce the opt-out through the Configuration API behind a default-off alpha
+  feature gate, with validation alongside `metrics.bindAddress`.
 
 ### Non-Goals
 
-- Anonymous or plaintext metrics on wildcard, pod, Service, or external IPs.
+- HTTP metrics on any address, or removing metrics certificate requirements.
+- Unauthenticated metrics on wildcard, pod, Service, or external IPs.
+- New metrics authentication or transport command-line flags.
 - Container-level isolation within a pod, or a guarantee that host loopback is a
   pod-only boundary.
 - Changes to controller-to-API-server authentication, ServiceAccount lifecycle,
@@ -115,33 +108,31 @@ and no performance or startup-time improvement is claimed without measurements.
 
 ## Proposal
 
-Add a boolean manager flag, `--metrics-authentication`, defaulting to `true`.
-Setting it to `false` omits the metrics authentication and authorization filter.
-When metrics are enabled, the bind address must contain a literal loopback IP and
-numeric port. Other addresses cause an actionable startup error.
+Add `metrics.authentication`, an optional boolean defaulting to `true`, alongside
+`metrics.bindAddress` in the manager's Configuration API. With the alpha
+`MetricsAuthenticationOptOut` feature gate enabled, setting the field to `false`
+omits the metrics authentication and authorization filter. Enabled metrics must
+then bind to a literal loopback IP and numeric port. Other addresses cause an
+actionable startup error. HTTPS is used in every enabled mode.
 
-Separately propose `--metrics-secure`, also defaulting to `true`. Setting it to
-`false` requests HTTP and additionally requires authentication to be disabled.
-If HTTP is excluded during review, only the authentication flag is introduced
-and metrics continue to use HTTPS in every enabled mode.
-
-| Secure | Authentication | Enabled metrics behavior |
+| Feature gate | `metrics.authentication` | Enabled metrics behavior |
 | --- | --- | --- |
-| `true` | `true` | Existing authenticated HTTPS; existing address behavior |
-| `true` | `false` | Unauthenticated HTTPS on an explicit loopback IP and port |
-| `false` | `false` | Proposed optional HTTP on an explicit loopback IP and port |
-| `false` | `true` | Startup error; no bearer-token authentication over HTTP |
+| Disabled (default) | Omitted or `true` | Existing authenticated HTTPS; existing address behavior |
+| Disabled | `false` | Startup error; opt-out requires the alpha gate |
+| Enabled | Omitted or `true` | Existing authenticated HTTPS; existing address behavior |
+| Enabled | `false` | Unauthenticated HTTPS on an explicit loopback IP and port |
 
-The existing `metrics.bindAddress: "0"` sentinel continues to disable metrics;
-serving-mode and loopback validation does not reject a disabled endpoint.
+The existing `metrics.bindAddress: "0"` sentinel continues to disable metrics.
+For this sentinel, the authentication field has no effect and the new gate and
+loopback checks are skipped; no metrics listener is created. Re-enabling metrics
+requires satisfying both checks. Existing feature-gate loading rules still
+apply, including rejection of unknown feature gates.
 
 ### User Stories
 
-1. An administrator whose platform provides client certificates but no scraper
-   bearer token can collect metrics over verified HTTPS from a trusted sidecar.
-2. Subject to acceptance of HTTP, an administrator can use external webhook
-   certificates without also provisioning metrics certificates for a loopback
-   scraper in the same trusted network namespace.
+An administrator who trusts all containers in the manager pod can enable the
+alpha gate and collect metrics over verified HTTPS from a sidecar without
+provisioning a bearer token for that scraper.
 
 ### Risks and Mitigations
 
@@ -159,34 +150,50 @@ serving-mode and loopback validation does not reject a disabled endpoint.
   prevents direct off-namespace binding, not forwarding or access by actors with
   pod execution/debug privileges. NetworkPolicy does not provide isolation
   between containers sharing loopback.
-- **Unintended downgrade:** both flags default to `true`, unsafe addresses fail
-  startup, and certificate errors never trigger fallback to HTTP. Emit a single
-  startup warning when authentication is disabled, identifying the bind address,
+- **Unintended downgrade:** authentication defaults to `true` and the alpha gate
+  defaults to `false`. Unsafe addresses or a gate-disabled opt-out fail startup
+  when metrics are enabled. Certificate errors never trigger fallback to HTTP.
+  Emit a single startup warning when authentication is disabled, identifying the
+  bind address,
   transport, and shared-network-namespace exposure without logging credentials.
-- **Plaintext exposure:** optional HTTP provides neither encryption nor server
-  identity verification. It has the same loopback restriction, cannot be combined
-  with the authentication filter, and must be documented as an explicit security
-  tradeoff. Clients must not attach bearer tokens to this unauthenticated HTTP
-  endpoint.
 
-Kueue maintainers should review the security boundary and the HTTP exception
+Kueue maintainers should review the security boundary and configuration behavior
 before marking this KEP implementable. Reviewers and approvers are not yet
 assigned; this document does not imply their endorsement.
 
 ## Design Details
 
-### Options and startup validation
+### Configuration API and feature gate
 
-Register the flags in the manager command and build controller-runtime metrics
-options after loading/defaulting configuration, before starting any listener.
+Add `Authentication *bool` with JSON name `authentication` and `+optional` to
+`ControllerMetrics` in the `config.kueue.x-k8s.io/v1beta2` Configuration API
+accepted by the manager on `main`. Default an omitted or null field to `true`;
+retain an explicit `false` through defaulting and serialization. Update generated
+code and the configuration reference during
+implementation. The field controls both authentication and authorization; it
+does not control TLS.
+
+Register `MetricsAuthenticationOptOut` as an alpha, default-off feature gate in
+`pkg/features`. Enabling the gate alone does not change serving behavior. Use
+the existing `featureGates` configuration map or the existing feature-gate CLI
+mechanism; their existing mutual-exclusion rules remain unchanged. Introduce no
+dedicated metrics flags.
+
+### Startup validation and server options
+
+After loading/defaulting configuration and applying feature gates, validate the
+new field together with `metrics.bindAddress` in `pkg/config`, before certificate
+initialization or starting any listener. For enabled metrics with authentication
+disabled, require the gate to be enabled and the address to be loopback. Reject a
+gate-disabled opt-out rather than silently ignoring the requested setting.
+Build controller-runtime metrics options only after this validation succeeds.
 
 - Authentication enabled: retain
   `filters.WithAuthenticationAndAuthorization`.
 - Authentication disabled: leave `FilterProvider` unset. No TokenReview or
   SubjectAccessReview is needed for metrics requests; controller operations
   still require their normal Kubernetes API access.
-- If HTTP is accepted, set `SecureServing` from `--metrics-secure`; otherwise
-  keep it unconditionally `true`.
+- Always retain `SecureServing: true` and the existing TLS options.
 
 For enabled unauthenticated metrics, parse `metrics.bindAddress` using
 `net/netip.ParseAddrPort` and require `Addr.IsLoopback()`. Accept IPv4 loopback,
@@ -197,39 +204,49 @@ Do not resolve hostnames. Reject empty hosts, wildcards, non-loopback IPs,
 `localhost`, other DNS names, URLs, missing ports, and malformed addresses.
 Validate before controller-runtime can default an empty host to a wildcard.
 
-Errors should name the relevant flags and `metrics.bindAddress`, give valid
-IPv4/IPv6 examples, and explain that non-loopback serving requires authenticated
-HTTPS. Flags are process-start configuration; there is no dynamic mode switch.
+Errors should name `metrics.authentication`, `MetricsAuthenticationOptOut`, or
+`metrics.bindAddress` as appropriate, give valid IPv4/IPv6 examples, and explain
+that non-loopback serving requires authenticated
+HTTPS. These settings are process-start configuration; there is no dynamic
+authentication or bind-address switch.
 
 ### Certificates and deployment
 
-HTTPS keeps its existing TLS settings and certificate-loading/rotation paths,
-including external metrics certificates when internal certificate management is
-disabled. Webhook certificate handling and shared TLS policy parsing remain
-unchanged. The `"0"` sentinel still creates no metrics server; changing the
-existing HTTPS certificate-initialization behavior for that sentinel is outside
-this proposal.
+Metrics keep their existing TLS settings and certificate-loading/rotation paths.
+With `internalCertManagement.enable: false`, supplying the required webhook,
+metrics, and visibility certificates is intentional. In particular, the manager
+continues to load external metrics certificates from
+`/etc/kueue/metrics/certs/tls.crt` and `/etc/kueue/metrics/certs/tls.key`; missing
+or invalid files still prevent startup. Disabling metrics authentication does
+not remove this requirement. Webhook and visibility certificate handling and
+shared TLS policy parsing remain unchanged.
 
-If HTTP is accepted, skip metrics TLS options and the metrics certificate watcher
-entirely in HTTP mode. This removes only the metrics certificate dependency;
-webhook TLS requirements still apply when internal certificate management is
-disabled. Do not reuse webhook certificates implicitly or add a TLS-verification
-bypass.
+The Helm chart's missing external metrics certificate mount and its example
+values were identified in [maintainer scope feedback]. Correcting those chart
+defects is separate work, not a reason to remove TLS in this KEP.
+
+The `"0"` sentinel still creates no metrics server; changing the existing HTTPS
+certificate-initialization behavior for that sentinel is outside this proposal.
 
 Example for unauthenticated HTTPS:
 
 ```sh
-/manager --config=/etc/kueue/config/controller_manager_config.yaml \
-  --metrics-authentication=false
+/manager --config=/etc/kueue/config/controller_manager_config.yaml
 ```
 
 ```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+featureGates:
+  MetricsAuthenticationOptOut: true
 metrics:
   bindAddress: "127.0.0.1:8443"
+  authentication: false
 ```
 
-If HTTP is accepted, add `--metrics-secure=false` and scrape
-`http://127.0.0.1:8443/metrics`. The port does not select the protocol.
+This example shows the relevant configuration fields. Scrape
+`https://127.0.0.1:8443/metrics` with a client configured to verify the serving
+certificate, without a bearer token.
 
 For HTTPS, configure the scraper's CA trust and a certificate-matching TLS server
 name. A certificate issued only for a service-registry DNS name does not
@@ -237,9 +254,10 @@ automatically validate against `127.0.0.1`. The Helm
 `metrics.serviceMonitor.tlsConfig` value controls Prometheus's TLS client; it
 does not change the manager's transport or authentication filter and does not
 configure another sidecar's client.
+Do not add a TLS-verification bypass or implicitly reuse webhook certificates.
 
-Keep upstream Helm, ServiceMonitor, and RBAC defaults unchanged. Initially,
-customized deployments supply the flags through manager arguments. A standard
+Keep upstream Helm, ServiceMonitor, and RBAC defaults unchanged. Customized
+deployments supply the opt-out through the manager configuration file. A standard
 external ServiceMonitor cannot reach a loopback listener through its Service or
 pod IP. Scraper scheme/TLS wiring and removing downstream metrics-auth RBAC are
 separate administrator actions; retain review permissions wherever authenticated
@@ -247,12 +265,24 @@ metrics or another component still needs them.
 
 ### Compatibility and rollback
 
-Existing installations receive no behavior change unless they opt out. Returning
-to authenticated HTTPS requires configuring the scraper with an accepted token,
-CA/server name, and the usual metrics-read authorization, retaining/restoring the
-controller's review-API permissions, and supplying serving certificates before
-restarting with both flags enabled. Remove new flags before rolling back to a
-binary that does not recognize them. No stored API objects need migration.
+Existing installations receive no behavior change unless they enable the alpha
+gate and explicitly set `metrics.authentication: false`. Turning on the gate
+alone retains authenticated HTTPS.
+
+To return to authenticated HTTPS, configure the scraper with an accepted token,
+CA/server name, and the usual metrics-read authorization, retain or restore the
+controller's review-API permissions, and set `metrics.authentication: true` or
+remove the field before restarting. Serving certificates remain required
+throughout. The feature gate can then be disabled, or disabled in the same
+configuration update. Disabling only the gate while leaving an enabled endpoint
+configured with `authentication: false` fails startup.
+
+Before rolling back to a binary that predates the feature, remove both the new
+configuration field and the `MetricsAuthenticationOptOut` gate entry. Validate
+the configuration with the target binary; older versions may reject unknown
+fields or gates. No stored workload API objects need migration. All replicas
+should use a consistent configuration during rollout; scrapers must accommodate
+authenticated replicas until the transition is complete.
 
 ### Test Plan
 
@@ -261,50 +291,72 @@ binary that does not recognize them. No stored API objects need migration.
 
 #### Prerequisite testing updates
 
-Establish tests for the existing authenticated HTTPS path before adding opt-outs.
+Establish tests for the existing authenticated HTTPS path before adding the
+opt-out.
 Use recording review-API handlers and real HTTP/TLS listeners; do not infer
 authentication behavior solely from non-nil filter options. No package coverage
 percentage is asserted by this proposal.
 
 #### Unit tests
 
-In `cmd/kueue`, cover flag defaults, explicit values, all serving-mode
-combinations, disabled metrics, IPv4/IPv6/mapped loopback, wildcard and
-non-loopback addresses, hostnames,
-and malformed addresses. Verify startup errors are actionable and occur before
-listeners or certificate initialization. Check the opt-out startup warning.
+- In the `v1beta2` Configuration API package, cover omitted/null/default-true and
+  explicit true/false values, deep copies, and serialization round trips.
+  Explicit `false` must not become the default `true`.
+- In `pkg/config`, cover every gate/field combination in the behavior table and
+  the disabled-metrics sentinel with each combination. Cover IPv4/IPv6/mapped
+  loopback, wildcard and non-loopback addresses, hostnames, missing/out-of-range
+  ports, port zero, and malformed addresses. An omitted bind address must not
+  become an unauthenticated wildcard listener through defaulting.
+- In `cmd/kueue`, verify the default and explicit-true filter, gate-enabled
+  opt-out, unconditional secure serving, and opt-out startup warning. Verify
+  validation errors are actionable and occur before listeners or certificate
+  initialization. Disabling the feature gate must not leave an active
+  unauthenticated path.
 
 #### Integration tests
 
 Run real HTTPS scrapes with no token, invalid tokens, allowed and denied tokens.
 Verify the default filter still authenticates and authorizes requests, and
 unauthenticated scrapes produce zero TokenReview/SubjectAccessReview calls.
-Verify CA and hostname failures remain failures, initial certificate failures
-are surfaced, and updated certificates are served without restart.
-
-If HTTP is accepted, test real IPv4/IPv6 HTTP scrapes with no metrics certificate
-files or review calls, including external certificate-management configuration.
-Ensure HTTP does not initialize a metrics certificate watcher and cannot be
-configured with authentication enabled.
+Run the opt-out on IPv4 and IPv6 loopback with the alpha gate enabled, and verify
+that enabling the gate alone leaves authentication enforced. Verify unsafe
+addresses and a gate-disabled opt-out fail startup. Verify CA and hostname
+failures remain failures, plaintext requests are not served metrics, initial
+certificate failures are surfaced, and updated certificates are served without
+restart. Cover `internalCertManagement.enable: false`, unchanged webhook
+certificate handling, and the existing disabled-metrics behavior.
 
 #### e2e tests
 
-Before release, start a manager with a sidecar scraper and external webhook
-certificates. Verify readiness, metrics collection without a bearer token, normal
-workload admission, and webhook TLS. Verify direct access through the pod IP fails
-for loopback binding and that a second container in the pod can scrape, making
+Before alpha release, start a manager with the gate enabled, a sidecar scraper,
+and external serving certificates. Verify readiness, metrics collection over
+verified HTTPS without a bearer token, normal workload admission, and webhook
+TLS. Verify direct access through the pod IP fails for loopback binding and that
+a second container in the pod can scrape, making
 the actual trust boundary explicit. Retain authenticated HTTPS/cert-manager
-coverage. Include an HTTP variant only if that option is accepted.
+coverage. Verify rollback to authenticated HTTPS with a token-bearing scraper.
 
 ### Graduation Criteria
 
-Propose stable command-line options without an additional feature gate: the
-explicit flags already control opt-in and introduce no persisted API schema.
-This maturity choice and the command-line versus configuration-API shape require
-maintainer agreement. No release milestone or backport is committed here.
+#### Alpha
 
-Before implementation is accepted, resolve HTTP scope, obtain security review,
-complete the agreed tests and documentation, and verify unchanged defaults.
+- Introduce `metrics.authentication` and the default-off
+  `MetricsAuthenticationOptOut` gate with the behavior and validation above.
+- Obtain maintainer security/API review; complete unit, integration, and e2e
+  coverage for opt-in, gate-off rejection, unchanged defaults, and rollback.
+- Document verified HTTPS setup, the shared network namespace boundary, external
+  certificate requirements, and actionable startup errors.
+
+#### Beta and stable
+
+Further graduation requires adoption feedback from independent deployments,
+stable automated coverage, and no unresolved security or compatibility issues.
+Review the API and gate lifecycle before promotion. Authentication must remain
+enabled by default even if the feature gate becomes enabled by default at a
+later stage. HTTP and non-loopback access require separate proposals; neither
+is a graduation criterion for this feature.
+
+This KEP remains provisional, with no release milestone or backport promised.
 Implementation merges to `main` first; release-branch eligibility is a separate
 maintainer decision.
 
@@ -312,41 +364,45 @@ maintainer decision.
 
 - September 2026: [issue #16029] and [PR #16035] describe the authentication
   requirement and a prototype, subsequently extended with optional HTTP.
-- October 2026: [maintainer feedback] requests a KEP covering the deployment
+- October 1, 2026: [maintainer feedback] requests a KEP covering the deployment
   problem, existing-authentication alternatives, and opt-out design, and suggests
-  retaining HTTPS. This provisional proposal records that unresolved scope.
+  retaining HTTPS.
+- October 5, 2026: following [maintainer scope feedback], narrow the proposal to
+  an alpha, feature-gated Configuration API opt-out for loopback HTTPS. Remove
+  HTTP and dedicated metrics flags from the proposed scope.
 
 ## Drawbacks
 
 This deliberately weakens metrics access controls for opted-in deployments and
 adds configurations that must remain tested and documented. Loopback does not
 protect against untrusted colocated processes, host networking, or forwarding.
-HTTP further removes transport protection and revisits an earlier explicit
-non-goal. The benefit must justify those support and security costs.
+It adds an alpha configuration field, feature-gate validation, and rollback
+requirements while retaining the existing serving-certificate dependency.
 
 ## Alternatives
 
 1. **Provision a bearer token and retain authenticated HTTPS.** Preferred where
    supported. It does not fit platforms without an acceptable token lifecycle
    for the scraper; controller client certificates cannot substitute for it.
-2. **Authentication opt-out with HTTPS only.** Meets the original requirement
-   and avoids changing KEP-4377's transport policy. It retains metrics certificate
-   provisioning. This is an independently viable outcome of this KEP and the
-   maintainer's current recommendation.
-3. **Configure CA trust and TLS server name, or issue a suitable certificate.**
+2. **Configure CA trust and TLS server name, or issue a suitable certificate.**
    Resolves certificate trust/name mismatches without disabling verification.
    It does not remove bearer-token authentication or certificate provisioning.
-4. **mTLS or pluggable metrics authentication.** Could use existing workload
-   certificates while preserving caller identity. It needs a client-CA/trust
-   model, rotation, identity mapping, and an authorization policy. It is a larger
-   design and remains a possible alternative if maintainers reject anonymous
-   loopback access.
-5. **Authentication proxy or local exporter.** Can centralize policy, but a
+3. **Client-certificate metrics authentication.** Maintainers have prototyped
+   this with controller-runtime and RBAC checks. It may fit platforms that can
+   configure the scraper's client certificate, server client-CA trust, rotation,
+   identity mapping, and authorization. This remains a viable authenticated
+   alternative; the proposed opt-out serves administrators who intentionally
+   choose the shared network namespace as their access boundary.
+4. **Authentication proxy or local exporter.** Can centralize policy, but a
    proxy that simply forwards requests still needs an upstream credential or an
    accepted alternative authentication mode. It adds another component to run.
-6. **Configuration API fields instead of flags.** Could fit existing Helm
-   configuration more naturally, but requires API defaulting/versioning and
-   documentation. Decide this during review rather than exposing both surfaces.
+5. **Dedicated command-line flags.** The prototype used flags, but opt-out
+   validity depends on `metrics.bindAddress`. Keep the related settings and their
+   validation in the Configuration API rather than expose two configuration
+   surfaces.
+6. **Optional HTTP.** Would eliminate metrics certificate provisioning and
+   client TLS wiring, but is unnecessary to remove the bearer-token dependency
+   and would change KEP-4377's transport policy. Excluded from this proposal.
 7. **Unrestricted anonymous serving or disabling metrics.** The former exposes
    metrics outside the intended namespace; the latter loses required
    observability. Neither meets this proposal's goals.
@@ -356,3 +412,5 @@ non-goal. The benefit must justify those support and security costs.
 [PR #16035]: https://github.com/kubernetes-sigs/kueue/pull/16035
 [v0.19.5's manager setup]: https://github.com/kubernetes-sigs/kueue/blob/v0.19.5/cmd/kueue/main.go#L188
 [maintainer feedback]: https://github.com/kubernetes-sigs/kueue/pull/16035#issuecomment-5944565191
+[maintainer feedback on client certificates]: https://github.com/kubernetes-sigs/kueue/pull/16535#issuecomment-5955636750
+[maintainer scope feedback]: https://github.com/kubernetes-sigs/kueue/pull/16535#issuecomment-6006762757
