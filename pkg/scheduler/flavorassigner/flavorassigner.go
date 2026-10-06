@@ -34,7 +34,6 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
@@ -907,7 +906,6 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 		defer restore()
 	}
 	tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
-
 	if assignment.RepresentativeMode() == Fit {
 		result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(a.wl))
 		if failure := result.Failure(); failure != nil {
@@ -1544,57 +1542,4 @@ func (a *FlavorAssigner) shouldSkipBasedOnNominationMapping(log logr.Logger,
 	}
 	log.V(5).Info("Didn't find the flavor in the nomination mapping - skipping", "resName", resName, "flavorName", fName)
 	return true
-}
-
-// CandidateVirtualPods builds candidate virtual pods for all PodSets in the assignment
-// using the assigned flavor's node labels, tolerations, and admission check updates.
-func (a *Assignment) CandidateVirtualPods(wl *workload.Info, cq *schdcache.ClusterQueueSnapshot) ([]*corev1.Pod, error) {
-	var allPods []*corev1.Pod
-	for _, psAssignment := range a.PodSets {
-		if psAssignment.Status.IsError() {
-			return nil, fmt.Errorf("podset %q is failing: %w", psAssignment.Name, psAssignment.Status.err)
-		}
-		podSet := podset.FindPodSetByName(wl.Obj.Spec.PodSets, psAssignment.Name)
-		if podSet == nil {
-			return nil, fmt.Errorf("podSet %q not found in workload %s", psAssignment.Name, wl.Obj.Name)
-		}
-
-		tasFlavor, err := onlyTASFlavor(psAssignment.Flavors, cq.TASFlavors)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get TAS flavor for PodSet %q: %w", psAssignment.Name, err)
-		}
-		flavorSnapshot := cq.TASFlavors[*tasFlavor]
-		if flavorSnapshot == nil {
-			return nil, fmt.Errorf("TAS flavor snapshot for flavor %q not found in ClusterQueue %s", *tasFlavor, cq.Name)
-		}
-		flavorNodeLabels := flavorSnapshot.NodeLabels()
-		flavorTolerations := flavorSnapshot.Tolerations()
-
-		// Gather ready PodSetUpdates from admission checks
-		var podSetUpdates []kueue.PodSetUpdate
-		for _, ac := range wl.Obj.Status.AdmissionChecks {
-			if ac.State != kueue.CheckStateReady {
-				continue
-			}
-			for _, u := range ac.PodSetUpdates {
-				if u.Name == podSet.Name {
-					podSetUpdates = append(podSetUpdates, u)
-				}
-			}
-		}
-
-		opts := was.CandidatePodOptions{
-			PodSpec:           wl.PodSpecByName(psAssignment.Name),
-			FlavorNodeLabels:  flavorNodeLabels,
-			FlavorTolerations: flavorTolerations,
-			PodSetUpdates:     podSetUpdates,
-		}
-
-		pods, err := was.CandidateVirtualPodsForPodSet(wl.Obj, podSet, psAssignment.Count, opts)
-		if err != nil {
-			return nil, fmt.Errorf("failed to build candidate pods for PodSet %q: %w", podSet.Name, err)
-		}
-		allPods = append(allPods, pods...)
-	}
-	return allPods, nil
 }
