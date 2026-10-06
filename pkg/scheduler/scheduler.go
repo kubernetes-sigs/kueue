@@ -519,7 +519,7 @@ func (s *Scheduler) processEntry(
 		if (features.Enabled(features.ConcurrentAdmission) || features.Enabled(features.MultiKueueOrchestratedPreemption)) && workload.HasClosedPreemptionGate(e.Obj) {
 			gatedMsg := "Workload requires preemption, but it's gated"
 			log.V(3).Info("Workload requires preemption, but it is gated", "workload", klog.KObj(e.Obj))
-			e.quotaReservedReason = kueue.WorkloadAdmissionGated
+			e.quotaReservedReason = kueue.PreemptionGated
 			e.markPreemptionGated(gatedMsg)
 			return
 		}
@@ -1251,8 +1251,8 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 			if workload.PropagateResourceRequests(wl, &e.Info, s.resourceFormatter) {
 				updated = true
 			}
-			if e.status == preemptionGated {
-				updated = workload.SetBlockedOnPreemptionGatesCondition(wl, s.clock.Now(), kueue.PreemptionGated, e.inadmissibleMsg)
+			if e.status == preemptionGated && workload.SetBlockedOnPreemptionGatesCondition(wl, s.clock.Now(), kueue.PreemptionGated, e.inadmissibleMsg) {
+				updated = true
 			}
 			return updated, nil
 		}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
@@ -1576,7 +1576,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 }
 
 // effectiveReducerPodSets swaps in the live predecessor's granted count (by PodSet name) as the
-// baseline, in place of the workload's own frozen MinCount, while that predecessor is around.
+// baseline, capped at the new count, while that predecessor is around.
 func effectiveReducerPodSets(podSets []kueue.PodSet, replaceableWorkloadSlice *workload.Info, mustGrow bool) []kueue.PodSet {
 	if !mustGrow {
 		return podSets
@@ -1591,6 +1591,7 @@ func effectiveReducerPodSets(podSets []kueue.PodSet, replaceableWorkloadSlice *w
 			continue
 		}
 		if grant, ok := liveGrants[effective[i].Name]; ok {
+			grant = min(grant, effective[i].Count)
 			effective[i].MinCount = &grant
 		}
 	}

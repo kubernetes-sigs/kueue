@@ -32,7 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
@@ -50,18 +50,18 @@ var defaultFlavorFungibility = &kueue.FlavorFungibility{
 var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Creating a ClusterQueue", func() {
 		ginkgo.DescribeTable("Defaulting on creation", func(cq, wantCQ kueue.ClusterQueue) {
-			util.MustCreate(ctx, k8sClient, &cq)
+			behavioral.MustCreate(ctx, k8sClient, &cq)
 			defer func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, &cq, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &cq, true)
 			}()
 			gomega.Expect(cq).To(gomega.BeComparableTo(wantCQ,
 				cmpopts.IgnoreTypes(kueue.ClusterQueueStatus{}),
@@ -155,10 +155,10 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 			cq := utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceMemory).Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, cq)
+			behavioral.MustCreate(ctx, k8sClient, cq)
 
 			defer func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			}()
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -166,7 +166,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updateCQ)).Should(gomega.Succeed())
 				updateCQ.Spec.ResourceGroups[0].Flavors[0].Name = "@x86"
 				g.Expect(k8sClient.Update(ctx, &updateCQ)).Should(utiltesting.BeInvalidError())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should allow to update queueingStrategy with different value", func() {
@@ -175,10 +175,10 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				QueueingStrategy(kueue.StrictFIFO).
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceMemory).Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, cq)
+			behavioral.MustCreate(ctx, k8sClient, cq)
 
 			defer func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			}()
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -186,14 +186,14 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updateCQ)).Should(gomega.Succeed())
 				updateCQ.Spec.QueueingStrategy = kueue.BestEffortFIFO
 				g.Expect(k8sClient.Update(ctx, &updateCQ)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.DescribeTable("Validate ClusterQueue on creation", func(cq *kueue.ClusterQueue, matcher types.GomegaMatcher) {
 			err := k8sClient.Create(ctx, cq)
 			if err == nil {
 				defer func() {
-					util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 				}()
 			}
 			gomega.Expect(err).Should(matcher)
@@ -620,11 +620,11 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 
 		ginkgo.BeforeEach(func() {
 			cq = utiltestingapi.MakeClusterQueue("cluster-queue").Obj()
-			util.MustCreate(ctx, k8sClient, cq)
+			behavioral.MustCreate(ctx, k8sClient, cq)
 		})
 
 		ginkgo.AfterEach(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 
 		maxResourceGroups := make([]kueue.ResourceGroup, resourceGroupsMaxItems)
@@ -654,7 +654,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &gotCQ)).Should(gomega.Succeed())
 						g.Expect(gotCQ.Status.EffectiveQuotas).Should(gomega.BeComparableTo(eq))
 					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			},
 			ginkgo.Entry("Should allow valid effectiveQuotas with empty resourceGroups",
 				utiltestingapi.MakeEffectiveQuotaStatus().Obj(),

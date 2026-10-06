@@ -14,18 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package pod
+package e2e
 
 import (
+	"fmt"
+	"os"
 	"testing"
 
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
-func TestWorkloadPriorityClass(t *testing.T) {
-	p := MakePod("pod", "ns").WorkloadPriorityClass("high").Obj()
-
-	if got := p.Labels[controllerconstants.WorkloadPriorityClassLabel]; got != "high" {
-		t.Fatalf("workload priority class label = %q, want %q", got, "high")
+func RunE2ESuite(t *testing.T, suiteName string) {
+	if ver, found := os.LookupEnv("E2E_KIND_VERSION"); found {
+		suiteName = fmt.Sprintf("%s: %s", suiteName, ver)
 	}
+	behavioral.RunSuite(t, suiteName)
 }

@@ -2357,17 +2357,24 @@ func TestSnapshotWrapsTheDeviceCheckOnEitherSimulator(t *testing.T) {
 
 func TestSnapshotReleaseWorkloadUsage(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
-	admittedWorkload := func(name, cpu string) kueue.Workload {
-		return *utiltestingapi.MakeWorkload(name, "").
-			Request(corev1.ResourceCPU, cpu).
+	workloads := []kueue.Workload{
+		*utiltestingapi.MakeWorkload("kept", "").
+			Request(corev1.ResourceCPU, "1").
 			ReserveQuotaAt(utiltestingapi.MakeAdmission("c1").
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-					Assignment(corev1.ResourceCPU, "default", cpu).
+					Assignment(corev1.ResourceCPU, "default", "1").
 					Obj()).
 				Obj(), now).
-			Obj()
+			Obj(),
+		*utiltestingapi.MakeWorkload("released", "").
+			Request(corev1.ResourceCPU, "2").
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("c1").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "default", "2").
+					Obj()).
+				Obj(), now).
+			Obj(),
 	}
-	workloads := []kueue.Workload{admittedWorkload("kept", "1"), admittedWorkload("released", "2")}
 
 	ctx, log := utiltesting.ContextWithLog(t)
 	cl := utiltesting.NewClientBuilder().WithLists(&kueue.WorkloadList{Items: workloads}).Build()
