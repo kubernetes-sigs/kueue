@@ -24,8 +24,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 )
 
 type ClusterInfo struct {
@@ -72,16 +70,4 @@ func GetClientForSelectedWorkerCluster(g gomega.Gomega, managerWl *kueue.Workloa
 
 	ginkgo.Fail("none of the supplied clusters was selected")
 	return ClusterInfo{}
-}
-
-func ExpectRemoteWorkloadSpec(g gomega.Gomega, remoteWl, managerWl *kueue.Workload) {
-	ginkgo.GinkgoHelper()
-
-	wantSpec := managerWl.Spec.DeepCopy()
-	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
-		// The manager's preemption gates are not copied and the MultiKueue
-		// preemption gate is set instead.
-		wantSpec.PreemptionGates = []kueue.PreemptionGate{{Name: constants.MultiKueuePreemptionGate}}
-	}
-	g.Expect(remoteWl.Spec).To(gomega.BeComparableTo(*wantSpec))
 }
