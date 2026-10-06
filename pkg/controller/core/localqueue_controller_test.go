@@ -43,7 +43,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
@@ -974,8 +974,8 @@ func TestLocalQueueReconcile(t *testing.T) {
 
 			cmpOpts := cmp.Options{
 				cmpopts.EquateEmpty(),
-				util.IgnoreConditionTimestamps,
-				util.IgnoreObjectMetaResourceVersion,
+				behavioral.IgnoreConditionTimestamps,
+				behavioral.IgnoreObjectMetaResourceVersion,
 				cmpopts.IgnoreFields(kueue.LocalQueueAdmissionFairSharingStatus{}, "LastUpdate"),
 			}
 			if diff := cmp.Diff(tc.wantLocalQueue, gotLocalQueue, cmpOpts...); diff != "" {
@@ -1185,7 +1185,7 @@ func TestLocalQueueUpdateStatusIfChanged(t *testing.T) {
 				t.Fatalf("Updating localQueue status: %v", err)
 			}
 			statusCmpOpts := cmp.Options{
-				util.IgnoreConditionTimestamps,
+				behavioral.IgnoreConditionTimestamps,
 				cmpopts.EquateEmpty(),
 			}
 			if diff := cmp.Diff(tc.wantLocalQueue.Status, tc.localQueue.Status, statusCmpOpts...); diff != "" {

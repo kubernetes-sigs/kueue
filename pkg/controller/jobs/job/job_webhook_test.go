@@ -47,7 +47,6 @@ import (
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-	testutil "sigs.k8s.io/kueue/test/util"
 
 	// without this only the job framework is registered
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
@@ -80,7 +79,7 @@ func TestValidateCreate(t *testing.T) {
 		{
 			name:               "invalid queue-name label",
 			job:                testingutil.MakeJob("job", "default").Queue("queue name").Obj(),
-			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", testutil.InvalidRFC1123Message)},
+			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", utiltesting.InvalidRFC1123Message)},
 		},
 		{
 			name: "invalid partial admission annotation (format)",
@@ -194,7 +193,7 @@ func TestValidateCreate(t *testing.T) {
 				Indexed(true).
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(prebuiltWorkloadLabelPath, "workload name", testutil.InvalidRFC1123Message),
+				field.Invalid(prebuiltWorkloadLabelPath, "workload name", utiltesting.InvalidRFC1123Message),
 			},
 		},
 		{
@@ -216,7 +215,7 @@ func TestValidateCreate(t *testing.T) {
 				Indexed(true).
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(prebuiltWorkloadAnnotationPath, "workload name", testutil.InvalidRFC1123Message),
+				field.Invalid(prebuiltWorkloadAnnotationPath, "workload name", utiltesting.InvalidRFC1123Message),
 			},
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
 		},
@@ -311,7 +310,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-required-topology"), "some required value",
-					testutil.InvalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
+					utiltesting.InvalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
@@ -322,7 +321,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(replicaMetaPath.Child("annotations").Key("kueue.x-k8s.io/podset-preferred-topology"), "some preferred value",
-					testutil.InvalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
+					utiltesting.InvalidLabelKeyMessage).WithOrigin("format=k8s-label-key"),
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
@@ -563,7 +562,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate name").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationPath, "gate name", testutil.InvalidPathMessage),
+				field.Invalid(admissionGatedByAnnotationPath, "gate name", utiltesting.InvalidPathMessage),
 			},
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -574,7 +573,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example .com/gate").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationPath, "example .com", testutil.InvalidRFC1123Message),
+				field.Invalid(admissionGatedByAnnotationPath, "example .com", utiltesting.InvalidRFC1123Message),
 			},
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -585,7 +584,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "valid.com/gate,invalid gate.com/controller").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationPath, "invalid gate.com", testutil.InvalidRFC1123Message),
+				field.Invalid(admissionGatedByAnnotationPath, "invalid gate.com", utiltesting.InvalidRFC1123Message),
 			},
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -697,7 +696,7 @@ func TestValidateUpdate(t *testing.T) {
 			name:               "change queue name with suspend is true, but invalid value",
 			oldJob:             testingutil.MakeJob("job", "default").Obj(),
 			newJob:             testingutil.MakeJob("job", "default").Queue("queue name").Suspend(true).Obj(),
-			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", testutil.InvalidRFC1123Message)},
+			wantValidationErrs: field.ErrorList{field.Invalid(queueNameLabelPath, "queue name", utiltesting.InvalidRFC1123Message)},
 		},
 		{
 			name: "immutable parallelism while unsuspended with partial admission enabled",

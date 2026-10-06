@@ -40,7 +40,7 @@ import (
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	testingxgboostjob "sigs.k8s.io/kueue/pkg/util/testingjobs/xgboostjob"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -89,7 +89,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 				},
 			).
 			Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, tfJob)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, tfJob)
 		wlLookupKey := types.NamespacedName{Name: workloadtfjob.GetWorkloadNameForTFJob(tfJob.Name, tfJob.UID), Namespace: f.managerNs.Name}
 		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).PodSets(
 			utiltestingapi.MakePodSetAssignment("chief").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
@@ -116,7 +116,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 					},
 				}
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdTfJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdTfJob := kftraining.TFJob{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(tfJob), &createdTfJob)).To(gomega.Succeed())
@@ -133,7 +133,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 							Succeeded: 1,
 						},
 					}))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("finishing the worker TFJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
@@ -148,7 +148,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 					Message: finishJobReason,
 				})
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdTfJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
 		})
@@ -173,7 +173,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 				},
 			).
 			Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, paddleJob)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, paddleJob)
 
 		wlLookupKey := types.NamespacedName{Name: workloadpaddlejob.GetWorkloadNameForPaddleJob(paddleJob.Name, paddleJob.UID), Namespace: f.managerNs.Name}
 		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).PodSets(
@@ -196,7 +196,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 					},
 				}
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdPaddleJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdPaddleJob := kftraining.PaddleJob{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(paddleJob), &createdPaddleJob)).To(gomega.Succeed())
@@ -209,7 +209,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 							Active: 3,
 						},
 					}))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("finishing the worker PaddleJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
@@ -224,7 +224,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 					Message: finishJobReason,
 				})
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdPaddleJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
 		})
@@ -249,7 +249,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 				},
 			).
 			Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, pyTorchJob)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, pyTorchJob)
 
 		wlLookupKey := types.NamespacedName{Name: workloadpytorchjob.GetWorkloadNameForPyTorchJob(pyTorchJob.Name, pyTorchJob.UID), Namespace: f.managerNs.Name}
 		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).PodSets(
@@ -273,7 +273,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 					},
 				}
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdPyTorchJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdPyTorchJob := kftraining.PyTorchJob{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(pyTorchJob), &createdPyTorchJob)).To(gomega.Succeed())
@@ -287,7 +287,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 							Succeeded: 1,
 						},
 					}))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("finishing the worker PyTorchJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
@@ -302,7 +302,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 					Message: finishJobReason,
 				})
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdPyTorchJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
 		})
@@ -332,7 +332,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 			).
 			Obj()
 		ginkgo.By("create a pytorchjob with external managedBy", func() {
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, pyTorchJob)
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, pyTorchJob)
 		})
 
 		wlLookupKeyNoManagedBy := types.NamespacedName{Name: workloadpytorchjob.GetWorkloadNameForPyTorchJob(pyTorchJob.Name, pyTorchJob.UID), Namespace: f.managerNs.Name}
@@ -359,7 +359,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 				},
 			).
 			Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, xgBoostJob)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, xgBoostJob)
 
 		wlLookupKey := types.NamespacedName{Name: workloadxgboostjob.GetWorkloadNameForXGBoostJob(xgBoostJob.Name, xgBoostJob.UID), Namespace: f.managerNs.Name}
 		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).PodSets(
@@ -383,7 +383,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 					},
 				}
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdXGBoostJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdXGBoostJob := kftraining.XGBoostJob{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(xgBoostJob), &createdXGBoostJob)).To(gomega.Succeed())
@@ -397,7 +397,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 							Succeeded: 1,
 						},
 					}))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("finishing the worker XGBoostJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
@@ -412,7 +412,7 @@ var _ = ginkgo.Describe("MultiKueue TrainingOperator", ginkgo.Label("area:multik
 					Message: finishJobReason,
 				})
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdXGBoostJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
 		})

@@ -61,7 +61,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 func TestAdmittedNotReadyWorkload(t *testing.T) {
@@ -981,7 +981,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: new(util.MediumTimeout),
+						afterFinished: new(behavioral.MediumTimeout),
 					},
 				),
 			},
@@ -996,7 +996,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantError: nil,
 			wantResult: reconcile.Result{
-				RequeueAfter: util.MediumTimeout,
+				RequeueAfter: behavioral.MediumTimeout,
 			},
 		},
 		"shouldn't handle finished workload logic for orphaned workloads on error when FinishOrphanedWorkloads enabled": {
@@ -1008,7 +1008,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: new(util.MediumTimeout),
+						afterFinished: new(behavioral.MediumTimeout),
 					},
 				),
 			},
@@ -1052,7 +1052,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: new(util.MediumTimeout),
+						afterFinished: new(behavioral.MediumTimeout),
 					},
 				),
 			},
@@ -1065,7 +1065,7 @@ func TestReconcile(t *testing.T) {
 					Type:   kueue.WorkloadFinished,
 					Status: metav1.ConditionTrue,
 					LastTransitionTime: metav1.Time{
-						Time: now.Add(-2 * util.MediumTimeout),
+						Time: now.Add(-2 * behavioral.MediumTimeout),
 					},
 				}).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
@@ -1075,7 +1075,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: new(util.MediumTimeout),
+						afterFinished: new(behavioral.MediumTimeout),
 					},
 				),
 			},
@@ -1084,7 +1084,7 @@ func TestReconcile(t *testing.T) {
 					Type:   kueue.WorkloadFinished,
 					Status: metav1.ConditionTrue,
 					LastTransitionTime: metav1.Time{
-						Time: now.Add(-2 * util.MediumTimeout),
+						Time: now.Add(-2 * behavioral.MediumTimeout),
 					},
 				}).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
@@ -1098,24 +1098,24 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
 					Status:             metav1.ConditionTrue,
-					LastTransitionTime: metav1.NewTime(now.Add(-util.Timeout)),
+					LastTransitionTime: metav1.NewTime(now.Add(-behavioral.Timeout)),
 				}).
 				Obj(),
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: new(util.MediumTimeout),
+						afterFinished: new(behavioral.MediumTimeout),
 					},
 				),
 			},
 			wantResult: reconcile.Result{
-				RequeueAfter: util.MediumTimeout - util.Timeout,
+				RequeueAfter: behavioral.MediumTimeout - behavioral.Timeout,
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
 					Status:             metav1.ConditionTrue,
-					LastTransitionTime: metav1.NewTime(now.Add(-util.Timeout)),
+					LastTransitionTime: metav1.NewTime(now.Add(-behavioral.Timeout)),
 				}).
 				Obj(),
 			wantError: nil,
@@ -1125,13 +1125,13 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
 					Status:             metav1.ConditionTrue,
-					LastTransitionTime: metav1.NewTime(now.Add(-2 * util.MediumTimeout)),
+					LastTransitionTime: metav1.NewTime(now.Add(-2 * behavioral.MediumTimeout)),
 				}).
 				Obj(),
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: new(util.MediumTimeout),
+						afterFinished: new(behavioral.MediumTimeout),
 					},
 				),
 			},
