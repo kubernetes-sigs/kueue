@@ -3927,7 +3927,7 @@ var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.La
 
 		ginkgo.By("Creating the Pod group", func() {
 			for _, p := range group {
-				util.MustCreate(ctx, k8sClient, p)
+				behavioral.MustCreate(ctx, k8sClient, p)
 				gomega.Expect(p.Spec.SchedulingGates).To(gomega.ContainElements(
 					corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName},
 					corev1.PodSchedulingGate{Name: kueue.TopologySchedulingGate},
@@ -3942,10 +3942,10 @@ var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.La
 		ginkgo.By("verify the workload is created", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
-		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 
 		ginkgo.By("verify the pods are ungated without rank-based ordering", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -3954,7 +3954,7 @@ var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.La
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), pod)).Should(gomega.Succeed())
 					g.Expect(pod.Spec.SchedulingGates).Should(gomega.BeEmpty())
 				}
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
