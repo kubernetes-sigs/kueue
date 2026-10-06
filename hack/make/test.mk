@@ -368,6 +368,23 @@ test-e2e-was-tas-baseline-helm: test-tas-e2e-baseline-helm
 test-e2e-was-tas-extended-helm: WAS_ENABLED=true
 test-e2e-was-tas-extended-helm: test-tas-e2e-extended-helm
 
+# WAS deep integration version of TAS e2e tests
+.PHONY: test-e2e-was-deep-tas-baseline
+test-e2e-was-deep-tas-baseline: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
+test-e2e-was-deep-tas-baseline: test-tas-e2e-baseline
+
+.PHONY: test-e2e-was-deep-tas-extended
+test-e2e-was-deep-tas-extended: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
+test-e2e-was-deep-tas-extended: test-tas-e2e-extended
+
+.PHONY: test-e2e-was-deep-tas-extended-shard-0
+test-e2e-was-deep-tas-extended-shard-0: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
+test-e2e-was-deep-tas-extended-shard-0: test-tas-e2e-extended-shard-0
+
+.PHONY: test-e2e-was-deep-tas-extended-shard-1
+test-e2e-was-deep-tas-extended-shard-1: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
+test-e2e-was-deep-tas-extended-shard-1: test-tas-e2e-extended-shard-1
+
 # Backwards compatibility aliases for CI/Prow
 .PHONY: test-tas-was-e2e-baseline
 test-tas-was-e2e-baseline: test-e2e-was-tas-baseline
@@ -518,6 +535,7 @@ run-test-tas-e2e-baseline-%:
 		E2E_CONFIG_FOLDER="baseline" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
+		E2E_EXTRA_KUEUE_FEATURE_GATES="$(E2E_EXTRA_KUEUE_FEATURE_GATES)" \
 		./hack/testing/e2e-test.sh
 
 run-test-tas-e2e-extended-%: K8S_VERSION = $(@:run-test-tas-e2e-extended-%=%)
@@ -533,6 +551,7 @@ run-test-tas-e2e-extended-%:
 		E2E_CONFIG_FOLDER="extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
+		E2E_EXTRA_KUEUE_FEATURE_GATES="$(E2E_EXTRA_KUEUE_FEATURE_GATES)" \
 		./hack/testing/e2e-test.sh
 
 run-test-e2e-sequential-baseline-%: K8S_VERSION = $(@:run-test-e2e-sequential-baseline-%=%)
