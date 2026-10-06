@@ -20,10 +20,10 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestIntersectAuthorizedClusters(t *testing.T) {
@@ -61,7 +61,7 @@ func TestIntersectAuthorizedClusters(t *testing.T) {
 
 func TestUserNominatedClusters(t *testing.T) {
 	wlWith := func(ann map[string]string) *kueue.Workload {
-		return &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Annotations: ann}}
+		return utiltestingapi.MakeWorkload("", "").Annotations(ann).Obj()
 	}
 	cases := map[string]struct {
 		featureEnabled bool
