@@ -1477,6 +1477,7 @@ func Register() {
 		QueuedUntilReadyWaitTime,
 		AdmittedUntilReadyWaitTime,
 		EvictedWorkloadsTotal,
+		ReplacedWorkloadSlicesTotal,
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
 		WorkloadEvictionLatencySeconds,
