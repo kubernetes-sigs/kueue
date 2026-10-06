@@ -16,7 +16,11 @@ limitations under the License.
 
 package podset
 
-import kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+import (
+	"slices"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+)
 
 func FindPodSetByName(podSets []kueue.PodSet, name kueue.PodSetReference) *kueue.PodSet {
 	for _, podSet := range podSets {
@@ -25,4 +29,15 @@ func FindPodSetByName(podSets []kueue.PodSet, name kueue.PodSetReference) *kueue
 		}
 	}
 	return nil
+}
+
+// SpecIndexes maps items identified by PodSet name to their indexes in podSets.
+// It returns -1 for items with no matching PodSet.
+func SpecIndexes[T any](podSets []kueue.PodSet, items []T, name func(*T) kueue.PodSetReference) []int {
+	indexes := make([]int, len(items))
+	for i := range items {
+		itemName := name(&items[i])
+		indexes[i] = slices.IndexFunc(podSets, func(ps kueue.PodSet) bool { return ps.Name == itemName })
+	}
+	return indexes
 }
