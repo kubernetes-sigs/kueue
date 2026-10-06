@@ -514,14 +514,14 @@ func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testi
 	leader := *testingpod.MakePod("", "").
 		RoleHash("zzzz").
 		Request(corev1.ResourceCPU, "1").
+		ContainerName("leader").
 		Obj()
-	leader.Spec.Containers[0].Name = "leader"
 
 	worker := *testingpod.MakePod("", "").
 		RoleHash("aaaa").
 		Request(corev1.ResourceCPU, "4").
+		ContainerName("worker").
 		Obj()
-	worker.Spec.Containers[0].Name = "worker"
 
 	got, err := constructGroupPodSets([]corev1.Pod{leader, worker}, nil)
 	if err != nil {
@@ -640,13 +640,13 @@ func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
 
 	leader := *testingpod.MakePod("", "").
 		Request(corev1.ResourceCPU, "1").
+		ContainerName("leader").
 		Obj()
-	leader.Spec.Containers[0].Name = "leader"
 
 	worker := *testingpod.MakePod("", "").
 		Request(corev1.ResourceCPU, "4").
+		ContainerName("worker").
 		Obj()
-	worker.Spec.Containers[0].Name = "worker"
 
 	leaderShapeHash, err := utilpod.GenerateRoleHash(&leader.Spec)
 	if err != nil {
