@@ -30,6 +30,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 // equalPriority is shared by both Workloads in these specs so that the
@@ -90,7 +91,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling preserving flavor scan progre
 				Ready().
 				Obj(),
 		}
-		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = utiltestingapi.MakeDefaultOneLevelTopology("default")
 		behavioral.MustCreate(ctx, k8sClient, topology)

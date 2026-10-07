@@ -27,6 +27,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 // Requests over all Pods of a PodSet are int64 values that saturate at
@@ -125,7 +126,7 @@ var _ = ginkgo.Describe("Scheduler request scaling", func() {
 		behavioral.MustCreate(ctx, k8sClient, second)
 		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, second)
 
-		behavioral.UpdateReclaimablePods(ctx, k8sClient, first, []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 6}})
+		integration.UpdateReclaimablePods(ctx, k8sClient, first, []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 6}})
 		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, first, second)
 	})
 })
