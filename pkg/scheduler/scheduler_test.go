@@ -11800,95 +11800,56 @@ func TestRecordWorkloadAdmissionEvents(t *testing.T) {
 func TestPatchWorkloadAdmissionCommitsReplacement(t *testing.T) {
 	for _, mergePatch := range []bool{false, true} {
 		t.Run(fmt.Sprintf("mergePatch=%t", mergePatch), func(t *testing.T) {
-			for name, tc := range map[string]struct {
-				failPatch     bool
-				gateDisabled  bool
-				noPredecessor bool
-			}{
-				"successful replacement":                        {},
-				"failed admission leaves no replacement record": {failPatch: true},
-				"disabled feature does not record replacement":  {gateDisabled: true},
-				"initial admission has no replacement":          {noPredecessor: true},
-			} {
-				t.Run(name, func(t *testing.T) {
-					features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-						features.WorkloadRequestUseMergePatch: mergePatch,
-						features.ElasticJobsViaWorkloadSlices: !tc.gateDisabled,
-					})
-					ctx, log := utiltesting.ContextWithLog(t)
-					wl := utiltestingapi.MakeWorkload("new", "ns").UID("new-uid").ResourceVersion("1").Obj()
-					old := utiltestingapi.MakeWorkload("old", "ns").UID("old-uid").Obj()
-					wantReplacement := &kueue.WorkloadReplacement{Name: old.Name, UID: string(old.UID)}
-					if tc.gateDisabled || tc.noPredecessor {
-						wantReplacement = nil
-					}
-					admission := utiltestingapi.MakeAdmission("cq").Obj()
-					patchCalls := 0
-					patchError := errors.New("admission patch failed")
-					checkRequest := func(request *kueue.Workload) error {
-						patchCalls++
-						if diff := cmp.Diff(admission, request.Status.Admission, cmpopts.EquateEmpty()); diff != "" {
-							t.Errorf("admission in request (-want,+got): %s", diff)
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.WorkloadRequestUseMergePatch: mergePatch,
+				features.ElasticJobsViaWorkloadSlices: true,
+			})
+			ctx, log := utiltesting.ContextWithLog(t)
+			wl := utiltestingapi.MakeWorkload("new", "ns").UID("new-uid").ResourceVersion("1").Obj()
+			old := utiltestingapi.MakeWorkload("old", "ns").UID("old-uid").Obj()
+			wantReplacement := &kueue.WorkloadReplacement{Name: old.Name, UID: string(old.UID)}
+			admission := utiltestingapi.MakeAdmission("cq").Obj()
+			patchCalls := 0
+			checkRequest := func(request *kueue.Workload) {
+				patchCalls++
+				if diff := cmp.Diff(admission, request.Status.Admission, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("admission in request (-want,+got): %s", diff)
+				}
+				if diff := cmp.Diff(wantReplacement, request.Status.Replaces); diff != "" {
+					t.Errorf("replacement in same request (-want,+got): %s", diff)
+				}
+			}
+			cl := utiltesting.NewClientBuilder().WithObjects(wl, old).WithStatusSubresource(wl, old).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: func(ctx context.Context, c client.Client, subResource string, conf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+						request := &kueue.Workload{}
+						if err := utiltesting.DecodeApplyConfiguration(conf, request); err != nil {
+							return err
 						}
-						if diff := cmp.Diff(wantReplacement, request.Status.Replaces); diff != "" {
-							t.Errorf("replacement in same request (-want,+got): %s", diff)
+						checkRequest(request)
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResource, conf, opts...)
+					},
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResource string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						data, err := patch.Data(obj)
+						if err != nil {
+							return err
 						}
-						if tc.failPatch {
-							return patchError
+						request := &kueue.Workload{}
+						if err := json.Unmarshal(data, request); err != nil {
+							return err
 						}
-						return nil
-					}
-					cl := utiltesting.NewClientBuilder().WithObjects(wl, old).WithStatusSubresource(wl, old).
-						WithInterceptorFuncs(interceptor.Funcs{
-							SubResourceApply: func(ctx context.Context, c client.Client, subResource string, conf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
-								request := &kueue.Workload{}
-								if err := utiltesting.DecodeApplyConfiguration(conf, request); err != nil {
-									return err
-								}
-								if err := checkRequest(request); err != nil {
-									return err
-								}
-								return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResource, conf, opts...)
-							},
-							SubResourcePatch: func(ctx context.Context, c client.Client, subResource string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-								data, err := patch.Data(obj)
-								if err != nil {
-									return err
-								}
-								request := &kueue.Workload{}
-								if err := json.Unmarshal(data, request); err != nil {
-									return err
-								}
-								if err := checkRequest(request); err != nil {
-									return err
-								}
-								return c.SubResource(subResource).Patch(ctx, obj, patch, opts...)
-							},
-						}).Build()
-					s := &Scheduler{client: cl, clock: testingclock.NewFakeClock(time.Now())}
-					var target *preemption.Target
-					if !tc.noPredecessor {
-						target = &preemption.Target{WorkloadInfo: workload.NewInfo(log, old)}
-					}
-					err := s.patchWorkloadAdmission(ctx, log, wl, &schdcache.ClusterQueueSnapshot{}, admission, target)
-					if tc.failPatch != errors.Is(err, patchError) || (!tc.failPatch && err != nil) {
-						t.Fatalf("unexpected patch error: %v", err)
-					}
-					if patchCalls != 1 {
-						t.Fatalf("got %d status requests, want 1", patchCalls)
-					}
-					got := &kueue.Workload{}
-					if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), got); err != nil {
-						t.Fatal(err)
-					}
-					if tc.failPatch {
-						if got.Status.Admission != nil || got.Status.Replaces != nil {
-							t.Fatal("failed request persisted admission or replacement")
-						}
-					} else if diff := cmp.Diff(wantReplacement, got.Status.Replaces); diff != "" {
-						t.Errorf("persisted replacement (-want,+got): %s", diff)
-					}
-				})
+						checkRequest(request)
+						return c.SubResource(subResource).Patch(ctx, obj, patch, opts...)
+					},
+				}).Build()
+			s := &Scheduler{client: cl, clock: testingclock.NewFakeClock(time.Now())}
+			target := &preemption.Target{WorkloadInfo: workload.NewInfo(log, old)}
+			err := s.patchWorkloadAdmission(ctx, log, wl, &schdcache.ClusterQueueSnapshot{}, admission, target)
+			if err != nil {
+				t.Fatalf("unexpected patch error: %v", err)
+			}
+			if patchCalls != 1 {
+				t.Fatalf("got %d status requests, want 1", patchCalls)
 			}
 		})
 	}

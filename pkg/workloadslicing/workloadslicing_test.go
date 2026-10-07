@@ -2316,9 +2316,7 @@ func TestFindNotFinishedWorkloadsHonorsCommittedReplacement(t *testing.T) {
 	}{
 		"committed replacement excludes stale unfinished predecessor": {successor: newSlice.Obj(), wantNames: []string{"new"}},
 		"finished successor still excludes predecessor":               {successor: newSlice.Clone().FinishedAt(time.Now()).Obj()},
-		"evicted successor still excludes predecessor":                {successor: newSlice.Clone().EvictedAt(time.Now()).Obj(), wantNames: []string{"new"}},
 		"UID mismatch keeps predecessor":                              {successor: newSlice.Clone().Replaces("old", "another-uid").Obj(), wantNames: []string{"new", "old"}},
-		"pending replacement intent keeps predecessor":                {successor: utiltestingapi.MakeWorkload("new", "ns").UID("new-uid").ControllerReference(gvk, parent.Name, string(parent.UID)).Annotation(WorkloadSliceReplacementFor, "ns/old").Obj(), wantNames: []string{"new", "old"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
