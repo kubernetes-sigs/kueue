@@ -288,7 +288,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			})
 
 			ginkgo.By("Finishing the remote Job", func() {
-				listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
+				listOpts := e2e.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
 				e2e.WaitForActivePodsAndTerminate(ctx, admittedWorkerClient, admittedWorkerRestClient, admittedWorkerCfg, job.Namespace, 1, 0, listOpts)
 			})
 
@@ -297,7 +297,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			})
 
 			ginkgo.By("Checking that the remote Jobs are cleaned up", func() {
-				behavioral.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
+				e2e.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 			})
 		})
 	})
@@ -344,7 +344,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			createdLeaderWorkload := &kueue.Workload{}
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 			// the execution should be given to the worker
-			behavioral.ExpectWorkloadAdmittedWithCheck(ctx, wlLookupKey, multiKueueAc.Name, "worker2", k8sManagerClient)
+			e2e.ExpectWorkloadAdmittedWithCheck(ctx, wlLookupKey, multiKueueAc.Name, "worker2", k8sManagerClient)
 
 			ginkgo.By("Waiting for the manager's job unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -365,7 +365,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			})
 
 			ginkgo.By("Finishing the job's pod", func() {
-				listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
+				listOpts := e2e.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
 				e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, job.Namespace, 1, 0, listOpts)
 			})
 
@@ -377,8 +377,8 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the job is completed", func() {
-				behavioral.ExpectObjectToBeDeletedOnClusters(ctx, createdLeaderWorkload, k8sWorker1Client, k8sWorker2Client)
-				behavioral.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
+				e2e.ExpectObjectToBeDeletedOnClusters(ctx, createdLeaderWorkload, k8sWorker1Client, k8sWorker2Client)
+				e2e.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 
 				createdJob := &batchv1.Job{}
 				gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
