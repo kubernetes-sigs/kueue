@@ -357,6 +357,7 @@ func shouldReconcileWorkload(wl *kueue.Workload) bool {
 }
 
 func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceName string, psa *kueue.PodSetAssignment) ([]*corev1.Pod, error) {
+	log := ctrl.LoggerFrom(ctx)
 	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, ns, workloadSliceName,
 		client.MatchingLabels{constants.PodSetLabel: string(psa.Name)})
 	if err != nil {
@@ -379,6 +380,8 @@ func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceNa
 				// ignore ungated pods assigned to domains outside the current
 				// TopologyAssignment (e.g. pods stuck terminating on a failed node
 				// after node replacement or workload re-admission).
+				log.V(3).Info("ignoring ungated pod assigned to a domain outside the current TopologyAssignment",
+					"pod", klog.KObj(pod), "domain", domainID)
 				continue
 			}
 		}
