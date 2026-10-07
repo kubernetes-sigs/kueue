@@ -10,9 +10,7 @@
   - [User Stories](#user-stories)
     - [Story 1: A sidecar gets 401 because the platform issues no bearer tokens](#story-1-a-sidecar-gets-401-because-the-platform-issues-no-bearer-tokens)
   - [Risks and Mitigations](#risks-and-mitigations)
-    - [Any container in the manager pod can read metrics](#any-container-in-the-manager-pod-can-read-metrics)
-    - [Host networking exposes metrics to other node-local processes](#host-networking-exposes-metrics-to-other-node-local-processes)
-    - [Another process can forward the loopback endpoint](#another-process-can-forward-the-loopback-endpoint)
+    - [Metrics may become visible beyond their intended audience](#metrics-may-become-visible-beyond-their-intended-audience)
 - [Design Details](#design-details)
   - [Configuration API and feature gate](#configuration-api-and-feature-gate)
   - [Startup validation and serving behavior](#startup-validation-and-serving-behavior)
@@ -106,27 +104,28 @@ the server's identity.
 
 ### Risks and Mitigations
 
-#### Any container in the manager pod can read metrics
+#### Metrics may become visible beyond their intended audience
 
-Every container, including an ephemeral debug container, can reach loopback.
-HTTPS without authentication does not identify the scraper. The opt-out is
-suitable only when all processes sharing that namespace are trusted. Metrics
-can reveal workload names, queue names, and resource usage; do not treat them
-as public data.
+Disabling authentication and authorization can expose information such as
+pending workloads per namespace, queue names, and resource usage to additional
+users. Some multi-tenant deployments intentionally make metrics visible across
+tenants through shared managed Prometheus. Where the same metrics are already
+available to the same audience, the opt-out may add no information exposure;
+other deployments rely on restricting access to tenant metrics. The risk depends
+on the deployment's intended audience and the information exposed.
 
-#### Host networking exposes metrics to other node-local processes
+Other containers in the manager pod can reach the listener; with
+`hostNetwork: true`, other node-local processes can also reach it. A proxy or a
+user with suitable execution or port-forward permissions can relay the endpoint.
+These are ways the same disclosure can occur. Cluster access alone does not
+grant access to loopback, and loopback does not isolate containers within a pod.
 
-A `hostNetwork: true` pod shares node loopback with other node-local and
-host-networked processes. Address validation cannot establish pod isolation or
-detect this from the bind address. Administrators must not opt out when that
-wider namespace is untrusted.
-
-#### Another process can forward the loopback endpoint
-
-A compromised or deliberately configured sidecar, proxy, or `kubectl port-forward`
-can relay a loopback endpoint. The restriction prevents direct off-namespace
-binding, not forwarding or access by actors with pod execution/debug privileges.
-NetworkPolicy does not provide isolation between containers sharing loopback.
+Authentication remains enabled by default. The mitigation is an explicit
+administrator opt-out, enforced loopback binding, and a startup warning that
+authentication is disabled and metrics may expose tenant information.
+Administrators must assess who can reach or forward the listener and whether
+sharing those metrics is acceptable. Deployments requiring a narrower audience
+should retain authentication; the warning itself does not enforce isolation.
 
 ## Design Details
 
@@ -211,7 +210,9 @@ switch.
 
 When an unauthenticated metrics listener is enabled, emit a single startup
 warning identifying its bind address, HTTPS transport, and access by all
-processes sharing the network namespace. Do not log credentials.
+processes sharing the network namespace. State that authentication and
+authorization are disabled and metrics may expose tenant information. Do not
+log credentials.
 
 ### Certificates and deployment
 
