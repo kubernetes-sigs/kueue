@@ -1522,8 +1522,9 @@ func TestSnapshotUsesTASNodesOf(t *testing.T) {
 			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 			want:     false,
 		},
-		// Workloads without TAS have no topology assignment, so they hold no
-		// TAS capacity, whichever nodes their flavor selects.
+		// Workloads without TAS run pods on nodes too, but Kueue tracks those pods
+		// only as non-TAS usage of the nodes, not as TAS usage of the workload, so
+		// such workloads never count as using the nodes of the checked flavor.
 		"workload on a flavor without TAS, on nodes shared with the checked flavor": {
 			workload: admittedWorkload("non-tas-zone-a", "", ""),
 			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
