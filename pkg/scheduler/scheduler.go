@@ -477,7 +477,7 @@ func (s *Scheduler) processEntry(
 	if err != nil {
 		log.Error(err, "Failed to re-compute the assignment")
 		e.inadmissibleMsg = err.Error()
-		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonAssignmentError
 		return
 	}
 	mode := e.assignment.RepresentativeMode()
@@ -844,9 +844,9 @@ func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qca
 			}
 		}
 	} else if assignment, targets, err := s.getAssignments(ctx, &e.Info, snap); err != nil {
-		log.Error(err, "Failed to compute the initital assignment")
+		log.Error(err, "Failed to compute the initial assignment")
 		e.inadmissibleMsg = err.Error()
-		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonAssignmentError
 	} else {
 		e.recordAssignment(assignment, targets)
 		return e, true
