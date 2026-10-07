@@ -1135,6 +1135,20 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, nil
 		}
 
+		// Do not adopt a prebuilt workload that is already finished. It cannot
+		// represent the execution of this job, and adopting it would finalize the
+		// job immediately, leaving it running unmanaged and without a quota
+		// reservation. A finished workload controlled by this job is still
+		// returned, so that the job is finalized and the workload finalizer is
+		// removed as usual.
+		if workloadfinish.IsFinished(wl) && !metav1.IsControlledBy(wl, object) {
+			log.V(2).Info(
+				"WARNING: The prebuilt workload is already finished",
+				"workload", klog.KObj(wl),
+			)
+			return nil, nil
+		}
+
 		if cj, implements := job.(ComposableJob); implements {
 			err = cj.EnsureWorkloadOwnedByAllMembers(ctx, r.client, r.record, wl)
 		} else {
