@@ -29,6 +29,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Resource Transformations", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -342,7 +343,7 @@ var _ = ginkgo.Describe("Resource Transformation: Retain CPU → cpu_credits (Sh
 
 		ginkgo.It("should admit the pending workload after one running workload finishes", func() {
 			ginkgo.By("Marking one admitted workload as finished (frees 3 credits)", func() {
-				behavioral.FinishWorkloads(ctx, k8sClient, admitted[0])
+				integration.FinishWorkloads(ctx, k8sClient, admitted[0])
 			})
 
 			ginkgo.By("Waiting for the pending workload to be admitted (credits available again)", func() {

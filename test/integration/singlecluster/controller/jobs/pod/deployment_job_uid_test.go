@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 // deploymentJobUIDManagerSetup enables the Deployment integration, which the shared
@@ -61,7 +62,7 @@ func deploymentJobUIDManagerSetup(opts ...jobframework.Option) framework.Manager
 		preemptionExpectations := preemptexpectations.New()
 		customLabels := metrics.NewCustomLabels(nil)
 		cCache := schdcache.New(mgr.GetClient(), schdcache.WithCustomLabels(customLabels))
-		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache,
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache,
 			qcache.WithPreemptionExpectations(preemptionExpectations),
 			qcache.WithCustomLabels(customLabels),
 		)

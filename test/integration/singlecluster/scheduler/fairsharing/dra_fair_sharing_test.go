@@ -33,6 +33,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature:fairsharing", "feature:admissionfairsharing"), func() {
@@ -199,7 +200,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			}, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.Succeed())
 
 			ginkgo.By("Finishing all initial workloads")
-			behavioral.FinishWorkloads(ctx, k8sClient, wlA1, wlA2, wlBInit)
+			integration.FinishWorkloads(ctx, k8sClient, wlA1, wlA2, wlBInit)
 
 			ginkgo.By("Verify the usage remains positive after a while since the workloads are finished")
 			gomega.Consistently(func(g gomega.Gomega) {
@@ -242,7 +243,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB1)
 
 			ginkgo.By("Finishing lq-b workload to free quota")
-			behavioral.FinishWorkloads(ctx, k8sClient, wlB1)
+			integration.FinishWorkloads(ctx, k8sClient, wlB1)
 
 			ginkgo.By("Verifying lq-a workload is admitted after quota is freed")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA3)
@@ -426,7 +427,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA1, wlB1, wlB2, wlB3)
 
 			ginkgo.By("Finishing all initial workloads to build AFS history")
-			behavioral.FinishWorkloads(ctx, k8sClient, wlA1, wlB1, wlB2, wlB3)
+			integration.FinishWorkloads(ctx, k8sClient, wlA1, wlB1, wlB2, wlB3)
 
 			// With weight 5.0: lq-a=CPU(1)*1+GPU(1)*5=6 > lq-b=CPU(3)*1=3 → lq-b admitted first.
 			// Without weight: lq-a=CPU(1)+GPU(1)=2 < lq-b=CPU(3)=3 → lq-a admitted first (wrong).
@@ -449,7 +450,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB4)
 
 			ginkgo.By("Finishing lq-b workload to free quota")
-			behavioral.FinishWorkloads(ctx, k8sClient, wlB4)
+			integration.FinishWorkloads(ctx, k8sClient, wlB4)
 
 			ginkgo.By("Verifying lq-a workload is admitted after quota is freed")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA2)

@@ -43,6 +43,7 @@ import (
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -111,7 +112,7 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("admit workload on the manager cluster")
-		behavioral.SetQuotaReservation(manager.ctx, manager.client, workloadKey,
+		integration.SetQuotaReservation(manager.ctx, manager.client, workloadKey,
 			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj())
@@ -127,7 +128,7 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 		})
 
 		ginkgo.By("admit the workload on the worker1 cluster")
-		behavioral.SetQuotaReservation(worker1.ctx, worker1.client, workloadKey,
+		integration.SetQuotaReservation(worker1.ctx, worker1.client, workloadKey,
 			utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj())
@@ -207,7 +208,7 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 				oldWorkload := getWorkload(g, manager.ctx, manager.client, workloadKey)
 				g.Expect(workloadfinish.Finish(manager.ctx, manager.client, oldWorkload, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new slice", behavioral.RealClock)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			behavioral.SetQuotaReservation(manager.ctx, manager.client, newWorkloadKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+			integration.SetQuotaReservation(manager.ctx, manager.client, newWorkloadKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj())
 		})
@@ -241,7 +242,7 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 		})
 
 		ginkgo.By("admit the new workload replacing the old workload in the worker1 cluster", func() {
-			behavioral.SetQuotaReservation(worker1.ctx, worker1.client, newWorkloadKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+			integration.SetQuotaReservation(worker1.ctx, worker1.client, newWorkloadKey, utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj())
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -391,14 +392,14 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 		// This suite does not run a scheduler, so the steps a scheduler would perform
 		// (reserving quota to admit a slice) are emulated with SetQuotaReservation.
 		ginkgo.By("emulate the scheduler reserving quota for the old slice on the manager cluster", func() {
-			behavioral.SetQuotaReservation(manager.ctx, manager.client, oldWorkloadKey,
+			integration.SetQuotaReservation(manager.ctx, manager.client, oldWorkloadKey,
 				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj())
 		})
 
 		ginkgo.By("emulate the scheduler reserving quota for the old slice on the worker1 cluster, and observe it is dispatched there", func() {
-			behavioral.SetQuotaReservation(worker1.ctx, worker1.client, oldWorkloadKey,
+			integration.SetQuotaReservation(worker1.ctx, worker1.client, oldWorkloadKey,
 				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj())
@@ -437,7 +438,7 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 				newWorkload.Status.ClusterName = oldWorkload.Status.ClusterName
 				g.Expect(manager.client.Status().Update(manager.ctx, newWorkload)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			behavioral.SetQuotaReservation(manager.ctx, manager.client, newWorkloadKey,
+			integration.SetQuotaReservation(manager.ctx, manager.client, newWorkloadKey,
 				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj())
@@ -512,7 +513,7 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("admit the workload on the manager cluster")
-		behavioral.SetQuotaReservation(manager.ctx, manager.client, workloadKey, admission().Obj())
+		integration.SetQuotaReservation(manager.ctx, manager.client, workloadKey, admission().Obj())
 
 		ginkgo.By("observe: the workload is created on all worker clusters", func() {
 			localWorkload := getWorkload(gomega.Default, manager.ctx, manager.client, workloadKey)
@@ -525,7 +526,7 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 		})
 
 		ginkgo.By("admit the workload on the worker1 cluster")
-		behavioral.SetQuotaReservation(worker1.ctx, worker1.client, workloadKey, admission().Obj())
+		integration.SetQuotaReservation(worker1.ctx, worker1.client, workloadKey, admission().Obj())
 
 		ginkgo.By("observe: the local admission check reflects the admission on the worker1 cluster")
 		behavioral.ExpectAdmissionCheckStateWithMessage(
@@ -580,11 +581,11 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 				oldWorkload := getWorkload(g, manager.ctx, manager.client, workloadKey)
 				g.Expect(workloadfinish.Finish(manager.ctx, manager.client, oldWorkload, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new slice", behavioral.RealClock)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			behavioral.SetQuotaReservation(manager.ctx, manager.client, newWorkloadKey, admission().Obj())
+			integration.SetQuotaReservation(manager.ctx, manager.client, newWorkloadKey, admission().Obj())
 		})
 
 		ginkgo.By("emulate the scheduler: admit the new slice and finish the old slice in the worker1 cluster", func() {
-			behavioral.SetQuotaReservation(worker1.ctx, worker1.client, newWorkloadKey, admission().Obj())
+			integration.SetQuotaReservation(worker1.ctx, worker1.client, newWorkloadKey, admission().Obj())
 			gomega.Eventually(func(g gomega.Gomega) {
 				wl := getWorkload(g, worker1.ctx, worker1.client, workloadKey)
 				g.Expect(workloadfinish.Finish(worker1.ctx, worker1.client, wl, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new slice", behavioral.RealClock)).To(gomega.Succeed())
