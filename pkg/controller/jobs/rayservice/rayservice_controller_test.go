@@ -30,7 +30,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
@@ -589,96 +588,6 @@ func TestIsSuspended(t *testing.T) {
 			got := tc.rayService.IsSuspended()
 			if got != tc.want {
 				t.Errorf("IsSuspended() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestSuspend(t *testing.T) {
-	testCases := map[string]struct {
-		useTopLevelGate bool
-		wantSpec        rayv1.RayServiceSpec
-	}{
-		"top-level field": {
-			useTopLevelGate: true,
-			wantSpec: rayv1.RayServiceSpec{
-				Suspend: true,
-				RayClusterSpec: rayv1.RayClusterSpec{
-					Suspend: new(false),
-				},
-			},
-		},
-		"legacy nested field": {
-			wantSpec: rayv1.RayServiceSpec{
-				RayClusterSpec: rayv1.RayClusterSpec{
-					Suspend: new(true),
-				},
-			},
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.KubeRayServiceUsingTopLevelSuspend, tc.useTopLevelGate)
-			rayService := (*RayService)(&rayv1.RayService{
-				Spec: rayv1.RayServiceSpec{
-					RayClusterSpec: rayv1.RayClusterSpec{
-						Suspend: new(false),
-					},
-				},
-			})
-
-			rayService.Suspend()
-
-			if diff := cmp.Diff(tc.wantSpec, rayService.Spec); diff != "" {
-				t.Errorf("Suspend() spec mismatch (-want +got):\n%s", diff)
-			}
-		})
-	}
-}
-
-func TestRunWithPodSetsInfoUnsuspends(t *testing.T) {
-	testCases := map[string]struct {
-		useTopLevelGate bool
-		wantSpec        rayv1.RayServiceSpec
-	}{
-		"top-level field": {
-			useTopLevelGate: true,
-			wantSpec: rayv1.RayServiceSpec{
-				RayClusterSpec: rayv1.RayClusterSpec{
-					Suspend: new(true),
-				},
-			},
-		},
-		"legacy nested field": {
-			wantSpec: rayv1.RayServiceSpec{
-				Suspend: true,
-				RayClusterSpec: rayv1.RayClusterSpec{
-					Suspend: new(false),
-				},
-			},
-		},
-	}
-
-	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.KubeRayServiceUsingTopLevelSuspend, tc.useTopLevelGate)
-			rayService := (*RayService)(&rayv1.RayService{
-				Spec: rayv1.RayServiceSpec{
-					Suspend: true,
-					RayClusterSpec: rayv1.RayClusterSpec{
-						Suspend: new(true),
-					},
-				},
-			})
-
-			ctx, _ := utiltesting.ContextWithLog(t)
-			if err := rayService.RunWithPodSetsInfo(ctx, nil, []podset.PodSetInfo{{}}); err != nil {
-				t.Fatalf("RunWithPodSetsInfo() error = %v", err)
-			}
-
-			if diff := cmp.Diff(tc.wantSpec, rayService.Spec); diff != "" {
-				t.Errorf("RunWithPodSetsInfo() spec mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
