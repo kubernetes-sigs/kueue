@@ -137,7 +137,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Deployment", ginkgo.Label(e
 			})
 
 			ginkgo.By("Verifying each block holds exactly 2 of the 4 replicas", func() {
-				blockOfNode := behavioral.GetTopologyDomainByNode(ctx, k8sClient, utiltesting.DefaultBlockTopologyLevel)
+				blockOfNode := e2e.GetTopologyDomainByNode(ctx, k8sClient, utiltesting.DefaultBlockTopologyLevel)
 				podsPerBlock := make(map[string]int, 2)
 				for _, p := range pods.Items {
 					block, found := blockOfNode[p.Spec.NodeName]
