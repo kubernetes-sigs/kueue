@@ -14,8 +14,10 @@ see-also:
   - "/keps/4377-metrics-tls"
   - "/keps/8190-tls-security-profiles"
 replaces: []
-# Proposed maturity; release milestones remain unset pending design acceptance.
 stage: alpha
+latest-milestone: "v0.21"
+milestone:
+  alpha: "v0.21"
 feature-gates:
   - name: MetricsAuthenticationOptOut
 disable-supported: true

@@ -116,6 +116,11 @@ To block this option we will validate that one cannot fall into this scenario.
 It is important to secure metrics if they are enabled.
 We will not provide a way to disable this.
 
+Amendment: [KEP-16029](../16029-pod-local-metrics/README.md) introduces an alpha,
+loopback-only opt-out from metrics authentication and authorization. It amends
+this non-goal for the authentication filter while retaining HTTPS and serving
+certificate requirements. Authenticated HTTPS remains the default.
+
 - Allow for external certificates for metrics but internal certificates for webhooks.
 
 - Adopt Internal Cert Manager solution for metrics and provide self signed certificates.
