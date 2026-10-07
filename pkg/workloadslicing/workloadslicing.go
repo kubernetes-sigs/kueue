@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -39,7 +40,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -288,23 +291,30 @@ func ScaledUp(workload *kueue.Workload) bool {
 	return ReplacementForKey(workload) != nil
 }
 
+// Reconciler holds the dependencies for reconciling workload slices.
+type Reconciler struct {
+	Client       client.Client
+	Clock        clock.Clock
+	Recorder     events.EventRecorder
+	CustomLabels *metrics.CustomLabels
+	RoleTracker  *roletracker.RoleTracker
+}
+
 // EnsureWorkloadSlices processes the Job object and returns the appropriate workload slice.
 //
 // Returns:
 // - *Workload, true, nil: when a compatible workload exists or a new slice is needed.
 // - nil, false, nil: when an incompatible workload exists and no update is performed.
 // - error: on failure to fetch, update, or deactivate a workload slice.
-func EnsureWorkloadSlices(
+func (r *Reconciler) EnsureWorkloadSlices(
 	ctx context.Context,
-	clnt client.Client,
-	clk clock.Clock,
 	jobPodSets []kueue.PodSet,
 	jobObject client.Object,
 	jobObjectGVK schema.GroupVersionKind,
 ) (*kueue.Workload, bool, error) {
 	jobPodSetsCounts := workload.ExtractPodSetCounts(jobPodSets)
 
-	workloads, err := FindNotFinishedWorkloads(ctx, clnt, jobObject, jobObjectGVK)
+	workloads, err := FindNotFinishedWorkloads(ctx, r.Client, jobObject, jobObjectGVK)
 	if err != nil {
 		return nil, true, fmt.Errorf("failed to find active workload slices: %w", err)
 	}
@@ -359,7 +369,7 @@ func EnsureWorkloadSlices(
 		// b. It's a scale-down event.
 		if !workload.HasQuotaReservation(wl) || ScaledDown(wlPodSetsCounts, jobPodSetsCounts) {
 			workload.ApplyPodSetCounts(wl, jobPodSetsCounts)
-			if err := clnt.Update(ctx, wl); err != nil {
+			if err := r.Client.Update(ctx, wl); err != nil {
 				return nil, true, fmt.Errorf("failed to update workload's pod sets counts: %w", err)
 			}
 			return wl, true, nil
@@ -369,7 +379,7 @@ func EnsureWorkloadSlices(
 		return nil, true, nil
 
 	default:
-		selectedWorkload, err := normalizeActiveSlices(ctx, clnt, clk, workloads)
+		selectedWorkload, err := normalizeActiveSlices(ctx, r.Client, r.Clock, workloads)
 		if err != nil {
 			return nil, true, err
 		}
@@ -389,7 +399,7 @@ func EnsureWorkloadSlices(
 
 		if !workload.HasQuotaReservation(selectedWorkload) || ScaledDown(selectedCounts, jobPodSetsCounts) {
 			workload.ApplyPodSetCounts(selectedWorkload, jobPodSetsCounts)
-			if err := clnt.Update(ctx, selectedWorkload); err != nil {
+			if err := r.Client.Update(ctx, selectedWorkload); err != nil {
 				return nil, true, fmt.Errorf("failed to update workload pod set counts: %w", err)
 			}
 			return selectedWorkload, true, nil
