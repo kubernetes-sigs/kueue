@@ -76,18 +76,15 @@ var (
 )
 
 // effectiveWorkerCount returns the effective worker pod count for a worker
-// group: Replicas scaled by NumOfHosts, with Replicas defaulting to 1 when
-// unset. BuildPodSets, UpdatePodSets, and the MultiKueue elastic replica sync
+// group, respecting KubeRay's min/max replica bounds and NumOfHosts.
+// BuildPodSets, UpdatePodSets, and the MultiKueue elastic replica sync
 // all call this so the per-group count derivation stays in one place.
 func effectiveWorkerCount(wgs *rayv1.WorkerGroupSpec) int32 {
-	count := int32(1)
-	if wgs.Replicas != nil {
-		count = *wgs.Replicas
-	}
-	if wgs.NumOfHosts > 1 {
-		count *= wgs.NumOfHosts
-	}
-	return count
+	// API defaults may be absent on objects constructed before admission.
+	group := *wgs
+	group.Replicas = new(ptr.Deref(wgs.Replicas, int32(1)))
+	group.NumOfHosts = max(wgs.NumOfHosts, 1)
+	return rayutils.GetWorkerGroupDesiredReplicas(group)
 }
 
 // BuildPodSets builds PodSets from RayClusterSpec.
@@ -621,8 +618,7 @@ func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32
 }
 
 // WorkerGroupPodCounts returns the effective per-worker-group pod count of the
-// given RayClusterSpec, keyed by PodSet reference (replicas scaled by
-// NumOfHosts, matching BuildPodSets).
+// given RayClusterSpec, keyed by PodSet reference, matching BuildPodSets.
 func WorkerGroupPodCounts(spec *rayv1.RayClusterSpec) map[kueue.PodSetReference]int32 {
 	counts := make(map[kueue.PodSetReference]int32, len(spec.WorkerGroupSpecs))
 	for i := range spec.WorkerGroupSpecs {

@@ -416,7 +416,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName: "workers",
-						// MinReplicas is deliberately absent - it's not consulted at all.
+						// An absent MinReplicas does not constrain the count.
 						Replicas: new(int32(3)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
@@ -831,6 +831,28 @@ func TestUpdatePodSets(t *testing.T) {
 					PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
 					SubGroupCount(new(int32(5))).
 					Obj(), // Updated from 3 to 5
+			},
+		},
+		"autoscaling update respects minimum worker replicas": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 1).Obj(),
+			},
+			object: testingrayutil.MakeCluster("raycluster", "ns").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				WithEnableAutoscaling(new(true)).
+				Obj(),
+			enableInTreeAutoscaling: new(true),
+			rayClusterName:          "target-raycluster",
+			rayClusterInClient: testingrayutil.MakeCluster("target-raycluster", "ns").
+				WithWorkerGroups(rayv1.WorkerGroupSpec{
+					GroupName: "workers", Replicas: new(int32(1)), MinReplicas: new(int32(2)), MaxReplicas: new(int32(2)),
+				}).Obj(),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 2).
+					SubGroupCount(new(int32(1))).
+					Obj(),
 			},
 		},
 		"successful update with NumOfHosts": {
