@@ -25,6 +25,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -32,8 +33,11 @@ import (
 )
 
 var (
-	k8sClient client.WithWatch
-	ctx       context.Context
+	k8sClient  client.WithWatch
+	cfg        *rest.Config
+	restClient *rest.RESTClient
+	ctx        context.Context
+	kueueNS    = e2e.GetKueueNamespace()
 )
 
 func TestAPIs(t *testing.T) {
@@ -44,8 +48,9 @@ var _ = ginkgo.BeforeSuite(func() {
 	behavioral.SetupLogger()
 
 	var err error
-	k8sClient, _, err = e2e.CreateClientUsingCluster("")
+	k8sClient, cfg, err = e2e.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	restClient = e2e.CreateRestClient(cfg)
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()

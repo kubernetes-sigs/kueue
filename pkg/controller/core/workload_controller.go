@@ -180,7 +180,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	skipDeviceCheck := r.hasMultiKueueAdmissionCheck(wl)
 
 	// Process ResourceClaimTemplates (existing DRA path)
-	draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, wl, skipDeviceCheck)
+	draResources, draRequests, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, wl, skipDeviceCheck)
 	if len(fieldErrs) > 0 {
 		done, result, err := r.markDRAInadmissible(ctx, wl, fieldErrs, "Failed to process DRA resources for workload")
 		return done, result, nil, err
@@ -241,6 +241,9 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	queueOptions = []workload.InfoOption{workload.WithEffectivePodSpecs(wi.EffectivePodSpecs)}
 	if len(draResources) > 0 || len(replacedExtendedResources) > 0 {
 		queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources, replacedExtendedResources))
+	}
+	if len(draRequests) > 0 {
+		queueOptions = append(queueOptions, workload.WithDRADeviceRequests(draRequests))
 	}
 	log.V(3).Info("Successfully pre-processed DRA workload")
 	return false, ctrl.Result{}, queueOptions, nil
@@ -880,7 +883,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 			if err := r.queues.AddOrUpdateWorkload(ctx, log, wl.DeepCopy(), draQueueOptions...); err != nil {
 				return ctrl.Result{}, fmt.Errorf("failed to add DRA-preprocessed workload to queue: %w", err)
 			}
-		} else if !r.cache.AddOrUpdateWorkload(ctx, log, wl.DeepCopy()) {
+		} else if !r.cache.AddOrUpdateWorkload(ctx, log, wl.DeepCopy(), draQueueOptions...) {
 			log.V(3).Info("Workload was not added to the scheduler cache")
 		}
 	}
@@ -1368,7 +1371,7 @@ func (r *WorkloadReconciler) handleCreate(ctx context.Context, e event.TypedCrea
 	ctx = ctrl.LoggerInto(ctx, log)
 	wl := e.Object
 
-	if r.needsDRAReconcile(ctx, e.Object) {
+	if status == workload.StatusPending && r.needsDRAReconcile(ctx, e.Object) {
 		log.V(3).Info("Skipping DRA workload in Create event - will be handled in Reconcile")
 		return true
 	}
@@ -1379,7 +1382,14 @@ func (r *WorkloadReconciler) handleCreate(ctx context.Context, e event.TypedCrea
 		}
 		return true
 	}
-	if !r.cache.AddOrUpdateWorkload(ctx, log, wl) {
+	var opts []workload.InfoOption
+	draReqs, err := r.getDRADeviceRequests(ctx, wl)
+	if err != nil {
+		log.Error(err, "Failed to get DRA device requests for admitted workload on create event")
+	} else if len(draReqs) > 0 {
+		opts = append(opts, workload.WithDRADeviceRequests(draReqs))
+	}
+	if !r.cache.AddOrUpdateWorkload(ctx, log, wl, opts...) {
 		log.V(3).Info("Workload was not added to the scheduler cache")
 	}
 	r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
@@ -2426,4 +2436,16 @@ func (r *WorkloadReconciler) needsDRAReconcile(ctx context.Context, wl *kueue.Wo
 		wi = workload.NewInfoFromClient(ctx, r.client, wl, workload.WithSkipSchedulingHash())
 	}
 	return dra.NeedsDRAReconcile(wi, r.draBackedResources)
+}
+
+func (r *WorkloadReconciler) getDRADeviceRequests(ctx context.Context, wl *kueue.Workload) ([]workload.DRADeviceRequest, error) {
+	if !features.Enabled(features.KueueDRAIntegration) || !workload.HasResourceClaimTemplates(wl) || r.draMapper == nil || r.client == nil {
+		return nil, nil
+	}
+	sliceCache := dra.NewResourceSliceCache(r.client)
+	_, draRequests, errs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, wl, r.hasMultiKueueAdmissionCheck(wl))
+	if len(errs) > 0 {
+		return nil, errs.ToAggregate()
+	}
+	return draRequests, nil
 }
