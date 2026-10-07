@@ -20,9 +20,15 @@ import (
 	"context"
 
 	"github.com/onsi/ginkgo/v2"
+	"github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
@@ -40,4 +46,71 @@ func CreateNamespaceFromObjectWithLog(ctx context.Context, k8sClient client.Clie
 	MustCreate(ctx, k8sClient, ns)
 	ginkgo.GinkgoLogr.Info("Created namespace", "namespace", ns.Name)
 	return ns
+}
+
+// DeleteNamespace deletes all objects the tests typically create in the namespace.
+func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	if ns == nil {
+		return nil
+	}
+	if err := DeleteAllAppWrappersInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllJobSetsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllJobsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllRayJobsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllTrainingRuntimesInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := DeleteAllMPIJobsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	if err := c.DeleteAllOf(ctx, &appsv1.StatefulSet{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	if err := c.DeleteAllOf(ctx, &kueue.LocalQueue{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	if err := c.DeleteAllOf(ctx, &corev1.ConfigMap{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	if err := deleteAllPodsInNamespace(ctx, c, ns, 2); err != nil {
+		return err
+	}
+	if err := deleteWorkloadsInNamespace(ctx, c, ns, 2); err != nil {
+		return err
+	}
+	if err := DeleteAllEventsInNamespace(ctx, c, ns); err != nil {
+		return err
+	}
+	err := c.DeleteAllOf(ctx, &corev1.LimitRange{}, client.InNamespace(ns.Name), client.PropagationPolicy(metav1.DeletePropagationBackground))
+	if err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	if err := c.Delete(ctx, ns); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+func NewNamespaceSelectorExcluding(unmanaged ...string) labels.Selector {
+	unmanaged = append(unmanaged, "kube-system", "kueue-system")
+	ls := &metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{
+			{
+				Key:      corev1.LabelMetadataName,
+				Operator: metav1.LabelSelectorOpNotIn,
+				Values:   unmanaged,
+			},
+		},
+	}
+	sel, err := metav1.LabelSelectorAsSelector(ls)
+	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	return sel
 }
