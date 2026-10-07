@@ -764,7 +764,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 
 			ginkgo.By("verifying each replica's leader+worker land in the same block, and no block holds more than 2 of the 3 replicas", func() {
 				gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				blockOfNode := behavioral.GetTopologyDomainByNode(ctx, k8sClient, utiltesting.DefaultBlockTopologyLevel)
+				blockOfNode := e2e.GetTopologyDomainByNode(ctx, k8sClient, utiltesting.DefaultBlockTopologyLevel)
 
 				blockByReplicaIndex := make(map[string]string, replicas)
 				for _, pod := range pods.Items {
