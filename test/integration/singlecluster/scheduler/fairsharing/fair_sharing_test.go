@@ -41,6 +41,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func() {
@@ -181,22 +182,22 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			ginkgo.By("Terminating 4 running workloads in cqA: shared quota is fair-shared")
 
 			// Admit cqB workload.
-			behavioral.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 1)
+			integration.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 1)
 			behavioral.ExpectReservingActiveWorkloadsMetric(cqB, 1)
 			behavioral.ExpectReservingActiveWorkloadsMetric(cqA, 7)
 
 			// Admit cqB workload.
-			behavioral.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 1)
+			integration.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 1)
 			behavioral.ExpectReservingActiveWorkloadsMetric(cqB, 2)
 			behavioral.ExpectReservingActiveWorkloadsMetric(cqA, 6)
 
 			// Admit cqB workload.
-			behavioral.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 1)
+			integration.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 1)
 			behavioral.ExpectReservingActiveWorkloadsMetric(cqB, 3)
 			behavioral.ExpectReservingActiveWorkloadsMetric(cqA, 5)
 
 			// Admit cqA workload.
-			behavioral.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 1)
+			integration.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 1)
 			behavioral.ExpectReservingActiveWorkloadsMetric(cqB, 3)
 			behavioral.ExpectReservingActiveWorkloadsMetric(cqA, 5)
 
@@ -207,7 +208,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			behavioral.ExpectClusterQueueWeightedShareMetric(cqShared, 0.0)
 
 			ginkgo.By("Terminating 2 more running workloads in cqA: cqB starts to take over shared quota")
-			behavioral.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 2)
+			integration.FinishRunningWorkloadsInCQ(ctx, k8sClient, cqA, 2)
 
 			// Admits last 1 from cqA and 1 from cqB.
 			behavioral.ExpectReservingActiveWorkloadsMetric(cqA, 4)
@@ -302,7 +303,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			behavioral.ExpectPendingWorkloadsMetric(cqB, 5, 0)
 
 			ginkgo.By("Finishing eviction of 4 running workloads in cqA: shared quota is fair-shared")
-			behavioral.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqA, 4)
+			integration.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqA, 4)
 			behavioral.ExpectReservingActiveWorkloadsMetric(cqB, 4)
 			behavioral.ExpectClusterQueueWeightedShareMetric(cqA, 2.0*1000.0/9.0)
 			behavioral.ExpectClusterQueueWeightedShareMetric(cqB, 1.0*1000.0/9.0)
@@ -317,7 +318,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			behavioral.ExpectClusterQueueWeightedShareMetric(cqC, 0.0)
 
 			ginkgo.By("Finishing eviction of 1 running workloads in the CQ with highest usage: cqA")
-			behavioral.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqA, 1)
+			integration.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqA, 1)
 			behavioral.ExpectReservingActiveWorkloadsMetric(cqC, 1)
 			behavioral.ExpectClusterQueueWeightedShareMetric(cqA, 1.0*1000.0/9.0)
 			behavioral.ExpectClusterQueueWeightedShareMetric(cqB, 1.0*1000.0/9.0)
@@ -751,8 +752,8 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			}
 
 			ginkgo.By("preempt workloads")
-			behavioral.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, bestEffortQueue, 2)
-			behavioral.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, physicsQueue, 4)
+			integration.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, bestEffortQueue, 2)
+			integration.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, physicsQueue, 4)
 
 			ginkgo.By("share is fair with respect to each parent")
 			// parent root
@@ -954,7 +955,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			createWorkload("cq-p2", "5")
 
 			ginkgo.By("Complete preemption")
-			behavioral.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
+			integration.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
 
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
@@ -987,7 +988,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			createWorkloadWithPriority("cq-p2", "5", 0)
 
 			ginkgo.By("Complete preemption")
-			behavioral.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
+			integration.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
 
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
@@ -1013,7 +1014,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			createWorkloadWithPriority("cq-p2", "4", 0)
 
 			ginkgo.By("Complete preemption")
-			behavioral.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
+			integration.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
 
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
@@ -1040,7 +1041,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			createWorkloadWithPriority("cq-p2", "5", 0)
 
 			ginkgo.By("Complete preemption")
-			behavioral.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
+			integration.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqp1, 2)
 
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(cqp1, "", 4)
@@ -1111,7 +1112,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			createWorkloadWithPriority("cq1", "3", 0)
 
 			ginkgo.By("Complete preemption")
-			behavioral.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
+			integration.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
 
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 			behavioral.ExpectAdmittedWorkloadsTotalMetricWithTimeout(cq1, "", 1, behavioral.MediumTimeout)
@@ -1164,7 +1165,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Complete preemption")
-			behavioral.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
+			integration.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
 
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
@@ -1198,7 +1199,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			behavioral.ExpectPendingWorkloadsMetric(cq1, 1, 0)
 
 			ginkgo.By("Complete preemption")
-			behavioral.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
+			integration.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cq2, 2)
 
 			ginkgo.By("Expected Total Admitted Workloads and Weighted Share")
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 1)
@@ -1307,7 +1308,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			behavioral.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqB), "==", 0)
 
 			ginkgo.By("Releasing quota")
-			behavioral.FinishWorkloads(ctx, k8sClient, initialWls...)
+			integration.FinishWorkloads(ctx, k8sClient, initialWls...)
 
 			ginkgo.By("Verifying workload from lq-b is admitted")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
@@ -1339,7 +1340,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			behavioral.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqC), "==", 0)
 
 			ginkgo.By("Releasing quota")
-			behavioral.FinishWorkloads(ctx, k8sClient, initialWls...)
+			integration.FinishWorkloads(ctx, k8sClient, initialWls...)
 
 			ginkgo.By("Verifying workload from lq-c is admitted")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlC)
@@ -1369,13 +1370,13 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			behavioral.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqC), "==", 0)
 
 			ginkgo.By("Release wl1 quota")
-			behavioral.FinishWorkloads(ctx, k8sClient, wl1)
+			integration.FinishWorkloads(ctx, k8sClient, wl1)
 
 			ginkgo.By("Workload admits")
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 3)
 
 			ginkgo.By("Release wl2 quota")
-			behavioral.FinishWorkloads(ctx, k8sClient, wl2)
+			integration.FinishWorkloads(ctx, k8sClient, wl2)
 
 			ginkgo.By("Workload admits")
 			behavioral.ExpectAdmittedWorkloadsTotalMetric(cq1, "", 4)
@@ -1585,7 +1586,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			ginkgo.By("Creating a newer workload in cqB that needs only nominal quota")
 			createWorkload("b", "500")
 			ginkgo.By("Evict the some workloads in cqA and reclaim the nominal quota in cqB")
-			behavioral.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqA, 3)
+			integration.FinishEvictionOfWorkloadsInCQ(ctx, k8sClient, cqA, 3)
 			behavioral.ExpectReservingActiveWorkloadsMetric(cqA, 7)
 			behavioral.ExpectReservingActiveWorkloadsMetric(cqB, 1)
 		})
@@ -1829,7 +1830,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 			wlB := createWorkload("lq-b", "32")
 
 			ginkgo.By("Finish the previous workload")
-			behavioral.FinishWorkloads(ctx, k8sClient, wl)
+			integration.FinishWorkloads(ctx, k8sClient, wl)
 
 			ginkgo.By("Admitting the workload from LQ-b, which has lower recent usage")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
@@ -1881,7 +1882,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 			wlBUsage := createWorkload("lq-b", "32")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlBUsage)
 			behavioral.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lqB), ">", 0)
-			behavioral.FinishWorkloads(ctx, k8sClient, wlBUsage)
+			integration.FinishWorkloads(ctx, k8sClient, wlBUsage)
 
 			ginkgo.By("Admitting a blocker on lq-a that holds the whole cohort quota")
 			// The blocker keeps both pending workloads waiting (so no admission
@@ -1905,7 +1906,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Releasing the quota so the scheduler picks with the new weight")
-			behavioral.FinishWorkloads(ctx, k8sClient, wlBlocker)
+			integration.FinishWorkloads(ctx, k8sClient, wlBlocker)
 
 			ginkgo.By("Admitting lq-a's workload and keeping lq-b's pending")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
@@ -1943,7 +1944,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing", "featur
 			behavioral.ExpectLocalQueueFairSharingUsageToBe(ctx, k8sClient, client.ObjectKeyFromObject(lq), ">", 7_000)
 
 			ginkgo.By("Finishing the workload and stopping the manager")
-			behavioral.FinishWorkloads(ctx, k8sClient, wl1)
+			integration.FinishWorkloads(ctx, k8sClient, wl1)
 			fwk.StopManager(ctx)
 
 			ginkgo.By("Reading the persisted usage frozen by the shutdown")

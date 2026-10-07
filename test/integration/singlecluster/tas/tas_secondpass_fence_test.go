@@ -41,6 +41,7 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 // A second-pass admission write fails with Conflict if the workload changed after the pass read it.
@@ -105,7 +106,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass admission wr
 
 		nodeX1 = newNode("x1")
 		nodeX2 = newNode("x2")
-		behavioral.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*nodeX1, *nodeX2})
+		integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*nodeX1, *nodeX2})
 	})
 
 	ginkgo.AfterEach(func() {

@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -75,7 +76,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	batchPeriod := 2 * time.Second
 	preemptionExpectations := preemptexpectations.New()
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-	queues := behavioral.NewManagerForIntegrationTestsWithBatchPeriod(
+	queues := integration.NewManagerWithBatchPeriod(
 		ctx,
 		mgr.GetClient(),
 		cCache,

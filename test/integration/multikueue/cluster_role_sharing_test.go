@@ -40,6 +40,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 // We test the interoperability of the Cluster Queues, where one is dedicated to manager Non-MultiKueue workloads
@@ -224,12 +225,12 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerMkCq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
-			behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey, admission)
+			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey, admission)
 		})
 
 		ginkgo.By("setting non multikueue workload reservation in the worker1 cluster", func() {
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(worker1Cq.Name)).Obj()
-			behavioral.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlNonMkLookupKey, admission)
+			integration.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlNonMkLookupKey, admission)
 		})
 
 		createdMkWorkload := &kueue.Workload{}
@@ -257,7 +258,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerMkCq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
-			behavioral.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlMkLookupKey, admission)
+			integration.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlMkLookupKey, admission)
 
 			behavioral.ExpectAdmissionCheckStateWithMessage(
 				managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey,
@@ -407,12 +408,12 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerMkCq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
-			behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey, admission)
+			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey, admission)
 		})
 
 		ginkgo.By("setting non multikueue workload reservation in the worker1 cluster", func() {
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).Obj()
-			behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlNonMkLookupKey, admission)
+			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlNonMkLookupKey, admission)
 		})
 
 		createdMkWorkload := &kueue.Workload{}
@@ -440,7 +441,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerMkCq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
-			behavioral.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlMkLookupKey, admission)
+			integration.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlMkLookupKey, admission)
 
 			behavioral.ExpectAdmissionCheckStateWithMessage(
 				managerTestCluster.ctx, managerTestCluster.client, wlMkLookupKey,
@@ -597,7 +598,7 @@ var _ = ginkgo.Describe("MultiKueue Cluster Role Sharing", ginkgo.Label("area:mu
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerMkCq.Name)).
 				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 					Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
-			behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 		})
 
 		ginkgo.By("waiting for the remote workload to appear on worker1, confirming reconcileGroup has run", func() {

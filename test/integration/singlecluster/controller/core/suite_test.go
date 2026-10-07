@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -148,7 +149,7 @@ func managerAndControllerSetup(
 		}
 
 		cCache := schdcache.New(mgr.GetClient(), cacheOpts...)
-		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOpts...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOpts...)
 		qManager = queues
 		managerClient = mgr.GetClient()
 

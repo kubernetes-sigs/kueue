@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 type subResourcePatchFn func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error
@@ -116,7 +117,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	}
 	cCache := schdcache.New(mgr.GetClient())
 	preemptionExpectations := preemptexpectations.New()
-	queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache,
+	queues := integration.NewManager(ctx, mgr.GetClient(), cCache,
 		qcache.WithResourceTransformations(transformations),
 		qcache.WithPreemptionExpectations(preemptionExpectations),
 		qcache.WithResourceMetrics(true),
