@@ -111,8 +111,8 @@ func (p *PreemptionEvaluator) HasRules() bool {
 // topology assignment can be found.
 //
 // Candidates must use one of the flavor resources needing preemption. The
-// QuotaFeasibleAndInsufficientTopology trigger also yields workloads using such a
-// resource from another TAS flavor covering the same nodes, see resourcesFilterFor.
+// QuotaFeasibleAndInsufficientTopology trigger also yields workloads holding TAS
+// capacity on nodes of the flavors needing preemption, see resourcesFilterFor.
 //
 // Because candidates are removed from the snapshot as they are evaluated, subsequent
 // fit checks observe the updated snapshot state, and the evaluator only returns
@@ -300,10 +300,10 @@ func (p *PreemptionEvaluator) candidatesFor(
 //
 // Candidates use one of the flavor resources needing preemption, as only those
 // can free the quota the preemptor needs. Once the quota is feasible, the
-// QuotaFeasibleAndInsufficientTopology trigger also accepts workloads using a
-// resource needing preemption from another TAS flavor on nodes that the flavor
-// needing preemption selects too (see TASHandleOverlappingFlavors), as removing
-// them frees node capacity in its topology.
+// QuotaFeasibleAndInsufficientTopology trigger also accepts workloads holding
+// TAS capacity on nodes of the flavors needing preemption, from any flavor (see
+// TASHandleOverlappingFlavors), as removing them frees node capacity in their
+// topologies.
 func resourcesFilterFor(
 	snapshot *schdcache.Snapshot,
 	flavorsNeedPreemption sets.Set[resources.FlavorResource],
@@ -314,30 +314,14 @@ func resourcesFilterFor(
 			return classical.WorkloadUsesResources(wl, flavorsNeedPreemption)
 		}
 	}
+	neededFlavors := sets.New[kueue.ResourceFlavorReference]()
+	for fr := range flavorsNeedPreemption {
+		neededFlavors.Insert(fr.Flavor)
+	}
 	return func(wl *workload.Info) bool {
 		return classical.WorkloadUsesResources(wl, flavorsNeedPreemption) ||
-			usesOverlappingTASResources(snapshot, wl, flavorsNeedPreemption)
+			snapshot.UsesTASNodesOf(wl, neededFlavors)
 	}
-}
-
-// usesOverlappingTASResources returns whether the workload uses one of the
-// resources needing preemption from another TAS flavor, on nodes that the
-// flavor needing preemption selects too.
-func usesOverlappingTASResources(
-	snapshot *schdcache.Snapshot,
-	wl *workload.Info,
-	flavorsNeedPreemption sets.Set[resources.FlavorResource],
-) bool {
-	for _, ps := range wl.TotalRequests {
-		for res, flv := range ps.Flavors {
-			for fr := range flavorsNeedPreemption {
-				if fr.Resource == res && snapshot.UsesOverlappingTASCapacity(wl, flv, fr.Flavor) {
-					return true
-				}
-			}
-		}
-	}
-	return false
 }
 
 func (p *PreemptionEvaluator) addMatchingCandidates(
