@@ -436,7 +436,7 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 				newWorkload := &kueue.Workload{}
 				g.Expect(manager.client.Get(manager.ctx, newWorkloadKey, newWorkload)).To(gomega.Succeed())
 				newWorkload.Status.ClusterName = oldWorkload.Status.ClusterName
-				newWorkload.Status.Replaces = &kueue.WorkloadReplacement{Name: oldWorkload.Name, UID: string(oldWorkload.UID)}
+				newWorkload.Status.Replaces = &kueue.WorkloadReplacement{Name: oldWorkload.Name}
 				workload.SetQuotaReservation(newWorkload,
 					utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
 						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).

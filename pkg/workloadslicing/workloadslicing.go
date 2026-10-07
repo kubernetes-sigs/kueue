@@ -227,7 +227,7 @@ func sortAndFilterNotFinishedWorkloads(workloads []kueue.Workload) []kueue.Workl
 	for i := range workloads {
 		wl := &workloads[i]
 		owner := metav1.GetControllerOfNoCopy(wl)
-		if replaces := wl.Status.Replaces; replaces != nil && owner != nil && replaces.UID != string(wl.UID) {
+		if replaces := wl.Status.Replaces; replaces != nil && owner != nil && replaces.Name != wl.Name {
 			committed[replacementKey{replacement: *replaces, ownerUID: owner.UID}] = struct{}{}
 		}
 	}
@@ -239,7 +239,7 @@ func sortAndFilterNotFinishedWorkloads(workloads []kueue.Workload) []kueue.Workl
 		if owner == nil {
 			return false
 		}
-		_, replaced := committed[replacementKey{replacement: kueue.WorkloadReplacement{Name: w.Name, UID: string(w.UID)}, ownerUID: owner.UID}]
+		_, replaced := committed[replacementKey{replacement: kueue.WorkloadReplacement{Name: w.Name}, ownerUID: owner.UID}]
 		return replaced
 	})
 }

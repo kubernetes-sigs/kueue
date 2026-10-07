@@ -3765,14 +3765,6 @@ level.</p>
    <p>name is the name of the replaced workload in the same namespace.</p>
 </td>
 </tr>
-<tr><td><code>uid</code> <B>[Required]</B><br/>
-<code>string</code>
-</td>
-<td>
-   <p>uid identifies the replaced workload instance, preventing replacement of a
-different workload created with the same name.</p>
-</td>
-</tr>
 </tbody>
 </table>
 

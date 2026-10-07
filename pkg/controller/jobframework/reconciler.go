@@ -1118,7 +1118,7 @@ func (r *JobReconciler) finishReplacedWorkloadSlices(ctx context.Context, object
 			continue
 		}
 		oldSlice := slicesByName[replaces.Name]
-		if oldSlice == nil || string(oldSlice.UID) != replaces.UID || !metav1.IsControlledBy(oldSlice, object) || workloadfinish.IsFinished(oldSlice) || oldSlice.UID == newSlice.UID {
+		if oldSlice == nil || !metav1.IsControlledBy(oldSlice, object) || workloadfinish.IsFinished(oldSlice) || oldSlice.Name == newSlice.Name {
 			continue
 		}
 		reason := kueue.WorkloadSliceReplaced

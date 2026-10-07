@@ -25,9 +25,6 @@ package v1beta2
 type WorkloadReplacementApplyConfiguration struct {
 	// name is the name of the replaced workload in the same namespace.
 	Name *string `json:"name,omitempty"`
-	// uid identifies the replaced workload instance, preventing replacement of a
-	// different workload created with the same name.
-	UID *string `json:"uid,omitempty"`
 }
 
 // WorkloadReplacementApplyConfiguration constructs a declarative configuration of the WorkloadReplacement type for use with
@@ -41,13 +38,5 @@ func WorkloadReplacement() *WorkloadReplacementApplyConfiguration {
 // If called multiple times, the Name field is set to the value of the last call.
 func (b *WorkloadReplacementApplyConfiguration) WithName(value string) *WorkloadReplacementApplyConfiguration {
 	b.Name = &value
-	return b
-}
-
-// WithUID sets the UID field in the declarative configuration to the given value
-// and returns the receiver, so that objects can be built by chaining "With" function invocations.
-// If called multiple times, the UID field is set to the value of the last call.
-func (b *WorkloadReplacementApplyConfiguration) WithUID(value string) *WorkloadReplacementApplyConfiguration {
-	b.UID = &value
 	return b
 }

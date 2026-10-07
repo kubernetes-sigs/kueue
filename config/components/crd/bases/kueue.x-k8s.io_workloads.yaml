@@ -9885,16 +9885,8 @@ spec:
                     maxLength: 253
                     minLength: 1
                     type: string
-                  uid:
-                    description: |-
-                      uid identifies the replaced workload instance, preventing replacement of a
-                      different workload created with the same name.
-                    maxLength: 128
-                    minLength: 1
-                    type: string
                 required:
                 - name
-                - uid
                 type: object
                 x-kubernetes-map-type: atomic
               requeueState:

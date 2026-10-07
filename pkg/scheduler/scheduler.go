@@ -1072,7 +1072,7 @@ func (s *Scheduler) patchWorkloadAdmission(
 		s.prepareWorkload(log, wl, cq, admission)
 		if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil && wl.Status.Replaces == nil {
 			oldSlice := oldWorkloadSlice.WorkloadInfo.Obj
-			wl.Status.Replaces = &kueue.WorkloadReplacement{Name: oldSlice.Name, UID: string(oldSlice.UID)}
+			wl.Status.Replaces = &kueue.WorkloadReplacement{Name: oldSlice.Name}
 		}
 		updateUnhealthyNodesAfterTASReplacement(log, wl, replacedNodeName)
 		return true, nil

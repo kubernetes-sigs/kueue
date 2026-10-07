@@ -216,7 +216,7 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	parent := &batchv1.Job{Name: "job", Namespace: "ns", UID: "job-uid"}
 	baseOld := utiltestingapi.MakeWorkload("old", "ns").UID("old-uid").ControllerReference(gvk, parent.Name, string(parent.UID))
-	baseNew := utiltestingapi.MakeWorkload("new", "ns").UID("new-uid").ControllerReference(gvk, parent.Name, string(parent.UID)).Replaces("old", "old-uid")
+	baseNew := utiltestingapi.MakeWorkload("new", "ns").UID("new-uid").ControllerReference(gvk, parent.Name, string(parent.UID)).Replaces("old")
 	otherOwnerOld := baseOld.Clone()
 	otherOwnerOld.OwnerReferences[0].UID = "another-job-uid"
 	otherOwnerNew := baseNew.Clone()
@@ -229,7 +229,6 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 		"intent alone does not finish predecessor":          {old: baseOld.Obj(), newSlice: utiltestingapi.MakeWorkload("new", "ns").UID("new-uid").ControllerReference(gvk, parent.Name, string(parent.UID)).Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").Obj()},
 		"evicted successor retains replacement commitment":  {old: baseOld.Obj(), newSlice: baseNew.Clone().EvictedAt(now).Obj(), wantFinished: true},
 		"finished successor retains replacement commitment": {old: baseOld.Obj(), newSlice: baseNew.Clone().FinishedAt(now).Obj(), wantFinished: true},
-		"same name with different UID is ignored":           {old: baseOld.Clone().UID("different-uid").Obj(), newSlice: baseNew.Obj()},
 		"predecessor owned by another job is ignored":       {old: otherOwnerOld.Obj(), newSlice: baseNew.Obj()},
 		"successor from previous job instance is ignored":   {old: baseOld.Obj(), newSlice: otherOwnerNew.Obj()},
 	} {

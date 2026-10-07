@@ -2309,14 +2309,13 @@ func TestFindNotFinishedWorkloadsHonorsCommittedReplacement(t *testing.T) {
 	gvk := batchv1.SchemeGroupVersion.WithKind("Job")
 	parent := &batchv1.Job{Name: "job", Namespace: "ns", UID: "job-uid"}
 	old := utiltestingapi.MakeWorkload("old", "ns").UID("old-uid").ControllerReference(gvk, parent.Name, string(parent.UID))
-	newSlice := utiltestingapi.MakeWorkload("new", "ns").UID("new-uid").ControllerReference(gvk, parent.Name, string(parent.UID)).Replaces("old", "old-uid")
+	newSlice := utiltestingapi.MakeWorkload("new", "ns").UID("new-uid").ControllerReference(gvk, parent.Name, string(parent.UID)).Replaces("old")
 	for name, tc := range map[string]struct {
 		successor *kueue.Workload
 		wantNames []string
 	}{
 		"committed replacement excludes stale unfinished predecessor": {successor: newSlice.Obj(), wantNames: []string{"new"}},
 		"finished successor still excludes predecessor":               {successor: newSlice.Clone().FinishedAt(time.Now()).Obj()},
-		"UID mismatch keeps predecessor":                              {successor: newSlice.Clone().Replaces("old", "another-uid").Obj(), wantNames: []string{"new", "old"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)

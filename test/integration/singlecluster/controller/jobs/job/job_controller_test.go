@@ -6760,7 +6760,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 			}
 			g.Expect(replacement).NotTo(gomega.BeNil())
 			g.Expect(replacement.Status.Admission).NotTo(gomega.BeNil())
-			g.Expect(replacement.Status.Replaces).To(gomega.Equal(&kueue.WorkloadReplacement{Name: oldWorkloadSlice.Name, UID: string(oldWorkloadSlice.UID)}))
+			g.Expect(replacement.Status.Replaces).To(gomega.Equal(&kueue.WorkloadReplacement{Name: oldWorkloadSlice.Name}))
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the committed replacement cannot be changed or cleared")
@@ -6771,7 +6771,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 				if clearRecord {
 					latest.Status.Replaces = nil
 				} else {
-					latest.Status.Replaces.UID = "another-uid"
+					latest.Status.Replaces.Name = "another-slice"
 				}
 				g.Expect(apierrors.IsInvalid(k8sClient.Status().Update(ctx, latest))).To(gomega.BeTrue())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())

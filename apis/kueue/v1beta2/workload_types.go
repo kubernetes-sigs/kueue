@@ -1277,11 +1277,4 @@ type WorkloadReplacement struct {
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:MaxLength=253
 	Name string `json:"name"`
-
-	// uid identifies the replaced workload instance, preventing replacement of a
-	// different workload created with the same name.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=128
-	UID string `json:"uid,omitempty"`
 }

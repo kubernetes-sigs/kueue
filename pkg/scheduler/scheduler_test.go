@@ -6023,7 +6023,7 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("foo-2", "sales").
-					Replaces("foo-1", "").
+					Replaces("foo-1").
 					ClusterName("worker-a").
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
 					ResourceVersion("2").
@@ -6148,7 +6148,7 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("foo-2", "sales").
-					Replaces("foo-1", "").
+					Replaces("foo-1").
 					Annotation(workloadslicing.EnabledAnnotationKey, "true").
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
 					ResourceVersion("2").
@@ -6271,7 +6271,7 @@ func TestSchedule(t *testing.T) {
 				*utiltestingapi.MakeWorkload("foo-2", "sales").
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
-					Replaces("foo-1", "old-uid").
+					Replaces("foo-1").
 					Queue("partial-lq").
 					PodSets(
 						*utiltestingapi.MakePodSet("head", 1).Request(corev1.ResourceCPU, "1").Obj(),
@@ -6757,7 +6757,7 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("foo-2", "sales").
-					Replaces("foo-1", "").
+					Replaces("foo-1").
 					Annotation(workloadslicing.EnabledAnnotationKey, "true").
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
 					ResourceVersion("2").
@@ -7090,7 +7090,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet("one", 8).Request(corev1.ResourceCPU, "1").Obj()).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
-					Replaces("old", "old-uid").
+					Replaces("old").
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
@@ -7467,7 +7467,7 @@ func TestSchedule(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet("one", 6).Request(corev1.ResourceCPU, "1").Obj()).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
-					Replaces("old", "old-uid").
+					Replaces("old").
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
@@ -11807,7 +11807,7 @@ func TestPatchWorkloadAdmissionCommitsReplacement(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			wl := utiltestingapi.MakeWorkload("new", "ns").UID("new-uid").ResourceVersion("1").Obj()
 			old := utiltestingapi.MakeWorkload("old", "ns").UID("old-uid").Obj()
-			wantReplacement := &kueue.WorkloadReplacement{Name: old.Name, UID: string(old.UID)}
+			wantReplacement := &kueue.WorkloadReplacement{Name: old.Name}
 			admission := utiltestingapi.MakeAdmission("cq").Obj()
 			patchCalls := 0
 			checkRequest := func(request *kueue.Workload) {
