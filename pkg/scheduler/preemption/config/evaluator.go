@@ -111,8 +111,9 @@ func (p *PreemptionEvaluator) HasRules() bool {
 // topology assignment can be found.
 //
 // Whatever the trigger, candidates must use one of the flavor resources needing
-// preemption, or hold TAS capacity on nodes of the flavors needing preemption,
-// see resourcesFilterFor.
+// preemption, which frees the quota the preemptor needs, or hold TAS capacity on
+// nodes of the flavors needing preemption, which frees node capacity in their
+// topologies (see Snapshot.UsesTASNodesOf).
 //
 // Because candidates are removed from the snapshot as they are evaluated, subsequent
 // fit checks observe the updated snapshot state, and the evaluator only returns
@@ -255,7 +256,10 @@ func (p *PreemptionEvaluator) candidatesFor(
 		candidates []*configurableCandidate
 		errs       []error
 	)
-	usesNeededResources := resourcesFilterFor(snapshot, flavorsNeedPreemption)
+	neededFlavors := sets.New[kueue.ResourceFlavorReference]()
+	for fr := range flavorsNeedPreemption {
+		neededFlavors.Insert(fr.Flavor)
+	}
 	// Several rules, or several selectors of a rule, can select the same workload.
 	// Therefore, we need to keep track of the UIDs of the selected workloads
 	// to avoid duplicates. Additionally map's value is used as index of already recorded candidate
@@ -284,7 +288,7 @@ func (p *PreemptionEvaluator) candidatesFor(
 			}
 
 			ruleReference := policy.PreemptionConfigRuleReference(rule.Name)
-			p.addMatchingCandidates(&filter, snapshot, usesNeededResources, ruleReference, seen, &candidates, selectorIndex)
+			p.addMatchingCandidates(&filter, snapshot, flavorsNeedPreemption, neededFlavors, ruleReference, seen, &candidates, selectorIndex)
 		}
 	}
 
@@ -295,29 +299,11 @@ func (p *PreemptionEvaluator) candidatesFor(
 	return candidates, nil
 }
 
-// resourcesFilterFor returns whether a workload uses the resources needing
-// preemption: one of the flavor resources needing preemption, which frees the
-// quota the preemptor needs, or TAS capacity on nodes of the flavors needing
-// preemption, from any flavor (see TASHandleOverlappingFlavors), which frees
-// node capacity in their topologies.
-func resourcesFilterFor(
-	snapshot *schdcache.Snapshot,
-	flavorsNeedPreemption sets.Set[resources.FlavorResource],
-) func(*workload.Info) bool {
-	neededFlavors := sets.New[kueue.ResourceFlavorReference]()
-	for fr := range flavorsNeedPreemption {
-		neededFlavors.Insert(fr.Flavor)
-	}
-	return func(wl *workload.Info) bool {
-		return classical.WorkloadUsesResources(wl, flavorsNeedPreemption) ||
-			snapshot.UsesTASNodesOf(wl, neededFlavors)
-	}
-}
-
 func (p *PreemptionEvaluator) addMatchingCandidates(
 	filter *filters.CandidateFilters,
 	snapshot *schdcache.Snapshot,
-	usesNeededResources func(*workload.Info) bool,
+	flavorsNeedPreemption sets.Set[resources.FlavorResource],
+	neededFlavors sets.Set[kueue.ResourceFlavorReference],
 	ruleReference policy.PreemptionConfigRuleReference,
 	seen map[types.UID]int,
 	candidates *[]*configurableCandidate,
@@ -329,7 +315,8 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 		}
 
 		for _, wlInfo := range targetCq.Workloads {
-			if matchesWorkload(filter, wlInfo) && usesNeededResources(wlInfo) {
+			if matchesWorkload(filter, wlInfo) &&
+				(classical.WorkloadUsesResources(wlInfo, flavorsNeedPreemption) || snapshot.UsesTASNodesOf(wlInfo, neededFlavors)) {
 				candidate := p.ensureCandidate(seen, candidates, wlInfo)
 
 				indexes := candidate.RuleNameToSelectorIndexes[ruleReference]
