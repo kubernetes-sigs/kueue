@@ -36,6 +36,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
+	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
@@ -419,6 +420,39 @@ func EnsureWorkloadSlices(
 		// Scale-up on admitted selected workload — create a new slice.
 		return nil, true, nil
 	}
+}
+
+// FinishReplacedWorkloadSlices finishes predecessors referenced by status.replaces
+// in workloads, including finished and evicted successors. It returns the slices
+// successfully finished, including those finished before an error. The caller
+// supplies workloads belonging to the job or slice chain being reconciled.
+func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clock, workloads []kueue.Workload) ([]*kueue.Workload, error) {
+	byName := make(map[types.NamespacedName]*kueue.Workload, len(workloads))
+	for i := range workloads {
+		wl := &workloads[i]
+		byName[client.ObjectKeyFromObject(wl)] = wl
+	}
+	var finished []*kueue.Workload
+	for i := range workloads {
+		newSlice := &workloads[i]
+		replaces := newSlice.Status.Replaces
+		if replaces == nil || replaces.Name == newSlice.Name {
+			continue
+		}
+		oldSlice := byName[types.NamespacedName{Namespace: newSlice.Namespace, Name: replaces.Name}]
+		if oldSlice == nil || workloadfinish.IsFinished(oldSlice) {
+			continue
+		}
+		message := fmt.Sprintf("Replaced to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconsts.JobUIDLabel])
+		if err := workloadfinish.Finish(ctx, clnt, oldSlice, kueue.WorkloadSliceReplaced, message, clk); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return finished, fmt.Errorf("finishing replaced workload slice: %w", err)
+		}
+		finished = append(finished, oldSlice)
+	}
+	return finished, nil
 }
 
 // normalizeActiveSlices enforces the workload slice invariant:

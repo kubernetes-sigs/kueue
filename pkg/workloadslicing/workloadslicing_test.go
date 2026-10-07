@@ -2335,3 +2335,60 @@ func TestFindNotFinishedWorkloadsHonorsCommittedReplacement(t *testing.T) {
 		})
 	}
 }
+
+func TestFinishReplacedWorkloadSlices(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	old := utiltestingapi.MakeWorkload("old", "ns")
+	successor := utiltestingapi.MakeWorkload("new", "ns").Replaces("old")
+	for name, tc := range map[string]struct {
+		workloads    []*kueue.Workload
+		wantFinished []string
+	}{
+		"intent alone retains predecessor":                   {workloads: []*kueue.Workload{old.Obj(), utiltestingapi.MakeWorkload("new", "ns").Annotation(WorkloadSliceReplacementFor, "ns/old").Obj()}},
+		"evicted successor retains commitment":               {workloads: []*kueue.Workload{old.Obj(), successor.Clone().EvictedAt(now).Obj()}, wantFinished: []string{"old"}},
+		"finished successor retains commitment":              {workloads: []*kueue.Workload{old.Obj(), successor.Clone().FinishedAt(now).Obj()}, wantFinished: []string{"old"}},
+		"all committed replacements in a chain are finished": {workloads: []*kueue.Workload{old.Obj(), successor.Clone().Name("mid").Obj(), successor.Clone().Replaces("mid").Obj()}, wantFinished: []string{"old", "mid"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			var objects []client.Object
+			for _, wl := range tc.workloads {
+				objects = append(objects, wl.DeepCopy())
+			}
+			cl := utiltesting.NewClientBuilder().WithObjects(objects...).WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).Build()
+			list := &kueue.WorkloadList{}
+			if err := cl.List(ctx, list); err != nil {
+				t.Fatal(err)
+			}
+			finished, err := FinishReplacedWorkloadSlices(ctx, cl, testingclock.NewFakeClock(now), list.Items)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var names []string
+			for _, wl := range finished {
+				names = append(names, wl.Name)
+			}
+			if diff := cmp.Diff(tc.wantFinished, names, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+				t.Errorf("finished predecessors (-want,+got): %s", diff)
+			}
+			for _, before := range tc.workloads {
+				got := &kueue.Workload{}
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(before), got); err != nil {
+					t.Fatal(err)
+				}
+				wasReplaced := false
+				for _, name := range tc.wantFinished {
+					wasReplaced = wasReplaced || name == got.Name
+				}
+				if wasReplaced {
+					if !IsReplaced(got.Status) {
+						t.Errorf("%s was not finished with WorkloadSliceReplaced", got.Name)
+					}
+				} else if diff := cmp.Diff(before.Status, got.Status, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("%s changed unexpectedly (-want,+got): %s", got.Name, diff)
+				}
+			}
+		})
+	}
+}

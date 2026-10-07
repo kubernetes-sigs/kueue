@@ -21,20 +21,15 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/component-base/featuregate"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -206,47 +201,6 @@ func TestClearUnusableMinCounts(t *testing.T) {
 				if cleared := ps.MinCount == nil; cleared != tc.wantMinCountsCleared {
 					t.Errorf("podSet %q: minCount cleared = %v, want %v", ps.Name, cleared, tc.wantMinCountsCleared)
 				}
-			}
-		})
-	}
-}
-
-func TestFinishReplacedWorkloadSlices(t *testing.T) {
-	gvk := batchv1.SchemeGroupVersion.WithKind("Job")
-	now := time.Now().Truncate(time.Second)
-	parent := &batchv1.Job{Name: "job", Namespace: "ns", UID: "job-uid"}
-	baseOld := utiltestingapi.MakeWorkload("old", "ns").UID("old-uid").ControllerReference(gvk, parent.Name, string(parent.UID))
-	baseNew := utiltestingapi.MakeWorkload("new", "ns").UID("new-uid").ControllerReference(gvk, parent.Name, string(parent.UID)).Replaces("old")
-	otherOwnerOld := baseOld.Clone()
-	otherOwnerOld.OwnerReferences[0].UID = "another-job-uid"
-	otherOwnerNew := baseNew.Clone()
-	otherOwnerNew.OwnerReferences[0].UID = "another-job-uid"
-	for name, tc := range map[string]struct {
-		old          *kueue.Workload
-		newSlice     *kueue.Workload
-		wantFinished bool
-	}{
-		"intent alone does not finish predecessor":          {old: baseOld.Obj(), newSlice: utiltestingapi.MakeWorkload("new", "ns").UID("new-uid").ControllerReference(gvk, parent.Name, string(parent.UID)).Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").Obj()},
-		"evicted successor retains replacement commitment":  {old: baseOld.Obj(), newSlice: baseNew.Clone().EvictedAt(now).Obj(), wantFinished: true},
-		"finished successor retains replacement commitment": {old: baseOld.Obj(), newSlice: baseNew.Clone().FinishedAt(now).Obj(), wantFinished: true},
-		"predecessor owned by another job is ignored":       {old: otherOwnerOld.Obj(), newSlice: baseNew.Obj()},
-		"successor from previous job instance is ignored":   {old: baseOld.Obj(), newSlice: otherOwnerNew.Obj()},
-	} {
-		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
-			cl := utiltesting.NewClientBuilder().WithObjects(parent, tc.old.DeepCopy(), tc.newSlice.DeepCopy()).WithStatusSubresource(&kueue.Workload{}).
-				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(gvk), indexer.WorkloadOwnerIndexFunc(gvk)).
-				WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).Build()
-			r := NewReconciler(cl, &utiltesting.EventRecorder{})
-			if err := r.finishReplacedWorkloadSlices(ctx, parent, gvk); err != nil {
-				t.Fatal(err)
-			}
-			got := &kueue.Workload{}
-			if err := cl.Get(ctx, client.ObjectKeyFromObject(tc.old), got); err != nil {
-				t.Fatal(err)
-			}
-			if workloadfinish.IsFinished(got) != tc.wantFinished {
-				t.Errorf("finished = %t, want %t", workloadfinish.IsFinished(got), tc.wantFinished)
 			}
 		})
 	}
