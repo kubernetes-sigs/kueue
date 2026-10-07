@@ -28,6 +28,7 @@ Configurable Preemption is driven by the cluster-scoped **`PreemptionConfig`** c
 
 1. **Activation Policy (`activationPolicy`)**: The trigger that activates the rule during a scheduling cycle.
 2. **Candidate Selectors (`candidateSelectors`)**: One or more criteria that identify which running workloads may be considered for preemption.
+3. **Preemptor Selectors (`preemptorSelector` & `preemptorPriorityClassSelector`)** *(Optional)*: Criteria that restrict which incoming workloads can activate the rule.
 
 Here is a complete example of a `PreemptionConfig` resource:
 
@@ -84,16 +85,20 @@ Each rule specifies `candidateSelectors` to filter eligible preemption victims. 
 
 ### 2. Priority Constraints (`priority`)
 
-**Optional.** Defines priority comparison criteria against the incoming preemptor workload. If specified, both `mode` and `comparison` are required:
+**Optional.** Defines priority criteria for candidate workloads using relative priority comparison against the incoming preemptor workload and/or priority class name filters (`Workload.spec.priorityClassRef.name`, populated by Kueue for both `WorkloadPriorityClass` and Pod `PriorityClass`). When multiple constraints are specified, all must be satisfied:
 
-- **`mode`** (Required):
+- **`mode`** (Optional; must be specified together with `comparison`):
   - `Base`: Compares raw priority values assigned in `Workload.spec.priority`.
   - `Boosted`: Compares effective priority values adjusted by priority boosting (see [Priority Boosting](/docs/reference/labels-and-annotations/#kueuex-k8siopriority-boost)).
-- **`comparison`** (Required):
+- **`comparison`** (Optional; must be specified together with `mode`):
   - `LessThan`: Candidate priority < Preemptor priority.
   - `LessThanOrEqual`: Candidate priority <= Preemptor priority.
   - `GreaterThan`: Candidate priority > Preemptor priority.
   - `GreaterThanOrEqual`: Candidate priority >= Preemptor priority.
+- **`matchNames`** (Optional): Allowlist of `PriorityClass` or `WorkloadPriorityClass` names (OR semantics). Workloads without a `priorityClassRef` do not match.
+- **`notMatchNames`** (Optional): Denylist of `PriorityClass` or `WorkloadPriorityClass` names. Workloads without a `priorityClassRef` always match.
+
+When `WorkloadPriorityClassDefaulting` is enabled and a `"default"` `WorkloadPriorityClass` exists, or when a `globalDefault` Pod `PriorityClass` is configured, its name (e.g., `"default"`) can be used in `matchNames` or `notMatchNames` to match or exclude workloads that do not explicitly specify a priority class.
 
 ### 3. Custom Numeric Labels (`numericLabels`)
 
@@ -113,6 +118,13 @@ Custom labels from high-level jobs (e.g., Job, JobSet, RayCluster) are not autom
 **Optional.** Standard Kubernetes label selectors:
 - **`labelSelector`**: Filters candidate `Workload` metadata.
 - **`clusterQueueSelector`**: Filters target `ClusterQueue` metadata.
+
+## Preemptor Selectors
+
+**Optional.** A rule can also restrict which incoming (preempting) workloads are allowed to activate it. If omitted, any incoming workload in the queue can trigger the rule:
+
+- **`preemptorSelector`**: A standard Kubernetes label selector filtering incoming `Workload` metadata.
+- **`preemptorPriorityClassSelector`**: Filters incoming workloads by `Workload.spec.priorityClassRef.name` using `matchNames` and `notMatchNames` (with the same semantics as `priority` in candidate selectors).
 
 ---
 
