@@ -112,7 +112,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 			createdWorkload := &kueue.Workload{}
 			ginkgo.By("Check workload is created and has JobUID label", func() {
-				gomega.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Get(ctx, e2e.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(gomega.Succeed())
 				gomega.Expect(createdWorkload.Labels[ctrlconstants.JobUIDLabel]).To(gomega.Equal(string(lws.UID)))
 			})
 
@@ -160,7 +160,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 			createdWorkload := &kueue.Workload{}
 			ginkgo.By("Check workload is created", func() {
-				gomega.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Get(ctx, e2e.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(gomega.Succeed())
 			})
 
 			ginkgo.By("Delete the LeaderWorkerSet", func() {
@@ -208,12 +208,12 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 			createdWorkload1 := &kueue.Workload{}
 			ginkgo.By("Check workload for group 1 is created", func() {
-				gomega.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload1)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Get(ctx, e2e.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload1)).To(gomega.Succeed())
 			})
 
 			createdWorkload2 := &kueue.Workload{}
 			ginkgo.By("Check workload for group 2 is created", func() {
-				gomega.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, "1"), createdWorkload2)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Get(ctx, e2e.WorkloadKeyForLeaderWorkerSet(lws, "1"), createdWorkload2)).To(gomega.Succeed())
 			})
 
 			ginkgo.By("Delete the LeaderWorkerSet", func() {
@@ -263,7 +263,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				})
 
 				createdWorkload1 := &kueue.Workload{}
-				wlLookupKey1 := behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0")
+				wlLookupKey1 := e2e.WorkloadKeyForLeaderWorkerSet(lws, "0")
 				ginkgo.By("Check workload is created", func() {
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey1, createdWorkload1)).To(gomega.Succeed())
 				})
@@ -289,7 +289,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				})
 
 				createdWorkload2 := &kueue.Workload{}
-				wlLookupKey2 := behavioral.WorkloadKeyForLeaderWorkerSet(lws, "1")
+				wlLookupKey2 := e2e.WorkloadKeyForLeaderWorkerSet(lws, "1")
 				ginkgo.By("Check workload for group 2 is created", func() {
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey2, createdWorkload2)).To(gomega.Succeed())
 				})
@@ -344,13 +344,13 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				})
 
 				createdWorkload1 := &kueue.Workload{}
-				wlLookupKey1 := behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0")
+				wlLookupKey1 := e2e.WorkloadKeyForLeaderWorkerSet(lws, "0")
 				ginkgo.By("Check workload for group 1 is created", func() {
-					gomega.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload1)).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Get(ctx, e2e.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload1)).To(gomega.Succeed())
 				})
 
 				createdWorkload2 := &kueue.Workload{}
-				wlLookupKey2 := behavioral.WorkloadKeyForLeaderWorkerSet(lws, "1")
+				wlLookupKey2 := e2e.WorkloadKeyForLeaderWorkerSet(lws, "1")
 				ginkgo.By("Check workload for group 2 is created", func() {
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey2, createdWorkload2)).To(gomega.Succeed())
 				})
@@ -437,7 +437,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				})
 
 				createdWorkload1 := &kueue.Workload{}
-				wlLookupKey1 := behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0")
+				wlLookupKey1 := e2e.WorkloadKeyForLeaderWorkerSet(lws, "0")
 				ginkgo.By("Check workload is created", func() {
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey1, createdWorkload1)).To(gomega.Succeed())
 				})
@@ -546,12 +546,12 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 				createdWorkload1 := &kueue.Workload{}
 				ginkgo.By("Check workload for group 1 is created", func() {
-					gomega.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload1)).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Get(ctx, e2e.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload1)).To(gomega.Succeed())
 				})
 
 				createdWorkload2 := &kueue.Workload{}
 				ginkgo.By("Check workload for group 2 is created", func() {
-					gomega.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, "1"), createdWorkload2)).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Get(ctx, e2e.WorkloadKeyForLeaderWorkerSet(lws, "1"), createdWorkload2)).To(gomega.Succeed())
 				})
 
 				ginkgo.By("Delete the LeaderWorkerSet", func() {
@@ -653,12 +653,12 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 			createdWorkload1 := &kueue.Workload{}
 			ginkgo.By("Check workload for group 1 is created", func() {
-				gomega.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload1)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Get(ctx, e2e.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload1)).To(gomega.Succeed())
 			})
 
 			createdWorkload2 := &kueue.Workload{}
 			ginkgo.By("Check workload for group 2 is created", func() {
-				gomega.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, "1"), createdWorkload2)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Get(ctx, e2e.WorkloadKeyForLeaderWorkerSet(lws, "1"), createdWorkload2)).To(gomega.Succeed())
 			})
 
 			ginkgo.By("Delete the LeaderWorkerSet", func() {
@@ -722,7 +722,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			ginkgo.By(fmt.Sprintf("Verify workloads exist for initial %d groups", lwsReplicas), func() {
 				wl := &kueue.Workload{}
 				for i := range lwsReplicas {
-					gomega.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)), wl)).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Get(ctx, e2e.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)), wl)).To(gomega.Succeed())
 				}
 			})
 
@@ -737,7 +737,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			ginkgo.By(fmt.Sprintf("Wait for the surge workloads to be created with maxSurge=%d", maxSurge), func() {
 				surgeWorkloadNames := sets.New[string]()
 				for i := lwsReplicas; i < lwsReplicas+maxSurge; i++ {
-					surgeWorkloadNames.Insert(behavioral.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)).Name)
+					surgeWorkloadNames.Insert(e2e.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)).Name)
 				}
 				seenSurgeWorkloads := sets.New[string]()
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -775,7 +775,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				for i := lwsReplicas; i < lwsReplicas+maxSurge; i++ {
 					wl := &kueue.Workload{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)), wl)).
+						g.Expect(k8sClient.Get(ctx, e2e.WorkloadKeyForLeaderWorkerSet(lws, strconv.Itoa(i)), wl)).
 							To(utiltesting.BeNotFoundError())
 					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed(),
 						"surge workload for group %d should be deleted after rollout completes", i)
@@ -802,7 +802,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 				behavioral.MustCreate(ctx, k8sClient, lws)
 			})
 
-			wlLookupKey := behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0")
+			wlLookupKey := e2e.WorkloadKeyForLeaderWorkerSet(lws, "0")
 
 			ginkgo.By("Checking that the workload is admitted", func() {
 				behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlLookupKey)
@@ -896,7 +896,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 					behavioral.MustCreate(ctx, k8sClient, lws)
 				})
 
-				wlLookupKey := behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0")
+				wlLookupKey := e2e.WorkloadKeyForLeaderWorkerSet(lws, "0")
 
 				ginkgo.By("Checking that the workload is admitted", func() {
 					behavioral.ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, behavioral.MediumTimeout, wlLookupKey)
@@ -1116,7 +1116,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 
 			createdLowPriorityWl := &kueue.Workload{}
-			lowPriorityWlLookupKey := behavioral.WorkloadKeyForLeaderWorkerSet(lowPriorityLWS, "0")
+			lowPriorityWlLookupKey := e2e.WorkloadKeyForLeaderWorkerSet(lowPriorityLWS, "0")
 
 			ginkgo.By("Verify workload is created with workload priority class", func() {
 				behavioral.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, lowPriorityWPC.Name, lowPriorityWPC.Value, lowPriorityWlLookupKey)
@@ -1162,7 +1162,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 
 			createdHighPriorityWl := &kueue.Workload{}
-			highPriorityWlLookupKey := behavioral.WorkloadKeyForLeaderWorkerSet(highPriorityLWS, "0")
+			highPriorityWlLookupKey := e2e.WorkloadKeyForLeaderWorkerSet(highPriorityLWS, "0")
 
 			ginkgo.By("Verify the high priority Workload created with workload priority class", func() {
 				behavioral.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, highPriorityWPC.Name, highPriorityWPC.Value, highPriorityWlLookupKey)
@@ -1214,7 +1214,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 
 			createdLowPriorityWl := &kueue.Workload{}
-			lowPriorityWlLookupKey := behavioral.WorkloadKeyForLeaderWorkerSet(lowPriorityLWS, "0")
+			lowPriorityWlLookupKey := e2e.WorkloadKeyForLeaderWorkerSet(lowPriorityLWS, "0")
 
 			ginkgo.By("Verify the low priority Workload created with workload priority class", func() {
 				behavioral.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, lowPriorityWPC.Name, lowPriorityWPC.Value, lowPriorityWlLookupKey)
@@ -1241,7 +1241,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 
 			createdUpdatablePriorityWl := &kueue.Workload{}
-			updatablePriorityWlLookupKey := behavioral.WorkloadKeyForLeaderWorkerSet(updatablePriorityLWS, "0")
+			updatablePriorityWlLookupKey := e2e.WorkloadKeyForLeaderWorkerSet(updatablePriorityLWS, "0")
 
 			ginkgo.By("Verify another low priority Workload created with workload priority class", func() {
 				behavioral.ExpectWorkloadsWithWorkloadPriority(ctx, k8sClient, lowPriorityWPC.Name, lowPriorityWPC.Value, updatablePriorityWlLookupKey)
@@ -1324,7 +1324,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 			createdWorkload := &kueue.Workload{}
 			ginkgo.By("Check workload is created", func() {
-				gomega.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Get(ctx, e2e.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(gomega.Succeed())
 			})
 
 			var podToRestart *corev1.Pod
@@ -1419,7 +1419,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 
 			createdWorkload := &kueue.Workload{}
 			ginkgo.By("Check workload is created", func() {
-				gomega.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(gomega.Succeed())
+				gomega.Expect(k8sClient.Get(ctx, e2e.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(gomega.Succeed())
 			})
 
 			var podToDelete *corev1.Pod
@@ -1517,7 +1517,7 @@ var _ = ginkgo.Describe("LeaderWorkerSet integration", ginkgo.Label("area:single
 			})
 
 			createdWorkload := &kueue.Workload{}
-			wlLookupKey := behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0")
+			wlLookupKey := e2e.WorkloadKeyForLeaderWorkerSet(lws, "0")
 			ginkgo.By("Check workload is created", func() {
 				gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 			})
