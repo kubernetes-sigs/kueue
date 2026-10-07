@@ -347,11 +347,10 @@ In combination with a custom numeric label selector using strict `LessThan`, thi
 Effectively, when the smaller workloads are re-admitted, they can be placed in smaller fragmented domains (where the larger workload cannot fit), thereby defragmenting the cluster.
 
 > [!NOTE]
-> Candidates must use a resource from one of the flavors for which the preemptor needs preemption.
+> Candidates must use a resource from one of the flavors for which the preemptor needs preemption, as only those free the quota it needs.
 > With the `TASHandleOverlappingFlavors` feature gate, TAS flavors with a hostname lowest level account for the usage of each other on the nodes they share.
-> Therefore, candidates of the `QuotaFeasibleAndInsufficientTopology` trigger also include workloads using the same resource from another such flavor,
-> on nodes that are also selected by the flavor of the preemptor, as preempting them frees capacity in its topology.
-> The candidates of the other triggers are only selected on the flavors of the preemptor, as only those free the quota it needs.
+> Then, as the `QuotaFeasibleAndInsufficientTopology` trigger is only reached once the quota fits, its candidates also include the workloads holding capacity
+> on nodes of those flavors, whichever flavor and resource they use, as preempting them frees capacity in the topology of the preemptor.
 
 #### Story 2 - Hero job
 

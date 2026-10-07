@@ -1411,7 +1411,7 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 	}
 }
 
-func TestSnapshotUsesOverlappingTASCapacity(t *testing.T) {
+func TestSnapshotUsesTASNodesOf(t *testing.T) {
 	const rackLabel = "cloud.com/rack"
 	now := time.Now().Truncate(time.Second)
 	makeNode := func(name string, labels map[string]string) *corev1.Node {
@@ -1490,65 +1490,62 @@ func TestSnapshotUsesOverlappingTASCapacity(t *testing.T) {
 		disableOverlappingFlavors bool
 		cq                        kueue.ClusterQueueReference
 		workload                  workload.Reference
-		source                    kueue.ResourceFlavorReference
-		target                    kueue.ResourceFlavorReference
+		flavors                   []kueue.ResourceFlavorReference
 		want                      bool
 	}{
-		"workload on a node the target flavor also selects": {
+		"workload on a node of another flavor": {
 			cq:       "cq",
 			workload: "/wl-b-x1",
-			source:   "tas-b",
-			target:   "tas-a",
+			flavors:  []kueue.ResourceFlavorReference{"tas-a"},
 			want:     true,
 		},
-		"source and target are the same flavor": {
+		"workload on a node of its own flavor": {
 			cq:       "cq",
 			workload: "/wl-b-x1",
-			source:   "tas-b",
-			target:   "tas-b",
+			flavors:  []kueue.ResourceFlavorReference{"tas-b"},
+			want:     true,
 		},
-		"workload on a node the target flavor does not select": {
+		"workload on a node the flavor does not select": {
 			cq:       "cq",
 			workload: "/wl-a-x2",
-			source:   "tas-a",
-			target:   "tas-b",
+			flavors:  []kueue.ResourceFlavorReference{"tas-b"},
 		},
-		"workload does not use the source flavor": {
+		"workload on a node of one of the flavors": {
 			cq:       "cq",
-			workload: "/wl-b-x1",
-			source:   "tas-a",
-			target:   "tas-b",
+			workload: "/wl-a-x2",
+			flavors:  []kueue.ResourceFlavorReference{"tas-b", "tas-c", "tas-a"},
+			want:     true,
 		},
-		"source and target flavors select disjoint nodes": {
+		"workload on a node of a flavor selecting disjoint nodes": {
 			cq:       "cq",
 			workload: "/wl-c-y1",
-			source:   "tas-c",
-			target:   "tas-a",
+			flavors:  []kueue.ResourceFlavorReference{"tas-a"},
 		},
-		"target flavor does not have a hostname leaf level": {
+		"flavor does not have a hostname leaf level": {
 			cq:       "cq",
 			workload: "/wl-b-x1",
-			source:   "tas-b",
-			target:   "tas-rack",
+			flavors:  []kueue.ResourceFlavorReference{"tas-rack"},
 		},
-		"source flavor does not have a hostname leaf level": {
+		"flavor is not a TAS flavor": {
+			cq:       "cq",
+			workload: "/wl-b-x1",
+			flavors:  []kueue.ResourceFlavorReference{"default"},
+		},
+		"workload on a flavor without a hostname leaf level": {
 			cq:       "cq-rack",
 			workload: "/wl-rack",
-			source:   "tas-rack",
-			target:   "tas-a",
+			flavors:  []kueue.ResourceFlavorReference{"tas-a"},
 		},
-		"source flavor is not a TAS flavor": {
+		"workload on a flavor without TAS": {
 			cq:       "cq-default",
 			workload: "/wl-default",
-			source:   "default",
-			target:   "tas-a",
+			flavors:  []kueue.ResourceFlavorReference{"tas-a"},
 		},
 		"TASHandleOverlappingFlavors is disabled": {
 			disableOverlappingFlavors: true,
 			cq:                        "cq",
 			workload:                  "/wl-b-x1",
-			source:                    "tas-b",
-			target:                    "tas-a",
+			flavors:                   []kueue.ResourceFlavorReference{"tas-a"},
 		},
 	}
 	for name, tc := range testCases {
@@ -1589,9 +1586,9 @@ func TestSnapshotUsesOverlappingTASCapacity(t *testing.T) {
 				t.Fatalf("Workload %q is missing from the snapshot of ClusterQueue %q", tc.workload, tc.cq)
 			}
 
-			got := snapshot.UsesOverlappingTASCapacity(wl, tc.source, tc.target)
+			got := snapshot.UsesTASNodesOf(wl, sets.New(tc.flavors...))
 			if got != tc.want {
-				t.Errorf("UsesOverlappingTASCapacity(%q, %q, %q) = %v, want %v", tc.workload, tc.source, tc.target, got, tc.want)
+				t.Errorf("UsesTASNodesOf(%q, %v) = %v, want %v", tc.workload, tc.flavors, got, tc.want)
 			}
 		})
 	}

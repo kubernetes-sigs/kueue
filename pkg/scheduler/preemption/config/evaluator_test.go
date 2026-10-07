@@ -641,8 +641,11 @@ func TestPreemptionEvaluatorOverlappingTASCandidates(t *testing.T) {
 			AdmittedAt(true, now).
 			Obj()
 	}
+	// The workloads using memory only don't use the flavor resource needing
+	// preemption, but still hold capacity on the nodes of its flavor.
 	admitted := []*kueue.Workload{
 		admittedWl("a1", "a", "tas-default", corev1.ResourceCPU, "1", "x2"),
+		admittedWl("a-mem", "a", "tas-default", corev1.ResourceMemory, "1Gi", "x1"),
 		admittedWl("b1", "b", "tas-overlap", corev1.ResourceCPU, "1", "x1"),
 		admittedWl("b-mem", "b", "tas-overlap", corev1.ResourceMemory, "1Gi", "x2"),
 		admittedWl("c1", "c", "tas-disjoint", corev1.ResourceCPU, "1", "y1"),
@@ -653,11 +656,11 @@ func TestPreemptionEvaluatorOverlappingTASCandidates(t *testing.T) {
 		disableOverlappingFlavors bool
 		wantCandidates            []string
 	}{
-		"topology trigger selects workloads using the resource from an overlapping flavor": {
+		"topology trigger selects workloads on the nodes of the flavor, whatever flavor and resource they use": {
 			trigger:        kueuealpha.QuotaFeasibleAndInsufficientTopology,
-			wantCandidates: []string{"a1", "b1"},
+			wantCandidates: []string{"a-mem", "a1", "b-mem", "b1"},
 		},
-		"topology trigger ignores overlapping flavors when TASHandleOverlappingFlavors is disabled": {
+		"topology trigger only selects workloads using the flavor resource when TASHandleOverlappingFlavors is disabled": {
 			trigger:                   kueuealpha.QuotaFeasibleAndInsufficientTopology,
 			disableOverlappingFlavors: true,
 			wantCandidates:            []string{"a1"},
