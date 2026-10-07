@@ -318,6 +318,38 @@ func TestPatchStatus(t *testing.T) {
 				wl: baseWl.Clone().ResourceVersion("4").Condition(baseCond).Obj(),
 			},
 		},
+		"update returns true with conflict error and WithLooseOnApply then WithStrictApply options": {
+			skipMergePatch: true,
+			conflict:       true,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return true, nil
+				},
+				opts: []PatchStatusOption{WithLooseOnApply(), WithStrictApply()},
+			},
+			want: want{
+				wl:  baseWl.Clone().ResourceVersion("3").Obj(),
+				err: errTestConflict,
+			},
+		},
+		"update returns true with conflict error and StrictPatch cleared then WithStrictPatch options": {
+			skipApplyPatch: true,
+			conflict:       true,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return true, nil
+				},
+				opts: []PatchStatusOption{func(o *patchStatusOptions) { o.StrictPatch = false }, WithStrictPatch()},
+			},
+			want: want{
+				wl:  baseWl.Clone().ResourceVersion("3").Obj(),
+				err: errTestConflict,
+			},
+		},
 		"update returns false": {
 			args: args{
 				wl: baseWl.DeepCopy(),
@@ -544,6 +576,38 @@ func TestPatchAdmissionStatus(t *testing.T) {
 			},
 			want: want{
 				wl: baseWl.Clone().ResourceVersion("4").Condition(baseCond).Obj(),
+			},
+		},
+		"update returns true with conflict error and WithLooseOnApply then WithStrictApply options": {
+			skipMergePatch: true,
+			conflict:       true,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return true, nil
+				},
+				opts: []PatchStatusOption{WithLooseOnApply(), WithStrictApply()},
+			},
+			want: want{
+				wl:  baseWl.Clone().ResourceVersion("3").Obj(),
+				err: errTestConflict,
+			},
+		},
+		"update returns true with conflict error and StrictPatch cleared then WithStrictPatch options": {
+			skipApplyPatch: true,
+			conflict:       true,
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, baseCond)
+					return true, nil
+				},
+				opts: []PatchStatusOption{func(o *patchStatusOptions) { o.StrictPatch = false }, WithStrictPatch()},
+			},
+			want: want{
+				wl:  baseWl.Clone().ResourceVersion("3").Obj(),
+				err: errTestConflict,
 			},
 		},
 		"update returns false": {
