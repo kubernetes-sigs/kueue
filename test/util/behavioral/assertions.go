@@ -93,6 +93,6 @@ func AssertMsgObjList(message string, list client.ObjectList) func() string {
 }
 
 func IsLoggedEntryAConcurrentModification(le observer.LoggedEntry) bool {
-	errLog := le.ContextMap()["error"]
-	return errLog != nil && utillogging.IsWriteConflictError(errLog.(string))
+	errLog, ok := le.ContextMap()["error"].(string)
+	return ok && utillogging.IsWriteConflictError(errLog)
 }
