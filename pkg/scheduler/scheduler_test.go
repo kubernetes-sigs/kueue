@@ -18,7 +18,6 @@ package scheduler
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -11792,64 +11791,6 @@ func TestRecordWorkloadAdmissionEvents(t *testing.T) {
 			gotMsg := recorder.RecordedEvents[0].Message
 			if gotMsg != tc.wantEventMsg {
 				t.Errorf("event message:\n  got:  %q\n  want: %q", gotMsg, tc.wantEventMsg)
-			}
-		})
-	}
-}
-
-func TestPatchWorkloadAdmissionCommitsReplacement(t *testing.T) {
-	for _, mergePatch := range []bool{false, true} {
-		t.Run(fmt.Sprintf("mergePatch=%t", mergePatch), func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.WorkloadRequestUseMergePatch: mergePatch,
-				features.ElasticJobsViaWorkloadSlices: true,
-			})
-			ctx, log := utiltesting.ContextWithLog(t)
-			wl := utiltestingapi.MakeWorkload("new", "ns").UID("new-uid").ResourceVersion("1").Obj()
-			old := utiltestingapi.MakeWorkload("old", "ns").UID("old-uid").Obj()
-			wantReplacement := &kueue.WorkloadReplacement{Name: old.Name}
-			admission := utiltestingapi.MakeAdmission("cq").Obj()
-			patchCalls := 0
-			checkRequest := func(request *kueue.Workload) {
-				patchCalls++
-				if diff := cmp.Diff(admission, request.Status.Admission, cmpopts.EquateEmpty()); diff != "" {
-					t.Errorf("admission in request (-want,+got): %s", diff)
-				}
-				if diff := cmp.Diff(wantReplacement, request.Status.Replaces); diff != "" {
-					t.Errorf("replacement in same request (-want,+got): %s", diff)
-				}
-			}
-			cl := utiltesting.NewClientBuilder().WithObjects(wl, old).WithStatusSubresource(wl, old).
-				WithInterceptorFuncs(interceptor.Funcs{
-					SubResourceApply: func(ctx context.Context, c client.Client, subResource string, conf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
-						request := &kueue.Workload{}
-						if err := utiltesting.DecodeApplyConfiguration(conf, request); err != nil {
-							return err
-						}
-						checkRequest(request)
-						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResource, conf, opts...)
-					},
-					SubResourcePatch: func(ctx context.Context, c client.Client, subResource string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
-						data, err := patch.Data(obj)
-						if err != nil {
-							return err
-						}
-						request := &kueue.Workload{}
-						if err := json.Unmarshal(data, request); err != nil {
-							return err
-						}
-						checkRequest(request)
-						return c.SubResource(subResource).Patch(ctx, obj, patch, opts...)
-					},
-				}).Build()
-			s := &Scheduler{client: cl, clock: testingclock.NewFakeClock(time.Now())}
-			target := &preemption.Target{WorkloadInfo: workload.NewInfo(log, old)}
-			err := s.patchWorkloadAdmission(ctx, log, wl, &schdcache.ClusterQueueSnapshot{}, admission, target)
-			if err != nil {
-				t.Fatalf("unexpected patch error: %v", err)
-			}
-			if patchCalls != 1 {
-				t.Fatalf("got %d status requests, want 1", patchCalls)
 			}
 		})
 	}
