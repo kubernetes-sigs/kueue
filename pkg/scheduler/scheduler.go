@@ -1036,6 +1036,17 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 
 	newWorkload := e.Obj.DeepCopy()
 	s.admissionRoutineWrapper.Run(func() {
+		patchOptions := []workloadpatching.PatchStatusOption{
+			workloadpatching.WithLooseOnApply(),
+			workloadpatching.WithRetryOnConflict(),
+		}
+		if workload.NeedsSecondPass(newWorkload) {
+			// Send the workload's resourceVersion, without retry, so a write based on an outdated copy fails with Conflict instead of overwriting newer state.
+			patchOptions = []workloadpatching.PatchStatusOption{
+				workloadpatching.WithStrictPatch(),
+				workloadpatching.WithStrictApply(),
+			}
+		}
 		err := workloadpatching.PatchAdmissionStatus(ctx, s.client, newWorkload, s.clock, func(wl *kueue.Workload) (bool, error) {
 			s.prepareWorkload(log, wl, cq, admission)
 			if features.Enabled(features.TopologyAwareScheduling) && workload.HasUnhealthyNodes(e.Obj) {
@@ -1043,7 +1054,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 				wl.Status.UnhealthyNodes = nil
 			}
 			return true, nil
-		}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict())
+		}, patchOptions...)
 		if err == nil {
 			// Make sure the preemption expectation for an assumed workload is satisfied.
 			// See: https://github.com/kubernetes-sigs/kueue/issues/11480
@@ -1065,10 +1076,15 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			}
 			return
 		}
-		// Ignore errors because the workload or clusterQueue could have been deleted
-		// by an event.
-		_ = s.cache.DeleteWorkload(log, workload.Key(cacheWl))
-		s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
+		if !workload.NeedsSecondPass(e.Obj) || apierrors.IsNotFound(err) {
+			// Ignore errors because the workload or clusterQueue could have been deleted
+			// by an event.
+			_ = s.cache.DeleteWorkload(log, workload.Key(cacheWl))
+			s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
+		} else {
+			// The workload still holds its reservation, so put back the version this pass read; this is skipped if an event already replaced or removed the entry.
+			s.cache.UpdateWorkloadIfUnchanged(log, e.Obj.DeepCopy())
+		}
 		if s.shouldApplyEntryPenalty(e) {
 			s.updateEntryPenalty(log, e, subtract)
 		}
@@ -1077,7 +1093,13 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			return
 		}
 
-		log.Error(err, errCouldNotAdmitWL)
+		if apierrors.IsConflict(err) && workload.NeedsSecondPass(e.Obj) {
+			log.V(3).Info("Skipped admission write for a workload whose state changed during scheduling")
+			s.recorder.Eventf(e.Obj, nil, corev1.EventTypeWarning, "OutdatedScheduleCycle", "OutdatedScheduleCycle",
+				api.TruncateEventMessage("Skipped admission write because the workload changed while it was being scheduled"))
+		} else {
+			log.Error(err, errCouldNotAdmitWL)
+		}
 		s.requeueAndUpdate(ctx, *e)
 	})
 
@@ -1095,7 +1117,12 @@ func (s *Scheduler) prepareWorkload(log logr.Logger, wl *kueue.Workload, cq *sch
 func (s *Scheduler) assumeWorkload(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) (*kueue.Workload, error) {
 	cacheWl := e.Obj.DeepCopy()
 	s.prepareWorkload(log, cacheWl, cq, admission)
-	if added := s.cache.AddOrUpdateWorkload(log, cacheWl); !added {
+	if workload.NeedsSecondPass(e.Obj) {
+		// A missing cache entry or another resourceVersion means the cache and this pass saw different versions, so retry the pass instead of overwriting the entry.
+		if !s.cache.UpdateWorkloadIfUnchanged(log, cacheWl) {
+			return nil, errors.New("the workload changed while it was being scheduled")
+		}
+	} else if added := s.cache.AddOrUpdateWorkload(log, cacheWl); !added {
 		return nil, fmt.Errorf("workload %s/%s could not be added to the cache", cacheWl.Namespace, cacheWl.Name)
 	}
 
