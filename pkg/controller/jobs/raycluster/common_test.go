@@ -502,7 +502,10 @@ func TestUpdatePodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
-				*utiltestingapi.MakePodSet("workers-group-0", 5).Obj(), // Updated from 3 to 5
+				*utiltestingapi.MakePodSet("workers-group-0", 5).
+					PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+					SubGroupCount(new(int32(5))).
+					Obj(), // Updated from 3 to 5
 			},
 		},
 		"successful update with NumOfHosts": {
@@ -522,7 +525,11 @@ func TestUpdatePodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
-				*utiltestingapi.MakePodSet("workers-group-0", 8).Obj(), // 4 replicas * 2 hosts = 8
+				*utiltestingapi.MakePodSet("workers-group-0", 8).
+					PodIndexLabel(new(rayutils.RayHostIndexKey)).
+					SubGroupIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+					SubGroupCount(new(int32(4))).
+					Obj(), // 4 replicas * 2 hosts = 8
 			},
 		},
 		"podset name mismatch": {
