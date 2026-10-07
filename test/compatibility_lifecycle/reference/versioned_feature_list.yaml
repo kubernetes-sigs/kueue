@@ -155,6 +155,12 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.20"
+- name: FairSharingVerifyFinalTargets
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: FastQuotaReleaseInPodIntegration
   versionedSpecs:
   - default: false
