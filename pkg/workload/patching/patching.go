@@ -213,6 +213,22 @@ func WithLooseOnApply() PatchStatusOption {
 	}
 }
 
+// WithStrictApply sets StrictApply, so Patch Apply sends the workload's resourceVersion and fails with Conflict on a newer object.
+// It is the default, but lets callers state that intent explicitly.
+func WithStrictApply() PatchStatusOption {
+	return func(o *patchStatusOptions) {
+		o.StrictApply = true
+	}
+}
+
+// WithStrictPatch sets StrictPatch, so a merge patch sends the workload's resourceVersion and fails with Conflict on a newer object.
+// It is the default, but lets callers state that intent explicitly.
+func WithStrictPatch() PatchStatusOption {
+	return func(o *patchStatusOptions) {
+		o.StrictPatch = true
+	}
+}
+
 // WithRetryOnConflict configures patchStatusOptions to enable retry logic on conflicts.
 // Note: This only works with merge patches.
 func WithRetryOnConflict() PatchStatusOption {

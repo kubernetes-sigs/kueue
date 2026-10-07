@@ -61,6 +61,7 @@ import (
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 const (
@@ -213,8 +214,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 						Count(createdWorkload.Spec.PodSets[0].Count).
 						Obj()).
 					Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					ok, err := utiltesting.CheckEventRecordedFor(ctx, k8sClient, "Started", corev1.EventTypeNormal, fmt.Sprintf("Admitted by clusterQueue %v", clusterQueue.Name), lookupKey)
@@ -236,7 +237,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				behavioral.ExpectPodSchedulingGateRemovalSecondsMetricLessOrEqual(podconstants.SchedulingGateName, cqName, false, 1)
 
 				ginkgo.By("checking the workload is finished and the pod finalizer is removed when pod is succeeded")
-				behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod)
+				integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
@@ -275,8 +276,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 						Count(createdWorkload.Spec.PodSets[0].Count).
 						Obj()).
 					Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
@@ -323,8 +324,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 						Count(createdWorkload.Spec.PodSets[0].Count).
 						Obj(),
 					).Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, lookupKey, createdPod)).Should(gomega.Succeed())
@@ -339,7 +340,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 
 				updatedPod.Finalizers = append(updatedPod.Finalizers, customFinalizer)
 
-				behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, updatedPod)
+				integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, updatedPod)
 				gomega.Expect(k8sClient.Patch(ctx, updatedPod, client.MergeFrom(createdPod))).Should(gomega.Succeed())
 
 				ginkgo.By("waiting for the workload to finish")
@@ -395,8 +396,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count(createdWorkload.Spec.PodSets[0].Count).
 							Obj()).
 						Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 					return createdWorkload
 				}
 
@@ -428,8 +429,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count(createdWorkload.Spec.PodSets[0].Count).
 							Obj()).
 						Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, lookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
 
@@ -705,8 +706,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 								Count(createdWorkload.Spec.PodSets[0].Count).
 								Obj()).
 							Obj()
-						behavioral.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, admission)
-						behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+						integration.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, admission)
+						integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 					})
 
 					ginkgo.By("await for the job to be admitted", func() {
@@ -759,8 +760,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count(wl.Spec.PodSets[0].Count).
 							Obj()).
 						Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 				})
 
 				ginkgo.By("Workload should not be finished", func() {
@@ -777,7 +778,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("Finish the pod", func() {
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod)
 				})
 
 				ginkgo.By("Checking the workload is finished ", func() {
@@ -851,8 +852,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count: new(int32(1)),
 						},
 					).Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
 					behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
@@ -871,7 +872,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("checking that pod group is finalized when all pods in the group succeed", func() {
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod1, pod2)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod1, pod2)
 
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
@@ -918,8 +919,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count: new(int32(2)),
 						},
 					).Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, createdWorkload)
 
@@ -940,8 +941,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("checking that pod group is finalized when all pods in the group succeed", func() {
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod1)
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod2)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod1)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod2)
 
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
@@ -992,8 +993,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 						Obj()).
 					Obj()
 				ginkgo.By("checking that all pods in group are unsuspended when workload is admitted", func() {
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
 					behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
@@ -1009,8 +1010,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("set the pods as running", func() {
-					behavioral.BindPodWithNode(ctx, k8sClient, "node1", pod1, pod2)
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod1, pod2)
+					integration.BindPodWithNode(ctx, k8sClient, "node1", pod1, pod2)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod1, pod2)
 				})
 
 				createdPod := &corev1.Pod{}
@@ -1035,8 +1036,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("finish one pod and fail the other, the eviction should end", func() {
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod1)
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, pod2)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod1)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, pod2)
 
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -1079,8 +1080,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				ginkgo.By("readmitting the workload", func() {
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					gomega.Expect(createdWorkload.UID).To(gomega.Equal(originalWorkloadUID))
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, replacementPodLookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
 
@@ -1091,7 +1092,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("finishing the replacement pod the workload should be finished", func() {
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, replacementPod)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, replacementPod)
 
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
@@ -1145,8 +1146,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 						Count(createdWorkload.Spec.PodSets[0].Count).
 						Obj()).
 					Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 				podLookupKey := types.NamespacedName{Name: pod.Name, Namespace: pod.Namespace}
 				behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, podLookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
@@ -1155,7 +1156,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				wlUID := createdWorkload.UID
 
 				ginkgo.By("Failing the running pod")
-				behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, pod)
+				integration.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, pod)
 				createdPod := &corev1.Pod{}
 				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, podLookupKey, createdPod)).To(gomega.Succeed())
@@ -1205,7 +1206,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				ginkgo.By("Failing the replacement", func() {
 					behavioral.ExpectPodsJustFinalized(ctx, k8sClient, podLookupKey)
 					behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, replacementPodLookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, replacementPod)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, replacementPod)
 				})
 
 				ginkgo.By("Checking that WaitingForReplacementPods status is set to true", func() {
@@ -1246,7 +1247,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, replacementPod2LookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
-				behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, replacementPod2)
+				integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, replacementPod2)
 				behavioral.ExpectPodsJustFinalized(ctx, k8sClient, replacementPodLookupKey, replacementPod2LookupKey)
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -1308,8 +1309,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count: new(int32(1)),
 						},
 					).Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
 					behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
@@ -1325,7 +1326,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("checking that the pod group is not finalized if the group has failed", func() {
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, pod1, pod2)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, pod1, pod2)
 
 					gomega.Consistently(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod)).To(gomega.Succeed())
@@ -1358,7 +1359,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("checking that pod group is finalized when unretriable pod has failed", func() {
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, replacementPod2)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, replacementPod2)
 
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
@@ -1434,8 +1435,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count: new(int32(1)),
 						},
 					).Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
 					behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, map[string]string{corev1.LabelArchStable: "arm64"})
@@ -1493,8 +1494,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count: new(int32(podCount)),
 						},
 					).Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					for i := range pods {
 						behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(pods[i]), map[string]string{corev1.LabelArchStable: "arm64"})
@@ -1502,7 +1503,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("Finishing and deleting Pods", func() {
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pods...)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pods...)
 					for i := range pods {
 						gomega.Expect(k8sClient.Delete(ctx, pods[i])).To(gomega.Succeed())
 					}
@@ -1607,13 +1608,13 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count:   new(int32(2)),
 						},
 					).Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					for _, p := range []*corev1.Pod{pod1, pod2} {
 						behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(p), map[string]string{corev1.LabelArchStable: "arm64"})
 					}
-					behavioral.BindPodWithNode(ctx, k8sClient, "test-node", pod1, pod2)
+					integration.BindPodWithNode(ctx, k8sClient, "test-node", pod1, pod2)
 					createdPod := &corev1.Pod{}
 					gomega.Eventually(func(g gomega.Gomega) {
 						for _, p := range []*corev1.Pod{pod1, pod2} {
@@ -1708,13 +1709,13 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count:   new(int32(2)),
 						},
 					).Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					for _, p := range []*corev1.Pod{pod1, pod2} {
 						behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(p), map[string]string{corev1.LabelArchStable: "arm64"})
 					}
-					behavioral.BindPodWithNode(ctx, k8sClient, "test-node", pod1, pod2)
+					integration.BindPodWithNode(ctx, k8sClient, "test-node", pod1, pod2)
 					createdPod := &corev1.Pod{}
 					gomega.Eventually(func(g gomega.Gomega) {
 						for _, p := range []*corev1.Pod{pod1, pod2} {
@@ -1858,8 +1859,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					Obj()
 
 				ginkgo.By("admitting the workload", func() {
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+					integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 				})
 
 				ginkgo.By("setting evicted condition to true", func() {
@@ -1882,8 +1883,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("re-admitting the workload", func() {
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+					integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 				})
 
 				ginkgo.By("checking that the workload has the condition for WaitingForReplacementPod set to true with reason related to the eviction", func() {
@@ -1984,8 +1985,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count: new(int32(2)),
 						},
 					).Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 					gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 					gomega.Expect(createdWorkload.Status.Conditions).Should(gomega.BeComparableTo(
@@ -2106,8 +2107,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count: new(wl.Spec.PodSets[0].Count),
 						},
 					).Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 				})
 
 				ginkgo.By("Workload should not be finished", func() {
@@ -2139,8 +2140,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("Finish pods", func() {
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod1)
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod2)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod1)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod2)
 				})
 
 				ginkgo.By("Checking the workload is finished", func() {
@@ -2181,8 +2182,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count(wl.Spec.PodSets[0].Count).
 							Obj()).
 						Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 				})
 
 				pod := testingpod.MakePod("test-pod1", ns.Name).
@@ -2271,8 +2272,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count(victimWl.Spec.PodSets[0].Count).
 							Obj()).
 						Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, victimWlKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, victimWl)
+					integration.SetQuotaReservation(ctx, k8sClient, victimWlKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, victimWl)
 
 					gomega.Expect(k8sClient.Get(ctx, victimWlKey, victimWl)).To(gomega.Succeed())
 					gomega.Expect(victimWl.Finalizers).To(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
@@ -2350,8 +2351,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count(createdWorkload.Spec.PodSets[1].Count).
 							Obj(),
 					).Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 				})
 
 				ginkgo.By("checking pods are ungated after admission", func() {
@@ -2406,8 +2407,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count(createdWorkload.Spec.PodSets[1].Count).
 							Obj(),
 					).Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 				})
 
 				ginkgo.By("checking pods are ungated after admission", func() {
@@ -2476,8 +2477,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 							Count(wl.Spec.PodSets[1].Count).
 							Obj(),
 					).Obj()
-					behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 				})
 
 				ginkgo.By("checking no second workload was created", func() {
@@ -2508,8 +2509,8 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 
 				ginkgo.By("finishing pods", func() {
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod1)
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod2)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod1)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod2)
 				})
 
 				ginkgo.By("checking the workload is finished", func() {
@@ -2723,7 +2724,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 		behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 		behavioral.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 
-		behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, role1Pod1, role1Pod2, role2Pod1, role2Pod2)
+		integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, role1Pod1, role1Pod2, role2Pod1, role2Pod2)
 
 		ginkgo.By("checking pods are finalized", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -2788,8 +2789,8 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 			ginkgo.By("clearing the workload's admission to stop the job", func() {
 				wlKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: pod.Namespace}
 				wl := utiltestingapi.MakeWorkload(wlKey.Name, wlKey.Namespace).Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, nil)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+				integration.SetQuotaReservation(ctx, k8sClient, wlKey, nil)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 			})
 
 			ginkgo.By("checking if pods are deleted", func() {
@@ -2902,8 +2903,8 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 				Obj()
 
 			ginkgo.By("admit the workload", func() {
-				behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+				integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 			})
 
 			ginkgo.By("checking the workload is evicted due to pods ready timeout")
@@ -2954,8 +2955,8 @@ var _ = ginkgo.Describe("Pod controller interacting with Workload controller whe
 			)
 
 			ginkgo.By("re-admit the workload to exceed the backoffLimitCount", func() {
-				behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+				integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 			})
 
 			ginkgo.By("checking the workload is deactivated and evicted")
@@ -3092,12 +3093,12 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 					Count(wl.Spec.PodSets[0].Count).
 					Obj()).
 				Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+			integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 		})
 
 		ginkgo.By("running all the pods of the group", func() {
-			behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods...)
+			integration.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods...)
 			for _, pod := range pods {
 				updatedPod := &corev1.Pod{}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -3118,7 +3119,7 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 		})
 
 		ginkgo.By("completing one pod of the group", func() {
-			behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pods[0])
+			integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pods[0])
 			// The kubelet sets PodReady=False on a completed pod.
 			updatedPod := &corev1.Pod{}
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -3177,12 +3178,12 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 					Count(wl.Spec.PodSets[0].Count).
 					Obj()).
 				Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+			integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 		})
 
 		ginkgo.By("running all the pods of the group", func() {
-			behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods...)
+			integration.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods...)
 			for _, pod := range pods {
 				updatedPod := &corev1.Pod{}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -3203,7 +3204,7 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 		})
 
 		ginkgo.By("completing one pod of the group", func() {
-			behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pods[0])
+			integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pods[0])
 			// The kubelet sets PodReady=False on a completed pod.
 			updatedPod := &corev1.Pod{}
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -3271,12 +3272,12 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 					Count(wl.Spec.PodSets[0].Count).
 					Obj()).
 				Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+			integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 		})
 
 		ginkgo.By("running only 1 pod (2 not-ready pods > max not-ready count of 1) and verifying workload is not PodsReady yet", func() {
-			behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods[0])
+			integration.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods[0])
 			setPodReady(ctx, k8sClient, pods[0], corev1.ConditionTrue)
 
 			behavioral.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey, metav1.Condition{
@@ -3299,7 +3300,7 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 		})
 
 		ginkgo.By("running the 2nd pod and updating max not-ready count annotation back to 1 while 3rd pod stays Pending", func() {
-			behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods[1])
+			integration.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods[1])
 			setPodReady(ctx, k8sClient, pods[1], corev1.ConditionTrue)
 			setGroupMaxNotReadyCount(ctx, k8sClient, pods, "1")
 
@@ -3310,7 +3311,7 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 		})
 
 		ginkgo.By("running the 3rd pod and then making it unready (1 of 3 not ready <= max not-ready count of 1)", func() {
-			behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods[2])
+			integration.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pods[2])
 			setPodReady(ctx, k8sClient, pods[2], corev1.ConditionTrue)
 			setPodReady(ctx, k8sClient, pods[2], corev1.ConditionFalse)
 
@@ -3381,13 +3382,13 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 					Count(wl.Spec.PodSets[0].Count).
 					Obj()).
 				Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+			integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 		})
 
 		ginkgo.By("making 2 of 3 pods ready (1 not-ready pod <= max not-ready count of 1) and verifying workload becomes PodsReady", func() {
 			for _, pod := range pods[:2] {
-				behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod)
+				integration.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod)
 				setPodReady(ctx, k8sClient, pod, corev1.ConditionTrue)
 			}
 
@@ -3483,9 +3484,9 @@ var _ = ginkgo.Describe("Pod controller when waitForPodsReady enabled with sched
 					Count(1).
 					Obj()).
 				Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
-			behavioral.SetPodsScheduledCondition(ctx, k8sClient, wlKey, metav1.Condition{
+			integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+			integration.SetPodsScheduledCondition(ctx, k8sClient, wlKey, metav1.Condition{
 				Status: metav1.ConditionFalse,
 				Reason: kueue.WorkloadWaitForScheduling,
 			})
@@ -3783,7 +3784,7 @@ var _ = ginkgo.Describe("Pod controller with TopologyAwareScheduling", ginkgo.La
 				Ready().
 				Obj(),
 		}
-		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = utiltestingapi.MakeTopology("default").Levels(tasBlockLabel).Obj()
 		behavioral.MustCreate(ctx, k8sClient, topology)
@@ -3993,7 +3994,7 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 				Ready().
 				Obj(),
 		}
-		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
 		behavioral.MustCreate(ctx, k8sClient, topology)
@@ -4068,14 +4069,14 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 					g.Expect(pod.Spec.SchedulingGates).Should(gomega.BeEmpty())
 				}
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			behavioral.BindPodWithNode(ctx, k8sClient, nodeName, podgroup...)
+			integration.BindPodWithNode(ctx, k8sClient, nodeName, podgroup...)
 			gomega.Eventually(func(g gomega.Gomega) {
 				for _, p := range podgroup {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), pod)).To(gomega.Succeed())
 					g.Expect(pod.Spec.NodeName).Should(gomega.Equal(nodeName))
 				}
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, podgroup...)
+			integration.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, podgroup...)
 		})
 
 		ginkgo.By("making the node NotReady", func() {
@@ -4155,7 +4156,7 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 					g.Expect(pod.Spec.SchedulingGates).Should(gomega.BeEmpty())
 				}
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			behavioral.BindPodWithNode(ctx, k8sClient, nodeName, podgroup...)
+			integration.BindPodWithNode(ctx, k8sClient, nodeName, podgroup...)
 			gomega.Eventually(func(g gomega.Gomega) {
 				for _, p := range podgroup {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), pod)).To(gomega.Succeed())
@@ -4261,7 +4262,7 @@ var _ = ginkgo.Describe("Pod controller with TASFailedNodeReplacementFailFast di
 				Ready().
 				Obj(),
 		}
-		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
 		behavioral.MustCreate(ctx, k8sClient, topology)
@@ -4354,9 +4355,9 @@ var _ = ginkgo.Describe("Pod controller with TASFailedNodeReplacementFailFast di
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			gomega.Expect(slices.Sorted(maps.Values(podToNode))).To(gomega.Equal([]string{"x1", "x2"}))
 			for _, p := range podgroup {
-				behavioral.BindPodWithNode(ctx, k8sClient, podToNode[p.Name], p)
+				integration.BindPodWithNode(ctx, k8sClient, podToNode[p.Name], p)
 			}
-			behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, podgroup...)
+			integration.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, podgroup...)
 		})
 
 		failedNode = podToNode[podgroup[0].Name]
@@ -4676,8 +4677,8 @@ var _ = ginkgo.Describe("Pod controller finalizer consistency on eviction", gink
 				Count(createdWorkload.Spec.PodSets[0].Count).
 				Obj()).
 			Obj()
-		behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-		behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+		integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+		integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 		return createdWorkload
 	}
 
@@ -4717,7 +4718,7 @@ var _ = ginkgo.Describe("Pod controller finalizer consistency on eviction", gink
 			g.Expect(p.Spec.SchedulingGates).NotTo(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-		behavioral.BindPodWithNode(ctx, k8sClient, "stub-node-1", oldPod)
+		integration.BindPodWithNode(ctx, k8sClient, "stub-node-1", oldPod)
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			p := &corev1.Pod{}
@@ -4736,7 +4737,7 @@ var _ = ginkgo.Describe("Pod controller finalizer consistency on eviction", gink
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("simulating the container terminating cleanly while the pod stays stuck deleting (deletionTimestamp + NodeName retained)")
-		behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, oldPod)
+		integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, oldPod)
 
 		ginkgo.By("confirming old-pod is fully finalized and removed, not left stuck deleting")
 		behavioral.ExpectPodsFinalizedOrGone(ctx, k8sClient, oldPodKey)
@@ -4797,7 +4798,7 @@ var _ = ginkgo.Describe("Pod controller finalizer consistency on eviction", gink
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("simulating the container terminating cleanly while the pod stays stuck deleting")
-		behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod)
+		integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod)
 
 		ginkgo.By("confirming the pod is fully finalized and removed, freeing its name")
 		behavioral.ExpectPodsFinalizedOrGone(ctx, k8sClient, podKey)
@@ -5221,7 +5222,7 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
-			behavioral.SetPodsPhase(
+			integration.SetPodsPhase(
 				ctx,
 				k8sClient,
 				corev1.PodSucceeded,
@@ -5317,7 +5318,7 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
-			behavioral.SetPodsPhase(
+			integration.SetPodsPhase(
 				ctx,
 				k8sClient,
 				corev1.PodSucceeded,
@@ -5469,7 +5470,7 @@ var _ = ginkgo.Describe("Pod controller scheduling shape ordering",
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
-			behavioral.SetPodsPhase(
+			integration.SetPodsPhase(
 				ctx,
 				k8sClient,
 				corev1.PodSucceeded,

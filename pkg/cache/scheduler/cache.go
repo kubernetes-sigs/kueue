@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"sync"
 
@@ -621,7 +622,11 @@ func (c *Cache) ResyncCohortGaugeMetrics(log logr.Logger, cohortName kueue.Cohor
 		if features.Enabled(features.CustomMetricLabels) {
 			customLabelValues = c.customLabels.CohortGet(cohort.Name)
 		}
-		metrics.ReportCohortWeightedShare(cohort.Name, drs.PreciseWeightedShare(), customLabelValues, c.roleTracker)
+		weightedShare := drs.PreciseWeightedShare()
+		if weightedShare == math.Inf(1) {
+			weightedShare = math.NaN()
+		}
+		metrics.ReportCohortWeightedShare(cohort.Name, weightedShare, customLabelValues, c.roleTracker)
 	}
 }
 
@@ -842,6 +847,38 @@ func (c *Cache) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kue
 	c.Lock()
 	defer c.Unlock()
 	if c.concurrentAdmissionEnabledForWithoutLock(w) && !concurrentadmission.IsVariant(w) {
+		return false
+	}
+	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
+	if err != nil {
+		log.Error(err, "Updating workload in cache")
+	}
+	return updated
+}
+
+// UpdateWorkloadIfUnchanged applies w like AddOrUpdateWorkload, but only if the cache holds it with the same resourceVersion.
+// It returns true if it stored w; otherwise false, after removing the workload if w holds no active quota reservation.
+func (c *Cache) UpdateWorkloadIfUnchanged(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) bool {
+	c.Lock()
+	defer c.Unlock()
+	wlKey := workload.Key(w)
+	cqName, assigned := c.workloadAssignedQueues[wlKey]
+	if !assigned {
+		log.V(3).Info("Not updating workload in cache as the cache does not hold it")
+		return false
+	}
+	cq := c.hm.ClusterQueue(cqName)
+	if cq == nil {
+		log.V(3).Info("Not updating workload in cache as its ClusterQueue is not in the cache", "assignedClusterQueue", klog.KRef("", string(cqName)))
+		return false
+	}
+	cached, found := cq.Workloads[wlKey]
+	if !found {
+		log.V(3).Info("Not updating workload in cache as it is missing from its ClusterQueue", "assignedClusterQueue", klog.KRef("", string(cqName)))
+		return false
+	}
+	if cached.Obj.ResourceVersion != w.ResourceVersion {
+		log.V(3).Info("Not updating workload in cache as its resourceVersion differs from the cached one", "cachedResourceVersion", cached.Obj.ResourceVersion, "resourceVersion", w.ResourceVersion)
 		return false
 	}
 	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)

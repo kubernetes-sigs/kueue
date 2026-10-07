@@ -39,8 +39,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -236,7 +236,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 		configurablePreemptionDisabled bool
 		wantPreempted                  sets.Set[workload.Reference]
 		wantReasons                    map[workload.Reference]string
-		wantConfigurableReasonsData    map[workload.Reference]*preemptioncommon.ConfigurablePreemptionReasonData
+		wantConfigurableReasonsData    map[workload.Reference]*policy.ConfigurablePreemptionReasonData
 	}{
 		"no candidates for CQ without config": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -937,10 +937,10 @@ func TestConfigurablePreemptions(t *testing.T) {
 			wantReasons: map[workload.Reference]string{
 				"/a1": kueue.ConfigurablePreemptionReason,
 			},
-			wantConfigurableReasonsData: map[workload.Reference]*preemptioncommon.ConfigurablePreemptionReasonData{
+			wantConfigurableReasonsData: map[workload.Reference]*policy.ConfigurablePreemptionReasonData{
 				"/a1": {
-					ConfigName:                preemptioncommon.PreemptionConfigReference(defaultConfigName),
-					RuleNameToSelectorIndexes: map[preemptioncommon.PreemptionConfigRuleReference][]int{"test-rule-one": {0}},
+					ConfigName:                policy.PreemptionConfigReference(defaultConfigName),
+					RuleNameToSelectorIndexes: map[policy.PreemptionConfigRuleReference][]int{"test-rule-one": {0}},
 				},
 			},
 		},
@@ -1041,7 +1041,7 @@ func TestConfigurablePreemptions(t *testing.T) {
 				}
 			}
 			if tc.wantConfigurableReasonsData != nil {
-				gotData := make(map[workload.Reference]*preemptioncommon.ConfigurablePreemptionReasonData, len(targets))
+				gotData := make(map[workload.Reference]*policy.ConfigurablePreemptionReasonData, len(targets))
 				for _, target := range targets {
 					gotData[workload.Key(target.WorkloadInfo.Obj)] = target.ConfigurablePreemptionReasonData
 				}
@@ -1085,23 +1085,23 @@ func TestPreemptionOracleConfigurablePreemptions(t *testing.T) {
 	cases := map[string]struct {
 		fairSharing                    *config.FairSharing
 		configurablePreemptionDisabled bool
-		want                           preemptioncommon.PreemptionPossibility
+		want                           policy.PreemptionPossibility
 	}{
 		"classical: candidates selected by the PreemptionConfig are considered": {
-			want: preemptioncommon.Preempt,
+			want: policy.Preempt,
 		},
 		"classical: no candidates when the ConfigurablePreemptions feature is disabled": {
 			configurablePreemptionDisabled: true,
-			want:                           preemptioncommon.NoCandidates,
+			want:                           policy.NoCandidates,
 		},
 		"fair sharing: candidates selected by the PreemptionConfig are considered": {
 			fairSharing: &config.FairSharing{},
-			want:        preemptioncommon.Preempt,
+			want:        policy.Preempt,
 		},
 		"fair sharing: no candidates when the ConfigurablePreemptions feature is disabled": {
 			fairSharing:                    &config.FairSharing{},
 			configurablePreemptionDisabled: true,
-			want:                           preemptioncommon.NoCandidates,
+			want:                           policy.NoCandidates,
 		},
 	}
 

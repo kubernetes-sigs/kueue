@@ -97,6 +97,21 @@ func (w *WorkerGroupWrapper) NodeSelector(key, value string) *WorkerGroupWrapper
 	return w
 }
 
+// NumOfHosts sets the group's numOfHosts.
+func (w *WorkerGroupWrapper) NumOfHosts(numOfHosts int32) *WorkerGroupWrapper {
+	w.WorkerGroupSpec.NumOfHosts = numOfHosts
+	return w
+}
+
+// PodAnnotation sets an annotation on the group's pod template.
+func (w *WorkerGroupWrapper) PodAnnotation(key, value string) *WorkerGroupWrapper {
+	if w.Template.Annotations == nil {
+		w.Template.Annotations = make(map[string]string)
+	}
+	w.Template.Annotations[key] = value
+	return w
+}
+
 // ClusterWrapper wraps a RayCluster.
 type ClusterWrapper struct{ rayv1.RayCluster }
 

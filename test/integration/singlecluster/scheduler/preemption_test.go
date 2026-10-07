@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 const (
@@ -246,7 +247,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
 
 			ginkgo.By("Finishing the first workload")
-			behavioral.FinishWorkloads(ctx, k8sClient, wl1)
+			integration.FinishWorkloads(ctx, k8sClient, wl1)
 
 			ginkgo.By("Finishing eviction for wl4")
 			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wl4)
@@ -320,7 +321,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			})
 
 			ginkgo.By("Finishing the first high priority workload")
-			behavioral.FinishWorkloads(ctx, k8sClient, firstHighPrio)
+			integration.FinishWorkloads(ctx, k8sClient, firstHighPrio)
 
 			ginkgo.By("Waiting for all low prio workloads to be re-admitted")
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowPriorityWorkloads...)
@@ -498,7 +499,7 @@ var _ = ginkgo.Describe("Preemption", func() {
 			})
 
 			ginkgo.By("Verify the Preempted condition on re-admission, as the preemptor is finished", func() {
-				behavioral.FinishWorkloads(ctx, k8sClient, alphaMidWl)
+				integration.FinishWorkloads(ctx, k8sClient, alphaMidWl)
 				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, alphaCQ.Name, alphaLowWl)
 				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, betaCQ.Name, betaMidWl, betaHighWl)
 
