@@ -347,7 +347,6 @@ In combination with a custom numeric label selector using strict `LessThan`, thi
 Effectively, when the smaller workloads are re-admitted, they can be placed in smaller fragmented domains (where the larger workload cannot fit), thereby defragmenting the cluster.
 
 > [!NOTE]
-> Candidates must use a resource from one of the flavors for which the preemptor needs preemption.
 > With the `TASHandleOverlappingFlavors` feature gate, TAS flavors with a hostname lowest level account for the usage of each other on the nodes they share.
 > Then, candidates also include the workloads holding capacity on nodes of those flavors, whichever flavor and resource they use,
 > as preempting them frees capacity in the topology of the preemptor. This applies to every trigger, as triggers only define when the rules apply.
