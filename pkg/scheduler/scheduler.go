@@ -375,7 +375,6 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		e := iterator.pop()
 		s.processEntry(ctx, e, snapshot, preemptedWorkloads, skippedPreemptions)
 		refill.afterEntryProcessed(ctx, e)
-
 	}
 
 	// 6. Requeue the heads that were not scheduled.
