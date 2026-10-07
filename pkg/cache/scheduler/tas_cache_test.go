@@ -8359,6 +8359,73 @@ func TestFindTopologyAssignments(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 		},
+		"elastic workload scale up with leader: workers from zero keep the leader placement": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					count:           1,
+					podSetGroupName: new("elastic-group"),
+					previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					}),
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					count:           2,
+					podSetGroupName: new("elastic-group"),
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"x2"}},
+						},
+					},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+		},
 		"elastic workload scale up with leader: stale leader assignment falls back to fresh placement": {
 			// Force fresh placement to differ from the workers' previous assignment:
 			// after placing the leader, x1 can hold only one worker instead of two.
