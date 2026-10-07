@@ -627,9 +627,16 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 	}
 	log.V(3).Info("Checking whether in-flight evictions free a suitable placement for the failed TAS replacement", "victims", len(victims))
 	// To get the projected cluster state after the in-flight evictions complete,
-	// simulate the removal of their workloads. The simulation is reverted below
-	// as the snapshot is shared across the scheduling cycle.
-	revertRemoval := snapshot.SimulateWorkloadRemoval(victims)
+	// simulate the removal of their workloads and their Pods: freeing the quota
+	// alone would leave the scheduling simulator still reporting the Pods and
+	// host ports they hold. The simulation is reverted below as the snapshot is
+	// shared across the scheduling cycle.
+	revertUsage := snapshot.SimulateWorkloadRemoval(victims)
+	revertPods := snapshot.SimulatePodRemoval(ctx, log, victims)
+	revertRemoval := func() {
+		revertPods()
+		revertUsage()
+	}
 	// Clear the flavor scan state so that the recomputation starts from the
 	// first flavor again, mirroring updateAssignmentIfNeeded.
 	e.FlavorScanState = nil
