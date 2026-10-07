@@ -261,7 +261,7 @@ refused. Keep existing authenticated HTTPS and certificate coverage unchanged.
 - Positive feedback from users, and no open security issues against the opt-out.
 - Behavior with a service mesh sidecar that forwards inbound traffic to
   localhost is verified and documented.
-- Re-evaluate client-certificate authentication (Alternative 3).
+- Re-evaluate client-certificate authentication (Alternative 1).
 
 #### GA
 
@@ -282,28 +282,19 @@ serving-certificate dependency.
 
 ## Alternatives
 
-1. **Provision a bearer token and retain authenticated HTTPS.** Preferred where
-   supported. It does not fit platforms without an acceptable token lifecycle
-   for the scraper; controller client certificates cannot substitute for it.
-2. **Configure CA trust and TLS server name, or issue a suitable certificate.**
-   Resolves certificate trust/name mismatches without disabling verification.
-   It does not remove bearer-token authentication or certificate provisioning.
-3. **Client-certificate metrics authentication.** Maintainers have prototyped
+1. **Client-certificate metrics authentication.** Maintainers have prototyped
    this with controller-runtime and RBAC checks. It may fit platforms that can
    configure the scraper's client certificate, server client-CA trust, rotation,
    identity mapping, and authorization. This remains a viable authenticated
    alternative; the proposed opt-out serves administrators who intentionally
    choose the shared network namespace as their access boundary.
-4. **Authentication proxy or local exporter.** Can centralize policy, but a
+2. **Authentication proxy or local exporter.** Can centralize policy, but a
    proxy that simply forwards requests still needs an upstream credential or an
    accepted alternative authentication mode. It adds another component to run.
-5. **Dedicated command-line flags.** The prototype used flags, but opt-out
+3. **Dedicated command-line flags.** The prototype used flags, but opt-out
    validity depends on `metrics.bindAddress`. Keep the related settings and their
    validation in the Configuration API rather than expose two configuration
    surfaces.
-6. **Optional HTTP.** Would eliminate metrics certificate provisioning and
+4. **Optional HTTP.** Would eliminate metrics certificate provisioning and
    client TLS wiring, but is unnecessary to remove the bearer-token dependency
    and would change KEP-4377's transport policy. Excluded from this proposal.
-7. **Unrestricted anonymous serving or disabling metrics.** The former exposes
-   metrics outside the intended namespace; the latter loses required
-   observability. Neither meets this proposal's goals.
