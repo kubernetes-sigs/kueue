@@ -28,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	jsoniter "github.com/json-iterator/go"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -1973,6 +1974,122 @@ func TestReconcile(t *testing.T) {
 					Label(batchv1.JobCompletionIndexAnnotation, "1").
 					Label(jobset.JobIndexKey, "1").
 					Label(jobset.ReplicatedJobReplicas, "2").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b2").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 2,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r2",
+					},
+					Count: 1,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b2",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+			},
+		},
+		"ranks: support rank-based ordering for RayCluster - for multi-host and multi-replica": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(new(rayutils.RayHostIndexKey)).
+						SubGroupIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+						SubGroupCount(new(int32(2))).
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
+								Count(4).
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+									Domains(
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 2).Obj(),
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r2"}, 1).Obj(),
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"b2", "r1"}, 1).Obj(),
+									).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("p0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(rayutils.RayHostIndexKey, "0").
+					Label(rayutils.RayWorkerReplicaIndexKey, "0").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("p1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(rayutils.RayHostIndexKey, "1").
+					Label(rayutils.RayWorkerReplicaIndexKey, "0").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("p2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(rayutils.RayHostIndexKey, "0").
+					Label(rayutils.RayWorkerReplicaIndexKey, "1").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("p3", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(rayutils.RayHostIndexKey, "1").
+					Label(rayutils.RayWorkerReplicaIndexKey, "1").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("p0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(rayutils.RayHostIndexKey, "0").
+					Label(rayutils.RayWorkerReplicaIndexKey, "0").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("p1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(rayutils.RayHostIndexKey, "1").
+					Label(rayutils.RayWorkerReplicaIndexKey, "0").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("p2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(rayutils.RayHostIndexKey, "0").
+					Label(rayutils.RayWorkerReplicaIndexKey, "1").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r2").
+					Obj(),
+				*testingpod.MakePod("p3", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(rayutils.RayHostIndexKey, "1").
+					Label(rayutils.RayWorkerReplicaIndexKey, "1").
 					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
 					NodeSelector(tasBlockLabel, "b2").
 					NodeSelector(tasRackLabel, "r1").
