@@ -139,6 +139,9 @@ func (j *RayService) Object() client.Object {
 }
 
 func (j *RayService) IsSuspended() bool {
+	if !features.Enabled(features.KubeRayServiceUsingTopLevelSuspend) {
+		return j.Spec.RayClusterSpec.Suspend != nil && *j.Spec.RayClusterSpec.Suspend
+	}
 	return j.Spec.Suspend
 }
 
@@ -147,6 +150,10 @@ func (j *RayService) IsActive() bool {
 }
 
 func (j *RayService) Suspend() {
+	if !features.Enabled(features.KubeRayServiceUsingTopLevelSuspend) {
+		j.Spec.RayClusterSpec.Suspend = new(true)
+		return
+	}
 	j.Spec.Suspend = true
 }
 
@@ -194,7 +201,11 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
-	j.Spec.Suspend = false
+	if features.Enabled(features.KubeRayServiceUsingTopLevelSuspend) {
+		j.Spec.Suspend = false
+	} else {
+		j.Spec.RayClusterSpec.Suspend = new(false)
+	}
 
 	rayClusterSpec := &j.Spec.RayClusterSpec
 	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(ctrl.LoggerFrom(ctx), rayClusterSpec, podSetsInfo)
