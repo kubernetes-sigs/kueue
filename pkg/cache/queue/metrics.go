@@ -55,15 +55,6 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 	cqCustomLabels := m.customLabels.CQGet(cq.name)
 
 	if features.Enabled(features.CustomMetricLabels) && m.customLabels.KindConfigured(config.SourceKindWorkload) {
-		// A CQ stop/resume can move the reported counts between statuses without
-		// changing the queue's trackers. Preserve zero entries for labels found in
-		// the opposite status so the previous metric series can be cleared.
-		for labelValues := range active.Iter() {
-			inadmissible.Add(labelValues, 0)
-		}
-		for labelValues := range inadmissible.Iter() {
-			active.Add(labelValues, 0)
-		}
 		// Clear zero count label sets.
 		clearZeroWorkloadCounts(m, cq.name, active, metrics.PendingStatusActive)
 		clearZeroWorkloadCounts(m, cq.name, inadmissible, metrics.PendingStatusInadmissible)
