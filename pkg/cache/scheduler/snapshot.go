@@ -142,13 +142,12 @@ func (s *Snapshot) UsesTASNodesOf(wl *workload.Info, flavors sets.Set[kueue.Reso
 	if !features.Enabled(features.TASHandleOverlappingFlavors) {
 		return false
 	}
-	usage := wl.TASUsage()
 	for flavor := range flavors {
 		target := s.hostnameLeafTASFlavors[flavor]
 		if target == nil {
 			continue
 		}
-		for _, flavorUsage := range usage {
+		for _, flavorUsage := range wl.TASUsage() {
 			for _, tr := range flavorUsage {
 				if target.hasDomain(utiltas.DomainID(tr.Values)) {
 					return true

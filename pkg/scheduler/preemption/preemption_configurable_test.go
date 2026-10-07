@@ -1044,6 +1044,29 @@ func TestConfigurablePreemptions(t *testing.T) {
 			targetCQ:      "a",
 			wantPreempted: sets.New[workload.Reference]("/b1"),
 		},
+		"Always trigger selects workloads of an overlapping flavor": {
+			clusterQueues:   append(tasCQs("4"), tasOverlapCQ),
+			resourceFlavors: []*kueue.ResourceFlavor{tasFlavor, tasOverlapFlavor},
+			topologies:      []*kueue.Topology{tasTopology},
+			nodes:           tasNodes,
+			config: configWithTrigger(
+				kueuealpha.Always,
+				utiltestingalpha.MakeCandidateSelector(kueuealpha.AnyClusterQueue).Obj(),
+			),
+			admitted: []kueue.Workload{
+				tasAdmittedWlIn("b1", "b", "tas-overlap", "x1"),
+				tasAdmittedWlIn("b2", "b", "tas-overlap", "x2"),
+			},
+			// The trigger only defines when the rule applies, so its candidates
+			// also include the workloads blocking the topology.
+			incoming:      tasIncomingWl,
+			assignment:    tasAssignment,
+			targetCQ:      "a",
+			wantPreempted: sets.New[workload.Reference]("/b1"),
+			wantReasons: map[workload.Reference]string{
+				"/b1": kueue.ConfigurablePreemptionReason,
+			},
+		},
 	}
 
 	for name, tc := range cases {
