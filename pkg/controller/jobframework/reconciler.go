@@ -1107,33 +1107,50 @@ func (r *JobReconciler) finishReplacedWorkloadSlices(ctx context.Context, object
 	if err := r.client.List(ctx, list, client.InNamespace(object.GetNamespace()), indexer.OwnerReferenceIndexFieldMatcher(gvk, object.GetName())); err != nil {
 		return fmt.Errorf("listing workload slice replacements: %w", err)
 	}
-	slicesByName := make(map[string]*kueue.Workload, len(list.Items))
-	for i := range list.Items {
-		slicesByName[list.Items[i].Name] = &list.Items[i]
-	}
 	for i := range list.Items {
 		newSlice := &list.Items[i]
-		replaces := newSlice.Status.Replaces
-		if replaces == nil || !metav1.IsControlledBy(newSlice, object) {
+		if !metav1.IsControlledBy(newSlice, object) {
 			continue
 		}
-		oldSlice := slicesByName[replaces.Name]
-		if oldSlice == nil || !metav1.IsControlledBy(oldSlice, object) || workloadfinish.IsFinished(oldSlice) || oldSlice.Name == newSlice.Name {
-			continue
+		if err := r.finishReplacedWorkloadSlice(ctx, object, newSlice); err != nil {
+			return err
 		}
-		reason := kueue.WorkloadSliceReplaced
-		message := fmt.Sprintf("Replaced to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconsts.JobUIDLabel])
-		if err := workloadfinish.Finish(ctx, r.client, oldSlice, reason, message, r.clock); err != nil {
-			if apierrors.IsNotFound(err) {
-				continue
-			}
-			return fmt.Errorf("finishing replaced workload slice: %w", err)
+	}
+	return nil
+}
+
+func (r *JobReconciler) finishReplacedWorkloadSlice(ctx context.Context, object client.Object, newSlice *kueue.Workload) error {
+	replaces := newSlice.Status.Replaces
+	if replaces == nil || replaces.Name == newSlice.Name {
+		return nil
+	}
+	oldSlice := &kueue.Workload{}
+	if err := r.client.Get(ctx, types.NamespacedName{Namespace: newSlice.Namespace, Name: replaces.Name}, oldSlice); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if workloadfinish.IsFinished(oldSlice) {
+		return nil
+	}
+	if owner := metav1.GetControllerOfNoCopy(oldSlice); owner != nil {
+		if !metav1.IsControlledBy(oldSlice, object) {
+			return nil
 		}
-		r.record.Eventf(oldSlice, nil, corev1.EventTypeNormal, reason, "Replaced", message)
-		if oldSlice.Status.Admission != nil {
-			cq := oldSlice.Status.Admission.ClusterQueue
-			metrics.ReportReplacedWorkloadSlices(cq, r.customLabels.CQGet(cq), r.roleTracker)
+	} else if workloadslicing.SliceName(oldSlice) != workloadslicing.SliceName(newSlice) {
+		// Without ownership, only finish a predecessor from the same slice chain.
+		return nil
+	}
+	reason := kueue.WorkloadSliceReplaced
+	message := fmt.Sprintf("Replaced to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconsts.JobUIDLabel])
+	if err := workloadfinish.Finish(ctx, r.client, oldSlice, reason, message, r.clock); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
 		}
+		return fmt.Errorf("finishing replaced workload slice: %w", err)
+	}
+	r.record.Eventf(oldSlice, nil, corev1.EventTypeNormal, reason, "Replaced", message)
+	if oldSlice.Status.Admission != nil {
+		cq := oldSlice.Status.Admission.ClusterQueue
+		metrics.ReportReplacedWorkloadSlices(cq, r.customLabels.CQGet(cq), r.roleTracker)
 	}
 	return nil
 }
@@ -1143,12 +1160,6 @@ func (r *JobReconciler) finishReplacedWorkloadSlices(ctx context.Context, object
 // The returned workload could be nil.
 func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
-
-	if WorkloadSliceEnabled(job) {
-		if err := r.finishReplacedWorkloadSlices(ctx, object, job.GVK()); err != nil {
-			return nil, err
-		}
-	}
 
 	if prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object()); prebuiltWorkload != "" {
 		wl := &kueue.Workload{}
@@ -1175,6 +1186,12 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, err
 		}
 
+		if WorkloadSliceEnabled(job) {
+			if err := r.finishReplacedWorkloadSlice(ctx, object, wl); err != nil {
+				return nil, err
+			}
+		}
+
 		// Skip the in-sync check for ElasticJob workloads if the workload is a
 		// newly scaled-up replacement. This prevents premature removal of remote
 		// objects for a Job that has not yet been synced after scale-up.
@@ -1198,6 +1215,12 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, err
 		}
 		return wl, nil
+	}
+
+	if WorkloadSliceEnabled(job) {
+		if err := r.finishReplacedWorkloadSlices(ctx, object, job.GVK()); err != nil {
+			return nil, err
+		}
 	}
 
 	// If workload slicing is enabled for this job, use the slice-based processing path.
