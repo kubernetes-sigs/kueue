@@ -38,9 +38,14 @@ type Plan struct {
 	// Empty unless Assignment.RepresentativeMode() is Preempt
 	// and preemptions make the fit feasible.
 	PreemptionTargets []*preemption.Target
+
+	Error error
 }
 
 func (p *Plan) CanFit() bool {
+	if p.Error != nil {
+		return false
+	}
 	arm := p.Assignment.RepresentativeMode()
 	return arm == flavorassigner.Fit || (arm == flavorassigner.Preempt && len(p.PreemptionTargets) > 0)
 }
