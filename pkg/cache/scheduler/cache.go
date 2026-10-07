@@ -859,13 +859,21 @@ func (c *Cache) UpdateWorkloadIfUnchanged(ctx context.Context, log logr.Logger, 
 	wlKey := workload.Key(w)
 	cqName, assigned := c.workloadAssignedQueues[wlKey]
 	if !assigned {
+		log.V(3).Info("Not updating workload in cache as the cache does not hold it")
 		return false
 	}
 	cq := c.hm.ClusterQueue(cqName)
 	if cq == nil {
+		log.V(3).Info("Not updating workload in cache as its ClusterQueue is not in the cache", "assignedClusterQueue", klog.KRef("", string(cqName)))
 		return false
 	}
-	if cached, found := cq.Workloads[wlKey]; !found || cached.Obj.ResourceVersion != w.ResourceVersion {
+	cached, found := cq.Workloads[wlKey]
+	if !found {
+		log.V(3).Info("Not updating workload in cache as it is missing from its ClusterQueue", "assignedClusterQueue", klog.KRef("", string(cqName)))
+		return false
+	}
+	if cached.Obj.ResourceVersion != w.ResourceVersion {
+		log.V(3).Info("Not updating workload in cache as its resourceVersion differs from the cached one", "cachedResourceVersion", cached.Obj.ResourceVersion, "resourceVersion", w.ResourceVersion)
 		return false
 	}
 	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
