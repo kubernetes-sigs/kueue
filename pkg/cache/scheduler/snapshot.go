@@ -148,7 +148,12 @@ func (s *Snapshot) UsesTASNodesOf(wl *workload.Info, flavors sets.Set[kueue.Reso
 		if target == nil {
 			continue
 		}
-		for _, flavorUsage := range usage {
+		for usageFlavor, flavorUsage := range usage {
+			// Only flavors with a hostname leaf level record their usage per
+			// node, while the domains of other levels can be named like nodes.
+			if s.hostnameLeafTASFlavors[usageFlavor] == nil {
+				continue
+			}
 			for _, tr := range flavorUsage {
 				if target.hasDomain(utiltas.DomainID(tr.Values)) {
 					return true

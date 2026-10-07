@@ -1413,8 +1413,8 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 
 func TestSnapshotUsesTASNodesOf(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
-	// Flavors are named after the leaf level of their topology and the node
-	// label they select, and nodes after their zone and pool labels.
+	// Flavors are named after the leaf level of their topology, if any, and the
+	// node label they select, and nodes after their zone and pool labels.
 	topologies := []*kueue.Topology{
 		utiltestingapi.MakeDefaultOneLevelTopology("hostname"),
 		utiltestingapi.MakeTopology("rack").Levels("rack").Obj(),
@@ -1424,7 +1424,8 @@ func TestSnapshotUsesTASNodesOf(t *testing.T) {
 		utiltestingapi.MakeResourceFlavor("tas-hostname-zone-b").TopologyName("hostname").NodeLabel("zone", "b").Obj(),
 		utiltestingapi.MakeResourceFlavor("tas-hostname-pool-p").TopologyName("hostname").NodeLabel("pool", "p").Obj(),
 		utiltestingapi.MakeResourceFlavor("tas-rack-zone-a").TopologyName("rack").NodeLabel("zone", "a").Obj(),
-		utiltestingapi.MakeResourceFlavor("non-tas").Obj(),
+		utiltestingapi.MakeResourceFlavor("non-tas-zone-a").NodeLabel("zone", "a").Obj(),
+		utiltestingapi.MakeResourceFlavor("non-tas-zone-b").NodeLabel("zone", "b").Obj(),
 	}
 	makeNode := func(name string, labels map[string]string) *corev1.Node {
 		n := node.MakeNode(name).
@@ -1501,16 +1502,35 @@ func TestSnapshotUsesTASNodesOf(t *testing.T) {
 		},
 		"flavor without TAS": {
 			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
-			flavors:  []kueue.ResourceFlavorReference{"non-tas"},
+			flavors:  []kueue.ResourceFlavorReference{"non-tas-zone-a"},
 			want:     false,
 		},
-		"workload of a flavor without a hostname leaf level": {
+		// With TASHandleOverlappingFlavors, only flavors with a hostname leaf
+		// level account for the usage of each other on the nodes they share.
+		"workload of a flavor without a hostname leaf level on nodes of the flavor": {
 			workload: admittedWorkload("tas-rack-zone-a", "rack", "r1"),
 			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 			want:     false,
 		},
-		"workload of a flavor without TAS": {
-			workload: admittedWorkload("non-tas", "", ""),
+		"workload of a flavor without a hostname leaf level on nodes the flavor does not select": {
+			workload: admittedWorkload("tas-rack-zone-a", "rack", "r1"),
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-b"},
+			want:     false,
+		},
+		"workload of a flavor without a hostname leaf level on a rack named like a node of the flavor": {
+			workload: admittedWorkload("tas-rack-zone-a", "rack", "node-zone-a"),
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
+			want:     false,
+		},
+		// Workloads without TAS have no topology assignment, so they hold no
+		// TAS capacity, whichever nodes their flavor selects.
+		"workload of a flavor without TAS on nodes of the flavor": {
+			workload: admittedWorkload("non-tas-zone-a", "", ""),
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
+			want:     false,
+		},
+		"workload of a flavor without TAS on nodes the flavor does not select": {
+			workload: admittedWorkload("non-tas-zone-b", "", ""),
 			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 			want:     false,
 		},
