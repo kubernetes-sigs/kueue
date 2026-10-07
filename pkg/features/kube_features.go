@@ -540,6 +540,13 @@ const (
 	// the generic FinishOrphanedWorkloads owner-deletion check lands.
 	DeferRayServiceFinalizationForRedisCleanup featuregate.Feature = "DeferRayServiceFinalizationForRedisCleanup"
 
+	// owner: @kevin85421
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/16870
+	//
+	// Enables using the top-level RayService suspend field. Disable this gate
+	// when using a KubeRay version older than 1.7.
+	KubeRayServiceUsingTopLevelSuspend featuregate.Feature = "KubeRayServiceUsingTopLevelSuspend"
+
 	// owner: @j-skiba
 	//
 	// Enable caching node matching results (NodeSelector, Tolerations, Affinity) per workload/PodSet
@@ -1052,6 +1059,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	DeferRayServiceFinalizationForRedisCleanup: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	KubeRayServiceUsingTopLevelSuspend: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	TASCacheNodeMatchResults: {
