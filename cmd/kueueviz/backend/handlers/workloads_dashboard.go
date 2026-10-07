@@ -145,8 +145,7 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 	for _, workload := range items {
 		workloadName := workload.Name
 		workloadUID := workload.UID
-		jobUID := workload.Labels["kueue.x-k8s.io/job-uid"]
-		workloadPods := podIndex.podsFor(workload.Namespace, jobUID)
+		workloadPods := podIndex.podsFor(&workload)
 
 		cond := meta.FindStatusCondition(workload.Status.Conditions, kueueapi.WorkloadPreempted)
 
@@ -171,14 +170,21 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 	return workloads, podsOmitted, nil
 }
 
-// workloadPodsIndex stores dashboard pod details by namespace and controller UID.
+// workloadPodsIndex stores dashboard pod details by namespace.
 // The namespace key preserves the All namespaces dashboard view semantics.
 type workloadPodsIndex struct {
-	podsByNamespace map[string]map[string][]map[string]any
+	podsByNamespace map[string]namespacePods
+}
+
+// namespacePods stores the pod details of one namespace by controller UID and
+// by pod group name.
+type namespacePods struct {
+	byControllerUID map[string][]map[string]any
+	byGroupName     map[string][]map[string]any
 }
 
 // buildWorkloadPodsIndex lists pods once per workload namespace and indexes them
-// for lookup by each workload's job UID, but respects RBAC.
+// for lookup by each workload's job UID or name, but respects RBAC.
 func (h *Handlers) buildWorkloadPodsIndex(ctx context.Context, identity middleware.Identity, workloads []kueueapi.Workload) (workloadPodsIndex, bool, error) {
 	workloadNamespaces := make(map[string]struct{})
 	for i := range workloads {
@@ -186,7 +192,7 @@ func (h *Handlers) buildWorkloadPodsIndex(ctx context.Context, identity middlewa
 	}
 
 	index := workloadPodsIndex{
-		podsByNamespace: make(map[string]map[string][]map[string]any, len(workloadNamespaces)),
+		podsByNamespace: make(map[string]namespacePods, len(workloadNamespaces)),
 	}
 	podsOmitted := false
 	for namespace := range workloadNamespaces {
@@ -203,26 +209,46 @@ func (h *Handlers) buildWorkloadPodsIndex(ctx context.Context, identity middlewa
 			return workloadPodsIndex{}, false, fmt.Errorf("error fetching pods in namespace %s: %w", namespace, err)
 		}
 
-		podsByControllerUID := make(map[string][]map[string]any)
+		pods := namespacePods{
+			byControllerUID: make(map[string][]map[string]any),
+			byGroupName:     make(map[string][]map[string]any),
+		}
 		for _, pod := range pl.Items {
-			podLabels := pod.GetLabels()
-			controllerUID := podLabels["controller-uid"]
-			// An empty key would match every Workload without a job UID, such as pod groups.
-			if controllerUID == "" {
-				continue
-			}
 			podDetails := map[string]any{
 				"name":   pod.GetName(),
 				"status": pod.Status,
 			}
-			podsByControllerUID[controllerUID] = append(podsByControllerUID[controllerUID], podDetails)
+			// Empty keys are skipped: they would match every Workload without a job UID.
+			if controllerUID := pod.GetLabels()["controller-uid"]; controllerUID != "" {
+				pods.byControllerUID[controllerUID] = append(pods.byControllerUID[controllerUID], podDetails)
+			}
+			if groupName := podGroupName(&pod); groupName != "" {
+				pods.byGroupName[groupName] = append(pods.byGroupName[groupName], podDetails)
+			}
 		}
-		index.podsByNamespace[namespace] = podsByControllerUID
+		index.podsByNamespace[namespace] = pods
 	}
 	return index, podsOmitted, nil
 }
 
-// podsFor returns the pod details matching the workload namespace and job UID.
-func (i workloadPodsIndex) podsFor(namespace, jobUID string) []map[string]any {
-	return i.podsByNamespace[namespace][jobUID]
+// podsFor returns the pod details of the workload. Pods created by a batch Job
+// match the workload's job UID. Pod group Pods, including those of StatefulSets
+// and LeaderWorkerSets, have no controller UID, so they are matched by the group
+// name, which is the workload name.
+func (i workloadPodsIndex) podsFor(wl *kueueapi.Workload) []map[string]any {
+	pods := i.podsByNamespace[wl.Namespace]
+	if jobPods := pods.byControllerUID[wl.Labels["kueue.x-k8s.io/job-uid"]]; len(jobPods) != 0 {
+		return jobPods
+	}
+	return pods.byGroupName[wl.Name]
+}
+
+// podGroupName returns the pod group name of the pod. Kueue writes it to the
+// annotation by default and to the label when the WorkloadIdentifierAnnotations
+// feature gate is disabled.
+func podGroupName(pod *corev1.Pod) string {
+	if name := pod.GetAnnotations()["kueue.x-k8s.io/pod-group-name"]; name != "" {
+		return name
+	}
+	return pod.GetLabels()["kueue.x-k8s.io/pod-group-name"]
 }
