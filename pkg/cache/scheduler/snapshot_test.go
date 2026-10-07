@@ -1550,13 +1550,13 @@ func TestSnapshotUsesTASNodesOf(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
 			for _, rf := range rfs {
-				cache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
+				cache.AddOrUpdateResourceFlavor(log, rf)
 			}
 			for _, topology := range topologies {
-				cache.AddOrUpdateTopology(log, topology.DeepCopy())
+				cache.AddOrUpdateTopology(log, topology)
 			}
 			for _, n := range nodes {
-				cache.TASCache().SyncNode(n.DeepCopy())
+				cache.TASCache().SyncNode(n)
 			}
 			snapshot, err := cache.Snapshot(ctx)
 			if err != nil {
