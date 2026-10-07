@@ -1621,9 +1621,9 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				},
 			},
 		},
-		// Without a committed replacement, an evicted origin still reserving quota
-		// must be returned to the job reconciler to stop its Pods.
-		"EvictedOriginWithoutCommittedReplacement": {
+		// The origin still reserves quota while eviction is pending, so it is returned
+		// to the job reconciler until an admitted replacement takes over its Pods.
+		"EvictedOriginWithReservedReplacement_ReplacementNotAdmitted": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
@@ -1657,24 +1657,23 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 					Obj(),
 			},
 		},
-		// A committed replacement excludes the origin even before the Finished
-		// condition becomes visible. Completion belongs to FinishReplacedWorkloadSlices.
+		// Once the replacement is admitted, it takes over the origin's Pods, so the
+		// origin is finished with a "SliceReplaced" reason and the replacement is selected.
 		"EvictedOriginWithReservedReplacement_ReplacementAdmitted": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
-						ControllerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(fiveMinutesAgo).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 						SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
 						Obj(),
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
-						ControllerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
 						Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
-						Replaces(testJobObject.Name+"-1").
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 						SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).
 						Obj()).
@@ -1684,36 +1683,37 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				finishedWorkloads: map[string]string{testJobObject.Name + "-1": kueue.WorkloadSliceReplaced},
-				compatible:        true,
+				compatible: true,
 				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
-					ControllerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("1").
 					Creation(now).
 					Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
-					Replaces(testJobObject.Name+"-1").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 					SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).
 					Obj(),
+				finishedWorkloads: map[string]string{
+					testJobObject.Name + "-1": kueue.WorkloadSliceReplaced,
+				},
 			},
 		},
-		// Evicting the successor does not undo its committed replacement.
+		// An admitted replacement that was itself evicted no longer owns the origin's Pods,
+		// so it must not replace the origin: the origin is returned and stays unfinished.
 		"EvictedOriginWithReservedReplacement_ReplacementAdmittedAndEvicted": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
-						ControllerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(fiveMinutesAgo).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 						SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
 						Obj(),
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
-						ControllerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
 						Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
-						Replaces(testJobObject.Name+"-1").
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 						SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
 						Obj()).
@@ -1723,15 +1723,12 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				finishedWorkloads: map[string]string{testJobObject.Name + "-1": kueue.WorkloadSliceReplaced},
-				compatible:        true,
-				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
-					ControllerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+				compatible: true,
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("1").
-					Creation(now).
-					Annotation(WorkloadSliceReplacementFor, string(workload.NewReference(testJobObject.Namespace, testJobObject.Name+"-1"))).
-					Replaces(testJobObject.Name+"-1").
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
+					Creation(fiveMinutesAgo).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
 					Obj(),
 			},
@@ -1740,7 +1737,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			reconciler := Reconciler{Client: tt.args.clnt, Clock: fakeClock, Recorder: events.NewFakeRecorder(20)}
+			reconciler := Reconciler{Client: tt.args.clnt, Clock: fakeClock}
 			gotWorkload, gotCompatible, gotError := reconciler.EnsureWorkloadSlices(ctx, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
 			if diff := cmp.Diff(tt.want.error, gotError, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("EnsureWorkloadSlices() error (-want,+got):\n%s", diff)
@@ -2305,37 +2302,6 @@ func TestFindLatestActiveWorkload(t *testing.T) {
 			}
 			if gotName != tc.want {
 				t.Errorf("FindLatestActiveWorkload() = %q, want %q", gotName, tc.want)
-			}
-		})
-	}
-}
-
-func TestFindNotFinishedWorkloadsHonorsCommittedReplacement(t *testing.T) {
-	gvk := batchv1.SchemeGroupVersion.WithKind("Job")
-	parent := &batchv1.Job{Name: "job", Namespace: "ns", UID: "job-uid"}
-	old := utiltestingapi.MakeWorkload("old", "ns").UID("old-uid").ControllerReference(gvk, parent.Name, string(parent.UID))
-	newSlice := utiltestingapi.MakeWorkload("new", "ns").UID("new-uid").ControllerReference(gvk, parent.Name, string(parent.UID)).Replaces("old")
-	for name, tc := range map[string]struct {
-		successor *kueue.Workload
-		wantNames []string
-	}{
-		"committed replacement excludes stale unfinished predecessor": {successor: newSlice.Obj(), wantNames: []string{"new"}},
-		"finished successor still excludes predecessor":               {successor: newSlice.Clone().FinishedAt(time.Now()).Obj()},
-	} {
-		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
-			cl := utiltesting.NewClientBuilder().WithObjects(old.Obj(), tc.successor).
-				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(gvk), indexer.WorkloadOwnerIndexFunc(gvk)).Build()
-			got, err := FindNotFinishedWorkloads(ctx, cl, parent, gvk)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var names []string
-			for _, wl := range got {
-				names = append(names, wl.Name)
-			}
-			if diff := cmp.Diff(tc.wantNames, names, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("active slices (-want,+got): %s", diff)
 			}
 		})
 	}

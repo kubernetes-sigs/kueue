@@ -44,6 +44,7 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -64,6 +65,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
@@ -1034,6 +1036,13 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			}
 
 			log.V(2).Info("Workload successfully admitted and assigned flavors", "assignments", admission.PodSetAssignments)
+			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
+				// Finish the old slice only after the replacement admission succeeds.
+				// The job reconciler handles recovery if finishing the old slice fails.
+				if err := s.replaceWorkloadSlice(ctx, oldWorkloadSlice.WorkloadInfo.ClusterQueue, e.Obj, oldWorkloadSlice.WorkloadInfo.Obj.DeepCopy()); err != nil {
+					log.Error(err, "Failed to finish old workload slice after admitting replacement; job reconciler will handle recovery")
+				}
+			}
 			return
 		}
 		// Ignore errors because the workload or clusterQueue could have been deleted
@@ -1323,6 +1332,24 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 			metrics.ReportLocalQueueAdmissionChecksWaitTime(lqRef, priorityClassName, 0, s.customLabels.LQGet(utilqueue.KeyFromWorkload(newWorkload)), s.roleTracker)
 		}
 	}
+}
+
+func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.ClusterQueueReference, newSlice, oldSlice *kueue.Workload) error {
+	log := ctrl.LoggerFrom(ctx)
+	if workloadfinish.IsFinished(oldSlice) {
+		log.V(3).Info("Workload slice already finished", "old-slice", klog.KObj(oldSlice), "new-slice", klog.KObj(newSlice))
+		return nil
+	}
+	reason := kueue.WorkloadSliceReplaced
+	message := fmt.Sprintf("Replaced to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconstants.JobUIDLabel])
+	if err := workloadfinish.Finish(ctx, s.client, oldSlice, reason, message, s.clock); err != nil {
+		return fmt.Errorf("failed to replace workload slice: %w", err)
+	}
+
+	log.V(3).Info("Replaced", "old slice", klog.KObj(oldSlice), "new slice", klog.KObj(newSlice), "reason", reason, "message", message, "old-queue", klog.KRef("", string(oldQueue)))
+	s.recorder.Eventf(oldSlice, nil, corev1.EventTypeNormal, reason, "Replaced", message)
+	metrics.ReportReplacedWorkloadSlices(oldQueue, s.customLabels.CQGet(oldQueue), s.roleTracker)
+	return nil
 }
 
 type usageOp int

@@ -221,36 +221,14 @@ func sortAndFilterNotFinishedWorkloads(workloads []kueue.Workload) []kueue.Workl
 		return cmp.Compare(a.UID, b.UID)
 	})
 
-	// A cached predecessor may not yet show the Finished condition written by
-	// the job reconciler. The successor's committed record already identifies
-	// it as replaced, including when that successor is itself finished.
-	type replacementKey struct {
-		replacement kueue.WorkloadReplacement
-		ownerUID    types.UID
-	}
-	committed := make(map[replacementKey]struct{})
-	for i := range workloads {
-		wl := &workloads[i]
-		owner := metav1.GetControllerOfNoCopy(wl)
-		if replaces := wl.Status.Replaces; replaces != nil && owner != nil && replaces.Name != wl.Name {
-			committed[replacementKey{replacement: *replaces, ownerUID: owner.UID}] = struct{}{}
-		}
-	}
+	// Filter out workloads with activated "Finished" condition.
 	return slices.DeleteFunc(workloads, func(w kueue.Workload) bool {
-		if workloadfinish.IsFinished(&w) {
-			return true
-		}
-		owner := metav1.GetControllerOfNoCopy(&w)
-		if owner == nil {
-			return false
-		}
-		_, replaced := committed[replacementKey{replacement: kueue.WorkloadReplacement{Name: w.Name}, ownerUID: owner.UID}]
-		return replaced
+		return workloadfinish.IsFinished(&w)
 	})
 }
 
 // FindNotFinishedWorkloads returns a sorted list of workloads "owned by" the provided job object/gvk combination and
-// without "Finished" condition with status = "True" or a committed replacement.
+// without "Finished" condition with status = "True".
 func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) ([]kueue.Workload, error) {
 	list := &kueue.WorkloadList{}
 	if err := clnt.List(ctx, list, client.InNamespace(jobObject.GetNamespace()), indexer.OwnerReferenceIndexFieldMatcher(jobObjectGVK, jobObject.GetName())); err != nil {
@@ -326,10 +304,10 @@ type Reconciler struct {
 
 // EnsureWorkloadSlices processes the Job object and returns the appropriate workload slice.
 //
-// It returns the selected slice (or nil when a new slice is needed), whether the
-// slices are compatible with the job, and an error if listing, updating, or
-// finishing a slice failed. Committed replacements are finished and recorded
-// before active slices are selected.
+// Returns:
+// - *Workload, true, nil: when a compatible workload exists or a new slice is needed.
+// - nil, false, nil: when an incompatible workload exists and no update is performed.
+// - error: on failure to fetch, update, or deactivate a workload slice.
 func (r *Reconciler) EnsureWorkloadSlices(
 	ctx context.Context,
 	jobPodSets []kueue.PodSet,
@@ -338,21 +316,10 @@ func (r *Reconciler) EnsureWorkloadSlices(
 ) (*kueue.Workload, bool, error) {
 	jobPodSetsCounts := workload.ExtractPodSetCounts(jobPodSets)
 
-	list := &kueue.WorkloadList{}
-	if err := r.Client.List(ctx, list, client.InNamespace(jobObject.GetNamespace()),
-		indexer.OwnerReferenceIndexFieldMatcher(jobObjectGVK, jobObject.GetName())); err != nil {
-		return nil, true, fmt.Errorf("failed to find workload slices: %w", err)
+	workloads, err := FindNotFinishedWorkloads(ctx, r.Client, jobObject, jobObjectGVK)
+	if err != nil {
+		return nil, true, fmt.Errorf("failed to find active workload slices: %w", err)
 	}
-	var controlled []kueue.Workload
-	for _, slice := range list.Items {
-		if metav1.IsControlledBy(&slice, jobObject) {
-			controlled = append(controlled, slice)
-		}
-	}
-	if err := r.FinishReplacedWorkloadSlices(ctx, controlled); err != nil {
-		return nil, true, err
-	}
-	workloads := sortAndFilterNotFinishedWorkloads(list.Items)
 
 	// An evicted slice can still own running Pods. Return it to the job
 	// reconciler until its reservation is released, unless an admitted

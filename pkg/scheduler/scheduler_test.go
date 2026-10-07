@@ -5990,7 +5990,7 @@ func TestSchedule(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo-1", "sales").
 					ClusterName("worker-a").
-					ResourceVersion("1").
+					ResourceVersion("2").
 					Queue("main").
 					PodSets(*utiltestingapi.MakePodSet("one", 10).
 						Request(corev1.ResourceCPU, "1").
@@ -6017,6 +6017,14 @@ func TestSchedule(t *testing.T) {
 						Status:             metav1.ConditionTrue,
 						Reason:             kueue.WorkloadAdmitted,
 						Message:            "The workload is admitted",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadSliceReplaced,
+						Message:            "Replaced to accommodate a workload (UID: , JobUID: ) due to workload slice aggregation",
 						ObservedGeneration: 1,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
@@ -6061,6 +6069,7 @@ func TestSchedule(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("sales", "foo-2", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("sales", "foo-2", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("sales", "foo-1", kueue.WorkloadSliceReplaced, corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload-slice with partial replica scale up partially fits in single clusterQueue": {
@@ -6115,7 +6124,7 @@ func TestSchedule(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo-1", "sales").
 					Annotation(workloadslicing.EnabledAnnotationKey, "true").
-					ResourceVersion("1").
+					ResourceVersion("2").
 					Queue("main").
 					PodSets(*utiltestingapi.MakePodSet("one", 30).
 						Request(corev1.ResourceCPU, "1").
@@ -6142,6 +6151,14 @@ func TestSchedule(t *testing.T) {
 						Status:             metav1.ConditionTrue,
 						Reason:             kueue.WorkloadAdmitted,
 						Message:            "The workload is admitted",
+						ObservedGeneration: 1,
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadSliceReplaced,
+						Message:            "Replaced to accommodate a workload (UID: , JobUID: ) due to workload slice aggregation",
 						ObservedGeneration: 1,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
@@ -6187,6 +6204,7 @@ func TestSchedule(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("sales", "foo-2", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("sales", "foo-2", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("sales", "foo-1", kueue.WorkloadSliceReplaced, corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload-slice with partial replica scale up partially fits when a pod set shrinks below its live grant": {
@@ -6205,7 +6223,7 @@ func TestSchedule(t *testing.T) {
 				*utiltestingapi.MakeLocalQueue("partial-lq", "sales").ClusterQueue("partial-cq").Obj(),
 			},
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("foo-1", "sales").UID("old-uid").
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Queue("partial-lq").
 					PodSets(
@@ -6250,7 +6268,7 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 			wantWorkloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("foo-1", "sales").UID("old-uid").
+				*utiltestingapi.MakeWorkload("foo-1", "sales").
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Queue("partial-lq").
 					PodSets(
@@ -6266,11 +6284,18 @@ func TestSchedule(t *testing.T) {
 						).
 						Obj(), now).
 					AdmittedAt(true, now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadSliceReplaced,
+						Message:            "Replaced to accommodate a workload (UID: , JobUID: ) due to workload slice aggregation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Replaces("foo-1").
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
-					Replaces("foo-1").
 					Queue("partial-lq").
 					PodSets(
 						*utiltestingapi.MakePodSet("head", 1).Request(corev1.ResourceCPU, "1").Obj(),
@@ -6304,6 +6329,7 @@ func TestSchedule(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("sales", "foo-2", "QuotaReserved", corev1.EventTypeNormal).Obj(),
 				utiltesting.MakeEventRecord("sales", "foo-2", "Admitted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("sales", "foo-1", kueue.WorkloadSliceReplaced, corev1.EventTypeNormal).Obj(),
 			},
 		},
 		"workload-slice with partial replica scale up does not partially scale up when feature is disabled": {
@@ -6733,7 +6759,7 @@ func TestSchedule(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("foo-1", "sales").
 					Annotation(workloadslicing.EnabledAnnotationKey, "true").
-					ResourceVersion("1").
+					ResourceVersion("2").
 					Queue("main").
 					PodSets(*utiltestingapi.MakePodSet("one", 50).
 						Request(corev1.ResourceCPU, "1").
@@ -6752,6 +6778,14 @@ func TestSchedule(t *testing.T) {
 						Status:             metav1.ConditionTrue,
 						Reason:             "AdmittedByTest",
 						Message:            "Admitted by ClusterQueue sales",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadSliceReplaced,
+						Message:            "Replaced to accommodate a workload (UID: , JobUID: ) due to workload slice aggregation",
+						ObservedGeneration: 1,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Obj(),
@@ -7034,7 +7068,7 @@ func TestSchedule(t *testing.T) {
 			},
 			additionalLocalQueues: sliceLocalQueues,
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("old", "default").UID("old-uid").
+				*utiltestingapi.MakeWorkload("old", "default").
 					Queue("lq-a").
 					Creation(now.Add(-4*time.Minute)).
 					PodSets(*utiltestingapi.MakePodSet("one", 6).Request(corev1.ResourceCPU, "1").Obj()).
@@ -7084,12 +7118,12 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("grow", "default").
+					Replaces("old").
 					Queue("lq-a").
 					Creation(now.Add(-3*time.Minute)).
 					PodSets(*utiltestingapi.MakePodSet("one", 8).Request(corev1.ResourceCPU, "1").Obj()).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
-					Replaces("old").
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
@@ -7111,7 +7145,7 @@ func TestSchedule(t *testing.T) {
 							Obj()).
 						Obj()).
 					Obj(),
-				*utiltestingapi.MakeWorkload("old", "default").UID("old-uid").
+				*utiltestingapi.MakeWorkload("old", "default").
 					Queue("lq-a").
 					Creation(now.Add(-4*time.Minute)).
 					PodSets(*utiltestingapi.MakePodSet("one", 6).Request(corev1.ResourceCPU, "1").Obj()).
@@ -7122,6 +7156,13 @@ func TestSchedule(t *testing.T) {
 							Count(6).
 							Obj()).
 						Obj(), now.Add(-4*time.Minute)).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadSliceReplaced,
+						Message:            "Replaced to accommodate a workload (UID: , JobUID: ) due to workload slice aggregation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
@@ -7411,7 +7452,7 @@ func TestSchedule(t *testing.T) {
 			},
 			additionalLocalQueues: sliceLocalQueues,
 			workloads: []kueue.Workload{
-				*utiltestingapi.MakeWorkload("old", "default").UID("old-uid").
+				*utiltestingapi.MakeWorkload("old", "default").
 					Queue("lq-a").
 					Creation(now.Add(-4*time.Minute)).
 					PodSets(*utiltestingapi.MakePodSet("one", 4).Request(corev1.ResourceCPU, "1").Obj()).
@@ -7461,12 +7502,12 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("grow", "default").
+					Replaces("old").
 					Queue("lq-a").
 					Creation(now.Add(-3*time.Minute)).
 					PodSets(*utiltestingapi.MakePodSet("one", 6).Request(corev1.ResourceCPU, "1").Obj()).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
-					Replaces("old").
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionTrue,
@@ -7488,7 +7529,7 @@ func TestSchedule(t *testing.T) {
 							Obj()).
 						Obj()).
 					Obj(),
-				*utiltestingapi.MakeWorkload("old", "default").UID("old-uid").
+				*utiltestingapi.MakeWorkload("old", "default").
 					Queue("lq-a").
 					Creation(now.Add(-4*time.Minute)).
 					PodSets(*utiltestingapi.MakePodSet("one", 4).Request(corev1.ResourceCPU, "1").Obj()).
@@ -7499,6 +7540,13 @@ func TestSchedule(t *testing.T) {
 							Count(4).
 							Obj()).
 						Obj(), now.Add(-4*time.Minute)).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadFinished,
+						Status:             metav1.ConditionTrue,
+						Reason:             kueue.WorkloadSliceReplaced,
+						Message:            "Replaced to accommodate a workload (UID: , JobUID: ) due to workload slice aggregation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
 					Obj(),
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
