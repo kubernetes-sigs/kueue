@@ -38,6 +38,7 @@ func (c *Cache) RecordClusterQueueResourceMetrics(log logr.Logger, cqName kueue.
 	}
 
 	cq.reportResourceMetrics(c.fairSharingEnabled)
+	cq.reportDRAResourceMetrics()
 }
 
 func (c *Cache) ClearClusterQueueOldResourceMetrics(log logr.Logger, oldCq *kueue.ClusterQueue) {

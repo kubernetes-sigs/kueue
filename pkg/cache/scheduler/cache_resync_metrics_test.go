@@ -30,12 +30,14 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestResyncClusterQueueGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
@@ -405,4 +407,94 @@ func TestResyncCohortGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 	expectWeightedShare("alpha", 0)
 	expectQuota("beta", 1)
 	expectWeightedShare("beta", 1)
+}
+
+func TestResyncClusterQueueDRADevicesReservedMetricsWhenResourceMetricsDisabled(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	defer metrics.InitMetricVectors(nil)
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+
+	customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team"}})
+	cache := New(utiltesting.NewFakeClient(), WithCustomLabels(customLabels), WithResourceMetrics(false))
+
+	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+
+	cq := utiltestingapi.MakeClusterQueue("cq1").
+		Label("team", "alpha").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").
+				Resource("example.com/gpu", "5").
+				Obj(),
+		).Obj()
+
+	customLabels.CQStore("cq1", cq.GetLabels(), cq.GetAnnotations())
+	if err := cache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed to add cluster queue: %v", err)
+	}
+
+	wl := utiltestingapi.MakeWorkload("wl", "default").
+		PodSets(*utiltestingapi.MakePodSet("main", 2).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").
+			PodSets(kueue.PodSetAssignment{
+				Name: "main",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					"example.com/gpu": "default",
+				},
+				Count: new(int32(2)),
+			}).
+			Obj(), time.Now()).
+		AdmittedAt(true, time.Now()).
+		Obj()
+
+	reqs := []workload.DRADeviceRequest{
+		{
+			PodSet:          "main",
+			DeviceClass:     "gpu.example.com",
+			LogicalResource: "example.com/gpu",
+			CountPerPod:     2,
+		},
+	}
+
+	if !cache.AddOrUpdateWorkload(ctx, log, wl, workload.WithDRADeviceRequests(reqs)) {
+		t.Fatal("expected workload to be added to cache")
+	}
+
+	expectReserved := func(team string, wantVal float64) {
+		t.Helper()
+		got := testingmetrics.CollectFilteredGaugeVec(metrics.ClusterQueueDRADevicesReserved, map[string]string{
+			"cluster_queue": "cq1",
+			"device_class":  "gpu.example.com",
+			"flavor":        "default",
+			"replica_role":  roletracker.RoleStandalone,
+			"custom_team":   team,
+		})
+		if wantVal == 0 {
+			if len(got) != 0 && got[0].Value != 0 {
+				t.Fatalf("Expected 0 or no metric for team %q, got %v", team, got)
+			}
+			return
+		}
+		if len(got) != 1 {
+			t.Fatalf("Expected 1 metric for team %q, got %d", team, len(got))
+		}
+		if got[0].Value != wantVal {
+			t.Fatalf("Expected value %v for team %q, got %v", wantVal, team, got[0].Value)
+		}
+	}
+
+	expectReserved("alpha", 4)
+
+	customLabels.CQStore("cq1", map[string]string{"team": "beta"}, nil)
+	updatedCQ := cq.DeepCopy()
+	updatedCQ.Labels["team"] = "beta"
+	if err := cache.UpdateClusterQueue(log, updatedCQ); err != nil {
+		t.Fatalf("Failed to update cluster queue: %v", err)
+	}
+
+	metrics.ClearClusterQueueDRADevicesReservedMetrics("cq1")
+	cache.ResyncClusterQueueGaugeMetrics("cq1")
+
+	expectReserved("alpha", 0)
+	expectReserved("beta", 4)
 }

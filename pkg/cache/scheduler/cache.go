@@ -237,6 +237,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		roleTracker:         c.roleTracker,
 		lqMetrics:           c.lqMetrics,
 		customLabels:        c.customLabels,
+		draUsage:            make(map[workload.DRADeviceFlavorKey]int64),
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)
@@ -600,6 +601,7 @@ func (c *Cache) resyncClusterQueueGaugeMetricsLocked(cq *clusterQueue) {
 	if c.resourceMetricsEnabled {
 		cq.reportResourceMetrics(c.fairSharingEnabled)
 	}
+	cq.reportDRAResourceMetrics()
 	for _, lq := range cq.localQueues {
 		c.resyncLocalQueueGaugeMetricsLocked(cq, lq)
 	}
