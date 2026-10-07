@@ -8,6 +8,7 @@ type: docs
 ---
 
 This guide builds on [Go Test Comments](https://go.dev/wiki/TestComments),
+the [Google Go Style Guide](https://google.github.io/styleguide/go/),
 the [Kubernetes testing overview](https://www.kubernetes.dev/docs/guide/contributing/#testing),
 and [Kubernetes E2E best practices](https://www.kubernetes.dev/blog/2023/04/12/e2e-testing-best-practices-reloaded/).
 The common guidelines apply to all tests; each level's section adds its own
@@ -25,6 +26,8 @@ guidelines and examples.
   `pkg/util/testing` and `pkg/util/testingjobs`, not with helper functions or
   closures. Declare objects in each test case, or clone a shared base object
   per case. Extend the wrappers if needed.
+  Keep wrappers focused on constructing objects and setting fields. Avoid
+  complex fallback logic or deeply nested conditionals.
 
 - Write integration and E2E tests with Ginkgo/Gomega and the shared suite
   setup. Keep independent scenarios in separate `ginkgo.It` blocks; the
@@ -80,9 +83,10 @@ that needs a real API server (envtest).
 - Use an `Eventually` block to retry on transient errors, such as update
   conflicts, and fail on any other error.
 
-- Use `Consistently` when a result should stay unchanged. Where possible,
-  prefer other checks, such as metrics, because `Consistently` always runs for
-  a fixed duration.
+- Use `Consistently` when a result should stay unchanged over time. Prefer
+  a single assertion (for example, on a counter metric) when checking the
+  outcome of an operation, but only after confirming that all relevant
+  asynchronous processing has completed.
 
 - Clean up resources explicitly, reusing the suite's cleanup helpers, so that
   the same test can be rerun in a loop.
