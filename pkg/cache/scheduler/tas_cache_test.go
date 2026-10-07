@@ -8143,6 +8143,65 @@ func TestFindTopologyAssignments(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 		},
+		"elastic workload scale up with leader: workers from zero to one keep the leader placement": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					count:           1,
+					podSetGroupName: new("elastic-group"),
+					previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					}),
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					count:           1,
+					podSetGroupName: new("elastic-group"),
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+		},
 		"elastic workload same count with leader: reuses both assignments exactly": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
