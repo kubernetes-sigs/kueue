@@ -97,7 +97,7 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 	deltaRequest.PreviousAssignment = nil
 
 	// Previous pods consume capacity.
-	addAssumedUsage(assumedUsage, prevAssignment, &workers)
+	s.addAssumedUsage(assumedUsage, prevAssignment, &workers)
 
 	// The leader pod from the previous slice keeps running during scale-up, so
 	// its assignment must be preserved rather than recomputed; account for its
@@ -106,7 +106,7 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 	placementLeader := leader
 	if leader != nil && leader.PreviousAssignment != nil {
 		leaderPrevAssignment = utiltas.InternalFrom(leader.PreviousAssignment)
-		addAssumedUsage(assumedUsage, leaderPrevAssignment, leader)
+		s.addAssumedUsage(assumedUsage, leaderPrevAssignment, leader)
 		placementLeader = nil
 	}
 
@@ -128,12 +128,12 @@ func (s *TASFlavorSnapshot) handleScaleUp(
 			result[leader.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: leaderPrevAssignment}
 		} else {
 			result[leader.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: deltaAssignments[leader.PodSet.Name]}
-			addAssumedUsageForCycle(assumedUsage, deltaAssignments[leader.PodSet.Name], deltaLeafAssignments[leader.PodSet.Name], leader)
+			s.addAssumedUsageForCycle(assumedUsage, deltaAssignments[leader.PodSet.Name], deltaLeafAssignments[leader.PodSet.Name], leader)
 		}
 	}
 
 	// Add only delta to avoid double-counting previous pods.
-	addAssumedUsageForCycle(assumedUsage, deltaAssignment, deltaLeafAssignments[workers.PodSet.Name], &workers)
+	s.addAssumedUsageForCycle(assumedUsage, deltaAssignment, deltaLeafAssignments[workers.PodSet.Name], &workers)
 	return elasticPlacementResult{applied: true, assignments: result}
 }
 
@@ -159,12 +159,12 @@ func (s *TASFlavorSnapshot) finalizeElasticAssignment(
 ) elasticPlacementResult {
 	result := make(map[kueue.PodSetReference]tasPodSetAssignmentResult)
 	result[workers.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: workersAssignment}
-	addAssumedUsage(assumedUsage, workersAssignment, &workers)
+	s.addAssumedUsage(assumedUsage, workersAssignment, &workers)
 
 	if leader != nil {
 		leaderPrevAssignment := utiltas.InternalFrom(leader.PreviousAssignment)
 		result[leader.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: leaderPrevAssignment}
-		addAssumedUsage(assumedUsage, leaderPrevAssignment, leader)
+		s.addAssumedUsage(assumedUsage, leaderPrevAssignment, leader)
 	}
 
 	return elasticPlacementResult{applied: true, assignments: result}
