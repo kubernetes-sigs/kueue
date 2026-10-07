@@ -136,11 +136,10 @@ func (s *Snapshot) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFla
 // propagatesTASUsage reports whether the TAS usage recorded on the source
 // flavor is also recorded on the snapshots of the other hostname-leaf flavors,
 // which cover the same nodes. sourceFlavors are the TAS flavors of the
-// ClusterQueue holding the usage.
+// ClusterQueue holding the usage. Callers check that
+// TASHandleOverlappingFlavors is enabled.
 func (s *Snapshot) propagatesTASUsage(sourceFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot, sourceFlavor kueue.ResourceFlavorReference) bool {
-	return features.Enabled(features.TASHandleOverlappingFlavors) &&
-		sourceFlavors[sourceFlavor] != nil &&
-		s.hostnameLeafTASFlavors[sourceFlavor] != nil
+	return sourceFlavors[sourceFlavor] != nil && s.hostnameLeafTASFlavors[sourceFlavor] != nil
 }
 
 // UsesOverlappingTASCapacity reports whether the TAS usage of the Workload on
@@ -150,7 +149,7 @@ func (s *Snapshot) propagatesTASUsage(sourceFlavors map[kueue.ResourceFlavorRefe
 // TASHandleOverlappingFlavors is enabled and source and target are distinct
 // hostname-leaf flavors.
 func (s *Snapshot) UsesOverlappingTASCapacity(wl *workload.Info, source, target kueue.ResourceFlavorReference) bool {
-	if source == target {
+	if source == target || !features.Enabled(features.TASHandleOverlappingFlavors) {
 		return false
 	}
 	targetSnapshot := s.hostnameLeafTASFlavors[target]
