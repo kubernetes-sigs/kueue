@@ -183,6 +183,7 @@ func SetNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1
 		changed := false
 		if condition == nil {
 			updatedNode.Status.Conditions = append(updatedNode.Status.Conditions, *newCondition)
+			condition = &updatedNode.Status.Conditions[len(updatedNode.Status.Conditions)-1]
 			changed = true
 		}
 		if newCondition.LastTransitionTime.IsZero() {
