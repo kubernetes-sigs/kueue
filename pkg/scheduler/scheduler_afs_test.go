@@ -28,6 +28,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
@@ -1093,6 +1094,100 @@ func TestShouldApplyEntryPenalty(t *testing.T) {
 				t.Errorf("shouldApplyEntryPenalty() = %t, want %t", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestFailedAdmissionWriteRemovesEntryPenalty checks that a failed admission write takes back the entry penalty pushed by the assume.
+func TestFailedAdmissionWriteRemovesEntryPenalty(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.AdmissionFairSharing, true)
+	features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, false)
+	afsConfig := &config.AdmissionFairSharing{
+		UsageHalfLifeTime:     metav1.Duration{Duration: 10 * time.Second},
+		UsageSamplingInterval: metav1.Duration{Duration: 1 * time.Second},
+	}
+	now := time.Now().Truncate(time.Second)
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	ns := utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).Obj()
+	rf := utiltestingapi.MakeResourceFlavor("default").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rf.Name).
+			Resource(corev1.ResourceCPU, "1").Obj()).
+		AdmissionMode(kueue.UsageBasedAdmissionFairSharing).
+		Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
+	wl := utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+		Queue(kueue.LocalQueueName(lq.Name)).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		Creation(now).
+		Obj()
+
+	lqKey := utilqueue.NewLocalQueueReference(lq.Namespace, kueue.LocalQueueName(lq.Name))
+	var qManager *qcache.Manager
+	var statusWrites int
+	var penaltyDuringWrite bool
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(ns, rf, cq, lq, wl).
+		WithStatusSubresource(&kueue.Workload{}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+				if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" {
+					statusWrites++
+					// The assume must have pushed the penalty before the write, or there is nothing to take back.
+					penaltyDuringWrite = qManager.AfsUsageLedger.HasPendingPenalty(lqKey)
+					return apierrors.NewInternalError(errors.New("injected admission write failure"))
+				}
+				return utiltesting.TreatSSAAsStrategicMerge(ctx, c, subResourceName, obj, patch, opts...)
+			},
+		}).
+		Build()
+
+	fakeClock := testingclock.NewFakeClock(now)
+	cqCache := schdcache.New(cl, schdcache.WithFairSharing(true), schdcache.WithAdmissionFairSharing(afsConfig))
+	qManager = qcache.NewManagerForUnitTests(cl, cqCache,
+		qcache.WithClock(fakeClock), qcache.WithAdmissionFairSharing(afsConfig))
+
+	cqCache.AddOrUpdateResourceFlavor(log, rf)
+	if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+	}
+	if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+	}
+	if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+		t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
+	}
+
+	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{},
+		WithAdmissionFairSharing(afsConfig),
+		WithClock(t, fakeClock),
+		WithPreemptionExpectations(preemptexpectations.New()))
+	wg := sync.WaitGroup{}
+	scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+		func() { wg.Add(1) },
+		func() { wg.Done() },
+	))
+
+	ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+	defer cancel()
+	go qManager.CleanUpOnContext(ctx)
+
+	scheduler.schedule(ctx)
+	wg.Wait()
+
+	if statusWrites != 1 {
+		t.Errorf("got %d workload status writes, want 1", statusWrites)
+	}
+	if !penaltyDuringWrite {
+		t.Error("no entry penalty was pending while the admission write ran")
+	}
+	if qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
+		t.Errorf("entry penalty left after the failed admission write: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
+	}
+	if !cqCache.ClusterQueueEmpty(kueue.ClusterQueueReference(cq.Name)) {
+		t.Error("the workload is still in the ClusterQueue cache")
 	}
 }
 
