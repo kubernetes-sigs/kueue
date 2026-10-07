@@ -38,8 +38,8 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/config/filters"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
@@ -597,7 +597,7 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 	}
 
 	unitWl := *utiltestingapi.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "1")
-	candidate := func(name string, indexes map[common.PreemptionConfigRuleReference][]int) *configurableCandidate {
+	candidate := func(name string, indexes map[policy.PreemptionConfigRuleReference][]int) *configurableCandidate {
 		return &configurableCandidate{
 			WlInfo:                    wlInfoWithName(name),
 			ConfigName:                configName,
@@ -628,8 +628,8 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
 			wantCandidates: []*configurableCandidate{
-				candidate("a1", map[common.PreemptionConfigRuleReference][]int{"test": {0}}),
-				candidate("a2", map[common.PreemptionConfigRuleReference][]int{"test": {0}}),
+				candidate("a1", map[policy.PreemptionConfigRuleReference][]int{"test": {0}}),
+				candidate("a2", map[policy.PreemptionConfigRuleReference][]int{"test": {0}}),
 			},
 		},
 		"Candidate match multiple rules": {
@@ -648,8 +648,8 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
 			wantCandidates: []*configurableCandidate{
-				candidate("a1", map[common.PreemptionConfigRuleReference][]int{"test1": {0}, "test2": {0}}),
-				candidate("a2", map[common.PreemptionConfigRuleReference][]int{"test1": {0}, "test2": {0}}),
+				candidate("a1", map[policy.PreemptionConfigRuleReference][]int{"test1": {0}, "test2": {0}}),
+				candidate("a2", map[policy.PreemptionConfigRuleReference][]int{"test1": {0}, "test2": {0}}),
 			},
 		},
 		"Candidate match multiple rules related to the trigger": {
@@ -672,8 +672,8 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			preemptorCq: "a",
 			trigger:     kueuealpha.InsufficientQuota,
 			wantCandidates: []*configurableCandidate{
-				candidate("a1", map[common.PreemptionConfigRuleReference][]int{"test2": {0}, "test3": {0}}),
-				candidate("a2", map[common.PreemptionConfigRuleReference][]int{"test2": {0}, "test3": {0}}),
+				candidate("a1", map[policy.PreemptionConfigRuleReference][]int{"test2": {0}, "test3": {0}}),
+				candidate("a2", map[policy.PreemptionConfigRuleReference][]int{"test2": {0}, "test3": {0}}),
 			},
 		},
 		"Candidates match multiple selectors": {
@@ -690,8 +690,8 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
 			wantCandidates: []*configurableCandidate{
-				candidate("a1", map[common.PreemptionConfigRuleReference][]int{"test": {0, 1}}),
-				candidate("a2", map[common.PreemptionConfigRuleReference][]int{"test": {0, 1}}),
+				candidate("a1", map[policy.PreemptionConfigRuleReference][]int{"test": {0, 1}}),
+				candidate("a2", map[policy.PreemptionConfigRuleReference][]int{"test": {0, 1}}),
 			},
 		},
 		"Candidate matches only the second selector": {
@@ -711,7 +711,7 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
 			wantCandidates: []*configurableCandidate{
-				candidate("a1", map[common.PreemptionConfigRuleReference][]int{"test": {1}}),
+				candidate("a1", map[policy.PreemptionConfigRuleReference][]int{"test": {1}}),
 			},
 		},
 	}
@@ -963,7 +963,7 @@ func TestPreemptionEvaluatorFindCandidates(t *testing.T) {
 			// When
 			// The yield interrupts FindCandidates once the preemptor fits.
 			var gotTargets []string
-			gotInterrupted := evaluator.FindCandidates(snapshot, preemptor, sets.New(fr), quotaFits, func(target *common.Target) bool {
+			gotInterrupted := evaluator.FindCandidates(snapshot, preemptor, sets.New(fr), quotaFits, func(target *policy.Target) bool {
 				gotTargets = append(gotTargets, string(workload.Key(target.WorkloadInfo.Obj)))
 				return tc.neverFits || !quotaFits()
 			})
