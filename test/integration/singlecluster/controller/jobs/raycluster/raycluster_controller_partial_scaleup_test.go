@@ -239,10 +239,34 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		ginkgo.By("quota usage reflects the full 13 pods (1 head + 12 workers)")
 		expectPodsUsage(13)
 
-		// TODO: 12100
-		// KEP Step 4 (scale down, e.g. 12 -> 8, where spec.podSets.count drops while
-		// status.admission.count stays put) is not covered yet, and neither are the multi-PodSet
-		// order-based scenarios A-D, which need the order-based reducer and its give-back phase.
+		// TODO(#12100): The multi-PodSet order-based scenarios A-D are not covered yet;
+		// they need the order-based reducer and its give-back phase.
+		// -------------------------------------------------------------------------------------
+		// KEP Step 4: a scale-down after the full scale-up was admitted updates the Workload
+		// requested count, but keeps the admitted count until the running pods actually shrink.
+		// -------------------------------------------------------------------------------------
+		ginkgo.By("scaling the worker group down to 8 replicas")
+		scaleFirstWorkerGroup(testRayCluster, 8)
+
+		ginkgo.By("the admitted workload slice records the lower requested count while keeping its 12-worker admission")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(probe), probe)).Should(gomega.Succeed())
+			podSetIdx := slices.IndexFunc(probe.Spec.PodSets, func(ps kueue.PodSet) bool {
+				return ps.Name == workersGroupName
+			})
+			g.Expect(podSetIdx).ShouldNot(gomega.Equal(-1), "no worker PodSet in %v", probe.Spec.PodSets)
+			g.Expect(probe.Spec.PodSets[podSetIdx].Count).Should(gomega.Equal(int32(8)))
+
+			g.Expect(probe.Status.Admission).ShouldNot(gomega.BeNil())
+			assignmentIdx := slices.IndexFunc(probe.Status.Admission.PodSetAssignments, func(psa kueue.PodSetAssignment) bool {
+				return psa.Name == workersGroupName
+			})
+			g.Expect(assignmentIdx).ShouldNot(gomega.Equal(-1), "no worker PodSet assignment in %v", probe.Status.Admission.PodSetAssignments)
+			g.Expect(probe.Status.Admission.PodSetAssignments[assignmentIdx].Count).Should(gomega.Equal(new(int32(12))))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("quota usage still reflects the admitted 13 pods until the scale-down releases them")
+		expectPodsUsage(13)
 	})
 
 	ginkgo.It("Should give the spare capacity to the earlier worker group rather than spread it", func() {
