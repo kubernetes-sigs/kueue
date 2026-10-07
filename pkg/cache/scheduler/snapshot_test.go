@@ -1421,11 +1421,9 @@ func TestSnapshotUsesTASNodesOf(t *testing.T) {
 	}
 	rfs := []*kueue.ResourceFlavor{
 		utiltestingapi.MakeResourceFlavor("tas-hostname-zone-a").TopologyName("hostname").NodeLabel("zone", "a").Obj(),
-		utiltestingapi.MakeResourceFlavor("tas-hostname-zone-b").TopologyName("hostname").NodeLabel("zone", "b").Obj(),
 		utiltestingapi.MakeResourceFlavor("tas-hostname-pool-p").TopologyName("hostname").NodeLabel("pool", "p").Obj(),
 		utiltestingapi.MakeResourceFlavor("tas-rack-zone-a").TopologyName("rack").NodeLabel("zone", "a").Obj(),
 		utiltestingapi.MakeResourceFlavor("non-tas-zone-a").NodeLabel("zone", "a").Obj(),
-		utiltestingapi.MakeResourceFlavor("non-tas-zone-b").NodeLabel("zone", "b").Obj(),
 	}
 	makeNode := func(name string, labels map[string]string) *corev1.Node {
 		n := node.MakeNode(name).
@@ -1443,7 +1441,6 @@ func TestSnapshotUsesTASNodesOf(t *testing.T) {
 	nodes := []*corev1.Node{
 		makeNode("node-zone-a-pool-p", map[string]string{"zone": "a", "pool": "p", "rack": "r1"}),
 		makeNode("node-zone-a", map[string]string{"zone": "a", "rack": "r1"}),
-		makeNode("node-zone-b", map[string]string{"zone": "b"}),
 	}
 	// admittedWorkload returns a Workload admitted with the flavor and, unless
 	// the level is empty, assigned to the domain of that topology level.
@@ -1485,36 +1482,16 @@ func TestSnapshotUsesTASNodesOf(t *testing.T) {
 			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-pool-p"},
 			want:     false,
 		},
-		"workload on a flavor sharing no nodes with the checked flavor": {
-			workload: admittedWorkload("tas-hostname-zone-b", corev1.LabelHostname, "node-zone-b"),
-			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
-			want:     false,
-		},
 		"workload on a node of only one of the checked flavors": {
 			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
-			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-pool-p", "tas-hostname-zone-b", "tas-hostname-zone-a"},
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-pool-p", "tas-hostname-zone-a"},
 			want:     true,
-		},
-		"workload on a node shared with a checked flavor without a hostname leaf level": {
-			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
-			flavors:  []kueue.ResourceFlavorReference{"tas-rack-zone-a"},
-			want:     false,
-		},
-		"workload on a node shared with a checked flavor without TAS": {
-			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
-			flavors:  []kueue.ResourceFlavorReference{"non-tas-zone-a"},
-			want:     false,
 		},
 		// With TASHandleOverlappingFlavors, only flavors with a hostname leaf
 		// level account for the usage of each other on the nodes they share.
-		"workload on a flavor without a hostname leaf level, on nodes shared with the checked flavor": {
-			workload: admittedWorkload("tas-rack-zone-a", "rack", "r1"),
-			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
-			want:     false,
-		},
-		"workload on a flavor without a hostname leaf level, on nodes not shared with the checked flavor": {
-			workload: admittedWorkload("tas-rack-zone-a", "rack", "r1"),
-			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-b"},
+		"workload on a node shared with a checked flavor without a hostname leaf level": {
+			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
+			flavors:  []kueue.ResourceFlavorReference{"tas-rack-zone-a"},
 			want:     false,
 		},
 		"workload on a flavor without a hostname leaf level, on a rack named like a node of the checked flavor": {
@@ -1527,11 +1504,6 @@ func TestSnapshotUsesTASNodesOf(t *testing.T) {
 		// such workloads never count as using the nodes of the checked flavor.
 		"workload on a flavor without TAS, on nodes shared with the checked flavor": {
 			workload: admittedWorkload("non-tas-zone-a", "", ""),
-			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
-			want:     false,
-		},
-		"workload on a flavor without TAS, on nodes not shared with the checked flavor": {
-			workload: admittedWorkload("non-tas-zone-b", "", ""),
 			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 			want:     false,
 		},

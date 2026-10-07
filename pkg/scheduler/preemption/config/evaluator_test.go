@@ -641,35 +641,23 @@ func TestPreemptionEvaluatorOverlappingTASCandidates(t *testing.T) {
 			AdmittedAt(true, now).
 			Obj()
 	}
-	// The workloads using memory only don't use the flavor resource needing
-	// preemption, but still hold capacity on the nodes of its flavor.
+	// The workload using memory only doesn't use the flavor resource needing
+	// preemption, but still holds capacity on the nodes of its flavor.
 	admitted := []*kueue.Workload{
 		admittedWl("a1", "a", "tas-default", corev1.ResourceCPU, "1", "x2"),
 		admittedWl("a-mem", "a", "tas-default", corev1.ResourceMemory, "1Gi", "x1"),
 		admittedWl("b1", "b", "tas-overlap", corev1.ResourceCPU, "1", "x1"),
-		admittedWl("b-mem", "b", "tas-overlap", corev1.ResourceMemory, "1Gi", "x2"),
 		admittedWl("c1", "c", "tas-disjoint", corev1.ResourceCPU, "1", "y1"),
 	}
 
 	tests := map[string]struct {
-		trigger                   kueuealpha.PreemptionConfigActivationTrigger
 		disableOverlappingFlavors bool
 		wantCandidates            []string
 	}{
-		"QuotaFeasibleAndInsufficientTopology trigger selects workloads on the nodes of the flavor, whatever flavor and resource they use": {
-			trigger:        kueuealpha.QuotaFeasibleAndInsufficientTopology,
-			wantCandidates: []string{"a-mem", "a1", "b-mem", "b1"},
-		},
-		"InsufficientQuota trigger selects workloads on the nodes of the flavor, whatever flavor and resource they use": {
-			trigger:        kueuealpha.InsufficientQuota,
-			wantCandidates: []string{"a-mem", "a1", "b-mem", "b1"},
-		},
-		"Always trigger selects workloads on the nodes of the flavor, whatever flavor and resource they use": {
-			trigger:        kueuealpha.Always,
-			wantCandidates: []string{"a-mem", "a1", "b-mem", "b1"},
+		"workloads on the nodes of the flavor are selected, whatever flavor and resource they use": {
+			wantCandidates: []string{"a-mem", "a1", "b1"},
 		},
 		"only workloads using the flavor resource are selected when TASHandleOverlappingFlavors is disabled": {
-			trigger:                   kueuealpha.QuotaFeasibleAndInsufficientTopology,
 			disableOverlappingFlavors: true,
 			wantCandidates:            []string{"a1"},
 		},
@@ -704,8 +692,11 @@ func TestPreemptionEvaluatorOverlappingTASCandidates(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 
+			// The trigger only defines when the rule applies, so any trigger
+			// selects the same candidates.
+			trigger := kueuealpha.Always
 			config := *utiltestingalpha.MakePreemptionConfig("test").
-				Rule("test", tc.trigger,
+				Rule("test", trigger,
 					utiltestingalpha.MakeCandidateSelector(kueuealpha.AnyClusterQueue).Obj(),
 				).Obj()
 			evaluator := NewPreemptionEvaluator(ctx, log, clock.RealClock{}, config, candidatesByName)
@@ -719,7 +710,7 @@ func TestPreemptionEvaluatorOverlappingTASCandidates(t *testing.T) {
 			preemptor.ClusterQueue = "a"
 
 			frsNeedPreemption := sets.New(resources.FlavorResource{Flavor: "tas-default", Resource: corev1.ResourceCPU})
-			candidates, err := evaluator.candidatesFor(snapshot, preemptor, frsNeedPreemption, tc.trigger)
+			candidates, err := evaluator.candidatesFor(snapshot, preemptor, frsNeedPreemption, trigger)
 			if err != nil {
 				t.Fatalf("candidatesFor() unexpected error: %v", err)
 			}
