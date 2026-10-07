@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"sync"
 
@@ -566,7 +567,11 @@ func (c *Cache) ResyncCohortGaugeMetrics(log logr.Logger, cohortName kueue.Cohor
 		if features.Enabled(features.CustomMetricLabels) {
 			customLabelValues = c.customLabels.CohortGet(cohort.Name)
 		}
-		metrics.ReportCohortWeightedShare(cohort.Name, drs.PreciseWeightedShare(), customLabelValues, c.roleTracker)
+		weightedShare := drs.PreciseWeightedShare()
+		if weightedShare == math.Inf(1) {
+			weightedShare = math.NaN()
+		}
+		metrics.ReportCohortWeightedShare(cohort.Name, weightedShare, customLabelValues, c.roleTracker)
 	}
 }
 

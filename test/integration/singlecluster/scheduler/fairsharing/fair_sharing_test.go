@@ -772,6 +772,29 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			behavioral.ExpectReservingActiveWorkloadsMetric(physicsQueue, 2)
 			behavioral.ExpectReservingActiveWorkloadsMetric(llmQueue, 4)
 		})
+
+		ginkgo.It("should have NaN weighted share metric for a 0-weight borrowing cohort", func() {
+			createCohort(utiltestingapi.MakeCohort("root").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "4").Obj()).
+				Obj())
+			childCohort := createCohort(utiltestingapi.MakeCohort("child").
+				Parent("root").
+				FairWeight(resource.MustParse("0")).
+				Obj())
+			cq := createQueue(utiltestingapi.MakeClusterQueue("best-effort-cq").
+				Cohort("child").
+				FairWeight(resource.MustParse("0")).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "0").Obj()).
+				Obj())
+
+			wl := createWorkload(cq.Name, "2")
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			// A zero-weight borrowing Cohort has a +Inf weighted share, which is
+			// reported as MaxInt64 in the status and as NaN in the metric, matching
+			// the ClusterQueue behaviour and the metric help text.
+			expectCohortWeightedShare(childCohort.Name, math.Inf(1))
+		})
 	})
 
 	ginkgo.When("using hierarchical cohorts with several flavors", func() {
@@ -1643,13 +1666,17 @@ func expectCohortWeightedShare(cohortName string, weightedShare float64) {
 		g.ExpectWithOffset(1, cohort.Status.FairSharing.WeightedShare).Should(gomega.Equal(core.WeightedShare(weightedShare)))
 	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-	// check Metric
+	// check Metric (for a 0-weight borrowing cohort, +Inf maps to MaxInt64 in status and NaN in metric)
 	lvs := []string{cohortName, roletracker.RoleStandalone}
 	metric := metrics.CohortWeightedShare.WithLabelValues(lvs...)
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		v, err := testutil.GetGaugeMetricValue(metric)
 		g.ExpectWithOffset(1, err).ToNot(gomega.HaveOccurred())
-		g.ExpectWithOffset(1, v).Should(gomega.Equal(weightedShare))
+		if math.IsInf(weightedShare, 1) {
+			g.ExpectWithOffset(1, math.IsNaN(v)).Should(gomega.BeTrue())
+		} else {
+			g.ExpectWithOffset(1, v).Should(gomega.Equal(weightedShare))
+		}
 	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
