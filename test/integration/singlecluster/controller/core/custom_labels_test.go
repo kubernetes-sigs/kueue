@@ -1500,9 +1500,22 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 				Request(corev1.ResourceCPU, "1").Obj()
 			behavioral.MustCreate(ctx, k8sClient, wl1)
 
+			expectPendingCounts := func(status string) {
+				gomega.Eventually(func(g gomega.Gomega) {
+					got := make(map[string]float64)
+					for _, point := range testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
+						"cluster_queue": cq.Name, "replica_role": roletracker.RoleStandalone, "custom_team_cq": "ml-team",
+					}) {
+						got[point.Labels["status"]+"/"+point.Labels["custom_wl_kind"]] = point.Value
+					}
+					g.Expect(got).To(gomega.Equal(map[string]float64{
+						status + "/kind1": 1, status + "/kind2": 1,
+					}))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			}
+
 			ginkgo.By("verifying initial active counts")
-			behavioral.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind1")
-			behavioral.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind2")
+			expectPendingCounts(metrics.PendingStatusActive)
 
 			ginkgo.By("stopping the ClusterQueue to make it inactive")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1513,8 +1526,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("verifying pending workloads are reported as inadmissible")
-			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 1, "ml-team", "kind1")
-			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 1, "ml-team", "kind2")
+			expectPendingCounts(metrics.PendingStatusInadmissible)
 
 			ginkgo.By("resuming the ClusterQueue to make it active")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1525,8 +1537,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("verifying they restore to active statuses")
-			behavioral.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind1")
-			behavioral.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind2")
+			expectPendingCounts(metrics.PendingStatusActive)
 		})
 
 		ginkgo.It("should update metrics when labels on a pending workload change", func() {

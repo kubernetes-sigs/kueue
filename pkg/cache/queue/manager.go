@@ -430,9 +430,8 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissible
 		notifyRetryInadmissibleWithoutLock(m, sets.New(cqName))
 	}
 	becameActive := !oldActive && cqImpl.Active()
-	if becameActive {
-		reportPendingWorkloads(m, cqName)
-	}
+	// CQ readiness changes the metric classification even if no workload moves.
+	reportPendingWorkloads(m, cqName)
 	if becameActive {
 		m.Broadcast()
 	}
