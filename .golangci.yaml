@@ -97,12 +97,6 @@ linters:
       - linters:
           - fatcontext
         path: ^test/*
-      # test/util is the last package named "util". It is scheduled to be split
-      # into purpose-named packages; drop this exclusion when that is done.
-      - linters:
-          - revive
-        path: ^test/util/
-        text: 'package-naming: '
 issues:
   # Show all issues from a linter
   max-issues-per-linter: 0
