@@ -528,9 +528,7 @@ func TestIsSuspended(t *testing.T) {
 		"not suspended": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Spec: rayv1.RayServiceSpec{
-					RayClusterSpec: rayv1.RayClusterSpec{
-						Suspend: new(false),
-					},
+					Suspend: false,
 				},
 			}),
 			want: false,
@@ -538,18 +536,14 @@ func TestIsSuspended(t *testing.T) {
 		"suspended": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Spec: rayv1.RayServiceSpec{
-					RayClusterSpec: rayv1.RayClusterSpec{
-						Suspend: new(true),
-					},
+					Suspend: true,
 				},
 			}),
 			want: true,
 		},
-		"suspend is nil": {
+		"default (unset) - not suspended": {
 			rayService: (*RayService)(&rayv1.RayService{
-				Spec: rayv1.RayServiceSpec{
-					RayClusterSpec: rayv1.RayClusterSpec{},
-				},
+				Spec: rayv1.RayServiceSpec{},
 			}),
 			want: false,
 		},
