@@ -41,11 +41,15 @@ func (s *TASFlavorSnapshot) handleElasticWorkload(
 	assumedUsage map[utiltas.TopologyDomainID]resources.Requests,
 	opts *findTopologyAssignmentsOption,
 ) elasticPlacementResult {
-	if workers.PreviousAssignment == nil {
+	if workers.PreviousAssignment == nil && (leader == nil || leader.PreviousAssignment == nil) {
 		return elasticPlacementResult{applied: false}
 	}
 
 	prevAssignment := utiltas.InternalFrom(workers.PreviousAssignment)
+	if prevAssignment == nil {
+		// Workers scaled up from zero, while the leader keeps running.
+		prevAssignment = &utiltas.TopologyAssignment{}
+	}
 
 	if isStale, staleDomain := s.IsTopologyAssignmentStale(prevAssignment); isStale {
 		s.log.V(3).Info("previous TAS assignment is stale, doing fresh placement",
