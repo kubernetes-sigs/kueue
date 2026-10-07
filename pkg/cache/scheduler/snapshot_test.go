@@ -1470,71 +1470,71 @@ func TestSnapshotUsesTASNodesOf(t *testing.T) {
 		flavors                   []kueue.ResourceFlavorReference
 		want                      bool
 	}{
-		"workload on a node of the flavor": {
+		"tas-hostname-zone-a workload on a node of tas-hostname-zone-a": {
 			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
 			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 			want:     true,
 		},
-		"workload of another flavor on a node of the flavor": {
+		"tas-hostname-pool-p workload on a node of tas-hostname-zone-a": {
 			workload: admittedWorkload("tas-hostname-pool-p", corev1.LabelHostname, "node-zone-a-pool-p"),
 			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 			want:     true,
 		},
-		"workload of another flavor on a node the flavor does not select": {
+		"tas-hostname-zone-a workload on a node tas-hostname-pool-p does not select": {
 			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
 			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-pool-p"},
 			want:     false,
 		},
-		"workload of a flavor selecting disjoint nodes": {
+		"tas-hostname-zone-b workload on a node tas-hostname-zone-a does not select": {
 			workload: admittedWorkload("tas-hostname-zone-b", corev1.LabelHostname, "node-zone-b"),
 			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 			want:     false,
 		},
-		"workload on a node of one of the flavors": {
+		"tas-hostname-zone-a workload on a node of one of tas-hostname-pool-p, tas-hostname-zone-b and tas-hostname-zone-a": {
 			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
 			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-pool-p", "tas-hostname-zone-b", "tas-hostname-zone-a"},
 			want:     true,
 		},
-		"flavor without a hostname leaf level": {
+		"tas-hostname-zone-a workload on a node of tas-rack-zone-a": {
 			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
 			flavors:  []kueue.ResourceFlavorReference{"tas-rack-zone-a"},
 			want:     false,
 		},
-		"flavor without TAS": {
+		"tas-hostname-zone-a workload on a node of non-tas-zone-a": {
 			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
 			flavors:  []kueue.ResourceFlavorReference{"non-tas-zone-a"},
 			want:     false,
 		},
 		// With TASHandleOverlappingFlavors, only flavors with a hostname leaf
 		// level account for the usage of each other on the nodes they share.
-		"workload of a flavor without a hostname leaf level on nodes of the flavor": {
+		"tas-rack-zone-a workload on nodes of tas-hostname-zone-a": {
 			workload: admittedWorkload("tas-rack-zone-a", "rack", "r1"),
 			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 			want:     false,
 		},
-		"workload of a flavor without a hostname leaf level on nodes the flavor does not select": {
+		"tas-rack-zone-a workload on nodes tas-hostname-zone-b does not select": {
 			workload: admittedWorkload("tas-rack-zone-a", "rack", "r1"),
 			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-b"},
 			want:     false,
 		},
-		"workload of a flavor without a hostname leaf level on a rack named like a node of the flavor": {
+		"tas-rack-zone-a workload on a rack named like a node of tas-hostname-zone-a": {
 			workload: admittedWorkload("tas-rack-zone-a", "rack", "node-zone-a"),
 			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 			want:     false,
 		},
 		// Workloads without TAS have no topology assignment, so they hold no
 		// TAS capacity, whichever nodes their flavor selects.
-		"workload of a flavor without TAS on nodes of the flavor": {
+		"non-tas-zone-a workload on nodes of tas-hostname-zone-a": {
 			workload: admittedWorkload("non-tas-zone-a", "", ""),
 			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 			want:     false,
 		},
-		"workload of a flavor without TAS on nodes the flavor does not select": {
+		"non-tas-zone-b workload on nodes tas-hostname-zone-a does not select": {
 			workload: admittedWorkload("non-tas-zone-b", "", ""),
 			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 			want:     false,
 		},
-		"TASHandleOverlappingFlavors is disabled": {
+		"tas-hostname-pool-p workload on a node of tas-hostname-zone-a when TASHandleOverlappingFlavors is disabled": {
 			disableOverlappingFlavors: true,
 			workload:                  admittedWorkload("tas-hostname-pool-p", corev1.LabelHostname, "node-zone-a-pool-p"),
 			flavors:                   []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
