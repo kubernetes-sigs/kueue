@@ -31,6 +31,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Cohorts", func() {
@@ -1205,14 +1206,14 @@ var _ = ginkgo.Describe("Cohorts", func() {
 			})
 
 			ginkgo.By("Finish one workload and verify reservations", func() {
-				behavioral.FinishWorkloads(ctx, k8sClient, wlCh1c)
+				integration.FinishWorkloads(ctx, k8sClient, wlCh1c)
 
 				behavioral.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 14)
 				behavioral.ExpectCohortSubtreeResourceReservationsGaugeMetric("root", defaultFlavor.Name, corev1.ResourceCPU.String(), 21)
 			})
 
 			ginkgo.By("Release high-overflow workload in ch1 and verify reservations", func() {
-				behavioral.FinishWorkloads(ctx, k8sClient, wlCh1b)
+				integration.FinishWorkloads(ctx, k8sClient, wlCh1b)
 
 				behavioral.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch1", defaultFlavor.Name, corev1.ResourceCPU.String(), 6)
 				behavioral.ExpectCohortSubtreeResourceReservationsGaugeMetric("ch2", defaultFlavor.Name, corev1.ResourceCPU.String(), 7)

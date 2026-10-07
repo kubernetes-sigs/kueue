@@ -61,23 +61,6 @@ func ExpectAllPodsInNamespaceDeleted(ctx context.Context, c client.Client, ns *c
 	}, LongTimeout, Interval).Should(gomega.Succeed())
 }
 
-func SetPodsPhaseByKeys(ctx context.Context, k8sClient client.Client, phase corev1.PodPhase, keys ...client.ObjectKey) {
-	ginkgo.GinkgoHelper()
-	for _, key := range keys {
-		updatedPod := corev1.Pod{}
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, key, &updatedPod)).To(gomega.Succeed())
-			updatedPod.Status.Phase = phase
-			g.Expect(k8sClient.Status().Update(ctx, &updatedPod)).To(gomega.Succeed())
-		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to set pod phase", &updatedPod))
-	}
-}
-
-func SetPodsPhase(ctx context.Context, k8sClient client.Client, phase corev1.PodPhase, pods ...*corev1.Pod) {
-	ginkgo.GinkgoHelper()
-	SetPodsPhaseByKeys(ctx, k8sClient, phase, podKeys(pods)...)
-}
-
 func ExpectPodUnsuspendedWithNodeSelectors(ctx context.Context, k8sClient client.Client, key types.NamespacedName, ns map[string]string) {
 	createdPod := &corev1.Pod{}
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
@@ -109,27 +92,5 @@ func ExpectPodsFinalizedOrGone(ctx context.Context, k8sClient client.Client, key
 			g.Expect(err).To(gomega.Succeed())
 			g.Expect(createdPod.Finalizers).To(gomega.BeEmpty())
 		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Expected pod to be finalized", createdPod))
-	}
-}
-
-func podKeys(pods []*corev1.Pod) []client.ObjectKey {
-	keys := make([]client.ObjectKey, 0, len(pods))
-	for _, p := range pods {
-		keys = append(keys, client.ObjectKeyFromObject(p))
-	}
-	return keys
-}
-
-func BindPodWithNode(ctx context.Context, k8sClient client.Client, nodeName string, pods ...*corev1.Pod) {
-	for _, p := range pods {
-		updatedPod := corev1.Pod{}
-		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &updatedPod)).To(gomega.Succeed())
-		binding := corev1.Binding{
-			Target: corev1.ObjectReference{
-				Kind: "Node",
-				Name: nodeName,
-			},
-		}
-		gomega.ExpectWithOffset(1, k8sClient.SubResource("binding").Create(ctx, &updatedPod, &binding)).To(gomega.Succeed())
 	}
 }

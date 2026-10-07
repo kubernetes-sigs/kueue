@@ -51,6 +51,7 @@ import (
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 const (
@@ -195,8 +196,8 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 					},
 				},
 			).Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+			integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 			lookupKey := types.NamespacedName{Name: jobSetName, Namespace: ns.Name}
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -250,8 +251,8 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 					},
 				).
 				Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+			integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, lookupKey, createdJobSet)).Should(gomega.Succeed())
 				g.Expect(*createdJobSet.Spec.Suspend).Should(gomega.BeFalse())
@@ -332,8 +333,8 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 						},
 					},
 				).Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
 			ginkgo.By("wait for the jobset to be unsuspended", func() {
@@ -461,8 +462,8 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 						},
 					).
 					Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
 			ginkgo.By("checking the jobset gets unsuspended", func() {
@@ -615,8 +616,8 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 						},
 					).
 					Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, admission)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				integration.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, admission)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
 			ginkgo.By("await for the job to be admitted", func() {
@@ -657,8 +658,8 @@ var _ = ginkgo.Describe("JobSet controller", ginkgo.Label("job:jobset", "area:jo
 			})
 
 			ginkgo.By("clear the workload's admission to stop the job", func() {
-				behavioral.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, nil)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				integration.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, nil)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
 			ginkgo.By("await for the job to be suspended", func() {
@@ -833,8 +834,8 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 					},
 				},
 			).Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+			integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 
 			ginkgo.By("Await for the JobSet to be unsuspended")
@@ -844,7 +845,7 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			if podsReadyTestSpec.podsScheduled != nil {
-				behavioral.SetPodsScheduledCondition(ctx, k8sClient, wlLookupKey, *podsReadyTestSpec.podsScheduled)
+				integration.SetPodsScheduledCondition(ctx, k8sClient, wlLookupKey, *podsReadyTestSpec.podsScheduled)
 			}
 
 			if podsReadyTestSpec.beforeJobSetStatus != nil {
@@ -870,8 +871,8 @@ var _ = ginkgo.Describe("JobSet controller when waitForPodsReady enabled", ginkg
 
 			if podsReadyTestSpec.suspended {
 				ginkgo.By("Unset admission of the workload to suspend the JobSet")
-				behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, nil)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, nil)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			}
 
 			ginkgo.By("Verify the PodsReady condition is added")
@@ -1221,7 +1222,7 @@ var _ = ginkgo.Describe("JobSet controller with TopologyAwareScheduling", ginkgo
 				Ready().
 				Obj(),
 		}
-		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = utiltestingapi.MakeDefaultTwoLevelTopology("default")
 		behavioral.MustCreate(ctx, k8sClient, topology)

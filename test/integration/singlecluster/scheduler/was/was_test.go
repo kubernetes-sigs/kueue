@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:scheduler-library"), func() {
@@ -102,7 +103,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					Ready().
 					Obj(),
 			}
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 			deviceClass = testingdra.MakeDeviceClass("gpu.test.com").Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
@@ -292,7 +293,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					Ready().
 					Obj(),
 			}
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, pluginNodes)
+			integration.CreateNodesWithStatus(ctx, k8sClient, pluginNodes)
 			ginkgo.DeferCleanup(func() {
 				for _, node := range pluginNodes {
 					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
@@ -350,7 +351,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 				}).
 				Ready().
 				Obj()
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*failedNode})
+			integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*failedNode})
 			ginkgo.DeferCleanup(func() {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, failedNode, true)
 			})
@@ -415,7 +416,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					Ready().
 					Obj(),
 			}
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, replacementNodes)
+			integration.CreateNodesWithStatus(ctx, k8sClient, replacementNodes)
 			ginkgo.DeferCleanup(func() {
 				for _, node := range replacementNodes {
 					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
@@ -457,7 +458,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 				}).
 				Ready().
 				Obj()
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*retainedNode})
+			integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*retainedNode})
 			ginkgo.DeferCleanup(func() {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, retainedNode, true)
 			})
@@ -494,7 +495,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 				}).
 				Ready().
 				Obj()
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*spareNode})
+			integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*spareNode})
 			ginkgo.DeferCleanup(func() {
 				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, spareNode, true)
 			})
@@ -902,7 +903,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					Ready().
 					Obj(),
 			}
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 			// A Pod outside Kueue holds hostPort 8080 on was-n1, the node TAS
 			// picks on its own. It is created before the queues so that its
