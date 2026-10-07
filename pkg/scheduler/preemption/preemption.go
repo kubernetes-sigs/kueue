@@ -46,9 +46,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	configurable "sigs.k8s.io/kueue/pkg/scheduler/preemption/config"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/priority"
@@ -127,7 +127,7 @@ func New(
 	return p
 }
 
-type Target = preemptioncommon.Target
+type Target = policy.Target
 
 // ensures that Target implements ObjectRefProvider interface at compile time
 var _ logging.ObjectRefProvider = (*Target)(nil)
@@ -199,7 +199,7 @@ func (p *Preemptor) newConfigurableEvaluator(ctx context.Context, log logr.Logge
 // considered for a preemptor of the given ClusterQueue.
 func (p *Preemptor) candidatesOrdering(log logr.Logger, cq kueue.ClusterQueueReference) func(a, b *workload.Info) int {
 	return func(a, b *workload.Info) int {
-		return preemptioncommon.CandidatesOrdering(log, p.enabledAfs, a, b, cq, p.clock.Now())
+		return policy.CandidatesOrdering(log, p.enabledAfs, a, b, cq, p.clock.Now())
 	}
 }
 
@@ -459,18 +459,18 @@ func findCandidatesForPolicy(
 	log logr.Logger,
 	wl *kueue.Workload,
 	workloadsToFilter map[workload.Reference]*workload.Info,
-	policy kueue.PreemptionPolicy,
+	preemptionPolicy kueue.PreemptionPolicy,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
 	workloadOrdering workload.Ordering,
 ) []*workload.Info {
 	var candidates []*workload.Info
 	for _, candidateWl := range workloadsToFilter {
-		if !preemptioncommon.SatisfiesPreemptionPolicy(
+		if !policy.SatisfiesPreemptionPolicy(
 			log,
 			wl,
 			candidateWl.Obj,
 			workloadOrdering,
-			policy) {
+			preemptionPolicy) {
 			continue
 		}
 
