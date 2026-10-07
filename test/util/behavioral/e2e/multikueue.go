@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"regexp"
+	"strings"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
@@ -289,4 +290,24 @@ func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, k8sClient 
 		g.Expect(workerName).NotTo(gomega.BeEmpty())
 	}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 	return workerName
+}
+
+func AssertMsgForMk(ctx context.Context, msg string, wlKey client.ObjectKey, k8sManagerClient client.Client, k8sWorker1Client client.Client, k8sWorker2Client client.Client) func() string {
+	return func() string {
+		return strings.Join([]string{
+			behavioral.AssertMsg("Manager", getWorkload(ctx, k8sManagerClient, wlKey))(),
+			behavioral.AssertMsg("Worker1", getWorkload(ctx, k8sWorker1Client, wlKey))(),
+			behavioral.AssertMsg("Worker2", getWorkload(ctx, k8sWorker2Client, wlKey))(),
+		}, "\n")
+	}
+}
+
+func getWorkload(ctx context.Context, c client.Client, wlKey client.ObjectKey) *kueue.Workload {
+	wl := &kueue.Workload{}
+	err := c.Get(ctx, wlKey, wl)
+	if err != nil {
+		gomega.Expect(client.IgnoreNotFound(err)).NotTo(gomega.HaveOccurred())
+		return nil
+	}
+	return wl
 }
