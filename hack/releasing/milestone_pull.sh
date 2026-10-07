@@ -40,7 +40,8 @@ function usage() {
   echo
   echo "  Applies to major and minor releases only; patch releases have no milestone step."
   echo
-  echo "  Set the DRY_RUN environment var to skip the milestone creation, git push and PR."
+  echo "  Set the DRY_RUN environment var to skip the git push and PR creation."
+  echo "  When CREATE_MILESTONE is also set, DRY_RUN additionally skips the milestone creation."
   echo "  When DRY_RUN is set the script will leave you in a branch containing the commits."
   echo
   echo "  The next minor's milestone is created by the /create-milestone ChatOps command. Set CREATE_MILESTONE"
