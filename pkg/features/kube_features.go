@@ -767,6 +767,13 @@ const (
 	// comparison is used to prevent eviction of existing workloads created
 	// before rank-based ordering was added.
 	KubeRayEvictOnInconsistentTopologyRequest featuregate.Feature = "KubeRayEvictOnInconsistentTopologyRequest"
+
+	// owner: @JanKaczmarski
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/14543
+	//
+	// Verifies fair sharing preemption targets after fillBackWorkloads
+	// to prevent preemption loops caused by temporary share deflation.
+	FairSharingVerifyFinalTargets featuregate.Feature = "FairSharingVerifyFinalTargets"
 )
 
 func init() {
@@ -1164,6 +1171,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	KubeRayEvictOnInconsistentTopologyRequest: {
 		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha}, // Beta in 0.20
+	},
+
+	FairSharingVerifyFinalTargets: {
+		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

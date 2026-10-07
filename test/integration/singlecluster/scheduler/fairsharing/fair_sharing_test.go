@@ -335,6 +335,87 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 		})
 	})
 
+	ginkgo.When("Intra-clusterqueue candidates would temporarily lower preemptor DRS to preempt cross-clusterqueue workload", func() {
+		var (
+			cqP *kueue.ClusterQueue
+			cqT *kueue.ClusterQueue
+		)
+		ginkgo.BeforeEach(func() {
+			createCohort(utiltestingapi.MakeCohort("loop-cohort").Obj())
+
+			cqP = createQueue(utiltestingapi.MakeClusterQueue("cq-p-" + ns.Name).
+				Cohort("loop-cohort").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "50").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				FairWeight(resource.MustParse("1")).
+				Obj())
+
+			cqT = createQueue(utiltestingapi.MakeClusterQueue("cq-t-" + ns.Name).
+				Cohort("loop-cohort").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+					Resource(corev1.ResourceCPU, "50").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerOrNewerEqualPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}).
+				FairWeight(resource.MustParse("1")).
+				Obj())
+		})
+
+		ginkgo.It("should prevent cross-clusterqueue preemption when total preemptor demand DRS exceeds target DRS", func() {
+			ginkgo.By("Step 1: Admitting p-small (30 CPU) in cq-p and t-hero (70 CPU) in cq-t")
+			pSmall := utiltestingapi.MakeWorkload("p-small", ns.Name).
+				Queue(kueue.LocalQueueName(cqP.Name)).
+				Request(corev1.ResourceCPU, "30").
+				Priority(0).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, pSmall)
+			wls = append(wls, pSmall)
+
+			tHero := utiltestingapi.MakeWorkload("t-hero", ns.Name).
+				Queue(kueue.LocalQueueName(cqT.Name)).
+				Request(corev1.ResourceCPU, "70").
+				Priority(0).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, tHero)
+			wls = append(wls, tHero)
+
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, pSmall, tHero)
+
+			ginkgo.By("Step 2: Creating p-hero (60 CPU) with higher priority in cq-p")
+			pHero := utiltestingapi.MakeWorkload("p-hero", ns.Name).
+				Queue(kueue.LocalQueueName(cqP.Name)).
+				Request(corev1.ResourceCPU, "60").
+				Priority(10).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, pHero)
+			wls = append(wls, pHero)
+
+			ginkgo.By("Step 3: Ensuring p-hero cannot preempt t-hero or cause a preemption loop")
+			// Preemptor's total demand with p-hero would be 30 + 60 = 90 CPU (borrowing 40),
+			// which exceeds t-hero's borrowing (20 CPU, 70 - 50).
+			// Therefore, t-hero should not be preempted, p-small should not be evicted,
+			// and p-hero should remain pending.
+			gomega.Consistently(func(g gomega.Gomega) {
+				var wl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tHero), &wl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(&wl)).To(gomega.BeTrue(), "t-hero should remain admitted")
+				g.Expect(meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeFalse(), "t-hero should not be preempted")
+
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pSmall), &wl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(&wl)).To(gomega.BeTrue(), "p-small should remain admitted")
+				g.Expect(meta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadPreempted)).To(gomega.BeFalse(), "p-small should not be preempted")
+
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pHero), &wl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(&wl)).To(gomega.BeFalse(), "p-hero should not be admitted")
+			}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.When("Preemption is enabled and CQs have 0 weight", func() {
 		var (
 			cqA *kueue.ClusterQueue

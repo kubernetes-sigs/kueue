@@ -335,8 +335,8 @@ func (p *Preemptor) classicalPreemptions(preemptionCtx *preemptionCtx) []*Target
 	return nil
 }
 
+// fillBackWorkloads checks in the reverse order if any of the workloads can be added back.
 func fillBackWorkloads(preemptionCtx *preemptionCtx, targets []*Target, allowBorrowing bool) []*Target {
-	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
 		preemptionCtx.snapshot.AddWorkload(targets[i].WorkloadInfo)
 		if workloadFits(preemptionCtx, allowBorrowing) {
@@ -590,6 +590,16 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 		return nil
 	}
 	targets = fillBackWorkloads(preemptionCtx, targets, true)
+	if valid, reason := verifyFairSharingTargets(preemptionCtx, targets, strategies); !valid {
+		if logV := preemptionCtx.log.V(6); logV.Enabled() {
+			logV.Info("Discarding preemption targets: strategy verification failed",
+				"preemptingWorkload", klog.KObj(preemptionCtx.preemptor.Obj),
+				"targets", logging.GetObjectReferences(targets),
+				"reason", reason)
+		}
+		restoreSnapshot(preemptionCtx.snapshot, targets)
+		return nil
+	}
 	restoreSnapshot(preemptionCtx.snapshot, targets)
 
 	if logV := preemptionCtx.log.V(6); logV.Enabled() {
@@ -598,6 +608,74 @@ func (p *Preemptor) fairPreemptions(preemptionCtx *preemptionCtx, strategies []f
 			"targets", logging.GetObjectReferences(targets))
 	}
 	return targets
+}
+
+// verifyFairSharingTargets checks that every cross-ClusterQueue target in targets
+// still satisfies at least one configured FairSharing strategy when evaluated
+// against the final post-fill-back state (incoming workload admitted, all
+// surviving targets removed).
+//
+// During candidate selection, preempting an intra-CQ workload lowers the
+// preemptor's simulated DominantResourceShare, which can make a cross-CQ
+// target appear fair. If fillBackWorkloads later restores that intra-CQ workload
+// (or if it is immediately re-admitted in the next scheduling cycle), the
+// preemptor's actual post-preemption share is higher than the share used to
+// justify the cross-CQ preemption, causing a preemption loop between queues (#14543).
+func verifyFairSharingTargets(preemptionCtx *preemptionCtx, targets []*Target, fsStrategies []fairsharing.Strategy) (bool, string) {
+	if !features.Enabled(features.FairSharingVerifyFinalTargets) {
+		return true, ""
+	}
+
+	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
+	defer revertSimulation()
+
+	withinNominal := features.Enabled(features.FairSharingPreemptWithinNominal) &&
+		queueWithinNominalInResourcesNeedingPreemption(preemptionCtx)
+
+	for _, t := range targets {
+		if passed, reason := verifyFairSharingTarget(preemptionCtx, t, fsStrategies, withinNominal); !passed {
+			return false, reason
+		}
+	}
+	return true, ""
+}
+
+// verifyFairSharingTarget checks if evicting target t from its ClusterQueue is justified under
+// at least one of the configured fair sharing strategies in the final state.
+// It computes the preemptor's final share, the target queue's final share (TargetNew),
+// and temporarily simulates restoring t's usage to compute TargetOld.
+func verifyFairSharingTarget(
+	preemptionCtx *preemptionCtx,
+	t *Target,
+	strategies []fairsharing.Strategy,
+	withinNominal bool,
+) (bool, string) {
+	if t.Reason == kueue.InClusterQueueReason ||
+		(t.Reason == kueue.InCohortReclamationReason && withinNominal) {
+		return true, ""
+	}
+
+	preemptorNode, targetNode := fairsharing.AlmostLCAs(preemptionCtx.preemptorCQ, t.WorkloadCq)
+	preemptorShare := fairsharing.PreemptorNewShare(preemptorNode.DominantResourceShare())
+	newShare := fairsharing.TargetNewShare(targetNode.DominantResourceShare())
+
+	revert := t.WorkloadCq.SimulateUsageAddition(t.WorkloadInfo.Usage())
+	oldShare := fairsharing.TargetOldShare(targetNode.DominantResourceShare())
+	revert()
+
+	for _, strategy := range strategies {
+		if strategy(preemptorShare, oldShare, newShare) {
+			return true, ""
+		}
+	}
+
+	reason := fmt.Sprintf("target %s in %s violates fair sharing (preemptorShare=%s, targetOldShare=%s, targetNewShare=%s)",
+		klog.KObj(t.WorkloadInfo.Obj),
+		klog.KRef("", string(t.WorkloadCq.Name)),
+		schdcache.DRS(preemptorShare).PreciseWeightedShareSerialized(),
+		schdcache.DRS(oldShare).PreciseWeightedShareSerialized(),
+		schdcache.DRS(newShare).PreciseWeightedShareSerialized())
+	return false, reason
 }
 
 func containsWorkloadFromPreemptorCQ(preemptionCtx *preemptionCtx, targets []*Target) bool {
