@@ -2349,6 +2349,64 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		ignoreDetail    bool
 		wantErr         field.ErrorList
 	}{
+		"CLI rejects MultiKueue Ray autoscaling when child suspension bypass is disabled": {
+			featureGatesCLI: "MultiKueue=true,ElasticJobsViaWorkloadSlices=true,MultiKueueRayInTreeAutoscaling=true,SkipChildJobSuspension=false",
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "MultiKueueRayInTreeAutoscaling is enabled, but depends on features that are disabled: [SkipChildJobSuspension]",
+				},
+			},
+		},
+		"CLI accepts MultiKueue Ray autoscaling when child suspension bypass is enabled": {
+			featureGatesCLI: "MultiKueue=true,ElasticJobsViaWorkloadSlices=true,MultiKueueRayInTreeAutoscaling=true,SkipChildJobSuspension=true",
+		},
+		"configuration rejects MultiKueue Ray autoscaling when child suspension bypass is unset": {
+			featureGateMap: map[string]bool{
+				string(features.MultiKueue):                     true,
+				string(features.ElasticJobsViaWorkloadSlices):   true,
+				string(features.MultiKueueRayInTreeAutoscaling): true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "MultiKueueRayInTreeAutoscaling is enabled, but depends on features that are disabled: [SkipChildJobSuspension]",
+				},
+			},
+		},
+		"configuration rejects MultiKueue Ray autoscaling when child suspension bypass is disabled": {
+			featureGateMap: map[string]bool{
+				string(features.MultiKueue):                     true,
+				string(features.ElasticJobsViaWorkloadSlices):   true,
+				string(features.MultiKueueRayInTreeAutoscaling): true,
+				string(features.SkipChildJobSuspension):         false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "MultiKueueRayInTreeAutoscaling is enabled, but depends on features that are disabled: [SkipChildJobSuspension]",
+				},
+			},
+		},
+		"configuration accepts MultiKueue Ray autoscaling when child suspension bypass is enabled": {
+			featureGateMap: map[string]bool{
+				string(features.MultiKueue):                     true,
+				string(features.ElasticJobsViaWorkloadSlices):   true,
+				string(features.MultiKueueRayInTreeAutoscaling): true,
+				string(features.SkipChildJobSuspension):         true,
+			},
+		},
+		"child suspension bypass is not required when MultiKueue Ray autoscaling is disabled": {
+			featureGateMap: map[string]bool{
+				string(features.MultiKueue):                     true,
+				string(features.ElasticJobsViaWorkloadSlices):   true,
+				string(features.MultiKueueRayInTreeAutoscaling): false,
+				string(features.SkipChildJobSuspension):         false,
+			},
+		},
 		"no feature gates is null": {
 			featureGatesCLI: "",
 		},
