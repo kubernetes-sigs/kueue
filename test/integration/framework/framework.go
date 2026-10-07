@@ -23,6 +23,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -275,13 +276,56 @@ func (f *Framework) StopManager(ctx context.Context) {
 
 func verifyLogs(observedLogs *observer.ObservedLogs) {
 	ginkgo.GinkgoHelper()
-	errorOrMoreSevereLogs := observedLogs.Filter(func(le observer.LoggedEntry) bool {
-		return le.Level >= zapcore.ErrorLevel
+	errorOrMoreSevereLogs := slices.DeleteFunc(observedLogs.TakeAll(), func(le observer.LoggedEntry) bool {
+		return le.Level < zapcore.ErrorLevel ||
+			behavioral.IsLoggedEntryAConcurrentModification(le) ||
+			isExpectedIntegrationErrorLog(le)
 	})
 
-	concurrentModificationErrorLogs := errorOrMoreSevereLogs.Filter(behavioral.IsLoggedEntryAConcurrentModification)
+	gomega.Expect(errorOrMoreSevereLogs).To(gomega.BeEmpty())
+}
 
-	gomega.Expect(concurrentModificationErrorLogs.TakeAll()).To(gomega.BeEmpty())
+func isExpectedIntegrationErrorLog(le observer.LoggedEntry) bool {
+	errLog := loggedEntryErrorString(le)
+	switch {
+	case le.Message == "Failed to get LocalQueue for metrics" && strings.Contains(errLog, "local queue not found"):
+		return true
+	case le.Message == "Updating workload in cache" && strings.Contains(errLog, "cluster queue not found"):
+		return true
+	case le.Message == "Failed getting ancestors for cohort" && strings.Contains(errLog, "cohort has a cycle"):
+		return true
+	case (le.Message == "Failed to deactivate variants" || le.Message == "Reconciler error") &&
+		strings.Contains(errLog, "workloads.kueue.x-k8s.io") &&
+		strings.Contains(errLog, "not found"):
+		return true
+	case (strings.HasPrefix(le.Message, "Failed to process DRA") || le.Message == "Reconciler error") &&
+		strings.Contains(errLog, "ResourceClaimTemplate.resource.k8s.io") &&
+		strings.Contains(errLog, "not found"):
+		return true
+	case (le.Message == "loading client config failed" || le.Message == "Reconciler error") &&
+		(strings.Contains(errLog, "ClusterProfile.multicluster.x-k8s.io") && strings.Contains(errLog, "not found") ||
+			strings.Contains(errLog, "failed to load client config, reason: BadClusterProfile") ||
+			strings.Contains(errLog, "no access provider configured")):
+		return true
+	case le.Message == "Reconciler error" &&
+		strings.Contains(errLog, "Job.batch") &&
+		strings.Contains(errLog, "not found"):
+		return true
+	case le.Message == "Could not wait for Cache to sync" && strings.Contains(errLog, "cache did not sync"):
+		return true
+	case le.Message == "error received after stop sequence was engaged" && strings.Contains(errLog, "failed waiting for"):
+		return true
+	default:
+		return false
+	}
+}
+
+func loggedEntryErrorString(le observer.LoggedEntry) string {
+	errValue, ok := le.ContextMap()["error"]
+	if !ok {
+		return ""
+	}
+	return fmt.Sprint(errValue)
 }
 
 func (f *Framework) Teardown() {
