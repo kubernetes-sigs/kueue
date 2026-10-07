@@ -654,7 +654,7 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			ginkgo.By("Finishing the job's pod", func() {
-				listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
+				listOpts := e2e.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
 				e2e.WaitForActivePodsAndTerminate(ctx, admittedWorker.client, admittedWorker.restClient, admittedWorker.cfg, job.Namespace, 1, 0, listOpts)
 			})
 
@@ -666,8 +666,8 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the job is completed", func() {
-				behavioral.ExpectObjectToBeDeletedOnClusters(ctx, createdLeaderWorkload, k8sWorker1Client, k8sWorker2Client)
-				behavioral.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
+				e2e.ExpectObjectToBeDeletedOnClusters(ctx, createdLeaderWorkload, k8sWorker1Client, k8sWorker2Client)
+				e2e.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 
 				createdJob := &batchv1.Job{}
 				gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
@@ -1285,23 +1285,23 @@ var _ = ginkgo.Describe("MultiKueue", func() {
 			ginkgo.By("Verifying both jobs are unsuspended and running", func() {
 				for _, job := range []*batchv1.Job{jobMk, jobRegular} {
 					behavioral.ExpectJobUnsuspended(ctx, k8sManagerClient, client.ObjectKeyFromObject(job))
-					behavioral.ExpectJobToBeRunning(ctx, k8sManagerClient, job)
+					e2e.ExpectJobToBeRunning(ctx, k8sManagerClient, job)
 				}
 			})
 
 			ginkgo.By("Finishing the MK job's pod", func() {
-				listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", jobMk.Name))
+				listOpts := e2e.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", jobMk.Name))
 				e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker2Client, worker2RestClient, worker2Cfg, jobMk.Namespace, 1, 0, listOpts)
 			})
 
 			ginkgo.By("Finishing the regular job's pod", func() {
-				listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", jobRegular.Name))
+				listOpts := e2e.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", jobRegular.Name))
 				e2e.WaitForActivePodsAndTerminate(ctx, k8sManagerClient, managerRestClient, managerCfg, jobRegular.Namespace, 1, 0, listOpts)
 			})
 
 			ginkgo.By("Waiting for both jobs to complete", func() {
-				behavioral.ExpectJobToBeCompletedWithTimeout(ctx, k8sManagerClient, jobMk, behavioral.LongTimeout)
-				behavioral.ExpectJobToBeCompletedWithTimeout(ctx, k8sManagerClient, jobRegular, behavioral.LongTimeout)
+				e2e.ExpectJobToBeCompletedWithTimeout(ctx, k8sManagerClient, jobMk, behavioral.LongTimeout)
+				e2e.ExpectJobToBeCompletedWithTimeout(ctx, k8sManagerClient, jobRegular, behavioral.LongTimeout)
 			})
 		})
 	})
