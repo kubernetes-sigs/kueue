@@ -97,6 +97,7 @@ type WorkloadRetentionPolicy struct {
 
 // JobReconciler reconciles a GenericJob object
 type JobReconciler struct {
+	workloadSlices               *workloadslicing.Manager
 	cache                        *schdcache.Cache
 	client                       client.Client
 	record                       events.EventRecorder
@@ -306,6 +307,13 @@ func NewReconciler(
 	options := ProcessOptions(opts...)
 
 	return &JobReconciler{
+		workloadSlices: &workloadslicing.Manager{
+			Client:       client,
+			Clock:        options.Clock,
+			Recorder:     record,
+			CustomLabels: options.CustomLabels,
+			RoleTracker:  options.RoleTracker,
+		},
 		cache:                        options.Cache,
 		client:                       client,
 		record:                       record,
@@ -1125,7 +1133,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		// Workload slices allow modifications only to PodSet.Count.
 		// Any other changes will result in the slice being marked as incompatible,
 		// and the workload will fall back to being processed by the original ensureOneWorkload function.
-		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, r.clock, podSets, object, job.GVK())
+		wl, compatible, err := r.workloadSlices.EnsureWorkloadSlices(ctx, podSets, object, job.GVK())
 		if err != nil {
 			return nil, err
 		}

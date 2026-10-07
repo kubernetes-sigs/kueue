@@ -1621,7 +1621,8 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotWorkload, gotCompatible, gotError := EnsureWorkloadSlices(ctx, tt.args.clnt, fakeClock, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
+			manager := Manager{Client: tt.args.clnt, Clock: fakeClock}
+			gotWorkload, gotCompatible, gotError := manager.EnsureWorkloadSlices(ctx, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
 			if diff := cmp.Diff(tt.want.error, gotError, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("EnsureWorkloadSlices() error (-want,+got):\n%s", diff)
 				return
