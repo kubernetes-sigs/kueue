@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -247,7 +248,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	}
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		if psa.TopologyAssignment != nil {
-			pods, err := r.podsForPodSet(ctx, wl.Namespace, workloadSliceName, psa.Name)
+			pods, err := r.podsForPodSet(ctx, wl.Namespace, workloadSliceName, &psa)
 			if err != nil {
 				log.Error(err, "failed to list Pods for PodSet", "podset", psa.Name, "count", psa.Count)
 				return reconcile.Result{}, err
@@ -356,11 +357,15 @@ func shouldReconcileWorkload(wl *kueue.Workload) bool {
 	return workload.IsAdmittedByTAS(wl)
 }
 
-func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceName string, psName kueue.PodSetReference) ([]*corev1.Pod, error) {
+func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceName string, psa *kueue.PodSetAssignment) ([]*corev1.Pod, error) {
 	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, ns, workloadSliceName,
-		client.MatchingLabels{constants.PodSetLabel: string(psName)})
+		client.MatchingLabels{constants.PodSetLabel: string(psa.Name)})
 	if err != nil {
 		return nil, err
+	}
+	assignedDomains := sets.New[utiltas.TopologyDomainID]()
+	for domain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
+		assignedDomains.Insert(utiltas.DomainID(domain.Values))
 	}
 	result := make([]*corev1.Pod, 0, len(pods))
 	for _, pod := range pods {
@@ -368,6 +373,15 @@ func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceNa
 			// ignore failed or succeeded pods as they need to be replaced, and
 			// so we don't want to count them as already ungated Pods.
 			continue
+		}
+		if !utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
+			domainID := utiltas.DomainID(utiltas.LevelValues(psa.TopologyAssignment.Levels, pod.Spec.NodeSelector))
+			if !assignedDomains.Has(domainID) {
+				// ignore ungated pods assigned to domains outside the current
+				// TopologyAssignment (e.g. pods stuck terminating on a failed node
+				// after node replacement or workload re-admission).
+				continue
+			}
 		}
 		result = append(result, pod)
 	}
