@@ -278,9 +278,7 @@ configuration update. Disabling only the gate while leaving an enabled endpoint
 configured with `authentication: false` fails startup.
 
 Before rolling back to a binary that predates the feature, remove both the new
-configuration field and the `MetricsAuthenticationOptOut` gate entry. Validate
-the configuration with the target binary; older versions may reject unknown
-fields or gates. No stored workload API objects need migration. All replicas
+configuration field and the `MetricsAuthenticationOptOut` gate entry. Older binaries reject both the unknown field and the unknown gate at startup. No stored workload API objects need migration. All replicas
 should use a consistent configuration during rollout; scrapers must accommodate
 authenticated replicas until the transition is complete.
 
@@ -340,6 +338,24 @@ coverage. Verify rollback to authenticated HTTPS with a token-bearing scraper.
 
 #### Alpha
 
+- `metrics.authentication` and the `MetricsAuthenticationOptOut` feature gate, disabled by default.
+- Unit tests for validation and the metrics server options, and an e2e test in the cert-manager suite where a sidecar scrapes over verified HTTPS without a token and the pod IP is refused.
+- A task page under Observability covering the setup, the external certificate requirement, and the trust boundary: other containers in the pod, `hostNetwork`, and `kubectl port-forward`.
+
+#### Beta
+
+- Feature gate enabled by default. `metrics.authentication` still defaults to `true`.
+- Positive feedback from users, and no open security issues against the opt-out.
+- Behavior with a service mesh sidecar that forwards inbound traffic to localhost is verified and documented.
+- Re-evaluate client-certificate authentication (Alternative 3).
+
+#### GA
+
+- All reported bugs are addressed.
+- Feature gate locked to true.
+
+#### Alpha
+
 - Introduce `metrics.authentication` and the default-off
   `MetricsAuthenticationOptOut` gate with the behavior and validation above.
 - Obtain maintainer security/API review; complete unit, integration, and e2e
@@ -362,14 +378,7 @@ maintainer decision.
 
 ## Implementation History
 
-- September 2026: [issue #16029] and [PR #16035] describe the authentication
-  requirement and a prototype, subsequently extended with optional HTTP.
-- October 1, 2026: [maintainer feedback] requests a KEP covering the deployment
-  problem, existing-authentication alternatives, and opt-out design, and suggests
-  retaining HTTPS.
-- October 5, 2026: following [maintainer scope feedback], narrow the proposal to
-  an alpha, feature-gated Configuration API opt-out for loopback HTTPS. Remove
-  HTTP and dedicated metrics flags from the proposed scope.
+- 2026-10-01: Initial KEP draft.
 
 ## Drawbacks
 

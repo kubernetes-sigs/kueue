@@ -2,7 +2,7 @@ title: Loopback metrics authentication opt-out
 kep-number: 16029
 authors:
   - "@ankushbbbr"
-status: provisional
+status: implementable
 creation-date: 2026-10-01
 reviewers:
   - "@mimowo"
