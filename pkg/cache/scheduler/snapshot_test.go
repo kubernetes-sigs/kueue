@@ -1412,8 +1412,20 @@ func TestSnapshotWithOverlappingTASUsage(t *testing.T) {
 }
 
 func TestSnapshotUsesTASNodesOf(t *testing.T) {
-	const rackLabel = "cloud.com/rack"
 	now := time.Now().Truncate(time.Second)
+	// Flavors are named after the leaf level of their topology and the node
+	// label they select, and nodes after their zone and pool labels.
+	topologies := []*kueue.Topology{
+		utiltestingapi.MakeDefaultOneLevelTopology("hostname"),
+		utiltestingapi.MakeTopology("rack").Levels("rack").Obj(),
+	}
+	rfs := []*kueue.ResourceFlavor{
+		utiltestingapi.MakeResourceFlavor("tas-hostname-zone-a").TopologyName("hostname").NodeLabel("zone", "a").Obj(),
+		utiltestingapi.MakeResourceFlavor("tas-hostname-zone-b").TopologyName("hostname").NodeLabel("zone", "b").Obj(),
+		utiltestingapi.MakeResourceFlavor("tas-hostname-pool-p").TopologyName("hostname").NodeLabel("pool", "p").Obj(),
+		utiltestingapi.MakeResourceFlavor("tas-rack-zone-a").TopologyName("rack").NodeLabel("zone", "a").Obj(),
+		utiltestingapi.MakeResourceFlavor("non-tas").Obj(),
+	}
 	makeNode := func(name string, labels map[string]string) *corev1.Node {
 		n := node.MakeNode(name).
 			Label(corev1.LabelHostname, name).
@@ -1427,125 +1439,79 @@ func TestSnapshotUsesTASNodesOf(t *testing.T) {
 		}
 		return n.Obj()
 	}
-	makeWorkload := func(name string, cq kueue.ClusterQueueReference, flavor kueue.ResourceFlavorReference, level string, domain string) *kueue.Workload {
-		psa := utiltestingapi.MakePodSetAssignment("main").
-			Assignment(corev1.ResourceCPU, flavor, "1")
-		ps := utiltestingapi.MakePodSet("main", 1).
+	nodes := []*corev1.Node{
+		makeNode("node-zone-a-pool-p", map[string]string{"zone": "a", "pool": "p", "rack": "r1"}),
+		makeNode("node-zone-a", map[string]string{"zone": "a", "rack": "r1"}),
+		makeNode("node-zone-b", map[string]string{"zone": "b"}),
+	}
+	// admittedWorkload returns a Workload admitted with the flavor and, unless
+	// the level is empty, assigned to the domain of that topology level.
+	admittedWorkload := func(flavor kueue.ResourceFlavorReference, level, domain string) *kueue.Workload {
+		ps := utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 			Request(corev1.ResourceCPU, "1")
+		psa := utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, flavor, "1")
 		if level != "" {
 			ps = ps.RequiredTopologyRequest(level)
 			psa = psa.TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{level}).
 				Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{domain}, 1).Obj()).
 				Obj())
 		}
-		return utiltestingapi.MakeWorkload(name, "").
+		return utiltestingapi.MakeWorkload("wl", "").
 			PodSets(*ps.Obj()).
-			ReserveQuotaAt(utiltestingapi.MakeAdmission(cq).PodSets(psa.Obj()).Obj(), now).
-			AdmittedAt(true, now).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(psa.Obj()).Obj(), now).
 			Obj()
-	}
-	makeClusterQueue := func(name string, flavors ...string) *kueue.ClusterQueue {
-		quotas := make([]kueue.FlavorQuotas, 0, len(flavors))
-		for _, flavor := range flavors {
-			quotas = append(quotas, *utiltestingapi.MakeFlavorQuotas(flavor).
-				Resource(corev1.ResourceCPU, "100").
-				Obj())
-		}
-		return utiltestingapi.MakeClusterQueue(name).ResourceGroup(quotas...).Obj()
-	}
-
-	// x1 and x2 are in zone a, while only x1 is in pool p, so tas-b selects a
-	// subset of the nodes of tas-a. tas-c selects the disjoint zone b, and
-	// tas-rack selects the nodes of tas-a with a rack leaf level.
-	topologies := []*kueue.Topology{
-		utiltestingapi.MakeDefaultOneLevelTopology("hostname"),
-		utiltestingapi.MakeTopology("rack").Levels(rackLabel).Obj(),
-	}
-	rfs := []*kueue.ResourceFlavor{
-		utiltestingapi.MakeResourceFlavor("tas-a").TopologyName("hostname").NodeLabel("zone", "a").Obj(),
-		utiltestingapi.MakeResourceFlavor("tas-b").TopologyName("hostname").NodeLabel("pool", "p").Obj(),
-		utiltestingapi.MakeResourceFlavor("tas-c").TopologyName("hostname").NodeLabel("zone", "b").Obj(),
-		utiltestingapi.MakeResourceFlavor("tas-rack").TopologyName("rack").NodeLabel("zone", "a").Obj(),
-		utiltestingapi.MakeResourceFlavor("default").Obj(),
-	}
-	cqs := []*kueue.ClusterQueue{
-		makeClusterQueue("cq", "tas-a", "tas-b", "tas-c"),
-		makeClusterQueue("cq-rack", "tas-rack"),
-		makeClusterQueue("cq-default", "default"),
-	}
-	nodes := []*corev1.Node{
-		makeNode("x1", map[string]string{"zone": "a", "pool": "p", rackLabel: "r1"}),
-		makeNode("x2", map[string]string{"zone": "a", rackLabel: "r1"}),
-		makeNode("y1", map[string]string{"zone": "b"}),
-	}
-	wls := []*kueue.Workload{
-		makeWorkload("wl-b-x1", "cq", "tas-b", corev1.LabelHostname, "x1"),
-		makeWorkload("wl-a-x2", "cq", "tas-a", corev1.LabelHostname, "x2"),
-		makeWorkload("wl-c-y1", "cq", "tas-c", corev1.LabelHostname, "y1"),
-		makeWorkload("wl-rack", "cq-rack", "tas-rack", rackLabel, "r1"),
-		makeWorkload("wl-default", "cq-default", "default", "", ""),
 	}
 
 	testCases := map[string]struct {
 		disableOverlappingFlavors bool
-		cq                        kueue.ClusterQueueReference
-		workload                  workload.Reference
+		workload                  *kueue.Workload
 		flavors                   []kueue.ResourceFlavorReference
 		want                      bool
 	}{
-		"workload on a node of another flavor": {
-			cq:       "cq",
-			workload: "/wl-b-x1",
-			flavors:  []kueue.ResourceFlavorReference{"tas-a"},
+		"workload on a node of the flavor": {
+			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 			want:     true,
 		},
-		"workload on a node of its own flavor": {
-			cq:       "cq",
-			workload: "/wl-b-x1",
-			flavors:  []kueue.ResourceFlavorReference{"tas-b"},
+		"workload of another flavor on a node of the flavor": {
+			workload: admittedWorkload("tas-hostname-pool-p", corev1.LabelHostname, "node-zone-a-pool-p"),
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 			want:     true,
 		},
-		"workload on a node the flavor does not select": {
-			cq:       "cq",
-			workload: "/wl-a-x2",
-			flavors:  []kueue.ResourceFlavorReference{"tas-b"},
+		"workload of another flavor on a node the flavor does not select": {
+			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-pool-p"},
+		},
+		"workload of a flavor selecting disjoint nodes": {
+			workload: admittedWorkload("tas-hostname-zone-b", corev1.LabelHostname, "node-zone-b"),
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 		},
 		"workload on a node of one of the flavors": {
-			cq:       "cq",
-			workload: "/wl-a-x2",
-			flavors:  []kueue.ResourceFlavorReference{"tas-b", "tas-c", "tas-a"},
+			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-pool-p", "tas-hostname-zone-b", "tas-hostname-zone-a"},
 			want:     true,
 		},
-		"workload on a node of a flavor selecting disjoint nodes": {
-			cq:       "cq",
-			workload: "/wl-c-y1",
-			flavors:  []kueue.ResourceFlavorReference{"tas-a"},
+		"flavor without a hostname leaf level": {
+			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
+			flavors:  []kueue.ResourceFlavorReference{"tas-rack-zone-a"},
 		},
-		"flavor does not have a hostname leaf level": {
-			cq:       "cq",
-			workload: "/wl-b-x1",
-			flavors:  []kueue.ResourceFlavorReference{"tas-rack"},
+		"flavor without TAS": {
+			workload: admittedWorkload("tas-hostname-zone-a", corev1.LabelHostname, "node-zone-a"),
+			flavors:  []kueue.ResourceFlavorReference{"non-tas"},
 		},
-		"flavor is not a TAS flavor": {
-			cq:       "cq",
-			workload: "/wl-b-x1",
-			flavors:  []kueue.ResourceFlavorReference{"default"},
+		"workload of a flavor without a hostname leaf level": {
+			workload: admittedWorkload("tas-rack-zone-a", "rack", "r1"),
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 		},
-		"workload on a flavor without a hostname leaf level": {
-			cq:       "cq-rack",
-			workload: "/wl-rack",
-			flavors:  []kueue.ResourceFlavorReference{"tas-a"},
-		},
-		"workload on a flavor without TAS": {
-			cq:       "cq-default",
-			workload: "/wl-default",
-			flavors:  []kueue.ResourceFlavorReference{"tas-a"},
+		"workload of a flavor without TAS": {
+			workload: admittedWorkload("non-tas", "", ""),
+			flavors:  []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 		},
 		"TASHandleOverlappingFlavors is disabled": {
 			disableOverlappingFlavors: true,
-			cq:                        "cq",
-			workload:                  "/wl-b-x1",
-			flavors:                   []kueue.ResourceFlavorReference{"tas-a"},
+			workload:                  admittedWorkload("tas-hostname-pool-p", corev1.LabelHostname, "node-zone-a-pool-p"),
+			flavors:                   []kueue.ResourceFlavorReference{"tas-hostname-zone-a"},
 		},
 	}
 	for name, tc := range testCases {
@@ -1556,19 +1522,11 @@ func TestSnapshotUsesTASNodesOf(t *testing.T) {
 			})
 			ctx, log := utiltesting.ContextWithLog(t)
 			cache := New(utiltesting.NewFakeClient())
-			for _, cq := range cqs {
-				if err := cache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
-					t.Fatalf("Failed adding ClusterQueue: %v", err)
-				}
-			}
 			for _, rf := range rfs {
 				cache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
 			}
 			for _, topology := range topologies {
 				cache.AddOrUpdateTopology(log, topology.DeepCopy())
-			}
-			for _, wl := range wls {
-				cache.AddOrUpdateWorkload(ctx, log, wl.DeepCopy())
 			}
 			for _, n := range nodes {
 				cache.TASCache().SyncNode(n.DeepCopy())
@@ -1577,18 +1535,10 @@ func TestSnapshotUsesTASNodesOf(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
-			cqSnapshot := snapshot.ClusterQueue(tc.cq)
-			if cqSnapshot == nil {
-				t.Fatalf("ClusterQueue %q is missing from the snapshot", tc.cq)
-			}
-			wl := cqSnapshot.Workloads[tc.workload]
-			if wl == nil {
-				t.Fatalf("Workload %q is missing from the snapshot of ClusterQueue %q", tc.workload, tc.cq)
-			}
 
-			got := snapshot.UsesTASNodesOf(wl, sets.New(tc.flavors...))
+			got := snapshot.UsesTASNodesOf(workload.NewInfo(log, tc.workload), sets.New(tc.flavors...))
 			if got != tc.want {
-				t.Errorf("UsesTASNodesOf(%q, %v) = %v, want %v", tc.workload, tc.flavors, got, tc.want)
+				t.Errorf("UsesTASNodesOf() = %v, want %v", got, tc.want)
 			}
 		})
 	}
