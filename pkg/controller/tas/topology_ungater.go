@@ -364,10 +364,7 @@ func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceNa
 	if err != nil {
 		return nil, err
 	}
-	assignedDomains := sets.New[utiltas.TopologyDomainID]()
-	for domain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
-		assignedDomains.Insert(utiltas.DomainID(domain.Values))
-	}
+	assignedDomains := sets.New(slices.Collect(utiltas.DomainIDs(psa.TopologyAssignment))...)
 	result := make([]*corev1.Pod, 0, len(pods))
 	for _, pod := range pods {
 		if utilpod.IsTerminated(pod) {
