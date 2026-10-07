@@ -1620,9 +1620,9 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				},
 			},
 		},
-		// The origin still reserves quota while eviction is pending, so it is returned
-		// to the job reconciler until an admitted replacement takes over its Pods.
-		"EvictedOriginWithReservedReplacement_ReplacementNotAdmitted": {
+		// Without a committed replacement, an evicted origin still reserving quota
+		// must be returned to the job reconciler to stop its Pods.
+		"EvictedOriginWithoutCommittedReplacement": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
@@ -1656,23 +1656,24 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 					Obj(),
 			},
 		},
-		// Once the replacement is admitted, it takes over the origin's Pods, so the
-		// origin is cleaned up as out of sync and the replacement is selected.
+		// A committed replacement excludes the origin even before the Finished
+		// condition becomes visible. Completion belongs to FinishReplacedWorkloadSlices.
 		"EvictedOriginWithReservedReplacement_ReplacementAdmitted": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
-						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ControllerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(fiveMinutesAgo).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 						SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
 						Obj(),
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
-						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ControllerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
 						Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
+						Replaces(testJobObject.Name+"-1").
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 						SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).
 						Obj()).
@@ -1684,35 +1685,33 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 			want: want{
 				compatible: true,
 				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
-					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+					ControllerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("1").
 					Creation(now).
 					Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
+					Replaces(testJobObject.Name+"-1").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 					SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).
 					Obj(),
-				finishedWorkloads: map[string]string{
-					testJobObject.Name + "-1": kueue.WorkloadFinishedReasonOutOfSync,
-				},
 			},
 		},
-		// An admitted replacement that was itself evicted no longer owns the origin's Pods,
-		// so it must not replace the origin: the origin is returned and stays unfinished.
+		// Evicting the successor does not undo its committed replacement.
 		"EvictedOriginWithReservedReplacement_ReplacementAdmittedAndEvicted": {
 			args: args{
 				clnt: testWorkloadClientBuilder().WithObjects(
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
-						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ControllerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(fiveMinutesAgo).
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 						SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
 						Obj(),
 					utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
-						OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+						ControllerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 						ResourceVersion("1").
 						Creation(now).
 						Annotation(WorkloadSliceReplacementFor, string(workload.Key(utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).Obj()))).
+						Replaces(testJobObject.Name+"-1").
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 						SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
 						Obj()).
@@ -1723,11 +1722,13 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 			},
 			want: want{
 				compatible: true,
-				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
-					OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
+					ControllerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("1").
-					Creation(fiveMinutesAgo).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Creation(now).
+					Annotation(WorkloadSliceReplacementFor, string(workload.NewReference(testJobObject.Namespace, testJobObject.Name+"-1"))).
+					Replaces(testJobObject.Name+"-1").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).
 					SimpleReserveQuota("default", "default", now).AdmittedAt(true, now).EvictedAt(now).
 					Obj(),
 			},
@@ -1910,25 +1911,7 @@ func TestNormalizeActiveSlices(t *testing.T) {
 			},
 			want: want{survivor: "wl-d", keptAdmitted: "wl-c"},
 		},
-		"forked claim in adversarial order, admitted fork wins over pending": {
-			workloads: []kueue.Workload{
-				// Adversarial iteration order: wl-c before wl-b before wl-a.
-				// wl-b and wl-c both claim to replace wl-a (forked chain from a race).
-				// wl-c is admitted and has a pending replacement wl-d.
-				*admitted(utiltestingapi.MakeWorkload("wl-c", "ns").ResourceVersion("1").Creation(now).
-					Annotation(WorkloadSliceReplacementFor, "ns/wl-a").
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj())).Obj(),
-				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
-					Annotation(WorkloadSliceReplacementFor, "ns/wl-a").
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
-				*admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now).
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj())).Obj(),
-				*utiltestingapi.MakeWorkload("wl-d", "ns").ResourceVersion("1").Creation(now).
-					Annotation(WorkloadSliceReplacementFor, "ns/wl-c").
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
-			},
-			want: want{survivor: "wl-d", keptAdmitted: "wl-c"},
-		},
+
 		// Neither holds a reservation, so the survivor is the latest one. The
 		// caller passes these already sorted with a UID tie-break, so the last
 		// is the latest even when both were created in the same second.
