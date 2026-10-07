@@ -41,6 +41,7 @@ import (
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var ns *corev1.Namespace
@@ -615,8 +616,8 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				workload := w()
 				behavioral.MustCreate(ctx, k8sClient, workload)
 				if setQuotaReservation {
-					behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cq").Obj())
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
+					integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cq").Obj())
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
 				}
 				gomega.Eventually(func(g gomega.Gomega) {
 					var newWL kueue.Workload
@@ -1083,7 +1084,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			ginkgo.By("Creating and admitting a new Workload")
 			workload := utiltestingapi.MakeWorkload(workloadName, ns.Name).Queue("queue1").Obj()
 			behavioral.MustCreate(ctx, k8sClient, workload)
-			behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cq").Obj())
+			integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cq").Obj())
 
 			ginkgo.By("Updating queueName")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1105,7 +1106,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			ginkgo.By("Creating and admitting a Workload with queueName 'queue1'")
 			workload := utiltestingapi.MakeWorkload(workloadName, ns.Name).Queue("queue1").Obj()
 			behavioral.MustCreate(ctx, k8sClient, workload)
-			behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cq").Obj())
+			integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cq").Obj())
 
 			ginkgo.By("Removing queueName from the admitted workload (must be rejected)")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1122,8 +1123,8 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			behavioral.MustCreate(ctx, k8sClient, workload)
 
 			ginkgo.By("Admitting the Workload", func() {
-				behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cluster-queue").Obj())
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
+				integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cluster-queue").Obj())
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
 			})
 
 			ginkgo.By("Updating queueName")
@@ -1195,7 +1196,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			ginkgo.By("Creating a new Workload")
 			workload := utiltestingapi.MakeWorkload(workloadName, ns.Name).Obj()
 			behavioral.MustCreate(ctx, k8sClient, workload)
-			behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cluster-queue").Obj())
+			integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cluster-queue").Obj())
 
 			ginkgo.By("Updating the workload setting admission")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1217,9 +1218,9 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, wl)
-			behavioral.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "ps1", Count: 1}})
+			integration.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "ps1", Count: 1}})
 
-			behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+			integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl),
 				utiltestingapi.MakeAdmission("cluster-queue").
 					PodSets(
 						kueue.PodSetAssignment{Name: "ps1"},
@@ -1228,7 +1229,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 
 			ginkgo.By("Updating reclaimable pods")
 			reclaimablePods := []kueue.ReclaimablePod{{Name: "ps1", Count: 2}, {Name: "ps2", Count: 1}}
-			behavioral.UpdateReclaimablePods(ctx, k8sClient, wl, reclaimablePods)
+			integration.UpdateReclaimablePods(ctx, k8sClient, wl, reclaimablePods)
 		})
 
 		ginkgo.It("reclaimable pod count cannot change down", func() {
@@ -1241,9 +1242,9 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, wl)
 			reclaimablePods := []kueue.ReclaimablePod{{Name: "ps1", Count: 2}, {Name: "ps2", Count: 1}}
-			behavioral.UpdateReclaimablePods(ctx, k8sClient, wl, reclaimablePods)
+			integration.UpdateReclaimablePods(ctx, k8sClient, wl, reclaimablePods)
 
-			behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl),
+			integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl),
 				utiltestingapi.MakeAdmission("cluster-queue").
 					PodSets(
 						kueue.PodSetAssignment{Name: "ps1"},
@@ -1392,7 +1393,7 @@ var _ = ginkgo.Describe("Workload validating webhook", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Reporting 9 reclaimable pods")
-			behavioral.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 9}})
+			integration.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 9}})
 
 			ginkgo.By("Scaling the podSet down to 10 (admission count stays at 20)")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1841,8 +1842,8 @@ var _ = ginkgo.Describe("Workload v1beta1 CEL validation", func() {
 				workload := w()
 				behavioral.MustCreate(ctx, k8sClient, workload)
 				if setQuotaReservation {
-					behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cq").Obj())
-					behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
+					integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(workload), utiltestingapi.MakeAdmission("cq").Obj())
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, workload)
 				}
 				ginkgo.By("Updating the Workload via v1beta1")
 				gomega.Eventually(func(g gomega.Gomega) {

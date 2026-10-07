@@ -38,6 +38,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 const (
@@ -130,8 +131,8 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 			*utiltestingapi.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "5").Obj(),
 		).Obj()
 	admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(CreatePodSetAssignment(createdWorkload, podSetsResources)...).Obj()
-	behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-	behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+	integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+	integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, lookupKey, createdJob.Object())).To(gomega.Succeed())
 		g.Expect(createdJob.IsSuspended()).Should(gomega.BeFalse())
@@ -173,8 +174,8 @@ func ShouldReconcileJob(ctx context.Context, k8sClient client.Client, job, creat
 
 	ginkgo.By("checking the job is unsuspended and selectors added when workload is assigned again")
 	admission = utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(CreatePodSetAssignment(createdWorkload, podSetsResources)...).Obj()
-	behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-	behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+	integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+	integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, lookupKey, createdJob.Object())).Should(gomega.Succeed())
 		g.Expect(createdJob.IsSuspended()).Should(gomega.BeFalse())
@@ -246,8 +247,8 @@ func JobControllerWhenWaitForPodsReadyEnabled(
 
 	ginkgo.By("Admit the workload created for the job")
 	admission := utiltestingapi.MakeAdmission("foo").PodSets(CreatePodSetAssignment(createdWorkload, podSetsResources)...).Obj()
-	behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-	behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+	integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+	integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 	gomega.ExpectWithOffset(1, k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 
 	ginkgo.By("Await for the job to be unsuspended")
@@ -283,8 +284,8 @@ func JobControllerWhenWaitForPodsReadyEnabled(
 
 	if podsReadyTestSpec.Suspended {
 		ginkgo.By("Unset admission of the workload to suspend the job")
-		behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, nil)
-		behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+		integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, nil)
+		integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 	}
 
 	ginkgo.By("Verify the PodsReady condition is added")

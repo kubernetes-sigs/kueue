@@ -36,6 +36,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqueue", "area:core"), func() {
@@ -1058,7 +1059,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind2")
 
 			ginkgo.By("marking two workloads as finished")
-			behavioral.FinishWorkloads(ctx, k8sClient, wl1, wl3)
+			integration.FinishWorkloads(ctx, k8sClient, wl1, wl3)
 
 			ginkgo.By("verifying CQ admitted active workloads metric is updated")
 			behavioral.ExpectAdmittedActiveWorkloadsGaugeMetric(kueue.ClusterQueueReference(cq.Name), 1, "ml-team", "kind1")

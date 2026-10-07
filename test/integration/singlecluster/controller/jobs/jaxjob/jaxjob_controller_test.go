@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/test/integration/framework"
 	kftesting "sigs.k8s.io/kueue/test/integration/singlecluster/controller/jobs/kubeflow"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 const (
@@ -245,8 +246,8 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 						},
 					).
 					Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, admission)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				integration.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, admission)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
 			ginkgo.By("await for the job to start", func() {
@@ -281,8 +282,8 @@ var _ = ginkgo.Describe("Job controller for workloads when only jobs with queue 
 			})
 
 			ginkgo.By("clear the workload's admission to stop the job", func() {
-				behavioral.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, nil)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				integration.SetQuotaReservation(ctx, k8sClient, *wlLookupKey, nil)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
 			ginkgo.By("await for the job to be suspended", func() {
@@ -548,8 +549,8 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", ginkgo.Orde
 			ginkgo.By("clear the workload's admission to stop the job", func() {
 				wlKey := types.NamespacedName{Name: workloadjaxjob.GetWorkloadNameForJAXJob(job.Name, job.UID), Namespace: job.Namespace}
 				wl := utiltestingapi.MakeWorkload(wlKey.Name, wlKey.Namespace).Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, nil)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+				integration.SetQuotaReservation(ctx, k8sClient, wlKey, nil)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 			})
 
 			ginkgo.By("the node selectors should be restored", func() {
@@ -600,7 +601,7 @@ var _ = ginkgo.Describe("JAXJob controller with TopologyAwareScheduling", ginkgo
 				Ready().
 				Obj(),
 		}
-		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = utiltestingapi.MakeDefaultTwoLevelTopology("default")
 		behavioral.MustCreate(ctx, k8sClient, topology)

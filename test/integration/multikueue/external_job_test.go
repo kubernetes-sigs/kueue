@@ -47,6 +47,7 @@ import (
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe(
@@ -93,7 +94,7 @@ var _ = ginkgo.Describe(
 						cCache := schdcache.New(mgr.GetClient())
 						preemptionExpectations := preemptexpectations.New()
 						queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-						queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+						queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 						configuration := &config.Configuration{}
 						mgr.GetScheme().Default(configuration)
@@ -305,7 +306,7 @@ var _ = ginkgo.Describe(
 					Name:      workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID),
 					Namespace: managerNs.Name,
 				}
-				behavioral.SetQuotaReservation(
+				integration.SetQuotaReservation(
 					managerTestCluster.ctx,
 					managerTestCluster.client,
 					wlLookupKey,
@@ -405,7 +406,7 @@ var _ = ginkgo.Describe(
 					Name:      workloadraycluster.GetWorkloadNameForRayCluster(raycluster.Name, raycluster.UID),
 					Namespace: managerNs.Name,
 				}
-				behavioral.SetQuotaReservation(
+				integration.SetQuotaReservation(
 					managerTestCluster.ctx,
 					managerTestCluster.client,
 					wlLookupKey,
@@ -477,7 +478,7 @@ var _ = ginkgo.Describe(
 						gomega.Eventually(func(g gomega.Gomega) {
 							g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).
 								To(gomega.Succeed())
-							behavioral.SetQuotaReservation(
+							integration.SetQuotaReservation(
 								managerTestCluster.ctx,
 								managerTestCluster.client,
 								wlLookupKey,
@@ -520,7 +521,7 @@ var _ = ginkgo.Describe(
 						gomega.Eventually(func(g gomega.Gomega) {
 							g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, createdWorkload)).
 								To(gomega.Succeed())
-							behavioral.SetQuotaReservation(
+							integration.SetQuotaReservation(
 								worker1TestCluster.ctx,
 								worker1TestCluster.client,
 								wlLookupKey,

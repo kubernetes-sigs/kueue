@@ -33,6 +33,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 // The gate is removed before the metric is recorded, so a regression drops the series.
@@ -107,8 +108,8 @@ var _ = ginkgo.Describe("Pod controller with ClusterQueue custom metric labels",
 					Count(createdWorkload.Spec.PodSets[0].Count).
 					Obj()).
 				Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+			integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 			createdPod := &corev1.Pod{}
 			gomega.Eventually(func(g gomega.Gomega) {

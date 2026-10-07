@@ -44,6 +44,7 @@ import (
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload", "area:core"), func() {
@@ -378,7 +379,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 						corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
 					},
 				}
-				behavioral.SetQuotaReservation(
+				integration.SetQuotaReservation(
 					ctx,
 					k8sClient,
 					wlKey,
@@ -438,7 +439,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 					corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
 				},
 			}
-			behavioral.SetQuotaReservation(ctx, k8sClient, wlKey,
+			integration.SetQuotaReservation(ctx, k8sClient, wlKey,
 				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(podSet).Obj())
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -496,7 +497,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 						corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
 					},
 				}
-				behavioral.SetQuotaReservation(
+				integration.SetQuotaReservation(
 					ctx,
 					k8sClient,
 					wlKey,
@@ -590,7 +591,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 						corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
 					},
 				}
-				behavioral.SetQuotaReservation(
+				integration.SetQuotaReservation(
 					ctx,
 					k8sClient,
 					wlKey,
@@ -695,7 +696,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 						corev1.ResourceCPU: kueue.ResourceFlavorReference(flavor1.Name),
 					},
 				}
-				behavioral.SetQuotaReservation(
+				integration.SetQuotaReservation(
 					ctx,
 					k8sClient,
 					wlKey,
@@ -833,7 +834,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			ginkgo.By("creating the workload and reserving its quota", func() {
 				behavioral.MustCreate(ctx, k8sClient, wl)
 				admission := utiltestingapi.MakeAdmission("cq").Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, key, admission)
+				integration.SetQuotaReservation(ctx, k8sClient, key, admission)
 			})
 			ginkgo.By("waiting for the workload to be admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -870,7 +871,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 			ginkgo.By("creating the workload and reserving its quota", func() {
 				behavioral.MustCreate(ctx, k8sClient, wl)
 				admission := utiltestingapi.MakeAdmission("cq").Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, key, admission)
+				integration.SetQuotaReservation(ctx, k8sClient, key, admission)
 			})
 			ginkgo.By("waiting for the workload to be admitted, and for the time to change the second", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -911,7 +912,7 @@ var _ = ginkgo.Describe("Workload controller", ginkgo.Label("controller:workload
 
 			ginkgo.By("reserving new quota", func() {
 				admission := utiltestingapi.MakeAdmission("cq").Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, key, admission)
+				integration.SetQuotaReservation(ctx, k8sClient, key, admission)
 			})
 
 			ginkgo.By("waiting for the workload to be deactivated", func() {
@@ -1403,8 +1404,8 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(flavor.Name), "1").
 					Obj()).
 				Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, wl1Key, admission)
-			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl1)
+			integration.SetQuotaReservation(ctx, k8sClient, wl1Key, admission)
+			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl1)
 
 			wl2 := utiltestingapi.MakeWorkload("wl-waiting-for-quota", ns.Name).Queue("q").Request(corev1.ResourceCPU, "1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
@@ -1435,8 +1436,8 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 					Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(flavor.Name), "1").
 					Obj()).
 				Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, wl1Key, admission)
-			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl1)
+			integration.SetQuotaReservation(ctx, k8sClient, wl1Key, admission)
+			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl1)
 
 			wl2 := utiltestingapi.MakeWorkload("wl-transitioning", ns.Name).Queue("q").Request(corev1.ResourceCPU, "1").Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
@@ -1656,8 +1657,8 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 
 			ginkgo.By("simulating workload admission", func() {
 				admission := utiltestingapi.MakeAdmission("cq").Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+				integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 			})
 
 			ginkgo.By("marking workload as finished", func() {
@@ -1754,8 +1755,8 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 
 			ginkgo.By("simulating workload admission", func() {
 				admission := utiltestingapi.MakeAdmission("cq").Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
+				integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 			})
 
 			behavioral.ExpectFinishedWorkloadsGaugeMetric(clusterQueue, 0)

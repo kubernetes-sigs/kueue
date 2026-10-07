@@ -36,6 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -360,7 +361,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 			ginkgo.By("Waiting for PodsReady timeout eviction and finishing backoff")
 			behavioral.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(wl), behavioral.TinyTimeout)
-			behavioral.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(wl))
+			integration.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(wl))
 			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wl)
 
 			ginkgo.By("Verifying workload is re-admitted with DRA resources after backoff")
@@ -1572,7 +1573,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
 
 			ginkgo.By("Evicting admitted workload to trigger requeue with stale TotalRequests")
-			behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), nil)
+			integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), nil)
 
 			ginkgo.By("Verifying requeued workload uses raw ER name, not stale DRA translation")
 			gomega.Eventually(func(g gomega.Gomega) {

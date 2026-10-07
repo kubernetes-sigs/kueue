@@ -58,6 +58,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 func createPodsForWorkload(wl *kueue.Workload, nsName string, withTopologyRequestAnnotation bool, running bool) {
@@ -91,7 +92,7 @@ func createPodsForWorkload(wl *kueue.Workload, nsName string, withTopologyReques
 				if running {
 					phase = corev1.PodRunning
 				}
-				behavioral.SetPodsPhase(ctx, k8sClient, phase, pod)
+				integration.SetPodsPhase(ctx, k8sClient, phase, pod)
 				idx++
 			}
 		}
@@ -356,7 +357,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				}).
 				Ready().
 				Obj()
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*node})
+			integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*node})
 
 			topology = utiltestingapi.MakeDefaultOneLevelTopology("default")
 			behavioral.MustCreate(ctx, k8sClient, topology)
@@ -471,7 +472,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					Ready().
 					Obj(),
 			}
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 			topology = utiltestingapi.MakeDefaultTwoLevelTopology("default")
 			behavioral.MustCreate(ctx, k8sClient, topology)
@@ -534,7 +535,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			ginkgo.By("terminate the non-TAS pod", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(nonTasPod), nonTasPod)).To(gomega.Succeed())
-					behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, nonTasPod)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, nonTasPod)
 					g.Expect(k8sClient.Update(ctx, nonTasPod)).Should(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -731,7 +732,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			node = testingnode.MakeNode("node-test").
 				Ready().
 				Obj()
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*node})
+			integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*node})
 
 			wl = utiltestingapi.MakeWorkload("wl-pending", ns.Name).
 				Request(corev1.ResourceCPU, "1").
@@ -832,7 +833,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+				integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = utiltestingapi.MakeDefaultTwoLevelTopology("default")
 				behavioral.MustCreate(ctx, k8sClient, topology)
@@ -885,7 +886,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 1)
 
 				ginkgo.By("Marking the blocker workload as finished")
-				behavioral.FinishWorkloads(ctx, k8sClient, blocker)
+				integration.FinishWorkloads(ctx, k8sClient, blocker)
 
 				ginkgo.By("Verifying that once quota is released, the previously inadmissible limits-only workload now reserves quota")
 				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, clusterQueue.Name, limitsOnly)
@@ -1035,7 +1036,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("finish wl3", func() {
-					behavioral.FinishWorkloads(ctx, k8sClient, wl3)
+					integration.FinishWorkloads(ctx, k8sClient, wl3)
 					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl2)
 				})
 
@@ -1109,7 +1110,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("finish wl1 to demonstrate there is enough space for wl2", func() {
-					behavioral.FinishWorkloads(ctx, k8sClient, wl1)
+					integration.FinishWorkloads(ctx, k8sClient, wl1)
 				})
 
 				ginkgo.By("verify wl2 gets admitted", func() {
@@ -1331,7 +1332,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("finish wl1 to release the TAS capacity", func() {
-					behavioral.FinishWorkloads(ctx, k8sClient, wl1)
+					integration.FinishWorkloads(ctx, k8sClient, wl1)
 				})
 
 				ginkgo.By("verify wl2 gets admitted", func() {
@@ -1483,7 +1484,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+				integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
 				behavioral.MustCreate(ctx, k8sClient, topology)
@@ -1636,7 +1637,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("finish the first workload", func() {
-					behavioral.FinishWorkloads(ctx, k8sClient, wl1)
+					integration.FinishWorkloads(ctx, k8sClient, wl1)
 				})
 
 				ginkgo.By("creating second workload which cannot fit", func() {
@@ -1745,7 +1746,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("finish wl1 and verify wl2 can fit now", func() {
-					behavioral.FinishWorkloads(ctx, k8sClient, wl1)
+					integration.FinishWorkloads(ctx, k8sClient, wl1)
 					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
 				})
 			})
@@ -2500,7 +2501,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						}).
 						Ready().
 						Obj()
-					behavioral.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*renamedNode})
+					integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*renamedNode})
 					ginkgo.DeferCleanup(func() {
 						behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, renamedNode, true)
 					})
@@ -2639,7 +2640,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("Finishing second workload")
-				behavioral.FinishWorkloads(ctx, k8sClient, wl2)
+				integration.FinishWorkloads(ctx, k8sClient, wl2)
 
 				ginkgo.By("verify the workload has corrected TopologyAssignment and no node in UnhealthyNodes", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -2898,7 +2899,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+				integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
 				behavioral.MustCreate(ctx, k8sClient, topology)
@@ -3666,7 +3667,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+				integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
 				behavioral.MustCreate(ctx, k8sClient, topology)
@@ -3838,7 +3839,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+				integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
 				behavioral.MustCreate(ctx, k8sClient, topology)
@@ -4248,7 +4249,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+				integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
 				behavioral.MustCreate(ctx, k8sClient, topology)
@@ -4459,7 +4460,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						}).
 						Ready().
 						Obj()
-					behavioral.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*node3})
+					integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*node3})
 					ginkgo.DeferCleanup(func() {
 						behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, node3, true)
 					})
@@ -4557,7 +4558,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+				integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
 				behavioral.MustCreate(ctx, k8sClient, topology)
@@ -4685,7 +4686,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+				integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
 				behavioral.MustCreate(ctx, k8sClient, topology)
@@ -4839,7 +4840,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+				integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
 				behavioral.MustCreate(ctx, k8sClient, topology)
@@ -5074,7 +5075,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Ready().
 							Obj(),
 					}
-					behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+					integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 				})
 
 				ginkgo.By("verify the workload is admitted", func() {
@@ -5137,7 +5138,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+				integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
 				behavioral.MustCreate(ctx, k8sClient, topology)
@@ -5293,7 +5294,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Ready().
 							Obj(),
 					}
-					behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+					integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 				})
 
 				ginkgo.By("creating a workload which does not tolerate the taint", func() {
@@ -5346,7 +5347,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Ready().
 							Obj(),
 					}
-					behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+					integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 				})
 
 				ginkgo.By("creating a workload requiring the missing label via Affinity", func() {
@@ -5424,7 +5425,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Ready().
 							Obj(),
 					}
-					behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+					integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 				})
 
 				ginkgo.By("creating a workload requiring the missing label via NodeSelector", func() {
@@ -5530,7 +5531,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+				integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 			})
 
 			ginkgo.AfterEach(func() {
@@ -5736,7 +5737,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							NotReady().
 							Obj(),
 					}
-					behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+					integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 				})
 
 				ginkgo.By("set the ProvisioningRequest as Provisioned", func() {
@@ -5873,7 +5874,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							NotReady().
 							Obj(),
 					}
-					behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+					integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 				})
 
 				ginkgo.By("set the ProvisioningRequest as Provisioned", func() {
@@ -5993,7 +5994,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Ready().
 							Obj(),
 					}
-					behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+					integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 				})
 
 				ginkgo.By("set the ProvisioningRequest as Provisioned", func() {
@@ -6086,7 +6087,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Ready().
 							Obj(),
 					}
-					behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+					integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 				})
 
 				ginkgo.By("set the ProvisioningRequest as Provisioned", func() {
@@ -6211,7 +6212,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Ready().
 							Obj(),
 					}
-					behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+					integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 				})
 
 				ginkgo.By("set the ProvisioningRequest as Provisioned", func() {
@@ -6330,7 +6331,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Ready().
 							Obj(),
 					}
-					behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+					integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 				})
 
 				ginkgo.By("set the ProvisioningRequest as Provisioned", func() {
@@ -6439,7 +6440,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							NotReady().
 							Obj(),
 					}
-					behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+					integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 				})
 
 				ginkgo.By("mark ProvisioningRequest as Provisioned (start of the backoff window)", func() {
@@ -6589,7 +6590,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					Ready().
 					Obj(),
 			}
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 		})
 
 		ginkgo.AfterEach(func() {
@@ -6712,7 +6713,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+				integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = utiltestingapi.MakeTopology("default").Levels(
 					utiltesting.DefaultRackTopologyLevel,
@@ -6921,7 +6922,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("finish wl1 to release the GPU TAS capacity", func() {
-					behavioral.FinishWorkloads(ctx, k8sClient, wl1)
+					integration.FinishWorkloads(ctx, k8sClient, wl1)
 				})
 
 				ginkgo.By("verify wl2 gets admitted", func() {
@@ -6982,7 +6983,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Ready().
 						Obj(),
 				}
-				behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+				integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				topology = utiltestingapi.MakeDefaultOneLevelTopology("default")
 				behavioral.MustCreate(ctx, k8sClient, topology)
@@ -7233,7 +7234,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				})
 
 				ginkgo.By("finishing the tas-flavor-a workload to release x1 in the shared TAS usage", func() {
-					behavioral.FinishWorkloads(ctx, k8sClient, primaryWl)
+					integration.FinishWorkloads(ctx, k8sClient, primaryWl)
 				})
 
 				ginkgo.By("verifying the sibling tas-flavor-b workload is admitted on the freed node x1", func() {
@@ -7291,7 +7292,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					Ready().
 					Obj(),
 			}
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 			topology = utiltestingapi.MakeDefaultOneLevelTopology("default")
 			behavioral.MustCreate(ctx, k8sClient, topology)
@@ -7385,7 +7386,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			})
 
 			ginkgo.By("reclaiming the workers podset of the admitted workload to release its topology domain", func() {
-				behavioral.UpdateReclaimablePods(ctx, k8sClient, admittedWl, []kueue.ReclaimablePod{{Name: "workers", Count: 1}})
+				integration.UpdateReclaimablePods(ctx, k8sClient, admittedWl, []kueue.ReclaimablePod{{Name: "workers", Count: 1}})
 			})
 
 			ginkgo.By("the admitted workload continues to be admitted", func() {
@@ -7437,7 +7438,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			}
 
 			ginkgo.By("Creating nodes first", func() {
-				behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+				integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 				// Verify all nodes are properly recognized by TAS system
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -7730,7 +7731,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							}).
 							Obj()
 					}
-					behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+					integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 					gomega.Eventually(func(g gomega.Gomega) {
 						var nodeList corev1.NodeList
@@ -8173,7 +8174,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					Ready().
 					Obj(),
 			}
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 			topology = utiltestingapi.MakeDefaultTwoLevelTopology("default")
 			behavioral.MustCreate(ctx, k8sClient, topology)
@@ -8658,7 +8659,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					Ready().
 					Obj(),
 			}
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 			topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
 			behavioral.MustCreate(ctx, k8sClient, topology)
@@ -8857,7 +8858,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					Ready().
 					Obj(),
 			}
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 		})
 
 		ginkgo.AfterEach(func() {
@@ -8957,7 +8958,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling – Resource Transformation: 
 				Ready().
 				Obj(),
 		}
-		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-")
 
@@ -9063,7 +9064,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling – Resource Transformation: 
 
 		ginkgo.It("should admit the pending workload after one running workload finishes", func() {
 			ginkgo.By("Marking one admitted workload as finished (frees 3 credits)", func() {
-				behavioral.FinishWorkloads(ctx, k8sClient, admitted[0])
+				integration.FinishWorkloads(ctx, k8sClient, admitted[0])
 			})
 
 			ginkgo.By("Waiting for the pending workload to be admitted (credits available again)", func() {
@@ -9246,7 +9247,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling – WaitForPodsReady with Unh
 				Ready().
 				Obj(),
 		}
-		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 	})
 
 	ginkgo.It("should evict admitted workload with UnhealthyNodes when PodsReady recovery timeout is exceeded", func() {
