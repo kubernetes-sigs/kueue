@@ -4276,6 +4276,73 @@ func TestAssignFlavors(t *testing.T) {
 				}}},
 			},
 		},
+		"workload slice replacement fits when growing PodSet precedes shrinking PodSet": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("head", 1).Obj(),
+				*utiltestingapi.MakePodSet("workers-b", 5).Obj(),
+				*utiltestingapi.MakePodSet("workers-a", 1).Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("one").
+					Resource(corev1.ResourcePods, "7").
+					Obj()).
+				Obj(),
+			clusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "one", Resource: corev1.ResourcePods}: resources.NewAmount(7),
+			},
+			preemptWorkloadSlice: &workload.Info{
+				TotalRequests: []workload.PodSetResources{
+					{
+						Name:     "head",
+						Count:    1,
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourcePods: 1}),
+						Flavors:  map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourcePods: "one"},
+					},
+					{
+						Name:     "workers-b",
+						Count:    2,
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourcePods: 2}),
+						Flavors:  map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourcePods: "one"},
+					},
+					{
+						Name:     "workers-a",
+						Count:    4,
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourcePods: 4}),
+						Flavors:  map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourcePods: "one"},
+					},
+				},
+			},
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name:                     "head",
+						Flavors:                  ResourceAssignment{corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: -1}},
+						Requests:                 corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{{Flavor: "one", Mode: Fit}},
+						Count:                    1,
+					},
+					{
+						Name:                     "workers-b",
+						Flavors:                  ResourceAssignment{corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: -1}},
+						Requests:                 corev1.ResourceList{corev1.ResourcePods: resource.MustParse("5")},
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{{Flavor: "one", Mode: Fit}},
+						Count:                    5,
+					},
+					{
+						Name:                     "workers-a",
+						Flavors:                  ResourceAssignment{corev1.ResourcePods: {Name: "one", Mode: Fit, TriedFlavorIdx: -1}},
+						Requests:                 corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+						FlavorAssignmentAttempts: []FlavorAssignmentAttempt{{Flavor: "one", Mode: Fit}},
+						Count:                    1,
+					},
+				},
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "one", Resource: corev1.ResourcePods}: resources.NewAmount(0),
+				}}},
+			},
+		},
 		"workload slice preemption does not fit in the original workload resource flavor": {
 			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
 			wlPods: []kueue.PodSet{
