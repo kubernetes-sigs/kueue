@@ -79,7 +79,20 @@ func managerSetupWithConfig(
 	controllersCfg *config.Configuration,
 	resourceTransformations ...config.ResourceTransformation,
 ) func(ctx context.Context, mgr manager.Manager) {
+	return managerSetupWithClientTransform(controllersCfg, nil, resourceTransformations...)
+}
+
+// managerSetupWithClientTransform is managerSetupWithConfig plus a hook to wrap the scheduler's client.
+func managerSetupWithClientTransform(
+	controllersCfg *config.Configuration,
+	transform func(client.Client) client.Client,
+	resourceTransformations ...config.ResourceTransformation,
+) func(ctx context.Context, mgr manager.Manager) {
 	return func(ctx context.Context, mgr manager.Manager) {
+		schedClient := mgr.GetClient()
+		if transform != nil {
+			schedClient = transform(schedClient)
+		}
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -136,7 +149,7 @@ func managerSetupWithConfig(
 		sched := scheduler.New(
 			queues,
 			cCache,
-			mgr.GetClient(),
+			schedClient,
 			mgr.GetEventRecorder(constants.AdmissionName),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 			scheduler.WithFairSharing(controllersCfg.FairSharing),
