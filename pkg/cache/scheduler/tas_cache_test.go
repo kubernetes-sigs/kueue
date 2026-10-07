@@ -505,6 +505,54 @@ func TestFindTopologyAssignments(t *testing.T) {
 		*testingpod.MakePod("survivor-pod", "test-ns").NodeName("x5").Request(corev1.ResourceCPU, "1").Obj(),
 	}
 
+	// Multi pod-set fixtures: podset-a runs on node-1..3 (r1), podset-b on
+	// node-4..5 (r2). node-1 and node-4 failed, so only the healthy nodes are
+	// listed; node-6 is the only free one.
+	multiPodSetNodes := []corev1.Node{
+		*testingnode.MakeNode("node-2").
+			Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "node-2").
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+			Ready().Obj(),
+		*testingnode.MakeNode("node-3").
+			Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "node-3").
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+			Ready().Obj(),
+		*testingnode.MakeNode("node-5").
+			Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "node-5").
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+			Ready().Obj(),
+		*testingnode.MakeNode("node-6").
+			Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "node-6").
+			StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+			Ready().Obj(),
+	}
+	// Running pods fill node-2, node-3 and node-5.
+	multiPodSetPods := []corev1.Pod{
+		*testingpod.MakePod("podset-a-1", "test-ns").NodeName("node-2").Request(corev1.ResourceCPU, "1").Obj(),
+		*testingpod.MakePod("podset-a-2", "test-ns").NodeName("node-3").Request(corev1.ResourceCPU, "1").Obj(),
+		*testingpod.MakePod("podset-b-1", "test-ns").NodeName("node-5").Request(corev1.ResourceCPU, "1").Obj(),
+	}
+	multiPodSetWorkload := utiltestingapi.MakeWorkload("test-wl", "test-ns").
+		Admission(utiltestingapi.MakeAdmission("test-cq").
+			PodSets(
+				utiltestingapi.MakePodSetAssignment("podset-a").
+					Count(3).
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultOneLevel).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-1"}}).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-2"}}).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-3"}}).
+						Obj()).
+					Obj(),
+				utiltestingapi.MakePodSetAssignment("podset-b").
+					Count(2).
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultOneLevel).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-4"}}).
+						Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"node-5"}}).
+						Obj()).
+					Obj(),
+			).
+			Obj())
+
 	cases := map[string]struct {
 		featureGates           map[featuregate.Feature]bool
 		nodes                  []corev1.Node
@@ -1704,6 +1752,375 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
+		},
+		"a second PodSet sees the device the first one took on a node advertising it": {
+			// Each node publishes one device through a device plugin and x1 sorts first.
+			// The first PodSet takes x1's device, so the second has to go to x2. Without
+			// recording the device as used, x1 still looks free to the second.
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.KueueDRADeviceFeasibility:           true,
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			draObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").
+					ExtendedResourceName("example.com/gpu").
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "first",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					count:             1,
+					containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					},
+				},
+				{
+					podSetName: "second",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					count:             1,
+					containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x2"}},
+						},
+					},
+				},
+			},
+		},
+		"a second PodSet does not fit on a node whose only device the first one took": {
+			// x1 is the only node and publishes one device through a device plugin, so
+			// the second PodSet is rejected only if the device the first took is recorded.
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.KueueDRADeviceFeasibility:           true,
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			draObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").
+					ExtendedResourceName("example.com/gpu").
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "first",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					count:             1,
+					containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					},
+				},
+				{
+					podSetName: "second",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					count:             1,
+					containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+					wantReason:        `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "example.com/gpu": 1`,
+				},
+			},
+		},
+		"a second PodSet sees the device the first one took on a node advertising it, with a rack as the lowest level": {
+			// The topology stops at the rack, so the node a Pod lands on is only known
+			// within the cycle. Each rack has one node publishing one device and r1 sorts
+			// first, so the second PodSet has to go to r2.
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.KueueDRADeviceFeasibility:           true,
+				features.TASNodeFeasibilityForAllLevels:      true,
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("b1-r1-x1").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("b1-r2-x2").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r2").Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultTwoLevels,
+			draObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").
+					ExtendedResourceName("example.com/gpu").
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "first",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					count:             1,
+					containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultTwoLevels,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"b1", "r1"}},
+						},
+					},
+				},
+				{
+					podSetName: "second",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					count:             1,
+					containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultTwoLevels,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"b1", "r2"}},
+						},
+					},
+				},
+			},
+		},
+		"elastic workload scale up: counts the device a previous Pod took on a node advertising it": {
+			// Each node publishes one device through a device plugin. The previous Pod
+			// holds x1's, so the added one has to go to x2.
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.KueueDRADeviceFeasibility:           true,
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			draObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").
+					ExtendedResourceName("example.com/gpu").
+					Obj(),
+			},
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU: 1000,
+				},
+				draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+				count:             2,
+				containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+				previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x1"}},
+					},
+				}),
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{
+						{Count: 1, Values: []string{"x1"}},
+						{Count: 1, Values: []string{"x2"}},
+					},
+				},
+			}},
+		},
+		"node replacement counts the device a replaced PodSet took on a node advertising it": {
+			// x1 failed while running one Pod of each PodSet. Each healthy node publishes
+			// one device through a device plugin, so once the first replacement takes x2's,
+			// the second has to go to x3.
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegrationExtendedResource: true,
+				features.KueueDRADeviceFeasibility:           true,
+			},
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("2"),
+					}).
+					NotReady().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x3").
+					Label(corev1.LabelHostname, "x3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"example.com/gpu":   resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			draObjects: []client.Object{
+				testingdra.MakeDeviceClass("gpu.example.com").
+					ExtendedResourceName("example.com/gpu").
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Admission(utiltestingapi.MakeAdmission("cq", "first", "second").
+					PodSets(
+						utiltestingapi.MakePodSetAssignment("first").
+							Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultOneLevel).
+								Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x1"}}).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("second").
+							Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultOneLevel).
+								Domain(tas.TopologyDomainAssignment{Count: 1, Values: []string{"x1"}}).
+								Obj()).
+							Obj(),
+					).
+					Obj()).
+				UnhealthyNodes("x1").
+				Obj(),
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "first",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					count:             1,
+					containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x2"}},
+						},
+					},
+				},
+				{
+					podSetName: "second",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					draBackedRequests: map[corev1.ResourceName]int64{"example.com/gpu": 1},
+					count:             1,
+					containerRequests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x3"}},
+						},
+					},
+				},
+			},
 		},
 		"a PodSet's ResourceClaims are only satisfied by the node publishing the device": {
 			// Both hosts fit the CPU request and x1 sorts first, so an assignment
@@ -7726,6 +8143,65 @@ func TestFindTopologyAssignments(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
 			},
 		},
+		"elastic workload scale up with leader: workers from zero to one keep the leader placement": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					count:           1,
+					podSetGroupName: new("elastic-group"),
+					previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					}),
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					count:           1,
+					podSetGroupName: new("elastic-group"),
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+		},
 		"elastic workload same count with leader: reuses both assignments exactly": {
 			nodes: []corev1.Node{
 				*testingnode.MakeNode("x1").
@@ -7874,6 +8350,73 @@ func TestFindTopologyAssignments(t *testing.T) {
 						Domains: []tas.TopologyDomainAssignment{
 							{Count: 2, Values: []string{"x1"}},
 							{Count: 2, Values: []string{"x3"}},
+						},
+					},
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+		},
+		"elastic workload scale up with leader: workers from zero keep the leader placement": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("1"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("x2").
+					Label(corev1.LabelHostname, "x2").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{
+				{
+					podSetName: "leader",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					count:           1,
+					podSetGroupName: new("elastic-group"),
+					previousAssignment: tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					}),
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"x1"}},
+						},
+					},
+				},
+				{
+					podSetName: "workers",
+					topologyRequest: &kueue.PodSetTopologyRequest{
+						Unconstrained: new(true),
+					},
+					requests: map[corev1.ResourceName]int64{
+						corev1.ResourceCPU: 1000,
+					},
+					count:           2,
+					podSetGroupName: new("elastic-group"),
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: []string{corev1.LabelHostname},
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 2, Values: []string{"x2"}},
 						},
 					},
 				},
@@ -10504,6 +11047,121 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 				},
 			}},
+		},
+		"multi-node replacement, multi pod-set: replaces the head node within its own pod set and keeps the other pod set": {
+			// https://github.com/kubernetes-sigs/kueue/issues/16283
+			// The head node-1 (podset-a) is replaced by the spare node-7 in r1.
+			// podset-b does not hold the head and is kept, including node-4.
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: true},
+			nodes: append(slices.Clone(multiPodSetNodes),
+				*testingnode.MakeNode("node-7").
+					Label(tasBlockLabel, "b1").Label(tasRackLabel, "r1").Label(corev1.LabelHostname, "node-7").
+					StatusAllocatable(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1"), corev1.ResourcePods: resource.MustParse("10")}).
+					Ready().Obj(),
+			),
+			pods:     multiPodSetPods,
+			levels:   defaultThreeLevels,
+			workload: multiPodSetWorkload.Clone().UnhealthyNodes("node-1", "node-4").Obj(),
+			podSets: []PodSetTestCase{
+				{
+					podSetName:      "podset-a",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           3,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"node-2"}},
+							{Count: 1, Values: []string{"node-3"}},
+							{Count: 1, Values: []string{"node-7"}},
+						},
+					},
+				},
+				{
+					podSetName:      "podset-b",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           2,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"node-4"}},
+							{Count: 1, Values: []string{"node-5"}},
+						},
+					},
+				},
+			},
+		},
+		"multi-node replacement, multi pod-set: replaces the head node in the second pod set and keeps the first": {
+			// The head node-4 (podset-b) is replaced by node-6 in r2.
+			// podset-a does not hold the head and is kept, including node-1.
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: true},
+			nodes:        multiPodSetNodes,
+			pods:         multiPodSetPods,
+			levels:       defaultThreeLevels,
+			workload:     multiPodSetWorkload.Clone().UnhealthyNodes("node-4", "node-1").Obj(),
+			podSets: []PodSetTestCase{
+				{
+					podSetName:      "podset-a",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           3,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"node-1"}},
+							{Count: 1, Values: []string{"node-2"}},
+							{Count: 1, Values: []string{"node-3"}},
+						},
+					},
+				},
+				{
+					podSetName:      "podset-b",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           2,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"node-5"}},
+							{Count: 1, Values: []string{"node-6"}},
+						},
+					},
+				},
+			},
+		},
+		"multi-node replacement, multi pod-set: an unreplaceable head node blocks replacing a later node in another pod set": {
+			// https://github.com/kubernetes-sigs/kueue/pull/12344#discussion_r4108013684
+			// The head node-1 cannot be replaced since r1 is full, so node-4 is
+			// not attempted even though node-6 in r2 would fit. podset-b is
+			// listed first because a failing PodSet returns early.
+			featureGates: map[featuregate.Feature]bool{features.TASReplaceMultipleFailedNodes: true},
+			nodes:        multiPodSetNodes,
+			pods:         multiPodSetPods,
+			levels:       defaultThreeLevels,
+			workload:     multiPodSetWorkload.Clone().UnhealthyNodes("node-1", "node-4").Obj(),
+			podSets: []PodSetTestCase{
+				{
+					podSetName:      "podset-b",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           2,
+					wantAssignment: &tas.TopologyAssignment{
+						Levels: defaultOneLevel,
+						Domains: []tas.TopologyDomainAssignment{
+							{Count: 1, Values: []string{"node-4"}},
+							{Count: 1, Values: []string{"node-5"}},
+						},
+					},
+				},
+				{
+					podSetName:      "podset-a",
+					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
+					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+					count:           3,
+					wantReason:      `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 4; excluded: resource "cpu": 2, topologyDomain: 2`,
+				},
+			},
 		},
 		"multi-node replacement: reusing a node already in the assignment is allowed": {
 			// https://github.com/kubernetes-sigs/kueue/pull/12344#discussion_r3457906799

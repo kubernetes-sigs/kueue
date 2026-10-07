@@ -1,8 +1,8 @@
 header:
   schema-version: 1.0.0
   expiration-date: '2027-07-10T01:00:00.000Z'
-  last-updated: '2026-09-03'
-  last-reviewed: '2026-09-03'
+  last-updated: '2026-10-02'
+  last-reviewed: '2026-10-02'
   commit-hash: "6358d0fa9a4962dd0303769c76c513ebd3a8dac1"
   project-url: 'https://github.com/kubernetes-sigs/kueue'
   project-release: "0.20.0"
@@ -85,3 +85,11 @@ dependencies:
       updates automatically; major and minor bumps are coordinated with a Kueue
       release that targets a new Kubernetes minor. See DEPENDENCY_LIFECYCLE.md
       for the full policy.
+  env-dependencies-policy:
+    policy-url: 'https://github.com/kubernetes-sigs/kueue/blob/main/ENVIRONMENT_DEPENDENCIES_POLICY.md'
+    comment: |
+      Dependencies are tracked in version-controlled manifests.
+      Development and CI use versioned Go tooling; tests use configured
+      Kubernetes and operator versions. Release images use digest-pinned
+      bases.
+      See ENVIRONMENT_DEPENDENCIES_POLICY.md for details.

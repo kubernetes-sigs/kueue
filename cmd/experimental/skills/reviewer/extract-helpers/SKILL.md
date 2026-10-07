@@ -45,3 +45,6 @@ func Greeting(user User) string {
 ```
 
 `name` now lives only inside `displayName`, and `Greeting` is a single expressive line.
+
+For test fixtures, follow
+[Writing tests](../../../../../site/content/en/community/contribution_guidelines/writing_tests.md) instead.

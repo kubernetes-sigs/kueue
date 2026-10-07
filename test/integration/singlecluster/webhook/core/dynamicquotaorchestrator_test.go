@@ -28,7 +28,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("DynamicQuotaOrchestrator Validation", func() {
@@ -50,7 +50,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator Validation", func() {
 				if isValid {
 					gomega.Expect(err).To(gomega.Succeed())
 					defer func() {
-						util.ExpectObjectToBeDeleted(ctx, k8sClient, dqo, true)
+						behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, dqo, true)
 					}()
 				} else {
 					gomega.Expect(err).To(gomega.HaveOccurred())
@@ -112,9 +112,9 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator Validation", func() {
 				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "valid-clusterqueue").
 				Obj()
 
-			util.MustCreate(ctx, k8sClient, dqo)
+			behavioral.MustCreate(ctx, k8sClient, dqo)
 			defer func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, dqo, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, dqo, true)
 			}()
 		})
 	})
@@ -126,9 +126,9 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator Validation", func() {
 					DiscoveryProvider("cp-1", nil).
 					Obj()
 
-				util.MustCreate(ctx, k8sClient, dqo)
+				behavioral.MustCreate(ctx, k8sClient, dqo)
 				defer func() {
-					util.ExpectObjectToBeDeleted(ctx, k8sClient, dqo, true)
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, dqo, true)
 				}()
 
 				resources := corev1.ResourceList{}
