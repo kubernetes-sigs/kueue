@@ -291,8 +291,8 @@ func ScaledUp(workload *kueue.Workload) bool {
 	return ReplacementForKey(workload) != nil
 }
 
-// Reconciler holds the dependencies for reconciling workload slices.
-type Reconciler struct {
+// Maintainer holds the dependencies for managing workload slices.
+type Maintainer struct {
 	Client       client.Client
 	Clock        clock.Clock
 	Recorder     events.EventRecorder
@@ -306,7 +306,7 @@ type Reconciler struct {
 // - *Workload, true, nil: when a compatible workload exists or a new slice is needed.
 // - nil, false, nil: when an incompatible workload exists and no update is performed.
 // - error: on failure to fetch, update, or deactivate a workload slice.
-func (r *Reconciler) EnsureWorkloadSlices(
+func (r *Maintainer) EnsureWorkloadSlices(
 	ctx context.Context,
 	jobPodSets []kueue.PodSet,
 	jobObject client.Object,
