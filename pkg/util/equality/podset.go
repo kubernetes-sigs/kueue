@@ -23,10 +23,13 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 type ComparePodSetsOptions struct {
-	ignoreTolerations bool
+	ignoreTolerations         bool
+	ignoreTopologyRequest     bool
+	ignoreTopologyIndexLabels bool
 }
 
 type ComparePodSetsOption func(*ComparePodSetsOptions)
@@ -34,6 +37,18 @@ type ComparePodSetsOption func(*ComparePodSetsOptions)
 func WithIgnoreTolerations() ComparePodSetsOption {
 	return func(options *ComparePodSetsOptions) {
 		options.ignoreTolerations = true
+	}
+}
+
+func WithIgnoreTopologyRequest() ComparePodSetsOption {
+	return func(options *ComparePodSetsOptions) {
+		options.ignoreTopologyRequest = true
+	}
+}
+
+func WithIgnoreTopologyIndexLabels() ComparePodSetsOption {
+	return func(options *ComparePodSetsOptions) {
+		options.ignoreTopologyIndexLabels = true
 	}
 }
 
@@ -78,11 +93,53 @@ func compareResourceClaims(a, b []corev1.PodResourceClaim) bool {
 	return true
 }
 
+func normalizedTopologyRequest(r *kueue.PodSetTopologyRequest) *kueue.PodSetTopologyRequest {
+	if r == nil {
+		return nil
+	}
+	result := r.DeepCopy()
+	if constraints := utiltas.PodSetSliceRequiredTopologyConstraints(result); len(constraints) > 0 {
+		result.PodsetSliceRequiredTopologyConstraints = constraints
+		result.PodSetSliceRequiredTopology = nil
+		result.PodSetSliceSize = nil
+	}
+	return result
+}
+
+func compareTopologyRequest(a, b *kueue.PodSetTopologyRequest, opts *ComparePodSetsOptions) bool {
+	normA := normalizedTopologyRequest(a)
+	normB := normalizedTopologyRequest(b)
+	if equality.Semantic.DeepEqual(normA, normB) {
+		return true
+	}
+	if opts.ignoreTopologyIndexLabels && normA != nil && normB != nil {
+		normACopy := normA.DeepCopy()
+		normBCopy := normB.DeepCopy()
+		normACopy.PodIndexLabel = nil
+		normBCopy.PodIndexLabel = nil
+		normACopy.SubGroupIndexLabel = nil
+		normBCopy.SubGroupIndexLabel = nil
+		normACopy.SubGroupCount = nil
+		normBCopy.SubGroupCount = nil
+		return equality.Semantic.DeepEqual(normACopy, normBCopy)
+	}
+	return false
+}
+
 func ComparePodSets(a, b *kueue.PodSet, options ...ComparePodSetsOption) bool {
+	opts := &ComparePodSetsOptions{}
+	for _, opt := range options {
+		opt(opts)
+	}
 	if a.Count != b.Count {
 		return false
 	}
 	if ptr.Deref(a.MinCount, -1) != ptr.Deref(b.MinCount, -1) {
+		return false
+	}
+	if !opts.ignoreTopologyRequest &&
+		(utiltas.HasTopologyConstraint(a.TopologyRequest) || utiltas.HasTopologyConstraint(b.TopologyRequest)) &&
+		!compareTopologyRequest(a.TopologyRequest, b.TopologyRequest, opts) {
 		return false
 	}
 

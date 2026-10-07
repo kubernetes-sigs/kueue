@@ -108,10 +108,12 @@ func TestComparePodTemplate(t *testing.T) {
 
 func TestComparePodSetSlices(t *testing.T) {
 	cases := map[string]struct {
-		a                 []kueue.PodSet
-		b                 []kueue.PodSet
-		ignoreTolerations bool
-		wantEquivalent    bool
+		a                         []kueue.PodSet
+		b                         []kueue.PodSet
+		ignoreTolerations         bool
+		ignoreTopologyRequest     bool
+		ignoreTopologyIndexLabels bool
+		wantEquivalent            bool
 	}{
 		"different name": {
 			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
@@ -253,12 +255,68 @@ func TestComparePodSetSlices(t *testing.T) {
 			},
 			wantEquivalent: true,
 		},
+		"ignore topology index labels: missing pod index label, subgroup index label, and subgroup count": {
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				PodIndexLabel(new("index")).
+				SubGroupIndexLabel(new("subgroup")).
+				SubGroupCount(new(int32(2))).
+				Obj()},
+			b: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Obj()},
+			ignoreTopologyIndexLabels: true,
+			wantEquivalent:            true,
+		},
+		"ignore topology index labels disabled: different pod index label": {
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				PodIndexLabel(new("index")).
+				SubGroupCount(new(int32(2))).
+				Obj()},
+			b: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Obj()},
+			ignoreTopologyIndexLabels: false,
+			wantEquivalent:            false,
+		},
+		"ignore topology index labels: different constraints should still mismatch": {
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				PodIndexLabel(new("index")).
+				SubGroupCount(new(int32(2))).
+				Obj()},
+			b: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelTopologyZone).
+				Obj()},
+			ignoreTopologyIndexLabels: true,
+			wantEquivalent:            false,
+		},
+		"ignore topology index labels: symmetric comparison": {
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Obj()},
+			b: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				PodIndexLabel(new("index")).
+				SubGroupIndexLabel(new("subgroup")).
+				SubGroupCount(new(int32(2))).
+				Obj()},
+			ignoreTopologyIndexLabels: true,
+			wantEquivalent:            true,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			options := make([]ComparePodSetsOption, 0, 1)
 			if tc.ignoreTolerations {
 				options = append(options, WithIgnoreTolerations())
+			}
+			if tc.ignoreTopologyRequest {
+				options = append(options, WithIgnoreTopologyRequest())
+			}
+			if tc.ignoreTopologyIndexLabels {
+				options = append(options, WithIgnoreTopologyIndexLabels())
 			}
 			got := ComparePodSetSlices(tc.a, tc.b, options...)
 			if got != tc.wantEquivalent {
