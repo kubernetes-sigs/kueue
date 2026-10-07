@@ -482,6 +482,20 @@ func TestPatchAdmissionStatus(t *testing.T) {
 				wl: baseWl.Clone().ResourceVersion("3").Condition(baseCond).Obj(),
 			},
 		},
+		"replacement record survives clearing admission": {
+			// The fake SSA adapter does not model field ownership and cannot remove omitted admission.
+			skipApplyPatch: true,
+			args: args{
+				wl: baseWl.Clone().Admission(utiltestingapi.MakeAdmission("cq").Obj()).Replaces("old", "old-uid").Obj(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					wl.Status.Admission = nil
+					return true, nil
+				},
+			},
+			want: want{
+				wl: baseWl.Clone().ResourceVersion("3").Replaces("old", "old-uid").Obj(),
+			},
+		},
 		"update returns true with unmanaged condition": {
 			skipMergePatch: true,
 			args: args{

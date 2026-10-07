@@ -614,6 +614,7 @@ type PreemptionGate struct {
 // WorkloadStatus defines the observed state of Workload
 // +kubebuilder:validation:XValidation:rule="!has(oldSelf.clusterName) || !has(self.clusterName) || oldSelf.clusterName == self.clusterName", message="clusterName is immutable once set"
 // +kubebuilder:validation:XValidation:rule="!has(self.clusterName) || (!has(self.nominatedClusterNames) || (has(self.nominatedClusterNames) && size(self.nominatedClusterNames) == 0))", message="clusterName and nominatedClusterNames are mutually exclusive"
+// +kubebuilder:validation:XValidation:rule="!has(oldSelf.replaces) || (has(self.replaces) && self.replaces == oldSelf.replaces)", message="replaces is immutable once set"
 type WorkloadStatus struct {
 	// conditions hold the latest available observations of the Workload
 	// current state.
@@ -641,6 +642,14 @@ type WorkloadStatus struct {
 	// changed once set.
 	// +optional
 	Admission *Admission `json:"admission,omitempty"`
+
+	// replaces identifies the workload slice this workload committed to replace
+	// when its quota reservation was persisted. The referenced workload is in the
+	// same namespace. This record is retained after admission is cleared so the
+	// job controller can finish the old slice even after eviction or restart.
+	// This field is only set when ElasticJobsViaWorkloadSlices is enabled.
+	// +optional
+	Replaces *WorkloadReplacement `json:"replaces,omitempty"`
 
 	// requeueState holds the re-queue state
 	// when a workload meets Eviction with PodsReadyTimeout reason.
@@ -1259,3 +1268,20 @@ type WorkloadList struct {
 }
 
 func (*Workload) Hub() {}
+
+// WorkloadReplacement identifies a workload slice whose replacement was committed.
+// +structType=atomic
+type WorkloadReplacement struct {
+	// name is the name of the replaced workload in the same namespace.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	Name string `json:"name"`
+
+	// uid identifies the replaced workload instance, preventing replacement of a
+	// different workload created with the same name.
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=128
+	UID string `json:"uid,omitempty"`
+}

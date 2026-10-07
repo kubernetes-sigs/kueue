@@ -56,6 +56,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -1098,11 +1099,56 @@ func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job Gener
 	return UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), live...)
 }
 
+// finishReplacedWorkloadSlices completes the replacements committed atomically
+// with admission. Include finished and evicted successors: their replacement
+// records remain authoritative after they stop holding quota.
+func (r *JobReconciler) finishReplacedWorkloadSlices(ctx context.Context, object client.Object, gvk schema.GroupVersionKind) error {
+	list := &kueue.WorkloadList{}
+	if err := r.client.List(ctx, list, client.InNamespace(object.GetNamespace()), indexer.OwnerReferenceIndexFieldMatcher(gvk, object.GetName())); err != nil {
+		return fmt.Errorf("listing workload slice replacements: %w", err)
+	}
+	slicesByName := make(map[string]*kueue.Workload, len(list.Items))
+	for i := range list.Items {
+		slicesByName[list.Items[i].Name] = &list.Items[i]
+	}
+	for i := range list.Items {
+		newSlice := &list.Items[i]
+		replaces := newSlice.Status.Replaces
+		if replaces == nil || !metav1.IsControlledBy(newSlice, object) {
+			continue
+		}
+		oldSlice := slicesByName[replaces.Name]
+		if oldSlice == nil || string(oldSlice.UID) != replaces.UID || !metav1.IsControlledBy(oldSlice, object) || workloadfinish.IsFinished(oldSlice) || oldSlice.UID == newSlice.UID {
+			continue
+		}
+		reason := kueue.WorkloadSliceReplaced
+		message := fmt.Sprintf("Replaced to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconsts.JobUIDLabel])
+		if err := workloadfinish.Finish(ctx, r.client, oldSlice, reason, message, r.clock); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return fmt.Errorf("finishing replaced workload slice: %w", err)
+		}
+		r.record.Eventf(oldSlice, nil, corev1.EventTypeNormal, reason, "Replaced", message)
+		if oldSlice.Status.Admission != nil {
+			cq := oldSlice.Status.Admission.ClusterQueue
+			metrics.ReportReplacedWorkloadSlices(cq, r.customLabels.CQGet(cq), r.roleTracker)
+		}
+	}
+	return nil
+}
+
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
 // If there are more than one workload, we should delete the excess ones.
 // The returned workload could be nil.
 func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, object client.Object) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
+
+	if WorkloadSliceEnabled(job) {
+		if err := r.finishReplacedWorkloadSlices(ctx, object, job.GVK()); err != nil {
+			return nil, err
+		}
+	}
 
 	if prebuiltWorkload := PrebuiltWorkloadNameFor(job.Object()); prebuiltWorkload != "" {
 		wl := &kueue.Workload{}
@@ -1127,15 +1173,6 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		}
 		if err != nil {
 			return nil, err
-		}
-
-		if workloadslicing.Enabled(object) {
-			// TODO(kevin85421): Currently this only handles slices that the scheduler
-			// failed to finish after admitting the replacement. More cases may need
-			// to be handled in the future.
-			if err := workloadslicing.FinishReplacedWorkloadSlices(ctx, r.client, r.clock, wl); err != nil {
-				return nil, err
-			}
 		}
 
 		// Skip the in-sync check for ElasticJob workloads if the workload is a

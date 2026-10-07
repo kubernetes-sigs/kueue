@@ -407,6 +407,12 @@ func (w *WorkloadWrapper) SchedulingStatsEviction(evictionState kueue.WorkloadSc
 	return w
 }
 
+// Replaces records the workload slice replaced when admission was committed.
+func (w *WorkloadWrapper) Replaces(name string, uid types.UID) *WorkloadWrapper {
+	w.Status.Replaces = &kueue.WorkloadReplacement{Name: name, UID: string(uid)}
+	return w
+}
+
 func (w *WorkloadWrapper) ClusterName(clusterName string) *WorkloadWrapper {
 	w.Status.ClusterName = &clusterName
 	return w

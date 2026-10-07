@@ -45,6 +45,12 @@ type WorkloadStatusApplyConfiguration struct {
 	// ClusterQueue. admission can be set back to null, but its fields cannot be
 	// changed once set.
 	Admission *AdmissionApplyConfiguration `json:"admission,omitempty"`
+	// replaces identifies the workload slice this workload committed to replace
+	// when its quota reservation was persisted. The referenced workload is in the
+	// same namespace. This record is retained after admission is cleared so the
+	// job controller can finish the old slice even after eviction or restart.
+	// This field is only set when ElasticJobsViaWorkloadSlices is enabled.
+	Replaces *WorkloadReplacementApplyConfiguration `json:"replaces,omitempty"`
 	// requeueState holds the re-queue state
 	// when a workload meets Eviction with PodsReadyTimeout reason.
 	//
@@ -116,6 +122,14 @@ func (b *WorkloadStatusApplyConfiguration) WithConditions(values ...*v1.Conditio
 // If called multiple times, the Admission field is set to the value of the last call.
 func (b *WorkloadStatusApplyConfiguration) WithAdmission(value *AdmissionApplyConfiguration) *WorkloadStatusApplyConfiguration {
 	b.Admission = value
+	return b
+}
+
+// WithReplaces sets the Replaces field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Replaces field is set to the value of the last call.
+func (b *WorkloadStatusApplyConfiguration) WithReplaces(value *WorkloadReplacementApplyConfiguration) *WorkloadStatusApplyConfiguration {
+	b.Replaces = value
 	return b
 }
 

@@ -28,7 +28,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -217,14 +216,36 @@ func sortAndFilterNotFinishedWorkloads(workloads []kueue.Workload) []kueue.Workl
 		return cmp.Compare(a.UID, b.UID)
 	})
 
-	// Filter out workloads with activated "Finished" condition.
+	// A cached predecessor may not yet show the Finished condition written by
+	// the job reconciler. The successor's committed record already identifies
+	// it as replaced, including when that successor is itself finished.
+	type replacementKey struct {
+		replacement kueue.WorkloadReplacement
+		ownerUID    types.UID
+	}
+	committed := make(map[replacementKey]struct{})
+	for i := range workloads {
+		wl := &workloads[i]
+		owner := metav1.GetControllerOfNoCopy(wl)
+		if replaces := wl.Status.Replaces; replaces != nil && owner != nil && replaces.UID != string(wl.UID) {
+			committed[replacementKey{replacement: *replaces, ownerUID: owner.UID}] = struct{}{}
+		}
+	}
 	return slices.DeleteFunc(workloads, func(w kueue.Workload) bool {
-		return workloadfinish.IsFinished(&w)
+		if workloadfinish.IsFinished(&w) {
+			return true
+		}
+		owner := metav1.GetControllerOfNoCopy(&w)
+		if owner == nil {
+			return false
+		}
+		_, replaced := committed[replacementKey{replacement: kueue.WorkloadReplacement{Name: w.Name, UID: string(w.UID)}, ownerUID: owner.UID}]
+		return replaced
 	})
 }
 
 // FindNotFinishedWorkloads returns a sorted list of workloads "owned by" the provided job object/gvk combination and
-// without "Finished" condition with status = "True".
+// without "Finished" condition with status = "True" or a committed replacement.
 func FindNotFinishedWorkloads(ctx context.Context, clnt client.Client, jobObject client.Object, jobObjectGVK schema.GroupVersionKind) ([]kueue.Workload, error) {
 	list := &kueue.WorkloadList{}
 	if err := clnt.List(ctx, list, client.InNamespace(jobObject.GetNamespace()), indexer.OwnerReferenceIndexFieldMatcher(jobObjectGVK, jobObject.GetName())); err != nil {
@@ -400,46 +421,6 @@ func EnsureWorkloadSlices(
 	}
 }
 
-// FinishReplacedWorkloadSlices finds the workload slices that should have been
-// replaced and finishes them.
-func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clock, wl *kueue.Workload) error {
-	list := &kueue.WorkloadList{}
-	if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace),
-		client.MatchingFields{indexer.WorkloadSliceNameKey: SliceName(wl)}); err != nil {
-		return fmt.Errorf("failed to find prebuilt workload slices: %w", err)
-	}
-	log := ctrl.LoggerFrom(ctx)
-	replaced := sets.New[workload.Reference]()
-	for i := range list.Items {
-		if key := replacementTarget(&list.Items[i]); key != nil {
-			replaced.Insert(*key)
-		}
-	}
-	for i := range list.Items {
-		predecessor := &list.Items[i]
-		if !replaced.Has(workload.Key(predecessor)) || workloadfinish.IsFinished(predecessor) {
-			continue
-		}
-		log.V(2).Info("Finishing workload slice that was not finished by the scheduler", "workload", workload.Key(predecessor))
-		if err := workloadfinish.Finish(ctx, clnt, predecessor, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice", clk); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// replacementTarget returns the slice that wl replaced once wl holds quota,
-// which is the state the scheduler leaves behind when finishing the
-// predecessor failed. It matches the scheduler's quota-reservation boundary,
-// not full admission.
-func replacementTarget(wl *kueue.Workload) *workload.Reference {
-	key := ReplacementForKey(wl)
-	if key == nil || !workload.HasQuotaReservation(wl) || workloadevict.IsEvicted(wl) || workloadfinish.IsFinished(wl) {
-		return nil
-	}
-	return key
-}
-
 // normalizeActiveSlices enforces the workload slice invariant:
 //   - One non-evicted admitted workload (latestWithQuotaReservation)
 //   - At most one non-evicted pending replacement that directly replaces it
@@ -518,9 +499,6 @@ func normalizeActiveSlices(
 			continue
 		}
 		reason, message := kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job"
-		if _, replaced := replacements[workload.Key(wl)]; replaced {
-			reason, message = kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice"
-		}
 		log.V(2).Info("Finishing workload slice", "workload", workload.Key(wl), "reason", reason)
 		if err := workloadfinish.Finish(ctx, clnt, wl, reason, message, clk); err != nil {
 			return nil, err
