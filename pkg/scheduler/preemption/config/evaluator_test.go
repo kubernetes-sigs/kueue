@@ -656,22 +656,22 @@ func TestPreemptionEvaluatorOverlappingTASCandidates(t *testing.T) {
 		disableOverlappingFlavors bool
 		wantCandidates            []string
 	}{
-		"topology trigger selects workloads on the nodes of the flavor, whatever flavor and resource they use": {
+		"QuotaFeasibleAndInsufficientTopology trigger selects workloads on the nodes of the flavor, whatever flavor and resource they use": {
 			trigger:        kueuealpha.QuotaFeasibleAndInsufficientTopology,
 			wantCandidates: []string{"a-mem", "a1", "b-mem", "b1"},
 		},
-		"topology trigger only selects workloads using the flavor resource when TASHandleOverlappingFlavors is disabled": {
+		"InsufficientQuota trigger selects workloads on the nodes of the flavor, whatever flavor and resource they use": {
+			trigger:        kueuealpha.InsufficientQuota,
+			wantCandidates: []string{"a-mem", "a1", "b-mem", "b1"},
+		},
+		"Always trigger selects workloads on the nodes of the flavor, whatever flavor and resource they use": {
+			trigger:        kueuealpha.Always,
+			wantCandidates: []string{"a-mem", "a1", "b-mem", "b1"},
+		},
+		"only workloads using the flavor resource are selected when TASHandleOverlappingFlavors is disabled": {
 			trigger:                   kueuealpha.QuotaFeasibleAndInsufficientTopology,
 			disableOverlappingFlavors: true,
 			wantCandidates:            []string{"a1"},
-		},
-		"quota trigger only selects workloads using the flavor resource": {
-			trigger:        kueuealpha.InsufficientQuota,
-			wantCandidates: []string{"a1"},
-		},
-		"always trigger only selects workloads using the flavor resource": {
-			trigger:        kueuealpha.Always,
-			wantCandidates: []string{"a1"},
 		},
 	}
 
