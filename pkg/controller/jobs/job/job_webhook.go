@@ -45,7 +45,6 @@ import (
 var (
 	minPodsCountAnnotationsPath   = field.NewPath("metadata", "annotations").Key(JobMinParallelismAnnotation)
 	syncCompletionAnnotationsPath = field.NewPath("metadata", "annotations").Key(JobCompletionsEqualParallelismAnnotation)
-	completionModePath            = field.NewPath("spec", "completionMode")
 	replicaMetaPath               = field.NewPath("spec", "template", "metadata")
 )
 
@@ -201,20 +200,16 @@ func (w *JobWebhook) validateSyncCompletionCreate(job *Job) field.ErrorList {
 	return allErrs
 }
 
-// validateElasticJobPartialScaleUp mirrors upstream's constraint that a running Job's
-// parallelism and completions can only be mutated together, and only under Indexed mode.
+// validateElasticJobPartialScaleUp mirrors upstream's constraint that a running Indexed Job's
+// parallelism and completions can only be mutated together. NonIndexed Jobs don't need this:
+// their .spec.parallelism is already freely mutable upstream, independently of completions.
 func (w *JobWebhook) validateElasticJobPartialScaleUp(job *Job) field.ErrorList {
-	if !features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) ||
-		!workloadslicing.Enabled(job.Object()) ||
-		job.Annotations[kueueconstants.ElasticJobScaleUpStrategyAnnotationKey] != kueueconstants.ElasticJobScaleUpStrategyPartial {
+	if !jobframework.ElasticPartialScaleUpEnabled(job) ||
+		job.Spec.CompletionMode == nil || *job.Spec.CompletionMode != batchv1.IndexedCompletion {
 		return nil
 	}
 
 	var allErrs field.ErrorList
-	if job.Spec.CompletionMode == nil || *job.Spec.CompletionMode != batchv1.IndexedCompletion {
-		allErrs = append(allErrs, field.Invalid(completionModePath, job.Spec.CompletionMode,
-			"elastic job partial scale-up requires Indexed completion mode"))
-	}
 	if ptr.Deref(job.Spec.Parallelism, 1) != ptr.Deref(job.Spec.Completions, 1) {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "completions"), job.Spec.Completions,
 			"elastic job partial scale-up requires completions to equal parallelism"))
