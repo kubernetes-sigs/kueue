@@ -475,7 +475,7 @@ func (s *Scheduler) processEntry(
 	// lose to earlier CQs and starve for prolonged periods.
 	fits, err := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
 	if err != nil {
-		log.V(3).Info("Failed to re-compute the assignment", "error", err)
+		log.Error(err, "Failed to re-compute the assignment")
 		e.inadmissibleMsg = err.Error()
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
 		return
@@ -844,6 +844,7 @@ func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qca
 			}
 		}
 	} else if assignment, targets, err := s.getAssignments(ctx, &e.Info, snap); err != nil {
+		log.Error(err, "Failed to compute the initital assignment")
 		e.inadmissibleMsg = err.Error()
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonMisconfigured
 	} else {
