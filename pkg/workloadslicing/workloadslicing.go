@@ -314,19 +314,24 @@ func ScaledUp(workload *kueue.Workload) bool {
 	return ReplacementForKey(workload) != nil
 }
 
+// Reconciler holds the dependencies for reconciling workload slices and recording
+// successful replacements.
+type Reconciler struct {
+	Client       client.Client
+	Clock        clock.Clock
+	Recorder     events.EventRecorder
+	CustomLabels *metrics.CustomLabels
+	RoleTracker  *roletracker.RoleTracker
+}
+
 // EnsureWorkloadSlices processes the Job object and returns the appropriate workload slice.
 //
 // It returns the selected slice (or nil when a new slice is needed), whether the
 // slices are compatible with the job, and an error if listing, updating, or
 // finishing a slice failed. Committed replacements are finished and recorded
 // before active slices are selected.
-func EnsureWorkloadSlices(
+func (r *Reconciler) EnsureWorkloadSlices(
 	ctx context.Context,
-	clnt client.Client,
-	clk clock.Clock,
-	recorder events.EventRecorder,
-	customLabels *metrics.CustomLabels,
-	roleTracker *roletracker.RoleTracker,
 	jobPodSets []kueue.PodSet,
 	jobObject client.Object,
 	jobObjectGVK schema.GroupVersionKind,
@@ -334,7 +339,7 @@ func EnsureWorkloadSlices(
 	jobPodSetsCounts := workload.ExtractPodSetCounts(jobPodSets)
 
 	list := &kueue.WorkloadList{}
-	if err := clnt.List(ctx, list, client.InNamespace(jobObject.GetNamespace()),
+	if err := r.Client.List(ctx, list, client.InNamespace(jobObject.GetNamespace()),
 		indexer.OwnerReferenceIndexFieldMatcher(jobObjectGVK, jobObject.GetName())); err != nil {
 		return nil, true, fmt.Errorf("failed to find workload slices: %w", err)
 	}
@@ -344,7 +349,7 @@ func EnsureWorkloadSlices(
 			controlled = append(controlled, slice)
 		}
 	}
-	if err := FinishReplacedWorkloadSlices(ctx, clnt, clk, recorder, customLabels, roleTracker, controlled); err != nil {
+	if err := r.FinishReplacedWorkloadSlices(ctx, controlled); err != nil {
 		return nil, true, err
 	}
 	workloads := sortAndFilterNotFinishedWorkloads(list.Items)
@@ -393,7 +398,7 @@ func EnsureWorkloadSlices(
 		// b. It's a scale-down event.
 		if !workload.HasQuotaReservation(wl) || ScaledDown(wlPodSetsCounts, jobPodSetsCounts) {
 			workload.ApplyPodSetCounts(wl, jobPodSetsCounts)
-			if err := clnt.Update(ctx, wl); err != nil {
+			if err := r.Client.Update(ctx, wl); err != nil {
 				return nil, true, fmt.Errorf("failed to update workload's pod sets counts: %w", err)
 			}
 			return wl, true, nil
@@ -403,7 +408,7 @@ func EnsureWorkloadSlices(
 		return nil, true, nil
 
 	default:
-		selectedWorkload, err := normalizeActiveSlices(ctx, clnt, clk, workloads)
+		selectedWorkload, err := normalizeActiveSlices(ctx, r.Client, r.Clock, workloads)
 		if err != nil {
 			return nil, true, err
 		}
@@ -423,7 +428,7 @@ func EnsureWorkloadSlices(
 
 		if !workload.HasQuotaReservation(selectedWorkload) || ScaledDown(selectedCounts, jobPodSetsCounts) {
 			workload.ApplyPodSetCounts(selectedWorkload, jobPodSetsCounts)
-			if err := clnt.Update(ctx, selectedWorkload); err != nil {
+			if err := r.Client.Update(ctx, selectedWorkload); err != nil {
 				return nil, true, fmt.Errorf("failed to update workload pod set counts: %w", err)
 			}
 			return selectedWorkload, true, nil
@@ -438,15 +443,7 @@ func EnsureWorkloadSlices(
 // in workloads, including finished and evicted successors, and records each
 // successful replacement event and metric. The caller supplies workloads
 // belonging to the job or slice chain being reconciled.
-func FinishReplacedWorkloadSlices(
-	ctx context.Context,
-	clnt client.Client,
-	clk clock.Clock,
-	recorder events.EventRecorder,
-	customLabels *metrics.CustomLabels,
-	roleTracker *roletracker.RoleTracker,
-	workloads []kueue.Workload,
-) error {
+func (r *Reconciler) FinishReplacedWorkloadSlices(ctx context.Context, workloads []kueue.Workload) error {
 	byName := make(map[types.NamespacedName]*kueue.Workload, len(workloads))
 	for i := range workloads {
 		wl := &workloads[i]
@@ -463,16 +460,16 @@ func FinishReplacedWorkloadSlices(
 			continue
 		}
 		message := fmt.Sprintf("Replaced to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconsts.JobUIDLabel])
-		if err := workloadfinish.Finish(ctx, clnt, oldSlice, kueue.WorkloadSliceReplaced, message, clk); err != nil {
+		if err := workloadfinish.Finish(ctx, r.Client, oldSlice, kueue.WorkloadSliceReplaced, message, r.Clock); err != nil {
 			if apierrors.IsNotFound(err) {
 				continue
 			}
 			return fmt.Errorf("finishing replaced workload slice: %w", err)
 		}
-		recorder.Eventf(oldSlice, nil, corev1.EventTypeNormal, kueue.WorkloadSliceReplaced, "Replaced", message)
+		r.Recorder.Eventf(oldSlice, nil, corev1.EventTypeNormal, kueue.WorkloadSliceReplaced, "Replaced", message)
 		if oldSlice.Status.Admission != nil {
 			cq := oldSlice.Status.Admission.ClusterQueue
-			metrics.ReportReplacedWorkloadSlices(cq, customLabels.CQGet(cq), roleTracker)
+			metrics.ReportReplacedWorkloadSlices(cq, r.CustomLabels.CQGet(cq), r.RoleTracker)
 		}
 	}
 	return nil

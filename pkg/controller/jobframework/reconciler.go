@@ -99,6 +99,7 @@ type WorkloadRetentionPolicy struct {
 
 // JobReconciler reconciles a GenericJob object
 type JobReconciler struct {
+	workloadSlices               *workloadslicing.Reconciler
 	integrationManager           *IntegrationManager
 	cache                        *schdcache.Cache
 	client                       client.Client
@@ -331,6 +332,13 @@ func NewReconciler(
 	}
 
 	return &JobReconciler{
+		workloadSlices: &workloadslicing.Reconciler{
+			Client:       client,
+			Clock:        options.Clock,
+			Recorder:     record,
+			CustomLabels: options.CustomLabels,
+			RoleTracker:  options.RoleTracker,
+		},
 		integrationManager:           options.IntegrationManager,
 		cache:                        options.Cache,
 		client:                       client,
@@ -1136,7 +1144,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 				client.MatchingFields{indexer.WorkloadSliceNameKey: workloadslicing.SliceName(wl)}); err != nil {
 				return nil, err
 			}
-			if err := workloadslicing.FinishReplacedWorkloadSlices(ctx, r.client, r.clock, r.record, r.customLabels, r.roleTracker, list.Items); err != nil {
+			if err := r.workloadSlices.FinishReplacedWorkloadSlices(ctx, list.Items); err != nil {
 				return nil, err
 			}
 		}
@@ -1191,7 +1199,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		// Workload slices allow modifications only to PodSet.Count.
 		// Any other changes will result in the slice being marked as incompatible,
 		// and the workload will fall back to being processed by the original ensureOneWorkload function.
-		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, r.clock, r.record, r.customLabels, r.roleTracker, podSets, object, job.GVK())
+		wl, compatible, err := r.workloadSlices.EnsureWorkloadSlices(ctx, podSets, object, job.GVK())
 		if err != nil {
 			return nil, err
 		}
