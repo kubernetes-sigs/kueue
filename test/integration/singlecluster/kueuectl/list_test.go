@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/list"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Kueuectl List", func() {
@@ -350,15 +351,15 @@ wl2                                             very-long-local-queue-name      
 		ginkgo.It("Should filter workloads by status.admission.clusterQueue field selector", func() {
 			wlCQ1 := utiltestingapi.MakeWorkload("wl-cq1", ns.Name).Queue("lq1").Obj()
 			behavioral.MustCreate(ctx, k8sClient, wlCQ1)
-			behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ1), utiltestingapi.MakeAdmission("cq1").Obj())
+			integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ1), utiltestingapi.MakeAdmission("cq1").Obj())
 
 			wlCQ2a := utiltestingapi.MakeWorkload("wl-cq2a", ns.Name).Queue("lq1").Obj()
 			behavioral.MustCreate(ctx, k8sClient, wlCQ2a)
-			behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ2a), utiltestingapi.MakeAdmission("cq2").Obj())
+			integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ2a), utiltestingapi.MakeAdmission("cq2").Obj())
 
 			wlCQ2b := utiltestingapi.MakeWorkload("wl-cq2b", ns.Name).Queue("lq1").Obj()
 			behavioral.MustCreate(ctx, k8sClient, wlCQ2b)
-			behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ2b), utiltestingapi.MakeAdmission("cq2").Obj())
+			integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wlCQ2b), utiltestingapi.MakeAdmission("cq2").Obj())
 
 			wlPending := utiltestingapi.MakeWorkload("wl-pending", ns.Name).Queue("lq1").Obj()
 			behavioral.MustCreate(ctx, k8sClient, wlPending)

@@ -29,13 +29,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:scheduler-library"), func() {
@@ -99,7 +103,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					Ready().
 					Obj(),
 			}
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 			deviceClass = testingdra.MakeDeviceClass("gpu.test.com").Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
@@ -252,6 +256,269 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 				ta := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
 				gomega.Expect(ta.Domains[0].Values).To(gomega.ContainElement("was-n2"))
 			}
+		})
+
+		// was-n3 and was-n4 each publish one test.com/gpu through a device plugin, so TAS
+		// counts the device from the Node instead of leaving it to the device check. The
+		// PodSets select only these two, so neither can fall back on was-n2's DRA devices
+		// while a node is still missing from the cache.
+		ginkgo.It("should not place two PodSets on the only device a device plugin publishes", func() {
+			pluginNodes := []corev1.Node{
+				*testingnode.MakeNode("was-n3").
+					Label("node-group", "was-dra").
+					Label("gpu-source", "device-plugin").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r3").
+					Label(corev1.LabelHostname, "was-n3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("4"),
+						corev1.ResourceMemory: resource.MustParse("8Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+						"test.com/gpu":        resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("was-n4").
+					Label("node-group", "was-dra").
+					Label("gpu-source", "device-plugin").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r4").
+					Label(corev1.LabelHostname, "was-n4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("4"),
+						corev1.ResourceMemory: resource.MustParse("8Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+						"test.com/gpu":        resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			}
+			integration.CreateNodesWithStatus(ctx, k8sClient, pluginNodes)
+			ginkgo.DeferCleanup(func() {
+				for _, node := range pluginNodes {
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+				}
+			})
+
+			wl := utiltestingapi.MakeWorkload("wl-dra-ext-podsets", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet("first", 1).
+						Request(corev1.ResourceCPU, "1").
+						Request("test.com/gpu", "1").
+						NodeSelector(map[string]string{"gpu-source": "device-plugin"}).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj(),
+					*utiltestingapi.MakePodSet("second", 1).
+						Request(corev1.ResourceCPU, "1").
+						Request("test.com/gpu", "1").
+						NodeSelector(map[string]string{"gpu-source": "device-plugin"}).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj(),
+				).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			// TAS breaks the tie on was-n3, so the second PodSet has to go to was-n4.
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			first := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+			gomega.Expect(first.Domains).To(gomega.HaveLen(1))
+			gomega.Expect(first.Domains[0].Values).To(gomega.ContainElement("was-n3"))
+			second := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment)
+			gomega.Expect(second.Domains).To(gomega.HaveLen(1))
+			gomega.Expect(second.Domains[0].Values).To(gomega.ContainElement("was-n4"))
+		})
+
+		// was-n5 publishes two test.com/gpu through a device plugin and is the only node the
+		// PodSets select, so it takes one Pod of each. Its replacements publish one each, so
+		// the second PodSet gets its own node only if the device the first took is counted.
+		ginkgo.It("should not place two replaced PodSets on the only device a device plugin publishes", func() {
+			// The first attempt may run before the replacement nodes exist and must not evict.
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
+			failedNode := testingnode.MakeNode("was-n5").
+				Label("node-group", "was-dra").
+				Label("gpu-source", "device-plugin").
+				Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+				Label(utiltesting.DefaultRackTopologyLevel, "r5").
+				Label(corev1.LabelHostname, "was-n5").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("4"),
+					corev1.ResourceMemory: resource.MustParse("8Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
+					"test.com/gpu":        resource.MustParse("2"),
+				}).
+				Ready().
+				Obj()
+			integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*failedNode})
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, failedNode, true)
+			})
+
+			wl := utiltestingapi.MakeWorkload("wl-dra-ext-replaced", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet("first", 1).
+						Request(corev1.ResourceCPU, "1").
+						Request("test.com/gpu", "1").
+						NodeSelector(map[string]string{"gpu-source": "device-plugin"}).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj(),
+					*utiltestingapi.MakePodSet("second", 1).
+						Request(corev1.ResourceCPU, "1").
+						Request("test.com/gpu", "1").
+						NodeSelector(map[string]string{"gpu-source": "device-plugin"}).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj(),
+				).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			for _, psa := range wl.Status.Admission.PodSetAssignments {
+				gomega.Expect(utiltas.InternalFrom(psa.TopologyAssignment).Domains).To(gomega.ConsistOf(
+					utiltas.TopologyDomainAssignment{Count: 1, Values: []string{"was-n5"}},
+				))
+			}
+
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, failedNode, true)
+			behavioral.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl, "was-n5")
+
+			replacementNodes := []corev1.Node{
+				*testingnode.MakeNode("was-n3").
+					Label("node-group", "was-dra").
+					Label("gpu-source", "device-plugin").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r3").
+					Label(corev1.LabelHostname, "was-n3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("4"),
+						corev1.ResourceMemory: resource.MustParse("8Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+						"test.com/gpu":        resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("was-n4").
+					Label("node-group", "was-dra").
+					Label("gpu-source", "device-plugin").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r4").
+					Label(corev1.LabelHostname, "was-n4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("4"),
+						corev1.ResourceMemory: resource.MustParse("8Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+						"test.com/gpu":        resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			}
+			integration.CreateNodesWithStatus(ctx, k8sClient, replacementNodes)
+			ginkgo.DeferCleanup(func() {
+				for _, node := range replacementNodes {
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+				}
+			})
+
+			// TAS breaks the tie on was-n3, so the second PodSet has to go to was-n4.
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				g.Expect(wl.Status.UnhealthyNodes).To(gomega.BeEmpty())
+				first := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+				g.Expect(first.Domains).To(gomega.HaveLen(1))
+				g.Expect(first.Domains[0].Values).To(gomega.ContainElement("was-n3"))
+				second := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment)
+				g.Expect(second.Domains).To(gomega.HaveLen(1))
+				g.Expect(second.Domains[0].Values).To(gomega.ContainElement("was-n4"))
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeNil())
+		})
+
+		// was-n3 publishes one test.com/gpu through a device plugin, and was-n4 joins only once
+		// the slice holds was-n3, which also wins the tie for the added Pod. While the slice
+		// grows, its cached usage is set aside and the Pod it keeps is counted again, so the
+		// added Pod goes to was-n4 only if that recount includes the device.
+		ginkgo.It("should not scale a slice up onto the device its retained Pod holds", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+			retainedNode := testingnode.MakeNode("was-n3").
+				Label("node-group", "was-dra").
+				Label("gpu-source", "device-plugin").
+				Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+				Label(utiltesting.DefaultRackTopologyLevel, "r3").
+				Label(corev1.LabelHostname, "was-n3").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("4"),
+					corev1.ResourceMemory: resource.MustParse("8Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
+					"test.com/gpu":        resource.MustParse("1"),
+				}).
+				Ready().
+				Obj()
+			integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*retainedNode})
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, retainedNode, true)
+			})
+
+			old := utiltestingapi.MakeWorkload("wl-dra-ext-slice", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Request("test.com/gpu", "1").
+					NodeSelector(map[string]string{"gpu-source": "device-plugin"}).
+					UnconstrainedTopologyRequest().
+					Obj()).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, old)
+
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, old)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(old), old)).To(gomega.Succeed())
+			gomega.Expect(utiltas.InternalFrom(old.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains).To(gomega.ConsistOf(
+				utiltas.TopologyDomainAssignment{Count: 1, Values: []string{"was-n3"}},
+			))
+
+			spareNode := testingnode.MakeNode("was-n4").
+				Label("node-group", "was-dra").
+				Label("gpu-source", "device-plugin").
+				Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+				Label(utiltesting.DefaultRackTopologyLevel, "r4").
+				Label(corev1.LabelHostname, "was-n4").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("4"),
+					corev1.ResourceMemory: resource.MustParse("8Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
+					"test.com/gpu":        resource.MustParse("1"),
+				}).
+				Ready().
+				Obj()
+			integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*spareNode})
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, spareNode, true)
+			})
+
+			grown := utiltestingapi.MakeWorkload("wl-dra-ext-slice-grown", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(old))).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+					Request(corev1.ResourceCPU, "1").
+					Request("test.com/gpu", "1").
+					NodeSelector(map[string]string{"gpu-source": "device-plugin"}).
+					UnconstrainedTopologyRequest().
+					Obj()).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, grown)
+
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, grown)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(grown), grown)).To(gomega.Succeed())
+			gomega.Expect(utiltas.InternalFrom(grown.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains).To(gomega.ConsistOf(
+				utiltas.TopologyDomainAssignment{Count: 1, Values: []string{"was-n3"}},
+				utiltas.TopologyDomainAssignment{Count: 1, Values: []string{"was-n4"}},
+			))
 		})
 
 		ginkgo.It("should not admit a DRA workload when no node has enough devices", func() {
@@ -636,7 +903,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					Ready().
 					Obj(),
 			}
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 			// A Pod outside Kueue holds hostPort 8080 on was-n1, the node TAS
 			// picks on its own. It is created before the queues so that its

@@ -83,7 +83,7 @@ func registerAppWrapperTests(contextProvider func() appWrapperTestContext) {
 		})
 
 		ginkgo.By("Finishing the wrapped job's pods", func() {
-			listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", jobName))
+			listOpts := e2e.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", jobName))
 			e2e.WaitForActivePodsAndTerminate(ctx, admittedWorker.client, admittedWorker.restClient, admittedWorker.cfg, aw.Namespace, 2, 0, listOpts)
 		})
 
@@ -94,8 +94,8 @@ func registerAppWrapperTests(contextProvider func() appWrapperTestContext) {
 		ginkgo.By("Checking no objects are left in the worker clusters and the appwrapper is completed", func() {
 			createdWorkload := &kueue.Workload{}
 			gomega.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
-			behavioral.ExpectObjectToBeDeletedOnClusters(ctx, aw, k8sWorker1Client, k8sWorker2Client)
+			e2e.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
+			e2e.ExpectObjectToBeDeletedOnClusters(ctx, aw, k8sWorker1Client, k8sWorker2Client)
 
 			createdAppWrapper := &awv1beta2.AppWrapper{}
 			gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(aw), createdAppWrapper)).To(gomega.Succeed())

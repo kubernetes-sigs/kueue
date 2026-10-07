@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -95,7 +96,7 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 		cCache := schdcache.New(mgr.GetClient(), cacheOpts...)
 		preemptionExpectations := preemptexpectations.New()
 		queuesOpts = append(queuesOpts, qcache.WithPreemptionExpectations(preemptionExpectations))
-		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queuesOpts...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queuesOpts...)
 
 		failedCtrl, err := core.SetupControllers(
 			mgr,

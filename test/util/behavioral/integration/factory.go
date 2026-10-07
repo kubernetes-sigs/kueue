@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package behavioral
+package integration
 
 import (
 	"context"
@@ -23,13 +23,13 @@ import (
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 )
 
-// NewManagerForIntegrationTests is a factory for cache.queue.Manager for Integration Tests,
+// NewManager is a factory for cache.queue.Manager for Integration Tests,
 // which configures the Requeuer with a shorter timeout and starts it up.
-func NewManagerForIntegrationTests(ctx context.Context, client client.Client, checker qcache.StatusChecker, options ...qcache.Option) *qcache.Manager {
-	return NewManagerForIntegrationTestsWithBatchPeriod(ctx, client, checker, 100*time.Millisecond, options...)
+func NewManager(ctx context.Context, client client.Client, checker qcache.StatusChecker, options ...qcache.Option) *qcache.Manager {
+	return NewManagerWithBatchPeriod(ctx, client, checker, 100*time.Millisecond, options...)
 }
 
-func NewManagerForIntegrationTestsWithBatchPeriod(ctx context.Context, client client.Client, checker qcache.StatusChecker, batchPeriod time.Duration, options ...qcache.Option) *qcache.Manager {
+func NewManagerWithBatchPeriod(ctx context.Context, client client.Client, checker qcache.StatusChecker, batchPeriod time.Duration, options ...qcache.Option) *qcache.Manager {
 	requeuer := qcache.NewRequeuer(qcache.WithBatchPeriod(batchPeriod))
 	go func() {
 		// ignore error to make linter happy.

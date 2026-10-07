@@ -29,19 +29,15 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/klog/v2"
-	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
-	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/jobs/leaderworkerset"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -298,22 +294,6 @@ func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey 
 	ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlKey, MediumTimeout)
 }
 
-func ExpectWorkloadResourceUsage(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, resourceName corev1.ResourceName, expected string) {
-	ginkgo.GinkgoHelper()
-	var wl kueue.Workload
-	gomega.Eventually(func(g gomega.Gomega) {
-		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).To(gomega.Succeed())
-		g.Expect(workload.HasQuotaReservation(&wl)).To(gomega.BeTrue())
-		g.Expect(wl.Status.Admission).NotTo(gomega.BeNil())
-		g.Expect(wl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
-
-		assignment := wl.Status.Admission.PodSetAssignments[0]
-		g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(resourceName))
-		usage := assignment.ResourceUsage[resourceName]
-		g.Expect(usage.Cmp(resource.MustParse(expected))).To(gomega.Equal(0))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("workload should have resource usage of "+expected+" for "+string(resourceName), &wl))
-}
-
 func ExpectWorkloadToHaveRequeueState(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, expected *kueue.RequeueState, hasRequeueAt bool) {
 	var wl kueue.Workload
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
@@ -436,21 +416,6 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 				).Should(gomega.Succeed(), fmt.Sprintf("Unable to unset quota reservation for %q", key))
 			}
 		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to unset quota reservation for evicted workload", wl))
-	}
-}
-
-// SyncAdmittedConditionForWorkloads sets the Admission condition of the provided workloads based on
-// the state of quota reservation and admission checks. It should be use in tests that are not running
-// the workload controller.
-func SyncAdmittedConditionForWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
-	var updatedWorkload kueue.Workload
-	for _, wl := range wls {
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-			g.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			g.ExpectWithOffset(1, workloadpatching.PatchAdmissionStatus(ctx, k8sClient, &updatedWorkload, RealClock, func(wl *kueue.Workload) (bool, error) {
-				return workload.SyncAdmittedCondition(wl, time.Now()), nil
-			})).To(gomega.Succeed())
-		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to sync admitted condition for workload", &updatedWorkload))
 	}
 }
 
@@ -694,18 +659,6 @@ func ExpectWorkloadSliceAdmittedBeforeOldFinished(watcher watch.Interface, oldWo
 	}
 }
 
-func ExpectWorkloadAdmittedWithCheck(ctx context.Context, wlLookupKey types.NamespacedName, acName, clusterName string, client client.Client) {
-	ginkgo.GinkgoHelper()
-	ginkgo.By(fmt.Sprintf("Waiting to be admitted in %s and manager clusters", clusterName))
-	ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, client, MediumTimeout, wlLookupKey)
-	ExpectAdmissionCheckStateWithMessage(
-		ctx, client, wlLookupKey,
-		acName,
-		kueue.CheckStateReady,
-		fmt.Sprintf(`The workload was admitted on "%s"`, clusterName),
-	)
-}
-
 func ExpectWorkloadToHaveConditions(
 	ctx context.Context,
 	k8sClient client.Client,
@@ -728,45 +681,12 @@ func ExpectWorkloadToHaveConditions(
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload conditions did not match expectations", wl))
 }
 
-func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workload, reclaimablePods []kueue.ReclaimablePod) {
-	ginkgo.GinkgoHelper()
-	createdWl := &kueue.Workload{}
-	gomega.Eventually(func(g gomega.Gomega) {
-		g.Expect(c.Get(ctx, client.ObjectKeyFromObject(wl), createdWl)).To(gomega.Succeed())
-		g.Expect(workload.UpdateReclaimablePods(ctx, c, createdWl, reclaimablePods)).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to update reclaimable pods for workload", createdWl))
-}
-
-func WorkloadKeyForLeaderWorkerSet(lws *leaderworkersetv1.LeaderWorkerSet, group string) client.ObjectKey {
-	return types.NamespacedName{
-		Name:      leaderworkerset.GetWorkloadName(lws.UID, lws.Name, group),
-		Namespace: lws.Namespace,
-	}
-}
-
 func workloadKeys(wls []*kueue.Workload) []client.ObjectKey {
 	wlKeys := make([]client.ObjectKey, 0, len(wls))
 	for _, wl := range wls {
 		wlKeys = append(wlKeys, client.ObjectKeyFromObject(wl))
 	}
 	return wlKeys
-}
-
-func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...*kueue.Workload) {
-	for _, w := range workloads {
-		var newWL kueue.Workload
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-			newWL.Status.Conditions = append(w.Status.Conditions, metav1.Condition{
-				Type:               kueue.WorkloadFinished,
-				Status:             metav1.ConditionTrue,
-				LastTransitionTime: metav1.Now(),
-				Reason:             "ByTest",
-				Message:            "Finished by test",
-			})
-			g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
-		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to finish workload", &newWL))
-	}
 }
 
 func AwaitWorkloadEvictionByPodsReadyTimeout(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, sleep time.Duration) {
@@ -786,33 +706,6 @@ func AwaitWorkloadEvictionByPodsReadyTimeout(ctx context.Context, k8sClient clie
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload was not evicted by PodsReady timeout", &wl))
 }
 
-func SetRequeuedConditionWithPodsReadyTimeout(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
-	var wl kueue.Workload
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
-		g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, &wl, RealClock, func(wl *kueue.Workload) (bool, error) {
-			return workload.SetRequeuedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, fmt.Sprintf("Exceeded the PodsReady timeout %s", klog.KObj(wl).String()), false), nil
-		})).Should(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to set requeued condition with PodsReady timeout", &wl))
-}
-
-func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, admission *kueue.Admission) {
-	clk := testingclock.NewFakeClock(time.Now())
-	updatedWl := &kueue.Workload{}
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		g.ExpectWithOffset(1, k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
-		g.ExpectWithOffset(1, workloadpatching.PatchAdmissionStatus(ctx, k8sClient, updatedWl, clk, func(wl *kueue.Workload) (bool, error) {
-			var updated bool
-			if admission == nil {
-				updated = workload.UnsetQuotaReservationWithCondition(wl, "EvictedByTest", "Evicted By Test", clk.Now())
-			} else {
-				updated = workload.SetQuotaReservation(wl, admission, clk)
-			}
-			return updated, nil
-		})).To(gomega.Succeed())
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to set quota reservation for workload", updatedWl))
-}
-
 // ExpectPodSetAdmittedCount waits until wl is admitted with count pods assigned to the named
 // PodSet, refreshing wl. A partially admitted workload - an elastic job whose scale-up was
 // reduced to fit the available quota - is admitted with fewer pods than it requested, so the
@@ -829,21 +722,6 @@ func ExpectPodSetAdmittedCount(ctx context.Context, k8sClient client.Client, wl 
 		})
 		g.Expect(idx).ShouldNot(gomega.Equal(-1), AssertMsg(fmt.Sprintf("No admitted podSet %q", podSetName), wl))
 		g.Expect(assignments[idx].Count).Should(gomega.Equal(new(count)))
-	}, Timeout, Interval).Should(gomega.Succeed())
-}
-
-// SetPodsScheduledCondition simulates a tracker observation in the current admission.
-func SetPodsScheduledCondition(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, condition metav1.Condition) {
-	ginkgo.GinkgoHelper()
-	gomega.Eventually(func(g gomega.Gomega) {
-		wl := &kueue.Workload{}
-		g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-		admitted := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-		g.Expect(admitted).NotTo(gomega.BeNil())
-		g.Expect(admitted.Status).To(gomega.Equal(metav1.ConditionTrue))
-		g.Expect(RealClock.Now().Truncate(time.Second)).To(gomega.BeTemporally(">", admitted.LastTransitionTime.Time))
-		g.Expect(workload.SetConditionAndUpdate(ctx, k8sClient, wl, kueue.WorkloadPodsScheduled,
-			condition.Status, condition.Reason, condition.Message, "test", RealClock)).To(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed())
 }
 

@@ -110,8 +110,8 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 					Name:      wlLookupKey.Name,
 					Namespace: wlLookupKey.Namespace,
 				}
-				behavioral.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
-				behavioral.ExpectObjectToBeDeletedOnClusters(ctx, rayjob, k8sWorker1Client, k8sWorker2Client)
+				e2e.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
+				e2e.ExpectObjectToBeDeletedOnClusters(ctx, rayjob, k8sWorker1Client, k8sWorker2Client)
 			})
 		})
 
