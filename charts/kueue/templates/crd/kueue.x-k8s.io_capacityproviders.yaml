@@ -42,7 +42,9 @@ spec:
     - name: v1alpha1
       schema:
         openAPIV3Schema:
-          description: CapacityProvider is the Schema for the capacityproviders API
+          description: |-
+            CapacityProvider reports capacity for ResourceFlavors.
+            DQO uses this capacity only when CapacitySynchronized=True.
           properties:
             apiVersion:
               description: |-
@@ -62,16 +64,14 @@ spec:
             metadata:
               type: object
             spec:
+              description: spec defines the desired state of the CapacityProvider.
               properties:
                 controllerName:
-                  allOf:
-                    - maxLength: 253
-                      minLength: 1
-                    - maxLength: 253
-                      minLength: 1
                   description: |-
                     controllerName identifies the controller publishing capacity.
                     This field is immutable.
+                  maxLength: 253
+                  minLength: 1
                   type: string
                   x-kubernetes-validations:
                     - message: field is immutable
@@ -134,12 +134,17 @@ spec:
                 - orchestratedFlavors
               type: object
             status:
+              description: status defines the capacity observed and published by the provider.
               properties:
                 capacity:
                   description: capacity is the normalized capacity published by the provider.
                   properties:
                     flavors:
-                      description: flavors contains capacity per flavor and resource.
+                      description: |-
+                        flavors reports capacity for each flavor and resource.
+                        The list must contain at least one flavor.
+                        It should contain the same flavors as spec.orchestratedFlavors.
+                        An empty resources map means zero capacity for all resources of the flavor.
                       items:
                         properties:
                           name:
@@ -167,6 +172,7 @@ spec:
                           - resources
                         type: object
                       maxItems: 64
+                      minItems: 1
                       type: array
                       x-kubernetes-list-map-keys:
                         - name

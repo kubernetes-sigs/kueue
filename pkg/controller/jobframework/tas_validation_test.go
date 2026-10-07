@@ -534,6 +534,7 @@ func TestValidatePodSetGroupingTopologySpreadingConsistency(t *testing.T) {
 		groupName  = "group1"
 		spreading  = `{"rules":[{"topologyKey":"cloud.com/rack","maxShareAllowingPlacement":"0.45"}]}`
 		spreading2 = `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"0.45"}]}`
+		equivalent = `{"rules":[{"topologyKey":"cloud.com/rack","maxShareAllowingPlacement":"0.45","enforcementMode":"Required"}]}`
 	)
 	requiredTopology := "cloud.com/block"
 	leaderAnnotationsPath := field.NewPath("spec", "leaderTemplate", "metadata", "annotations")
@@ -566,6 +567,10 @@ func TestValidatePodSetGroupingTopologySpreadingConsistency(t *testing.T) {
 		"both PodSets carry the same annotation": {
 			leader:  spreading,
 			workers: spreading,
+		},
+		"equivalent parsed annotations are accepted": {
+			leader:  spreading,
+			workers: equivalent,
 		},
 		"neither PodSet carries the annotation": {},
 		// One error per PodSet, so the user sees both field paths.

@@ -41,7 +41,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -52,12 +53,12 @@ var (
 )
 
 func TestSchedulerWithExcludeResourcePrefixes(t *testing.T) {
-	util.RunSuite(t, "Scheduler with Exclude Resource Prefixes Suite")
+	behavioral.RunSuite(t, "Scheduler with Exclude Resource Prefixes Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
@@ -91,7 +92,7 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		failedCtrl, err := core.SetupControllers(
 			mgr,

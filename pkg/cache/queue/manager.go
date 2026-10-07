@@ -201,8 +201,7 @@ type Manager struct {
 }
 
 // NewManager is a factory for cache.queue.Manager. For tests,
-// NewManagerForUnitTests or NewManagerForIntegrationTests should be
-// used.
+// NewManagerForUnitTests or integration.NewManager should be used.
 func NewManager(client client.Client, checker StatusChecker, requeuer inadmissibleRequeuer, options ...Option) *Manager {
 	m := &Manager{
 		clock:                  realClock,
@@ -332,7 +331,7 @@ func (m *Manager) AddClusterQueue(ctx context.Context, cq *kueue.ClusterQueue) e
 	if afs.Enabled(m.admissionFairSharingConfig) {
 		afsUsageLedger = m.AfsUsageLedger
 	}
-	cqImpl, err := newClusterQueue(ctx, m.client, cq, m.customLabels, m.workloadOrdering, m.admissionFairSharingConfig, afsUsageLedger)
+	cqImpl, err := newClusterQueue(ctx, cq, m.customLabels, m.workloadOrdering, m.admissionFairSharingConfig, afsUsageLedger)
 	if err != nil {
 		return err
 	}
@@ -1090,12 +1089,14 @@ func (m *Manager) DeleteSecondPassWithoutLock(wlKey workload.Reference) {
 
 // QueueSecondPassIfNeeded queues for the second pass of scheduling with exponential
 // delay. The pass re-reads the live Workload when the delay elapses.
+// On true, the second-pass queue owns the Workload, which still holds its quota
+// reservation, so the caller must neither requeue it nor release that reservation.
 func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload, iteration int) bool {
 	log := ctrl.LoggerFrom(ctx)
 	wlKey := workload.Key(w)
 	if workload.NeedsSecondPass(w) {
 		if !m.secondPassQueue.prequeueIfAbsent(w) {
-			return false
+			return true
 		}
 		iteration++
 		delay := m.secondPassQueue.nextDelay(iteration)
@@ -1120,6 +1121,11 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 func (m *Manager) queueSecondPass(ctx context.Context, nsName client.ObjectKey, iteration int) {
 	m.Lock()
 	defer m.Unlock()
+	// A request that finds a pass pending leaves ownership to it, so the pass must
+	// see that request's update. The informer stores updates before calling
+	// handlers, so holding the queue lock until the decision guarantees this.
+	m.secondPassQueue.Lock()
+	defer m.secondPassQueue.Unlock()
 
 	log := ctrl.LoggerFrom(ctx)
 	wlKey := workload.NewReference(nsName.Namespace, nsName.Name)
@@ -1128,11 +1134,11 @@ func (m *Manager) queueSecondPass(ctx context.Context, nsName client.ObjectKey, 
 	if err := m.client.Get(ctx, nsName, &w); err != nil {
 		if apierrors.IsNotFound(err) {
 			log.V(3).Info("Workload not found when queuing for second pass; dropping the request", "workload", wlKey)
-			m.secondPassQueue.deleteByKey(wlKey)
+			m.secondPassQueue.deleteByKeyLocked(wlKey)
 			return
 		}
 		if ctx.Err() != nil {
-			m.secondPassQueue.deleteByKey(wlKey)
+			m.secondPassQueue.deleteByKeyLocked(wlKey)
 			return
 		}
 		// Keep ownership of the pass: a transient read error retries after backoff.
@@ -1142,7 +1148,7 @@ func (m *Manager) queueSecondPass(ctx context.Context, nsName client.ObjectKey, 
 	}
 	wInfo := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
 	wInfo.SecondPassIteration = iteration
-	if m.secondPassQueue.queue(wInfo) {
+	if m.secondPassQueue.queueLocked(wInfo) {
 		log.V(3).Info("Workload queued for second pass of scheduling", "workload", wlKey)
 		m.Broadcast()
 	}

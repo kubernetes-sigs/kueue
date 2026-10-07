@@ -315,17 +315,13 @@ func ValidatePodSetGroupingTopology(podSets []kueue.PodSet, podSetAnnotationsByN
 			)
 		}
 
+		v1, found1 := podSet1.Template.Annotations[kueue.PodSetTopologySpreadingAnnotation]
+		v2, found2 := podSet2.Template.Annotations[kueue.PodSetTopologySpreadingAnnotation]
 		if features.Enabled(features.TASTopologySpreading) &&
-			podSet1.Template.Annotations[kueue.PodSetTopologySpreadingAnnotation] != podSet2.Template.Annotations[kueue.PodSetTopologySpreadingAnnotation] {
-			spreadingErrorMessage := fmt.Sprintf(
-				"must specify the same '%s' annotation as '%s' in group '%s', or neither pod set may specify it",
-				kueue.PodSetTopologySpreadingAnnotation,
-				"%s",
-				groupName,
-			)
+			(found1 != found2 || (found1 && !utiltas.SpreadingAnnotationsAgree(v1, v2))) {
 			allErrs = append(allErrs,
-				field.Invalid(annotationsPath1, field.OmitValueType{}, fmt.Sprintf(spreadingErrorMessage, annotationsPath2)),
-				field.Invalid(annotationsPath2, field.OmitValueType{}, fmt.Sprintf(spreadingErrorMessage, annotationsPath1)),
+				field.Invalid(annotationsPath1, field.OmitValueType{}, spreadingError(annotationsPath2, groupName)),
+				field.Invalid(annotationsPath2, field.OmitValueType{}, spreadingError(annotationsPath1, groupName)),
 			)
 		}
 
@@ -353,6 +349,15 @@ func ValidatePodSetGroupingTopology(podSets []kueue.PodSet, podSetAnnotationsByN
 	}
 
 	return allErrs
+}
+
+func spreadingError(otherPath *field.Path, groupName string) string {
+	return fmt.Sprintf(
+		"must specify the same '%s' annotation as '%s' in group '%s', or neither pod set may specify it",
+		kueue.PodSetTopologySpreadingAnnotation,
+		otherPath,
+		groupName,
+	)
 }
 
 func topologyRequestsValid(r1, r2 *kueue.PodSetTopologyRequest) bool {

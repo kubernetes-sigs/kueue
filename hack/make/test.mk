@@ -59,6 +59,8 @@ E2E_KIND_VERSION ?= kindest/node:v$(E2E_K8S_FULL_VERSION)
 E2E_USE_HELM ?= false
 E2E_MODE ?= ci
 E2E_SKIP_REINSTALL ?= false
+E2E_BIN_DIR ?= $(abspath $(BIN_DIR))
+export E2E_BIN_DIR
 PROMETHEUS_OPERATOR_VERSION ?= $(shell grep '^FROM' "${TESTING_DIR}/prometheus-operator/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
 # When truthy, force re-installing external operators (MPI, Ray, etc.) on each run, even in E2E_MODE=dev.
 E2E_ENFORCE_OPERATOR_UPDATE ?= false
@@ -293,7 +295,7 @@ test-e2e-extended-shard-2: GINKGO_ARGS=--label-filter='feature:kuberay && shard:
 test-e2e-extended-shard-2: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 ## Label Taxonomy:
-##   Features: certs,deployment,job,fairsharing,kueuectl,metrics,pod,statefulset,visibility,e2e_v1beta1,ha
+##   Features: certs,deployment,job,fairsharing,kueuectl,metrics,pod,statefulset,visibility,ha
 ##
 ## Examples:
 ##   Run only job tests: GINKGO_ARGS="--label-filter=feature:job" make test-e2e-baseline
@@ -860,6 +862,33 @@ run-tas-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 		--enableTAS=true \
 		--qps=1000 --burst=2000 --timeout=25m $(SCALABILITY_SCRAPE_ARGS)
 
+##@ Scheduler Performance Testing with TAS and DRA
+
+SCALABILITY_TAS_DRA_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/tas-dra/generator.yaml
+SCALABILITY_TAS_DRA_RANGE_FILE ?= $(PROJECT_DIR)/test/performance/scheduler/configs/tas-dra/rangespec.yaml
+
+.PHONY: run-tas-dra-performance-scheduler
+run-tas-dra-performance-scheduler: envtest performance-scheduler-runner minimalkueue
+	mkdir -p "$(ARTIFACTS)/$@"
+	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" \
+	$(SCALABILITY_RUNNER) \
+		--o "$(ARTIFACTS)/$@" \
+		--crds=$(PROJECT_DIR)/config/components/crd/bases \
+		--generatorConfig=$(SCALABILITY_TAS_DRA_GENERATOR_CONFIG) \
+		--minimalKueue=$(MINIMALKUEUE_RUNNER) \
+		--enableTAS=true --enableDRA=true --timeout=20m $(SCALABILITY_EXTRA_ARGS) $(SCALABILITY_SCRAPE_ARGS)
+
+.PHONY: test-tas-dra-performance-scheduler-once
+test-tas-dra-performance-scheduler-once: gotestsum run-tas-dra-performance-scheduler
+	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit.xml -- $(GO_TEST_FLAGS) ./test/performance/scheduler/checker  \
+		--summary=$(ARTIFACTS)/run-tas-dra-performance-scheduler/summary.yaml \
+		--cmdStats=$(ARTIFACTS)/run-tas-dra-performance-scheduler/minimalkueue.stats.yaml \
+		--range=$(SCALABILITY_TAS_DRA_RANGE_FILE)
+
+.PHONY: test-tas-dra-performance-scheduler
+test-tas-dra-performance-scheduler:
+	ARTIFACTS="$(ARTIFACTS)/$@" ./hack/testing/performance-test.sh $(PERFORMANCE_RETRY_COUNT) test-tas-dra-performance-scheduler-once
+
 ##@ Scheduler Performance Testing - Large Scale
 
 SCALABILITY_LARGE_SCALE_GENERATOR_CONFIG ?= $(PROJECT_DIR)/test/performance/scheduler/configs/large-scale/generator.yaml
@@ -902,7 +931,7 @@ ginkgo-top:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/ginkgo-top ./ginkgo-top
 
 .PHONY: setup-e2e-env
-setup-e2e-env: kustomize yq dep-crds kind helm ginkgo ginkgo-top ## Setup environment for e2e tests without running tests.
+setup-e2e-env: kustomize yq dep-crds kind helm ginkgo ginkgo-top kubectl ## Setup environment for e2e tests without running tests.
 	@echo "Setting up environment for e2e tests"
 
 .PHONY: test-e2e-kueueviz-local
@@ -915,7 +944,8 @@ test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz with
 
 .PHONY: test-kueueviz-backend
 test-kueueviz-backend: ## Run KueueViz backend tests.
-	cd $(PROJECT_DIR)/cmd/kueueviz/backend && $(GO_CMD) test $(GOFLAGS) $(GO_TEST_FLAGS) ./...
+	cd $(PROJECT_DIR)/cmd/kueueviz/backend && $(NETWORK_INSTALL_RETRY) $(GO_CMD) mod download && \
+	$(GO_CMD) test $(GOFLAGS) $(GO_TEST_FLAGS) ./...
 
 .PHONY: test-e2e-kueueviz
 test-e2e-kueueviz: test-kueueviz-backend setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.

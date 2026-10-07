@@ -56,6 +56,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -97,6 +98,7 @@ type WorkloadRetentionPolicy struct {
 
 // JobReconciler reconciles a GenericJob object
 type JobReconciler struct {
+	workloadSlices               *workloadslicing.Manager
 	integrationManager           *IntegrationManager
 	cache                        *schdcache.Cache
 	client                       client.Client
@@ -222,17 +224,37 @@ func WithManagerName(n string) Option {
 	}
 }
 
-// WithLabelKeysToCopy adds the label keys
+// These labels and annotations control how Kueue handles a Workload, so they
+// are never copied from the Job or Pod, whose author could otherwise set them.
+var (
+	nonInheritableLabels = []string{
+		kueue.MultiKueueOriginLabel,
+		controllerconsts.ConcurrentAdmissionParentLabelKey,
+		controllerconsts.JobUIDLabel,
+	}
+	nonInheritableAnnotations = []string{
+		controllerconsts.ComponentWorkloadIndexAnnotation,
+		controllerconsts.JobOwnerGVKAnnotation,
+		controllerconsts.JobOwnerNameAnnotation,
+		controllerconsts.PriorityBoostAnnotationKey,
+		controllerconsts.WorkloadAllowedResourceFlavorAnnotation,
+		kueue.WorkloadSliceNameAnnotation,
+		workloadslicing.WorkloadSliceReplacementFor,
+		podconstants.IsGroupWorkloadAnnotationKey,
+	}
+)
+
+// WithLabelKeysToCopy adds the label keys to copy, except nonInheritableLabels.
 func WithLabelKeysToCopy(s sets.Set[string]) Option {
 	return func(o *Options) {
-		o.LabelKeysToCopy = s
+		o.LabelKeysToCopy = s.Clone().Delete(nonInheritableLabels...)
 	}
 }
 
-// WithAnnotationsToCopy adds the annotation keys
+// WithAnnotationsToCopy adds the annotation keys to copy, except nonInheritableAnnotations.
 func WithAnnotationsToCopy(s sets.Set[string]) Option {
 	return func(o *Options) {
-		o.AnnotationsToCopy = s
+		o.AnnotationsToCopy = s.Clone().Delete(nonInheritableAnnotations...)
 	}
 }
 
@@ -309,6 +331,13 @@ func NewReconciler(
 	}
 
 	return &JobReconciler{
+		workloadSlices: &workloadslicing.Manager{
+			Client:       client,
+			Clock:        options.Clock,
+			Recorder:     record,
+			CustomLabels: options.CustomLabels,
+			RoleTracker:  options.RoleTracker,
+		},
 		integrationManager:           options.IntegrationManager,
 		cache:                        options.Cache,
 		client:                       client,
@@ -419,7 +448,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 	}
 
-	// if this is a non-toplevel job, suspend the job if its ancestor's workload is not found or not admitted.
+	// if this is a non-toplevel job, suspend the job if its ancestor's workload is not found or not admitted,
+	// unless SkipChildJobSuspension is enabled, in which case child job lifecycle management is left to the ancestor's controller.
 	if !isTopLevelJob {
 		if shouldSuspend, err := r.shouldSuspendChildJob(ctx, job, ancestorJob); err != nil {
 			return ctrl.Result{}, err
@@ -865,6 +895,9 @@ func QueueNameChange(ctx context.Context, c client.Client, job GenericJob, wl *k
 }
 
 func (r *JobReconciler) shouldSuspendChildJob(ctx context.Context, childJob GenericJob, ancestorJob client.Object) (bool, error) {
+	if features.Enabled(features.SkipChildJobSuspension) {
+		return false, nil
+	}
 	log := ctrl.LoggerFrom(ctx).WithValues("childJob", childJob.Object().GetName(), "gvk", childJob.GVK(), "ancestorJob", ancestorJob.GetName())
 	_, _, finished := childJob.Finished(ctx)
 	if !finished && !childJob.IsSuspended() {
@@ -1104,6 +1137,15 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, err
 		}
 
+		if workloadslicing.Enabled(object) {
+			// TODO(kevin85421): Currently this only handles slices that the scheduler
+			// failed to finish after admitting the replacement. More cases may need
+			// to be handled in the future.
+			if err := workloadslicing.FinishReplacedWorkloadSlices(ctx, r.client, r.clock, wl); err != nil {
+				return nil, err
+			}
+		}
+
 		// Skip the in-sync check for ElasticJob workloads if the workload is a
 		// newly scaled-up replacement. This prevents premature removal of remote
 		// objects for a Job that has not yet been synced after scale-up.
@@ -1154,7 +1196,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		// Workload slices allow modifications only to PodSet.Count.
 		// Any other changes will result in the slice being marked as incompatible,
 		// and the workload will fall back to being processed by the original ensureOneWorkload function.
-		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, r.clock, podSets, object, job.GVK())
+		wl, compatible, err := r.workloadSlices.EnsureWorkloadSlices(ctx, podSets, object, job.GVK())
 		if err != nil {
 			return nil, err
 		}
@@ -1680,12 +1722,15 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	}
 	jobPodSets := clearUnusableMinCounts(getPodSets, wl)
 
-	opts := make([]equality.ComparePodSetsOption, 0, 2)
+	opts := make([]equality.ComparePodSetsOption, 0, 3)
 	if workload.IsAdmitted(wl) {
 		opts = append(opts, equality.WithIgnoreTolerations())
 	}
 	if !features.Enabled(features.TopologyAwareScheduling) {
 		opts = append(opts, equality.WithIgnoreTopologyRequest())
+	}
+	if optJob, ok := job.(JobWithCustomEquivalenceOptions); ok {
+		opts = append(opts, optJob.CustomEquivalenceOptions(ctx, c, wl)...)
 	}
 
 	if runningPodSets := expectedRunningPodSets(ctx, c, wl); runningPodSets != nil {

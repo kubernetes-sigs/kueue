@@ -22,7 +22,6 @@ import (
 	"maps"
 	"math"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -37,7 +36,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	"sigs.k8s.io/kueue/pkg/util/podset"
@@ -150,7 +149,7 @@ func (a *Assignment) ComputeTASNetUsage(log logr.Logger, cq *schdcache.ClusterQu
 			}
 			result[*tasFlavor] = append(result[*tasFlavor], workload.TopologyDomainRequests{
 				Values:            domain.Values,
-				SinglePodRequests: requestsForDomain(singlePodRequests, draDelegation, tasFlavorSnapshot, domain.Values).Clone(),
+				SinglePodRequests: tasFlavorSnapshot.RequestsForDomain(tas.DomainID(domain.Values), singlePodRequests, draDelegation).Clone(),
 				Count:             count,
 			})
 		}
@@ -290,14 +289,14 @@ func (a *Assignment) TotalRequestsFor(log logr.Logger, wl *workload.Info) resour
 		if ps.Requests == nil {
 			continue
 		}
-		ps.Requests.ForEach(func(res corev1.ResourceName, q int64) {
+		ps.Requests.ForEach(func(res corev1.ResourceName, q resources.Amount) {
 			// Requests taken from an admission already count Pods.
 			if res == corev1.ResourcePods && podsFlavor != nil {
 				return
 			}
 			// zero-quantity request may have no flavor (#8079), and is irrelevant for
 			// later calculations
-			if q == 0 {
+			if q.Sign() == 0 {
 				return
 			}
 			if IgnoreUndeclaredResources(a.quotaCheckStrategy) && psAssignment.Flavors[res] == nil {
@@ -305,7 +304,7 @@ func (a *Assignment) TotalRequestsFor(log logr.Logger, wl *workload.Info) resour
 				return
 			}
 			flv := psAssignment.Flavors[res].Name
-			usage[resources.FlavorResource{Flavor: flv, Resource: res}] = usage[resources.FlavorResource{Flavor: flv, Resource: res}].AddInt64(q)
+			usage[resources.FlavorResource{Flavor: flv, Resource: res}] = usage[resources.FlavorResource{Flavor: flv, Resource: res}].Add(q)
 		})
 	}
 	return usage
@@ -599,26 +598,26 @@ func isPreferred(a, b granularMode, fungibilityConfig kueue.FlavorFungibility) b
 	return borrowingOverPreemption()
 }
 
-func fromPreemptionPossibility(preemptionPossibility preemptioncommon.PreemptionPossibility) preemptionMode {
+func fromPreemptionPossibility(preemptionPossibility policy.PreemptionPossibility) preemptionMode {
 	switch preemptionPossibility {
-	case preemptioncommon.NoCandidates:
+	case policy.NoCandidates:
 		return noPreemptionCandidates
-	case preemptioncommon.Preempt:
+	case policy.Preempt:
 		return preempt
-	case preemptioncommon.Reclaim:
+	case policy.Reclaim:
 		return reclaim
 	}
 	panic(fmt.Sprintf("illegal PreemptionPossibility: %d", preemptionPossibility))
 }
 
-func (mode preemptionMode) preemptionPossibility() *preemptioncommon.PreemptionPossibility {
+func (mode preemptionMode) preemptionPossibility() *policy.PreemptionPossibility {
 	switch mode {
 	case noPreemptionCandidates:
-		return new(preemptioncommon.NoCandidates)
+		return new(policy.NoCandidates)
 	case preempt:
-		return new(preemptioncommon.Preempt)
+		return new(policy.Preempt)
 	case reclaim:
-		return new(preemptioncommon.Reclaim)
+		return new(policy.Reclaim)
 	case fit, noFit:
 		return nil
 	default:
@@ -662,7 +661,7 @@ type preemptionOracle interface {
 		wl workload.Info,
 		fr resources.FlavorResource,
 		quantity resources.Amount,
-	) (preemptioncommon.PreemptionPossibility, int)
+	) (policy.PreemptionPossibility, int)
 }
 
 type FlavorAssigner struct {
@@ -724,6 +723,15 @@ func (a *FlavorAssigner) AssignFlavors(
 	log logr.Logger,
 	counts []int32,
 ) Assignment {
+	// Second-pass requests follow admission order, while counts and flavor scan state
+	// follow spec order. Use the request's spec index for the lookups below.
+	specIndexes := podset.SpecIndexes(a.wl.Obj.Spec.PodSets, a.wl.TotalRequests,
+		func(ps *workload.PodSetResources) kueue.PodSetReference { return ps.Name })
+	for i := range specIndexes {
+		if specIndexes[i] == -1 {
+			specIndexes[i] = i
+		}
+	}
 	requests := make([]workload.PodSetResources, len(a.wl.TotalRequests))
 	if len(counts) == 0 {
 		for i, ps := range a.wl.TotalRequests {
@@ -734,7 +742,7 @@ func (a *FlavorAssigner) AssignFlavors(
 		}
 	} else {
 		for i := range a.wl.TotalRequests {
-			requests[i] = *a.wl.TotalRequests[i].ScaledTo(counts[i])
+			requests[i] = *a.wl.TotalRequests[i].ScaledTo(counts[specIndexes[i]])
 		}
 	}
 	assignment := Assignment{
@@ -755,12 +763,12 @@ func (a *FlavorAssigner) AssignFlavors(
 		replaceWorkloadSlice: a.replaceWorkloadSlice,
 	}
 
-	groupedRequests := orderedgroups.NewOrderedGroups[string, indexedPodSet]()
+	groupedRequests := orderedgroups.NewOrderedGroups[tas.PodSetGroupKey, indexedPodSet]()
 
 	for i, podSet := range requests {
 		if a.cq.RGByResource(corev1.ResourcePods) != nil {
 			if podSet.Requests != nil {
-				podSet.Requests.Set(corev1.ResourcePods, int64(podSet.Count))
+				podSet.Requests.Set(corev1.ResourcePods, resources.NewAmount(int64(podSet.Count)))
 			} else {
 				podSet.Requests = resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourcePods: int64(podSet.Count)})
 			}
@@ -797,12 +805,10 @@ func (a *FlavorAssigner) AssignFlavors(
 			}
 		}
 
-		groupKey := strconv.Itoa(i)
-		if tr := a.wl.Obj.Spec.PodSets[i].TopologyRequest; tr != nil && tr.PodSetGroupName != nil {
-			groupKey = *tr.PodSetGroupName
-		}
+		psIdx := specIndexes[i]
+		groupKey := tas.GroupKeyForPodSet(&a.wl.Obj.Spec.PodSets[psIdx])
 
-		groupedRequests.Insert(groupKey, indexedPodSet{originalIndex: i, podSet: &podSet, podSetAssignment: &psAssignment})
+		groupedRequests.Insert(groupKey, indexedPodSet{originalIndex: psIdx, podSet: &podSet, podSetAssignment: &psAssignment})
 	}
 
 	// The probe needs the earlier PodSets' full requests. Quota usage may only
@@ -829,7 +835,7 @@ func (a *FlavorAssigner) AssignFlavors(
 			// Skip zero-quantity requests for resources not defined in the ClusterQueue (#8079) or
 			// If quotaCheckStrategy is IgnoreUndeclared, skip resources not declared in the ClusterQueue.
 			if a.cq.RGByResource(resName) == nil {
-				if quantity == 0 {
+				if quantity.Sign() == 0 {
 					continue
 				}
 				if IgnoreUndeclaredResources(a.quotaCheckStrategy) {
@@ -875,11 +881,11 @@ func (a *FlavorAssigner) AssignFlavors(
 			podSet.podSetAssignment.Status = groupStatus
 			podSet.podSetAssignment.FlavorAssignmentAttempts = finalConsidered
 
-			assignment.append(podSet.podSet.Requests, podSet.podSetAssignment)
+			assignment.append(podSet.originalIndex, podSet.podSet.Requests, podSet.podSetAssignment)
 			if podSet.podSet.Requests != nil {
 				for resName, flavor := range podSet.podSetAssignment.Flavors {
 					fr := resources.FlavorResource{Flavor: flavor.Name, Resource: resName}
-					assignedRequests[fr] = assignedRequests[fr].AddInt64(podSet.podSet.Requests.ResourceValue(resName))
+					assignedRequests[fr] = assignedRequests[fr].Add(podSet.podSet.Requests.ResourceValue(resName))
 				}
 			}
 			if podSet.podSetAssignment.Status.IsError() || (podSet.podSet.Requests != nil && podSet.podSet.Requests.Len() > 0 && len(podSet.podSetAssignment.Flavors) == 0) {
@@ -964,7 +970,7 @@ func (a *FlavorAssigner) resolvePodSetFlavors(log logr.Logger, idxPodSet indexed
 	// For PodSets with requests, keep only flavors for resources this PodSet requests.
 	if idxPodSet.podSet.Requests != nil && idxPodSet.podSet.Requests.Len() != 0 {
 		var reqKeys []corev1.ResourceName
-		idxPodSet.podSet.Requests.ForEach(func(name corev1.ResourceName, _ int64) {
+		idxPodSet.podSet.Requests.ForEach(func(name corev1.ResourceName, _ resources.Amount) {
 			reqKeys = append(reqKeys, name)
 		})
 		podSetFlavors := utilmaps.FilterKeys(groupFlavors, reqKeys)
@@ -1060,7 +1066,7 @@ func findRGIndicesByFlavor(cq *schdcache.ClusterQueueSnapshot, flavor kueue.Reso
 	return indices
 }
 
-func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAssignment) {
+func (a *Assignment) append(psIdx int, requests resources.Requests, psAssignment *PodSetAssignment) {
 	flavorIdx := make(map[corev1.ResourceName]int, len(psAssignment.Flavors))
 	a.PodSets = append(a.PodSets, *psAssignment)
 	for resource, flvAssignment := range psAssignment.Flavors {
@@ -1071,19 +1077,24 @@ func (a *Assignment) append(requests resources.Requests, psAssignment *PodSetAss
 
 		// For workload slicing, only add the delta (new - old) to avoid double-counting
 		// podSets that already have quota reserved in the old slice.
-		var requestAmount int64
+		var requestAmount resources.Amount
 		if requests != nil {
 			requestAmount = requests.ResourceValue(resource)
 		}
 		if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.replaceWorkloadSlice != nil {
 			oldRequest := a.findOldPodSetRequest(psAssignment.Name, resource)
-			requestAmount -= oldRequest
+			requestAmount = requestAmount.Sub(oldRequest)
 		}
 
-		a.Usage.Quota.Assigned[fr] = a.Usage.Quota.Assigned[fr].AddInt64(requestAmount)
+		a.Usage.Quota.Assigned[fr] = a.Usage.Quota.Assigned[fr].Add(requestAmount)
 		flavorIdx[resource] = flvAssignment.TriedFlavorIdx
 	}
-	a.FlavorScanState.LastTriedFlavorIndexes = append(a.FlavorScanState.LastTriedFlavorIndexes, flavorIdx)
+	// The next attempt resumes each PodSet by its position in the Workload, not by the
+	// order in which the groups were assigned.
+	if missing := psIdx + 1 - len(a.FlavorScanState.LastTriedFlavorIndexes); missing > 0 {
+		a.FlavorScanState.LastTriedFlavorIndexes = append(a.FlavorScanState.LastTriedFlavorIndexes, make([]map[corev1.ResourceName]int, missing)...)
+	}
+	a.FlavorScanState.LastTriedFlavorIndexes[psIdx] = flavorIdx
 }
 
 func podSetResourcesByName(podSets []workload.PodSetResources, name kueue.PodSetReference) *workload.PodSetResources {
@@ -1095,15 +1106,15 @@ func podSetResourcesByName(podSets []workload.PodSetResources, name kueue.PodSet
 
 // findOldPodSetRequest returns the resource request from the old workload slice
 // for the given podSet name and resource. Returns 0 if not found.
-func (a *Assignment) findOldPodSetRequest(psName kueue.PodSetReference, resource corev1.ResourceName) int64 {
+func (a *Assignment) findOldPodSetRequest(psName kueue.PodSetReference, resource corev1.ResourceName) resources.Amount {
 	if a.replaceWorkloadSlice == nil {
-		return 0
+		return resources.Amount{}
 	}
 
 	if oldPS := podSetResourcesByName(a.replaceWorkloadSlice.TotalRequests, psName); oldPS != nil && oldPS.Requests != nil {
 		return oldPS.Requests.ResourceValue(resource)
 	}
-	return 0
+	return resources.Amount{}
 }
 
 // probeRequestsFor checks one pod per PodSet only when the entire group is empty.
@@ -1121,7 +1132,7 @@ func (a *FlavorAssigner) probeRequestsFor(podSets []indexedPodSet) resources.Req
 		}
 	}
 	if a.cq.RGByResource(corev1.ResourcePods) != nil {
-		probeRequests.Set(corev1.ResourcePods, int64(len(podSets)))
+		probeRequests.Set(corev1.ResourcePods, resources.NewAmount(int64(len(podSets))))
 	}
 	return probeRequests
 }
@@ -1200,7 +1211,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 
 		if probeRequests != nil {
 			probeStatus := NewStatus()
-			probeRequests.ForEach(func(rName corev1.ResourceName, val int64) {
+			probeRequests.ForEach(func(rName corev1.ResourceName, val resources.Amount) {
 				fr := resources.FlavorResource{Flavor: fName, Resource: rName}
 				if s := a.fitsMaxCapacity(fr, assignedRequests[fr], val); s != nil {
 					probeStatus.reasons = append(probeStatus.reasons, s.reasons...)
@@ -1221,18 +1232,27 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 		var flavorQuotaReasons []string
 		var flavorNoFitReason string
 
-		requests.ForEach(func(rName corev1.ResourceName, val int64) {
+		requests.ForEach(func(rName corev1.ResourceName, val resources.Amount) {
 			// Ensure the same resource flavor is used for the workload slice as in the original admitted slice.
 			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.replaceWorkloadSlice != nil {
 				for _, psID := range psIDs {
 					// The replaced slice's requests come from its admission, which is in group order.
-					preemptWorkloadRequests := podSetResourcesByName(a.replaceWorkloadSlice.TotalRequests, a.wl.TotalRequests[psID].Name)
+					preemptWorkloadRequests := podSetResourcesByName(a.replaceWorkloadSlice.TotalRequests, a.wl.Obj.Spec.PodSets[psID].Name)
 					if preemptWorkloadRequests == nil {
-						log.V(1).Info("PodSet not found in the replaced workload slice", "podSet", a.wl.TotalRequests[psID].Name)
+						log.V(1).Info("PodSet not found in the replaced workload slice", "podSet", a.wl.Obj.Spec.PodSets[psID].Name)
 						continue
 					}
 
-					// Enforce consistent resource flavor assignment between slices.
+					// Enforce consistent resource flavor assignment between slices, but,
+					// when the feature gate is enabled, only while the replaced slice still
+					// has pods in this PodSet. A PodSet scaled to zero has nothing running
+					// on the old flavor, so the new slice may pick any flavor (E.g. fall
+					// through to a flex flavor when the reserved one is full) without
+					// splitting one PodSet across flavors. The old slice's requests are
+					// zero in that case, so the usage delta below stays correct.
+					if features.Enabled(features.ElasticJobsViaWorkloadSlicesFlavorChangeFromZero) && preemptWorkloadRequests.Count == 0 {
+						continue
+					}
 					if originalFlavor := preemptWorkloadRequests.Flavors[rName]; originalFlavor != fName {
 						// Flavor mismatch. Skip further checks for this resource.
 						representativeMode = worstGranularMode()
@@ -1245,7 +1265,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 
 					// Subtract the resource usage of the preempted slice to request only the delta needed.
 					if preemptWorkloadRequests.Requests != nil {
-						val -= preemptWorkloadRequests.Requests.ResourceValue(rName)
+						val = val.Sub(preemptWorkloadRequests.Requests.ResourceValue(rName))
 					}
 				}
 			}
@@ -1433,9 +1453,9 @@ func flavorSelector(spec *corev1.PodSpec, allowedKeys sets.Set[string]) nodeaffi
 
 // fitsMaxCapacity checks potential capacity without considering current usage
 // or whether preemption is possible.
-func (a *FlavorAssigner) fitsMaxCapacity(fr resources.FlavorResource, assumedUsage resources.Amount, requestUsage int64) *Status {
+func (a *FlavorAssigner) fitsMaxCapacity(fr resources.FlavorResource, assumedUsage resources.Amount, requestUsage resources.Amount) *Status {
 	maxCapacity := a.cq.PotentialAvailable(fr)
-	if assumedUsage.AddInt64(requestUsage).Cmp(maxCapacity) <= 0 {
+	if assumedUsage.Add(requestUsage).Cmp(maxCapacity) <= 0 {
 		return nil
 	}
 	status := NewStatus()
@@ -1444,9 +1464,9 @@ func (a *FlavorAssigner) fitsMaxCapacity(fr resources.FlavorResource, assumedUsa
 		"insufficient quota for %s in flavor %s, previously considered podsets requests (%s) + current podset request (%s) > maximum capacity (%s)",
 		fr.Resource,
 		fr.Flavor,
-		a.resourceFormatter.AmountQuantityString(fr.Resource, assumedUsage),
-		a.resourceFormatter.ResourceQuantityString(fr.Resource, requestUsage),
-		a.resourceFormatter.AmountQuantityString(fr.Resource, maxCapacity),
+		a.resourceFormatter.ExactAmountString(fr.Resource, assumedUsage),
+		a.resourceFormatter.ExactAmountString(fr.Resource, requestUsage),
+		a.resourceFormatter.ExactAmountString(fr.Resource, maxCapacity),
 	)
 	return status
 }
@@ -1461,7 +1481,7 @@ func (a *FlavorAssigner) fitsResourceQuota(
 	ctx context.Context,
 	fr resources.FlavorResource,
 	assumedUsage resources.Amount,
-	requestUsage int64,
+	requestUsage resources.Amount,
 	rQuota schdcache.ResourceQuota,
 ) (preemptionMode, int, *Status) {
 	if status := a.fitsMaxCapacity(fr, assumedUsage, requestUsage); status != nil {
@@ -1472,7 +1492,7 @@ func (a *FlavorAssigner) fitsResourceQuota(
 	}
 
 	available := a.cq.Available(fr)
-	val := assumedUsage.AddInt64(requestUsage)
+	val := assumedUsage.Add(requestUsage)
 
 	borrow, mayReclaimInHierarchy := classical.FindHeightOfLowestSubtreeThatFits(a.cq, fr, val)
 	// Fit
@@ -1482,7 +1502,7 @@ func (a *FlavorAssigner) fitsResourceQuota(
 
 	// Preempt
 	status.appendf("insufficient unused quota for %s in flavor %s, %s more needed",
-		fr.Resource, fr.Flavor, a.resourceFormatter.AmountQuantityString(fr.Resource, val.Sub(available)))
+		fr.Resource, fr.Flavor, a.resourceFormatter.ExactAmountString(fr.Resource, val.Sub(available)))
 
 	if rQuota.Nominal.Cmp(val) >= 0 || mayReclaimInHierarchy || a.canPreemptWhileBorrowing() {
 		preemptionPossiblity, borrowAfterPreemptions := a.oracle.SimulatePreemption(ctx, a.cq, *a.wl, fr, val)
@@ -1517,7 +1537,7 @@ func (a *FlavorAssigner) usesConfigurablePreemption() bool {
 
 func filterRequestedResources(req resources.Requests, allowList sets.Set[corev1.ResourceName]) resources.Requests {
 	filtered := resources.NewRequests()
-	req.ForEach(func(resName corev1.ResourceName, quantity int64) {
+	req.ForEach(func(resName corev1.ResourceName, quantity resources.Amount) {
 		if allowList.Has(resName) {
 			filtered.Set(resName, quantity)
 		}

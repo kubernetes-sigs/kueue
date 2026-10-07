@@ -32,15 +32,13 @@ type CapacityProviderSpec struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
-	OrchestratedFlavors []CapacityProviderOrchestratedFlavor `json:"orchestratedFlavors"`
+	OrchestratedFlavors []CapacityProviderOrchestratedFlavor `json:"orchestratedFlavors,omitempty"`
 
 	// controllerName identifies the controller publishing capacity.
 	// This field is immutable.
 	//
 	// +required
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="field is immutable"
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=253
 	ControllerName CapacityProviderControllerName `json:"controllerName"`
 
 	// parameters optionally references implementation-specific configuration.
@@ -65,14 +63,14 @@ type CapacityProviderParametersReference struct {
 	// +kubebuilder:validation:MaxLength=253
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
-	APIGroup string `json:"apiGroup"`
+	APIGroup string `json:"apiGroup,omitempty"`
 
 	// kind is the type of the resource being referenced.
 	// +required
 	// +kubebuilder:validation:MaxLength=63
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:Pattern="^(?i)[a-z]([-a-z0-9]*[a-z0-9])?$"
-	Kind string `json:"kind"`
+	Kind string `json:"kind,omitempty"`
 
 	// name is the name of the resource being referenced.
 	// +required
@@ -83,11 +81,6 @@ type CapacityProviderParametersReference struct {
 }
 
 type CapacityProviderStatus struct {
-	// capacity is the normalized capacity published by the provider.
-	//
-	// +optional
-	Capacity *CapacityProviderNormalizedCapacity `json:"capacity,omitempty"`
-
 	// conditions represents the current state of this provider.
 	//
 	// +optional
@@ -97,16 +90,25 @@ type CapacityProviderStatus struct {
 	// +patchMergeKey=type
 	// +kubebuilder:validation:MaxItems=16
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+
+	// capacity is the normalized capacity published by the provider.
+	//
+	// +optional
+	Capacity *CapacityProviderNormalizedCapacity `json:"capacity,omitempty"`
 }
 
 type CapacityProviderNormalizedCapacity struct {
-	// flavors contains capacity per flavor and resource.
+	// flavors reports capacity for each flavor and resource.
+	// The list must contain at least one flavor.
+	// It should contain the same flavors as spec.orchestratedFlavors.
+	// An empty resources map means zero capacity for all resources of the flavor.
 	//
 	// +required
 	// +listType=map
 	// +listMapKey=name
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=64
-	Flavors []CapacityProviderNormalizedCapacityFlavor `json:"flavors"`
+	Flavors []CapacityProviderNormalizedCapacityFlavor `json:"flavors,omitempty"`
 }
 
 type CapacityProviderNormalizedCapacityFlavor struct {
@@ -147,19 +149,28 @@ const (
 	CapacityProviderReasonMisconfigured string = "Misconfigured"
 )
 
+// CapacityProvider reports capacity for ResourceFlavors.
+// DQO uses this capacity only when CapacitySynchronized=True.
+//
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName={cp}
-
-// CapacityProvider is the Schema for the capacityproviders API
 type CapacityProvider struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+
+	// metadata is the standard object metadata.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   CapacityProviderSpec   `json:"spec,omitempty"`
+	// spec defines the desired state of the CapacityProvider.
+	// +optional
+	Spec CapacityProviderSpec `json:"spec"`
+
+	// status defines the capacity observed and published by the provider.
+	// +optional
 	Status CapacityProviderStatus `json:"status,omitempty"`
 }
 

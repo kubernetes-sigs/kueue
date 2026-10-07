@@ -231,7 +231,11 @@ func main() {
 	}
 	options.Metrics = metricsServerOptions
 
-	lqMetrics := metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)
+	lqMetrics, err := metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)
+	if err != nil {
+		setupLog.Error(err, "Unable to configure LocalQueue metrics")
+		os.Exit(1)
+	}
 
 	var customLabels *metrics.CustomLabels
 	if features.Enabled(features.CustomMetricLabels) {

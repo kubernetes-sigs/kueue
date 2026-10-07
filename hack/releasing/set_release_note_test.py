@@ -41,6 +41,10 @@ class ParseReleaseNoteTest(unittest.TestCase):
                 "/set-release-note\r\nFirst line\r\nSecond line\r\n",
                 "First line\nSecond line",
             ),
+            "trailing whitespace on command line": (
+                "/set-release-note   \nA useful change",
+                "A useful change",
+            ),
         }
 
         for name, (comment, want) in test_cases.items():

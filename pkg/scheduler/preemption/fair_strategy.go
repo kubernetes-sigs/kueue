@@ -28,8 +28,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -47,10 +47,7 @@ func fairPreemptionStrategy(
 	if noCandidates(preemptionCtx, candidateWls) {
 		return func(yieldStrategy func(PreemptionStrategy) bool) {}
 	}
-	orderingFn := func(a, b *workload.Info) int {
-		return common.CandidatesOrdering(log, preemptor.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, preemptor.clock.Now())
-	}
-	slices.SortFunc(candidateWls, orderingFn)
+	slices.SortFunc(candidateWls, preemptor.candidatesOrdering(log, preemptionCtx.preemptorCQ.Name))
 	if logV := log.V(5); logV.Enabled() {
 		logV.Info(
 			"Simulating fair preemption",
@@ -118,7 +115,6 @@ func fairPreemptionStrategy(
 				preemptionCtx.snapshot,
 				&preemptionCtx.preemptor,
 				preemptionCtx.frsNeedPreemption,
-				orderingFn,
 				func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing) },
 				yieldAndRecord,
 			)
@@ -157,7 +153,7 @@ func iterateWithFirstFsStrategy(
 	fsStrategy fairsharing.Strategy,
 	yield func(*Target) bool,
 ) (retryCandidates []*workload.Info, cont bool) {
-	yield = common.YieldFromSnapshot(preemptionCtx.snapshot, yield)
+	yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
 	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, candidates, log, preemptionCtx.clock)
 	// If the preemptor CQ stays within nominal quota for the contested
 	// resources (including the incoming workload, already simulated),
@@ -231,7 +227,7 @@ func iterateWithSecondFsStrategy(
 	retryCandidates []*workload.Info,
 	yield func(*Target) bool,
 ) bool {
-	yield = common.YieldFromSnapshot(preemptionCtx.snapshot, yield)
+	yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
 	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, retryCandidates, log, preemptionCtx.clock)
 	for candCQ := range ordering.Iter() {
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()

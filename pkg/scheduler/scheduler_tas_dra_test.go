@@ -85,8 +85,8 @@ func TestScheduleForTASDRA(t *testing.T) {
 			DeviceRequest("gpu", "gpu.example.com", 1).
 			WithToleration("example.com/maintenance", resourceapi.DeviceTaintEffectNoSchedule).
 			Obj(),
-		utiltesting.MakeResourceSlice("x1-gpus", "gpu.example.com").NodeName("x1").Pool("x1-gpus", 1, 1).Device("gpu-0").Obj(),
-		utiltesting.MakeResourceSlice("x2-gpus", "gpu.example.com").NodeName("x2").Pool("x2-gpus", 1, 1).Device("gpu-0").Obj(),
+		testingdra.MakeResourceSlice("x1-gpus", "gpu.example.com").NodeName("x1").Pool("x1-gpus", 1, 1).Device("gpu-0").Obj(),
+		testingdra.MakeResourceSlice("x2-gpus", "gpu.example.com").NodeName("x2").Pool("x2-gpus", 1, 1).Device("gpu-0").Obj(),
 	}
 	draResources := map[workload.Reference]map[kueue.PodSetReference]corev1.ResourceList{
 		"default/wl": {"main": {"example.com/gpu": resource.MustParse("1")}},

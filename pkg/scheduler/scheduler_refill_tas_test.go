@@ -19,6 +19,7 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 	"testing"
 	"time"
@@ -44,6 +45,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 // TestScheduleForFairSharingRefillTAS pins that a refilled workload's topology
@@ -54,6 +56,9 @@ import (
 // TASRecomputeAssignmentWithinSchedulingCycle on and off: the recompute would
 // heal an outdated nomination, so the off arm pins the refill nomination's own
 // freshness.
+//
+// The workload slice cases are here because only a successor nominated
+// mid-cycle reads the topology usage a slice replacement leaves behind.
 func TestScheduleForFairSharingRefillTAS(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 
@@ -71,16 +76,19 @@ func TestScheduleForFairSharingRefillTAS(t *testing.T) {
 	localQueue := utiltestingapi.MakeLocalQueue("tas-refill-lq", "default").
 		ClusterQueue("tas-refill").Obj()
 
-	node := func(name string) corev1.Node {
+	nodeWithCPU := func(name, cpu string) corev1.Node {
 		return *testingnode.MakeNode(name).
 			Label("tas-node", "true").
 			Label(corev1.LabelHostname, name).
 			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:  resource.MustParse("2"),
+				corev1.ResourceCPU:  resource.MustParse(cpu),
 				corev1.ResourcePods: resource.MustParse("10"),
 			}).
 			Ready().
 			Obj()
+	}
+	node := func(name string) corev1.Node {
+		return nodeWithCPU(name, "2")
 	}
 	// tasWl requires all pods on one hostname, so a workload occupies exactly
 	// one node and the per-node remaining capacity decides its placement.
@@ -108,6 +116,7 @@ func TestScheduleForFairSharingRefillTAS(t *testing.T) {
 
 	cases := map[string]struct {
 		refillEnabled        bool
+		featureGates         map[featuregate.Feature]bool
 		nodes                []corev1.Node
 		workloads            []kueue.Workload
 		wantAssignments      map[workload.Reference]kueue.Admission
@@ -178,14 +187,202 @@ func TestScheduleForFairSharingRefillTAS(t *testing.T) {
 				"tas-refill": {"default/tas-b"},
 			},
 		},
+		// The node fits grow and succ only if old's pods are no longer counted.
+		"workload slice replacement: a refilled successor sees the replaced slice's domains released": {
+			refillEnabled: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+			nodes: []corev1.Node{nodeWithCPU("x1", "4")},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("old", "default").
+					Queue("tas-refill-lq").
+					Creation(now.Add(-3*time.Minute)).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet("one", 2).
+						UnconstrainedTopologyRequest().
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(new(tasAdmission("x1", 2, "2")), now.Add(-3*time.Minute)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("grow", "default").
+					Queue("tas-refill-lq").
+					Creation(now.Add(-2*time.Minute)).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet("one", 3).
+						UnconstrainedTopologyRequest().
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
+					Obj(),
+				*utiltestingapi.MakeWorkload("succ", "default").
+					Queue("tas-refill-lq").
+					Creation(now.Add(-time.Minute)).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						UnconstrainedTopologyRequest().
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/old":  tasAdmission("x1", 2, "2"),
+				"default/grow": tasAdmission("x1", 3, "3"),
+				"default/succ": tasAdmission("x1", 1, "1"),
+			},
+		},
+		"workload slice scale down: a refilled successor sees the replaced slice's domains released": {
+			refillEnabled: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+			nodes: []corev1.Node{nodeWithCPU("x1", "3")},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("old", "default").
+					Queue("tas-refill-lq").
+					Creation(now.Add(-3*time.Minute)).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet("one", 3).
+						UnconstrainedTopologyRequest().
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(new(tasAdmission("x1", 3, "3")), now.Add(-3*time.Minute)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("grow", "default").
+					Queue("tas-refill-lq").
+					Creation(now.Add(-2*time.Minute)).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet("one", 2).
+						UnconstrainedTopologyRequest().
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
+					Obj(),
+				*utiltestingapi.MakeWorkload("succ", "default").
+					Queue("tas-refill-lq").
+					Creation(now.Add(-time.Minute)).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						UnconstrainedTopologyRequest().
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/old":  tasAdmission("x1", 3, "3"),
+				"default/grow": tasAdmission("x1", 2, "2"),
+				"default/succ": tasAdmission("x1", 1, "1"),
+			},
+		},
+		// Without slice-aware placement the replacement is placed on x2 as
+		// if it were new, while old's pods keep running on x1.
+		"workload slice replacement without slice-aware placement: the replaced slice's domains stay occupied": {
+			refillEnabled: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: false,
+			},
+			nodes: []corev1.Node{nodeWithCPU("x1", "2"), nodeWithCPU("x2", "3")},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("old", "default").
+					Queue("tas-refill-lq").
+					Creation(now.Add(-3*time.Minute)).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet("one", 2).
+						UnconstrainedTopologyRequest().
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(new(tasAdmission("x1", 2, "2")), now.Add(-3*time.Minute)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("grow", "default").
+					Queue("tas-refill-lq").
+					Creation(now.Add(-2*time.Minute)).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet("one", 3).
+						UnconstrainedTopologyRequest().
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
+					Obj(),
+				*utiltestingapi.MakeWorkload("succ", "default").
+					Queue("tas-refill-lq").
+					Creation(now.Add(-time.Minute)).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet("one", 1).
+						UnconstrainedTopologyRequest().
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/old":  tasAdmission("x1", 2, "2"),
+				"default/grow": tasAdmission("x2", 3, "3"),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-refill": {"default/succ"},
+			},
+		},
+		// Only refill can bring a second replacement of the same slice into
+		// the cycle, and it must still conflict with the first one.
+		"workload slice replacement: a second replacement of the same slice is not admitted in the same cycle": {
+			refillEnabled: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+			nodes: []corev1.Node{nodeWithCPU("x1", "20")},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("old", "default").
+					Queue("tas-refill-lq").
+					Creation(now.Add(-3*time.Minute)).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet("one", 2).
+						UnconstrainedTopologyRequest().
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(new(tasAdmission("x1", 2, "2")), now.Add(-3*time.Minute)).
+					Obj(),
+				*utiltestingapi.MakeWorkload("grow", "default").
+					Queue("tas-refill-lq").
+					Creation(now.Add(-2*time.Minute)).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet("one", 3).
+						UnconstrainedTopologyRequest().
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
+					Obj(),
+				*utiltestingapi.MakeWorkload("fork", "default").
+					Queue("tas-refill-lq").
+					Creation(now.Add(-2*time.Minute+time.Second)).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					PodSets(*utiltestingapi.MakePodSet("one", 3).
+						UnconstrainedTopologyRequest().
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "default/old").
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/old":  tasAdmission("x1", 2, "2"),
+				"default/grow": tasAdmission("x1", 3, "3"),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-refill": {"default/fork"},
+			},
+		},
 	}
 	for name, tc := range cases {
 		for _, recompute := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s recompute:%t", name, recompute), func(t *testing.T) {
-				features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				fg := map[featuregate.Feature]bool{
 					features.FairSharingRefill:                           tc.refillEnabled,
 					features.TASRecomputeAssignmentWithinSchedulingCycle: recompute,
-				})
+				}
+				maps.Copy(fg, tc.featureGates)
+				features.SetFeatureGatesDuringTest(t, fg)
 				ctx, log := utiltesting.ContextWithLog(t)
 
 				clientBuilder := utiltesting.NewClientBuilder().
@@ -392,7 +589,12 @@ func TestRefillNotTriggeredBySecondPassAdmission(t *testing.T) {
 	if err := qManager.AddLocalQueue(ctx, localQueue.DeepCopy()); err != nil {
 		t.Fatalf("Inserting queue %s/%s in manager: %v", localQueue.Namespace, localQueue.Name, err)
 	}
-	cqCache.AddOrUpdateWorkload(ctx, log, secondPass.DeepCopy())
+	// Seed the cache with the stored object so its resourceVersion matches, as the informer does.
+	storedSecondPass := &kueue.Workload{}
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(secondPass), storedSecondPass); err != nil {
+		t.Fatalf("Getting the second-pass workload: %v", err)
+	}
+	cqCache.AddOrUpdateWorkload(ctx, log, storedSecondPass)
 	if !qManager.QueueSecondPassIfNeeded(ctx, secondPass, 0) {
 		t.Fatal("expected the workload to be queued for a second pass")
 	}

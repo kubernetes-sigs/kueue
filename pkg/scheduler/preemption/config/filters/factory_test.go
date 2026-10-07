@@ -65,10 +65,10 @@ func TestNewCandidateFilters(t *testing.T) {
 	}
 
 	cases := map[string]struct {
-		selector      *kueuealpha.PreemptionConfigPreemptionCandidateSelector
-		preemptor     *workload.Info
-		wantFilters   CandidateFilters
-		wantRejectAll bool
+		selector    *kueuealpha.PreemptionConfigPreemptionCandidateSelector
+		preemptor   *workload.Info
+		wantFilters CandidateFilters
+		wantErrs    []*FilterBuildError
 	}{
 		"nil selector returns empty CandidateFilters": {
 			selector:    nil,
@@ -137,13 +137,17 @@ func TestNewCandidateFilters(t *testing.T) {
 			preemptor:   preemptor,
 			wantFilters: CandidateFilters{},
 		},
-		"unrecognized candidate scope returns rejectAll true": {
+		"unrecognized candidate scope returns error": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.PreemptionConfigPreemptionQueueScope("UnknownScope"),
 			},
-			preemptor:     preemptor,
-			wantFilters:   CandidateFilters{},
-			wantRejectAll: true,
+			preemptor: preemptor,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterScope,
+					Reason: ReasonUnsupportedScope,
+				},
+			},
 		},
 		"WithinClusterQueue with empty NumericLabels produces no WorkloadFilters": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
@@ -305,7 +309,7 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 			},
 		},
-		"LabelSelector with invalid selector returns rejectAll true": {
+		"LabelSelector with invalid selector returns error": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.WithinClusterQueue,
 				LabelSelector: &metav1.LabelSelector{
@@ -314,9 +318,13 @@ func TestNewCandidateFilters(t *testing.T) {
 					},
 				},
 			},
-			preemptor:     preemptor,
-			wantFilters:   CandidateFilters{},
-			wantRejectAll: true,
+			preemptor: preemptor,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterLabelSelector,
+					Reason: ReasonInvalidSelector,
+				},
+			},
 		},
 		"ClusterQueueSelector instantiates clusterQueueLabelFilter": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
@@ -347,7 +355,7 @@ func TestNewCandidateFilters(t *testing.T) {
 				},
 			},
 		},
-		"ClusterQueueSelector with invalid selector returns rejectAll true": {
+		"ClusterQueueSelector with invalid selector returns error": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.WithinClusterQueue,
 				ClusterQueueSelector: &metav1.LabelSelector{
@@ -356,11 +364,15 @@ func TestNewCandidateFilters(t *testing.T) {
 					},
 				},
 			},
-			preemptor:     preemptor,
-			wantFilters:   CandidateFilters{},
-			wantRejectAll: true,
+			preemptor: preemptor,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterClusterQueueSelector,
+					Reason: ReasonInvalidSelector,
+				},
+			},
 		},
-		"Priority with invalid mode returns rejectAll true": {
+		"Priority with invalid mode returns error": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.WithinClusterQueue,
 				Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
@@ -368,9 +380,68 @@ func TestNewCandidateFilters(t *testing.T) {
 					Comparison: kueuealpha.LessThan,
 				},
 			},
-			preemptor:     preemptor,
-			wantFilters:   CandidateFilters{},
-			wantRejectAll: true,
+			preemptor: preemptor,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterPriority,
+					Reason: ReasonUnsupportedMode,
+				},
+			},
+		},
+		"Priority with invalid comparison returns error": {
+			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope: kueuealpha.WithinClusterQueue,
+				Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
+					Mode:       kueuealpha.Base,
+					Comparison: kueuealpha.NumericComparison("InvalidComparison"),
+				},
+			},
+			preemptor: preemptor,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterPriority,
+					Reason: ReasonUnsupportedComparison,
+				},
+			},
+		},
+		"NumericLabels with invalid comparison returns error": {
+			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope: kueuealpha.WithinClusterQueue,
+				NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
+					{
+						Key:        "tpu-size",
+						Comparison: ptr.To(kueuealpha.NumericComparison("InvalidComparison")),
+					},
+				},
+			},
+			preemptor: preemptor,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterNumericLabels,
+					Reason: ReasonUnsupportedComparison,
+				},
+			},
+		},
+		"Multiple invalid filters in a selector aggregate all errors": {
+			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope: kueuealpha.PreemptionConfigPreemptionQueueScope("UnknownScope"),
+				ClusterQueueSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{Key: "env", Operator: metav1.LabelSelectorOperator("InvalidOp")},
+					},
+				},
+			},
+			preemptor: preemptor,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterScope,
+					Reason: ReasonUnsupportedScope,
+				},
+				{
+					Filter: FilterClusterQueueSelector,
+					Reason: ReasonInvalidSelector,
+				},
+			},
 		},
 	}
 
@@ -401,9 +472,12 @@ func TestNewCandidateFilters(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotFilters, gotRejectAll := NewCandidateFilters(log, tc.selector, tc.preemptor, snapshot)
-			if gotRejectAll != tc.wantRejectAll {
-				t.Errorf("NewCandidateFilters() rejectAll = %v, want %v", gotRejectAll, tc.wantRejectAll)
+			gotFilters, gotErrs := NewCandidateFilters(log, tc.selector, tc.preemptor, snapshot)
+			if diff := cmp.Diff(tc.wantErrs, gotErrs, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("NewCandidateFilters() error mismatch (-want +got):\n%s", diff)
+			}
+			if len(tc.wantErrs) > 0 {
+				return
 			}
 			if diff := cmp.Diff(tc.wantFilters, gotFilters, cmpOptions...); diff != "" {
 				t.Errorf("NewCandidateFilters() mismatch (-want +got):\n%s", diff)

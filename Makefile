@@ -115,7 +115,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.19.6
+RELEASE_VERSION=v0.20.0
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -157,7 +157,7 @@ include hack/make/verify.mk
 manifests: controller-gen generate-code ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) \
 		crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/bases\
-		paths="./apis/kueue/v1beta1/...;./apis/kueue/v1beta2/...;./apis/visibility/...;./apis/config/..."
+		paths="./apis/kueue/v1beta2/...;./apis/visibility/...;./apis/config/..."
 	$(CONTROLLER_GEN) \
 		crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/alpha/bases\
 		paths="./apis/kueue/v1alpha1/..."
@@ -516,6 +516,7 @@ kueueviz-image-build:
 		-t $(IMAGE_TAG_KUEUEVIZ_FRONTEND) \
 		-t $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(RELEASE_BRANCH) \
 		--platform=$(VIZ_PLATFORMS) \
+		--build-context retry=./hack/testing \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
 		-f ./cmd/kueueviz/frontend/Dockerfile ./cmd/kueueviz/frontend

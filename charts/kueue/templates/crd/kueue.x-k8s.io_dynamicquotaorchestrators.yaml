@@ -62,6 +62,7 @@ spec:
             metadata:
               type: object
             spec:
+              description: spec defines the desired state of the DynamicQuotaOrchestrator.
               properties:
                 capacityDiscovery:
                   description: capacityDiscovery specifies capacity aggregation.
@@ -133,6 +134,7 @@ spec:
                 - capacityDiscovery
               type: object
             status:
+              description: status defines the observed state of the DynamicQuotaOrchestrator.
               properties:
                 conditions:
                   description: conditions represents the current state of the DQO.
@@ -195,10 +197,18 @@ spec:
                     - type
                   x-kubernetes-list-type: map
                 effectiveCapacity:
-                  description: effectiveCapacity is the capacity aggregated from the referenced providers.
+                  description: |-
+                    effectiveCapacity is the combined capacity from the referenced providers.
+                    Each provider's capacity is multiplied by its effectiveCapacityMultiplier.
+                    DQO clears this field if any referenced provider is missing or does not
+                    have CapacitySynchronized=True.
                   properties:
                     flavors:
-                      description: flavors contains capacity per flavor and resource.
+                      description: |-
+                        flavors contains the total capacity for each flavor and resource.
+                        It includes all flavors listed in spec.orchestratedFlavors of the
+                        referenced providers. The list is never empty.
+                        An empty resources map means zero capacity for all resources of the flavor.
                       items:
                         properties:
                           name:
@@ -226,6 +236,7 @@ spec:
                           - resources
                         type: object
                       maxItems: 128
+                      minItems: 1
                       type: array
                       x-kubernetes-list-map-keys:
                         - name

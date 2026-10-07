@@ -25,7 +25,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -161,7 +161,7 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		case schdcache.CompareDRS(drs, highestCqDrs) == 0:
 			newCandWl := t.clusterQueueToTarget[cq.GetName()][0]
 			currentCandWl := t.clusterQueueToTarget[highestCq.GetName()][0]
-			if preemptioncommon.CandidatesOrdering(t.log, false, newCandWl, currentCandWl, t.preemptorCq.Name, t.clock.Now()) < 0 {
+			if policy.CandidatesOrdering(t.log, false, newCandWl, currentCandWl, t.preemptorCq.Name, t.clock.Now()) < 0 {
 				highestCq = cq
 			}
 		case schdcache.CompareDRS(drs, highestCqDrs) == 1:

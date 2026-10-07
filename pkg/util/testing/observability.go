@@ -52,12 +52,16 @@ func AdjustConditionsForDisabledObservabilityInWorkloadController(conditions []m
 				// Keep as is
 			case kueue.WorkloadQuotaReservedReasonMisconfigured,
 				kueue.WorkloadQuotaReservedReasonSuspended,
+				kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
 				kueue.WorkloadInadmissible:
 				cond.Reason = kueue.WorkloadInadmissible
 			default:
 				//nolint:staticcheck // SA1019: intentional deprecated legacy reason
 				cond.Reason = kueue.WorkloadPending
 			}
+		}
+		if cond.Type == kueue.WorkloadRequeued && cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadDRAResourcesUnresolved {
+			cond.Reason = kueue.WorkloadInadmissible
 		}
 		filtered = append(filtered, cond)
 	}

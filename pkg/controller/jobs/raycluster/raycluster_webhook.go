@@ -18,7 +18,6 @@ package raycluster
 
 import (
 	"context"
-	"fmt"
 	"slices"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -26,7 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
-	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -194,18 +192,6 @@ func validateElasticJob(job *rayv1.RayCluster) field.ErrorList {
 				specPath.Child("headGroupSpec").Child("template").Child("spec").Child("schedulingGates"),
 				job.Spec.HeadGroupSpec.Template.Spec.SchedulingGates,
 				"an elastic job must have the ElasticJobSchedulingGate",
-			),
-		)
-	}
-
-	if ptr.Deref(job.Spec.EnableInTreeAutoscaling, false) &&
-		ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName &&
-		!features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
-		allErrors = append(
-			allErrors,
-			field.Forbidden(
-				specPath.Child("enableInTreeAutoscaling"),
-				fmt.Sprintf("in-tree autoscaling for a MultiKueue-managed elastic RayCluster requires enabling the %s feature gate", features.MultiKueueRayInTreeAutoscaling),
 			),
 		)
 	}

@@ -46,9 +46,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	configurable "sigs.k8s.io/kueue/pkg/scheduler/preemption/config"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/priority"
@@ -127,7 +127,7 @@ func New(
 	return p
 }
 
-type Target = preemptioncommon.Target
+type Target = policy.Target
 
 // ensures that Target implements ObjectRefProvider interface at compile time
 var _ logging.ObjectRefProvider = (*Target)(nil)
@@ -148,20 +148,9 @@ func (p *Preemptor) getPreemptionStrategyIterator(ctx context.Context, preemptio
 	return classicalPreemptionStrategy(ctx, p, preemptionCtx)
 }
 
+// GetTargetsWithStrategy returns the workloads to evict using the provided preemption strategies.
 func (p *Preemptor) GetTargetsWithStrategy(ctx context.Context, strategies iter.Seq[PreemptionStrategy]) []*Target {
 	return p.getTargets(ctx, strategies)
-}
-
-// GetTargets returns the list of workloads that should be evicted in
-// order to make room for wl.
-func (p *Preemptor) GetTargets(
-	ctx context.Context,
-	wl workload.Info,
-	assignment flavorassigner.Assignment,
-	snapshot *schdcache.Snapshot,
-) []*Target {
-	pCtx := p.buildContext(ctx, wl, assignment, snapshot)
-	return p.getTargets(ctx, p.getPreemptionStrategyIterator(ctx, pCtx))
 }
 
 func (p *Preemptor) buildContext(
@@ -197,11 +186,21 @@ func (p *Preemptor) buildContext(
 
 // Resolved once per attempt: both algorithms evaluate several triggers, and the
 // PreemptionConfig must not be re-read for each of them.
-func (p *Preemptor) newConfigurableEvaluator(ctx context.Context, log logr.Logger, cq *schdcache.ClusterQueueSnapshot) (evaluator *configurable.PreemptionEvaluator) {
-	if features.Enabled(features.ConfigurablePreemptions) {
-		evaluator = configurable.NewEvaluatorForClusterQueue(ctx, log, p.clock, p.client, cq)
+// Returns nil if the ConfigurablePreemptions feature is disabled, or the ClusterQueue
+// references no PreemptionConfig.
+func (p *Preemptor) newConfigurableEvaluator(ctx context.Context, log logr.Logger, cq *schdcache.ClusterQueueSnapshot) *configurable.PreemptionEvaluator {
+	if !features.Enabled(features.ConfigurablePreemptions) || cq == nil || cq.PreemptionConfigName == nil {
+		return nil
 	}
-	return
+	return configurable.NewEvaluatorForPreemptionConfig(ctx, log, p.clock, p.client, *cq.PreemptionConfigName, p.candidatesOrdering(log, cq.Name))
+}
+
+// candidatesOrdering returns the order in which the preemption candidates are
+// considered for a preemptor of the given ClusterQueue.
+func (p *Preemptor) candidatesOrdering(log logr.Logger, cq kueue.ClusterQueueReference) func(a, b *workload.Info) int {
+	return func(a, b *workload.Info) int {
+		return policy.CandidatesOrdering(log, p.enabledAfs, a, b, cq, p.clock.Now())
+	}
 }
 
 var HumanReadablePreemptionReasons = map[string]string{
@@ -277,7 +276,7 @@ func (p *Preemptor) IssuePreemptions(
 
 		p.preemptionExpectations.ExpectUIDs(log, targetKey, []types.UID{target.WorkloadInfo.Obj.UID})
 
-		message, underlyingCause := messageAndUnderlyingCause(log, target, preemptor, snap)
+		message, underlyingCause := messageAndUnderlyingCause(log, target, preemptor, preemptorPath, preempteePath)
 
 		wlCopy := target.WorkloadInfo.Obj.DeepCopy()
 		exposeLqMetrics := cache.ShouldExposeLocalQueueMetricsForWorkload(log, wlCopy)
@@ -318,28 +317,24 @@ func messageAndUnderlyingCause(
 	log logr.Logger,
 	target *Target,
 	preemptor *workload.Info,
-	snap *schdcache.ClusterQueueSnapshot) (string, kueue.EvictionUnderlyingCause) {
+	preemptorPath string,
+	preempteePath string,
+) (string, kueue.EvictionUnderlyingCause) {
 	if target.Reason == kueue.ConfigurablePreemptionReason {
 		if target.ConfigurablePreemptionReasonData != nil {
 			message := target.ConfigurablePreemptionReasonData.EvictionMessage(preemptor.Obj)
 			underlyingCause := kueue.EvictionUnderlyingCause(target.ConfigurablePreemptionReasonData.ConfigName)
 
 			return message, underlyingCause
-		} else {
-			log.Error(nil, "ConfigurablePreemptionReasonData is nil",
-				"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
-				"preemptingWorkload", klog.KObj(preemptor.Obj))
-			// fallback to default behavior
 		}
+		log.Error(nil, "ConfigurablePreemptionReasonData is nil",
+			"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
+			"preemptingWorkload", klog.KObj(preemptor.Obj))
+		// fallback to default behavior
 	}
 
-	preemptorPath := buildCQPath(string(preemptor.ClusterQueue), snap)
-	preempteePath := buildCQPath(string(target.WorkloadInfo.ClusterQueue), target.WorkloadCq)
-
 	message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
-	underlyingCause := ""
-
-	return message, kueue.EvictionUnderlyingCause(underlyingCause)
+	return message, ""
 }
 
 type preemptionAttemptOpts struct {
@@ -464,18 +459,18 @@ func findCandidatesForPolicy(
 	log logr.Logger,
 	wl *kueue.Workload,
 	workloadsToFilter map[workload.Reference]*workload.Info,
-	policy kueue.PreemptionPolicy,
+	preemptionPolicy kueue.PreemptionPolicy,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
 	workloadOrdering workload.Ordering,
 ) []*workload.Info {
 	var candidates []*workload.Info
 	for _, candidateWl := range workloadsToFilter {
-		if !preemptioncommon.SatisfiesPreemptionPolicy(
+		if !policy.SatisfiesPreemptionPolicy(
 			log,
 			wl,
 			candidateWl.Obj,
 			workloadOrdering,
-			policy) {
+			preemptionPolicy) {
 			continue
 		}
 

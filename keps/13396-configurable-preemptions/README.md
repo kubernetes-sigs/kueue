@@ -248,7 +248,7 @@ Introduce a new CRD **PreemptionConfig** that will be used to define:
 - triggers for when preemption should occur (e.g. insufficient topology to schedule the workload),
 - rules defining which workloads should be considered for preemption.
 
-In the initial iteration, candidate workloads are gathered from both strategies into two separate sets, merged, deduplicated, and ordered using the default ordering rules from classical preemption and fair sharing (reusing the existing preemption ordering logic in `pkg/scheduler/preemption/common/ordering.go`) to change existing logic as little as possible. Configurable candidate ordering and advanced candidate organization (such as Per-Selector, Per-ClusterQueue priority queues) are deferred to [Future Work](FUTURE_WORK.md).
+In the initial iteration, candidate workloads are gathered from both strategies into two separate sets, merged, deduplicated, and ordered using the default ordering rules from classical preemption and fair sharing (reusing the existing preemption ordering logic in `pkg/scheduler/preemption/policy/ordering.go`) to change existing logic as little as possible. Configurable candidate ordering and advanced candidate organization (such as Per-Selector, Per-ClusterQueue priority queues) are deferred to [Future Work](FUTURE_WORK.md).
 
 The **PreemptionConfig** object is a cluster-wide resource that can be referenced by multiple ClusterQueues.
 
@@ -870,7 +870,7 @@ Because configurable preemptions can be significantly more complex than the clas
 
 #### Eviction Statistics
 
-In the eviction statistics (`WorkloadSchedulingStatsEviction`), `Reason` will be set to `ConfigurablePreemption` to indicate that the new mechanism triggered the preemption, and `UnderlyingCause` will be populated with the name of the `PreemptionConfig` that caused it.
+In the eviction statistics (`WorkloadSchedulingStatsEviction`), `Reason` will be set to `Preempted` (consistent with the `WorkloadEvicted` condition and existing preemption mechanism), and `UnderlyingCause` will be populated with the name of the `PreemptionConfig` that caused it.
 
 Each time a workload is preempted due to a particular `PreemptionConfig`, the `Count` for the corresponding `WorkloadSchedulingStatsEviction` entry will be incremented. Because a cluster is expected to have relatively few `PreemptionConfig` resources (typically <= 10), this will neither exhaust the eviction entries limit nor cause an excessive number of resource updates.
 

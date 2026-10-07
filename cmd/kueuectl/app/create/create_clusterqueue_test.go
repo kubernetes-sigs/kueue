@@ -161,7 +161,7 @@ func TestParseResourceQuotas(t *testing.T) {
 				},
 			},
 		},
-		"should create one resource group when flavors listing resources in different order": {
+		"should create one resource group when flavors list resources in different order": {
 			quotaArgs: []string{"alpha:cpu=1;memory=1", "beta:memory=2;cpu=2"},
 			wantResourceGroups: []kueue.ResourceGroup{
 				{
@@ -172,8 +172,28 @@ func TestParseResourceQuotas(t *testing.T) {
 							Resource("memory", "1").
 							Obj(),
 						*utiltestingapi.MakeFlavorQuotas("beta").
-							Resource("memory", "2").
 							Resource("cpu", "2").
+							Resource("memory", "2").
+							Obj(),
+					},
+				},
+			},
+		},
+		"should keep borrowingLimit and lendingLimit on their resources when flavors list resources in different order": {
+			quotaArgs:     []string{"alpha:cpu=1;memory=1", "beta:memory=2;cpu=2"},
+			borrowingArgs: []string{"beta:cpu=1"},
+			lendingArgs:   []string{"beta:memory=1"},
+			wantResourceGroups: []kueue.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
+							Resource("cpu", "1").
+							Resource("memory", "1").
+							Obj(),
+						*utiltestingapi.MakeFlavorQuotas("beta").
+							Resource("cpu", "2", "1").
+							Resource("memory", "2", "", "1").
 							Obj(),
 					},
 				},
@@ -517,7 +537,7 @@ func TestParseResourceQuotas(t *testing.T) {
 					t.Errorf("Unexpected error message (-want,+got):\n%s", diff)
 				}
 			}
-			if diff := cmp.Diff(cqOptions.ResourceGroups, tc.wantResourceGroups); diff != "" {
+			if diff := cmp.Diff(tc.wantResourceGroups, cqOptions.ResourceGroups); diff != "" {
 				t.Errorf("Unexpected ResourceGroups (-want,+got):\n%s", diff)
 			}
 		})
