@@ -147,6 +147,32 @@ func TestReportAndCleanupClusterQueuePendingResources(t *testing.T) {
 	expectFilteredMetricsCount(t, ClusterQueueResourcePending, 0, "cluster_queue", cqName)
 }
 
+func TestReportAndCleanupClusterQueueDRADevices(t *testing.T) {
+	const cqName = "cq-dra"
+
+	ReportClusterQueueDRADevicesReserved(cqName, "gpu.example.com", "flavor-1", 4, nil, nil)
+	ReportClusterQueueDRADevicesReserved(cqName, "gpu.example.com", "flavor-2", 2, nil, nil)
+	ReportClusterQueueDRADevicesReserved(cqName, "fpga.example.com", "flavor-1", 1, nil, nil)
+
+	expectFilteredMetricsCount(t, ClusterQueueDRADevicesReserved, 3, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueDRADevicesReserved, 2, "cluster_queue", cqName, "device_class", "gpu.example.com")
+	expectFilteredMetricsCount(t, ClusterQueueDRADevicesReserved, 1, "cluster_queue", cqName, "device_class", "fpga.example.com")
+
+	ClearClusterQueueDRADevicesReserved(cqName, "fpga.example.com", "flavor-1")
+	expectFilteredMetricsCount(t, ClusterQueueDRADevicesReserved, 2, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueDRADevicesReserved, 0, "cluster_queue", cqName, "device_class", "fpga.example.com")
+
+	ClearClusterQueueDRADevicesReserved(cqName, "", "")
+	expectFilteredMetricsCount(t, ClusterQueueDRADevicesReserved, 0, "cluster_queue", cqName)
+
+	ReportClusterQueueDRADevicesPending(cqName, "gpu.example.com", 8, nil, nil)
+	expectFilteredMetricsCount(t, ClusterQueueDRADevicesPending, 1, "cluster_queue", cqName)
+	expectFilteredMetricsCount(t, ClusterQueueDRADevicesPending, 1, "cluster_queue", cqName, "device_class", "gpu.example.com")
+
+	ClearClusterQueueDRADevicesPendingMetrics(cqName)
+	expectFilteredMetricsCount(t, ClusterQueueDRADevicesPending, 0, "cluster_queue", cqName)
+}
+
 func TestReportAndCleanupPendingSchedulingHashes(t *testing.T) {
 	const cqName = "cq-pending-hashes"
 

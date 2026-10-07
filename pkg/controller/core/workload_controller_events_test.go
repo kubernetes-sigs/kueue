@@ -29,19 +29,23 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 type workloadEventWatcherFunc func(*kueue.Workload, *kueue.Workload)
@@ -353,5 +357,137 @@ func TestWorkloadQueueHandlerClusterQueueUpdate(t *testing.T) {
 				t.Errorf("Unexpected reconcile requests (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestWorkloadEventHandlerInitialSyncDRAAdmittedWorkload(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	claimTemplate := utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+		DeviceRequest("", "gpu.example.com", 2).
+		Obj()
+
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(claimTemplate).
+		Build()
+
+	cache := schdcache.New(cl)
+	if err := cache.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+		t.Fatal(err)
+	}
+
+	queues := qcache.NewManagerForUnitTests(cl, cache)
+	if err := queues.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+		t.Fatal(err)
+	}
+	if err := queues.AddLocalQueue(ctx, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()); err != nil {
+		t.Fatal(err)
+	}
+
+	mapper := dra.NewResourceMapper()
+	if err := mapper.PopulateFromConfiguration([]configapi.DeviceClassMapping{
+		{Name: "example.com/gpu", DeviceClassNames: []corev1.ResourceName{"gpu.example.com"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	r := NewWorkloadReconciler(cl, queues, cache, &utiltesting.EventRecorder{}, WithDRAMapper(mapper))
+	h := &workloadEventHandler{r: r, ctx: ctx}
+	q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+	defer q.ShutDown()
+
+	// Pending DRA workload should be skipped in Create event and enqueued for reconciliation.
+	pendingWL := utiltestingapi.MakeWorkload("pending-wl", "ns").
+		Queue("lq").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).
+			ResourceClaimTemplate("gpu", "gpu-template").
+			Obj()).
+		Obj()
+	h.Create(ctx, event.TypedCreateEvent[*kueue.Workload]{Object: pendingWL}, q)
+	if len(queues.PendingWorkloadsInfo("cq")) != 0 {
+		t.Errorf("Pending DRA workload was added to queue, expected skip")
+	}
+
+	// Admitted DRA workload should be reconstructed and inserted into cache directly on Create event.
+	admittedWL := utiltestingapi.MakeWorkload("admitted-wl", "ns").
+		Queue("lq").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).
+			ResourceClaimTemplate("gpu", "gpu-template").
+			Obj()).
+		ReserveQuotaAt(&kueue.Admission{
+			ClusterQueue: "cq",
+			PodSetAssignments: []kueue.PodSetAssignment{
+				{
+					Name: "main",
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						"example.com/gpu": "default-flavor",
+					},
+					Count: ptr.To[int32](1),
+				},
+			},
+		}, time.Now()).
+		Obj()
+
+	h.Create(ctx, event.TypedCreateEvent[*kueue.Workload]{Object: admittedWL}, q)
+
+	cqSnapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cq := cqSnapshot.ClusterQueue("cq")
+	if cq == nil {
+		t.Fatal("ClusterQueue snapshot not found")
+	}
+	cachedWI := cq.Workloads[workload.Key(admittedWL)]
+	if cachedWI == nil {
+		t.Fatal("Admitted DRA workload was not added to cache during initial sync")
+	}
+	wantReqs := []workload.DRADeviceRequest{
+		{
+			PodSet:          "main",
+			DeviceClass:     "gpu.example.com",
+			LogicalResource: "example.com/gpu",
+			CountPerPod:     2,
+		},
+	}
+	if diff := cmp.Diff(wantReqs, cachedWI.DRADeviceRequests()); diff != "" {
+		t.Errorf("Unexpected DRA device requests (-want, +got):\n%s", diff)
+	}
+
+	// Admitted DRA workload with missing claim template should still be added to cache (without DRA device requests).
+	// DRA requests only feed metrics, not quota — so we must not block cache insertion on DRA extraction failure.
+	admittedMissingTemplateWL := utiltestingapi.MakeWorkload("admitted-missing-template-wl", "ns").
+		Queue("lq").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).
+			ResourceClaimTemplate("gpu", "missing-template").
+			Obj()).
+		ReserveQuotaAt(&kueue.Admission{
+			ClusterQueue: "cq",
+			PodSetAssignments: []kueue.PodSetAssignment{
+				{
+					Name: "main",
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						"example.com/gpu": "default-flavor",
+					},
+					Count: ptr.To[int32](1),
+				},
+			},
+		}, time.Now()).
+		Obj()
+
+	h.Create(ctx, event.TypedCreateEvent[*kueue.Workload]{Object: admittedMissingTemplateWL}, q)
+
+	cqSnapshot, err = cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cq = cqSnapshot.ClusterQueue("cq")
+	cachedMissingWI := cq.Workloads[workload.Key(admittedMissingTemplateWL)]
+	if cachedMissingWI == nil {
+		t.Fatal("Admitted DRA workload with missing claim template was not added to cache")
+	}
+	if len(cachedMissingWI.DRADeviceRequests()) != 0 {
+		t.Errorf("Expected no DRA device requests for workload with missing template, got %v", cachedMissingWI.DRADeviceRequests())
 	}
 }

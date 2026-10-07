@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -37,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -5244,6 +5246,169 @@ func TestInfoTopologySpreading(t *testing.T) {
 			}
 			if got := spec.Selector().Matches(labels.Set(tc.peerLabels)); got != tc.wantMatchesPeer {
 				t.Errorf("Selector().Matches(%v) = %t, want %t", tc.peerLabels, got, tc.wantMatchesPeer)
+			}
+		})
+	}
+}
+
+func TestDRADeviceCounts(t *testing.T) {
+	log := logr.Discard()
+
+	reqs := []DRADeviceRequest{
+		{
+			PodSet:          "main",
+			DeviceClass:     "gpu.example.com",
+			LogicalResource: "example.com/gpu",
+			CountPerPod:     2,
+		},
+		{
+			PodSet:          "workers",
+			DeviceClass:     "fpga.example.com",
+			LogicalResource: "example.com/fpga",
+			CountPerPod:     1,
+		},
+	}
+
+	admission := &kueue.Admission{
+		ClusterQueue: "cq",
+		PodSetAssignments: []kueue.PodSetAssignment{
+			{
+				Name: "main",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					"example.com/gpu": "flavor-gpu-a",
+				},
+				Count: ptr.To[int32](2),
+			},
+			{
+				Name: "workers",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					"example.com/fpga": "flavor-fpga-b",
+				},
+				Count: ptr.To[int32](4),
+			},
+		},
+	}
+
+	gpuKey := DRADeviceFlavorKey{DeviceClass: "gpu.example.com", Flavor: "flavor-gpu-a"}
+	fpgaKey := DRADeviceFlavorKey{DeviceClass: "fpga.example.com", Flavor: "flavor-fpga-b"}
+
+	makeWL := func(adm *kueue.Admission, reclaimable ...kueue.ReclaimablePod) *kueue.Workload {
+		wl := utiltestingapi.MakeWorkload("wl", "default").
+			PodSets(
+				*utiltestingapi.MakePodSet("main", 2).Obj(),
+				*utiltestingapi.MakePodSet("workers", 4).Obj(),
+			)
+		if len(reclaimable) > 0 {
+			wl.ReclaimablePods(reclaimable...)
+		}
+		obj := wl.Obj()
+		obj.Status.Admission = adm
+		return obj
+	}
+
+	cases := map[string]struct {
+		workload     *kueue.Workload
+		reqs         []DRADeviceRequest
+		featureGates map[featuregate.Feature]bool
+		wantPending  map[string]int64
+		wantReserved map[DRADeviceFlavorKey]int64
+	}{
+		"no device requests": {
+			workload:     makeWL(admission),
+			reqs:         nil,
+			wantPending:  nil,
+			wantReserved: nil,
+		},
+		"no admission": {
+			workload: makeWL(nil),
+			reqs:     reqs,
+			wantPending: map[string]int64{
+				"gpu.example.com":  4,
+				"fpga.example.com": 4,
+			},
+			wantReserved: nil,
+		},
+		"multi-device requests with admission": {
+			workload: makeWL(admission),
+			reqs:     reqs,
+			wantPending: map[string]int64{
+				"gpu.example.com":  4,
+				"fpga.example.com": 4,
+			},
+			wantReserved: map[DRADeviceFlavorKey]int64{
+				gpuKey:  4,
+				fpgaKey: 4,
+			},
+		},
+		"reclaimable pods with feature gate enabled": {
+			workload:     makeWL(admission, kueue.ReclaimablePod{Name: "main", Count: 1}),
+			reqs:         reqs,
+			featureGates: map[featuregate.Feature]bool{features.ReclaimablePods: true},
+			wantPending: map[string]int64{
+				"gpu.example.com":  2,
+				"fpga.example.com": 4,
+			},
+			wantReserved: map[DRADeviceFlavorKey]int64{
+				gpuKey:  2,
+				fpgaKey: 4,
+			},
+		},
+		"reclaimable pods with feature gate disabled": {
+			workload:     makeWL(admission, kueue.ReclaimablePod{Name: "main", Count: 1}),
+			reqs:         reqs,
+			featureGates: map[featuregate.Feature]bool{features.ReclaimablePods: false},
+			wantPending: map[string]int64{
+				"gpu.example.com":  4,
+				"fpga.example.com": 4,
+			},
+			wantReserved: map[DRADeviceFlavorKey]int64{
+				gpuKey:  4,
+				fpgaKey: 4,
+			},
+		},
+		"admission count below podset count": {
+			workload: makeWL(&kueue.Admission{
+				ClusterQueue: "cq",
+				PodSetAssignments: []kueue.PodSetAssignment{
+					{
+						Name: "main",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							"example.com/gpu": "flavor-gpu-a",
+						},
+						Count: ptr.To[int32](1),
+					},
+					{
+						Name: "workers",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							"example.com/fpga": "flavor-fpga-b",
+						},
+						Count: ptr.To[int32](3),
+					},
+				},
+			}),
+			reqs: reqs,
+			wantPending: map[string]int64{
+				"gpu.example.com":  4,
+				"fpga.example.com": 4,
+			},
+			wantReserved: map[DRADeviceFlavorKey]int64{
+				gpuKey:  2,
+				fpgaKey: 3,
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			for fg, enabled := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, enabled)
+			}
+			info := NewInfo(log, tc.workload, WithDRADeviceRequests(tc.reqs))
+			if diff := cmp.Diff(tc.wantPending, info.DRADevicePendingCounts()); diff != "" {
+				t.Errorf("Unexpected pending counts (-want, +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantReserved, info.DRADeviceReservedCounts()); diff != "" {
+				t.Errorf("Unexpected reserved counts (-want, +got):\n%s", diff)
 			}
 		})
 	}
