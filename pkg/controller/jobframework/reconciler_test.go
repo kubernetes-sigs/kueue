@@ -2047,6 +2047,43 @@ func TestProcessOptions(t *testing.T) {
 	}
 }
 
+func TestNonInheritableLabelsIn(t *testing.T) {
+	cases := map[string]struct {
+		keys []string
+		want []string
+	}{
+		"only user labels": {
+			keys: []string{"team", "project"},
+			want: []string{},
+		},
+		"internal labels among user labels": {
+			keys: []string{
+				"team",
+				kueue.MultiKueueOriginLabel,
+				constants.JobUIDLabel,
+				constants.ConcurrentAdmissionParentLabelKey,
+				kueue.MultiKueueOriginLabel,
+			},
+			want: []string{
+				constants.ConcurrentAdmissionParentLabelKey,
+				constants.JobUIDLabel,
+				kueue.MultiKueueOriginLabel,
+			},
+		},
+		"the key of an internal annotation": {
+			keys: []string{constants.PriorityBoostAnnotationKey},
+			want: []string{},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if diff := cmp.Diff(tc.want, NonInheritableLabelsIn(tc.keys)); diff != "" {
+				t.Errorf("NonInheritableLabelsIn() (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestProcessOptionsWithIntegrationManager(t *testing.T) {
 	manager := NewIntegrationManager()
 
