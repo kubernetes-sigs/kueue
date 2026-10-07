@@ -21,9 +21,11 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -44,8 +46,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
@@ -54,6 +58,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 
 	_ "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob" // to enable the framework
 )
@@ -174,8 +179,8 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:j
 				},
 			},
 		).Obj()
-		behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-		behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+		integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+		integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -219,8 +224,8 @@ var _ = ginkgo.Describe("RayCluster controller", ginkgo.Label("job:ray", "area:j
 		gomega.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
 
 		ginkgo.By("checking the job is unsuspended and selectors added when workload is assigned again")
-		behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-		behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+		integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+		integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
 			g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
@@ -415,8 +420,8 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 					},
 				},
 			).Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+			integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 
 			ginkgo.By("Await for the job to be unsuspended")
@@ -426,7 +431,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			if podsReadyTestSpec.podsScheduled != nil {
-				behavioral.SetPodsScheduledCondition(ctx, k8sClient, wlLookupKey, *podsReadyTestSpec.podsScheduled)
+				integration.SetPodsScheduledCondition(ctx, k8sClient, wlLookupKey, *podsReadyTestSpec.podsScheduled)
 			}
 
 			if podsReadyTestSpec.beforeJobStatus != nil {
@@ -453,8 +458,8 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 			if podsReadyTestSpec.suspended {
 				ginkgo.By("Unset admission of the workload to suspend the job")
-				behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, nil)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, nil)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			}
 
 			ginkgo.By("Verify the PodsReady condition is added")
@@ -1179,7 +1184,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			Label(constants.PodSetLabel, string(activeSlice.Spec.PodSets[1].Name)).
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, scheduledWorker)
-		behavioral.BindPodWithNode(ctx, k8sClient, "node-a", scheduledWorker)
+		integration.BindPodWithNode(ctx, k8sClient, "node-a", scheduledWorker)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(activeSlice), activeSlice)).To(gomega.Succeed())
 			g.Expect(activeSlice.Status.Conditions).To(utiltesting.HaveConditionStatusAndReason(
@@ -1225,7 +1230,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 			Label(constants.PodSetLabel, string(activeSlice.Spec.PodSets[0].Name)).
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, headPod)
-		behavioral.BindPodWithNode(ctx, k8sClient, "node-a", headPod, gatedPod)
+		integration.BindPodWithNode(ctx, k8sClient, "node-a", headPod, gatedPod)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(activeSlice), activeSlice)).To(gomega.Succeed())
 			g.Expect(activeSlice.Status.Conditions).To(utiltesting.HaveConditionStatusAndReason(
@@ -1242,5 +1247,322 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 				g.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsScheduled)).To(gomega.BeNil(), "variant %s", wl.Name)
 			}
 		}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+	})
+})
+
+var _ = ginkgo.Describe("RayCluster controller with TopologyAwareScheduling", ginkgo.Label("job:ray", "area:jobs", "feature:tas"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
+	const (
+		nodeGroupLabel = "node-group"
+	)
+
+	var (
+		ns             *corev1.Namespace
+		nodes          []corev1.Node
+		topology       *kueue.Topology
+		tasFlavor      *kueue.ResourceFlavor
+		clusterQueue   *kueue.ClusterQueue
+		localQueue     *kueue.LocalQueue
+		managerRunning bool
+	)
+
+	startManager := func() {
+		if !managerRunning {
+			fwk.StartManager(ctx, cfg, managerAndSchedulerWithTASSetup())
+			managerRunning = true
+		}
+	}
+
+	stopManager := func() {
+		if managerRunning {
+			fwk.StopManager(ctx)
+			managerRunning = false
+		}
+	}
+
+	ginkgo.BeforeAll(func() {
+		startManager()
+	})
+
+	ginkgo.AfterAll(func() {
+		stopManager()
+	})
+
+	ginkgo.BeforeEach(func() {
+		startManager()
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-raycluster-")
+
+		nodes = []corev1.Node{
+			*testingnode.MakeNode("b1r1").
+				Label(nodeGroupLabel, "tas").
+				Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+				Label(utiltesting.DefaultRackTopologyLevel, "r1").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("2"),
+					corev1.ResourceMemory: resource.MustParse("2Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
+				}).
+				Ready().
+				Obj(),
+		}
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+		topology = utiltestingapi.MakeDefaultTwoLevelTopology("default")
+		behavioral.MustCreate(ctx, k8sClient, topology)
+
+		tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
+			NodeLabel(nodeGroupLabel, "tas").
+			TopologyName("default").Obj()
+		behavioral.MustCreate(ctx, k8sClient, tasFlavor)
+
+		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
+			Obj()
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+	})
+
+	ginkgo.AfterEach(func() {
+		startManager()
+		gomega.Expect(k8sClient.DeleteAllOf(ctx, &rayv1.RayCluster{}, client.InNamespace(ns.Name))).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		for _, node := range nodes {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+		}
+	})
+
+	ginkgo.It("should admit workload with topology requests for single-host and multi-host worker groups", framework.SlowSpec, func() {
+		singleHostGroup := testingraycluster.MakeWorkerGroup("workers-group-0", 2).
+			Request(corev1.ResourceCPU, "100m").
+			PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+			Obj()
+
+		multiHostGroup := testingraycluster.MakeWorkerGroup("multi-host-workers", 2).
+			Request(corev1.ResourceCPU, "100m").
+			NumOfHosts(2).
+			PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
+			Obj()
+
+		rayCluster := testingraycluster.MakeCluster(jobName, ns.Name).
+			Queue(localQueue.Name).
+			RequestHead(corev1.ResourceCPU, "100m").
+			NodeAnnotation(rayv1.HeadNode, kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+			WithWorkerGroups(*singleHostGroup, *multiHostGroup).
+			Obj()
+
+		ginkgo.By("creating a RayCluster", func() {
+			behavioral.MustCreate(ctx, k8sClient, rayCluster)
+		})
+
+		wl := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadraycluster.GetWorkloadNameForRayCluster(rayCluster.Name, rayCluster.UID),
+			Namespace: ns.Name,
+		}
+
+		ginkgo.By("verifying the workload is created with expected topology requests", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{
+					{
+						Name:  "head",
+						Count: 1,
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							Required: new(utiltesting.DefaultBlockTopologyLevel),
+						},
+					},
+					{
+						Name:  "workers-group-0",
+						Count: 2,
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							Required:      new(utiltesting.DefaultBlockTopologyLevel),
+							PodIndexLabel: new(rayutils.RayWorkerReplicaIndexKey),
+							SubGroupCount: new(int32(2)),
+						},
+					},
+					{
+						Name:  "multi-host-workers",
+						Count: 4,
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							Preferred:          new(utiltesting.DefaultRackTopologyLevel),
+							PodIndexLabel:      new(rayutils.RayHostIndexKey),
+							SubGroupIndexLabel: new(rayutils.RayWorkerReplicaIndexKey),
+							SubGroupCount:      new(int32(2)),
+						},
+					},
+				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verifying the workload is admitted and RayCluster is unsuspended", func() {
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
+
+			createdCluster := &rayv1.RayCluster{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), createdCluster)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(createdCluster.Spec.Suspend, true)).Should(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verifying topology assignments for the workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(3))
+				g.Expect(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment).Should(gomega.BeComparableTo(
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
+						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
+					}),
+				))
+				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
+						Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"b1", "r1"}}},
+					}),
+				))
+				g.Expect(wl.Status.Admission.PodSetAssignments[2].TopologyAssignment).Should(gomega.BeComparableTo(
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
+						Domains: []tas.TopologyDomainAssignment{{Count: 4, Values: []string{"b1", "r1"}}},
+					}),
+				))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("should not replace or evict pre-existing admitted RayCluster workload after Kueue restart when KubeRayEvictOnInconsistentTopologyRequest is disabled", framework.SlowSpec, func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KubeRayEvictOnInconsistentTopologyRequest, false)
+
+		rayCluster := testingraycluster.MakeCluster(jobName, ns.Name).
+			Queue(localQueue.Name).
+			RequestHead(corev1.ResourceCPU, "100m").
+			RequestWorkerGroup(corev1.ResourceCPU, "100m").
+			ScaleFirstWorkerGroup(2).
+			NodeAnnotation(rayv1.HeadNode, kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+			NodeAnnotation(rayv1.WorkerNode, kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+			Obj()
+
+		ginkgo.By("creating and admitting the RayCluster", func() {
+			behavioral.MustCreate(ctx, k8sClient, rayCluster)
+		})
+
+		wl := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadraycluster.GetWorkloadNameForRayCluster(rayCluster.Name, rayCluster.UID),
+			Namespace: ns.Name,
+		}
+
+		ginkgo.By("waiting for the workload to be admitted and RayCluster to be unsuspended", func() {
+			behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlLookupKey)
+			createdCluster := &rayv1.RayCluster{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), createdCluster)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(createdCluster.Spec.Suspend, true)).Should(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		var originalWlUID types.UID
+		ginkgo.By("stopping the manager and stripping topology index fields to simulate a pre-existing workload", func() {
+			stopManager()
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				originalWlUID = wl.UID
+				wl.Spec.PodSets[1].TopologyRequest.PodIndexLabel = nil
+				wl.Spec.PodSets[1].TopologyRequest.SubGroupIndexLabel = nil
+				wl.Spec.PodSets[1].TopologyRequest.SubGroupCount = nil
+				g.Expect(k8sClient.Update(ctx, wl)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("restarting the manager and triggering reconciliation", func() {
+			startManager()
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				createdCluster := &rayv1.RayCluster{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), createdCluster)).Should(gomega.Succeed())
+				createdCluster.Labels["test-reconcile"] = "true"
+				g.Expect(k8sClient.Update(ctx, createdCluster)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verifying the pre-existing workload is consistently preserved and RayCluster remains unsuspended", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.UID).Should(gomega.Equal(originalWlUID))
+				g.Expect(wl.Spec.PodSets[1].TopologyRequest.PodIndexLabel).Should(gomega.BeNil())
+				g.Expect(wl.Spec.PodSets[1].TopologyRequest.SubGroupCount).Should(gomega.BeNil())
+				g.Expect(workload.IsAdmitted(wl)).Should(gomega.BeTrue())
+				g.Expect(apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted)).Should(gomega.BeFalse())
+
+				createdCluster := &rayv1.RayCluster{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), createdCluster)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(createdCluster.Spec.Suspend, true)).Should(gomega.BeFalse())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			behavioral.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
+		})
+	})
+
+	ginkgo.It("should replace pre-existing admitted RayCluster workload after Kueue restart when KubeRayEvictOnInconsistentTopologyRequest is enabled", framework.SlowSpec, func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KubeRayEvictOnInconsistentTopologyRequest, true)
+
+		rayCluster := testingraycluster.MakeCluster(jobName, ns.Name).
+			Queue(localQueue.Name).
+			RequestHead(corev1.ResourceCPU, "100m").
+			RequestWorkerGroup(corev1.ResourceCPU, "100m").
+			ScaleFirstWorkerGroup(2).
+			NodeAnnotation(rayv1.HeadNode, kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+			NodeAnnotation(rayv1.WorkerNode, kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+			Obj()
+
+		ginkgo.By("creating and admitting the RayCluster", func() {
+			behavioral.MustCreate(ctx, k8sClient, rayCluster)
+		})
+
+		wl := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadraycluster.GetWorkloadNameForRayCluster(rayCluster.Name, rayCluster.UID),
+			Namespace: ns.Name,
+		}
+
+		ginkgo.By("waiting for the workload to be admitted and RayCluster to be unsuspended", func() {
+			behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlLookupKey)
+			createdCluster := &rayv1.RayCluster{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), createdCluster)).Should(gomega.Succeed())
+				g.Expect(ptr.Deref(createdCluster.Spec.Suspend, true)).Should(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		var originalWlUID types.UID
+		ginkgo.By("stopping the manager and stripping topology index fields to simulate a pre-existing workload", func() {
+			stopManager()
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				originalWlUID = wl.UID
+				wl.Spec.PodSets[1].TopologyRequest.PodIndexLabel = nil
+				wl.Spec.PodSets[1].TopologyRequest.SubGroupIndexLabel = nil
+				wl.Spec.PodSets[1].TopologyRequest.SubGroupCount = nil
+				g.Expect(k8sClient.Update(ctx, wl)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("restarting the manager and verifying the inconsistent workload is replaced", func() {
+			startManager()
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.UID).ShouldNot(gomega.Equal(originalWlUID))
+				g.Expect(wl.Spec.PodSets[1].TopologyRequest.PodIndexLabel).Should(gomega.Equal(new(rayutils.RayWorkerReplicaIndexKey)))
+				g.Expect(wl.Spec.PodSets[1].TopologyRequest.SubGroupCount).Should(gomega.Equal(new(int32(2))))
+				g.Expect(workload.IsAdmitted(wl)).Should(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 2)
+		})
 	})
 })

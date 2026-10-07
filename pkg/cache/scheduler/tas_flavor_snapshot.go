@@ -223,6 +223,9 @@ type TASFlavorSnapshot struct {
 	// tolerations represents the list of tolerations defined for the resource flavor
 	tolerations []corev1.Toleration
 
+	// nodeLabels represents the list of node labels defined for the resource flavor
+	nodeLabels map[string]string
+
 	// matchingLeavesCache caches the set of qualified leaves for a PodSet
 	// of a Workload to avoid recalculating selectors/taints during preemption simulations or
 	// multiple worker PodSet placements within the same scheduling cycle snapshot.
@@ -338,6 +341,7 @@ func newTASFlavorSnapshot(
 		leafCapacities:       make([]leafCapacity, len(tree.leaves)),
 		leafCandidates:       make([]leafCandidate, len(tree.leaves)),
 		tolerations:          slices.Clone(flavor.Tolerations),
+		nodeLabels:           maps.Clone(flavor.NodeLabels),
 		schedulerSimulator:   schedulerSimulator,
 		resourceFormatter:    options.resourceFormatter,
 	}
@@ -346,6 +350,16 @@ func newTASFlavorSnapshot(
 		snapshot.leafCandidates[leaf.leafIdx] = leafCandidate{leaf: leaf, s: snapshot}
 	}
 	return snapshot
+}
+
+// NodeLabels returns the flavor's node labels.
+func (s *TASFlavorSnapshot) NodeLabels() map[string]string {
+	return s.nodeLabels
+}
+
+// Tolerations returns the flavor's tolerations.
+func (s *TASFlavorSnapshot) Tolerations() []corev1.Toleration {
+	return s.tolerations
 }
 
 func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
@@ -920,7 +934,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 				} else {
 					log.V(3).Info("Found replacement assignment for workload", "existingAssignment", existingAssignment, "newAssignment", newAssignment)
 				}
-				addAssumedUsage(assumedUsage, replacementAssignment, &tr)
+				s.addAssumedUsage(assumedUsage, replacementAssignment, &tr)
 			}
 		} else {
 			leader, workers := findLeaderAndWorkers(trs)
@@ -947,7 +961,7 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 				return result
 			}
 			for _, tr := range trs {
-				addAssumedUsageForCycle(assumedUsage, assignments[tr.PodSet.Name], leafAssignments[tr.PodSet.Name], &tr)
+				s.addAssumedUsageForCycle(assumedUsage, assignments[tr.PodSet.Name], leafAssignments[tr.PodSet.Name], &tr)
 			}
 		}
 	}
@@ -973,7 +987,8 @@ func findLeaderAndWorkers(trs FlavorTASRequests) (*TASPodSetRequests, TASPodSetR
 	if len(trs) > 1 {
 		leader = &trs[1]
 
-		if leader.Count > workers.Count {
+		if leader.Count > workers.Count ||
+			(leader.Count == workers.Count && leader.PreviousAssignment == nil && workers.PreviousAssignment != nil) {
 			leader = &trs[0]
 			workers = trs[1]
 		}
@@ -1119,15 +1134,22 @@ func (u *assumedUsage) recordLeafUsage(usagePerDomain map[utiltas.TopologyDomain
 // neither bound implies the other, because a leaf does not carry the usage
 // recorded on its domain, and a domain does not know which of its nodes are
 // taken.
-func addAssumedUsageForCycle(assumedUsage *assumedUsage, published, leaves *utiltas.TopologyAssignment, tr *TASPodSetRequests) {
+func (s *TASFlavorSnapshot) addAssumedUsageForCycle(assumedUsage *assumedUsage, published, leaves *utiltas.TopologyAssignment, tr *TASPodSetRequests) {
 	if leaves != nil {
-		assumedUsage.recordLeafUsage(utiltas.ComputeUsagePerDomain(leaves, tr.SinglePodRequests))
+		assumedUsage.recordLeafUsage(s.usagePerDomain(leaves, tr))
 	}
-	addAssumedUsage(assumedUsage, published, tr)
+	s.addAssumedUsage(assumedUsage, published, tr)
 }
 
-func addAssumedUsage(assumedUsage *assumedUsage, ta *utiltas.TopologyAssignment, tr *TASPodSetRequests) {
-	addUsagePerDomain(assumedUsage.perDomain, utiltas.ComputeUsagePerDomain(ta, tr.SinglePodRequests))
+func (s *TASFlavorSnapshot) addAssumedUsage(assumedUsage *assumedUsage, ta *utiltas.TopologyAssignment, tr *TASPodSetRequests) {
+	addUsagePerDomain(assumedUsage.perDomain, s.usagePerDomain(ta, tr))
+}
+
+// usagePerDomain is the usage tr's Pods in ta take from each domain.
+func (s *TASFlavorSnapshot) usagePerDomain(ta *utiltas.TopologyAssignment, tr *TASPodSetRequests) map[utiltas.TopologyDomainID]resources.Requests {
+	return utiltas.ComputeUsagePerDomain(ta, func(domainID utiltas.TopologyDomainID) resources.Requests {
+		return s.RequestsForDomain(domainID, tr.SinglePodRequests, tr.DRADelegation)
+	})
 }
 
 func addUsagePerDomain(tracked map[utiltas.TopologyDomainID]resources.Requests, usagePerDomain map[utiltas.TopologyDomainID]resources.Requests) {

@@ -46,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -115,7 +116,7 @@ func managerSetupWithClientTransform(
 			qcache.WithResourceTransformations(resourceTransformations),
 			qcache.WithPreemptionExpectations(preemptionExpectations),
 		}
-		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		failedCtrl, err := core.SetupControllers(
 			mgr,

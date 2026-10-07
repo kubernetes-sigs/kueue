@@ -20,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/onsi/ginkgo/v2"
@@ -31,7 +30,6 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -40,12 +38,12 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
-type objAsPtr[T any] interface {
+type ObjAsPtr[T any] interface {
 	client.Object
 	*T
 }
 
-func DeleteObject[PtrT objAsPtr[T], T any](ctx context.Context, c client.Client, o PtrT) error {
+func DeleteObject[PtrT ObjAsPtr[T], T any](ctx context.Context, c client.Client, o PtrT) error {
 	if o != nil {
 		if err := c.Delete(ctx, o); err != nil && !apierrors.IsNotFound(err) {
 			return err
@@ -62,15 +60,15 @@ func deleteAllObjectsInNamespace(ctx context.Context, c client.Client, ns *corev
 	return nil
 }
 
-func ExpectObjectToBeDeleted[PtrT objAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool) {
+func ExpectObjectToBeDeleted[PtrT ObjAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool) {
 	expectObjectToBeDeletedWithTimeout(ctx, k8sClient, o, deleteNow, MediumTimeout)
 }
 
-func ExpectObjectToBeDeletedWithTimeout[PtrT objAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool, timeout time.Duration) {
+func ExpectObjectToBeDeletedWithTimeout[PtrT ObjAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool, timeout time.Duration) {
 	expectObjectToBeDeletedWithTimeout(ctx, k8sClient, o, deleteNow, timeout)
 }
 
-func expectObjectToBeDeletedWithTimeout[PtrT objAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool, timeout time.Duration) {
+func expectObjectToBeDeletedWithTimeout[PtrT ObjAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool, timeout time.Duration) {
 	if o == nil {
 		return
 	}
@@ -81,16 +79,6 @@ func expectObjectToBeDeletedWithTimeout[PtrT objAsPtr[T], T any](ctx context.Con
 	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(o), newObj)).Should(utiltesting.BeNotFoundError())
 	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("Object still exists", newObj))
-}
-
-func ExpectObjectToBeDeletedOnClusters[PtrT objAsPtr[T], T any](ctx context.Context, obj PtrT, clients ...client.Client) {
-	ginkgo.GinkgoHelper()
-	if len(clients) == 0 {
-		ginkgo.Fail("At least one client must be provided to check for object deletion")
-	}
-	for _, c := range clients {
-		ExpectObjectToBeDeleted(ctx, c, obj, false)
-	}
 }
 
 // WaitForNextSecondAfterCreation wait time between the start of the next second
@@ -135,44 +123,9 @@ func FindDeploymentCondition(deployment *appsv1.Deployment, deploymentType appsv
 	return nil
 }
 
-func GetListOptsFromLabel(label string) *client.ListOptions {
-	ginkgo.GinkgoHelper()
-	selector, err := labels.Parse(label)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	return &client.ListOptions{
-		LabelSelector: selector,
-	}
-}
-
 func ResourceQtyToFloat64(quantityStr string) float64 {
 	q := resource.MustParse(quantityStr)
 	return q.AsApproximateFloat64()
-}
-
-func CreateNodesWithStatus(ctx context.Context, c client.Client, nodes []corev1.Node) {
-	for _, node := range nodes {
-		// 1. Create a node
-		gomega.ExpectWithOffset(1, c.Create(ctx, &node)).Should(gomega.Succeed())
-
-		// 2. Update status based on the object
-		createdNode := &corev1.Node{}
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(&node), createdNode)).Should(gomega.Succeed())
-			createdNode.Status = node.Status
-			g.Expect(c.Status().Update(ctx, createdNode)).Should(gomega.Succeed())
-		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to update node status", createdNode))
-
-		// 3. Removes the taint if the node is Ready
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-			g.Expect(c.Get(ctx, client.ObjectKeyFromObject(&node), createdNode)).Should(gomega.Succeed())
-			if utiltas.IsNodeStatusConditionTrue(createdNode.Status.Conditions, corev1.NodeReady) {
-				createdNode.Spec.Taints = slices.DeleteFunc(createdNode.Spec.Taints, func(taint corev1.Taint) bool {
-					return taint.Key == corev1.TaintNodeNotReady
-				})
-				g.Expect(c.Update(ctx, createdNode)).Should(gomega.Succeed())
-			}
-		}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Failed to remove NotReady taint from node", createdNode))
-	}
 }
 
 func SetNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1.Node, newCondition *corev1.NodeCondition) {
@@ -200,18 +153,4 @@ func SetNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1
 			g.Expect(k8sClient.Status().Update(ctx, &updatedNode)).To(gomega.Succeed())
 		}
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg(fmt.Sprintf("Failed to set node condition %s to %s for node %s", newCondition.Type, newCondition.Status, node.Name), &updatedNode))
-}
-
-// GetTopologyDomainByNode returns a map from the name of every node that
-// carries the given topology level label to its value at that level, e.g. the
-// block the node belongs to.
-func GetTopologyDomainByNode(ctx context.Context, c client.Client, levelLabel string) map[string]string {
-	ginkgo.GinkgoHelper()
-	nodes := &corev1.NodeList{}
-	gomega.Expect(c.List(ctx, nodes, client.HasLabels{levelLabel})).To(gomega.Succeed())
-	domains := make(map[string]string, len(nodes.Items))
-	for _, node := range nodes.Items {
-		domains[node.Name] = node.Labels[levelLabel]
-	}
-	return domains
 }

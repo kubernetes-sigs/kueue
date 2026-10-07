@@ -36,6 +36,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 // nodeBlocks maps each fixture node's name to the block it belongs to, for
@@ -158,7 +159,7 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 					Ready().
 					Obj())
 			}
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 			topology = utiltestingapi.MakeDefaultThreeLevelTopology("default")
 			behavioral.MustCreate(ctx, k8sClient, topology)
