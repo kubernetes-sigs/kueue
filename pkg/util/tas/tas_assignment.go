@@ -148,6 +148,19 @@ func InternalSeqFrom(ta *kueue.TopologyAssignment) iter.Seq[TopologyDomainAssign
 	}
 }
 
+func DomainIDs(ta *kueue.TopologyAssignment) iter.Seq[TopologyDomainID] {
+	if ta == nil {
+		return nil
+	}
+	return func(yield func(TopologyDomainID) bool) {
+		for domain := range InternalSeqFrom(ta) {
+			if !yield(DomainID(domain.Values)) {
+				return
+			}
+		}
+	}
+}
+
 func InternalFrom(ta *kueue.TopologyAssignment) *TopologyAssignment {
 	if ta == nil {
 		return nil
