@@ -24,7 +24,7 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
-	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
+	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -33,7 +33,7 @@ import (
 var _ simulator.SchedulerSimulator = (*wasSimulator)(nil)
 
 type wasSimulator struct {
-	snap *schedLibSnapshot.ClusterSnapshot
+	snap *schedlib.ClusterSnapshot
 }
 
 func (c *wasSimulator) FindFeasibleNodes(
