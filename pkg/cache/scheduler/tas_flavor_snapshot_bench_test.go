@@ -114,7 +114,7 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 		nodes := buildBenchNodes(topo)
 		levels := []string{benchBlockLabel, benchRackLabel, benchHostLabel}
 
-		tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+		tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 		for i := range nodes {
 			tasCache.SyncNode(&nodes[i])
 		}
@@ -143,7 +143,7 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 		// cache-hit-only benchmark and gives the update modes a tree to
 		// invalidate.
 		for _, flavorCache := range flavorCaches {
-			if _, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+			if _, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulator(), nil); err != nil {
 				b.Fatalf("initial TASFlavorSnapshot creation failed: %v", err)
 			}
 		}
@@ -171,7 +171,7 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 				tasCache.SyncNode(invalidatingNodes[update%len(invalidatingNodes)])
 			}
 			for _, flavorCache := range flavorCaches {
-				if _, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+				if _, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulator(), nil); err != nil {
 					b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 				}
 			}
@@ -218,7 +218,7 @@ func runBenchmarkTASFlavorAssignment(b *testing.B, tc assignmentBenchCase) {
 		nodes := buildBenchNodes(topo)
 		levels := tc.levels
 
-		tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+		tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 		for i := range nodes {
 			tasCache.SyncNode(&nodes[i])
 		}
@@ -226,7 +226,7 @@ func runBenchmarkTASFlavorAssignment(b *testing.B, tc assignmentBenchCase) {
 			topologyInformation{Levels: levels},
 			flavorInformation{TopologyName: "default"},
 		)
-		snapshot, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil)
+		snapshot, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulator(), nil)
 		if err != nil {
 			b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 		}
@@ -305,7 +305,7 @@ func BenchmarkTASFlavorSnapshotWithWorkloadUsage(b *testing.B) {
 				b.ReportAllocs()
 				_, log := utiltesting.ContextWithLog(b)
 				nodes := buildBenchNodes(topo)
-				tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+				tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 				for i := range nodes {
 					tasCache.SyncNode(&nodes[i])
 				}
@@ -332,11 +332,11 @@ func BenchmarkTASFlavorSnapshotWithWorkloadUsage(b *testing.B) {
 						Count:             1,
 					}})
 				}
-				if _, err := fc.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+				if _, err := fc.snapshot(b.Context(), log, newDefaultSimulator(), nil); err != nil {
 					b.Fatalf("initial TASFlavorSnapshot creation failed: %v", err)
 				}
 				for b.Loop() {
-					if _, err := fc.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil); err != nil {
+					if _, err := fc.snapshot(b.Context(), log, newDefaultSimulator(), nil); err != nil {
 						b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 					}
 				}
@@ -374,7 +374,7 @@ func BenchmarkTASLeaderFeasibility(b *testing.B) {
 				nodes[i].Labels[benchPoolLabel] = pool
 			}
 
-			tasCache := NewTASCache(nil, newDefaultSimulator(), resources.NewResourceFormatter())
+			tasCache := NewTASCache(nil, newDefaultSimulatorFactory(), resources.NewResourceFormatter())
 			for i := range nodes {
 				tasCache.SyncNode(&nodes[i])
 			}
@@ -382,17 +382,36 @@ func BenchmarkTASLeaderFeasibility(b *testing.B) {
 				topologyInformation{Levels: []string{benchBlockLabel, benchRackLabel, benchHostLabel}},
 				flavorInformation{TopologyName: "default"},
 			)
-			snapshot, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulatorSnapshot(), nil)
+			snapshot, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulator(), nil)
 			if err != nil {
 				b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 			}
 
-			requests := leaderFeasibilityBenchRequests()
+			const groupName = "benchmark-group"
+			requests := FlavorTASRequests{
+				{
+					PodSet: utiltestingapi.MakePodSet("workers", 64).
+						UnconstrainedTopologyRequest().
+						PodSetGroup(groupName).
+						NodeSelector(map[string]string{benchPoolLabel: "workers"}).Obj(),
+					SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+					Count:             64,
+					PodSetGroupName:   new(groupName),
+				},
+				{
+					PodSet: utiltestingapi.MakePodSet("leader", 1).
+						UnconstrainedTopologyRequest().
+						PodSetGroup(groupName).
+						NodeSelector(map[string]string{benchPoolLabel: "leader"}).Obj(),
+					SinglePodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000}),
+					Count:             1,
+					PodSetGroupName:   new(groupName),
+				},
+			}
 			// Production always passes a Workload, and matchingLeavesCache is keyed by
 			// its UID, so omitting it would measure an uncached cluster.
-			wl := workload.NewInfo(log, &kueue.Workload{ObjectMeta: metav1.ObjectMeta{
-				Namespace: "default", Name: "bench", UID: "bench-uid",
-			}})
+			wl := workload.NewInfo(log, &kueue.Workload{
+				Namespace: "default", Name: "bench", UID: "bench-uid"})
 			result := snapshot.FindTopologyAssignmentsForFlavor(b.Context(), requests, WithWorkloadInfo(wl))
 			if failure := result.Failure(); failure != nil {
 				b.Fatalf("leader feasibility preflight failed: %s", failure.Reason)
@@ -405,30 +424,5 @@ func BenchmarkTASLeaderFeasibility(b *testing.B) {
 				b.Fatalf("repeated leader feasibility failed: %s", failure.Reason)
 			}
 		})
-	}
-}
-
-func leaderFeasibilityBenchRequests() FlavorTASRequests {
-	const groupName = "benchmark-group"
-	eightCPU := resources.NewRequestsFromMap(map[corev1.ResourceName]int64{corev1.ResourceCPU: 8000})
-	return FlavorTASRequests{
-		{
-			PodSet: utiltestingapi.MakePodSet("workers", 64).
-				UnconstrainedTopologyRequest().
-				PodSetGroup(groupName).
-				NodeSelector(map[string]string{benchPoolLabel: "workers"}).Obj(),
-			SinglePodRequests: eightCPU,
-			Count:             64,
-			PodSetGroupName:   new(groupName),
-		},
-		{
-			PodSet: utiltestingapi.MakePodSet("leader", 1).
-				UnconstrainedTopologyRequest().
-				PodSetGroup(groupName).
-				NodeSelector(map[string]string{benchPoolLabel: "leader"}).Obj(),
-			SinglePodRequests: eightCPU,
-			Count:             1,
-			PodSetGroupName:   new(groupName),
-		},
 	}
 }

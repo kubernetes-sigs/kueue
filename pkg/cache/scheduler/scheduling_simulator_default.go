@@ -33,27 +33,27 @@ import (
 	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 )
 
-type defaultSimulator struct{}
+type defaultSimulatorFactory struct{}
 
-func newDefaultSimulator() simulator.SchedulingSimulator {
+func newDefaultSimulatorFactory() simulator.Factory {
+	return &defaultSimulatorFactory{}
+}
+
+func newDefaultSimulator() simulator.SchedulerSimulator {
 	return &defaultSimulator{}
 }
 
-func newDefaultSimulatorSnapshot() simulator.SimulatorSnapshot {
-	return &defaultSimulatorSnapshot{}
+type defaultSimulator struct{}
+
+func (s *defaultSimulatorFactory) NewSimulator(_ context.Context, _ []*corev1.Node, _ ...simulator.Option) (simulator.SchedulerSimulator, error) {
+	return &defaultSimulator{}, nil
 }
 
-type defaultSimulatorSnapshot struct{}
+func (s *defaultSimulatorFactory) TrackPod(_ context.Context, _ *corev1.Pod) {}
 
-func (s *defaultSimulator) Snapshot(_ context.Context, _ []*corev1.Node) (simulator.SimulatorSnapshot, error) {
-	return &defaultSimulatorSnapshot{}, nil
-}
+func (s *defaultSimulatorFactory) UntrackPod(_ context.Context, _ client.ObjectKey) {}
 
-func (s *defaultSimulator) TrackPod(_ context.Context, _ *corev1.Pod) {}
-
-func (s *defaultSimulator) UntrackPod(_ context.Context, _ client.ObjectKey) {}
-
-func (s *defaultSimulatorSnapshot) FindFeasibleNodes(
+func (s *defaultSimulator) FindFeasibleNodes(
 	ctx context.Context,
 	candidates iter.Seq[simulator.Candidate],
 	requirements *simulator.PodRequirements,
@@ -119,11 +119,11 @@ func (s *defaultSimulatorSnapshot) FindFeasibleNodes(
 	return feasibleCandidates, nil
 }
 
-func (s *defaultSimulatorSnapshot) PreemptWorkload(context.Context, types.NamespacedName) (func() error, error) {
+func (s *defaultSimulator) PreemptWorkload(context.Context, types.NamespacedName) (func() error, error) {
 	return func() error { return nil }, nil
 }
 
-func (s *defaultSimulatorSnapshot) Simulate(_ context.Context, fn func()) error {
+func (s *defaultSimulator) Simulate(_ context.Context, fn func()) error {
 	// Since default simulator does not hold any state,
 	// we can safely run the function immediately.
 	fn()

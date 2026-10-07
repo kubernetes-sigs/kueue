@@ -255,7 +255,7 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-no-match").
 				DiscoveryProvider("cp-1", nil).
 				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
-					Flavors().
+					Flavors(*utiltestingalpha.MakeEffectiveCapacityFlavor("other-flavor").Obj()).
 					Obj(),
 				).
 				Condition(metav1.Condition{
@@ -284,7 +284,7 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-empty").
 				DiscoveryProvider("cp-1", nil).
 				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
-					Flavors().
+					Flavors(*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").Obj()).
 					Obj(),
 				).
 				Condition(metav1.Condition{
@@ -312,7 +312,7 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-nil-capacity").
 				DiscoveryProvider("cp-1", nil).
 				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
-					Flavors().
+					Flavors(*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").Obj()).
 					Obj(),
 				).
 				Condition(metav1.Condition{
@@ -344,7 +344,7 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-empty-res").
 				DiscoveryProvider("cp-1", nil).
 				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
-					Flavors().
+					Flavors(*utiltestingalpha.MakeEffectiveCapacityFlavor("empty-flavor").Obj()).
 					Obj(),
 				).
 				Condition(metav1.Condition{
@@ -392,7 +392,7 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 			_, err := r.Reconcile(ctx, reconcile.Request{
-				NamespacedName: types.NamespacedName{Name: tc.dqo.Name},
+				Name: tc.dqo.Name,
 			})
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("Reconcile error = %v, wantErr %v", err, tc.wantErr)

@@ -22,7 +22,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
@@ -197,11 +196,11 @@ func TestInfoEffectiveResources(t *testing.T) {
 			if diff := cmp.Diff(original, wl); diff != "" {
 				t.Fatalf("raw workload changed: %s", diff)
 			}
-			if got := info.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got != wantCPU {
-				t.Errorf("quota CPU = %d, want %d", got, wantCPU)
+			if got := info.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got.CmpInt64(wantCPU) != 0 {
+				t.Errorf("quota CPU = %s, want %d", got, wantCPU)
 			}
-			if got := resources.NewRequestsFromPodSpec(info.PodSpec(0)).ResourceValue(corev1.ResourceCPU); got != 4000 {
-				t.Errorf("single pod CPU = %d, want 4000", got)
+			if got := resources.NewRequestsFromPodSpec(info.PodSpec(0)).ResourceValue(corev1.ResourceCPU); got.CmpInt64(4000) != 0 {
+				t.Errorf("single pod CPU = %s, want 4000", got)
 			}
 		})
 	}
@@ -226,8 +225,8 @@ func TestInfoDefaultRefreshWithUnchangedTotalRequests(t *testing.T) {
 		t.Fatal(err)
 	}
 	info.UpdateFromClient(ctx, cl, wl)
-	if got := info.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got != 4000 {
-		t.Fatalf("CPU total changed: %d", got)
+	if got := info.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got.CmpInt64(4000) != 0 {
+		t.Fatalf("CPU total changed: %s", got)
 	}
 	if info.SchedulingHash == oldHash {
 		t.Fatal("effective init requests changed but scheduling hash was reused")
@@ -253,7 +252,7 @@ func TestInfoDefaultRefreshWithUnchangedTotalRequests(t *testing.T) {
 func TestInfoValidationUsesEffectiveResources(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
 	lr := utiltesting.MakeLimitRange("defaults", "ns").WithValue("Default", corev1.ResourceCPU, "1").Obj()
-	cl := utiltesting.NewClientBuilder().WithObjects(lr, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}).
+	cl := utiltesting.NewClientBuilder().WithObjects(lr, &corev1.Namespace{Name: "ns"}).
 		WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).Build()
 	wl := utiltestingapi.MakeWorkload("wl", "ns").Request(corev1.ResourceCPU, "2").Obj()
 	info := NewInfoFromClient(ctx, cl, wl)
@@ -278,10 +277,10 @@ func TestInfoCarriesEffectiveSnapshotAcrossDefaultChanges(t *testing.T) {
 	}
 	carried := NewInfoFromClient(ctx, cl, wl, WithEffectivePodSpecs(initial.EffectivePodSpecs))
 	refreshed := NewInfoFromClient(ctx, cl, wl)
-	if got := carried.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got != 1000 {
-		t.Errorf("carried CPU = %d, want 1000", got)
+	if got := carried.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got.CmpInt64(1000) != 0 {
+		t.Errorf("carried CPU = %s, want 1000", got)
 	}
-	if got := refreshed.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got != 2000 {
-		t.Errorf("fresh CPU = %d, want 2000", got)
+	if got := refreshed.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got.CmpInt64(2000) != 0 {
+		t.Errorf("fresh CPU = %s, want 2000", got)
 	}
 }

@@ -41,8 +41,8 @@ failures, failed_jobs.txt. Re-running resumes: complete jobs are skipped, partia
 folders are cleaned and refetched, so only the gaps are downloaded.
 
 Network in/out is fetched alongside cpu/mem: it uses heavy raw-cAdvisor queries that stress the
-shared proxy more than the recording-rule metrics, so it stays best-effort — a network failure
-never fails the job's cpu/mem fetch — but there is no flag to disable it.
+shared proxy more than the resource recording-rule metrics, so it stays best-effort — a network
+failure never fails the job's cpu/mem fetch — but there is no flag to disable it.
 
 Examples:
   ./fetch_prow_metrics.py --job pull-kueue-test-e2e-baseline-main-1-34 --step 30s --days 30
@@ -54,7 +54,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # --- prow Grafana / Prometheus backend (see 12750/grafana.md) ---
 HOST = "https://monitoring-eks.prow.k8s.io"
-DS_UID = "PA553F4D380FC2FA5"                       # "Prometheus Main" datasource
+DS_UID = "prometheus"                              # Prometheus datasource
 BASE = f"{HOST}/api/datasources/proxy/uid/{DS_UID}/api/v1"
 MAX_POINTS = 11000                                 # Prometheus per-series range cap
 MIN_CHUNK_S = 3600                                 # don't split a 504'd query window below 1h
@@ -146,18 +146,17 @@ class _ReqStats:
 
 _req_stats = _ReqStats()
 
-# metric key -> recording rule (already carry the id/phase labels)
+# metric key -> Prow recording rule (already carries the id/phase labels)
 METRICS = {
-    "mem_used_bytes":   "prow:job:memory_working_set_bytes",
-    "cpu_used_cores":   "prow:job:cpu_usage_seconds_rate:1m",
     "mem_request_bytes": "prow:job:resource_requests_memory_bytes",
     "cpu_request_cores": "prow:job:resource_requests_cpu_cores",
     "mem_limit_bytes":  "prow:job:resource_limits_memory_bytes",
     "cpu_limit_cores":  "prow:job:resource_limits_cpu_cores",
 }
-# raw cAdvisor counters (cumulative) — no id label, so joined to prow:job on
+# Raw cAdvisor metrics have no build id, so they are joined to prow:job on
 # (namespace,pod) to attribute each series to a build.
 JOINED_METRICS = {
+    "mem_used_bytes": "container_memory_working_set_bytes",
     # CFS quota accounting -> throttle %
     "cfs_periods":           "container_cpu_cfs_periods_total",
     "cfs_throttled_periods": "container_cpu_cfs_throttled_periods_total",
@@ -169,6 +168,10 @@ JOINED_METRICS = {
     # OOM-kill counter: a build whose value increases hit its memory limit, so its peak
     # sits at the ceiling and must be excluded from the memory recommendation.
     "oom_events":            "container_oom_events_total",
+}
+# Raw counters that need a rate before they represent the per-build usage value.
+JOINED_RATE_METRICS = {
+    "cpu_used_cores": "container_cpu_usage_seconds_total",
 }
 # Network counters (cumulative bytes). cAdvisor reports network only at pod scope (there is no
 # per-container "test" series) and the raw metric carries no prow labels (org/repo/name/id), so it
@@ -623,12 +626,17 @@ def fetch_one(job, start, end, step, args, verbose=True):
     for key, rule in METRICS.items():
         data[key] = query_range_chunked(f"sum by (id)({rule}{sel})", start, end, step)
         log(f"  {key:20} {len(data[key])} builds")
-    # cAdvisor counters: join to prow:job on (namespace,pod) to attach the id label.
+    # cAdvisor metrics: join to prow:job on (namespace,pod) to attach the id label.
     # prow:job sometimes has two series for the same (namespace,pod) — one plain and one
     # carrying extra node/pod_ip labels — which makes group_left a many-to-many match and
     # returns 422. max by (namespace,pod,id) collapses them to one series per pod first.
     for key, cadv in JOINED_METRICS.items():
         expr = (f'sum by (id)({cadv}{{container="test"}} * on(namespace,pod) '
+                f'group_left(id) max by (namespace,pod,id)(prow:job{sel}))')
+        data[key] = query_range_chunked(expr, start, end, step)
+        log(f"  {key:20} {len(data[key])} builds")
+    for key, cadv in JOINED_RATE_METRICS.items():
+        expr = (f'sum by (id)(rate({cadv}{{container="test"}}[1m]) * on(namespace,pod) '
                 f'group_left(id) max by (namespace,pod,id)(prow:job{sel}))')
         data[key] = query_range_chunked(expr, start, end, step)
         log(f"  {key:20} {len(data[key])} builds")

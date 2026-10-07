@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -77,8 +78,7 @@ func RegisterIntegration(m *jobframework.IntegrationManager) error {
 // +kubebuilder:rbac:groups=ray.io,resources=rayclusters,verbs=get;list;watch
 
 type rayServiceReconciler struct {
-	jr     *jobframework.JobReconciler
-	client client.Client
+	jr *jobframework.JobReconciler
 }
 
 func newJob() jobframework.GenericJob {
@@ -89,8 +89,6 @@ func setup(b *builder.Builder, c client.Client) *builder.Builder {
 	return b.Watches(&rayv1.RayCluster{}, handler.EnqueueRequestForOwner(c.Scheme(), c.RESTMapper(), &rayv1.RayService{}, handler.OnlyControllerOwner()))
 }
 
-var reconciler rayServiceReconciler
-
 func NewReconciler(
 	ctx context.Context,
 	client client.Client,
@@ -98,11 +96,10 @@ func NewReconciler(
 	eventRecorder events.EventRecorder,
 	opts ...jobframework.Option,
 ) (jobframework.JobReconcilerInterface, error) {
-	reconciler = rayServiceReconciler{
-		jr:     jobframework.NewReconciler(client, eventRecorder, opts...),
-		client: client,
+	reconciler := &rayServiceReconciler{
+		jr: jobframework.NewReconciler(client, eventRecorder, opts...),
 	}
-	return &reconciler, nil
+	return reconciler, nil
 }
 
 func (r *rayServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -128,6 +125,14 @@ var _ jobframework.JobWithCustomAnnotations = (*RayService)(nil)
 var _ jobframework.JobWithManagedBy = (*RayService)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayService)(nil)
 var _ jobframework.JobWithSkip = (*RayService)(nil)
+var _ jobframework.JobWithCustomEquivalenceOptions = (*RayService)(nil)
+
+func (j *RayService) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
+	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
+		return []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}
+	}
+	return nil
+}
 
 func (j *RayService) Object() client.Object {
 	return (*rayv1.RayService)(j)
@@ -167,7 +172,7 @@ func (j *RayService) PodLabelSelector() string {
 	return ""
 }
 
-func (j *RayService) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
+func (j *RayService) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet, error) {
 	// Always build PodSets from RayService spec first
 	podSets, err := raycluster.BuildPodSets(&j.Spec.RayClusterSpec, j.Annotations)
 	if err != nil {
@@ -175,7 +180,7 @@ func (j *RayService) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodS
 	}
 
 	rayClusterName := j.Status.ActiveServiceStatus.RayClusterName
-	podSets, err = raycluster.UpdatePodSets(ctx, podSets, reconciler.client, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
+	podSets, err = raycluster.UpdatePodSets(ctx, podSets, c, j.Object(), j.Spec.RayClusterSpec.EnableInTreeAutoscaling, rayClusterName)
 	if err != nil {
 		return nil, err
 	}

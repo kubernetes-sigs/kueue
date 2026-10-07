@@ -19,12 +19,11 @@ package core
 import (
 	"context"
 	"errors"
+	"math"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -201,7 +200,7 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			r.cache.ClearCohortMetrics(log, kueue.CohortReference(req.Name))
 			r.cache.DeleteCohort(kueue.CohortReference(req.Name))
 			r.qManager.DeleteCohort(kueue.CohortReference(req.Name))
-			r.notifyWatchers(&kueue.Cohort{ObjectMeta: metav1.ObjectMeta{Name: req.Name}}, nil)
+			r.notifyWatchers(&kueue.Cohort{Name: req.Name}, nil)
 			metrics.ClearCohortMetrics(kueue.CohortReference(req.Name))
 			if features.Enabled(features.CustomMetricLabels) {
 				r.customLabels.CohortDelete(kueue.CohortReference(req.Name))
@@ -260,7 +259,11 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 	}
 
 	if r.fairSharingEnabled {
-		metrics.ReportCohortWeightedShare(kueue.CohortReference(cohort.Name), stats.WeightedShare, r.customLabels.CohortGet(kueue.CohortReference(cohort.Name)), r.roleTracker)
+		weightedShare := stats.WeightedShare
+		if weightedShare == math.Inf(1) {
+			weightedShare = math.NaN()
+		}
+		metrics.ReportCohortWeightedShare(kueue.CohortReference(cohort.Name), weightedShare, r.customLabels.CohortGet(kueue.CohortReference(cohort.Name)), r.roleTracker)
 		if cohort.Status.FairSharing == nil {
 			cohort.Status.FairSharing = &kueue.FairSharingStatus{}
 		}
@@ -311,6 +314,6 @@ func (h *cohortCqHandler) Generic(ctx context.Context, e event.GenericEvent, q w
 		log.Error(err, "Failed getting ancestors for cohort", "cohort", cq.Spec.CohortName)
 	}
 	for _, ancestor := range ancestors {
-		q.Add(reconcile.Request{NamespacedName: types.NamespacedName{Name: string(ancestor)}})
+		q.Add(reconcile.Request{Name: string(ancestor)})
 	}
 }

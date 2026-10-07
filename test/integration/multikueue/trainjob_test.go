@@ -36,7 +36,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingtrainjob "sigs.k8s.io/kueue/pkg/util/testingjobs/trainjob"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("MultiKueue TrainJob", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -79,17 +79,17 @@ var _ = ginkgo.Describe("MultiKueue TrainJob", ginkgo.Label("area:multikueue", "
 			Queue(f.managerLq.Name).
 			Obj()
 
-		util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, testCtr.DeepCopy())
-		util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, testCtr.DeepCopy())
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, testCtr)
-		util.MustCreateWithRetry(managerTestCluster.ctx, managerTestCluster.client, trainJob)
+		behavioral.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, testCtr.DeepCopy())
+		behavioral.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, testCtr.DeepCopy())
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, testCtr)
+		behavioral.MustCreateWithRetry(managerTestCluster.ctx, managerTestCluster.client, trainJob)
 		wlLookupKey := types.NamespacedName{Name: workloadtrainjob.GetWorkloadNameForTrainJob(trainJob.Name, trainJob.UID), Namespace: f.managerNs.Name}
 		gomega.Eventually(func(g gomega.Gomega) {
 			createdWorkload := &kueue.Workload{}
 			g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-		}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
-		util.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
+		behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
 		admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, wlLookupKey, admission)
 
 		ginkgo.By("changing the status of the TrainJob in the worker, updates the manager's TrainJob status", func() {
@@ -100,13 +100,13 @@ var _ = ginkgo.Describe("MultiKueue TrainJob", ginkgo.Label("area:multikueue", "
 					testingtrainjob.MakeJobStatus("foo").Obj(),
 				}
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdTrainJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				createdTrainJob := kftrainer.TrainJob{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(trainJob), &createdTrainJob)).To(gomega.Succeed())
 				g.Expect(createdTrainJob.Status.JobsStatus).To(gomega.HaveLen(1))
 				g.Expect(createdTrainJob.Status.JobsStatus[0].Name).To(gomega.Equal("foo"))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("finishing the worker TrainJob, the manager's wl is marked as finished and the worker2 wl removed", func() {
@@ -120,7 +120,7 @@ var _ = ginkgo.Describe("MultiKueue TrainJob", ginkgo.Label("area:multikueue", "
 					Reason: "ByTest",
 				})
 				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &createdTrainJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, finishJobReason)
 		})

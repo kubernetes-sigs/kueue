@@ -38,6 +38,8 @@ import (
 	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
+	"sigs.k8s.io/kueue/pkg/controller/tas"
+	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/unscheduledpods"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler"
@@ -45,7 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -56,12 +58,12 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunSuite(t, "RayCluster Controller Suite")
+	behavioral.RunSuite(t, "RayCluster Controller Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		DepCRDPaths: []string{util.RayOperatorCrds},
+		DepCRDPaths: []string{behavioral.RayOperatorCrds},
 	}
 
 	cfg = fwk.Init()
@@ -103,7 +105,15 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 	return managerAndSchedulerSetupWithConfig(&config.Configuration{}, opts...)
 }
 
+func managerAndSchedulerWithTASSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	return managerAndSchedulerSetupInternal(&config.Configuration{}, true, opts...)
+}
+
 func managerAndSchedulerSetupWithConfig(configuration *config.Configuration, opts ...jobframework.Option) framework.ManagerSetup {
+	return managerAndSchedulerSetupInternal(configuration, false, opts...)
+}
+
+func managerAndSchedulerSetupInternal(configuration *config.Configuration, setupTASControllers bool, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		mgr.GetScheme().Default(configuration)
 		var indexerOptions []indexer.Option
@@ -116,7 +126,7 @@ func managerAndSchedulerSetupWithConfig(configuration *config.Configuration, opt
 		cCache := schdcache.New(mgr.GetClient())
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 		opts = append(opts, jobframework.WithQueues(queues))
 
 		failedCtrl, err := core.SetupControllers(
@@ -131,6 +141,14 @@ func managerAndSchedulerSetupWithConfig(configuration *config.Configuration, opt
 		if features.Enabled(features.ConcurrentAdmission) {
 			failedCtrl, err := concurrentadmission.SetupControllers(mgr, queues, configuration, nil)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+		}
+
+		if setupTASControllers {
+			failedCtrl, err = tas.SetupControllers(mgr, queues, cCache, configuration, nil)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
+
+			err = tasindexer.SetupIndexes(ctx, mgr.GetFieldIndexer())
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
 		failedWebhook, err := webhooks.Setup(mgr, nil)

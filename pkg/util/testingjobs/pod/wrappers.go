@@ -43,11 +43,9 @@ type PodWrapper struct {
 // MakePod creates a wrapper for a pod with a single container.
 func MakePod(name, ns string) *PodWrapper {
 	return &PodWrapper{corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
 			Containers: []corev1.Container{
@@ -176,6 +174,11 @@ func (p *PodWrapper) GroupNameAnnotation(g string) *PodWrapper {
 // GroupTotalCount updates the pod.GroupTotalCountAnnotation of the Pod
 func (p *PodWrapper) GroupTotalCount(gtc string) *PodWrapper {
 	return p.Annotation(podconstants.GroupTotalCountAnnotation, gtc)
+}
+
+// GroupMaxNotReadyCount updates the pod.GroupMaxNotReadyCountAnnotation of the Pod
+func (p *PodWrapper) GroupMaxNotReadyCount(count string) *PodWrapper {
+	return p.Annotation(podconstants.GroupMaxNotReadyCountAnnotation, count)
 }
 
 // GroupIndex updates the pod.GroupIndexLabel of the Pod
@@ -331,6 +334,12 @@ func (p *PodWrapper) Port(container, host int32, protocol corev1.Protocol) *PodW
 		HostPort:      host,
 		Protocol:      protocol,
 	})
+	return p
+}
+
+// ContainerName sets the name of the default container.
+func (p *PodWrapper) ContainerName(name string) *PodWrapper {
+	p.Spec.Containers[0].Name = name
 	return p
 }
 

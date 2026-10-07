@@ -28,7 +28,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/metrics"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("LocalQueue pending metrics", ginkgo.Label("controller:localqueue", "area:core"), func() {
@@ -44,51 +44,51 @@ var _ = ginkgo.Describe("LocalQueue pending metrics", ginkgo.Label("controller:l
 		// Do not start the scheduler: unrelated scheduling attempts could refresh
 		// a stale ClusterQueue metric after a LocalQueue is removed.
 		fwk.StartManager(ctx, cfg, managerAndControllerSetup(nil))
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lq-pending-metrics-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "lq-pending-metrics-")
 		flavor = utiltestingapi.MakeResourceFlavor("pending-metrics-default").Obj()
-		util.MustCreate(ctx, k8sClient, flavor)
+		behavioral.MustCreate(ctx, k8sClient, flavor)
 		cq = utiltestingapi.MakeClusterQueue("lq-pending-metrics").ResourceGroup(
 			*utiltestingapi.MakeFlavorQuotas(flavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
 		).Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		queues = []*kueue.LocalQueue{
 			utiltestingapi.MakeLocalQueue("first", ns.Name).ClusterQueue(cq.Name).Obj(),
 			utiltestingapi.MakeLocalQueue("second", ns.Name).ClusterQueue(cq.Name).Obj(),
 		}
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, queues...)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, queues...)
 		for _, lq := range queues {
 			wl := utiltestingapi.MakeWorkload(lq.Name, ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).Request(corev1.ResourceCPU, "1").Obj()
-			util.MustCreate(ctx, k8sClient, wl)
-			util.ExpectLQPendingWorkloadsMetric(lq, 1, 0)
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			behavioral.ExpectLQPendingWorkloadsMetric(lq, 1, 0)
 		}
-		util.ExpectPendingWorkloadsMetric(cq, 2, 0)
+		behavioral.ExpectPendingWorkloadsMetric(cq, 2, 0)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
 		fwk.StopManager(ctx)
 	})
 
 	ginkgo.It("should refresh pending metrics when a LocalQueue is deleted", func() {
 		for i, lq := range queues {
 			ginkgo.By("deleting LocalQueue " + lq.Name)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 
 			ginkgo.By("checking the removed queue has no pending metric series")
 			gomega.Eventually(func() []testingmetrics.MetricDataPoint {
 				return testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads,
 					map[string]string{"name": lq.Name, "namespace": lq.Namespace})
-			}, util.Timeout, util.Interval).Should(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeEmpty())
 
 			ginkgo.By("checking the ClusterQueue count preserves only the remaining queue")
-			util.ExpectPendingWorkloadsMetric(cq, len(queues)-i-1, 0)
+			behavioral.ExpectPendingWorkloadsMetric(cq, len(queues)-i-1, 0)
 			if i == 0 {
-				util.ExpectLQPendingWorkloadsMetric(queues[1], 1, 0)
+				behavioral.ExpectLQPendingWorkloadsMetric(queues[1], 1, 0)
 			}
 		}
 	})
@@ -103,18 +103,18 @@ var _ = ginkgo.Describe("LocalQueue pending metrics", ginkgo.Label("controller:l
 				before := lq.DeepCopy()
 				lq.Spec.StopPolicy = ptr.To(kueue.Hold)
 				return k8sClient.Patch(ctx, lq, client.MergeFrom(before))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking the removed queue has no pending metric series")
 			gomega.Eventually(func() []testingmetrics.MetricDataPoint {
 				return testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads,
 					map[string]string{"name": lq.Name, "namespace": lq.Namespace})
-			}, util.Timeout, util.Interval).Should(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeEmpty())
 
 			ginkgo.By("checking the ClusterQueue count preserves only the remaining queue")
-			util.ExpectPendingWorkloadsMetric(cq, len(queues)-i-1, 0)
+			behavioral.ExpectPendingWorkloadsMetric(cq, len(queues)-i-1, 0)
 			if i == 0 {
-				util.ExpectLQPendingWorkloadsMetric(queues[1], 1, 0)
+				behavioral.ExpectLQPendingWorkloadsMetric(queues[1], 1, 0)
 			}
 		}
 	})
@@ -129,18 +129,18 @@ var _ = ginkgo.Describe("LocalQueue pending metrics", ginkgo.Label("controller:l
 				before := lq.DeepCopy()
 				lq.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
 				return k8sClient.Patch(ctx, lq, client.MergeFrom(before))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("checking the removed queue has no pending metric series")
 			gomega.Eventually(func() []testingmetrics.MetricDataPoint {
 				return testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads,
 					map[string]string{"name": lq.Name, "namespace": lq.Namespace})
-			}, util.Timeout, util.Interval).Should(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeEmpty())
 
 			ginkgo.By("checking the ClusterQueue count preserves only the remaining queue")
-			util.ExpectPendingWorkloadsMetric(cq, len(queues)-i-1, 0)
+			behavioral.ExpectPendingWorkloadsMetric(cq, len(queues)-i-1, 0)
 			if i == 0 {
-				util.ExpectLQPendingWorkloadsMetric(queues[1], 1, 0)
+				behavioral.ExpectLQPendingWorkloadsMetric(queues[1], 1, 0)
 			}
 		}
 	})

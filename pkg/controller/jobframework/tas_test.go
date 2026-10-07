@@ -104,6 +104,18 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 				PodSetGroupName:    new("block"),
 			},
 		},
+		"required annotation with sub group count only": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			},
+			subGroupCount: new(int32(2)),
+			wantReq: &kueue.PodSetTopologyRequest{
+				Required:      new("cloud.com/block"),
+				SubGroupCount: new(int32(2)),
+			},
+		},
 		"preferred annotation": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
@@ -125,6 +137,20 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 			},
 		},
 		"unconstrained annotation (false)": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRejectFalseUnconstrainedTopology: true,
+			},
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetUnconstrainedTopologyAnnotation: "false",
+				},
+			},
+			wantErr: errUnconstrainedTopologyNotTrue,
+		},
+		"unconstrained annotation (false) with validation disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASRejectFalseUnconstrainedTopology: false,
+			},
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{
 					kueue.PodSetUnconstrainedTopologyAnnotation: "false",

@@ -25,13 +25,16 @@ import (
 	"k8s.io/client-go/discovery"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/statefulset"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("StatefulSet Webhook", func() {
@@ -50,17 +53,17 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 				jobframework.WithManageJobsWithoutQueueName(false),
 				jobframework.WithKubeServerVersion(serverVersionFetcher),
 			))
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "statefulset-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "statefulset-")
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			fwk.StopManager(ctx)
 		})
 
 		ginkgo.When("The queue-name label is set", func() {
 			ginkgo.It("Should inject SuspendedByParentAnnotation to pod template annotations", func() {
 				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Queue("user-queue").Obj()
-				util.MustCreate(ctx, k8sClient, sts)
+				behavioral.MustCreate(ctx, k8sClient, sts)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
@@ -70,14 +73,14 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 							gomega.Equal("statefulset"),
 							"SuspendedByParentAnnotation should be injected to pod template annotations",
 						)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
 		ginkgo.When("The queue-name label is not set", func() {
 			ginkgo.It("Should not inject queue name to pod template labels", func() {
 				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Obj()
-				util.MustCreate(ctx, k8sClient, sts)
+				behavioral.MustCreate(ctx, k8sClient, sts)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdStatefulSet := &appsv1.StatefulSet{}
@@ -87,8 +90,29 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 							gomega.BeEmpty(),
 							"Queue name should not be injected to pod template labels",
 						)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
+		})
+
+		ginkgo.It("Should reject updates with conflicting TAS annotations", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, true)
+
+			sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).
+				Queue("user-queue").
+				PodTemplateAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, sts)
+
+			created := &appsv1.StatefulSet{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), created)).To(gomega.Succeed())
+				created.Spec.Template.Annotations[kueue.PodSetUnconstrainedTopologyAnnotation] = "true"
+				g.Expect(k8sClient.Update(ctx, created)).To(gomega.SatisfyAll(
+					utiltesting.BeForbiddenError(),
+					gomega.MatchError(gomega.ContainSubstring("spec.template.metadata.annotations")),
+					gomega.MatchError(gomega.ContainSubstring("must not contain more than one topology annotation")),
+				))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		// Regression test for GC teardown deadlock:
@@ -101,7 +125,7 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 
 				// Create the parent STS (no finalizers, so it is deleted immediately).
 				parentSTS := testingstatefulset.MakeStatefulSet("parent-sts", ns.Name).Queue("user-queue").Obj()
-				util.MustCreate(ctx, k8sClient, parentSTS)
+				behavioral.MustCreate(ctx, k8sClient, parentSTS)
 
 				// Re-read to get the real UID assigned by the API server.
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentSTS), parentSTS)).To(gomega.Succeed())
@@ -120,7 +144,7 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 						Controller: &isController,
 					},
 				}
-				util.MustCreate(ctx, k8sClient, childSTS)
+				behavioral.MustCreate(ctx, k8sClient, childSTS)
 
 				// Delete the parent STS with background propagation: it has no
 				// finalizers so it disappears from the API server immediately,
@@ -134,7 +158,7 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentSTS), &appsv1.StatefulSet{})).
 						Should(gomega.MatchError(gomega.ContainSubstring("not found")))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 				// Delete the child STS so it enters Terminating state.
 				// The foregroundDeletion finalizer prevents it from being fully removed.
@@ -144,7 +168,7 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(childSTS), &terminatingChild)).To(gomega.Succeed())
 					g.Expect(terminatingChild.DeletionTimestamp).NotTo(gomega.BeNil())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 				// Simulate what the GC does: PATCH the child STS to remove the
 				// foregroundDeletion finalizer.  Without the fix this PATCH is denied

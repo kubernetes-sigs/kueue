@@ -575,20 +575,13 @@ func TestRestorePodSetsInfo(t *testing.T) {
 
 func TestStop(t *testing.T) {
 	testTrainJob := testingtrainjob.MakeTrainJob("trainjob", "ns")
-	// A RuntimePatch holds its spec behind a pointer, so every case deep copies the
-	// patch it uses: Stop restores the spec in place, and sharing one value across
-	// cases would let a case that already restored it change what the others start
-	// from.
 	admittedKueuePatch := testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
 		EmptyMetadata().
-		ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").NodeSelector("gpu", "a100").Obj()).
-		Obj()
+		ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").NodeSelector("gpu", "a100").Obj())
 	restoredKueuePatch := testingtrainjob.MakeRuntimePatch(runtimePatchManagerName).
-		EmptyMetadata().
-		Obj()
+		EmptyMetadata()
 	userPatch := testingtrainjob.MakeRuntimePatch("example.com/user-manager").
-		ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").Obj()).
-		Obj()
+		ReplicatedJobs(testingtrainjob.MakeReplicatedJobPatch("node").Obj())
 
 	cases := map[string]struct {
 		trainJob *kftrainerapi.TrainJob
@@ -599,17 +592,17 @@ func TestStop(t *testing.T) {
 		// actually suspended the TrainJob.
 		wantStoppedNow bool
 		// wantPatches is the number of PATCH requests Stop is expected to issue.
-		wantPatches     int
-		wantErrContains string
+		wantPatches int
+		wantErr     error
 	}{
 		"should suspend a running trainjob and report it as stopped now": {
 			trainJob: testTrainJob.Clone().
 				Suspend(false).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*admittedKueuePatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{admittedKueuePatch.Clone().Obj()}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
 				Suspend(true).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*restoredKueuePatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{restoredKueuePatch.Clone().Obj()}).
 				Obj(),
 			wantStoppedNow: true,
 			wantPatches:    2,
@@ -617,11 +610,11 @@ func TestStop(t *testing.T) {
 		"should restore without reporting stopped now when the trainjob is already suspended": {
 			trainJob: testTrainJob.Clone().
 				Suspend(true).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*admittedKueuePatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{admittedKueuePatch.Clone().Obj()}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
 				Suspend(true).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*restoredKueuePatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{restoredKueuePatch.Clone().Obj()}).
 				Obj(),
 			wantStoppedNow: false,
 			wantPatches:    1,
@@ -629,11 +622,11 @@ func TestStop(t *testing.T) {
 		"should send no patch when the trainjob is already suspended and restored": {
 			trainJob: testTrainJob.Clone().
 				Suspend(true).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*restoredKueuePatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{restoredKueuePatch.Clone().Obj()}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
 				Suspend(true).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*restoredKueuePatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{restoredKueuePatch.Clone().Obj()}).
 				Obj(),
 			wantStoppedNow: false,
 			wantPatches:    0,
@@ -642,29 +635,29 @@ func TestStop(t *testing.T) {
 			trainJob: testTrainJob.Clone().
 				Suspend(false).
 				JobsStatus(testingtrainjob.MakeJobStatus("node").Active(1).Obj()).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*admittedKueuePatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{admittedKueuePatch.Clone().Obj()}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
 				Suspend(true).
 				JobsStatus(testingtrainjob.MakeJobStatus("node").Active(1).Obj()).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*admittedKueuePatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{admittedKueuePatch.Clone().Obj()}).
 				Obj(),
-			wantStoppedNow:  true,
-			wantPatches:     1,
-			wantErrContains: "jobs are still active",
+			wantStoppedNow: true,
+			wantPatches:    1,
+			wantErr:        errJobsStillActive,
 		},
 		"should fail when the kueue runtime patch is missing": {
 			trainJob: testTrainJob.Clone().
 				Suspend(true).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*userPatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{userPatch.Clone().Obj()}).
 				Obj(),
 			wantTrainJob: testTrainJob.Clone().
 				Suspend(true).
-				RuntimePatches([]kftrainerapi.RuntimePatch{*userPatch.DeepCopy()}).
+				RuntimePatches([]kftrainerapi.RuntimePatch{userPatch.Clone().Obj()}).
 				Obj(),
-			wantStoppedNow:  false,
-			wantPatches:     0,
-			wantErrContains: "error restoring info to the trainjob",
+			wantStoppedNow: false,
+			wantPatches:    0,
+			wantErr:        errKueueRuntimePatchNotFound,
 		},
 	}
 
@@ -685,13 +678,8 @@ func TestStop(t *testing.T) {
 			kTrainJob := (*TrainJob)(tc.trainJob)
 			stoppedNow, err := kTrainJob.Stop(ctx, kClient, []podset.PodSetInfo{}, jobframework.StopReasonWorkloadEvicted, "by test")
 
-			switch {
-			case tc.wantErrContains == "" && err != nil:
-				t.Errorf("unexpected Stop() error: %v", err)
-			case tc.wantErrContains != "" && err == nil:
-				t.Errorf("expected Stop() to fail with an error containing %q", tc.wantErrContains)
-			case tc.wantErrContains != "" && !strings.Contains(err.Error(), tc.wantErrContains):
-				t.Errorf("Stop() error = %v, want it to contain %q", err, tc.wantErrContains)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Stop() unexpected error (-want,+got):\n%s", diff)
 			}
 			if stoppedNow != tc.wantStoppedNow {
 				t.Errorf("Stop() unexpected stoppedNow. got: %v. want: %v", stoppedNow, tc.wantStoppedNow)

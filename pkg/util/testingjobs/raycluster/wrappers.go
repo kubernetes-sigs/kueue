@@ -97,17 +97,30 @@ func (w *WorkerGroupWrapper) NodeSelector(key, value string) *WorkerGroupWrapper
 	return w
 }
 
+// NumOfHosts sets the group's numOfHosts.
+func (w *WorkerGroupWrapper) NumOfHosts(numOfHosts int32) *WorkerGroupWrapper {
+	w.WorkerGroupSpec.NumOfHosts = numOfHosts
+	return w
+}
+
+// PodAnnotation sets an annotation on the group's pod template.
+func (w *WorkerGroupWrapper) PodAnnotation(key, value string) *WorkerGroupWrapper {
+	if w.Template.Annotations == nil {
+		w.Template.Annotations = make(map[string]string)
+	}
+	w.Template.Annotations[key] = value
+	return w
+}
+
 // ClusterWrapper wraps a RayCluster.
 type ClusterWrapper struct{ rayv1.RayCluster }
 
 // MakeCluster creates a wrapper for rayCluster
 func MakeCluster(name, ns string) *ClusterWrapper {
 	return &ClusterWrapper{rayv1.RayCluster{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: rayv1.RayClusterSpec{
 			RayVersion: utiltesting.TestRayVersion(),
 			HeadGroupSpec: rayv1.HeadGroupSpec{
@@ -412,6 +425,14 @@ func (j *ClusterWrapper) RayStartParam(rayType rayv1.RayNodeType, key, value str
 		j.Spec.WorkerGroupSpecs[0].RayStartParams[key] = value
 	default:
 		panic(fmt.Sprintf("unsupported RayNodeType: %v", rayType))
+	}
+	return j
+}
+
+func (j *ClusterWrapper) TerminationGracePeriod(seconds int64) *ClusterWrapper {
+	j.Spec.HeadGroupSpec.Template.Spec.TerminationGracePeriodSeconds = new(seconds)
+	for i := range j.Spec.WorkerGroupSpecs {
+		j.Spec.WorkerGroupSpecs[i].Template.Spec.TerminationGracePeriodSeconds = new(seconds)
 	}
 	return j
 }

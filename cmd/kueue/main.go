@@ -231,7 +231,11 @@ func main() {
 	}
 	options.Metrics = metricsServerOptions
 
-	lqMetrics := metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)
+	lqMetrics, err := metrics.NewLocalQueueMetricsConfig(cfg.Metrics.LocalQueueMetrics)
+	if err != nil {
+		setupLog.Error(err, "Unable to configure LocalQueue metrics")
+		os.Exit(1)
+	}
 
 	var customLabels *metrics.CustomLabels
 	if features.Enabled(features.CustomMetricLabels) {
@@ -354,12 +358,25 @@ func main() {
 		cacheOptions = append(cacheOptions, schdcache.WithAdmissionFairSharing(cfg.AdmissionFairSharing))
 	}
 	if features.Enabled(features.SchedulerLibraryIntegration) {
-		sim, err := was.NewWASSimulator(ctx, mgr.GetConfig())
+		simulatorFactory, err := was.NewWASSimulatorFactory(ctx, mgr.GetConfig())
 		if err != nil {
 			setupLog.Error(err, "Failed to initialize scheduling simulator")
 			os.Exit(1)
 		}
-		cacheOptions = append(cacheOptions, schdcache.WithSchedulingSimulator(sim))
+		cacheOptions = append(cacheOptions, schdcache.WithSimulatorFactory(simulatorFactory))
+	}
+	if draBackedResources != nil {
+		cacheOptions = append(cacheOptions, schdcache.WithDRABackedResources(draBackedResources))
+	}
+	if features.Enabled(features.KueueDRAIntegrationDeviceTaints) {
+		// Only a discovery failure errors. Carrying on unregistered would let a scheduling
+		// cycle block on the informer once discovery recovered.
+		served, err := utildra.RegisterDeviceTaintRuleInformer(ctx, mgr)
+		if err != nil {
+			setupLog.Error(err, "Unable to watch DeviceTaintRules")
+			os.Exit(1)
+		}
+		cacheOptions = append(cacheOptions, schdcache.WithDeviceTaintRules(served))
 	}
 	cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 

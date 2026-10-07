@@ -17,6 +17,7 @@ limitations under the License.
 package create
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -266,8 +267,8 @@ func (o *ClusterQueueOptions) Run(ctx context.Context) error {
 
 func (o *ClusterQueueOptions) createClusterQueue() *kueue.ClusterQueue {
 	return &kueue.ClusterQueue{
-		TypeMeta:   metav1.TypeMeta{APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ClusterQueue"},
-		ObjectMeta: metav1.ObjectMeta{Name: o.Name},
+		APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ClusterQueue",
+		Name: o.Name,
 		Spec: kueue.ClusterQueueSpec{
 			CohortName:        kueue.CohortReference(o.Cohort),
 			QueueingStrategy:  o.QueueingStrategy,
@@ -512,6 +513,13 @@ func mergeFlavorsByCoveredResources(resourceGroups []kueue.ResourceGroup) ([]kue
 			return resourceGroupResources.Equal(sets.New(existing.CoveredResources...))
 		})
 		if idx != -1 {
+			// The webhook requires resources in coveredResources order.
+			covered := mergedResources[idx].CoveredResources
+			for i := range rg.Flavors {
+				slices.SortFunc(rg.Flavors[i].Resources, func(a, b kueue.ResourceQuota) int {
+					return cmp.Compare(slices.Index(covered, a.Name), slices.Index(covered, b.Name))
+				})
+			}
 			mergedResources[idx].Flavors = append(mergedResources[idx].Flavors, rg.Flavors...)
 			continue
 		}

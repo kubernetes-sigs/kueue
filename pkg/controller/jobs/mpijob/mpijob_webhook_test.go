@@ -18,6 +18,7 @@ package mpijob
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -25,7 +26,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -36,7 +36,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
-	testutil "sigs.k8s.io/kueue/test/util"
 )
 
 var (
@@ -59,7 +58,7 @@ func TestValidateCreate(t *testing.T) {
 		{
 			name:    "invalid queue-name label",
 			job:     testingutil.MakeMPIJob("job", "default").Queue("queue_name").Obj(),
-			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", testutil.InvalidRFC1123Message)}.ToAggregate(),
+			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", utiltesting.InvalidRFC1123Message)}.ToAggregate(),
 		},
 		{
 			name:    "with prebuilt workload",
@@ -369,10 +368,11 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testCases := map[string]struct {
-		oldJob       *v2beta1.MPIJob
-		newJob       *v2beta1.MPIJob
-		wantErr      error
-		featureGates map[featuregate.Feature]bool
+		oldJob               *v2beta1.MPIJob
+		newJob               *v2beta1.MPIJob
+		maxTimeoutOnWorkload *metav1.Duration
+		wantErr              error
+		featureGates         map[featuregate.Feature]bool
 	}{
 		"pod-index-offset unchanged": {
 			oldJob: testingutil.MakeMPIJob("job", "default").
@@ -662,13 +662,36 @@ func TestValidateUpdate(t *testing.T) {
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
+		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
+			oldJob: testingutil.MakeMPIJob("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			newJob: testingutil.MakeMPIJob("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
+		"changed wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected on update": {
+			oldJob: testingutil.MakeMPIJob("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
+			newJob: testingutil.MakeMPIJob("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata", "annotations").Key(constants.WaitForPodsReadyAnnotation),
+					float64(3600),
+					"timeoutSeconds must be less than or equal to 60 seconds",
+				),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
-			jsw := &MpiJobWebhook{}
+			jsw := &MpiJobWebhook{maxTimeoutOnWorkload: tc.maxTimeoutOnWorkload}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			gotWarnings, gotErr := jsw.ValidateUpdate(ctx, tc.oldJob, tc.newJob)
 
@@ -703,12 +726,10 @@ func TestDefault(t *testing.T) {
 						ManagedBy: new(v2beta1.KubeflowJobController),
 					},
 				},
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -730,12 +751,10 @@ func TestDefault(t *testing.T) {
 		{
 			name: "TestDefault_WithQueueLabel",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -757,7 +776,7 @@ func TestDefault(t *testing.T) {
 		{
 			name: "TestDefault_WithoutQueueLabel",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{Namespace: "default"},
+				Namespace: "default",
 			},
 			featureGates:  map[featuregate.Feature]bool{features.MultiKueue: true},
 			wantManagedBy: nil,
@@ -765,34 +784,28 @@ func TestDefault(t *testing.T) {
 		{
 			name: "TestDefault_InvalidQueueName",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels:    map[string]string{constants.QueueLabel: "invalid-queue"},
-					Namespace: "default",
-				},
+				Labels:    map[string]string{constants.QueueLabel: "invalid-queue"},
+				Namespace: "default",
 			},
 			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
 		{
 			name: "TestDefault_QueueNotFound",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "non-existent-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "non-existent-queue",
 				},
+				Namespace: "default",
 			},
 			featureGates: map[featuregate.Feature]bool{features.MultiKueue: true},
 		},
 		{
 			name: "TestDefault_AdmissionCheckNotFound",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -810,12 +823,10 @@ func TestDefault(t *testing.T) {
 		{
 			name: "TestDefault_MultiKueueFeatureDisabled",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -842,12 +853,10 @@ func TestDefault(t *testing.T) {
 						ManagedBy: new("example.com/foo"),
 					},
 				},
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").
@@ -869,12 +878,10 @@ func TestDefault(t *testing.T) {
 		{
 			name: "TestDefault_ClusterQueueWithoutAdmissionCheck",
 			mpiJob: &v2beta1.MPIJob{
-				ObjectMeta: ctrl.ObjectMeta{
-					Labels: map[string]string{
-						constants.QueueLabel: "local-queue",
-					},
-					Namespace: "default",
+				Labels: map[string]string{
+					constants.QueueLabel: "local-queue",
 				},
+				Namespace: "default",
 			},
 			queues: []kueue.LocalQueue{
 				*utiltestingapi.MakeLocalQueue("local-queue", "default").

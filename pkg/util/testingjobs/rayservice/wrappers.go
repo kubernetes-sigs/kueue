@@ -32,11 +32,9 @@ type ServiceWrapper struct{ rayv1.RayService }
 // MakeService creates a wrapper for a suspended RayService
 func MakeService(name, ns string) *ServiceWrapper {
 	return &ServiceWrapper{rayv1.RayService{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: rayv1.RayServiceSpec{
 			RayClusterSpec: rayv1.RayClusterSpec{
 				RayVersion: utiltesting.TestRayVersion(),
@@ -273,6 +271,12 @@ func (j *ServiceWrapper) WithHeadGroupSpec(value rayv1.HeadGroupSpec) *ServiceWr
 // RayVersion sets the Ray version.
 func (j *ServiceWrapper) RayVersion(rv string) *ServiceWrapper {
 	j.Spec.RayClusterSpec.RayVersion = rv
+	return j
+}
+
+// UpgradeStrategy sets the RayService upgrade strategy.
+func (j *ServiceWrapper) UpgradeStrategy(upgradeType rayv1.RayServiceUpgradeType) *ServiceWrapper {
+	j.Spec.UpgradeStrategy = &rayv1.RayServiceUpgradeStrategy{Type: &upgradeType}
 	return j
 }
 

@@ -26,7 +26,6 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -265,7 +264,7 @@ func TestCheckNamespace(t *testing.T) {
 				*utiltestingapi.MakeResourceFlavor("rf1").Obj(),
 			},
 			priorityClasses: []schedulingv1.PriorityClass{
-				{ObjectMeta: metav1.ObjectMeta{Name: "p-class"}, Value: 100},
+				{Name: "p-class", Value: 100},
 			},
 		},
 		"pod references an unknown priority class": {
@@ -362,7 +361,7 @@ func TestFlavorAssignmentsForRequests(t *testing.T) {
 	}{
 		"assigns covered non-zero resources": {
 			requests: resources.MapRequests{
-				corev1.ResourceCPU: 1000,
+				corev1.ResourceCPU: resources.NewAmount(1000),
 			},
 			want: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 				corev1.ResourceCPU: "cpu-flavor",
@@ -370,8 +369,8 @@ func TestFlavorAssignmentsForRequests(t *testing.T) {
 		},
 		"ignores uncovered zero-quantity resources": {
 			requests: resources.MapRequests{
-				corev1.ResourceCPU:                    1000,
-				corev1.ResourceName("nvidia.com/gpu"): 0,
+				corev1.ResourceCPU:                    resources.NewAmount(1000),
+				corev1.ResourceName("nvidia.com/gpu"): resources.NewAmount(0),
 			},
 			want: map[corev1.ResourceName]kueue.ResourceFlavorReference{
 				corev1.ResourceCPU: "cpu-flavor",
@@ -379,14 +378,14 @@ func TestFlavorAssignmentsForRequests(t *testing.T) {
 		},
 		"fails for uncovered non-zero resources": {
 			requests: resources.MapRequests{
-				corev1.ResourceName("nvidia.com/gpu"): 1,
+				corev1.ResourceName("nvidia.com/gpu"): resources.NewAmount(1),
 			},
 			wantError: &resourceNotCoveredError{Resource: corev1.ResourceName("nvidia.com/gpu"), ClusterQueue: "cq"},
 		},
 		"fails with the lexicographically first uncovered non-zero resource": {
 			requests: resources.MapRequests{
-				corev1.ResourceName("z.example.com/resource"): 1,
-				corev1.ResourceName("a.example.com/resource"): 1,
+				corev1.ResourceName("z.example.com/resource"): resources.NewAmount(1),
+				corev1.ResourceName("a.example.com/resource"): resources.NewAmount(1),
 			},
 			wantError: &resourceNotCoveredError{Resource: corev1.ResourceName("a.example.com/resource"), ClusterQueue: "cq"},
 		},

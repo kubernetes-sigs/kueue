@@ -39,7 +39,6 @@ import (
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-	testutil "sigs.k8s.io/kueue/test/util"
 )
 
 var (
@@ -47,10 +46,15 @@ var (
 )
 
 func TestDefault(t *testing.T) {
+	const (
+		staleWFPR = `{"timeoutSeconds":60,"recoveryTimeoutSeconds":40}`
+		validWFPR = `{"timeoutSeconds":20,"recoveryTimeoutSeconds":20}`
+	)
 	testCases := map[string]struct {
 		deployment     *appsv1.Deployment
 		defaultLqExist bool
 		want           *appsv1.Deployment
+		featureGates   map[featuregate.Feature]bool
 	}{
 		"deployment without queue": {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
@@ -149,10 +153,49 @@ func TestDefault(t *testing.T) {
 				PodTemplateSpecLabel(constants.WorkloadPriorityClassLabel, "test").
 				Obj(),
 		},
+		"shouldn't propagate top-level annotation when no queue is set": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
+				Obj(),
+		},
+		"removes template-only annotation": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				PodTemplateAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				PodTemplateSpecManagedByKueue().
+				Queue("test-queue").
+				PodTemplateSpecQueue("test-queue").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				Obj(),
+		},
+		"syncs stale template annotation to updated top-level value": {
+			deployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, validWFPR).
+				PodTemplateAnnotation(constants.WaitForPodsReadyAnnotation, staleWFPR).
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				PodTemplateSpecManagedByKueue().
+				Queue("test-queue").
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, validWFPR).
+				PodTemplateSpecQueue("test-queue").
+				PodTemplateAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
+				PodTemplateAnnotation(constants.WaitForPodsReadyAnnotation, validWFPR).
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
 			integrationManager := newTestIntegrationManager(t)
 			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, "pod"))
@@ -293,7 +336,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example.com/gate name").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "gate name", testutil.InvalidPathMessage),
+				field.Invalid(admissionGatedByAnnotationsPath, "gate name", utiltesting.InvalidPathMessage),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -303,7 +346,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "example .com/gate").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "example .com", testutil.InvalidRFC1123Message),
+				field.Invalid(admissionGatedByAnnotationsPath, "example .com", utiltesting.InvalidRFC1123Message),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},
@@ -313,7 +356,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(kueueconstants.AdmissionGatedByAnnotation, "valid.com/gate,invalid gate.com/controller").
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(admissionGatedByAnnotationsPath, "invalid gate.com", testutil.InvalidRFC1123Message),
+				field.Invalid(admissionGatedByAnnotationsPath, "invalid gate.com", utiltesting.InvalidRFC1123Message),
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.AdmissionGatedBy: true},
 		},

@@ -219,10 +219,8 @@ func setupBenchmarkTopology(ctx context.Context, managerCluster *benchmarkCluste
 		}
 		secretName := worker.name
 		secret := &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      secretName,
-				Namespace: configNamespaceName,
-			},
+			Name:      secretName,
+			Namespace: configNamespaceName,
 			Data: map[string][]byte{
 				kueue.MultiKueueConfigSecretKey: kubeconfig,
 			},
@@ -268,7 +266,7 @@ func setupBenchmarkTopology(ctx context.Context, managerCluster *benchmarkCluste
 }
 
 func createNamespace(ctx context.Context, c client.Client, name string) error {
-	return c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}})
+	return c.Create(ctx, &corev1.Namespace{Name: name})
 }
 
 func createQueue(ctx context.Context, c client.Client, quota string, withAdmissionCheck bool) error {

@@ -18,11 +18,13 @@ package sparkapplication
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	sparkappv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
@@ -123,11 +125,12 @@ func TestValidateCreate(t *testing.T) {
 func TestValidateUpdate(t *testing.T) {
 	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "test").Suspend(false)
 	testcases := map[string]struct {
-		oldSparkApp    *sparkappv1beta2.SparkApplication
-		newSparkApp    *sparkappv1beta2.SparkApplication
-		defaultLqExist bool
-		featureGates   map[featuregate.Feature]bool
-		wantErr        error
+		oldSparkApp          *sparkappv1beta2.SparkApplication
+		newSparkApp          *sparkappv1beta2.SparkApplication
+		defaultLqExist       bool
+		featureGates         map[featuregate.Feature]bool
+		wantErr              error
+		maxTimeoutOnWorkload *metav1.Duration
 	}{
 		"queue name unchanged while unsuspended": {
 			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
@@ -192,6 +195,30 @@ func TestValidateUpdate(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{features.ValidateRayAndSparkJobUpdates: true},
 			wantErr:      nil,
 		},
+		"unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			wantErr:              nil,
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
+		"changed wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected on update": {
+			oldSparkApp: testSparkApp.Clone().Queue("local-queue").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
+			newSparkApp: testSparkApp.Clone().Queue("local-queue").
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata", "annotations").Key(controllerconstants.WaitForPodsReadyAnnotation),
+					float64(3600),
+					"timeoutSeconds must be less than or equal to 60 seconds",
+				),
+			}.ToAggregate(),
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
 	}
 
 	for name, tc := range testcases {
@@ -208,8 +235,9 @@ func TestValidateUpdate(t *testing.T) {
 				}
 			}
 			webhook := &SparkApplicationWebhook{
-				queues: queueManager,
-				cache:  cqCache,
+				queues:               queueManager,
+				cache:                cqCache,
+				maxTimeoutOnWorkload: tc.maxTimeoutOnWorkload,
 			}
 			warnings, gotErr := webhook.ValidateUpdate(ctx, tc.oldSparkApp, tc.newSparkApp)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {

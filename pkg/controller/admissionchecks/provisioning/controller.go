@@ -52,12 +52,14 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	equalityutil "sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -213,7 +215,7 @@ func (c *Controller) activeOrLastPRForChecks(
 		if prc == nil {
 			continue
 		}
-		reqNeeded, err := reqIsNeeded(wl, prc)
+		reqNeeded, err := c.reqIsNeeded(ctx, wl, prc)
 		if err != nil {
 			return nil, err
 		}
@@ -268,7 +270,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 			// the check is not active
 			continue
 		}
-		reqNeeded, err := reqIsNeeded(wl, prc)
+		reqNeeded, err := c.reqIsNeeded(ctx, wl, prc)
 		if err != nil {
 			return err
 		}
@@ -276,8 +278,9 @@ func (c *Controller) syncOwnedProvisionRequest(
 			continue
 		}
 		ac := admissioncheck.FindAdmissionCheck(wlInfo.checkStates, checkName)
-		if ac != nil && ac.State == kueue.CheckStateReady {
-			log.V(2).Info("Skip syncing of the ProvReq for admission check which is Ready", "workload", klog.KObj(wl), "admissionCheck", checkName)
+		if ac != nil && ac.State != kueue.CheckStatePending {
+			// Skip non-Pending checks (Ready done; Retry/Rejected wait for eviction).
+			log.V(2).Info("Skip syncing of the ProvReq for admission check which is not Pending", "workload", klog.KObj(wl), "admissionCheck", checkName, "state", ac.State)
 			continue
 		}
 
@@ -305,12 +308,10 @@ func (c *Controller) syncOwnedProvisionRequest(
 		if shouldCreatePr {
 			log.V(3).Info("Creating ProvisioningRequest", "requestName", requestName, "attempt", attempt)
 			req = &autoscaling.ProvisioningRequest{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      requestName,
-					Namespace: wl.Namespace,
-					Labels: map[string]string{
-						constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-					},
+				Name:      requestName,
+				Namespace: wl.Namespace,
+				Labels: map[string]string{
+					constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 				},
 				Spec: autoscaling.ProvisioningRequestSpec{
 					ProvisioningClassName: prc.Spec.ProvisioningClassName,
@@ -319,7 +320,7 @@ func (c *Controller) syncOwnedProvisionRequest(
 			}
 			passProvReqParams(wl, req)
 
-			mergedPodSets, err := mergePodSets(ctx, wl, &prc.Spec)
+			mergedPodSets, err := c.mergePodSets(ctx, wl, &prc.Spec)
 			if err != nil {
 				return err
 			}
@@ -327,17 +328,52 @@ func (c *Controller) syncOwnedProvisionRequest(
 			for _, mergedPodSet := range mergedPodSets {
 				ptName := getProvisioningRequestPodTemplateName(requestName, mergedPodSet.Name)
 
-				pt := &corev1.PodTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: wl.Namespace, Name: ptName}}
-				err := c.client.Get(ctx, client.ObjectKeyFromObject(pt), pt)
-				if client.IgnoreNotFound(err) != nil {
-					return err
-				}
+				desired, err := c.buildPodTemplate(ctx, wl, ptName, mergedPodSet.PodSet, mergedPodSet.PodSetAssignment)
 				if err != nil {
+					msg := fmt.Sprintf("Error building PodTemplate %q: %v", ptName, err)
+					return c.handleError(ctx, wl, ac, nil, msg, err)
+				}
+
+				existing := &corev1.PodTemplate{}
+				err = c.client.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+				if client.IgnoreNotFound(err) != nil {
+					msg := fmt.Sprintf("Error getting PodTemplate %q: %v", ptName, err)
+					return c.handleError(ctx, wl, ac, nil, msg, err)
+				}
+				switch {
+				case err != nil:
 					// it's a not found, so create it
-					_, err := c.createPodTemplate(ctx, wl, ptName, mergedPodSet.PodSet, mergedPodSet.PodSetAssignment)
-					if err != nil {
+					if err := c.client.Create(ctx, desired); err != nil {
 						msg := fmt.Sprintf("Error creating PodTemplate %q: %v", ptName, err)
-						return c.handleError(ctx, wl, ac, pt, msg, err)
+						return c.handleError(ctx, wl, ac, desired, msg, err)
+					}
+					log.V(3).Info("Created PodTemplate", "podTemplate", klog.KObj(desired))
+				case equalityutil.ComparePodTemplate(&existing.Template.Spec, &desired.Template.Spec) &&
+					equality.Semantic.DeepEqual(existing.Template.Spec.NodeSelector, desired.Template.Spec.NodeSelector) &&
+					equality.Semantic.DeepEqual(existing.Template.Spec.Affinity, desired.Template.Spec.Affinity) &&
+					(metav1.GetControllerOf(existing) == nil || metav1.IsControlledBy(existing, wl)):
+					// Spec matches (including scheduling fields) and no foreign controller owns it.
+					log.V(3).Info("PodTemplate already up to date, skipping update", "podTemplate", klog.KObj(desired))
+				default:
+					// Divergent PodTemplate at the deterministic name. Replace it with
+					// Kueue-derived contents so the ProvisioningRequest never adopts
+					// foreign/stale specs. Do not Retry the admission check: leftover
+					// templates from a prior admission (e.g. after preemption onto another
+					// flavor) share this name, and Retry would block re-admission. A
+					// recreate that races the still-finalizing Delete returns the error;
+					// controller-runtime reconciles again with backoff.
+					if features.Enabled(features.EnforceProvisioningPodTemplateContents) {
+						if err := c.client.Delete(ctx, existing); client.IgnoreNotFound(err) != nil {
+							msg := fmt.Sprintf("Error deleting divergent PodTemplate %q: %v", ptName, err)
+							return c.handleError(ctx, wl, ac, existing, msg, err)
+						}
+						if err := c.client.Create(ctx, desired); err != nil {
+							msg := fmt.Sprintf("Error recreating PodTemplate %q: %v", ptName, err)
+							return c.handleError(ctx, wl, ac, desired, msg, err)
+						}
+						log.V(3).Info("Replaced divergent PodTemplate", "podTemplate", klog.KObj(desired))
+					} else {
+						log.V(3).Info("PodTemplate differs but EnforceProvisioningPodTemplateContents is disabled; reusing existing", "podTemplate", klog.KObj(existing))
 					}
 				}
 
@@ -394,17 +430,18 @@ func (c *Controller) isMissingInCache(ctx context.Context, obj client.Object) bo
 	return apierrors.IsNotFound(c.client.Get(ctx, client.ObjectKeyFromObject(obj), obj))
 }
 
-func (c *Controller) createPodTemplate(ctx context.Context, wl *kueue.Workload, name string, ps *kueue.PodSet, psa *kueue.PodSetAssignment) (*corev1.PodTemplate, error) {
+// buildPodTemplate derives a PodTemplate from the Workload PodSet and admission assignment.
+func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, name string, ps *kueue.PodSet, psa *kueue.PodSetAssignment) (*corev1.PodTemplate, error) {
 	newPt := &corev1.PodTemplate{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: wl.Namespace,
-			Labels: map[string]string{
-				constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
-			},
+		Name:      name,
+		Namespace: wl.Namespace,
+		Labels: map[string]string{
+			constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
 		},
-		Template: ps.Template,
+		// Deep-copy: podset.Merge mutates in place and ps.Template aliases wl.Spec.PodSets.
+		Template: *ps.Template.DeepCopy(),
 	}
+	sanitizeProvisioningRequestPodTemplate(&newPt.Template, wl)
 
 	// set the controller reference to workload so that the template is not left orphaned
 	// if the ProvisioningRequest creation fails. The ownership is later transferred to the
@@ -427,11 +464,50 @@ func (c *Controller) createPodTemplate(ctx context.Context, wl *kueue.Workload, 
 	// copy limits to requests if needed
 	workload.UseLimitsAsMissingRequestsInPod(&newPt.Template.Spec)
 
-	if err := c.client.Create(ctx, newPt); err != nil {
-		return nil, err
-	}
-
 	return newPt, nil
+}
+
+// setAdmissionCheckRetry sets the admission check to Retry using the
+// ProvisioningRequestConfig retry strategy (backoff + requeue state).
+func setAdmissionCheckRetry(ac *kueue.AdmissionCheckState, prc *kueue.ProvisioningRequestConfig, clk clock.Clock) {
+	ac.State = kueue.CheckStateRetry
+	workload.UpdateAdmissionCheckRequeueState(ac,
+		*prc.Spec.RetryStrategy.BackoffBaseSeconds,
+		*prc.Spec.RetryStrategy.BackoffMaxSeconds,
+		clk)
+}
+
+// sanitizeProvisioningRequestPodTemplate prepares an elastic Workload PodSet
+// template for use as a ProvisioningRequest capacity simulation when elastic
+// ProvisioningRequest support is enabled:
+//   - drops stale Workload / WorkloadSlice / ProvisioningRequest annotations
+//   - clears scheduling gates
+//
+// Cluster Autoscaler ignores gated pods for scale-up. Leaving the elastic gate
+// on the PodTemplate can keep a PRQ Accepted indefinitely without Provisioned.
+// Both changes stay behind the feature gates so non-elastic requests keep the
+// PodSet template unchanged.
+func sanitizeProvisioningRequestPodTemplate(template *corev1.PodTemplateSpec, wl *kueue.Workload) {
+	if !workloadslicing.IsEnabledForProvisioningRequests(wl) {
+		return
+	}
+	clearStaleAdmissionAnnotations(template)
+	template.Spec.SchedulingGates = nil
+}
+
+// clearStaleAdmissionAnnotations removes metadata copied from an earlier
+// admission. A ProvisioningRequest PodTemplate describes the capacity to
+// provision; it must not consume a previous request or identify as a pod from
+// a previous WorkloadSlice.
+func clearStaleAdmissionAnnotations(template *corev1.PodTemplateSpec) {
+	for _, key := range []string{
+		autoscaling.ProvisioningRequestPodAnnotationKey,
+		autoscaling.ProvisioningClassPodAnnotationKey,
+		kueue.WorkloadAnnotation,
+		kueue.WorkloadSliceNameAnnotation,
+	} {
+		delete(template.Annotations, key)
+	}
 }
 
 func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *kueue.Workload, request *autoscaling.ProvisioningRequest) error {
@@ -477,7 +553,20 @@ func (c *Controller) syncProvisionRequestsPodTemplates(ctx context.Context, wl *
 	return nil
 }
 
-func reqIsNeeded(wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) (bool, error) {
+// reqIsNeeded reports whether wl needs a ProvisioningRequest for prc: some
+// PodSet with a positive admitted count uses a managed resource, and, for an
+// elastic slice, that count is not already covered by the latest admitted
+// predecessor (elastic slices only request the increment).
+func (c *Controller) reqIsNeeded(ctx context.Context, wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) (bool, error) {
+	needed, err := hasManagedResources(wl, prc)
+	if err != nil || !needed {
+		return needed, err
+	}
+	mergedPodSets, err := c.mergePodSets(ctx, wl, &prc.Spec)
+	return len(mergedPodSets) > 0, err
+}
+
+func hasManagedResources(wl *kueue.Workload, prc *kueue.ProvisioningRequestConfig) (bool, error) {
 	assignments := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(psa *kueue.PodSetAssignment) kueue.PodSetReference {
 		return psa.Name
 	})
@@ -592,7 +681,7 @@ func (c *Controller) syncCheckStates(
 				// the check is not active
 				updated = updateCheckState(&checkState, kueue.CheckStatePending) || updated
 				updated = updateCheckMessage(&checkState, CheckInactiveMessage) || updated
-			} else if reqNeeded, err := reqIsNeeded(wl, prc); err != nil {
+			} else if reqNeeded, err := c.reqIsNeeded(ctx, wl, prc); err != nil {
 				return false, err
 			} else if !reqNeeded {
 				if updateCheckState(&checkState, kueue.CheckStateReady) {
@@ -613,8 +702,6 @@ func (c *Controller) syncCheckStates(
 					"accepted", isAccepted(pr),
 					"bookingExpired", isBookingExpired(pr),
 					"capacityRevoked", isCapacityRevoked(pr))
-				backoffBaseSeconds := *prc.Spec.RetryStrategy.BackoffBaseSeconds
-				backoffMaxSeconds := *prc.Spec.RetryStrategy.BackoffMaxSeconds
 				backoffLimitCount := *prc.Spec.RetryStrategy.BackoffLimitCount
 				switch {
 				case isFailed(pr):
@@ -625,8 +712,7 @@ func (c *Controller) syncCheckStates(
 						if getAttempt(log, pr, wl.Name, check) > ptr.Deref(checkState.RetryCount, 0) {
 							// We don't want to Retry on old ProvisioningRequests
 							updated = true
-							updateCheckState(&checkState, kueue.CheckStateRetry)
-							workload.UpdateAdmissionCheckRequeueState(&checkState, backoffBaseSeconds, backoffMaxSeconds, c.clock)
+							setAdmissionCheckRetry(&checkState, prc, c.clock)
 						}
 					} else {
 						updated = true
@@ -649,8 +735,7 @@ func (c *Controller) syncCheckStates(
 							updated = updateCheckMessage(&checkState, message) || updated
 							if getAttempt(log, pr, wl.Name, check) > ptr.Deref(checkState.RetryCount, 0) {
 								updated = true
-								updateCheckState(&checkState, kueue.CheckStateRetry)
-								workload.UpdateAdmissionCheckRequeueState(&checkState, backoffBaseSeconds, backoffMaxSeconds, c.clock)
+								setAdmissionCheckRetry(&checkState, prc, c.clock)
 							}
 						} else {
 							updated = true
@@ -698,7 +783,7 @@ func (c *Controller) syncCheckStates(
 	}
 	if updated {
 		for i := range recorderMessages {
-			c.record.Eventf(wl, nil, corev1.EventTypeNormal, "AdmissionCheckUpdated", "AdmissionCheckUpdated", api.TruncateEventMessage(recorderMessages[i]))
+			c.record.Eventf(wl, nil, corev1.EventTypeNormal, "UpdatedAdmissionCheck", "UpdatedAdmissionCheck", api.TruncateEventMessage(recorderMessages[i]))
 		}
 	}
 	wlInfo.update(wl, c.clock)
@@ -795,10 +880,8 @@ func (a *acHandler) reconcileWorkloadsUsing(ctx context.Context, check string, q
 	for i := range wls.Items {
 		wl := &wls.Items[i]
 		req := reconcile.Request{
-			NamespacedName: types.NamespacedName{
-				Name:      wl.Name,
-				Namespace: wl.Namespace,
-			},
+			Name:      wl.Name,
+			Namespace: wl.Namespace,
 		}
 		q.Add(req)
 	}
@@ -868,9 +951,7 @@ func (p *prcHandler) reconcileWorkloadsUsing(ctx context.Context, config string,
 			}
 		} else {
 			req := reconcile.Request{
-				NamespacedName: types.NamespacedName{
-					Name: user,
-				},
+				Name: user,
 			}
 			q.Add(req)
 		}
@@ -940,10 +1021,33 @@ type MergedPodSet struct {
 	Count            int32
 }
 
+// previousSlicePodSetCounts returns the admitted baseline an elastic slice's
+// ProvisioningRequest must subtract from its own counts, or nil when elastic
+// ProvisioningRequest support does not apply to wl.
+func (c *Controller) previousSlicePodSetCounts(ctx context.Context, wl *kueue.Workload) (map[kueue.PodSetReference]int32, error) {
+	if !workloadslicing.IsEnabledForProvisioningRequests(wl) {
+		return nil, nil
+	}
+	return workloadslicing.PreviousAdmittedPodSetCounts(ctx, c.client, wl)
+}
+
+func (c *Controller) mergePodSets(
+	ctx context.Context,
+	wl *kueue.Workload,
+	prcSpec *kueue.ProvisioningRequestConfigSpec,
+) ([]MergedPodSet, error) {
+	previousCounts, err := c.previousSlicePodSetCounts(ctx, wl)
+	if err != nil {
+		return nil, err
+	}
+	return mergePodSets(ctx, wl, prcSpec, previousCounts)
+}
+
 func mergePodSets(
 	ctx context.Context,
 	wl *kueue.Workload,
 	prcSpec *kueue.ProvisioningRequestConfigSpec,
+	previousCounts map[kueue.PodSetReference]int32,
 ) ([]MergedPodSet, error) {
 	log := ctrl.LoggerFrom(ctx)
 	expectedPodSets := requiredPodSets(wl.Spec.PodSets, prcSpec.ManagedResources)
@@ -963,6 +1067,17 @@ func mergePodSets(
 		if count <= 0 {
 			log.V(4).Info("Skipping non-positive PodSet", "workload", klog.KObj(wl), "podSet", psName, "count", count)
 			continue
+		}
+		// Elastic scale-up: only request the increment beyond the latest
+		// previously admitted slice. Existing pods keep consuming their previous
+		// immutable PRQ; only newly ungated pods consume this request.
+		if workloadslicing.IsEnabledForProvisioningRequests(wl) {
+			if prev, ok := previousCounts[psName]; ok {
+				count -= prev
+				if count <= 0 {
+					continue
+				}
+			}
 		}
 
 		merged := false

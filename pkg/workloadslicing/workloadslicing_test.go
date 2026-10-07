@@ -33,9 +33,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -71,16 +73,16 @@ func TestEnabled(t *testing.T) {
 		"EmptyAnnotation": {
 			args: args{
 				object: &batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{}},
+					Annotations: map[string]string{},
 				},
 			},
 		},
 		"Enabled": {
 			args: args{
 				object: &batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					Annotations: map[string]string{
 						EnabledAnnotationKey: EnabledAnnotationValue,
-					}},
+					},
 				},
 			},
 			want: true,
@@ -88,9 +90,9 @@ func TestEnabled(t *testing.T) {
 		"NotEnabled": {
 			args: args{
 				object: &batchv1.Job{
-					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					Annotations: map[string]string{
 						EnabledAnnotationKey: "True", // <-- value is case sensitive.
-					}},
+					},
 				},
 			},
 		},
@@ -651,6 +653,110 @@ func TestFindLatestAdmittedWorkload(t *testing.T) {
 	}
 }
 
+func TestPreviousAdmittedPodSetCounts(t *testing.T) {
+	now := time.Now()
+	errListWorkloads := errors.New("list workloads failed")
+	wl := utiltestingapi.MakeWorkload("", "ns").
+		Annotation(EnabledAnnotationKey, EnabledAnnotationValue).
+		Annotation(kueue.WorkloadSliceNameAnnotation, "chain")
+	admitted := wl.Clone().Name("admitted").
+		PodSets(*utiltestingapi.MakePodSet("workers", 4).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](2)},
+		).Obj(), now).
+		AdmittedAt(true, now).
+		FinishedAt(now).
+		Obj()
+	reclaimed := wl.Clone().Name("reclaimed").
+		PodSets(*utiltestingapi.MakePodSet("workers", 3).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](3)},
+		).Obj(), now).
+		AdmittedAt(true, now).
+		ReclaimablePods(kueue.ReclaimablePod{Name: "workers", Count: 1}).
+		FinishedAt(now).
+		Obj()
+	shrunk := wl.Clone().Name("shrunk").
+		// Admitted for 4, then scaled down in place to 2: the assignment still
+		// says 4 but the effective count is the current spec.
+		PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](4)},
+		).Obj(), now).
+		AdmittedAt(true, now).
+		Obj()
+	pending := wl.Clone().Name("pending").
+		PodSets(*utiltestingapi.MakePodSet("workers", 3).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](3)},
+		).Obj(), now).
+		Obj()
+	current := wl.Clone().Name("current").
+		PodSets(*utiltestingapi.MakePodSet("workers", 5).Obj()).
+		Obj()
+
+	cases := map[string]struct {
+		existing   []client.Object
+		current    *kueue.Workload
+		wantCounts map[kueue.PodSetReference]int32
+		wantError  error
+	}{
+		"latest admitted finished slice is the baseline; pending intermediate is ignored": {
+			existing:   []client.Object{admitted, pending},
+			current:    current,
+			wantCounts: map[kueue.PodSetReference]int32{"workers": 2},
+		},
+		"reclaimed pods reduce the baseline": {
+			existing:   []client.Object{reclaimed},
+			current:    current,
+			wantCounts: map[kueue.PodSetReference]int32{"workers": 2},
+		},
+		"in-place scale-down uses the current spec, not the stale assignment": {
+			existing:   []client.Object{shrunk},
+			current:    current,
+			wantCounts: map[kueue.PodSetReference]int32{"workers": 2},
+		},
+		"the workload itself is not its own baseline": {
+			existing: []client.Object{admitted},
+			current:  admitted,
+		},
+		"no admitted predecessor": {
+			existing: []client.Object{pending},
+			current:  current,
+		},
+		"listing workloads fails": {
+			existing:  []client.Object{admitted},
+			current:   current,
+			wantError: errListWorkloads,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			c := utiltesting.NewClientBuilder().
+				WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
+				WithInterceptorFuncs(interceptor.Funcs{
+					List: func(ctx context.Context, c client.WithWatch, objs client.ObjectList, opts ...client.ListOption) error {
+						if _, ok := objs.(*kueue.WorkloadList); ok && errors.Is(tc.wantError, errListWorkloads) {
+							return errListWorkloads
+						}
+						return c.List(ctx, objs, opts...)
+					},
+				}).
+				WithObjects(tc.existing...).
+				Build()
+			got, err := PreviousAdmittedPodSetCounts(ctx, c, tc.current)
+			if diff := cmp.Diff(tc.wantError, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("unexpected error (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantCounts, got); diff != "" {
+				t.Errorf("unexpected counts (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestPreemptibleSliceKey(t *testing.T) {
 	type args struct {
 		wl *kueue.Workload
@@ -668,14 +774,14 @@ func TestPreemptibleSliceKey(t *testing.T) {
 		"EmptyAnnotations": {
 			args: args{
 				wl: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Annotations: make(map[string]string)},
+					Annotations: make(map[string]string),
 				},
 			},
 		},
 		"Found": {
 			args: args{
 				wl: &kueue.Workload{
-					ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{WorkloadSliceReplacementFor: string(testReference)}},
+					Annotations: map[string]string{WorkloadSliceReplacementFor: string(testReference)},
 				},
 			},
 			want: &testReference,
@@ -694,10 +800,8 @@ var (
 	testJobGVK = batchv1.SchemeGroupVersion.WithKind("Job")
 
 	testJobObject = &batchv1.Job{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: "test",
-			UID:  uuid.NewUUID(),
-		},
+		Name: "test",
+		UID:  uuid.NewUUID(),
 	}
 )
 
@@ -727,20 +831,28 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 
 	// test "constants".
 	now := time.Now()
+	errListWorkloads := errors.New("list workloads failed")
 
 	// test cases.
 	tests := map[string]struct {
 		args    args
 		want    []kueue.Workload
-		wantErr bool
+		wantErr error
 	}{
 		"ListFailure": {
 			args: args{
-				clnt:         fake.NewFakeClient(),
+				clnt: utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+					List: func(_ context.Context, _ client.WithWatch, objs client.ObjectList, _ ...client.ListOption) error {
+						if _, ok := objs.(*kueue.WorkloadList); ok {
+							return errListWorkloads
+						}
+						return nil
+					},
+				}).Build(),
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
-			wantErr: true,
+			wantErr: errListWorkloads,
 		},
 		"EmptyList": {
 			args: args{
@@ -869,8 +981,8 @@ func TestFindNotFinishedWorkloads(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			got, err := FindNotFinishedWorkloads(ctx, tt.args.clnt, tt.args.jobObject, tt.args.jobObjectGVK)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("FindActiveSlices() error = %v, wantErr %v", err, tt.wantErr)
+			if diff := cmp.Diff(tt.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("FindActiveSlices() error (-want,+got):\n%s", diff)
 				return
 			}
 			if diff := cmp.Diff(got, tt.want, cmpopts.EquateApproxTime(time.Second)); diff != "" {
@@ -890,7 +1002,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	type want struct {
 		workload          *kueue.Workload
 		compatible        bool
-		error             bool
+		error             error
 		finishedWorkloads map[string]string
 	}
 	now := time.Now()
@@ -899,24 +1011,33 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	testWorkload := utiltestingapi.MakeWorkload("", testJobObject.Namespace).
 		OwnerReference(testJobGVK, testJobObject.Name, "")
 
+	errTest := errors.New("test error")
+
 	tests := map[string]struct {
 		args args
 		want want
 	}{
 		"FailedListWorkloads": {
 			args: args{
-				clnt: testWorkloadClientBuilder().
-					WithInterceptorFuncs(interceptor.Funcs{
-						List: func(_ context.Context, _ client.WithWatch, _ client.ObjectList, _ ...client.ListOption) error {
-							return errors.New("test-list-error")
-						},
-					}).
-					Build(),
+				clnt: func() client.Client {
+					listCalls := 0
+					return testWorkloadClientBuilder().
+						WithInterceptorFuncs(interceptor.Funcs{
+							List: func(ctx context.Context, c client.WithWatch, obj client.ObjectList, opts ...client.ListOption) error {
+								listCalls++
+								if listCalls == 1 {
+									return errTest
+								}
+								return c.List(ctx, obj, opts...)
+							},
+						}).
+						Build()
+				}(),
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      true,
+				error:      errTest,
 				compatible: true,
 			},
 		},
@@ -1128,14 +1249,14 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()).
 						Obj()).WithInterceptorFuncs(interceptor.Funcs{
 					Update: func(ctx context.Context, client client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
-						return errors.New("test-update-error")
+						return errTest
 					}}).Build(),
 				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()},
 				jobObject:    testJobObject,
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      true,
+				error:      errTest,
 				compatible: true,
 			},
 		},
@@ -1190,7 +1311,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 						Obj()).
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
-							return errors.New("test-patch-failure")
+							return errTest
 						},
 					}).
 					Build(),
@@ -1199,7 +1320,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      true,
+				error:      errTest,
 				compatible: true,
 			},
 		},
@@ -1408,7 +1529,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 							if obj.GetName() != testJobObject.Name+"-2" {
 								t.Errorf("unexptected workload update: %v", obj)
 							}
-							return errors.New("test-update-error")
+							return errTest
 						},
 					}).
 					Build(),
@@ -1417,7 +1538,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				error:      true,
+				error:      errTest,
 				compatible: true,
 			},
 		},
@@ -1616,9 +1737,10 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotWorkload, gotCompatible, gotError := EnsureWorkloadSlices(ctx, tt.args.clnt, fakeClock, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
-			if (gotError != nil) != tt.want.error {
-				t.Errorf("EnsureWorkloadSlices() error = %v, wantErr %v", gotError, tt.want.error)
+			manager := Manager{Client: tt.args.clnt, Clock: fakeClock}
+			gotWorkload, gotCompatible, gotError := manager.EnsureWorkloadSlices(ctx, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
+			if diff := cmp.Diff(tt.want.error, gotError, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("EnsureWorkloadSlices() error (-want,+got):\n%s", diff)
 				return
 			}
 			if diff := cmp.Diff(tt.want.workload, gotWorkload, cmpopts.EquateApproxTime(time.Second)); diff != "" {
@@ -1626,9 +1748,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 			}
 			if gotCompatible != tt.want.compatible {
 				t.Errorf("EnsureWorkloadSlices() compatible = %v, want %v", gotCompatible, tt.want.compatible)
-			}
-			if gotError != nil {
-				return
 			}
 			var workloads kueue.WorkloadList
 			if err := tt.args.clnt.List(ctx, &workloads); err != nil {
@@ -1660,12 +1779,13 @@ func TestNormalizeActiveSlices(t *testing.T) {
 	type want struct {
 		survivor     string
 		keptAdmitted string
-		error        bool
+		error        error
 	}
 
 	tests := map[string]struct {
-		workloads []kueue.Workload
-		want      want
+		partialScaleUp bool
+		workloads      []kueue.Workload
+		want           want
 	}{
 		"two admitted, keep newest": {
 			workloads: []kueue.Workload{
@@ -1693,6 +1813,33 @@ func TestNormalizeActiveSlices(t *testing.T) {
 					EvictedAt(now).Obj(),
 				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			},
+			want: want{survivor: "wl-b"},
+		},
+		// wl-b is a partial scale-up probe (it carries a minCount) replacing the
+		// evicted wl-a. It's treated like any other pending replacement and kept.
+		"evicted admitted with pending probe, keep probe and finish evicted": {
+			partialScaleUp: true,
+			workloads: []kueue.Workload{
+				*admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj())).
+					EvictedAt(now).Obj(),
+				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
+					Annotation(WorkloadSliceReplacementFor, "ns/wl-a").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").SetMinimumCount(2).Obj()).Obj(),
+			},
+			want: want{survivor: "wl-b"},
+		},
+		// Same shape as above, but without the feature enabled: minCount could only
+		// have come from classic PartialAdmission here. Same outcome either way.
+		"evicted admitted with minCount but feature disabled, keep pending and finish evicted": {
+			workloads: []kueue.Workload{
+				*admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now.Add(-time.Minute)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj())).
+					EvictedAt(now).Obj(),
+				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
+					Annotation(WorkloadSliceReplacementFor, "ns/wl-a").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").SetMinimumCount(2).Obj()).Obj(),
 			},
 			want: want{survivor: "wl-b"},
 		},
@@ -1799,6 +1946,9 @@ func TestNormalizeActiveSlices(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: tc.partialScaleUp,
+			})
 			ctx, _ := utiltesting.ContextWithLog(t)
 			testSchema := runtime.NewScheme()
 			_ = kueue.AddToScheme(testSchema)
@@ -1813,8 +1963,8 @@ func TestNormalizeActiveSlices(t *testing.T) {
 				Build()
 
 			survivor, err := normalizeActiveSlices(ctx, clnt, fakeClock, tc.workloads)
-			if (err != nil) != tc.want.error {
-				t.Fatalf("normalizeActiveSlices() error = %v, wantErr %v", err, tc.want.error)
+			if diff := cmp.Diff(tc.want.error, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("normalizeActiveSlices() error (-want,+got):\n%s", diff)
 			}
 			gotName := ""
 			if survivor != nil {
@@ -1832,6 +1982,92 @@ func TestNormalizeActiveSlices(t *testing.T) {
 				kept := wl.Name == tc.want.survivor || wl.Name == tc.want.keptAdmitted
 				if !kept && !workloadfinish.IsFinished(wl) {
 					t.Errorf("workload %q should be finished but is not", wl.Name)
+				}
+			}
+		})
+	}
+}
+
+func TestFinishReplacedWorkloadSlices(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	admission := utiltestingapi.MakeAdmission("cq").Obj()
+	old := utiltestingapi.MakeWorkload("old", "ns").
+		ReserveQuotaAt(admission, now).AdmittedAt(true, now)
+	pending := utiltestingapi.MakeWorkload("new", "ns").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+		Annotation(WorkloadSliceReplacementFor, "ns/old")
+	admitted := pending.Clone().ReserveQuotaAt(admission, now).AdmittedAt(true, now)
+	finished := func(reason string) metav1.Condition {
+		return metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: reason, LastTransitionTime: metav1.NewTime(now)}
+	}
+
+	tests := map[string]struct {
+		workloads    []*kueue.Workload
+		wantFinished []string
+	}{
+		"single slice": {workloads: []*kueue.Workload{old.Obj()}},
+		"admitted replacement finishes the predecessor": {
+			workloads:    []*kueue.Workload{old.Obj(), admitted.Obj()},
+			wantFinished: []string{"old"},
+		},
+		"quota reservation is sufficient before full admission": {
+			workloads:    []*kueue.Workload{old.Obj(), pending.Clone().ReserveQuotaAt(admission, now).Obj()},
+			wantFinished: []string{"old"},
+		},
+		"every replaced slice in a chain is finished": {
+			workloads: []*kueue.Workload{
+				old.Obj(),
+				admitted.Clone().Name("mid").Obj(),
+				admitted.Clone().Name("last").
+					Annotation(WorkloadSliceReplacementFor, "ns/mid").Obj(),
+			},
+			wantFinished: []string{"old", "mid"},
+		},
+		"pending replacement retains the predecessor": {
+			workloads: []*kueue.Workload{old.Obj(), pending.Obj()},
+		},
+		"evicted replacement is not evidence": {
+			workloads: []*kueue.Workload{old.Obj(), admitted.Clone().EvictedAt(now).Obj()},
+		},
+		"finished replacement is not evidence": {
+			workloads: []*kueue.Workload{old.Obj(), admitted.Clone().Condition(finished(kueue.WorkloadFinishedReasonFailed)).Obj()},
+		},
+		"already finished predecessor is left untouched": {
+			workloads: []*kueue.Workload{old.Clone().Condition(finished(kueue.WorkloadSliceReplaced)).Obj(), admitted.Obj()},
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			var objects []client.Object
+			for _, wl := range tc.workloads {
+				objects = append(objects, wl.DeepCopy())
+			}
+			cl := utiltesting.NewClientBuilder().WithObjects(objects...).WithStatusSubresource(&kueue.Workload{}).
+				WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
+				WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
+				Build()
+			clk := testingclock.NewFakeClock(now)
+
+			if err := FinishReplacedWorkloadSlices(ctx, cl, clk, pending.Obj()); err != nil {
+				t.Fatal(err)
+			}
+
+			wantFinished := sets.New(tc.wantFinished...)
+			for _, o := range objects {
+				want := o.(*kueue.Workload)
+				got := &kueue.Workload{}
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(want), got); err != nil {
+					t.Fatal(err)
+				}
+				if wantFinished.Has(got.Name) {
+					if !IsReplaced(got.Status) {
+						t.Errorf("%s was not finished with WorkloadSliceReplaced: %v", got.Name, got.Status.Conditions)
+					}
+					continue
+				}
+				if diff := cmp.Diff(want.Status, got.Status, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("%s status changed unexpectedly (-want,+got): %s", got.Name, diff)
 				}
 			}
 		})
@@ -2046,6 +2282,35 @@ func TestScaledDown(t *testing.T) {
 				t.Errorf("ScaledDown() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestFindLatestAdmittedWorkloadForSliceIncludesFinished(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	finished := utiltestingapi.MakeWorkload("finished", "ns").
+		Annotation(EnabledAnnotationKey, EnabledAnnotationValue).
+		Annotation(kueue.WorkloadSliceNameAnnotation, "chain").
+		Creation(now.Add(-time.Minute)).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now.Add(-time.Minute)).
+		AdmittedAt(true, now.Add(-time.Minute)).
+		FinishedAt(now).
+		Obj()
+	current := utiltestingapi.MakeWorkload("current", "ns").
+		Annotation(EnabledAnnotationKey, EnabledAnnotationValue).
+		Annotation(kueue.WorkloadSliceNameAnnotation, "chain").
+		Creation(now).
+		Obj()
+	cl := utiltesting.NewClientBuilder().
+		WithObjects(finished, current).
+		WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
+		Build()
+
+	got, err := FindLatestAdmittedWorkloadForSlice(t.Context(), cl, current.Namespace, SliceName(current), WithFinishedWorkloads())
+	if err != nil {
+		t.Fatalf("FindLatestAdmittedWorkloadForSlice() error: %v", err)
+	}
+	if got == nil || got.Name != finished.Name {
+		t.Fatalf("FindLatestAdmittedWorkloadForSlice() = %v, want %q", got, finished.Name)
 	}
 }
 
