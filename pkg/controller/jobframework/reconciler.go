@@ -99,7 +99,7 @@ type WorkloadRetentionPolicy struct {
 
 // JobReconciler reconciles a GenericJob object
 type JobReconciler struct {
-	workloadSlices               *workloadslicing.Reconciler
+	workloadSlices               *workloadslicing.Maintainer
 	integrationManager           *IntegrationManager
 	cache                        *schdcache.Cache
 	client                       client.Client
@@ -332,7 +332,7 @@ func NewReconciler(
 	}
 
 	return &JobReconciler{
-		workloadSlices: &workloadslicing.Reconciler{
+		workloadSlices: &workloadslicing.Maintainer{
 			Client:       client,
 			Clock:        options.Clock,
 			Recorder:     record,

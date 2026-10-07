@@ -292,9 +292,9 @@ func ScaledUp(workload *kueue.Workload) bool {
 	return ReplacementForKey(workload) != nil
 }
 
-// Reconciler holds the dependencies for reconciling workload slices and recording
+// Maintainer holds the dependencies for managing workload slices and recording
 // successful replacements.
-type Reconciler struct {
+type Maintainer struct {
 	Client       client.Client
 	Clock        clock.Clock
 	Recorder     events.EventRecorder
@@ -308,7 +308,7 @@ type Reconciler struct {
 // - *Workload, true, nil: when a compatible workload exists or a new slice is needed.
 // - nil, false, nil: when an incompatible workload exists and no update is performed.
 // - error: on failure to fetch, update, or deactivate a workload slice.
-func (r *Reconciler) EnsureWorkloadSlices(
+func (r *Maintainer) EnsureWorkloadSlices(
 	ctx context.Context,
 	jobPodSets []kueue.PodSet,
 	jobObject client.Object,
@@ -416,7 +416,7 @@ func (r *Reconciler) EnsureWorkloadSlices(
 // in workloads, including finished and evicted successors, and records each
 // successful replacement event and metric. The caller supplies workloads
 // belonging to the job or slice chain being reconciled.
-func (r *Reconciler) FinishReplacedWorkloadSlices(ctx context.Context, workloads []kueue.Workload) error {
+func (r *Maintainer) FinishReplacedWorkloadSlices(ctx context.Context, workloads []kueue.Workload) error {
 	byName := make(map[types.NamespacedName]*kueue.Workload, len(workloads))
 	for i := range workloads {
 		wl := &workloads[i]

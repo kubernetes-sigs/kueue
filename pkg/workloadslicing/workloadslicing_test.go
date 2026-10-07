@@ -1737,8 +1737,8 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			reconciler := Reconciler{Client: tt.args.clnt, Clock: fakeClock}
-			gotWorkload, gotCompatible, gotError := reconciler.EnsureWorkloadSlices(ctx, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
+			maintainer := Maintainer{Client: tt.args.clnt, Clock: fakeClock}
+			gotWorkload, gotCompatible, gotError := maintainer.EnsureWorkloadSlices(ctx, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
 			if diff := cmp.Diff(tt.want.error, gotError, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("EnsureWorkloadSlices() error (-want,+got):\n%s", diff)
 				return
@@ -2332,8 +2332,8 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 			if err := cl.List(ctx, list); err != nil {
 				t.Fatal(err)
 			}
-			reconciler := Reconciler{Client: cl, Clock: testingclock.NewFakeClock(now), Recorder: events.NewFakeRecorder(20)}
-			err := reconciler.FinishReplacedWorkloadSlices(ctx, list.Items)
+			maintainer := Maintainer{Client: cl, Clock: testingclock.NewFakeClock(now), Recorder: events.NewFakeRecorder(20)}
+			err := maintainer.FinishReplacedWorkloadSlices(ctx, list.Items)
 			if err != nil {
 				t.Fatal(err)
 			}
