@@ -355,14 +355,20 @@ func (r *Reconciler) EnsureWorkloadSlices(
 	workloads := sortAndFilterNotFinishedWorkloads(list.Items)
 
 	// An evicted slice can still own running Pods. Return it to the job
-	// reconciler until its reservation is released, unless status.replaces
-	// has already excluded it from the active slices.
+	// reconciler until its reservation is released, unless an admitted
+	// replacement has already taken ownership of those Pods.
 	for i := range workloads {
 		wl := &workloads[i]
 		if !workloadevict.IsEvicted(wl) || !workload.HasQuotaReservation(wl) {
 			continue
 		}
-		return wl, true, nil
+		replaced := slices.ContainsFunc(workloads, func(candidate kueue.Workload) bool {
+			key := ReplacementForKey(&candidate)
+			return key != nil && *key == workload.Key(wl) && workload.IsAdmitted(&candidate) && !workloadevict.IsEvicted(&candidate)
+		})
+		if !replaced {
+			return wl, true, nil
+		}
 	}
 
 	switch len(workloads) {
@@ -475,11 +481,10 @@ func (r *Reconciler) FinishReplacedWorkloadSlices(ctx context.Context, workloads
 	return nil
 }
 
-// normalizeActiveSlices selects among sorted slices with finished and committed
-// predecessors already excluded by FindNotFinishedWorkloads. It keeps:
-//   - One non-evicted workload holding quota (latestWithQuotaReservation)
+// normalizeActiveSlices enforces the workload slice invariant:
+//   - One non-evicted admitted workload (latestWithQuotaReservation)
 //   - At most one non-evicted pending replacement that directly replaces it
-//   - When no non-evicted workload holds quota, the newest non-evicted
+//   - When no non-evicted admitted workload exists, the newest non-evicted
 //     workload is kept
 //   - Evicted workloads are always finished (they hold quota that must be released)
 func normalizeActiveSlices(
@@ -490,32 +495,44 @@ func normalizeActiveSlices(
 ) (*kueue.Workload, error) {
 	log := ctrl.LoggerFrom(ctx)
 
-	// FindNotFinishedWorkloads already excludes predecessors referenced by
-	// status.replaces. Only select the current reservation and a pending probe;
-	// no admitted replacement chain needs to be reconstructed here.
+	// Index replacements by the workload they replace. On duplicate claims
+	// (race-created forks), prefer the admitted one.
+	replacements := make(map[workload.Reference]*kueue.Workload)
+	for i := range workloads {
+		wl := &workloads[i]
+		if replKey := ReplacementForKey(wl); replKey != nil && !workloadevict.IsEvicted(wl) {
+			if existing, ok := replacements[*replKey]; !ok || (!workload.HasQuotaReservation(existing) && workload.HasQuotaReservation(wl)) {
+				replacements[*replKey] = wl
+			}
+		}
+	}
+
+	// Find the admitted workload at the head of the replacement chain: the one
+	// whose replacement (if any) is not itself admitted.
 	var latestWithQuotaReservation, pendingReplacement, latestNonEvicted *kueue.Workload
 	for i := range workloads {
 		wl := &workloads[i]
 		if workloadevict.IsEvicted(wl) {
 			continue
 		}
-		// The input is sorted oldest-first with a UID tie-break.
+		// The input is already sorted oldest-first with a UID tie-break, so the
+		// last one seen is the latest. Comparing timestamps here would keep the
+		// first of two created in the same second instead.
 		latestNonEvicted = wl
-		if workload.HasQuotaReservation(wl) {
-			latestWithQuotaReservation = wl
+		if !workload.HasQuotaReservation(wl) {
+			continue
 		}
+		// Skip if replaced by another admitted workload.
+		if repl, ok := replacements[workload.Key(wl)]; ok && workload.HasQuotaReservation(repl) {
+			continue
+		}
+		latestWithQuotaReservation = wl
 	}
 
 	if latestWithQuotaReservation != nil {
-		for i := range workloads {
-			wl := &workloads[i]
-			if workloadevict.IsEvicted(wl) || workload.HasQuotaReservation(wl) {
-				continue
-			}
-			// A pending probe has not committed status.replaces yet.
-			if key := ReplacementForKey(wl); key != nil && *key == workload.Key(latestWithQuotaReservation) {
-				pendingReplacement = wl
-				break
+		if repl, ok := replacements[workload.Key(latestWithQuotaReservation)]; ok {
+			if !workload.HasQuotaReservation(repl) {
+				pendingReplacement = repl
 			}
 		}
 	}
@@ -542,6 +559,9 @@ func normalizeActiveSlices(
 			continue
 		}
 		reason, message := kueue.WorkloadFinishedReasonOutOfSync, "The workload slice is out of sync with its parent job"
+		if _, replaced := replacements[workload.Key(wl)]; replaced {
+			reason, message = kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice"
+		}
 		log.V(2).Info("Finishing workload slice", "workload", workload.Key(wl), "reason", reason)
 		if err := workloadfinish.Finish(ctx, clnt, wl, reason, message, clk); err != nil {
 			return nil, err

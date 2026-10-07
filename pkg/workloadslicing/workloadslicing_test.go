@@ -1576,7 +1576,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Count(3).Obj()).Obj(), now).
 					Obj(),
 				finishedWorkloads: map[string]string{
-					testJobObject.Name + "-1": kueue.WorkloadFinishedReasonOutOfSync,
+					testJobObject.Name + "-1": kueue.WorkloadSliceReplaced,
 				},
 			},
 		},
@@ -1915,7 +1915,25 @@ func TestNormalizeActiveSlices(t *testing.T) {
 			},
 			want: want{survivor: "wl-d", keptAdmitted: "wl-c"},
 		},
-
+		"forked claim in adversarial order, admitted fork wins over pending": {
+			workloads: []kueue.Workload{
+				// Adversarial iteration order: wl-c before wl-b before wl-a.
+				// wl-b and wl-c both claim to replace wl-a (forked chain from a race).
+				// wl-c is admitted and has a pending replacement wl-d.
+				*admitted(utiltestingapi.MakeWorkload("wl-c", "ns").ResourceVersion("1").Creation(now).
+					Annotation(WorkloadSliceReplacementFor, "ns/wl-a").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj())).Obj(),
+				*utiltestingapi.MakeWorkload("wl-b", "ns").ResourceVersion("1").Creation(now).
+					Annotation(WorkloadSliceReplacementFor, "ns/wl-a").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+				*admitted(utiltestingapi.MakeWorkload("wl-a", "ns").ResourceVersion("1").Creation(now).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj())).Obj(),
+				*utiltestingapi.MakeWorkload("wl-d", "ns").ResourceVersion("1").Creation(now).
+					Annotation(WorkloadSliceReplacementFor, "ns/wl-c").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).Obj(),
+			},
+			want: want{survivor: "wl-d", keptAdmitted: "wl-c"},
+		},
 		// Neither holds a reservation, so the survivor is the latest one. The
 		// caller passes these already sorted with a UID tie-break, so the last
 		// is the latest even when both were created in the same second.
