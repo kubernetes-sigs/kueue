@@ -1083,7 +1083,9 @@ func mergePodSets(
 		merged := false
 		if mergePolicy != nil {
 			for i, mps := range mergedPodSets {
-				if merged = canMergePodSets(mps.PodSet, ps, mergePolicy); merged {
+				// The merged PodTemplate takes the node selectors of the first PodSet's
+				// flavors, so PodSets assigned to other flavors need their own PodTemplate.
+				if merged = maps.Equal(mps.PodSetAssignment.Flavors, psa.Flavors) && canMergePodSets(mps.PodSet, ps, mergePolicy); merged {
 					mergedPodSets[i].Count += count
 					break
 				}
