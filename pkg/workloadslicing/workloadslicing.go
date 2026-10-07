@@ -20,6 +20,7 @@ package workloadslicing
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"slices"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -27,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -284,6 +286,46 @@ func ScaledDown(oldCounts, newCounts workload.PodSetsCounts) bool {
 // this workload is a scaled-up replacement for another.
 func ScaledUp(workload *kueue.Workload) bool {
 	return ReplacementForKey(workload) != nil
+}
+
+// FinishReplacedWorkloadSlices finds the workload slices that should have been
+// replaced and finishes them.
+func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clock, wl *kueue.Workload) error {
+	list := &kueue.WorkloadList{}
+	if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace),
+		client.MatchingFields{indexer.WorkloadSliceNameKey: SliceName(wl)}); err != nil {
+		return fmt.Errorf("failed to find prebuilt workload slices: %w", err)
+	}
+	log := ctrl.LoggerFrom(ctx)
+	replaced := sets.New[workload.Reference]()
+	for i := range list.Items {
+		if key := replacementTarget(&list.Items[i]); key != nil {
+			replaced.Insert(*key)
+		}
+	}
+	for i := range list.Items {
+		predecessor := &list.Items[i]
+		if !replaced.Has(workload.Key(predecessor)) || workloadfinish.IsFinished(predecessor) {
+			continue
+		}
+		log.V(2).Info("Finishing workload slice that was not finished by the scheduler", "workload", workload.Key(predecessor))
+		if err := workloadfinish.Finish(ctx, clnt, predecessor, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new workload slice", clk); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// replacementTarget returns the slice that wl replaced once wl holds quota,
+// which is the state the scheduler leaves behind when finishing the
+// predecessor failed. It matches the scheduler's quota-reservation boundary,
+// not full admission.
+func replacementTarget(wl *kueue.Workload) *workload.Reference {
+	key := ReplacementForKey(wl)
+	if key == nil || !workload.HasQuotaReservation(wl) || workloadevict.IsEvicted(wl) || workloadfinish.IsFinished(wl) {
+		return nil
+	}
+	return key
 }
 
 // normalizeActiveSlices enforces the workload slice invariant:
