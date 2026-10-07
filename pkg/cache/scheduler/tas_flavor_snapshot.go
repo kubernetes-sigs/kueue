@@ -223,6 +223,9 @@ type TASFlavorSnapshot struct {
 	// tolerations represents the list of tolerations defined for the resource flavor
 	tolerations []corev1.Toleration
 
+	// nodeLabels represents the list of node labels defined for the resource flavor
+	nodeLabels map[string]string
+
 	// matchingLeavesCache caches the set of qualified leaves for a PodSet
 	// of a Workload to avoid recalculating selectors/taints during preemption simulations or
 	// multiple worker PodSet placements within the same scheduling cycle snapshot.
@@ -338,6 +341,7 @@ func newTASFlavorSnapshot(
 		leafCapacities:       make([]leafCapacity, len(tree.leaves)),
 		leafCandidates:       make([]leafCandidate, len(tree.leaves)),
 		tolerations:          slices.Clone(flavor.Tolerations),
+		nodeLabels:           maps.Clone(flavor.NodeLabels),
 		schedulerSimulator:   schedulerSimulator,
 		resourceFormatter:    options.resourceFormatter,
 	}
@@ -346,6 +350,16 @@ func newTASFlavorSnapshot(
 		snapshot.leafCandidates[leaf.leafIdx] = leafCandidate{leaf: leaf, s: snapshot}
 	}
 	return snapshot
+}
+
+// NodeLabels returns the flavor's node labels.
+func (s *TASFlavorSnapshot) NodeLabels() map[string]string {
+	return s.nodeLabels
+}
+
+// Tolerations returns the flavor's tolerations.
+func (s *TASFlavorSnapshot) Tolerations() []corev1.Toleration {
+	return s.tolerations
 }
 
 func (s *TASFlavorSnapshot) addNonTASUsage(domainID utiltas.TopologyDomainID, usage resources.Requests) {
