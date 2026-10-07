@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -625,7 +626,14 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
 				}).
 				Obj(),
-			wantEvents: nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlWithUnequalFirstAvailable"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
+				},
+			},
 		},
 		"reconcile DRA ResourceClaimTemplate with unmapped device class": {
 			featureGates: map[featuregate.Feature]bool{
@@ -682,7 +690,14 @@ func TestReconcileDRA(t *testing.T) {
 				}
 				return wl
 			}(),
-			wantEvents: nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlUnmappedDRA"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
+				},
+			},
 		},
 		"reconcile DRA validation fails with KueueDRAIntegrationExtendedResource enabled": {
 			featureGates: map[featuregate.Feature]bool{
@@ -726,6 +741,14 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: \"1500m\": extended resource quantity must be an integer",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl-invalid-extended-resource"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   `spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: "1500m": extended resource quantity must be an integer`,
+				},
+			},
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
 			featureGates: map[featuregate.Feature]bool{
@@ -769,7 +792,14 @@ func TestReconcileDRA(t *testing.T) {
 				}).
 				Obj(),
 			wantErrorMsg: "failed to get claim spec",
-			wantEvents:   nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlMissingTemplate"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   `spec.podSets[0].template.spec.resourceClaims[0]: Internal error: failed to get claim spec for ResourceClaimTemplate missing-template in podset main: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
+				},
+			},
 		},
 		"reconcile DRA transient ResourceSlice list failure should back off": {
 			featureGates: map[featuregate.Feature]bool{
@@ -796,7 +826,14 @@ func TestReconcileDRA(t *testing.T) {
 				).Obj(),
 			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			wantErrorMsg: "failed to list ResourceSlices",
-			wantEvents:   nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlListErrDRA"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   `spec.podSets[0].template.spec.resourceClaims[0]: Internal error: ResourceClaimTemplate gpu-template: failed to list ResourceSlices: test error`,
+				},
+			},
 		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)
