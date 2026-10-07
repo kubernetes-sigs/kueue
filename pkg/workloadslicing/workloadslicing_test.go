@@ -1683,7 +1683,8 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				compatible: true,
+				finishedWorkloads: map[string]string{testJobObject.Name + "-1": kueue.WorkloadSliceReplaced},
+				compatible:        true,
 				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 					ControllerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("1").
@@ -1721,7 +1722,8 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				jobObjectGVK: testJobGVK,
 			},
 			want: want{
-				compatible: true,
+				finishedWorkloads: map[string]string{testJobObject.Name + "-1": kueue.WorkloadSliceReplaced},
+				compatible:        true,
 				workload: utiltestingapi.MakeWorkload(testJobObject.Name+"-2", testJobObject.Namespace).
 					ControllerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
 					ResourceVersion("1").
@@ -1737,7 +1739,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotWorkload, gotCompatible, gotError := EnsureWorkloadSlices(ctx, tt.args.clnt, fakeClock, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
+			gotWorkload, gotCompatible, replaced, gotError := EnsureWorkloadSlices(ctx, tt.args.clnt, fakeClock, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
 			if diff := cmp.Diff(tt.want.error, gotError, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("EnsureWorkloadSlices() error (-want,+got):\n%s", diff)
 				return
@@ -1757,6 +1759,18 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished); cond != nil && cond.Status == metav1.ConditionTrue {
 					gotFinished[wl.Name] = cond.Reason
 				}
+			}
+			var wantReplaced, gotReplaced []string
+			for name, reason := range tt.want.finishedWorkloads {
+				if reason == kueue.WorkloadSliceReplaced {
+					wantReplaced = append(wantReplaced, name)
+				}
+			}
+			for _, wl := range replaced {
+				gotReplaced = append(gotReplaced, wl.Name)
+			}
+			if diff := cmp.Diff(wantReplaced, gotReplaced, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
+				t.Errorf("returned replaced workloads (-want,+got): %s", diff)
 			}
 			if diff := cmp.Diff(tt.want.finishedWorkloads, gotFinished, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("EnsureWorkloadSlices() finished workloads (-want,+got):\n%s", diff)

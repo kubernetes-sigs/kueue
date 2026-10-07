@@ -1101,6 +1101,11 @@ func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job Gener
 
 func (r *JobReconciler) finishReplacedWorkloadSlices(ctx context.Context, workloads []kueue.Workload) error {
 	finished, err := workloadslicing.FinishReplacedWorkloadSlices(ctx, r.client, r.clock, workloads)
+	r.recordReplacedWorkloadSlices(finished)
+	return err
+}
+
+func (r *JobReconciler) recordReplacedWorkloadSlices(finished []*kueue.Workload) {
 	for _, wl := range finished {
 		condition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
 		r.record.Eventf(wl, nil, corev1.EventTypeNormal, kueue.WorkloadSliceReplaced, "Replaced", condition.Message)
@@ -1109,7 +1114,6 @@ func (r *JobReconciler) finishReplacedWorkloadSlices(ctx context.Context, worklo
 			metrics.ReportReplacedWorkloadSlices(cq, r.customLabels.CQGet(cq), r.roleTracker)
 		}
 	}
-	return err
 }
 
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
@@ -1179,23 +1183,6 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		return wl, nil
 	}
 
-	if WorkloadSliceEnabled(job) {
-		list := &kueue.WorkloadList{}
-		if err := r.client.List(ctx, list, client.InNamespace(object.GetNamespace()),
-			indexer.OwnerReferenceIndexFieldMatcher(job.GVK(), object.GetName())); err != nil {
-			return nil, err
-		}
-		var workloads []kueue.Workload
-		for _, slice := range list.Items {
-			if metav1.IsControlledBy(&slice, object) {
-				workloads = append(workloads, slice)
-			}
-		}
-		if err := r.finishReplacedWorkloadSlices(ctx, workloads); err != nil {
-			return nil, err
-		}
-	}
-
 	// If workload slicing is enabled for this job, use the slice-based processing path.
 	if WorkloadSliceEnabled(job) {
 		podSets, err := JobPodSets(ctx, job, r.client)
@@ -1221,7 +1208,8 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		// Workload slices allow modifications only to PodSet.Count.
 		// Any other changes will result in the slice being marked as incompatible,
 		// and the workload will fall back to being processed by the original ensureOneWorkload function.
-		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, r.clock, podSets, object, job.GVK())
+		wl, compatible, replaced, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, r.clock, podSets, object, job.GVK())
+		r.recordReplacedWorkloadSlices(replaced)
 		if err != nil {
 			return nil, err
 		}
