@@ -532,6 +532,48 @@ crowded domains last. Multi-Pod replicas must share one
 and requires at least one PodSet with `Count == 1`. Spreading is evaluated per
 namespace at admission time - admitted workloads are never rebalanced.
 
+### Partial slices
+
+When the slice size does not evenly divide the number of pods in the PodSet,
+the trailing pods form one partial slice, which is placed in a single
+topology domain just like a full slice. For example, 10 pods with a slice size
+of 4 are placed as two slices of 4 pods and one slice of 2 pods. This behavior
+is controlled by the `TASPartialSlices` feature gate, which is enabled by
+default.
+
+The partial slice is charged for the pods it actually holds, so a PodSet is
+admitted into a topology that has exactly as many free slots as the PodSet has
+pods. Kueue takes it into account while it chooses the domains, so a domain that
+has room for the full slices but not for the trailing pods is passed over, and
+the trailing pods share a domain with full slices whenever one of them has room
+for them.
+
+The partial slice is always the last one, so that the pod ranks of every
+other slice stay within a single domain.
+
+Partial slices are supported for a single slice layer only. The inner layers
+of `kueue.x-k8s.io/podset-slice-required-topology-constraints` subdivide a slice
+further, and the trailing pods generally do not divide by their sizes, so the
+outermost size still has to evenly divide the PodSet.
+
+### Dynamic Resource Allocation
+{{< feature-state state="alpha" for_version="v0.20" >}}
+{{% alert title="Note" color="primary" %}}
+This feature requires the `KueueDRADeviceFeasibility` feature gate, which is an alpha feature
+and is disabled by default.
+{{% /alert %}}
+
+By default, TAS cannot tell which nodes have the devices a Pod requests through
+[Dynamic Resource Allocation](/docs/concepts/dynamic_resource_allocation/) (DRA):
+devices requested through a `ResourceClaimTemplate` are not in the Pod's resource
+requests, and an extended resource that only a `DeviceClass` provides is not in any
+node's allocatable. With the `KueueDRADeviceFeasibility` feature gate, Kueue checks that
+each node it considers can allocate the DRA devices a Pod requests, and drops the nodes
+that cannot. For an extended resource, this check replaces the lookup in node
+allocatable. See
+[Topology-Aware Scheduling with DRA](/docs/concepts/dynamic_resource_allocation/#topology-aware-scheduling-with-dra)
+for the prerequisites and limitations.
+
 ## Drawbacks
 
 When enabling the feature Kueue starts to keep track of all Pods and all nodes

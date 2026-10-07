@@ -275,8 +275,12 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 		jobUIDLabelSelector += fmt.Sprintf("%s=%s", constants.JobUIDLabel, jobUID)
 	}
 
+	// initialLabelSelector is the job-uid query. The owner-reference fallback
+	// must run only while this selector is still in use. A substring check
+	// loops when the user's selector already contains that job-uid requirement.
+	initialLabelSelector := o.LabelSelector + jobUIDLabelSelector
 	opts := metav1.ListOptions{
-		LabelSelector: o.LabelSelector + jobUIDLabelSelector,
+		LabelSelector: initialLabelSelector,
 		FieldSelector: o.FieldSelector,
 		Limit:         o.Limit,
 	}
@@ -293,7 +297,8 @@ func (o *WorkloadOptions) Run(ctx context.Context) error {
 			return err
 		}
 
-		if o.forObject != nil && len(list.Items) == 0 && list.Continue == "" && strings.Contains(opts.LabelSelector, jobUIDLabelSelector) {
+		if o.forObject != nil && !enableOwnerReferenceFilter &&
+			len(list.Items) == 0 && list.Continue == "" && opts.Continue == "" {
 			opts.LabelSelector = o.LabelSelector
 			enableOwnerReferenceFilter = true
 			continue
@@ -436,6 +441,10 @@ func (o *WorkloadOptions) localQueues(ctx context.Context, list *kueue.WorkloadL
 	for _, wl := range list.Items {
 		// It's not necessary to get localqueue if we have clusterqueue name on Admission status.
 		if wl.Status.Admission != nil && len(wl.Status.Admission.ClusterQueue) > 0 {
+			continue
+		}
+		// A Workload without a queue name has no LocalQueue, and Get rejects an empty name.
+		if len(wl.Spec.QueueName) == 0 {
 			continue
 		}
 		if _, ok := localQueues[localQueueKeyForWorkload(&wl)]; !ok {

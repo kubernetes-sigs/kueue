@@ -400,7 +400,7 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
-		"partial scale up enabled with feature gate and annotation": {
+		"partial scale up enabled with feature gate and annotation sets minCount to the worker group's own count": {
 			enablePartialScaleUpFeature: true,
 			annotations: map[string]string{
 				constants.ElasticJobScaleUpStrategyAnnotationKey: constants.ElasticJobScaleUpStrategyPartial,
@@ -415,9 +415,9 @@ func TestBuildPodSets(t *testing.T) {
 				},
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
-						GroupName:   "workers",
-						Replicas:    new(int32(3)),
-						MinReplicas: new(int32(1)),
+						GroupName: "workers",
+						// MinReplicas is deliberately absent - it's not consulted at all.
+						Replicas: new(int32(3)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
 								Containers: []corev1.Container{{Name: "worker"}},
@@ -434,44 +434,6 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 				*utiltestingapi.MakePodSet("workers", 3).
 					SetMinimumCount(3).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "worker"}},
-					}).
-					Obj(),
-			},
-		},
-		"partial scale up enabled with feature gate and annotation, but no minReplicas set": {
-			enablePartialScaleUpFeature: true,
-			annotations: map[string]string{
-				constants.ElasticJobScaleUpStrategyAnnotationKey: constants.ElasticJobScaleUpStrategyPartial,
-			},
-			rayClusterSpec: &rayv1.RayClusterSpec{
-				HeadGroupSpec: rayv1.HeadGroupSpec{
-					Template: corev1.PodTemplateSpec{
-						Spec: corev1.PodSpec{
-							Containers: []corev1.Container{{Name: "head"}},
-						},
-					},
-				},
-				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-					{
-						GroupName: "workers",
-						Replicas:  new(int32(3)),
-						Template: corev1.PodTemplateSpec{
-							Spec: corev1.PodSpec{
-								Containers: []corev1.Container{{Name: "worker"}},
-							},
-						},
-					},
-				},
-			},
-			wantPodSets: []kueue.PodSet{
-				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
-					PodSpec(corev1.PodSpec{
-						Containers: []corev1.Container{{Name: "head"}},
-					}).
-					Obj(),
-				*utiltestingapi.MakePodSet("workers", 3).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "worker"}},
 					}).
@@ -744,7 +706,11 @@ func TestUpdatePodSets(t *testing.T) {
 		"child raycluster absent - counts fall back to the MultiKueue runtime annotation": {
 			podSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
-				*utiltestingapi.MakePodSet("workers", 3).Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).
+					RequiredTopologyRequest("cloud.com/block").
+					PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+					SubGroupCount(new(int32(3))).
+					Obj(),
 			},
 			object: testingrayjobutil.MakeJob("rayjob-owner", "ns").
 				ManagedBy(kueue.MultiKueueControllerName).
@@ -756,7 +722,43 @@ func TestUpdatePodSets(t *testing.T) {
 			rayClusterName:                       "nonexistent-child",
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
-				*utiltestingapi.MakePodSet("workers", 5).Obj(),
+				*utiltestingapi.MakePodSet("workers", 5).
+					RequiredTopologyRequest("cloud.com/block").
+					PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+					SubGroupCount(new(int32(5))).
+					Obj(),
+			},
+		},
+		"child raycluster absent with NumOfHosts - counts and topology fall back to the MultiKueue runtime annotation": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers-group-0", 2).
+					RequiredTopologyRequest("cloud.com/block").
+					PodIndexLabel(new(rayutils.RayHostIndexKey)).
+					SubGroupCount(new(int32(1))).
+					Obj(),
+			},
+			object: testingrayjobutil.MakeJob("rayjob-owner", "ns").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Annotation("kueue.x-k8s.io/elastic-job", "true").
+				Annotation(RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":8}]`).
+				WithWorkerGroups(rayv1.WorkerGroupSpec{
+					GroupName:  "workers-group-0",
+					Replicas:   new(int32(1)),
+					NumOfHosts: 2,
+				}).
+				Obj(),
+			enableInTreeAutoscaling:              new(true),
+			enableMultiKueueRayInTreeAutoscaling: true,
+			rayClusterName:                       "nonexistent-child",
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers-group-0", 8).
+					RequiredTopologyRequest("cloud.com/block").
+					PodIndexLabel(new(rayutils.RayHostIndexKey)).
+					SubGroupIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+					SubGroupCount(new(int32(4))).
+					Obj(),
 			},
 		},
 		"child raycluster absent - runtime annotation is ignored when MultiKueue Ray autoscaling is disabled": {
@@ -825,7 +827,10 @@ func TestUpdatePodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
-				*utiltestingapi.MakePodSet("workers-group-0", 5).Obj(), // Updated from 3 to 5
+				*utiltestingapi.MakePodSet("workers-group-0", 5).
+					PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+					SubGroupCount(new(int32(5))).
+					Obj(), // Updated from 3 to 5
 			},
 		},
 		"successful update with NumOfHosts": {
@@ -845,7 +850,11 @@ func TestUpdatePodSets(t *testing.T) {
 				Obj(),
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
-				*utiltestingapi.MakePodSet("workers-group-0", 8).Obj(), // 4 replicas * 2 hosts = 8
+				*utiltestingapi.MakePodSet("workers-group-0", 8).
+					PodIndexLabel(new(rayutils.RayHostIndexKey)).
+					SubGroupIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+					SubGroupCount(new(int32(4))).
+					Obj(), // 4 replicas * 2 hosts = 8
 			},
 		},
 		"podset name mismatch": {

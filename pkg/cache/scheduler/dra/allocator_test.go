@@ -28,9 +28,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	"sigs.k8s.io/kueue/pkg/features"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
 func TestCheckerListsClusterStateOncePerSnapshot(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationDeviceTaints, true)
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = resourceapi.AddToScheme(scheme)
@@ -50,15 +53,11 @@ func TestCheckerListsClusterStateOncePerSnapshot(t *testing.T) {
 			},
 		},
 	}
-	slice := &resourceapi.ResourceSlice{
-		Name: "gpu-node-slice",
-		Spec: resourceapi.ResourceSliceSpec{
-			NodeName: new("gpu-node"),
-			Driver:   "gpu.example.com",
-			Pool:     resourceapi.ResourcePool{Name: "gpu-node", ResourceSliceCount: 1},
-			Devices:  []resourceapi.Device{{Name: "gpu-0"}},
-		},
-	}
+	slice := testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+		NodeName("gpu-node").
+		Pool("gpu-node", 1, 1).
+		Device("gpu-0").
+		Obj()
 
 	var listCalls int
 	cl := fake.NewClientBuilder().WithScheme(scheme).
@@ -70,7 +69,7 @@ func TestCheckerListsClusterStateOncePerSnapshot(t *testing.T) {
 			},
 		}).Build()
 
-	checker := NewChecker(&passthroughChecker{}, cl, &CELCache{})
+	checker := NewChecker(&passthroughChecker{}, cl, &CELCache{}, true)
 	requirements := &simulator.PodRequirements{
 		PodTemplate: &corev1.PodTemplateSpec{
 			Namespace: "default",
@@ -94,8 +93,10 @@ func TestCheckerListsClusterStateOncePerSnapshot(t *testing.T) {
 		}
 	}
 
-	// ResourceSlices, ResourceClaims and DeviceClasses, once for the snapshot.
-	const wantListCalls = 3
+	// ResourceSlices, DeviceTaintRules, ResourceClaims and DeviceClasses, once for
+	// the snapshot. The DeviceTaintRule list is skipped when KueueDRAIntegrationDeviceTaints or its
+	// Kubernetes gate is off.
+	const wantListCalls = 4
 	if listCalls != wantListCalls {
 		t.Errorf("cluster-wide List calls over %d assignment attempts = %d, want %d", calls, listCalls, wantListCalls)
 	}
@@ -106,8 +107,8 @@ func TestCELCacheIsSharedAcrossCheckers(t *testing.T) {
 	shared := &CELCache{}
 
 	// A Checker is built per scheduling cycle, so two of them stand for two cycles.
-	first := NewChecker(&passthroughChecker{}, cl, shared).celCache.get()
-	second := NewChecker(&passthroughChecker{}, cl, shared).celCache.get()
+	first := NewChecker(&passthroughChecker{}, cl, shared, true).celCache.get()
+	second := NewChecker(&passthroughChecker{}, cl, shared, true).celCache.get()
 	if first != second {
 		t.Error("the shared CELCache compiled a second cache, so selectors are not reused across cycles")
 	}

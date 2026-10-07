@@ -36,14 +36,18 @@ import (
 	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/unscheduledpods"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -54,13 +58,13 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunSuite(t, "MPIJob Controller Suite")
+	behavioral.RunSuite(t, "MPIJob Controller Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		DepCRDPaths: []string{util.MpiOperatorCrds},
-		WebhookPath: util.WebhookPath,
+		DepCRDPaths: []string{behavioral.MpiOperatorCrds},
+		WebhookPath: behavioral.WebhookPath,
 	}
 
 	cfg = fwk.Init()
@@ -72,16 +76,20 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {
+	return managerSetupWithConfiguration(nil, setupJobManager, opts...)
+}
+
+func managerSetupWithConfiguration(configuration *config.Configuration, setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		preemptionExpectations := preemptexpectations.New()
-		controllersSetup(ctx, mgr, setupJobManager, preemptionExpectations, opts...)
+		controllersSetup(ctx, mgr, setupJobManager, preemptionExpectations, configuration, opts...)
 	}
 }
 
 func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Option) framework.ManagerSetup {
 	return func(ctx context.Context, mgr manager.Manager) {
 		preemptionExpectations := preemptexpectations.New()
-		cCache, queues, configuration := controllersSetup(ctx, mgr, true, preemptionExpectations, opts...)
+		cCache, queues, configuration := controllersSetup(ctx, mgr, true, preemptionExpectations, nil, opts...)
 		if setupTASControllers {
 			failedCtrl, err := tas.SetupControllers(mgr, queues, cCache, configuration, nil)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "TAS controller", failedCtrl)
@@ -107,12 +115,18 @@ func controllersSetup(
 	mgr manager.Manager,
 	setupJobManager bool,
 	preemptionExpectations *expectations.Store,
+	configuration *config.Configuration,
 	opts ...jobframework.Option,
 ) (*schdcache.Cache, *qcache.Manager, *config.Configuration) {
+	if configuration == nil {
+		configuration = &config.Configuration{}
+	}
+	mgr.GetScheme().Default(configuration)
+
 	integrationManager := jobcontrollers.NewIntegrationManager()
 	cCache := schdcache.New(mgr.GetClient())
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+	queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 	opts = append(opts, jobframework.WithIntegrationManager(integrationManager), jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 
@@ -123,7 +137,12 @@ func controllersSetup(
 		mgr.GetEventRecorder(constants.JobControllerName),
 		opts...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	err = indexer.Setup(ctx, mgr.GetFieldIndexer())
+	trackPodsScheduled := waitforpodsready.PodsScheduledTrackingEnabled(configuration.WaitForPodsReady)
+	var indexerOpts []indexer.Option
+	if trackPodsScheduled {
+		indexerOpts = append(indexerOpts, indexer.WithPodWorkloadSliceNameIndex())
+	}
+	err = indexer.Setup(ctx, mgr.GetFieldIndexer(), indexerOpts...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = mpijob.SetupIndexes(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -131,9 +150,9 @@ func controllersSetup(
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = mpijob.SetupMPIJobWebhook(mgr, opts...)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	err = pod.SetupWebhook(mgr, opts...)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	integrationManager.EnableIntegration(mpijob.FrameworkName)
-	configuration := &config.Configuration{}
-	mgr.GetScheme().Default(configuration)
 	failedCtrl, err := core.SetupControllers(
 		mgr,
 		queues,
@@ -142,6 +161,10 @@ func controllersSetup(
 		core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
 	)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+	if trackPodsScheduled {
+		failedCtrl, err = unscheduledpods.NewTracker(mgr.GetClient(), nil, configuration.WaitForPodsReady).SetupWithManager(mgr, configuration)
+		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+	}
 	failedWebhook, err := webhooks.Setup(mgr, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 

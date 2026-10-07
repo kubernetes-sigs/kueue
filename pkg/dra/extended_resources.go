@@ -223,6 +223,38 @@ type containerExtendedResourceRequests struct {
 	restartPolicy *corev1.ContainerRestartPolicy
 }
 
+func collectContainerExtendedResourceRequests(containers []corev1.Container, containersPath *field.Path) []containerExtendedResourceRequests {
+	var entries []containerExtendedResourceRequests
+	for i, container := range containers {
+		res := extendedResourceRequests(container)
+		if len(res) == 0 {
+			continue
+		}
+		entries = append(entries, containerExtendedResourceRequests{
+			path:          containersPath.Index(i),
+			resources:     res,
+			restartPolicy: container.RestartPolicy,
+		})
+	}
+	return entries
+}
+
+func containersForPodRequests(entries []containerExtendedResourceRequests, firstPath map[corev1.ResourceName]*field.Path) []corev1.Container {
+	containers := make([]corev1.Container, 0, len(entries))
+	for _, entry := range entries {
+		for name := range entry.resources {
+			if _, found := firstPath[name]; !found {
+				firstPath[name] = entry.path
+			}
+		}
+		containers = append(containers, corev1.Container{
+			RestartPolicy: entry.restartPolicy,
+			Resources:     corev1.ResourceRequirements{Requests: entry.resources},
+		})
+	}
+	return containers
+}
+
 // ResolveExtendedResourceQuota converts extended resource requests across all PodSets
 // into DRA logical quota resources. Per PodSet each original name is aggregated with
 // `resourcehelpers.PodRequests` (overhead excluded; sidecars add to the app-container
@@ -247,48 +279,17 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 		ps := &wl.Spec.PodSets[i]
 		podSetPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec")
 
-		collect := func(containers []corev1.Container, pathSegment string) []containerExtendedResourceRequests {
-			var entries []containerExtendedResourceRequests
-			for j, container := range containers {
-				res := extendedResourceRequests(container)
-				if len(res) == 0 {
-					continue
-				}
-				entries = append(entries, containerExtendedResourceRequests{
-					path:          podSetPath.Child(pathSegment).Index(j),
-					resources:     res,
-					restartPolicy: container.RestartPolicy,
-				})
-			}
-			return entries
-		}
-
-		initEntries := collect(wi.PodSpec(i).InitContainers, "initContainers")
-		regularEntries := collect(wi.PodSpec(i).Containers, "containers")
+		initEntries := collectContainerExtendedResourceRequests(wi.PodSpec(i).InitContainers, podSetPath.Child("initContainers"))
+		regularEntries := collectContainerExtendedResourceRequests(wi.PodSpec(i).Containers, podSetPath.Child("containers"))
 
 		// The field path of the first container an original resource name is seen in,
 		// for error reporting once that name is resolved below.
 		firstPath := map[corev1.ResourceName]*field.Path{}
-		charged := func(entries []containerExtendedResourceRequests) []corev1.Container {
-			out := make([]corev1.Container, 0, len(entries))
-			for _, e := range entries {
-				for name := range e.resources {
-					if _, ok := firstPath[name]; !ok {
-						firstPath[name] = e.path
-					}
-				}
-				out = append(out, corev1.Container{
-					RestartPolicy: e.restartPolicy,
-					Resources:     corev1.ResourceRequirements{Requests: e.resources},
-				})
-			}
-			return out
-		}
-		initCharged := charged(initEntries)
-		regularCharged := charged(regularEntries)
+		initContainersForPodRequests := containersForPodRequests(initEntries, firstPath)
+		regularContainersForPodRequests := containersForPodRequests(regularEntries, firstPath)
 		// PodRequests adds a sidecar to the regular containers rather than maxing it against them.
 		podRequests := resourcehelpers.PodRequests(
-			&corev1.Pod{Spec: corev1.PodSpec{InitContainers: initCharged, Containers: regularCharged}},
+			&corev1.Pod{Spec: corev1.PodSpec{InitContainers: initContainersForPodRequests, Containers: regularContainersForPodRequests}},
 			resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
 
 		aggregated := corev1.ResourceList{}

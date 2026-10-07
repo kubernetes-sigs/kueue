@@ -28,7 +28,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("RayService Webhook", func() {
@@ -37,11 +38,11 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 	ginkgo.When("With manageJobsWithoutQueueName disabled", func() {
 		ginkgo.BeforeEach(func() {
 			fwk.StartManager(ctx, cfg, managerSetup(rayservice.SetupRayServiceWebhook))
-			ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-")
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayservice-")
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 			fwk.StopManager(ctx)
 		})
 
@@ -51,8 +52,11 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 			})
 
 			ginkgo.It("should reject removing the queue name from an unsuspended RayService", func() {
-				service := testingrayservice.MakeService("rayservice", ns.Name).Queue("queue-name").Obj()
-				util.MustCreate(ctx, k8sClient, service)
+				service := testingrayservice.MakeService("rayservice", ns.Name).
+					Queue("queue-name").
+					UpgradeStrategy(rayv1.RayServiceUpgradeNone).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, service)
 
 				lookupKey := types.NamespacedName{Name: service.Name, Namespace: service.Namespace}
 				createdService := &rayv1.RayService{}
@@ -77,8 +81,11 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 			})
 
 			ginkgo.It("should allow removing the queue name from an unsuspended RayService", func() {
-				service := testingrayservice.MakeService("rayservice", ns.Name).Queue("queue-name").Obj()
-				util.MustCreate(ctx, k8sClient, service)
+				service := testingrayservice.MakeService("rayservice", ns.Name).
+					Queue("queue-name").
+					UpgradeStrategy(rayv1.RayServiceUpgradeNone).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, service)
 
 				lookupKey := types.NamespacedName{Name: service.Name, Namespace: service.Namespace}
 				createdService := &rayv1.RayService{}
@@ -92,6 +99,48 @@ var _ = ginkgo.Describe("RayService Webhook", func() {
 				gomega.Expect(k8sClient.Get(ctx, lookupKey, createdService)).Should(gomega.Succeed())
 				delete(createdService.Labels, constants.QueueLabel)
 				gomega.Expect(k8sClient.Update(ctx, createdService)).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.When("ElasticJobsViaWorkloadSlices is disabled", func() {
+			ginkgo.BeforeEach(func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, false)
+			})
+
+			ginkgo.It("should reject the default zero-downtime upgrade strategy even with the elastic-job annotation", func() {
+				service := testingrayservice.MakeService("rayservice", ns.Name).
+					Queue("queue-name").
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Obj()
+
+				err := k8sClient.Create(ctx, service)
+				gomega.Expect(err).Should(gomega.HaveOccurred())
+				gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+			})
+		})
+
+		ginkgo.When("ElasticJobsViaWorkloadSlices is enabled", func() {
+			ginkgo.BeforeEach(func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+			})
+
+			ginkgo.It("should reject the default zero-downtime upgrade strategy without the elastic-job annotation", func() {
+				service := testingrayservice.MakeService("rayservice", ns.Name).
+					Queue("queue-name").
+					Obj()
+
+				err := k8sClient.Create(ctx, service)
+				gomega.Expect(err).Should(gomega.HaveOccurred())
+				gomega.Expect(err).Should(utiltesting.BeForbiddenError())
+			})
+
+			ginkgo.It("should allow the default zero-downtime upgrade strategy with the elastic-job annotation", func() {
+				service := testingrayservice.MakeService("rayservice", ns.Name).
+					Queue("queue-name").
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Obj()
+
+				behavioral.MustCreate(ctx, k8sClient, service)
 			})
 		})
 	})

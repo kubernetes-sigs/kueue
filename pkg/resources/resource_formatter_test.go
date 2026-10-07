@@ -87,37 +87,58 @@ func TestAmountQuantity(t *testing.T) {
 	f := NewResourceFormatter()
 
 	cases := map[string]struct {
-		name      corev1.ResourceName
-		amount    Amount
-		want      string
-		wantExact bool
+		name            corev1.ResourceName
+		amount          Amount
+		want            string
+		wantExact       bool
+		wantExactString string
 	}{
-		"whole cores in milli":                  {name: corev1.ResourceCPU, amount: NewAmount(2000), want: "2", wantExact: true},
-		"a fraction of a core":                  {name: corev1.ResourceCPU, amount: NewAmount(1500), want: "1500m", wantExact: true},
-		"the largest int64 milli":               {name: corev1.ResourceCPU, amount: NewAmount(math.MaxInt64), want: "9223372036854775807m", wantExact: true},
-		"one milli past the largest":            {name: corev1.ResourceCPU, amount: bigAmount(t, "9223372036854775808"), want: "9223372036854775808m", wantExact: true},
-		"10P of cpu past int64":                 {name: corev1.ResourceCPU, amount: cpuAmount("10P"), want: "10P", wantExact: true},
-		"a milli past 10P":                      {name: corev1.ResourceCPU, amount: bigAmount(t, "10000000000000000001"), want: "10000000000000000001m", wantExact: true},
-		"1E of cpu past int64":                  {name: corev1.ResourceCPU, amount: cpuAmount("1E"), want: "1E", wantExact: true},
-		"sixteen of the largest int64":          {name: corev1.ResourceCPU, amount: bigAmount(t, "147573952589676412912"), want: "147573952589676412912m", wantExact: true},
-		"a milli below the cpu ceiling":         {name: corev1.ResourceCPU, amount: bigAmount(t, cpuBelowCeiling), want: "9223372036854775806999m", wantExact: true},
-		"the cpu ceiling":                       {name: corev1.ResourceCPU, amount: bigAmount(t, cpuCeiling), want: "9223372036854775807", wantExact: true},
-		"a milli past the cpu ceiling":          {name: corev1.ResourceCPU, amount: bigAmount(t, cpuPastCeiling), want: "9223372036854775807", wantExact: false},
-		"far past the cpu ceiling":              {name: corev1.ResourceCPU, amount: bigAmount(t, "9223372036854775807000000"), want: "9223372036854775807", wantExact: false},
-		"the negative cpu ceiling":              {name: corev1.ResourceCPU, amount: bigAmount(t, "-"+cpuCeiling), want: "-9223372036854775807", wantExact: true},
-		"a milli past the negative cpu ceiling": {name: corev1.ResourceCPU, amount: bigAmount(t, "-"+cpuPastCeiling), want: "-9223372036854775807", wantExact: false},
-		"sixteen of the largest negative":       {name: corev1.ResourceCPU, amount: bigAmount(t, "-147573952589676412912"), want: "-147573952589676412912m", wantExact: true},
+		"whole cores in milli":          {name: corev1.ResourceCPU, amount: NewAmount(2000), want: "2", wantExact: true},
+		"a fraction of a core":          {name: corev1.ResourceCPU, amount: NewAmount(1500), want: "1500m", wantExact: true},
+		"the largest int64 milli":       {name: corev1.ResourceCPU, amount: NewAmount(math.MaxInt64), want: "9223372036854775807m", wantExact: true},
+		"one milli past the largest":    {name: corev1.ResourceCPU, amount: bigAmount(t, "9223372036854775808"), want: "9223372036854775808m", wantExact: true},
+		"10P of cpu past int64":         {name: corev1.ResourceCPU, amount: cpuAmount("10P"), want: "10P", wantExact: true},
+		"a milli past 10P":              {name: corev1.ResourceCPU, amount: bigAmount(t, "10000000000000000001"), want: "10000000000000000001m", wantExact: true},
+		"1E of cpu past int64":          {name: corev1.ResourceCPU, amount: cpuAmount("1E"), want: "1E", wantExact: true},
+		"sixteen of the largest int64":  {name: corev1.ResourceCPU, amount: bigAmount(t, "147573952589676412912"), want: "147573952589676412912m", wantExact: true},
+		"a milli below the cpu ceiling": {name: corev1.ResourceCPU, amount: bigAmount(t, cpuBelowCeiling), want: "9223372036854775806999m", wantExact: true},
+		"the cpu ceiling":               {name: corev1.ResourceCPU, amount: bigAmount(t, cpuCeiling), want: "9223372036854775807", wantExact: true},
+		"a milli past the cpu ceiling":  {name: corev1.ResourceCPU, amount: bigAmount(t, cpuPastCeiling), want: "9223372036854775807", wantExact: false, wantExactString: "9223372036854775807001m"},
+		"far past the cpu ceiling": {
+			name: corev1.ResourceCPU, amount: bigAmount(t, "9223372036854775807000000"),
+			want: "9223372036854775807", wantExact: false, wantExactString: "9223372036854775807000000m",
+		},
+		"two times the largest core count": {
+			name: corev1.ResourceCPU, amount: bigAmount(t, "18446744073709551614000"),
+			want: "9223372036854775807", wantExact: false, wantExactString: "18446744073709551614000m",
+		},
+		"the negative cpu ceiling": {name: corev1.ResourceCPU, amount: bigAmount(t, "-"+cpuCeiling), want: "-9223372036854775807", wantExact: true},
+		"a milli past the negative cpu ceiling": {
+			name: corev1.ResourceCPU, amount: bigAmount(t, "-"+cpuPastCeiling),
+			want: "-9223372036854775807", wantExact: false, wantExactString: "-9223372036854775807001m",
+		},
+		"twice the largest core count, negative": {
+			name: corev1.ResourceCPU, amount: bigAmount(t, "-18446744073709551614000"),
+			want: "-9223372036854775807", wantExact: false, wantExactString: "-18446744073709551614000m",
+		},
+		"sixteen of the largest negative": {name: corev1.ResourceCPU, amount: bigAmount(t, "-147573952589676412912"), want: "-147573952589676412912m", wantExact: true},
 
 		"whole devices":               {name: "example.com/gpu", amount: NewAmount(8), want: "8", wantExact: true},
 		"the largest int64 device":    {name: "example.com/gpu", amount: NewAmount(math.MaxInt64), want: "9223372036854775807", wantExact: true},
-		"one past the largest device": {name: "example.com/gpu", amount: bigAmount(t, "9223372036854775808"), want: "9223372036854775807", wantExact: false},
+		"one past the largest device": {name: "example.com/gpu", amount: bigAmount(t, "9223372036854775808"), want: "9223372036854775807", wantExact: false, wantExactString: "9223372036854775808"},
 		"the largest negative device": {name: "example.com/gpu", amount: NewAmount(-math.MaxInt64), want: "-9223372036854775807", wantExact: true},
 		// MinInt64 fits an int64 and is one past the magnitude a Quantity carries.
-		"the smallest int64 device": {name: "example.com/gpu", amount: NewAmount(math.MinInt64), want: "-9223372036854775807", wantExact: false},
+		"the smallest int64 device": {name: "example.com/gpu", amount: NewAmount(math.MinInt64), want: "-9223372036854775807", wantExact: false, wantExactString: "-9223372036854775808"},
 		// In milli this is nine million cores, which a Quantity holds.
 		"the smallest int64 milli of cpu": {name: corev1.ResourceCPU, amount: NewAmount(math.MinInt64), want: "-9223372036854775808m", wantExact: true},
-		"far past in the negative":        {name: "example.com/gpu", amount: bigAmount(t, "-18446744073709551614"), want: "-9223372036854775807", wantExact: false},
-		"memory past int64":               {name: corev1.ResourceMemory, amount: bigAmount(t, "9223372036854775808"), want: "9223372036854775807", wantExact: false},
+		"far past in the negative": {
+			name: "example.com/gpu", amount: bigAmount(t, "-18446744073709551614"),
+			want: "-9223372036854775807", wantExact: false, wantExactString: "-18446744073709551614",
+		},
+		"memory past int64": {
+			name: corev1.ResourceMemory, amount: bigAmount(t, "9223372036854775808"),
+			want: "9223372036854775807", wantExact: false, wantExactString: "9223372036854775808",
+		},
 	}
 
 	for name, tc := range cases {
@@ -128,6 +149,13 @@ func TestAmountQuantity(t *testing.T) {
 			}
 			if got := f.AmountQuantityString(tc.name, tc.amount); got != tc.want {
 				t.Errorf("AmountQuantityString() = %s, want %s", got, tc.want)
+			}
+			wantShown := tc.want
+			if !tc.wantExact {
+				wantShown = tc.wantExactString
+			}
+			if got := f.ExactAmountString(tc.name, tc.amount); got != wantShown {
+				t.Errorf("ExactAmountString() = %s, want %s", got, wantShown)
 			}
 			// The Quantity must be the number, not only a string that reads back as itself.
 			want := tc.amount

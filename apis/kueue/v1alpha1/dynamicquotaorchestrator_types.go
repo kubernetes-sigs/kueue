@@ -26,7 +26,7 @@ type DynamicQuotaOrchestratorSpec struct {
 	// capacityDiscovery specifies capacity aggregation.
 	//
 	// +required
-	CapacityDiscovery CapacityDiscovery `json:"capacityDiscovery"`
+	CapacityDiscovery CapacityDiscovery `json:"capacityDiscovery,omitzero"`
 
 	// capacityDistribution specifies how aggregated capacity is distributed.
 	// When omitted, the DQO is discovery-only: it reports aggregated capacity
@@ -44,7 +44,7 @@ type CapacityDiscovery struct {
 	// +listMapKey=name
 	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=8
-	Providers []CapacityDiscoveryProviderContribution `json:"providers"`
+	Providers []CapacityDiscoveryProviderContribution `json:"providers,omitempty"`
 }
 
 type CapacityDiscoveryProviderContribution struct {
@@ -66,7 +66,7 @@ type CapacityDistribution struct {
 	// subtreeRootQuotaRef identifies the root of the quota subtree.
 	//
 	// +required
-	SubtreeRootQuotaRef CapacityDistributionSubtreeRootRef `json:"subtreeRootQuotaRef"`
+	SubtreeRootQuotaRef CapacityDistributionSubtreeRootRef `json:"subtreeRootQuotaRef,omitzero"`
 }
 
 type SubtreeRootRefKind string
@@ -81,7 +81,7 @@ type CapacityDistributionSubtreeRootRef struct {
 	//
 	// +required
 	// +kubebuilder:validation:Enum=ClusterQueue;Cohort
-	Kind SubtreeRootRefKind `json:"kind"`
+	Kind SubtreeRootRefKind `json:"kind,omitempty"`
 
 	// name indicates the name of the quota node, i.e. ClusterQueue or Cohort.
 	//
@@ -109,11 +109,6 @@ type ResourceFlavorReference string
 type DynamicQuotaOrchestratorReference string
 
 type DynamicQuotaOrchestratorStatus struct {
-	// effectiveCapacity is the capacity aggregated from the referenced providers.
-	//
-	// +optional
-	EffectiveCapacity *EffectiveCapacity `json:"effectiveCapacity,omitempty"`
-
 	// conditions represents the current state of the DQO.
 	//
 	// +optional
@@ -123,16 +118,28 @@ type DynamicQuotaOrchestratorStatus struct {
 	// +patchMergeKey=type
 	// +kubebuilder:validation:MaxItems=16
 	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type"`
+
+	// effectiveCapacity is the combined capacity from the referenced providers.
+	// Each provider's capacity is multiplied by its effectiveCapacityMultiplier.
+	// DQO clears this field if any referenced provider is missing or does not
+	// have CapacitySynchronized=True.
+	//
+	// +optional
+	EffectiveCapacity *EffectiveCapacity `json:"effectiveCapacity,omitempty"`
 }
 
 type EffectiveCapacity struct {
-	// flavors contains capacity per flavor and resource.
+	// flavors contains the total capacity for each flavor and resource.
+	// It includes all flavors listed in spec.orchestratedFlavors of the
+	// referenced providers. The list is never empty.
+	// An empty resources map means zero capacity for all resources of the flavor.
 	//
 	// +required
 	// +listType=map
 	// +listMapKey=name
+	// +kubebuilder:validation:MinItems=1
 	// +kubebuilder:validation:MaxItems=128
-	Flavors []EffectiveCapacityFlavor `json:"flavors"`
+	Flavors []EffectiveCapacityFlavor `json:"flavors,omitempty"`
 }
 
 type EffectiveCapacityFlavor struct {
@@ -142,9 +149,11 @@ type EffectiveCapacityFlavor struct {
 	Name ResourceFlavorReference `json:"name"`
 
 	// resources contains total capacity by resource name.
+	// A resource that is not listed, including when the map is empty, has zero
+	// capacity for the flavor.
 	//
 	// +required
-	// +kubebuilder:validation:XValidation:rule="size(self) >= 1 && size(self) <= 64",message="resource capacity must have between 1 and 64 entries"
+	// +kubebuilder:validation:XValidation:rule="size(self) <= 64",message="resource capacity must have at most 64 entries"
 	Resources corev1.ResourceList `json:"resources"`
 }
 
@@ -193,10 +202,18 @@ const (
 
 // DynamicQuotaOrchestrator is the Schema for the dynamicquotaorchestrators API
 type DynamicQuotaOrchestrator struct {
-	metav1.TypeMeta   `json:",inline"`
+	metav1.TypeMeta `json:",inline"`
+
+	// metadata is the standard object metadata.
+	// +optional
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   DynamicQuotaOrchestratorSpec   `json:"spec,omitempty"`
+	// spec defines the desired state of the DynamicQuotaOrchestrator.
+	// +optional
+	Spec DynamicQuotaOrchestratorSpec `json:"spec"`
+
+	// status defines the observed state of the DynamicQuotaOrchestrator.
+	// +optional
 	Status DynamicQuotaOrchestratorStatus `json:"status,omitempty"`
 }
 

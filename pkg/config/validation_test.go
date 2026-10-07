@@ -391,6 +391,24 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"zero waitForPodsReady.maxTimeoutOnWorkload": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout: metav1.Duration{Duration: 5 * time.Minute},
+					MaxTimeoutOnWorkload: &metav1.Duration{
+						Duration: 0,
+					},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "waitForPodsReady.maxTimeoutOnWorkload",
+				},
+			},
+		},
 		"valid waitForPodsReady": {
 			featureGates: map[featuregate.Feature]bool{features.WaitForPodsReadyUnscheduledTimeout: true},
 			cfg: &configapi.Configuration{
@@ -519,6 +537,25 @@ func TestValidate(t *testing.T) {
 				&field.Error{
 					Type:  field.ErrorTypeForbidden,
 					Field: "featureGates[WaitForPodsReadyUnscheduledTimeout]",
+				},
+			},
+		},
+		"maxTimeoutOnWorkload and DisableWaitForPodsReady cannot be enabled together": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: true,
+				features.DisableWaitForPodsReady:       true,
+			},
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				WaitForPodsReady: &configapi.WaitForPodsReady{
+					Timeout:              metav1.Duration{Duration: 5 * time.Minute},
+					MaxTimeoutOnWorkload: &metav1.Duration{Duration: time.Hour},
+				},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: "featureGates[WorkloadLevelWaitForPodsReady]",
 				},
 			},
 		},
@@ -2312,6 +2349,64 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		ignoreDetail    bool
 		wantErr         field.ErrorList
 	}{
+		"CLI rejects MultiKueue Ray autoscaling when child suspension bypass is disabled": {
+			featureGatesCLI: "MultiKueue=true,ElasticJobsViaWorkloadSlices=true,MultiKueueRayInTreeAutoscaling=true,SkipChildJobSuspension=false",
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "MultiKueueRayInTreeAutoscaling is enabled, but depends on features that are disabled: [SkipChildJobSuspension]",
+				},
+			},
+		},
+		"CLI accepts MultiKueue Ray autoscaling when child suspension bypass is enabled": {
+			featureGatesCLI: "MultiKueue=true,ElasticJobsViaWorkloadSlices=true,MultiKueueRayInTreeAutoscaling=true,SkipChildJobSuspension=true",
+		},
+		"configuration rejects MultiKueue Ray autoscaling when child suspension bypass is unset": {
+			featureGateMap: map[string]bool{
+				string(features.MultiKueue):                     true,
+				string(features.ElasticJobsViaWorkloadSlices):   true,
+				string(features.MultiKueueRayInTreeAutoscaling): true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "MultiKueueRayInTreeAutoscaling is enabled, but depends on features that are disabled: [SkipChildJobSuspension]",
+				},
+			},
+		},
+		"configuration rejects MultiKueue Ray autoscaling when child suspension bypass is disabled": {
+			featureGateMap: map[string]bool{
+				string(features.MultiKueue):                     true,
+				string(features.ElasticJobsViaWorkloadSlices):   true,
+				string(features.MultiKueueRayInTreeAutoscaling): true,
+				string(features.SkipChildJobSuspension):         false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "MultiKueueRayInTreeAutoscaling is enabled, but depends on features that are disabled: [SkipChildJobSuspension]",
+				},
+			},
+		},
+		"configuration accepts MultiKueue Ray autoscaling when child suspension bypass is enabled": {
+			featureGateMap: map[string]bool{
+				string(features.MultiKueue):                     true,
+				string(features.ElasticJobsViaWorkloadSlices):   true,
+				string(features.MultiKueueRayInTreeAutoscaling): true,
+				string(features.SkipChildJobSuspension):         true,
+			},
+		},
+		"child suspension bypass is not required when MultiKueue Ray autoscaling is disabled": {
+			featureGateMap: map[string]bool{
+				string(features.MultiKueue):                     true,
+				string(features.ElasticJobsViaWorkloadSlices):   true,
+				string(features.MultiKueueRayInTreeAutoscaling): false,
+				string(features.SkipChildJobSuspension):         false,
+			},
+		},
 		"no feature gates is null": {
 			featureGatesCLI: "",
 		},
@@ -2355,6 +2450,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2413,6 +2509,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2447,6 +2544,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2470,6 +2568,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2501,12 +2600,26 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnNodeTaints):                  false,
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
 					Detail: "KueueDRADeviceFeasibility is enabled, but depends on features that are disabled: [KueueDRAIntegration TASNodeFeasibilityForAllLevels TopologyAwareScheduling]",
+				},
+			},
+		},
+		"KueueDRAIntegrationDeviceTaints requires KueueDRADeviceFeasibility": {
+			featureGateMap: map[string]bool{
+				string(features.KueueDRAIntegrationDeviceTaints): true,
+				string(features.KueueDRADeviceFeasibility):       false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "KueueDRAIntegrationDeviceTaints is enabled, but depends on features that are disabled: [KueueDRADeviceFeasibility]",
 				},
 			},
 		},
@@ -2525,6 +2638,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnNodeTaints):                  false,
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2555,6 +2669,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2579,6 +2694,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2604,6 +2720,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASLeaderPodSetFeasibility):                  true,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2629,6 +2746,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2653,6 +2771,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2677,6 +2796,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2701,6 +2821,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASNodeFeasibilityForAllLevels):              false,
 				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASPartialSlices):                            false,
 				string(features.TASTopologySpreading):                        true,
 			},
 			wantErr: field.ErrorList{
@@ -2726,6 +2847,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2751,6 +2873,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2775,12 +2898,38 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASReplaceNodeOnNodeTaints):                  false,
 				string(features.TASMultiLayerTopology):                       false,
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  "featureGates",
 					Detail: "TASGroupedPodSetSlicing is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
+				},
+			},
+		},
+		"TASPartialSlices requires TopologyAwareScheduling": {
+			featureGateMap: map[string]bool{
+				string(features.TASPartialSlices):                            true,
+				string(features.TASGroupedPodSetSlicing):                     false,
+				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TopologyAwareScheduling):                     false,
+				string(features.TASRejectFalseUnconstrainedTopology):         false,
+				string(features.TASNodeFeasibilityForAllLevels):              false,
+				string(features.TASProfileMixed):                             false,
+				string(features.TASHandleOverlappingFlavors):                 false,
+				string(features.TASFailedNodeReplacement):                    false,
+				string(features.TASFailedNodeReplacementFailFast):            false,
+				string(features.TASReplaceNodeOnPodTermination):              false,
+				string(features.TASReplaceNodeOnNodeTaints):                  false,
+				string(features.TASMultiLayerTopology):                       false,
+				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "TASPartialSlices is enabled, but depends on features that are disabled: [TopologyAwareScheduling]",
 				},
 			},
 		},
@@ -2830,6 +2979,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2853,6 +3003,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRecomputeAssignmentWithinSchedulingCycle): false,
 				string(features.TASGroupedPodSetSlicing):                     false,
 				string(features.TASLeaderPodSetFeasibility):                  false,
+				string(features.TASPartialSlices):                            false,
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
@@ -2873,6 +3024,7 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				string(features.TASRespectNodeAffinityPreferred):  true,
 				string(features.TASHandleOverlappingFlavors):      true,
 				string(features.TASGroupedPodSetSlicing):          true,
+				string(features.TASPartialSlices):                 true,
 				string(features.TASLeaderPodSetFeasibility):       false,
 			},
 		},
@@ -4013,4 +4165,56 @@ func TestValidateCustomLabels(t *testing.T) {
 			t.Errorf("unexpected error details (-want,+got):\n%s", diff)
 		}
 	})
+}
+
+// TestValidateAdmissionFairSharingErrorValues checks that each error reports the
+// value its field path names.
+func TestValidateAdmissionFairSharingErrorValues(t *testing.T) {
+	cases := map[string]struct {
+		afs       *configapi.AdmissionFairSharing
+		wantField string
+		wantValue any
+	}{
+		"half-life": {
+			afs: &configapi.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: -time.Second},
+				UsageSamplingInterval: metav1.Duration{Duration: time.Second},
+			},
+			wantField: "admissionFairSharing.usageHalfLifeTime",
+			wantValue: metav1.Duration{Duration: -time.Second},
+		},
+		"sampling interval": {
+			afs: &configapi.AdmissionFairSharing{
+				UsageHalfLifeTime:     metav1.Duration{Duration: 5 * time.Minute},
+				UsageSamplingInterval: metav1.Duration{Duration: -time.Second},
+			},
+			wantField: "admissionFairSharing.usageSamplingInterval",
+			wantValue: metav1.Duration{Duration: -time.Second},
+		},
+		"one resource weight of several": {
+			afs: &configapi.AdmissionFairSharing{
+				UsageSamplingInterval: metav1.Duration{Duration: time.Second},
+				ResourceWeights: map[corev1.ResourceName]float64{
+					corev1.ResourceCPU:    -0.5,
+					corev1.ResourceMemory: 1,
+				},
+			},
+			wantField: "admissionFairSharing.resourceWeights[cpu]",
+			wantValue: float64(-0.5),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			errs := validateAdmissionFairSharing(&configapi.Configuration{AdmissionFairSharing: tc.afs})
+			if len(errs) != 1 {
+				t.Fatalf("got %d errors, want 1: %v", len(errs), errs)
+			}
+			if got := errs[0].Field; got != tc.wantField {
+				t.Errorf("Field = %q, want %q", got, tc.wantField)
+			}
+			if diff := cmp.Diff(tc.wantValue, errs[0].BadValue); diff != "" {
+				t.Errorf("BadValue mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
 }

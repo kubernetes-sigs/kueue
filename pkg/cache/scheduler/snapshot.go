@@ -60,6 +60,11 @@ type Snapshot struct {
 	// hostnameLeafTASFlavors holds the flavor snapshots sharing topology
 	// capacity, fixed once the snapshot is built.
 	hostnameLeafTASFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
+
+	// released holds workloads that stay in their ClusterQueue after their
+	// usage has left the snapshot. Removing or restoring them, including in
+	// simulations, leaves the usage untouched.
+	released sets.Set[workload.Reference]
 }
 
 // RemoveWorkload removes a workload from its corresponding ClusterQueue and
@@ -67,7 +72,9 @@ type Snapshot struct {
 func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
 	delete(cq.Workloads, workload.Key(wl.Obj))
-	s.removeUsage(cq, wl.Usage())
+	if !s.released.Has(workload.Key(wl.Obj)) {
+		s.removeUsage(cq, wl.Usage())
+	}
 }
 
 // AddWorkload adds a workload to its corresponding ClusterQueue and
@@ -75,7 +82,24 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
 	cq.Workloads[workload.Key(wl.Obj)] = wl
-	s.AddUsage(cq, wl.Usage())
+	if !s.released.Has(workload.Key(wl.Obj)) {
+		s.AddUsage(cq, wl.Usage())
+	}
+}
+
+// ReleaseWorkloadUsage removes a workload's usage while keeping the workload in
+// its ClusterQueue, for a workload the rest of the cycle must still find, such
+// as a replaced workload slice.
+func (s *Snapshot) ReleaseWorkloadUsage(wl *workload.Info) {
+	key := workload.Key(wl.Obj)
+	if s.released.Has(key) {
+		return
+	}
+	if s.released == nil {
+		s.released = sets.New[workload.Reference]()
+	}
+	s.released.Insert(key)
+	s.removeUsage(s.ClusterQueue(wl.ClusterQueue), wl.Usage())
 }
 
 // AddUsage adds usage to the ClusterQueue and updates overlapping TAS flavors.
@@ -120,6 +144,9 @@ func (s *Snapshot) SimulateWorkloadUsageRemoval(workloads []*workload.Info) func
 	}
 	cqUsages := make([]cqUsage, 0, len(workloads))
 	for _, w := range workloads {
+		if s.released.Has(workload.Key(w.Obj)) {
+			continue
+		}
 		cqUsages = append(cqUsages, cqUsage{cq: w.ClusterQueue, usage: w.Usage()})
 	}
 	for _, cqUsage := range cqUsages {
@@ -146,9 +173,9 @@ func (s *Snapshot) SimulateWorkloadRemoval(workloads []*workload.Info) func() {
 	}
 }
 
-// ForgetSimulatedFeasibility drops every cached node-feasibility result. Callers must
+// forgetSimulatedFeasibility drops every cached node-feasibility result. Callers must
 // use it after changing what the scheduling simulator reports.
-func (s *Snapshot) ForgetSimulatedFeasibility() {
+func (s *Snapshot) forgetSimulatedFeasibility() {
 	for _, cq := range s.ClusterQueues() {
 		for _, tasSnapshot := range cq.TASFlavors {
 			tasSnapshot.forgetMatchingLeaves()
@@ -214,6 +241,10 @@ func WithAfsUsageLedger(ledger *queueafs.AfsUsageLedger) SnapshotOption {
 	}
 }
 
+// Snapshot returns a point-in-time copy of the ClusterQueue and Cohort trees for
+// one scheduling cycle. Quota is fixed for the snapshot's lifetime while Usage is
+// cloned, so callers can simulate admission and preemption against it without
+// affecting the cache.
 func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snapshot, error) {
 	c.RLock()
 	defer c.RUnlock()
@@ -242,7 +273,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 		// Wrapping here rather than inside a simulator keeps the device check on
 		// whichever one is configured, so it does not depend on the scheduler library.
 		if features.Enabled(features.KueueDRADeviceFeasibility) {
-			snap.SchedulerSimulator = schddra.NewChecker(snap.SchedulerSimulator, c.client, &c.draSelectorsCache)
+			snap.SchedulerSimulator = schddra.NewChecker(snap.SchedulerSimulator, c.client, &c.draSelectorsCache, c.deviceTaintRulesServed)
 		}
 	}
 
@@ -400,6 +431,10 @@ func (c *Cache) snapshotClusterQueue(
 		hasMultiKueueAC:               cq.hasMultiKueueAdmissionCheck(),
 		draBackedResources:            c.draBackedResources,
 	}
+	if features.Enabled(features.ConfigurablePreemptions) {
+		cc.Labels = maps.Clone(cq.Labels)
+		cc.PreemptionConfigName = cq.PreemptionConfigName
+	}
 	for i, rg := range cq.ResourceGroups {
 		cc.ResourceGroups[i] = rg.Clone()
 	}
@@ -432,5 +467,41 @@ func newCohortSnapshot(name kueue.CohortReference) *CohortSnapshot {
 	return &CohortSnapshot{
 		Name:   name,
 		Cohort: hierarchy.NewCohort[*ClusterQueueSnapshot](),
+	}
+}
+
+// SimulatePodRemoval removes the Workloads' Pods from the scheduling simulator and
+// returns a function that puts them back.
+func (s *Snapshot) SimulatePodRemoval(ctx context.Context, log logr.Logger, workloads []*workload.Info) func() {
+	// The default simulator reports the same cluster whatever is running, so there is
+	// nothing to take out of it and nothing cached to drop.
+	if s.SchedulerSimulator == nil || !features.Enabled(features.SchedulerLibraryIntegration) {
+		return func() {}
+	}
+	reverts := make([]func() error, 0, len(workloads))
+	for _, w := range workloads {
+		revert, err := s.SchedulerSimulator.PreemptWorkload(ctx, client.ObjectKeyFromObject(w.Obj))
+		if err != nil {
+			// The simulation still holds this victim's Pods, so it can only be
+			// stricter than reality. Log it and keep scheduling.
+			log.V(2).Info("Could not remove a preempted Workload from the scheduling simulator",
+				"workload", klog.KObj(w.Obj), "error", err)
+			continue
+		}
+		reverts = append(reverts, revert)
+	}
+	if len(reverts) == 0 {
+		return func() {}
+	}
+	// The simulator reports a different cluster now, so results cached before this
+	// no longer hold. The revert changes it back, so they are dropped again there.
+	s.forgetSimulatedFeasibility()
+	return func() {
+		for _, revert := range reverts {
+			if err := revert(); err != nil {
+				log.V(2).Info("Could not restore a preempted Workload in the scheduling simulator", "error", err)
+			}
+		}
+		s.forgetSimulatedFeasibility()
 	}
 }

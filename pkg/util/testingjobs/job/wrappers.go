@@ -263,6 +263,12 @@ func (j *JobWrapper) SuccessPolicy(policy *batchv1.SuccessPolicy) *JobWrapper {
 	return j
 }
 
+// Scheduling sets the workload-aware scheduling configuration
+func (j *JobWrapper) Scheduling(scheduling *batchv1.JobSchedulingConfiguration) *JobWrapper {
+	j.Spec.Scheduling = scheduling
+	return j
+}
+
 func (j *JobWrapper) Image(image string, args []string) *JobWrapper {
 	j.Spec.Template.Spec.Containers[0].Image = image
 	j.Spec.Template.Spec.Containers[0].Args = args

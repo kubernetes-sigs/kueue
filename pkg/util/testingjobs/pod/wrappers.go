@@ -176,6 +176,11 @@ func (p *PodWrapper) GroupTotalCount(gtc string) *PodWrapper {
 	return p.Annotation(podconstants.GroupTotalCountAnnotation, gtc)
 }
 
+// GroupMaxNotReadyCount updates the pod.GroupMaxNotReadyCountAnnotation of the Pod
+func (p *PodWrapper) GroupMaxNotReadyCount(count string) *PodWrapper {
+	return p.Annotation(podconstants.GroupMaxNotReadyCountAnnotation, count)
+}
+
 // GroupIndex updates the pod.GroupIndexLabel of the Pod
 func (p *PodWrapper) GroupIndex(index string) *PodWrapper {
 	return p.Label(kueue.PodGroupPodIndexLabel, index)
@@ -329,6 +334,12 @@ func (p *PodWrapper) Port(container, host int32, protocol corev1.Protocol) *PodW
 		HostPort:      host,
 		Protocol:      protocol,
 	})
+	return p
+}
+
+// ContainerName sets the name of the default container.
+func (p *PodWrapper) ContainerName(name string) *PodWrapper {
+	p.Spec.Containers[0].Name = name
 	return p
 }
 

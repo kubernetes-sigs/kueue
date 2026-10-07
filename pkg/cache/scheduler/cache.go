@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"sync"
 
@@ -109,6 +110,12 @@ func WithFairSharing(enabled bool) Option {
 	}
 }
 
+func WithDeviceTaintRules(served bool) Option {
+	return func(c *Cache) {
+		c.deviceTaintRulesServed = served
+	}
+}
+
 func WithAdmissionFairSharing(afs *config.AdmissionFairSharing) Option {
 	return func(c *Cache) {
 		c.admissionFairSharing = afs
@@ -172,6 +179,8 @@ type Cache struct {
 	draBackedResources *dra.ExtendedResourceCache
 	// draSelectorsCache is the Cache's own, built lazily on first use.
 	draSelectorsCache schddra.CELCache
+	// deviceTaintRulesServed is whether the cluster serves DeviceTaintRules, decided at startup.
+	deviceTaintRulesServed bool
 
 	hm hierarchy.Manager[*clusterQueue, *cohort]
 
@@ -257,6 +266,12 @@ func (c *Cache) WaitForPodsReady(ctx context.Context) {
 	}
 }
 
+// DeviceTaintRulesServed reports whether the cluster serves DeviceTaintRules, as decided
+// once at startup.
+func (c *Cache) DeviceTaintRulesServed() bool {
+	return c.deviceTaintRulesServed
+}
+
 // PodsReadyTracking reports whether the cache maintains each ClusterQueue's
 // admitted-but-not-ready set.
 func (c *Cache) PodsReadyTracking() bool {
@@ -305,18 +320,6 @@ func (c *Cache) updateClusterQueues(log logr.Logger) sets.Set[kueue.ClusterQueue
 		cq.updateWithAdmissionChecks(log, c.admissionChecks)
 		curStatus := cq.Status
 		if prevStatus == pending && curStatus == active {
-			cqs.Insert(cq.Name)
-		}
-	}
-	return cqs
-}
-
-func (c *Cache) ActiveClusterQueues() sets.Set[kueue.ClusterQueueReference] {
-	c.RLock()
-	defer c.RUnlock()
-	cqs := sets.New[kueue.ClusterQueueReference]()
-	for _, cq := range c.hm.ClusterQueues() {
-		if cq.Status == active {
 			cqs.Insert(cq.Name)
 		}
 	}
@@ -545,6 +548,7 @@ func (c *Cache) UpdateClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) erro
 		return err
 	}
 	c.handleParentUpdate(oldParent)
+	c.reportMovedAdmittedActiveWorkloads(oldParent, cqImpl.Parent())
 	for _, qImpl := range cqImpl.localQueues {
 		if qImpl == nil {
 			return errQNotFound
@@ -618,7 +622,11 @@ func (c *Cache) ResyncCohortGaugeMetrics(log logr.Logger, cohortName kueue.Cohor
 		if features.Enabled(features.CustomMetricLabels) {
 			customLabelValues = c.customLabels.CohortGet(cohort.Name)
 		}
-		metrics.ReportCohortWeightedShare(cohort.Name, drs.PreciseWeightedShare(), customLabelValues, c.roleTracker)
+		weightedShare := drs.PreciseWeightedShare()
+		if weightedShare == math.Inf(1) {
+			weightedShare = math.NaN()
+		}
+		metrics.ReportCohortWeightedShare(cohort.Name, weightedShare, customLabelValues, c.roleTracker)
 	}
 }
 
@@ -675,6 +683,8 @@ func (c *Cache) AddOrUpdateCohort(apiCohort *kueue.Cohort) error {
 	oldParent := cohort.Parent()
 	c.hm.UpdateCohortEdge(cohortName, apiCohort.Spec.ParentName)
 	err := cohort.updateCohort(apiCohort, oldParent)
+	// The old tree loses this subtree even when the new parent closes a cycle.
+	c.reportMovedAdmittedActiveWorkloads(oldParent, cohort.Parent())
 	if err != nil {
 		if errors.Is(err, ErrCohortHasCycle) {
 			c.updateClusterQueues(ctrl.Log.WithName("cache"))
@@ -700,7 +710,6 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	wasCyclic := false
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
 		wasCyclic = hierarchy.HasCycle(cohort)
-		cohort.updateAdmittedWorkloadsCount(-cohort.admittedWorkloadsCount)
 		metrics.ClearCohortAdmittedWorkloadsMetrics(cohort.Name)
 		if features.Enabled(features.MetricsForCohorts) {
 			metrics.ClearCohortInfo(cohort.Name)
@@ -715,6 +724,7 @@ func (c *Cache) DeleteCohort(cohortName kueue.CohortReference) {
 	// We need to run update algorithm.
 	if cohort := c.hm.Cohort(cohortName); cohort != nil {
 		updateCohortResourceNode(cohort)
+		reportTreeAdmittedActiveWorkloads(cohort)
 	}
 
 	if parent != nil {
@@ -837,6 +847,38 @@ func (c *Cache) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kue
 	c.Lock()
 	defer c.Unlock()
 	if c.concurrentAdmissionEnabledForWithoutLock(w) && !concurrentadmission.IsVariant(w) {
+		return false
+	}
+	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
+	if err != nil {
+		log.Error(err, "Updating workload in cache")
+	}
+	return updated
+}
+
+// UpdateWorkloadIfUnchanged applies w like AddOrUpdateWorkload, but only if the cache holds it with the same resourceVersion.
+// It returns true if it stored w; otherwise false, after removing the workload if w holds no active quota reservation.
+func (c *Cache) UpdateWorkloadIfUnchanged(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) bool {
+	c.Lock()
+	defer c.Unlock()
+	wlKey := workload.Key(w)
+	cqName, assigned := c.workloadAssignedQueues[wlKey]
+	if !assigned {
+		log.V(3).Info("Not updating workload in cache as the cache does not hold it")
+		return false
+	}
+	cq := c.hm.ClusterQueue(cqName)
+	if cq == nil {
+		log.V(3).Info("Not updating workload in cache as its ClusterQueue is not in the cache", "assignedClusterQueue", klog.KRef("", string(cqName)))
+		return false
+	}
+	cached, found := cq.Workloads[wlKey]
+	if !found {
+		log.V(3).Info("Not updating workload in cache as it is missing from its ClusterQueue", "assignedClusterQueue", klog.KRef("", string(cqName)))
+		return false
+	}
+	if cached.Obj.ResourceVersion != w.ResourceVersion {
+		log.V(3).Info("Not updating workload in cache as its resourceVersion differs from the cached one", "cachedResourceVersion", cached.Obj.ResourceVersion, "resourceVersion", w.ResourceVersion)
 		return false
 	}
 	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)

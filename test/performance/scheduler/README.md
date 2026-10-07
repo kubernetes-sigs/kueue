@@ -135,3 +135,31 @@ cohorts:
 ```
 
 Performance thresholds are defined in `configs/tas/rangespec.yaml`.
+
+## TAS with DRA Tests
+
+The TAS with DRA config (`configs/tas-dra/generator.yaml`) runs the TAS workloads with every
+pod claiming DRA devices, so each scheduling cycle runs the per-node device feasibility check.
+The `--enableDRA` flag enables `KueueDRADeviceFeasibility` in minimalkueue and maps the generated
+DeviceClass to the `perf.example.com/gpu` quota resource.
+
+The config extends the TAS format with:
+
+```yaml
+dra:
+  devicesPerNode: 8          # devices in the ResourceSlice of each generated node
+
+cohorts:
+  # queue sets add deviceNominalQuota and deviceBorrowingLimit
+  # TAS workloads add devices: the number of devices each pod claims
+```
+
+No kube-scheduler runs, so ResourceClaims are never allocated and devices are never consumed.
+The test measures the cost of the check, not device contention.
+
+```bash
+make run-tas-dra-performance-scheduler
+make test-tas-dra-performance-scheduler
+```
+
+Performance thresholds are defined in `configs/tas-dra/rangespec.yaml`.

@@ -29,7 +29,7 @@ import (
 
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
-	testutil "sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 const (
@@ -95,7 +95,7 @@ func generateTopologyNodes(ctx context.Context, c client.Client, config Topology
 
 	// Create nodes with status Ready
 	log.Info("Updating node status to Ready")
-	testutil.CreateNodesWithStatus(ctx, c, nodes)
+	integration.CreateNodesWithStatus(ctx, c, nodes)
 
 	log.Info("Successfully generated nodes", "count", len(nodes))
 	return nil
@@ -125,6 +125,9 @@ func generateNodesRecursive(levels []TopologyLevel, currentLevelIdx int, labelVa
 			// We need to split and apply
 			node = node.Label(levels[i].NodeLabel, labelValues[i])
 		}
+		// The per-level value repeats across racks, and TAS keys a hostname-lowest
+		// topology by the hostname alone, so it has to be the unique node name.
+		node = node.Label(corev1.LabelHostname, nodeName)
 
 		*nodes = append(*nodes, *node.Obj())
 		return

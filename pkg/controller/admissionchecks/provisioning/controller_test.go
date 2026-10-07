@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"testing"
 	"time"
 
@@ -35,6 +36,7 @@ import (
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -45,6 +47,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -53,6 +56,252 @@ var (
 	errProvisioningRequestExists  = apierrors.NewAlreadyExists(
 		schema.GroupResource{Group: "autoscaling.x-k8s.io", Resource: "provisioningrequests"}, "wl-check1-1")
 )
+
+func TestSanitizeProvisioningRequestPodTemplate(t *testing.T) {
+	staleAnnotations := map[string]string{
+		autoscaling.ProvisioningRequestPodAnnotationKey: "old-request",
+		autoscaling.ProvisioningClassPodAnnotationKey:   "old-class",
+		kueue.WorkloadAnnotation:                        "old-workload",
+		kueue.WorkloadSliceNameAnnotation:               "old-slice",
+		"example.com/preserved":                         "true",
+	}
+	cases := map[string]struct {
+		featureEnabled   bool
+		elastic          bool
+		wantAnnos        map[string]string
+		wantGatesCleared bool
+	}{
+		"elastic workload removes stale annotations": {
+			featureEnabled:   true,
+			elastic:          true,
+			wantAnnos:        map[string]string{"example.com/preserved": "true"},
+			wantGatesCleared: true,
+		},
+		"feature disabled preserves annotations": {
+			featureEnabled: false,
+			elastic:        true,
+			wantAnnos:      staleAnnotations,
+		},
+		"non-elastic workload preserves annotations": {
+			featureEnabled: true,
+			wantAnnos:      staleAnnotations,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, tc.featureEnabled)
+			template := corev1.PodTemplateSpec{
+				Annotations: maps.Clone(staleAnnotations),
+				Spec: corev1.PodSpec{
+					SchedulingGates: []corev1.PodSchedulingGate{
+						{Name: kueue.ElasticJobSchedulingGate},
+						{Name: "example.com/other-gate"},
+					},
+					Containers: []corev1.Container{{
+						Name:  "c",
+						Image: "img",
+					}},
+				},
+			}
+			wl := utiltestingapi.MakeWorkload("wl", TestNamespace)
+			if tc.elastic {
+				wl.Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)
+			}
+
+			sanitizeProvisioningRequestPodTemplate(&template, wl.Obj())
+
+			if diff := cmp.Diff(tc.wantAnnos, template.Annotations); diff != "" {
+				t.Errorf("Unexpected annotations (-want,+got):\n%s", diff)
+			}
+			if tc.wantGatesCleared && len(template.Spec.SchedulingGates) != 0 {
+				t.Errorf("expected all scheduling gates cleared, got %#v", template.Spec.SchedulingGates)
+			}
+			if !tc.wantGatesCleared && len(template.Spec.SchedulingGates) != 2 {
+				t.Errorf("expected scheduling gates preserved, got %#v", template.Spec.SchedulingGates)
+			}
+		})
+	}
+}
+
+func TestClearStaleAdmissionAnnotations(t *testing.T) {
+	template := corev1.PodTemplateSpec{
+		Annotations: map[string]string{
+			autoscaling.ProvisioningRequestPodAnnotationKey: "old-request",
+			autoscaling.ProvisioningClassPodAnnotationKey:   "old-class",
+			kueue.WorkloadAnnotation:                        "old-workload",
+			kueue.WorkloadSliceNameAnnotation:               "old-slice",
+			"example.com/preserved":                         "true",
+		},
+	}
+
+	clearStaleAdmissionAnnotations(&template)
+
+	want := map[string]string{"example.com/preserved": "true"}
+	if diff := cmp.Diff(want, template.Annotations); diff != "" {
+		t.Errorf("Unexpected annotations after clearing stale admission metadata (-want,+got):\n%s", diff)
+	}
+}
+
+func TestMergePodSetsOmitsUnchangedElasticSlicePodSets(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, true)
+	prcSpec := &kueue.ProvisioningRequestConfigSpec{}
+	now := time.Now()
+
+	makeWL := func(headCount, workerCount int) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("wl", TestNamespace).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			PodSets(
+				*utiltestingapi.MakePodSet("head", headCount).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				*utiltestingapi.MakePodSet("default", workerCount).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
+				kueue.PodSetAssignment{
+					Name:  "head",
+					Count: new(int32(headCount)),
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "flv1",
+					},
+				},
+				kueue.PodSetAssignment{
+					Name:  "default",
+					Count: new(int32(workerCount)),
+					Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+						corev1.ResourceCPU: "flv2",
+					},
+				},
+			).Obj(), now).
+			Obj()
+	}
+
+	cases := map[string]struct {
+		wl              *kueue.Workload
+		previousCounts  map[kueue.PodSetReference]int32
+		wantPodSetNames []kueue.PodSetReference
+		wantCounts      []int32
+	}{
+		"first slice includes head and skips zero workers": {
+			wl:              makeWL(1, 0),
+			wantPodSetNames: []kueue.PodSetReference{"head"},
+			wantCounts:      []int32{1},
+		},
+		"elastic worker scale-up omits unchanged head": {
+			wl: makeWL(1, 2),
+			previousCounts: map[kueue.PodSetReference]int32{
+				"head":    1,
+				"default": 0,
+			},
+			wantPodSetNames: []kueue.PodSetReference{"default"},
+			wantCounts:      []int32{2},
+		},
+		"elastic worker scale 2 to 4 requests only the increment": {
+			wl: makeWL(1, 4),
+			previousCounts: map[kueue.PodSetReference]int32{
+				"head":    1,
+				"default": 2,
+			},
+			wantPodSetNames: []kueue.PodSetReference{"default"},
+			wantCounts:      []int32{2},
+		},
+		"fully covered previous counts request nothing": {
+			wl: makeWL(1, 2),
+			previousCounts: map[kueue.PodSetReference]int32{
+				"head":    1,
+				"default": 2,
+			},
+			wantPodSetNames: []kueue.PodSetReference{},
+			wantCounts:      []int32{},
+		},
+		"no previous counts keeps both podSets": {
+			wl:              makeWL(1, 2),
+			wantPodSetNames: []kueue.PodSetReference{"head", "default"},
+			wantCounts:      []int32{1, 2},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := mergePodSets(t.Context(), tc.wl, prcSpec, tc.previousCounts)
+			if err != nil {
+				t.Fatalf("mergePodSets: %v", err)
+			}
+			gotNames := make([]kueue.PodSetReference, len(got))
+			gotCounts := make([]int32, len(got))
+			for i := range got {
+				gotNames[i] = got[i].Name
+				gotCounts[i] = got[i].Count
+			}
+			if diff := cmp.Diff(tc.wantPodSetNames, gotNames); diff != "" {
+				t.Errorf("unexpected podSet names (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantCounts, gotCounts); diff != "" {
+				t.Errorf("unexpected counts (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestPreviousSlicePodSetCounts covers the gating only; the baseline
+// computation itself is tested in workloadslicing.TestPreviousAdmittedPodSetCounts.
+func TestPreviousSlicePodSetCounts(t *testing.T) {
+	now := time.Now()
+	admitted := utiltestingapi.MakeWorkload("admitted", TestNamespace).
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		Annotation(kueue.WorkloadSliceNameAnnotation, "chain").
+		PodSets(*utiltestingapi.MakePodSet("workers", 2).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			kueue.PodSetAssignment{Name: "workers", Count: ptr.To[int32](2)},
+		).Obj(), now).
+		AdmittedAt(true, now).
+		FinishedAt(now).
+		Obj()
+	elastic := utiltestingapi.MakeWorkload("current", TestNamespace).
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		Annotation(kueue.WorkloadSliceNameAnnotation, "chain").
+		Obj()
+
+	cases := map[string]struct {
+		featureEnabled bool
+		current        *kueue.Workload
+		wantCounts     map[kueue.PodSetReference]int32
+	}{
+		"elastic workload with the feature enabled gets the admitted baseline": {
+			featureEnabled: true,
+			current:        elastic,
+			wantCounts:     map[kueue.PodSetReference]int32{"workers": 2},
+		},
+		"feature disabled requests the full size": {
+			featureEnabled: false,
+			current:        elastic,
+		},
+		"non-elastic workload requests the full size": {
+			featureEnabled: true,
+			current:        utiltestingapi.MakeWorkload("non-elastic", TestNamespace).Obj(),
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, tc.featureEnabled)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			builder, ctx := getClientBuilder(ctx)
+			c := &Controller{client: builder.WithObjects(admitted).Build()}
+			got, err := c.previousSlicePodSetCounts(ctx, tc.current)
+			if err != nil {
+				t.Fatalf("previousSlicePodSetCounts: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantCounts, got); diff != "" {
+				t.Errorf("unexpected effective counts (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
 
 var (
 	wlCmpOptions = cmp.Options{
@@ -156,7 +405,7 @@ func TestMergePodSetsSkipsZeroCounts(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			got, err := mergePodSets(t.Context(), tc.workload, &kueue.ProvisioningRequestConfigSpec{
 				PodSetMergePolicy: tc.mergePolicy,
-			})
+			}, nil)
 			if err != nil {
 				t.Fatalf("mergePodSets() error = %v", err)
 			}
@@ -219,7 +468,7 @@ func TestReqIsNeeded(t *testing.T) {
 			workload: makeWorkload(1, nil, false),
 			wantErr:  errInconsistentPodSetAssignments,
 		},
-		"needed podset short circuits later missing assignment": {
+		"missing assignment for a later managed podset is an inconsistency": {
 			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("ps1", 1).
@@ -236,13 +485,13 @@ func TestReqIsNeeded(t *testing.T) {
 					time.Now(),
 				).
 				Obj(),
-			want: true,
+			wantErr: errInconsistentPodSetAssignments,
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			got, err := reqIsNeeded(tc.workload, prc)
+			got, err := (&Controller{}).reqIsNeeded(t.Context(), tc.workload, prc)
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}
@@ -430,16 +679,21 @@ func TestReconcile(t *testing.T) {
 		},
 	})
 
+	zeroCountPodSetWorkload := baseWorkload.DeepCopy()
+	zeroCountPodSetWorkload.Spec.PodSets[1].Count = 0
+	zeroCountPodSetWorkload.Status.Admission.PodSetAssignments[1].Count = ptr.To[int32](0)
+
+	zeroEffectiveCountPodSetWorkload := baseWorkload.DeepCopy()
+	zeroEffectiveCountPodSetWorkload.Status.Admission.PodSetAssignments[1].Count = ptr.To[int32](0)
+
+	allZeroCountWorkload := zeroCountPodSetWorkload.DeepCopy()
+	allZeroCountWorkload.Spec.PodSets[0].Count = 0
+	allZeroCountWorkload.Status.Admission.PodSetAssignments[0].Count = ptr.To[int32](0)
+
 	baseCheck := utiltestingapi.MakeAdmissionCheck("check1").
 		ControllerName(kueue.ProvisioningRequestControllerName).
 		Parameters(kueue.SchemeGroupVersion.Group, ConfigKind, "config1").
 		Obj()
-
-	allZeroCountWorkload := baseWorkload.DeepCopy()
-	for i := range allZeroCountWorkload.Spec.PodSets {
-		allZeroCountWorkload.Spec.PodSets[i].Count = 0
-		allZeroCountWorkload.Status.Admission.PodSetAssignments[i].Count = new(int32(0))
-	}
 
 	podSetMergePolicyAssignemnt := []kueue.PodSetAssignment{
 		{
@@ -504,6 +758,7 @@ func TestReconcile(t *testing.T) {
 		configs              []kueue.ProvisioningRequestConfig
 		flavors              []kueue.ResourceFlavor
 		workload             *kueue.Workload
+		additionalWorkloads  []*kueue.Workload
 		featureGates         map[featuregate.Feature]bool
 		wantReconcileError   error
 		wantWorkloads        map[string]*kueue.Workload
@@ -567,6 +822,135 @@ func TestReconcile(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       client.ObjectKeyFromObject(baseWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"strips elastic scheduling gates from ProvisioningRequest PodTemplates": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                        true,
+				features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(
+					*utiltestingapi.MakePodSet("ps1", 4).
+						Request(corev1.ResourceCPU, "1").
+						SchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).
+						Obj(),
+					*utiltestingapi.MakePodSet("ps2", 4).
+						Request(corev1.ResourceMemory, "1M").
+						SchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).
+						Obj(),
+				).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
+					kueue.PodSetAssignment{
+						Name: "ps1",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "flv1",
+						},
+						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceCPU: resource.MustParse("4"),
+						},
+						Count: ptr.To[int32](4),
+					},
+					kueue.PodSetAssignment{
+						Name: "ps2",
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "flv2",
+						},
+						ResourceUsage: map[corev1.ResourceName]resource.Quantity{
+							corev1.ResourceCPU: resource.MustParse("3M"),
+						},
+						Count: ptr.To[int32](3),
+					},
+				).Obj(), now).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "check1",
+					State: kueue.CheckStatePending,
+				}, kueue.AdmissionCheckState{
+					Name:  "not-provisioning",
+					State: kueue.CheckStatePending,
+				}).Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: baseRequest.DeepCopy(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				// Templates must match ungated base templates — gates are for
+				// real pods only, not CA capacity simulation.
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+				baseTemplate2.Name: baseTemplate2.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: TestNamespace, Name: "wl"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"with zero-count PodSet": {
+			workload: zeroCountPodSetWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				zeroCountPodSetWorkload.GetName(): zeroCountPodSetWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: func() *autoscaling.ProvisioningRequest {
+					request := baseRequest.DeepCopy()
+					request.Spec.PodSets = request.Spec.PodSets[:1]
+					return request
+				}(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(zeroCountPodSetWorkload),
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"with zero effective-count PodSet": {
+			workload: zeroEffectiveCountPodSetWorkload.DeepCopy(),
+			checks:   []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors:  []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs:  []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				zeroEffectiveCountPodSetWorkload.GetName(): zeroEffectiveCountPodSetWorkload.DeepCopy(),
+			},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequest.Name: func() *autoscaling.ProvisioningRequest {
+					request := baseRequest.DeepCopy()
+					request.Spec.PodSets = request.Spec.PodSets[:1]
+					return request
+				}(),
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				baseTemplate1.Name: baseTemplate1.Clone().
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(zeroEffectiveCountPodSetWorkload),
 					EventType: corev1.EventTypeNormal,
 					Reason:    "ProvisioningRequestCreated",
 					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
@@ -2513,6 +2897,380 @@ func TestReconcile(t *testing.T) {
 			flavors:            []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
 			wantReconcileError: errInconsistentPodSetAssignments,
 		},
+		"elastic scale-up omits unchanged head from ProvisioningRequest": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: true,
+			},
+			additionalWorkloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl-prev", TestNamespace).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "chain").
+					PodSets(
+						*utiltestingapi.MakePodSet("head", 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltestingapi.MakePodSet("default", 0).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
+						kueue.PodSetAssignment{
+							Name:  "head",
+							Count: ptr.To[int32](1),
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "flv1",
+							},
+						},
+						kueue.PodSetAssignment{
+							Name:  "default",
+							Count: ptr.To[int32](0),
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "flv2",
+							},
+						},
+					).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
+				Annotations(map[string]string{
+					"kueue.x-k8s.io/workload-slice-replacement-for": TestNamespace + "/wl-prev",
+					workloadslicing.EnabledAnnotationKey:            workloadslicing.EnabledAnnotationValue,
+					kueue.WorkloadSliceNameAnnotation:               "chain",
+				}).
+				PodSets(
+					*utiltestingapi.MakePodSet("head", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+					*utiltestingapi.MakePodSet("default", 2).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
+					kueue.PodSetAssignment{
+						Name:  "head",
+						Count: ptr.To[int32](1),
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "flv1",
+						},
+					},
+					kueue.PodSetAssignment{
+						Name:  "default",
+						Count: ptr.To[int32](2),
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "flv2",
+						},
+					},
+				).Obj(), now).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "check1",
+					State: kueue.CheckStatePending,
+				}, kueue.AdmissionCheckState{
+					Name:  "not-provisioning",
+					State: kueue.CheckStatePending,
+				}).Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				"wl-check1-1": {
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: TestNamespace,
+						Name:      "wl-check1-1",
+						Labels: map[string]string{
+							constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
+						},
+						OwnerReferences: []metav1.OwnerReference{{Name: "wl"}},
+					},
+					Spec: autoscaling.ProvisioningRequestSpec{
+						PodSets: []autoscaling.PodSet{
+							{
+								PodTemplateRef: autoscaling.Reference{Name: "ppt-wl-check1-1-default"},
+								Count:          2,
+							},
+						},
+						ProvisioningClassName: "class1",
+						Parameters: map[string]autoscaling.Parameter{
+							"p1": "v1",
+						},
+					},
+				},
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				"ppt-wl-check1-1-default": utiltesting.MakePodTemplate("ppt-wl-check1-1-default", TestNamespace).
+					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+					Containers(corev1.Container{
+						Name: "c",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1"),
+							},
+						},
+					}).
+					NodeSelector("f2l1", "v1").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: TestNamespace, Name: "wl"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"elastic re-scale after scale-down uses previous Spec not stale assignment": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: true,
+			},
+			// Reproduces default-dev: finished previous slice Spec workers=0 but
+			// Admission still assigns workers=2. Comparing assignments would skip
+			// the PRQ; Spec must win so scale-up provisions again.
+			additionalWorkloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl-prev", TestNamespace).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "chain").
+					PodSets(
+						*utiltestingapi.MakePodSet("head", 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltestingapi.MakePodSet("default", 0).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
+						kueue.PodSetAssignment{
+							Name:  "head",
+							Count: ptr.To[int32](1),
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "flv1",
+							},
+						},
+						kueue.PodSetAssignment{
+							Name:  "default",
+							Count: ptr.To[int32](2),
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "flv2",
+							},
+						},
+					).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
+				Annotations(map[string]string{
+					"kueue.x-k8s.io/workload-slice-replacement-for": TestNamespace + "/wl-prev",
+					workloadslicing.EnabledAnnotationKey:            workloadslicing.EnabledAnnotationValue,
+					kueue.WorkloadSliceNameAnnotation:               "chain",
+				}).
+				PodSets(
+					*utiltestingapi.MakePodSet("head", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+					*utiltestingapi.MakePodSet("default", 2).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
+					kueue.PodSetAssignment{
+						Name:  "head",
+						Count: ptr.To[int32](1),
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "flv1",
+						},
+					},
+					kueue.PodSetAssignment{
+						Name:  "default",
+						Count: ptr.To[int32](2),
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "flv2",
+						},
+					},
+				).Obj(), now).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "check1",
+					State: kueue.CheckStatePending,
+				}, kueue.AdmissionCheckState{
+					Name:  "not-provisioning",
+					State: kueue.CheckStatePending,
+				}).Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				"wl-check1-1": {
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: TestNamespace,
+						Name:      "wl-check1-1",
+						Labels: map[string]string{
+							constants.ManagedByKueueLabelKey: constants.ManagedByKueueLabelValue,
+						},
+						OwnerReferences: []metav1.OwnerReference{{Name: "wl"}},
+					},
+					Spec: autoscaling.ProvisioningRequestSpec{
+						PodSets: []autoscaling.PodSet{
+							{
+								PodTemplateRef: autoscaling.Reference{Name: "ppt-wl-check1-1-default"},
+								Count:          2,
+							},
+						},
+						ProvisioningClassName: "class1",
+						Parameters: map[string]autoscaling.Parameter{
+							"p1": "v1",
+						},
+					},
+				},
+			},
+			wantTemplates: map[string]*corev1.PodTemplate{
+				"ppt-wl-check1-1-default": utiltesting.MakePodTemplate("ppt-wl-check1-1-default", TestNamespace).
+					Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
+					Containers(corev1.Container{
+						Name: "c",
+						Resources: corev1.ResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("1"),
+							},
+						},
+					}).
+					NodeSelector("f2l1", "v1").
+					ControllerReference(autoscaling.SchemeGroupVersion.WithKind("ProvisioningRequest"), "wl-check1-1", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: TestNamespace, Name: "wl"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "ProvisioningRequestCreated",
+					Message:   `Created ProvisioningRequest: "wl-check1-1"`,
+				},
+			},
+		},
+		"elastic fully covered by admitted predecessor needs no request": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: true,
+			},
+			additionalWorkloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("wl-prev", TestNamespace).
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "chain").
+					PodSets(
+						*utiltestingapi.MakePodSet("head", 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltestingapi.MakePodSet("default", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
+						kueue.PodSetAssignment{
+							Name:  "head",
+							Count: ptr.To[int32](1),
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "flv1",
+							},
+						},
+						kueue.PodSetAssignment{
+							Name:  "default",
+							Count: ptr.To[int32](2),
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "flv2",
+							},
+						},
+					).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", TestNamespace).
+				Annotations(map[string]string{
+					"kueue.x-k8s.io/workload-slice-replacement-for": TestNamespace + "/wl-prev",
+					workloadslicing.EnabledAnnotationKey:            workloadslicing.EnabledAnnotationValue,
+					kueue.WorkloadSliceNameAnnotation:               "chain",
+				}).
+				PodSets(
+					*utiltestingapi.MakePodSet("head", 1).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+					*utiltestingapi.MakePodSet("default", 2).
+						Request(corev1.ResourceCPU, "1").
+						Obj(),
+				).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
+					kueue.PodSetAssignment{
+						Name:  "head",
+						Count: ptr.To[int32](1),
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "flv1",
+						},
+					},
+					kueue.PodSetAssignment{
+						Name:  "default",
+						Count: ptr.To[int32](2),
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "flv2",
+						},
+					},
+				).Obj(), now).
+				AdmissionChecks(kueue.AdmissionCheckState{
+					Name:  "check1",
+					State: kueue.CheckStatePending,
+				}, kueue.AdmissionCheckState{
+					Name:  "not-provisioning",
+					State: kueue.CheckStatePending,
+				}).Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			wantWorkloads: map[string]*kueue.Workload{
+				"wl": utiltestingapi.MakeWorkload("wl", TestNamespace).
+					Annotations(map[string]string{
+						"kueue.x-k8s.io/workload-slice-replacement-for": TestNamespace + "/wl-prev",
+						workloadslicing.EnabledAnnotationKey:            workloadslicing.EnabledAnnotationValue,
+						kueue.WorkloadSliceNameAnnotation:               "chain",
+					}).
+					PodSets(
+						*utiltestingapi.MakePodSet("head", 1).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+						*utiltestingapi.MakePodSet("default", 2).
+							Request(corev1.ResourceCPU, "1").
+							Obj(),
+					).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").PodSets(
+						kueue.PodSetAssignment{
+							Name:  "head",
+							Count: ptr.To[int32](1),
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "flv1",
+							},
+						},
+						kueue.PodSetAssignment{
+							Name:  "default",
+							Count: ptr.To[int32](2),
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "flv2",
+							},
+						},
+					).Obj(), now).
+					AdmissionChecks(kueue.AdmissionCheckState{
+						Name:    "check1",
+						State:   kueue.CheckStateReady,
+						Message: NoRequestNeeded,
+					}, kueue.AdmissionCheckState{
+						Name:  "not-provisioning",
+						State: kueue.CheckStatePending,
+					}).Obj(),
+			},
+			wantRequestsNotFound: []string{"wl-check1-1"},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: TestNamespace, Name: "wl"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "UpdatedAdmissionCheck",
+					Message:   `Admission check check1 updated state from Pending to Ready with message: the provisioning request is not needed`,
+				},
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -2545,6 +3303,10 @@ func TestReconcile(t *testing.T) {
 				builder = builder.WithInterceptorFuncs(interceptorFuncs)
 				builder = builder.WithObjects(tc.workload)
 				builder = builder.WithStatusSubresource(tc.workload)
+				for _, aw := range tc.additionalWorkloads {
+					builder = builder.WithObjects(aw)
+					builder = builder.WithStatusSubresource(aw)
+				}
 				builder = builder.WithLists(
 					&autoscaling.ProvisioningRequestList{Items: tc.requests},
 					&corev1.PodTemplateList{Items: tc.templates},

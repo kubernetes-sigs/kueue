@@ -73,6 +73,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
+	utilwfpr "sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -102,6 +103,7 @@ var (
 		kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 		kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
 		kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+		kueue.PreemptionGated,
 	)
 )
 
@@ -127,10 +129,28 @@ func (r *WorkloadReconciler) handleDRAConsumableCapacity(
 	return dra.MergeDRAResources(draResources, capacityResources), false, ctrl.Result{}, nil
 }
 
-// handleDRA preprocesses DRA-backed resources for a pending workload and queues it.
+func isDRAInadmissibleReason(reason string) bool {
+	// Keep WorkloadInadmissible for backwards compatibility while
+	// UnadmittedWorkloadsObservability is disabled.
+	return reason == kueue.WorkloadInadmissible || reason == kueue.WorkloadDRAResourcesUnresolved
+}
+
+func draConditionReasonsWithLegacyFallback() (quotaReservedReason, requeuedReason string) {
+	return workload.UnadmittedWorkloadReasonWithFallback(
+			kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
+			kueue.WorkloadInadmissible,
+		),
+		workload.UnadmittedWorkloadReasonWithFallback(
+			kueue.WorkloadDRAResourcesUnresolved,
+			kueue.WorkloadInadmissible,
+		)
+}
+
+// handleDRA preprocesses DRA-backed resources for a pending workload. It does not
+// queue the workload; Reconcile does that once with the returned queueOptions.
 // Returns done=true when reconciliation should stop (error or terminal DRA outcome).
-// When done=false, queueOptions holds the InfoOptions the caller must pass to any
-// subsequent AddOrUpdateWorkload in the same reconcile (e.g. the backoff-requeue path).
+// When done=false, queueOptions holds the InfoOptions Reconcile must pass to
+// AddOrUpdateWorkload.
 func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) (done bool, result ctrl.Result, queueOptions []workload.InfoOption, err error) {
 	log := ctrl.LoggerFrom(ctx)
 
@@ -196,23 +216,17 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 		draResources = ccResources
 	}
 
-	requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
-
+	// If the workload was held back due to inadmissible DRA resources (Requeued=False/Inadmissible),
+	// persist Requeued=True now that DRA processing succeeded so the scheduler can pick it up.
+	// Non-DRA reasons (e.g. PodsReadyTimeout) are left untouched for the backoff path to handle.
 	var conditionsChanged bool
-	if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse {
-		if requeuedCond.Reason == kueue.WorkloadInadmissible {
-			if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-				return workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking", true), nil
-			}); err != nil {
-				return true, ctrl.Result{}, nil, fmt.Errorf("failed to persist DRA resources resolved condition: %w", err)
-			}
-		} else {
-			apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadRequeued)
+	requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
+	if requeuedCond != nil && requeuedCond.Status == metav1.ConditionFalse && isDRAInadmissibleReason(requeuedCond.Reason) {
+		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+			return workload.SetRequeuedCondition(wl, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking", true), nil
+		}); err != nil {
+			return true, ctrl.Result{}, nil, fmt.Errorf("failed to persist DRA resources resolved condition: %w", err)
 		}
-		conditionsChanged = true
-	}
-	if quotaReservedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved); quotaReservedCond != nil && quotaReservedCond.Status == metav1.ConditionFalse {
-		apimeta.RemoveStatusCondition(&wl.Status.Conditions, kueue.WorkloadQuotaReserved)
 		conditionsChanged = true
 	}
 
@@ -224,19 +238,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	if len(draResources) > 0 || len(replacedExtendedResources) > 0 {
 		queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources, replacedExtendedResources))
 	}
-
-	if workload.IsAdmissible(wl) {
-		if err := r.queues.AddOrUpdateWorkload(ctx, log, wl.DeepCopy(), queueOptions...); err != nil {
-			log.V(2).Info("Failed to add DRA workload to queue", "error", err)
-			return true, ctrl.Result{}, nil, err
-		}
-		log.V(3).Info("Successfully pre-processed and queued DRA workload in scheduler")
-	} else {
-		if !r.cache.AddOrUpdateWorkload(ctx, log, wl.DeepCopy()) {
-			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
-		}
-		log.V(3).Info("Successfully pre-processed DRA workload for cache")
-	}
+	log.V(3).Info("Successfully pre-processed DRA workload")
 	return false, ctrl.Result{}, queueOptions, nil
 }
 
@@ -245,9 +247,9 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 	err := fieldErrs.ToAggregate()
 	log.Error(err, logMsg)
 	updateErr := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-		reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadInadmissible)
-		updated := workload.UnsetQuotaReservationWithCondition(wl, reason, err.Error(), r.clock.Now())
-		if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, err.Error(), false) {
+		quotaReservedReason, requeuedReason := draConditionReasonsWithLegacyFallback()
+		updated := workload.UnsetQuotaReservationWithCondition(wl, quotaReservedReason, err.Error(), r.clock.Now())
+		if updated && workload.SetRequeuedCondition(wl, requeuedReason, err.Error(), false) {
 			updated = true
 		}
 		return updated, nil
@@ -421,6 +423,7 @@ func (r *WorkloadReconciler) logger() logr.Logger {
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceclaimtemplates,verbs=get;list;watch
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=deviceclasses,verbs=get;list;watch
 // +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceslices,verbs=get;list;watch
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=devicetaintrules,verbs=get;list;watch
 
 func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
 	log := ctrl.LoggerFrom(ctx)
@@ -526,8 +529,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		workload.HasDRA(&wl) {
 		log.V(3).Info("Rejecting workload that uses DRA resources because KueueDRAIntegration feature gate is disabled")
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadInadmissible)
-			updated := workload.UnsetQuotaReservationWithCondition(wl, reason,
+			quotaReservedReason := workload.UnadmittedWorkloadReasonWithFallback(
+				kueue.WorkloadQuotaReservedReasonMisconfigured,
+				kueue.WorkloadInadmissible,
+			)
+			updated := workload.UnsetQuotaReservationWithCondition(wl, quotaReservedReason,
 				"Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
 				r.clock.Now())
 			if workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible,
@@ -542,12 +548,14 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		return ctrl.Result{}, nil
 	}
 	var draQueueOptions []workload.InfoOption
+	var draPreprocessed bool
 	if workload.Status(&wl) == workload.StatusPending && r.needsDRAReconcile(ctx, &wl) {
-		if done, result, opts, err := r.handleDRA(ctx, &wl); done {
+		done, result, opts, err := r.handleDRA(ctx, &wl)
+		if done {
 			return result, err
-		} else {
-			draQueueOptions = opts
 		}
+		draQueueOptions = opts
+		draPreprocessed = true
 	}
 
 	if workload.IsActive(&wl) {
@@ -585,6 +593,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 					return ctrl.Result{}, nil
 				}
 
+				if draPreprocessed && apimeta.IsStatusConditionFalse(wl.Status.Conditions, kueue.WorkloadRequeued) {
+					// DRA queue options would be lost on a second reconcile,
+					// so persist Requeued=True now instead of relying on the
+					// two-cycle path that non-DRA workloads use.
+					if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+						return workload.SetRequeuedCondition(wl, kueue.WorkloadBackoffFinished, "The workload backoff was finished", true), nil
+					}); err != nil {
+						return ctrl.Result{}, client.IgnoreNotFound(err)
+					}
+				}
 				if err := r.queues.AddOrUpdateWorkload(ctx, log, wl.DeepCopy(), draQueueOptions...); err != nil {
 					log.V(2).Info("failed to put the workload back into queue", "error", err)
 					return ctrl.Result{}, err
@@ -767,8 +785,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		isAdmitted := workload.IsAdmitted(&wl)
 		if isAdmitted {
 			queuedWaitTime := workload.QueuedWaitTime(&wl, r.clock)
-			quotaReservedCondition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-			quotaReservedWaitTime := r.clock.Since(quotaReservedCondition.LastTransitionTime.Time)
+			quotaReservedWaitTime := workload.QuotaReservedWaitTime(&wl, r.clock)
 			r.recorder.Eventf(
 				&wl,
 				nil,
@@ -805,6 +822,20 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 					r.roleTracker,
 				)
 			}
+		}
+	}
+
+	// Queue the DRA-preprocessed workload with the options from handleDRA.
+	// Workloads that entered the backoff path above have already been queued
+	// or returned early.
+	if draPreprocessed && !workload.IsAdmitted(&wl) {
+		if workload.IsAdmissible(&wl) {
+			if err := r.queues.AddOrUpdateWorkload(ctx, log, wl.DeepCopy(), draQueueOptions...); err != nil {
+				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
+				return ctrl.Result{}, err
+			}
+		} else if !r.cache.AddOrUpdateWorkload(ctx, log, wl.DeepCopy()) {
+			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
 	}
 
@@ -1696,14 +1727,40 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 	return bld.Complete(WithLeadingManager(mgr, r, &kueue.Workload{}, cfg))
 }
 
+// determineTimeouts returns the timeout and recovery timeout for the workload,
+// giving precedence to the per-workload annotation over the cluster-level configuration.
+// It returns ok=false when no timeout and recovery timeout are configured at either level.
+func (r *WorkloadReconciler) determineTimeouts(wl *kueue.Workload) (timeout time.Duration, recoveryTimeout *time.Duration, ok bool) {
+	cfg, err := utilwfpr.ParseAnnotation(wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation])
+	if err != nil {
+		r.logger().Error(err, "Failed to unmarshal WaitForPodsReady annotation; falling back to cluster-level configuration", "workload", klog.KObj(wl))
+	}
+	switch {
+	case cfg != nil:
+		timeout = cfg.Timeout
+		if cfg.RecoveryTimeout != nil && *cfg.RecoveryTimeout > 0 {
+			recoveryTimeout = cfg.RecoveryTimeout
+		} else if cfg.RecoveryTimeout == nil {
+			recoveryTimeout = r.waitForPodsReady.recoveryTimeout
+		}
+	case r.waitForPodsReady != nil:
+		timeout = r.waitForPodsReady.timeout
+		recoveryTimeout = r.waitForPodsReady.recoveryTimeout
+	default:
+		// No timeout configured at either level.
+		return 0, nil, false
+	}
+	return timeout, recoveryTimeout, true
+}
+
 // admittedNotReadyWorkload returns the underlying cause and remaining time for
 // a workload that is admitted but not yet in PodsReady condition.
 //
 // If the workload is not admitted, PodsReady is true, or no timeout is configured,
 // it returns an empty underlyingCause and zero duration.
 func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue.EvictionUnderlyingCause, time.Duration) {
-	if r.waitForPodsReady == nil {
-		// the timeout is not configured for the workload controller
+	timeout, recoveryTimeout, ok := r.determineTimeouts(wl)
+	if !ok {
 		return "", 0
 	}
 	if !workload.IsAdmitted(wl) {
@@ -1718,23 +1775,23 @@ func (r *WorkloadReconciler) admittedNotReadyWorkload(wl *kueue.Workload) (kueue
 
 	admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time
 	if r.podsScheduledTrackingEnabled() && podsReadyCond != nil && podsReadyCond.Reason == kueue.WorkloadWaitForScheduling {
-		return kueue.WorkloadWaitForScheduling, r.remainingUntil(r.schedulingDeadline(wl, admittedAt))
+		return kueue.WorkloadWaitForScheduling, r.remainingUntil(r.schedulingDeadline(wl, admittedAt, timeout))
 	}
 
 	switch {
 	case podsReadyCond == nil, podsReadyCond.Reason == kueue.WorkloadWaitForStart, podsReadyCond.Reason == kueue.WorkloadPodsReady,
 		podsReadyCond.Reason == kueue.WorkloadWaitForScheduling:
-		return kueue.WorkloadWaitForStart, r.remainingUntil(admittedAt.Add(r.waitForPodsReady.timeout))
-	case podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && r.waitForPodsReady.recoveryTimeout != nil:
+		return kueue.WorkloadWaitForStart, r.remainingUntil(admittedAt.Add(timeout))
+	case podsReadyCond.Reason == kueue.WorkloadWaitForRecovery && recoveryTimeout != nil:
 		// A pod has failed and the workload is waiting for recovery
 		elapsedTime := r.clock.Since(podsReadyCond.LastTransitionTime.Time)
-		return kueue.WorkloadWaitForRecovery, max(*r.waitForPodsReady.recoveryTimeout-elapsedTime, 0)
+		return kueue.WorkloadWaitForRecovery, max(*recoveryTimeout-elapsedTime, 0)
 	}
 	return "", 0
 }
 
-func (r *WorkloadReconciler) schedulingDeadline(wl *kueue.Workload, admittedAt time.Time) time.Time {
-	deadline := metav1.NewTime(admittedAt.Add(r.waitForPodsReady.timeout))
+func (r *WorkloadReconciler) schedulingDeadline(wl *kueue.Workload, admittedAt time.Time, timeout time.Duration) time.Time {
+	deadline := metav1.NewTime(admittedAt.Add(timeout))
 	if r.waitForPodsReady.unscheduledTimeout == nil {
 		return deadline.Time
 	}
@@ -1762,6 +1819,9 @@ func (h *resourceUpdatesHandler) Create(ctx context.Context, e event.CreateEvent
 	ctx = ctrl.LoggerInto(ctx, log)
 	log.V(5).Info("Create event")
 	h.handle(ctx, e.Object, q)
+	if lr, isLr := e.Object.(*corev1.LimitRange); isLr {
+		h.notifyForLimitRangeSchedulingChange(ctx, nil, lr)
+	}
 }
 
 func (h *resourceUpdatesHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -1771,7 +1831,7 @@ func (h *resourceUpdatesHandler) Update(ctx context.Context, e event.UpdateEvent
 	h.handle(ctx, e.ObjectNew, q)
 	if oldLr, isLr := e.ObjectOld.(*corev1.LimitRange); isLr {
 		if newLr, isNewLr := e.ObjectNew.(*corev1.LimitRange); isNewLr {
-			h.notifyForLimitRangeConstraintsChange(ctx, oldLr, newLr)
+			h.notifyForLimitRangeSchedulingChange(ctx, oldLr, newLr)
 		}
 	}
 }
@@ -1782,37 +1842,43 @@ func (h *resourceUpdatesHandler) Delete(ctx context.Context, e event.DeleteEvent
 	log.V(5).Info("Delete event")
 	h.handle(ctx, e.Object, q)
 	if lr, isLr := e.Object.(*corev1.LimitRange); isLr {
-		h.notifyForLimitRangeConstraintsChange(ctx, lr, nil)
+		h.notifyForLimitRangeSchedulingChange(ctx, lr, nil)
 	}
 }
 
 func (h *resourceUpdatesHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 }
 
-// notifyForLimitRangeConstraintsChange requeues the inadmissible workloads of
-// the LimitRange's namespace when the constraint fields changed. A deletion is
-// passed as a nil newLr.
-func (h *resourceUpdatesHandler) notifyForLimitRangeConstraintsChange(ctx context.Context, oldLr, newLr *corev1.LimitRange) {
-	if !limitRangeConstraintsChanged(oldLr, newLr) {
+// notifyForLimitRangeSchedulingChange requeues the inadmissible workloads of
+// the LimitRange's namespace when fields used by resource adjustment or
+// admission validation changed. This also records the change for workloads
+// currently checked out by the scheduler, so they return to the active queue
+// instead of becoming inadmissible based on a stale evaluation.
+func (h *resourceUpdatesHandler) notifyForLimitRangeSchedulingChange(ctx context.Context, oldLr, newLr *corev1.LimitRange) {
+	if !limitRangeSchedulingFieldsChanged(oldLr, newLr) {
 		return
 	}
-	var newLimits []corev1.LimitRangeItem
+	lr := newLr
+	if lr == nil {
+		lr = oldLr
+	}
+	var oldLimits, newLimits []corev1.LimitRangeItem
+	if oldLr != nil {
+		oldLimits = oldLr.Spec.Limits
+	}
 	if newLr != nil {
 		newLimits = newLr.Spec.Limits
 	}
-	ctrl.LoggerFrom(ctx).V(3).Info("LimitRange constraint fields changed",
-		"limitRange", klog.KObj(oldLr),
-		"oldLimits", oldLr.Spec.Limits, "newLimits", newLimits)
-	h.retryInadmissibleForNamespace(ctx, oldLr.Namespace)
+	ctrl.LoggerFrom(ctx).V(3).Info("LimitRange scheduling fields changed",
+		"limitRange", klog.KObj(lr),
+		"oldLimits", oldLimits, "newLimits", newLimits)
+	h.retryInadmissibleForNamespace(ctx, lr.Namespace)
 }
 
-// limitRangeConstraintsChanged reports whether any of the LimitRange spec
-// fields the admission-time validation consults (max, min,
-// maxLimitRequestRatio) changed. Unlike default and defaultRequest, these
-// fields do not alter the workloads' adjusted resources, so a change to them
-// is invisible to the spec-diff based requeue in queueReconcileForPending.
-// A nil LimitRange stands for the object not existing (deletion).
-func limitRangeConstraintsChanged(oldLr, newLr *corev1.LimitRange) bool {
+// limitRangeSchedulingFieldsChanged reports whether any LimitRange field used
+// to compute effective resources or validate admission changed. A nil
+// LimitRange stands for the object not existing (creation or deletion).
+func limitRangeSchedulingFieldsChanged(oldLr, newLr *corev1.LimitRange) bool {
 	var oldItems, newItems []corev1.LimitRangeItem
 	if oldLr != nil {
 		oldItems = oldLr.Spec.Limits
@@ -1827,6 +1893,8 @@ func limitRangeConstraintsChanged(oldLr, newLr *corev1.LimitRange) bool {
 		if oldItems[i].Type != newItems[i].Type ||
 			!equality.Semantic.DeepEqual(oldItems[i].Max, newItems[i].Max) ||
 			!equality.Semantic.DeepEqual(oldItems[i].Min, newItems[i].Min) ||
+			!equality.Semantic.DeepEqual(oldItems[i].Default, newItems[i].Default) ||
+			!equality.Semantic.DeepEqual(oldItems[i].DefaultRequest, newItems[i].DefaultRequest) ||
 			!equality.Semantic.DeepEqual(oldItems[i].MaxLimitRequestRatio, newItems[i].MaxLimitRequestRatio) {
 			return true
 		}

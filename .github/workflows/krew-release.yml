@@ -9,4 +9,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Update new version in krew-index
-        uses: rajatjindal/krew-release-bot@c970b8a8f6dbc2f2285a26e3ae160903b87002c3 # v0.0.51
+        uses: ./.github/actions/update-krew-index
+        with:
+          version: ${{ github.event.release.tag_name }}
+          repo: ${{ github.repository }}

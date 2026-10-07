@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 )
 
 // PodSetReplicaSize is a minimal representation of a PodSet for the
@@ -96,9 +97,6 @@ func sanitizeContainer(container *corev1.Container) {
 
 // RecordWorkloadCreationLatency records the latency between job creation and workload creation.
 func RecordWorkloadCreationLatency(ctx context.Context, job client.Object, jobKind string, wl *kueue.Workload, customLabels *metrics.CustomLabels, tracker *roletracker.RoleTracker) {
-	if !features.Enabled(features.MetricForWorkloadCreationLatency) {
-		return
-	}
 	if job.GetGeneration() > 1 {
 		ctrl.LoggerFrom(ctx).V(4).Info("Skip recording the workload creation metrics as the owner generation is already greater than 1", "generation", job.GetGeneration())
 		return
@@ -262,6 +260,12 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 // associated object, pod sets, and label keys to copy.
 func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy, annotationsToCopy sets.Set[string]) *kueue.Workload {
 	annotations := admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations())
+	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		annotation := obj.GetAnnotations()[controllerconstants.WaitForPodsReadyAnnotation]
+		if annotation != "" {
+			annotations[controllerconstants.WaitForPodsReadyAnnotation] = annotation
+		}
+	}
 	if features.Enabled(features.CustomMetricLabels) {
 		maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), annotationsToCopy.UnsortedList()))
 	}

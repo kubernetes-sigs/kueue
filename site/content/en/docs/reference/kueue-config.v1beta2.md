@@ -1002,7 +1002,10 @@ of creating a workload from a composable job (pod group), if multiple objects
 have labels with some key from the list, the values of these labels must
 match or otherwise the workload creation would fail. The labels are copied only
 during the workload creation and are not updated even if the labels of the
-underlying job are changed.</p>
+underlying job are changed.
+Kueue never copies its internal labels kueue.x-k8s.io/multikueue-origin,
+kueue.x-k8s.io/concurrent-admission-parent and kueue.x-k8s.io/job-uid from
+the job, and lists any of them named here in its log at startup.</p>
 </td>
 </tr>
 </tbody>
@@ -1624,6 +1627,18 @@ Must be non-negative and must not exceed timeout. When unset or &quot;0s&quot;, 
 tracking, readiness propagation, scheduling timeouts and scheduling-history resets are disabled.
 Requires the WaitForPodsReadyUnscheduledTimeout feature gate, even for &quot;0s&quot;.
 Enabling this gate together with DisableWaitForPodsReady is rejected.</p>
+</td>
+</tr>
+<tr><td><code>maxTimeoutOnWorkload</code><br/>
+<a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#duration-v1-meta"><code>k8s.io/apimachinery/pkg/apis/meta/v1.Duration</code></a>
+</td>
+<td>
+   <p>MaxTimeoutOnWorkload defines the upper bound allowed for a per-workload
+PodsReady timeoutSeconds and recoveryTimeoutSeconds override (set via the <code>kueue.x-k8s.io/wait-for-pods-ready</code>
+annotation). If a workload requests a timeoutSeconds or recoveryTimeoutSeconds greater than
+MaxTimeoutOnWorkload, the job is rejected by the admission webhook.
+When unset, the default maximum of 2 hours is enforced.
+It has no effect on workloads that don't set a per-workload override.</p>
 </td>
 </tr>
 </tbody>
