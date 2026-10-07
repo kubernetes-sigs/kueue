@@ -29,6 +29,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -345,7 +346,7 @@ func (a *Assignment) findOldPodSetRequest(psName kueue.PodSetReference, resource
 	return resources.Amount{}
 }
 
-func (a *Assignment) ResolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
+func (a *Assignment) resolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
 	if a.RepresentativeMode() != NoFit {
 		return
 	}
@@ -392,4 +393,181 @@ func (a *Assignment) ResolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
 		overallReason = mostSevereReason(overallReason, podSetReason)
 	}
 	a.NoFitReason = overallReason
+}
+
+type Status struct {
+	reasons     []string
+	err         error
+	noFitReason string
+}
+
+func NewStatus(reasons ...string) *Status {
+	return &Status{
+		reasons: reasons,
+	}
+}
+
+func (s *Status) IsFit() bool {
+	return s == nil || (s.err == nil && len(s.reasons) == 0)
+}
+
+func (s *Status) IsError() bool {
+	return s != nil && s.err != nil
+}
+
+func (s *Status) appendf(format string, args ...any) *Status {
+	s.reasons = append(s.reasons, fmt.Sprintf(format, args...))
+	return s
+}
+
+func (s *Status) Message() string {
+	if s == nil {
+		return ""
+	}
+	if s.err != nil {
+		return s.err.Error()
+	}
+	slices.Sort(s.reasons)
+	return strings.Join(s.reasons, ", ")
+}
+
+// PodSetAssignment holds the assigned flavors and status messages for each of
+// the resources that the pod set requests. Each assigned flavor is accompanied
+// with an AssignmentMode.
+// Empty .Flavors can be interpreted as NoFit mode for all the resources.
+// Empty .Status can be interpreted as Fit mode for all the resources.
+// .Flavors and .Status can't be empty at the same time, once PodSetAssignment
+// is fully calculated.
+type PodSetAssignment struct {
+	Name     kueue.PodSetReference
+	Flavors  ResourceAssignment
+	Status   Status
+	Requests corev1.ResourceList
+	Count    int32
+
+	TopologyAssignment     *tas.TopologyAssignment
+	DelayedTopologyRequest *kueue.DelayedTopologyRequestState
+
+	FlavorAssignmentAttempts []FlavorAssignmentAttempt
+}
+
+// RepresentativeMode calculates the representative mode for this assignment as
+// the worst assignment mode among all assigned flavors.
+func (psa *PodSetAssignment) RepresentativeMode() FlavorAssignmentMode {
+	if psa.Status.IsFit() {
+		return Fit
+	}
+	if psa.Status.IsError() {
+		// e.g. onlyTASFlavor failed in WorkloadsTopologyRequests, or TAS request build failed
+		return NoFit
+	}
+	if len(psa.Flavors) == 0 {
+		return NoFit
+	}
+	mode := Fit
+	for _, flvAssignment := range psa.Flavors {
+		if flvAssignment.Mode < mode {
+			mode = flvAssignment.Mode
+		}
+	}
+	return mode
+}
+
+func (psa *PodSetAssignment) updateMode(newMode FlavorAssignmentMode) {
+	for _, flvAssignment := range psa.Flavors {
+		flvAssignment.Mode = newMode
+	}
+}
+
+func (psa *PodSetAssignment) reason(reason string) {
+	psa.Status.reasons = append(psa.Status.reasons, reason)
+}
+
+func (psa *PodSetAssignment) markFlavorAttempt(flavor kueue.ResourceFlavorReference, mode FlavorAssignmentMode, reason string) {
+	for i := range psa.FlavorAssignmentAttempts {
+		if psa.FlavorAssignmentAttempts[i].Flavor == flavor {
+			psa.FlavorAssignmentAttempts[i].Mode = mode
+			psa.FlavorAssignmentAttempts[i].NoFitReason = reason
+			break
+		}
+	}
+}
+
+func (psa *PodSetAssignment) error(err error) {
+	psa.Status.err = err
+}
+
+type ResourceAssignment map[corev1.ResourceName]*FlavorAssignment
+
+func (psa *PodSetAssignment) toAPI(log logr.Logger) kueue.PodSetAssignment {
+	flavors := make(map[corev1.ResourceName]kueue.ResourceFlavorReference, len(psa.Flavors))
+	// Only include resources with assigned flavors (filters out zero-quantity requests for undefined resources).
+	resourceUsage := make(corev1.ResourceList, len(psa.Flavors))
+	for res, flvAssignment := range psa.Flavors {
+		flavors[res] = flvAssignment.Name
+		resourceUsage[res] = psa.Requests[res]
+	}
+	return kueue.PodSetAssignment{
+		Name:                   psa.Name,
+		Flavors:                flavors,
+		ResourceUsage:          resourceUsage,
+		Count:                  new(psa.Count),
+		TopologyAssignment:     tas.V1Beta2From(psa.TopologyAssignment, tas.WithLogger(log)),
+		DelayedTopologyRequest: psa.DelayedTopologyRequest,
+	}
+}
+
+// FlavorAssignmentMode describes whether the flavor can be assigned immediately
+// or what needs to happen, so it can be assigned.
+type FlavorAssignmentMode int
+
+// The flavor assignment modes below are ordered from lowest to highest
+// preference.
+const (
+	// NoFit means that there is not enough quota to assign this flavor,
+	// or we require preemption but we are already borrowing, and policy
+	// does not allow this.
+	NoFit FlavorAssignmentMode = iota
+	// Preempt indicates that admission is possible given Quotas.
+	// Preemption may be impossible due to policy/limits/priorities.
+	Preempt
+	// DeferredFit indicates that the workload fits, but we cannot
+	// admit it yet in this scheduling cycle as we are waiting
+	// e.g. for some preemptions to finish.
+	DeferredFit
+	// Fit means that there is enough unused quota to assign to this Flavor
+	// without preeemption, potentially with borrowing.
+	Fit
+)
+
+func (m FlavorAssignmentMode) String() string {
+	switch m {
+	case NoFit:
+		return "NoFit"
+	case Preempt:
+		return "Preempt"
+	case DeferredFit:
+		return "DeferredFit"
+	case Fit:
+		return "Fit"
+	}
+	return "Unknown"
+}
+
+type FlavorAssignment struct {
+	Name           kueue.ResourceFlavorReference
+	Mode           FlavorAssignmentMode
+	TriedFlavorIdx int
+	borrow         int
+}
+
+// FlavorAssignmentAttempt captures one attempted flavor and its worst-case outcome
+// across the requested resources.
+type FlavorAssignmentAttempt struct {
+	Flavor                kueue.ResourceFlavorReference
+	Mode                  FlavorAssignmentMode
+	Borrow                int
+	PreemptionPossibility *policy.PreemptionPossibility
+	Reasons               []string
+	NoFitReason           string
 }
