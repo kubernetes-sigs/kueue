@@ -113,7 +113,7 @@ func (p *PreemptionEvaluator) HasRules() bool {
 // Whatever the trigger, candidates must use one of the flavor resources needing
 // preemption, which frees the quota the preemptor needs, or hold TAS capacity on
 // nodes of the flavors needing preemption, which frees node capacity in their
-// topologies (see Snapshot.UsesTASNodesOf).
+// topologies.
 //
 // Because candidates are removed from the snapshot as they are evaluated, subsequent
 // fit checks observe the updated snapshot state, and the evaluator only returns
