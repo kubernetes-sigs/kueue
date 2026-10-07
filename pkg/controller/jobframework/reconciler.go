@@ -1099,23 +1099,6 @@ func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job Gener
 	return UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), live...)
 }
 
-func (r *JobReconciler) finishReplacedWorkloadSlices(ctx context.Context, workloads []kueue.Workload) error {
-	finished, err := workloadslicing.FinishReplacedWorkloadSlices(ctx, r.client, r.clock, workloads)
-	r.recordReplacedWorkloadSlices(finished)
-	return err
-}
-
-func (r *JobReconciler) recordReplacedWorkloadSlices(finished []*kueue.Workload) {
-	for _, wl := range finished {
-		condition := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished)
-		r.record.Eventf(wl, nil, corev1.EventTypeNormal, kueue.WorkloadSliceReplaced, "Replaced", condition.Message)
-		if wl.Status.Admission != nil {
-			cq := wl.Status.Admission.ClusterQueue
-			metrics.ReportReplacedWorkloadSlices(cq, r.customLabels.CQGet(cq), r.roleTracker)
-		}
-	}
-}
-
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
 // If there are more than one workload, we should delete the excess ones.
 // The returned workload could be nil.
@@ -1153,7 +1136,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 				client.MatchingFields{indexer.WorkloadSliceNameKey: workloadslicing.SliceName(wl)}); err != nil {
 				return nil, err
 			}
-			if err := r.finishReplacedWorkloadSlices(ctx, list.Items); err != nil {
+			if err := workloadslicing.FinishReplacedWorkloadSlices(ctx, r.client, r.clock, r.record, r.customLabels, r.roleTracker, list.Items); err != nil {
 				return nil, err
 			}
 		}
@@ -1208,8 +1191,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		// Workload slices allow modifications only to PodSet.Count.
 		// Any other changes will result in the slice being marked as incompatible,
 		// and the workload will fall back to being processed by the original ensureOneWorkload function.
-		wl, compatible, replaced, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, r.clock, podSets, object, job.GVK())
-		r.recordReplacedWorkloadSlices(replaced)
+		wl, compatible, err := workloadslicing.EnsureWorkloadSlices(ctx, r.client, r.clock, r.record, r.customLabels, r.roleTracker, podSets, object, job.GVK())
 		if err != nil {
 			return nil, err
 		}

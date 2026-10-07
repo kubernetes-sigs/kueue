@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/uuid"
+	"k8s.io/client-go/tools/events"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
@@ -1739,7 +1740,7 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotWorkload, gotCompatible, replaced, gotError := EnsureWorkloadSlices(ctx, tt.args.clnt, fakeClock, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
+			gotWorkload, gotCompatible, gotError := EnsureWorkloadSlices(ctx, tt.args.clnt, fakeClock, events.NewFakeRecorder(20), nil, nil, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
 			if diff := cmp.Diff(tt.want.error, gotError, cmpopts.EquateErrors()); diff != "" {
 				t.Errorf("EnsureWorkloadSlices() error (-want,+got):\n%s", diff)
 				return
@@ -1759,18 +1760,6 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 				if cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadFinished); cond != nil && cond.Status == metav1.ConditionTrue {
 					gotFinished[wl.Name] = cond.Reason
 				}
-			}
-			var wantReplaced, gotReplaced []string
-			for name, reason := range tt.want.finishedWorkloads {
-				if reason == kueue.WorkloadSliceReplaced {
-					wantReplaced = append(wantReplaced, name)
-				}
-			}
-			for _, wl := range replaced {
-				gotReplaced = append(gotReplaced, wl.Name)
-			}
-			if diff := cmp.Diff(wantReplaced, gotReplaced, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
-				t.Errorf("returned replaced workloads (-want,+got): %s", diff)
 			}
 			if diff := cmp.Diff(tt.want.finishedWorkloads, gotFinished, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("EnsureWorkloadSlices() finished workloads (-want,+got):\n%s", diff)
@@ -2358,16 +2347,9 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 			if err := cl.List(ctx, list); err != nil {
 				t.Fatal(err)
 			}
-			finished, err := FinishReplacedWorkloadSlices(ctx, cl, testingclock.NewFakeClock(now), list.Items)
+			err := FinishReplacedWorkloadSlices(ctx, cl, testingclock.NewFakeClock(now), events.NewFakeRecorder(20), nil, nil, list.Items)
 			if err != nil {
 				t.Fatal(err)
-			}
-			var names []string
-			for _, wl := range finished {
-				names = append(names, wl.Name)
-			}
-			if diff := cmp.Diff(tc.wantFinished, names, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b string) bool { return a < b })); diff != "" {
-				t.Errorf("finished predecessors (-want,+got): %s", diff)
 			}
 			for _, before := range tc.workloads {
 				got := &kueue.Workload{}
