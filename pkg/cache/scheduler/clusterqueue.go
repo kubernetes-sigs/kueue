@@ -127,6 +127,8 @@ type clusterQueue struct {
 	// and count some workloads twice. A LocalQueue is always rebuilt through its
 	// ClusterQueue, so one mutex per ClusterQueue is enough.
 	lqAdmittedActiveResync sync.Mutex
+
+	draUsage map[workload.DRADeviceFlavorKey]int64
 }
 
 func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
@@ -533,7 +535,10 @@ func (c *clusterQueue) addOrUpdateWorkload(log logr.Logger, wi *workload.Info) {
 		c.sliceTracker.forget(k)
 		chain, isSlice = sliceChainOf(wi)
 	}
-	if _, exist := c.Workloads[k]; exist {
+	if old, exist := c.Workloads[k]; exist {
+		if len(wi.DRADeviceRequests()) == 0 && len(old.DRADeviceRequests()) > 0 && workload.HasResourceClaimTemplates(wi.Obj) {
+			wi.SetDRADeviceRequests(old.DRADeviceRequests())
+		}
 		c.deleteWorkload(log, k)
 	}
 	if isSlice && c.coveredByChargedSlice(chain, wi) {
@@ -709,6 +714,11 @@ func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
 	if fairSharingEnabled {
 		c.reportWeightedShare(cohort)
 	}
+	if features.Enabled(features.KueueDRAIntegration) {
+		for key, count := range c.draUsage {
+			metrics.ReportClusterQueueDRADevicesReserved(cqName, key.DeviceClass, key.Flavor, float64(count), clVals, c.roleTracker)
+		}
+	}
 }
 
 func (c *clusterQueue) reportWeightedShare(cohort kueue.CohortReference) {
@@ -745,6 +755,7 @@ func (c *clusterQueue) updateWorkloadUsage(log logr.Logger, wi *workload.Info, o
 		}
 	}
 	c.updateWorkloadTASUsage(log, wi, op)
+	c.updateWorkloadDRAUsage(log, wi, op)
 	if admitted {
 		updateFlavorUsage(frUsage, c.AdmittedUsage, op)
 
@@ -799,6 +810,28 @@ func (c *clusterQueue) updateWorkloadTASUsage(log logr.Logger, wi *workload.Info
 		case op == subtract:
 			tasFlvCache.removeUsage(log, key)
 		}
+	}
+}
+
+func (c *clusterQueue) updateWorkloadDRAUsage(log logr.Logger, wi *workload.Info, op usageOp) {
+	if !features.Enabled(features.KueueDRAIntegration) {
+		return
+	}
+	if c.draUsage == nil {
+		c.draUsage = make(map[workload.DRADeviceFlavorKey]int64)
+	}
+	cqName := string(c.Name)
+	clVals := c.GetCustomLabelValues()
+	for key, count := range wi.DRADeviceReservedCounts() {
+		if op == add {
+			c.draUsage[key] += count
+		} else {
+			c.draUsage[key] -= count
+			if c.draUsage[key] < 0 {
+				c.draUsage[key] = 0
+			}
+		}
+		metrics.ReportClusterQueueDRADevicesReserved(cqName, key.DeviceClass, key.Flavor, float64(c.draUsage[key]), clVals, c.roleTracker)
 	}
 }
 
