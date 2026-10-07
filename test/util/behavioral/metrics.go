@@ -472,3 +472,15 @@ func ExpectPodSchedulingGateRemovalSecondsMetricLessOrEqual(name string, cqName 
 	matcher := gomega.Equal(count)
 	expectHistogramMetric(metrics.PodSchedulingGateRemovalSeconds, matcher, name, string(cqName), strconv.FormatBool(isGroup), roletracker.RoleStandalone)
 }
+
+func ExpectCQDRADevicesReservedMetric(cq *kueue.ClusterQueue, deviceClass, flavor string, value float64) {
+	ginkgo.GinkgoHelper()
+	lvs := []string{cq.Name, deviceClass, flavor, roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.ClusterQueueDRADevicesReserved, lvs, gomega.Equal(value))
+}
+
+func ExpectCQDRADevicesPendingMetric(cq *kueue.ClusterQueue, deviceClass string, matcher gomegatypes.GomegaMatcher) {
+	ginkgo.GinkgoHelper()
+	lvs := []string{cq.Name, deviceClass, roletracker.RoleStandalone}
+	expectGaugeMetric(metrics.ClusterQueueDRADevicesPending, lvs, matcher)
+}
