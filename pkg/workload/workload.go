@@ -138,6 +138,22 @@ type FlavorScanState struct {
 type dra struct {
 	preprocessedDRAResources  map[kueue.PodSetReference]corev1.ResourceList
 	replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName]
+	draDeviceRequests         []DRADeviceRequest
+	hasDRADeviceRequests      bool
+}
+
+// DRADeviceRequest represents a request for devices of a specific DRA DeviceClass.
+type DRADeviceRequest struct {
+	PodSet          kueue.PodSetReference
+	DeviceClass     string
+	LogicalResource corev1.ResourceName
+	CountPerPod     int64
+}
+
+// DRADeviceFlavorKey identifies DRA devices reserved by (DeviceClass, Flavor).
+type DRADeviceFlavorKey struct {
+	DeviceClass string
+	Flavor      string
 }
 
 type InfoOptions struct {
@@ -182,10 +198,16 @@ func WithPreprocessedDRAResources(
 	replacedExtendedResources map[kueue.PodSetReference]sets.Set[corev1.ResourceName],
 ) InfoOption {
 	return func(o *InfoOptions) {
-		o.dra = dra{
-			preprocessedDRAResources:  draResources,
-			replacedExtendedResources: replacedExtendedResources,
-		}
+		o.preprocessedDRAResources = draResources
+		o.replacedExtendedResources = replacedExtendedResources
+	}
+}
+
+// WithDRADeviceRequests provides the DRA device requests.
+func WithDRADeviceRequests(requests []DRADeviceRequest) InfoOption {
+	return func(o *InfoOptions) {
+		o.draDeviceRequests = requests
+		o.hasDRADeviceRequests = true
 	}
 }
 
@@ -297,6 +319,9 @@ type Info struct {
 	// NominationMapping is the mapping of PodSets resources and their flavors
 	// based on the nomination phase.
 	NominationMapping PodSetResourcesToFlavors
+
+	// DRARequests stores parsed DRA device requests per podset and device class.
+	DRARequests []DRADeviceRequest
 }
 
 type PodSetResources struct {
@@ -472,6 +497,11 @@ func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
 		i.ClusterQueue = i.Obj.Status.Admission.ClusterQueue
 	} else {
 		i.ClusterQueue = ""
+	}
+	if options.hasDRADeviceRequests {
+		i.DRARequests = options.draDeviceRequests
+	} else if !HasResourceClaimTemplates(i.Obj) {
+		i.DRARequests = nil
 	}
 	if !options.preserveTotalRequests {
 		if admitted {
@@ -723,6 +753,59 @@ func (i *Info) TASUsage() TASUsage {
 		}
 	}
 	return result
+}
+
+// DRADeviceRequests returns the recorded DRA device requests for the Workload.
+func (i *Info) DRADeviceRequests() []DRADeviceRequest {
+	if i == nil {
+		return nil
+	}
+	return i.DRARequests
+}
+
+// SetDRADeviceRequests sets the recorded DRA device requests for the Workload.
+func (i *Info) SetDRADeviceRequests(reqs []DRADeviceRequest) {
+	if i != nil {
+		i.DRARequests = reqs
+	}
+}
+
+// DRADevicePendingCounts returns the total pending device requests aggregated by DeviceClass.
+func (i *Info) DRADevicePendingCounts() map[string]int64 {
+	if i == nil || len(i.DRARequests) == 0 {
+		return nil
+	}
+	counts := make(map[string]int64)
+	podCounts := podSetsCountsAfterReclaim(i.Obj)
+	for _, req := range i.DRARequests {
+		count := int64(podCounts[req.PodSet])
+		counts[req.DeviceClass] += req.CountPerPod * count
+	}
+	return counts
+}
+
+// DRADeviceReservedCounts returns the reserved device requests aggregated by (DeviceClass, Flavor).
+func (i *Info) DRADeviceReservedCounts() map[DRADeviceFlavorKey]int64 {
+	if i == nil || len(i.DRARequests) == 0 || i.Obj.Status.Admission == nil {
+		return nil
+	}
+	counts := make(map[DRADeviceFlavorKey]int64)
+	reclaimCounts := podSetsCountsAfterReclaim(i.Obj)
+	admissionCounts := podSetsCounts(i.Obj)
+	for _, psa := range i.Obj.Status.Admission.PodSetAssignments {
+		count := int64(ptr.Deref(psa.Count, admissionCounts[psa.Name]))
+		if reclaimCount := int64(reclaimCounts[psa.Name]); reclaimCount < count {
+			count = reclaimCount
+		}
+		for _, req := range i.DRARequests {
+			if req.PodSet != psa.Name {
+				continue
+			}
+			flavor := string(psa.Flavors[req.LogicalResource])
+			counts[DRADeviceFlavorKey{DeviceClass: req.DeviceClass, Flavor: flavor}] += req.CountPerPod * count
+		}
+	}
+	return counts
 }
 
 func (i *Info) SumTotalRequests(formatter *resources.ResourceFormatter) corev1.ResourceList {

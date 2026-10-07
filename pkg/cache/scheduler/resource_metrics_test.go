@@ -20,11 +20,17 @@ import (
 	"math"
 	"testing"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/utils/ptr"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	kueuemetrics "sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestClusterQueueResourceMetricsReportUnlimitedAsInf(t *testing.T) {
@@ -88,4 +94,55 @@ func TestLocalQueueResourceMetricsReportUnlimitedAsInf(t *testing.T) {
 	}
 	expectGaugeValue(t, kueuemetrics.LocalQueueResourceReservations, labels, math.Inf(1))
 	expectGaugeValue(t, kueuemetrics.LocalQueueResourceUsage, labels, math.Inf(1))
+}
+
+func TestClusterQueueDRADevicesReservedMetrics(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+	defer kueuemetrics.InitMetricVectors(nil)
+
+	cq := &clusterQueue{
+		Name:         "dra-cq",
+		customLabels: kueuemetrics.NewCustomLabels(nil),
+		draUsage:     make(map[workload.DRADeviceFlavorKey]int64),
+	}
+	t.Cleanup(func() {
+		kueuemetrics.ClearClusterQueueDRADevicesReservedMetrics("dra-cq")
+	})
+
+	wl := utiltestingapi.MakeWorkload("wl", "default").
+		PodSets(*utiltestingapi.MakePodSet("main", 2).Obj()).
+		Admission(utiltestingapi.MakeAdmission("dra-cq").
+			PodSets(kueue.PodSetAssignment{
+				Name: "main",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					"example.com/gpu": "flavor-a",
+				},
+				Count: ptr.To[int32](2),
+			}).
+			Obj()).
+		Obj()
+
+	reqs := []workload.DRADeviceRequest{
+		{
+			PodSet:          "main",
+			DeviceClass:     "gpu.example.com",
+			LogicalResource: "example.com/gpu",
+			CountPerPod:     2,
+		},
+	}
+	info := workload.NewInfo(logr.Discard(), wl, workload.WithDRADeviceRequests(reqs))
+
+	cq.updateWorkloadDRAUsage(logr.Discard(), info, add)
+
+	labels := map[string]string{
+		"cluster_queue": "dra-cq",
+		"device_class":  "gpu.example.com",
+		"flavor":        "flavor-a",
+		"replica_role":  "standalone",
+	}
+	expectGaugeValue(t, kueuemetrics.ClusterQueueDRADevicesReserved, labels, 4)
+
+	// Removing workload decrements usage to 0
+	cq.updateWorkloadDRAUsage(logr.Discard(), info, subtract)
+	expectGaugeValue(t, kueuemetrics.ClusterQueueDRADevicesReserved, labels, 0)
 }

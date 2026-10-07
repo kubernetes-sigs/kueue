@@ -92,6 +92,13 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 			metrics.ReportClusterQueueResourcePending(string(cq.name), string(resourceName), utilresource.QuantityToFloat(&q), cqCustomLabels, m.roleTracker)
 		}
 	}
+
+	if features.Enabled(features.KueueDRAIntegration) {
+		pendingDRADevices := cq.pendingDRADevices()
+		for deviceClass, count := range pendingDRADevices {
+			metrics.ReportClusterQueueDRADevicesPending(string(cq.name), deviceClass, float64(count), cqCustomLabels, m.roleTracker)
+		}
+	}
 }
 
 func reportOrClearPendingWorkloads(m *Manager, cq kueue.ClusterQueueReference, pendingStatus string, count int, customLabels []string) {

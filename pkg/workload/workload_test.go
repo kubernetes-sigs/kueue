@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -37,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -5275,5 +5277,73 @@ func TestInfoTopologySpreading(t *testing.T) {
 				t.Errorf("Selector().Matches(%v) = %t, want %t", tc.peerLabels, got, tc.wantMatchesPeer)
 			}
 		})
+	}
+}
+
+func TestDRADeviceCounts(t *testing.T) {
+	log := logr.Discard()
+	wl := utiltestingapi.MakeWorkload("wl", "default").
+		PodSets(
+			*utiltestingapi.MakePodSet("main", 2).Obj(),
+			*utiltestingapi.MakePodSet("workers", 4).Obj(),
+		).Obj()
+
+	reqs := []DRADeviceRequest{
+		{
+			PodSet:          "main",
+			DeviceClass:     "gpu.example.com",
+			LogicalResource: "example.com/gpu",
+			CountPerPod:     2,
+		},
+		{
+			PodSet:          "workers",
+			DeviceClass:     "fpga.example.com",
+			LogicalResource: "example.com/fpga",
+			CountPerPod:     1,
+		},
+	}
+
+	info := NewInfo(log, wl, WithDRADeviceRequests(reqs))
+
+	pendingCounts := info.DRADevicePendingCounts()
+	if pendingCounts["gpu.example.com"] != 4 {
+		t.Errorf("got %d gpu pending, want 4", pendingCounts["gpu.example.com"])
+	}
+	if pendingCounts["fpga.example.com"] != 4 {
+		t.Errorf("got %d fpga pending, want 4", pendingCounts["fpga.example.com"])
+	}
+
+	admittedWL := wl.DeepCopy()
+	admittedWL.Status.Admission = &kueue.Admission{
+		ClusterQueue: "cq",
+		PodSetAssignments: []kueue.PodSetAssignment{
+			{
+				Name: "main",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					"example.com/gpu": "flavor-gpu-a",
+				},
+				Count: ptr.To[int32](2),
+			},
+			{
+				Name: "workers",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					"example.com/fpga": "flavor-fpga-b",
+				},
+				Count: ptr.To[int32](4),
+			},
+		},
+	}
+
+	admittedInfo := NewInfo(log, admittedWL, WithDRADeviceRequests(reqs))
+	reservedCounts := admittedInfo.DRADeviceReservedCounts()
+
+	gpuKey := DRADeviceFlavorKey{DeviceClass: "gpu.example.com", Flavor: "flavor-gpu-a"}
+	if reservedCounts[gpuKey] != 4 {
+		t.Errorf("got %d gpu reserved, want 4", reservedCounts[gpuKey])
+	}
+
+	fpgaKey := DRADeviceFlavorKey{DeviceClass: "fpga.example.com", Flavor: "flavor-fpga-b"}
+	if reservedCounts[fpgaKey] != 4 {
+		t.Errorf("got %d fpga reserved, want 4", reservedCounts[fpgaKey])
 	}
 }

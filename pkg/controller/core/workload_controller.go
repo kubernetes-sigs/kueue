@@ -176,7 +176,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	sliceCache := dra.NewResourceSliceCache(r.client)
 
 	// Process ResourceClaimTemplates (existing DRA path)
-	draResources, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, wl)
+	draResources, draRequests, fieldErrs := dra.GetResourceRequestsForResourceClaimTemplates(ctx, r.client, sliceCache, r.draMapper, wl)
 	if len(fieldErrs) > 0 {
 		done, result, err := r.markDRAInadmissible(ctx, wl, fieldErrs, "Failed to process DRA resources for workload")
 		return done, result, nil, err
@@ -237,6 +237,9 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	queueOptions = []workload.InfoOption{workload.WithEffectivePodSpecs(wi.EffectivePodSpecs)}
 	if len(draResources) > 0 || len(replacedExtendedResources) > 0 {
 		queueOptions = append(queueOptions, workload.WithPreprocessedDRAResources(draResources, replacedExtendedResources))
+	}
+	if len(draRequests) > 0 {
+		queueOptions = append(queueOptions, workload.WithDRADeviceRequests(draRequests))
 	}
 	log.V(3).Info("Successfully pre-processed DRA workload")
 	return false, ctrl.Result{}, queueOptions, nil
@@ -834,7 +837,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 				log.V(2).Info("Failed to add DRA workload to queue", "error", err)
 				return ctrl.Result{}, err
 			}
-		} else if !r.cache.AddOrUpdateWorkload(ctx, log, wl.DeepCopy()) {
+		} else if !r.cache.AddOrUpdateWorkload(ctx, log, wl.DeepCopy(), draQueueOptions...) {
 			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
 		}
 	}
