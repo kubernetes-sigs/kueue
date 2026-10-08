@@ -95,10 +95,10 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			}
 
 			ginkgo.By("Verifying workload is admitted with counter charge of 20Gi")
-			behavioral.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "20Gi")
+			e2e.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "20Gi")
 
 			ginkgo.By("Verifying job completes successfully")
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job)
 			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 		})
 
@@ -125,7 +125,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			}
 
 			ginkgo.By("Verifying counter charge is 40Gi (20Gi x 2)")
-			behavioral.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "40Gi")
+			e2e.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "40Gi")
 
 			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 		})
@@ -153,7 +153,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			}
 
 			ginkgo.By("Verifying counter charge is 80Gi (largest across matched devices)")
-			behavioral.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "80Gi")
+			e2e.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "80Gi")
 
 			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 		})
@@ -180,7 +180,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			}
 
 			ginkgo.By("Verifying counter charge is 80Gi (largest across all devices)")
-			behavioral.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "80Gi")
+			e2e.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "80Gi")
 
 			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 		})
@@ -214,10 +214,10 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			}
 
 			ginkgo.By("Verifying combined counter charge is 100Gi (80Gi full + 20Gi partition)")
-			behavioral.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "100Gi")
+			e2e.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "100Gi")
 
 			ginkgo.By("Verifying job completes successfully")
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job)
 			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 		})
 
@@ -292,7 +292,7 @@ var _ = ginkgo.Describe("DRA Partitionable Devices", func() {
 			}
 
 			for _, wlKey := range []types.NamespacedName{wlLookupKey1, wlLookupKey2} {
-				behavioral.ExpectWorkloadResourceUsage(ctx, k8sClient, wlKey, "gpu.memory", "20Gi")
+				e2e.ExpectWorkloadResourceUsage(ctx, k8sClient, wlKey, "gpu.memory", "20Gi")
 			}
 
 			ginkgo.By("Verifying both jobs complete")

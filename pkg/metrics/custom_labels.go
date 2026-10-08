@@ -341,21 +341,6 @@ func Copy(t *LabelValsTracker) *LabelValsTracker {
 	return NewLabelValsTracker().merge(t)
 }
 
-func (c *LabelValsTracker) PopZeroCounts() iter.Seq[*labelValsSet] {
-	return func(yield func(*labelValsSet) bool) {
-		c.Lock()
-		defer c.Unlock()
-		for lv, count := range c.counts {
-			if count == 0 {
-				delete(c.counts, lv)
-				if !yield(&lv) {
-					return
-				}
-			}
-		}
-	}
-}
-
 func (c *LabelValsTracker) Incr(ls labelValsSet) {
 	c.Add(ls, 1)
 }
@@ -371,6 +356,13 @@ func (c *LabelValsTracker) Add(ls labelValsSet, incr int) {
 	newCount := max(0, oldCount+incr)
 	c.counts[ls] = newCount
 	c.total += newCount - oldCount
+}
+
+// Count returns the number of workloads tracked for the label values set ls.
+func (c *LabelValsTracker) Count(ls labelValsSet) int {
+	c.RLock()
+	defer c.RUnlock()
+	return c.counts[ls]
 }
 
 func (c *LabelValsTracker) Iter() iter.Seq2[labelValsSet, int] {

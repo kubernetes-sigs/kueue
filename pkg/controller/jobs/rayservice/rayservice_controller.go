@@ -139,7 +139,10 @@ func (j *RayService) Object() client.Object {
 }
 
 func (j *RayService) IsSuspended() bool {
-	return j.Spec.RayClusterSpec.Suspend != nil && *j.Spec.RayClusterSpec.Suspend
+	if !features.Enabled(features.KubeRayServiceUsingTopLevelSuspend) {
+		return j.Spec.RayClusterSpec.Suspend != nil && *j.Spec.RayClusterSpec.Suspend
+	}
+	return j.Spec.Suspend
 }
 
 func (j *RayService) IsActive() bool {
@@ -147,7 +150,11 @@ func (j *RayService) IsActive() bool {
 }
 
 func (j *RayService) Suspend() {
-	j.Spec.RayClusterSpec.Suspend = new(true)
+	if !features.Enabled(features.KubeRayServiceUsingTopLevelSuspend) {
+		j.Spec.RayClusterSpec.Suspend = new(true)
+		return
+	}
+	j.Spec.Suspend = true
 }
 
 // If GCS fault tolerance is enabled, a Redis cleanup K8s Job may be created to clean up the RayCluster's Redis namespace.
@@ -194,7 +201,11 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
-	j.Spec.RayClusterSpec.Suspend = new(false)
+	if features.Enabled(features.KubeRayServiceUsingTopLevelSuspend) {
+		j.Spec.Suspend = false
+	} else {
+		j.Spec.RayClusterSpec.Suspend = new(false)
+	}
 
 	rayClusterSpec := &j.Spec.RayClusterSpec
 	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(ctrl.LoggerFrom(ctx), rayClusterSpec, podSetsInfo)
