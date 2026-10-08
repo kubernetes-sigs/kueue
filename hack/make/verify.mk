@@ -24,7 +24,7 @@ VERIFY_NPROCS ?= 8
 VERIFY_GOMAXPROCS ?= 2
 VERIFY_CLI_BUILD_NPROCS ?= 2
 # Share CPU capacity with platform builds and documentation generation; 0 is unlimited.
-CI_LINT_NPROCS ?= 1
+CI_LINT_NPROCS ?= 2
 # Output sync mode for parallel verification. Set to empty to disable.
 # Requires GNU Make 4.0+. Values: target, line, recurse, or empty.
 ifeq ($(shell uname),Darwin)
