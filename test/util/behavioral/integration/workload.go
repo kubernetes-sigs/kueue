@@ -72,7 +72,7 @@ func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...
 		var newWL kueue.Workload
 		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-			newWL.Status.Conditions = append(w.Status.Conditions, metav1.Condition{
+			newWL.Status.Conditions = append(newWL.Status.Conditions, metav1.Condition{
 				Type:               kueue.WorkloadFinished,
 				Status:             metav1.ConditionTrue,
 				LastTransitionTime: metav1.Now(),
