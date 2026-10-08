@@ -262,7 +262,7 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 
 	if r.fairSharingEnabled {
 		weightedShare := stats.WeightedShare
-		if weightedShare == math.Inf(1) {
+		if stats.ZeroWeightBorrows {
 			weightedShare = math.NaN()
 		}
 		metrics.ReportCohortWeightedShare(kueue.CohortReference(cohort.Name), weightedShare, r.customLabels.CohortGet(kueue.CohortReference(cohort.Name)), r.roleTracker)
