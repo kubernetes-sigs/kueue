@@ -8,7 +8,7 @@
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
-    - [Story 1: A sidecar gets 401 because the platform issues no bearer tokens](#story-1-a-sidecar-gets-401-because-the-platform-issues-no-bearer-tokens)
+    - [Story 1: Scraping metrics from a sidecar container without a bearer token](#story-1-scraping-metrics-from-a-sidecar-container-without-a-bearer-token)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Metrics may become visible beyond their intended audience](#metrics-may-become-visible-beyond-their-intended-audience)
 - [Design Details](#design-details)
@@ -45,12 +45,9 @@ access are outside its scope.
 
 ## Motivation
 
-Some Kubernetes platforms authenticate workload clients to the API server using
-client certificates and do not provision an API-server-recognized bearer token
-for every in-pod metrics scraper. The Kueue controller manager can reconcile
-resources using its client certificate while its sidecar's request to `/metrics`
-receives HTTP 401. The manager's API client identity and the scraper's incoming
-request identity are separate concerns.
+Some platforms add a metrics scraper container to the Kueue controller manager
+Pod as part of their monitoring setup. This sidecar shares the manager's network
+namespace and reaches the metrics endpoint through loopback.
 
 Currently, Kueue's metrics endpoint accepts only bearer tokens that pass
 TokenReview and SubjectAccessReview, with no client-certificate option for
@@ -58,8 +55,9 @@ metrics requests.
 
 ### Why existing authentication cannot simply be configured
 
-The sidecar has no token that TokenReview accepts. Client-certificate metrics
-authentication is not supported today (see [Alternatives](#alternatives)).
+Some platforms do not provision a bearer token for the sidecar that TokenReview
+accepts. Client-certificate metrics authentication is not supported today (see
+[Alternatives](#alternatives)).
 
 ### Goals
 
@@ -91,15 +89,12 @@ Authenticated HTTPS remains the default, and HTTPS is retained when opting out.
 
 ### User Stories
 
-#### Story 1: A sidecar gets 401 because the platform issues no bearer tokens
+#### Story 1: Scraping metrics from a sidecar container without a bearer token
 
-An administrator trusts all containers in the manager pod, but the platform
-provides no bearer token for the metrics sidecar. Scrapes are rejected with
-HTTP 401 even though the manager can access the Kubernetes API. The administrator
-wants the sidecar to collect metrics over verified HTTPS without provisioning a
-scraper credential, while keeping the endpoint accessible only through loopback.
-The deployment supplies external serving certificates so the scraper can verify
-the server's identity.
+An administrator adds a metrics scraper sidecar to the Kueue controller manager
+Pod and trusts all processes sharing its network namespace. They want the scraper
+to collect metrics over verified HTTPS without provisioning a bearer token, while
+keeping the metrics listener bound to loopback.
 
 ### Risks and Mitigations
 
@@ -169,9 +164,10 @@ initializing certificates or starting listeners:
 - When metrics are enabled, `accessControl: None` requires a literal loopback IP
   and numeric port in `metrics.bindAddress`. Accept IPv4, IPv6, and IPv4-mapped
   loopback addresses, such as `127.0.0.1:8443`, `[::1]:8443`, and
-  `[::ffff:127.0.0.1]:8443`. Ports must be in the range 0–65535; port zero permits
-  an operating-system-assigned port. Reject wildcard and non-loopback addresses,
-  hostnames (including `localhost`), URLs, missing ports, and malformed values.
+  `[::ffff:127.0.0.1]:8443`. Ports must be in the range 1–65535; reject port zero
+  because the sidecar has no mechanism to discover an operating-system-assigned
+  port. Reject wildcard and non-loopback addresses, hostnames (including
+  `localhost`), URLs, missing ports, and malformed values.
 - Kueue defaults an omitted or empty bind address to `:8443`; reject that wildcard
   address when `accessControl: None` is used for enabled metrics.
 - `metrics.bindAddress: "0"` disables metrics. No listener is created, and the
@@ -218,8 +214,9 @@ resulting metrics server options:
   and rejection of empty or unknown values.
 - Both access-control modes with the feature gate enabled/disabled, including
   the disabled-metrics sentinel.
-- IPv4/IPv6/mapped loopback, wildcard and non-loopback addresses, hostnames,
-  missing/out-of-range ports, port zero, and malformed addresses.
+- IPv4/IPv6/mapped loopback with ports 1–65535 accepted; wildcard and non-loopback
+  addresses, hostnames, missing/out-of-range ports, port zero, and malformed
+  addresses rejected when `accessControl: None` is used for enabled metrics.
 - Omitted/empty bind addresses defaulting to `:8443` and being rejected when
   `accessControl: None` is used.
 - The default and explicit `Delegated` authentication filter, gate-enabled `None`
