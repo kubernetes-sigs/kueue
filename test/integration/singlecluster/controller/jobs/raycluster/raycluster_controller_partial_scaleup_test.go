@@ -338,6 +338,39 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		expectPodsUsage(7)
 	})
 
+	ginkgo.It("Should partially admit a replacement when a worker group shrinks below its live grant", func() {
+		const groupA, groupB = "workers-a", "workers-b"
+		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+			Queue(localQueue.Name).
+			WithWorkerGroups(
+				*testingraycluster.MakeWorkerGroup(groupA, 4).Request(corev1.ResourceCPU, "1").Obj(),
+				*testingraycluster.MakeWorkerGroup(groupB, 2).Request(corev1.ResourceCPU, "1").Obj(),
+			).
+			Obj()
+
+		behavioral.MustCreate(ctx, k8sClient, testRayCluster)
+		initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, groupA, 4)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, groupB, 2)
+		expectPodsUsage(7)
+
+		// The full replacement needs eight pods, but 1 head + 1 groupA + 5 groupB fits.
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
+			testRayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(1))
+			testRayCluster.Spec.WorkerGroupSpecs[1].Replicas = new(int32(6))
+			g.Expect(k8sClient.Update(ctx, testRayCluster)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		replacement := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, initialSlice)
+		gomega.Expect(replacement.Spec.PodSets[1].MinCount).Should(gomega.Equal(new(int32(1))))
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, replacement, groupA, 1)
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, replacement, groupB, 5)
+		expectPodsUsage(7)
+	})
+
 	ginkgo.It("Should preserve worker group MinCounts when reordering during partial scale-up", func() {
 		const groupA, groupB = "workers-a", "workers-b"
 		testRayCluster := testingraycluster.MakeCluster("foo", ns.Name).
