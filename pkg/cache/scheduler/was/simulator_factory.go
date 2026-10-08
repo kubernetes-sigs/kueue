@@ -33,7 +33,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeunschedulable"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
-	schedLibSimulator "sigs.k8s.io/scheduler-library/pkg/simulator"
+	schedlib "sigs.k8s.io/scheduler-library/pkg/simulator"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 )
@@ -41,7 +41,7 @@ import (
 var _ simulator.Factory = (*wasSimulatorFactory)(nil)
 
 type wasSimulatorFactory struct {
-	sim *schedLibSimulator.SchedulingSimulator
+	sim *schedlib.SchedulingSimulator
 }
 
 func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
@@ -85,7 +85,7 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (simulator.Factory, error) {
 	cfg := newWASSchedulerConfig()
 
-	roClient, err := schedLibSimulator.NewReadonlyClient(restConfig)
+	roClient, err := schedlib.NewReadonlyClient(restConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (simul
 	fakeClient := fake.NewSimpleClientset()
 	informerFactory := informers.NewSharedInformerFactory(fakeClient, 0)
 
-	sim, err := schedLibSimulator.NewSchedulingSimulator(ctx, cfg, roClient, informerFactory)
+	sim, err := schedlib.NewSchedulingSimulator(ctx, cfg, roClient, informerFactory)
 	if err != nil {
 		return nil, err
 	}
