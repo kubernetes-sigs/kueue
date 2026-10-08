@@ -687,12 +687,12 @@ func TestBuildPodSets(t *testing.T) {
 		"multi-host replicas above maximum": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
-					{GroupName: "workers", Replicas: new(int32(4)), MinReplicas: new(int32(1)), MaxReplicas: new(int32(2)), NumOfHosts: 3},
+					{GroupName: "workers", Replicas: new(int32(4)), MinReplicas: new(int32(1)), MaxReplicas: new(int32(2)), NumOfHosts: 4},
 				},
 			},
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).PodSpec(corev1.PodSpec{}).Obj(),
-				*utiltestingapi.MakePodSet("workers", 6).PodSpec(corev1.PodSpec{}).Obj(),
+				*utiltestingapi.MakePodSet("workers", 8).PodSpec(corev1.PodSpec{}).Obj(),
 			},
 		},
 		"absent replicas with minimum": {
