@@ -26,6 +26,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericiooptions"
 	k8sfake "k8s.io/client-go/kubernetes/fake"
@@ -55,9 +56,11 @@ func TestVersionCmd(t *testing.T) {
 		},
 		"should print client and server versions": {
 			deployments: []*appsv1.Deployment{{
-				Name:      "kueue-controller-manager",
-				Namespace: kueueNamespace,
-				Labels:    controllerManagerLabels,
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "kueue-controller-manager",
+					Namespace: kueueNamespace,
+					Labels:    controllerManagerLabels,
+				},
 				Spec: appsv1.DeploymentSpec{
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
@@ -78,9 +81,11 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0
 		},
 		"should look up the controller manager in --namespace": {
 			deployments: []*appsv1.Deployment{{
-				Name:      "kueue-controller-manager",
-				Namespace: "custom-kueue",
-				Labels:    controllerManagerLabels,
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "kueue-controller-manager",
+					Namespace: "custom-kueue",
+					Labels:    controllerManagerLabels,
+				},
 				Spec: appsv1.DeploymentSpec{
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
@@ -101,9 +106,11 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0-custom
 		},
 		"should ignore a controller manager outside --namespace": {
 			deployments: []*appsv1.Deployment{{
-				Name:      "kueue-controller-manager",
-				Namespace: kueueNamespace,
-				Labels:    controllerManagerLabels,
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "kueue-controller-manager",
+					Namespace: kueueNamespace,
+					Labels:    controllerManagerLabels,
+				},
 				Spec: appsv1.DeploymentSpec{
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
@@ -122,9 +129,11 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0-custom
 		},
 		"should find the controller manager of a Helm release with a custom name": {
 			deployments: []*appsv1.Deployment{{
-				Name:      "foo-kueue-controller-manager",
-				Namespace: kueueNamespace,
-				Labels:    controllerManagerLabels,
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo-kueue-controller-manager",
+					Namespace: kueueNamespace,
+					Labels:    controllerManagerLabels,
+				},
 				Spec: appsv1.DeploymentSpec{
 					Template: corev1.PodTemplateSpec{
 						Spec: corev1.PodSpec{
@@ -145,11 +154,13 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0-helm
 		},
 		"should ignore a Deployment without the controller manager labels": {
 			deployments: []*appsv1.Deployment{{
-				Name:      "foo-kueue-kueueviz-backend",
-				Namespace: kueueNamespace,
-				Labels: map[string]string{
-					"app.kubernetes.io/name":      "kueue",
-					"app.kubernetes.io/component": "dashboard",
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foo-kueue-kueueviz-backend",
+					Namespace: kueueNamespace,
+					Labels: map[string]string{
+						"app.kubernetes.io/name":      "kueue",
+						"app.kubernetes.io/component": "dashboard",
+					},
 				},
 				Spec: appsv1.DeploymentSpec{
 					Template: corev1.PodTemplateSpec{
@@ -170,14 +181,18 @@ Kueue Controller Manager Image: registry.k8s.io/kueue/kueue:v0.0.0-helm
 		"should fail when multiple Deployments have the controller manager labels": {
 			deployments: []*appsv1.Deployment{
 				{
-					Name:      "foo-kueue-controller-manager",
-					Namespace: kueueNamespace,
-					Labels:    controllerManagerLabels,
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "foo-kueue-controller-manager",
+						Namespace: kueueNamespace,
+						Labels:    controllerManagerLabels,
+					},
 				},
 				{
-					Name:      "bar-kueue-controller-manager",
-					Namespace: kueueNamespace,
-					Labels:    controllerManagerLabels,
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "bar-kueue-controller-manager",
+						Namespace: kueueNamespace,
+						Labels:    controllerManagerLabels,
+					},
 				},
 			},
 			args:    []string{},
