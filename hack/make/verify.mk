@@ -132,10 +132,13 @@ verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify
 # Lint each module in parallel; drop generated packages (client-go/, internal/mocks/)
 # from the target list — golangci-lint's path/generated exclusions only filter reported
 # issues, not the analysis work, so they must be excluded before the linter runs.
+# Label module totals and command timings so parallel workers remain distinguishable.
 define _ci_lint_recipe
 @echo "Module lint concurrency: processes=$(CI_LINT_NPROCS), GOMAXPROCS=$${GOMAXPROCS:-default}"
 @find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; \
 	| xargs -P $(CI_LINT_NPROCS) -n 1 sh -c ' \
+		MAKE_TIMING_LABEL="lint module=$$2" MAKE_TIMING_COMMANDS=1 \
+			exec "$(PROJECT_DIR)/hack/make-timed-shell.sh" -c "$$1" sh "$$2"' sh ' \
 		cd "$$1" || exit 1; \
 		dirs=$$($(GO_CMD) list -f "{{.Dir}}" ./... \
 			| grep -vE "/(client-go|internal/mocks)(/|$$)" \
@@ -145,7 +148,7 @@ define _ci_lint_recipe
 			--allow-parallel-runners \
 			--timeout 15m0s \
 			--config "$(PROJECT_DIR)/.golangci.yaml" \
-			$$dirs' sh
+			$$dirs'
 endef
 
 define _lint_api_recipe
