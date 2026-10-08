@@ -534,6 +534,63 @@ func TestPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
+		"elastic job with partial scale-up strategy seeds MinCount equal to Count": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:                               false,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					SetAnnotation(constants.ElasticJobAnnotation, "true").
+					SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
+					SetMinimumCount(3).
+					Obj(),
+			},
+		},
+		"elastic job without partial scale-up strategy does not seed MinCount": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:                               false,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					SetAnnotation(constants.ElasticJobAnnotation, "true").
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
+					Obj(),
+			},
+		},
+		"elastic job with partial scale-up strategy but feature gate disabled does not seed MinCount": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:                               false,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
+			},
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					SetAnnotation(constants.ElasticJobAnnotation, "true").
+					SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
+					Obj(),
+			},
+		},
 		"with required topology annotation": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 			job: (*Job)(
