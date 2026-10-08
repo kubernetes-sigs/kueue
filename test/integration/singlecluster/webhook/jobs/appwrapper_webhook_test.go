@@ -63,7 +63,7 @@ var _ = ginkgo.Describe("AppWrapper Webhook", func() {
 
 	ginkgo.It("the update doesn't succeed if the queue name is changed to an invalid one", func() {
 		appwrapper := testingaw.MakeAppWrapper("aw-with-queue-name", ns.Name).Queue("default").Obj()
-		util.MustCreate(ctx, k8sClient, appwrapper)
+		behavioral.MustCreate(ctx, k8sClient, appwrapper)
 
 		lookupKey := types.NamespacedName{Name: appwrapper.Name, Namespace: appwrapper.Namespace}
 		createdAppWrapper := &awv1beta2.AppWrapper{}
