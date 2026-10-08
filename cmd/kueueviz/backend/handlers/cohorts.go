@@ -75,7 +75,7 @@ func (h *Handlers) fetchCohorts(ctx context.Context) (any, error) {
 	}
 
 	// Build result from Cohort CRD objects
-	var result []map[string]any
+	result := make([]map[string]any, 0)
 	for _, cohort := range cohortList.Items {
 		queues := cohortQueues[cohort.Name]
 		if queues == nil {
