@@ -233,10 +233,23 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 }
 
 // Start implements the Runnable interface to run scheduler as a controller.
+// The scheduling loop does not start until the event handlers that fill the
+// cache have processed their informers' initial lists, so the first cycle
+// sees every ClusterQueue, Cohort, ResourceFlavor, Topology, and admitted
+// Workload that existed at startup. On a replica that was already running as
+// a follower those handlers synced long before it took the lease, so there
+// is no wait.
 func (s *Scheduler) Start(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx).WithName("scheduler")
 	ctx = ctrl.LoggerInto(ctx, log)
-	go wait.UntilWithBackoff(ctx, s.schedule)
+	go func() {
+		start := time.Now()
+		if err := s.cache.WaitForInitialSync(ctx); err != nil {
+			return
+		}
+		log.V(2).Info("Cache event handlers synced, starting the scheduling loop", "waited", time.Since(start))
+		wait.UntilWithBackoff(ctx, s.schedule)
+	}()
 	return nil
 }
 
