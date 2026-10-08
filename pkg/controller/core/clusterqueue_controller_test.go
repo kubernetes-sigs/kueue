@@ -808,14 +808,6 @@ func TestClusterQueueDeleteCohortSubtreeMetrics(t *testing.T) {
 		},
 	}
 
-	collectByCohort := func(dps []testingmetrics.MetricDataPoint) map[string]float64 {
-		got := make(map[string]float64, len(dps))
-		for _, dp := range dps {
-			got[dp.Labels["cohort"]] = dp.Value
-		}
-		return got
-	}
-
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
@@ -850,11 +842,17 @@ func TestClusterQueueDeleteCohortSubtreeMetrics(t *testing.T) {
 
 			r.Delete(event.TypedDeleteEvent[*kueue.ClusterQueue]{Object: deleted})
 
-			gotQuota := collectByCohort(testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeQuota, map[string]string{"flavor": "default"}))
+			gotQuota := make(map[string]float64)
+			for _, dp := range testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeQuota, map[string]string{"flavor": "default"}) {
+				gotQuota[dp.Labels["cohort"]] = dp.Value
+			}
 			if diff := cmp.Diff(tc.wantQuota, gotQuota, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected cohort subtree quota (-want,+got):\n%s", diff)
 			}
-			gotReservations := collectByCohort(testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeResourceReservations, map[string]string{"flavor": "default"}))
+			gotReservations := make(map[string]float64)
+			for _, dp := range testingmetrics.CollectFilteredGaugeVec(metrics.CohortSubtreeResourceReservations, map[string]string{"flavor": "default"}) {
+				gotReservations[dp.Labels["cohort"]] = dp.Value
+			}
 			if diff := cmp.Diff(tc.wantReservations, gotReservations, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected cohort subtree resource reservations (-want,+got):\n%s", diff)
 			}
