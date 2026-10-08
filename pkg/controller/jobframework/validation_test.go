@@ -720,6 +720,37 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 				},
 			},
 		},
+		// 36028797018963969 is 2^55+1: it used to wrap around to 1s and pass validation.
+		"timeout that would wrap around to a small duration is rejected": {
+			annotation: `{"timeoutSeconds": 36028797018963969}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "timeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+		},
+		"max int64 timeout is rejected as exceeding MaxTimeoutOnWorkload": {
+			annotation: `{"timeoutSeconds": 9223372036854775807}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "timeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+		},
+		"recoveryTimeout that would wrap around to a small duration is rejected": {
+			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 36028797018963969}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "recoveryTimeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+		},
 		"timeoutSeconds set to string is rejected at admission time": {
 			annotation: `{"timeoutSeconds": "foo"}`,
 			wantErr: field.ErrorList{
