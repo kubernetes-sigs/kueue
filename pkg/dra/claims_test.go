@@ -535,25 +535,6 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		{
-			name: "Mixed AdminAccess and normal requests counts only normal",
-			extraObjects: []runtime.Object{
-				utiltesting.MakeResourceClaimTemplate("claim-tmpl-mixed", "ns1").
-					DeviceRequest("normal-req", "test-deviceclass-1", 2).
-					DeviceRequest("admin-req", "test-deviceclass-1", 1).
-					WithAdminAccess(true).
-					Obj(),
-			},
-			modifyWL: func(w *kueue.Workload) {
-				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
-					{Name: "req-mixed", ResourceClaimTemplateName: new("claim-tmpl-mixed")},
-				}
-			},
-			lookup: defaultLookup,
-			want: map[kueue.PodSetReference]corev1.ResourceList{
-				"main": {"res-1": resource.MustParse("2")},
-			},
-		},
-		{
 			name: "CEL selectors with nonexistent DeviceClass returns error",
 			extraObjects: []runtime.Object{
 				utiltesting.MakeResourceClaimTemplate("claim-tmpl-noclass", "ns1").

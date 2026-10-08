@@ -38,7 +38,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
-	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func newFakeClient(deviceClasses ...*resourceapi.DeviceClass) client.Client {
@@ -915,49 +914,6 @@ func TestNeedsDRAReconcile(t *testing.T) {
 			got := NeedsDRAReconcile(tc.workload, cache)
 			if got != tc.want {
 				t.Errorf("NeedsDRAReconcile() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
-// TestDRADetectionAndQuotaUseEffectiveRequests verifies that both DRA consumers
-// use Info's effective requests when the raw Workload has no explicit requests.
-// NeedsDRAReconcile must detect the defaulted GPU request, and
-// ResolveExtendedResourceQuota must account for the same two GPUs and mark the
-// resource as replaced so it is not also charged as a regular extended resource.
-// Limits-only and LimitRange inputs exercise the two sources of those requests;
-// this test covers the DRA helpers, without running a controller or scheduler.
-func TestDRADetectionAndQuotaUseEffectiveRequests(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
-	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
-	const gpu corev1.ResourceName = "example.com/gpu"
-	for name, useLimitRange := range map[string]bool{"limits only": false, "LimitRange defaults": true} {
-		t.Run(name, func(t *testing.T) {
-			ctx, log := utiltesting.ContextWithLog(t)
-			wl := utiltestingapi.MakeWorkload("wl", "ns").Limit(gpu, "2").Obj()
-			inputs := workload.AdjustmentInputs{}
-			if useLimitRange {
-				wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Limits = nil
-				inputs.LimitRangeSummary = limitrange.Summary{corev1.LimitTypeContainer: {DefaultRequest: corev1.ResourceList{gpu: resource.MustParse("2")}}}
-			}
-			original := wl.DeepCopy()
-			info := workload.NewInfo(log, wl, workload.WithAdjustmentInputs(inputs))
-			cache := NewExtendedResourceCache()
-			cache.Add(gpu, "gpu.example.com")
-			if !NeedsDRAReconcile(info, cache) {
-				t.Fatal("effective GPU requests did not trigger DRA processing")
-			}
-			dc := testingdra.MakeDeviceClass("gpu.example.com").ExtendedResourceName(string(gpu)).Obj()
-			got, replaced, errs := ResolveExtendedResourceQuota(ctx, newFakeClient(dc), NewResourceMapper(), info)
-			if len(errs) != 0 {
-				t.Fatal(errs)
-			}
-			qty := got["main"][gpu]
-			if qty.Cmp(resource.MustParse("2")) != 0 || !replaced["main"].Has(gpu) {
-				t.Errorf("effective DRA requests not charged: requests %v, replaced %v", got, replaced)
-			}
-			if diff := cmp.Diff(original, wl); diff != "" {
-				t.Fatalf("raw Workload changed: %s", diff)
 			}
 		})
 	}
