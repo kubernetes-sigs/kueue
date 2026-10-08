@@ -669,7 +669,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	}
 
 	res, err := w.nominateAndSynchronizeWorkers(ctx, group)
-	if err == nil && (res.RequeueAfter == 0 || requeueAfterSynchronize < res.RequeueAfter) {
+	// Keep the earlier of the two requeues; a zero duration means none was requested.
+	if err == nil && requeueAfterSynchronize > 0 && (res.RequeueAfter == 0 || requeueAfterSynchronize < res.RequeueAfter) {
 		res.RequeueAfter = requeueAfterSynchronize
 	}
 	return res, err
@@ -964,7 +965,18 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 			group.remotes[rem] = nil
 		}
 	}
-	return reconcile.Result{}, errors.Join(errs...)
+
+	if err := errors.Join(errs...); err != nil {
+		return reconcile.Result{}, err
+	}
+
+	// With AllAtOnce, nothing is nominated while every cluster is unavailable, and a
+	// reconnect does not enqueue this workload again, so retry until one is connected.
+	if w.dispatcherName == config.MultiKueueDispatcherModeAllAtOnce && len(nominatedWorkers) == 0 && len(group.unavailableClusters) > 0 {
+		log.V(3).Info("No connected clusters to dispatch to, requeuing", "unavailableClusters", group.unavailableClusters, "retryAfter", retryIncrement)
+		return reconcile.Result{RequeueAfter: retryIncrement}, nil
+	}
+	return reconcile.Result{}, nil
 }
 
 func (w *wlReconciler) Create(_ event.CreateEvent) bool {
