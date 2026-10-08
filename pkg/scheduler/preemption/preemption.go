@@ -578,19 +578,18 @@ func borrowedFrsFromLCA(
 		if !targetCQ.Borrowing(fr) {
 			continue
 		}
-		frSet := sets.New(fr)
-		borrowedFromLCA := true
-		for _, cohort := range cohortsBelowLCA {
-			if schdcache.IsWithinNominalInResources(cohort, frSet) {
-				borrowedFromLCA = false
-				break
-			}
-		}
-		if borrowedFromLCA {
+		if isBorrowedFromLCA(cohortsBelowLCA, fr) {
 			borrowedFrs.Insert(fr)
 		}
 	}
 	return borrowedFrs
+}
+
+func isBorrowedFromLCA(cohortsBelowLCA []*schdcache.CohortSnapshot, fr resources.FlavorResource) bool {
+	frSet := sets.New(fr)
+	return !slices.ContainsFunc(cohortsBelowLCA, func(cohort *schdcache.CohortSnapshot) bool {
+		return schdcache.IsWithinNominalInResources(cohort, frSet)
+	})
 }
 
 // workloadFits determines if the workload can be admitted given the simulated usage
