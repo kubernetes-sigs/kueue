@@ -1595,6 +1595,96 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				behavioral.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 			})
 
+			ginkgo.It("should ungate all replacement pods when a terminating pod remains in the assigned rack", func() {
+				const podCount = 4
+
+				ginkgo.By(fmt.Sprintf("admitting an indexed workload with %d pods in one rack", podCount))
+				wl := utiltestingapi.MakeWorkload("wl-replacements", ns.Name).
+					PodSets(*utiltestingapi.MakePodSet("worker", podCount).
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						RequiredTopologyRequest(utiltesting.DefaultRackTopologyLevel).
+						Obj()).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					Request(corev1.ResourceCPU, "250m").
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				assignment := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+				gomega.Expect(assignment.Levels).To(gomega.Equal([]string{
+					utiltesting.DefaultBlockTopologyLevel,
+					utiltesting.DefaultRackTopologyLevel,
+				}))
+				gomega.Expect(assignment.Domains).To(gomega.HaveLen(1))
+				gomega.Expect(assignment.Domains[0].Count).To(gomega.Equal(int32(podCount)))
+				nodeLabels := utiltas.NodeLabelsFromKeysAndValues(assignment.Levels, assignment.Domains[0].Values)
+
+				ginkgo.By("retaining a running pod with index zero in the assigned rack after deletion starts")
+				oldPod := testingpod.MakePod("old-worker-0", ns.Name).
+					Annotation(kueue.WorkloadAnnotation, wl.Name).
+					Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
+					Label(constants.PodSetLabel, "worker").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Request(corev1.ResourceCPU, "250m").
+					KueueFinalizer().
+					Obj()
+				oldPod.Spec.NodeSelector = nodeLabels
+				for _, node := range nodes {
+					if node.Labels[utiltesting.DefaultBlockTopologyLevel] == nodeLabels[utiltesting.DefaultBlockTopologyLevel] &&
+						node.Labels[utiltesting.DefaultRackTopologyLevel] == nodeLabels[utiltesting.DefaultRackTopologyLevel] {
+						oldPod.Spec.NodeName = node.Name
+						break
+					}
+				}
+				gomega.Expect(oldPod.Spec.NodeName).NotTo(gomega.BeEmpty())
+				behavioral.MustCreate(ctx, k8sClient, oldPod)
+				ginkgo.DeferCleanup(func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(oldPod), oldPod); err != nil {
+							g.Expect(client.IgnoreNotFound(err)).To(gomega.Succeed())
+							return
+						}
+						controllerutil.RemoveFinalizer(oldPod, constants.ManagedByKueueLabelKey)
+						g.Expect(client.IgnoreNotFound(k8sClient.Update(ctx, oldPod))).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+				integration.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, oldPod)
+				gomega.Expect(k8sClient.Delete(ctx, oldPod, client.GracePeriodSeconds(0))).To(gomega.Succeed())
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oldPod), oldPod)).To(gomega.Succeed())
+					g.Expect(oldPod.DeletionTimestamp.IsZero()).To(gomega.BeFalse())
+					g.Expect(oldPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+				ginkgo.By(fmt.Sprintf("creating %d gated replacement pods, including another pod with index zero", podCount))
+				for i := range podCount {
+					pod := testingpod.MakePod(fmt.Sprintf("new-worker-%d", i), ns.Name).
+						Annotation(kueue.WorkloadAnnotation, wl.Name).
+						Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
+						Label(constants.PodSetLabel, "worker").
+						Label(batchv1.JobCompletionIndexAnnotation, strconv.Itoa(i)).
+						Request(corev1.ResourceCPU, "250m").
+						TopologySchedulingGate().
+						Obj()
+					behavioral.MustCreate(ctx, k8sClient, pod)
+				}
+
+				ginkgo.By("verifying all replacements are ungated while the old pod is still terminating")
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(oldPod), oldPod)).To(gomega.Succeed())
+					g.Expect(oldPod.DeletionTimestamp.IsZero()).To(gomega.BeFalse())
+					g.Expect(oldPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+					for i := range podCount {
+						var pod corev1.Pod
+						g.Expect(k8sClient.Get(ctx, client.ObjectKey{
+							Name: fmt.Sprintf("new-worker-%d", i), Namespace: ns.Name,
+						}, &pod)).To(gomega.Succeed())
+						g.Expect(pod.Spec.SchedulingGates).To(gomega.BeEmpty())
+						g.Expect(pod.Spec.NodeSelector).To(gomega.Equal(nodeLabels))
+					}
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.It("should not admit workload which does not fit to the required topology domain", func() {
 				ginkgo.By("creating a workload which requires rack, but does not fit in any", func() {
 					wl1 := utiltestingapi.MakeWorkload("wl1-inadmissible", ns.Name).
