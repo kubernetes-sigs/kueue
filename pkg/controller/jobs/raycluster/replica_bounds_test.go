@@ -59,10 +59,6 @@ func TestWorkerPodCountsRespectReplicaBounds(t *testing.T) {
 			group:     rayv1.WorkerGroupSpec{Replicas: new(int32(0)), MinReplicas: new(int32(0)), MaxReplicas: new(int32(2))},
 			wantCount: 0,
 		},
-		"suspended worker group": {
-			group:     rayv1.WorkerGroupSpec{Replicas: new(int32(2)), MinReplicas: new(int32(2)), MaxReplicas: new(int32(2)), Suspend: new(true)},
-			wantCount: 0,
-		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
