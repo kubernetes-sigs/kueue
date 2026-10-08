@@ -138,12 +138,36 @@ function make_pr() { gh pr create; }
                         self.assertNotIn("- [x] Wait for", body)
 
     def test_existing_milestone_pr_retries_issue_update(self):
-        cases = {
-            "success": ("", "0", True),
-            "dry run": ("1", "0", False),
-            "issue edit failed": ("", "1", True),
+        matching_pr = {
+            "title": "Kueue: add milestone for 0.20",
+            "url": "https://github.com/kubernetes/test-infra/pull/42",
+            "headRefName": "kueue-milestone-0.20",
+            "baseRefName": "master",
+            "headRepositoryOwner": {"login": "release-test"},
         }
-        for name, (dry_run, edit_status, want_edit) in cases.items():
+        unrelated_prs = [
+            {**matching_pr, "url": "https://github.com/kubernetes/test-infra/pull/43",
+             "headRefName": "another-change"},
+            {**matching_pr, "url": "https://github.com/kubernetes/test-infra/pull/44",
+             "baseRefName": "another-base"},
+            {**matching_pr, "url": "https://github.com/kubernetes/test-infra/pull/45",
+             "headRepositoryOwner": {"login": "another-user"}},
+            {**matching_pr, "url": "https://github.com/kubernetes/test-infra/pull/46",
+             "headRepositoryOwner": None},
+            {**matching_pr, "url": "https://github.com/kubernetes/test-infra/pull/47",
+             "title": "Kueue: add milestone for 0.20 follow-up"},
+        ]
+        cases = {
+            "success": ("", "0", [matching_pr], True, True),
+            "dry run": ("1", "0", [matching_pr], True, False),
+            "issue edit failed": ("", "1", [matching_pr], True, True),
+            "unrelated PRs precede matching PR": ("", "0", unrelated_prs + [matching_pr], True, True),
+            "owner matching is case insensitive": (
+                "", "0", [{**matching_pr, "headRepositoryOwner": {"login": "Release-Test"}}], True, True),
+            "only unrelated PRs": ("", "0", unrelated_prs, False, False),
+            "no open PRs": ("", "0", [], False, False),
+        }
+        for name, (dry_run, edit_status, prs, want_existing, want_edit) in cases.items():
             with self.subTest(case=name), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 plugins = root / "config/prow/plugins.yaml"
@@ -161,8 +185,7 @@ args = sys.argv[1:]
 with Path(os.environ["GH_CALLS"]).open("a") as calls:
     calls.write(json.dumps(args) + "\\n")
 if args[:2] == ["pr", "list"]:
-    print(json.dumps([{"title": "Kueue: add milestone for 0.20",
-                       "url": "https://github.com/kubernetes/test-infra/pull/42"}]))
+    print(os.environ["TEST_PRS"])
 elif args[:2] == ["issue", "view"]:
     print(json.dumps({"body": os.environ["TEST_ISSUE_BODY"]}))
 elif args[:2] == ["issue", "edit"]:
@@ -181,6 +204,7 @@ else:
                     "RELEASE_ISSUE_NUMBER": "1",
                     "RELEASE_ISSUE_NAME": "Release v0.20.0",
                     "TEST_ISSUE_BODY": TEMPLATE,
+                    "TEST_PRS": json.dumps(prs),
                     "GH_CALLS": str(calls),
                     "GH_STUB": str(gh),
                     "TEST_PYTHON": sys.executable,
@@ -194,6 +218,7 @@ function git() {
     "status --porcelain --untracked=no"|"fetch upstream") ;;
     "remote get-url upstream") echo https://github.com/kubernetes/test-infra.git ;;
     "symbolic-ref --short HEAD") echo master ;;
+    "checkout -b "*) echo "Test stopped before preparing a new PR"; exit 0 ;;
     *) echo "Unexpected git call: $*" >&2; exit 1 ;;
   esac
 }
@@ -205,7 +230,12 @@ echo "$PR_RESULT"
                 result = subprocess.run(["bash", "-c", harness], env=env, cwd=root,
                                         capture_output=True, text=True, check=False)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                self.assertIn("already open: https://github.com/kubernetes/test-infra/pull/42", result.stdout)
+                if want_existing:
+                    self.assertIn("already open: " + matching_pr["url"], result.stdout)
+                    self.assertNotIn("Test stopped before preparing a new PR", result.stdout)
+                else:
+                    self.assertNotIn("already open:", result.stdout)
+                    self.assertIn("Test stopped before preparing a new PR", result.stdout)
                 recorded = [json.loads(line) for line in calls.read_text().splitlines()]
                 edits = [args for args in recorded if args[:2] == ["issue", "edit"]]
                 self.assertEqual(len(edits), 1 if want_edit else 0, recorded)

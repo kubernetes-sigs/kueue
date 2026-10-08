@@ -284,8 +284,15 @@ function submit_mapping_pr() {
   TEST_INFRA_STARTING_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse HEAD)
 
   local existing_pr
-  existing_pr=$(gh pr list --repo="${test_infra_repo}" --search "${PR_TITLE} in:title" --json title,url \
-    | jq -r --arg t "${PR_TITLE}" 'first(.[] | select(.title == $t) | .url) // empty')
+  existing_pr=$(gh pr list --repo="${test_infra_repo}" --search "${PR_TITLE} in:title" \
+    --json title,url,headRefName,baseRefName,headRepositoryOwner \
+    | jq -r --arg title "${PR_TITLE}" --arg head "${PR_BRANCH}" --arg owner "${GITHUB_USER}" '
+      first(.[] | select(
+        .title == $title and
+        .headRefName == $head and
+        .baseRefName == "master" and
+        ((.headRepositoryOwner.login // "" | ascii_downcase) == ($owner | ascii_downcase))
+      ) | .url) // empty')
   if [[ -n "${existing_pr}" ]]; then
     PR_RESULT="already open: ${existing_pr}"
     echo "+++ A pull request for this change is already open: ${existing_pr}"
