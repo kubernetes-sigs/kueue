@@ -230,6 +230,11 @@ var (
 	}
 )
 
+// NonInheritableLabelsIn returns the sorted subset of keys that WithLabelKeysToCopy drops.
+func NonInheritableLabelsIn(keys []string) []string {
+	return sets.List(sets.New(keys...).Intersection(sets.New(nonInheritableLabels...)))
+}
+
 // WithLabelKeysToCopy adds the label keys to copy, except nonInheritableLabels.
 func WithLabelKeysToCopy(s sets.Set[string]) Option {
 	return func(o *Options) {
