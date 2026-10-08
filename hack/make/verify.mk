@@ -21,7 +21,7 @@ SKILLSAW_IMAGE := "ghcr.io/stbenjam/skillsaw:${SKILLSAW_VERSION}"
 VERIFY_NPROCS ?= 8
 # Bound each Go process as well as the number of concurrent build/lint processes.
 # These limits apply to verify; standalone artifact builds retain their defaults.
-VERIFY_GOMAXPROCS ?= 3
+VERIFY_GOMAXPROCS ?= 2
 VERIFY_CLI_BUILD_NPROCS ?= 2
 # Share CPU capacity with platform builds and documentation generation; 0 is unlimited.
 CI_LINT_NPROCS ?= 2
