@@ -15,7 +15,11 @@ This guide is for [serving users](/docs/tasks#serving-user) that have a basic un
 
 ## Before you begin
 
-1. Make sure you are using Kueue v0.17.0 or newer and KubeRay v1.3.0 or newer.
+1. Make sure you are using Kueue v0.17.0 or newer. Basic RayService integration
+   requires KubeRay APIs available since v1.3.0. Top-level suspend requires
+   v1.7.0; see [suspend control](#c-suspend-control). See
+   [KubeRay compatibility](/docs/tasks/run/rayclusters/#kuberay-compatibility)
+   when choosing a KubeRay version, especially if you use MultiKueue.
 
 2. Check [Administer cluster quotas](/docs/tasks/manage/administer_cluster_quotas) for details on the initial Kueue setup.
 
@@ -60,7 +64,23 @@ spec:
 
 ### c. Suspend control
 
-Kueue controls the `spec.rayClusterConfig.suspend` field of the RayService. When a RayService is admitted by Kueue, Kueue will unsuspend it by setting `spec.rayClusterConfig.suspend` to `false`, regardless of its previous value.
+Starting in Kueue v0.21.0, `KubeRayServiceUsingTopLevelSuspend` is enabled by
+default and Kueue controls the RayService's top-level `spec.suspend` field.
+This requires KubeRay v1.7.0 or newer.
+
+When using a KubeRay version older than v1.7.0 with a Kueue version that provides
+this gate, disable it in the [Kueue configuration](/docs/getting-started/installation/#change-the-feature-gates-configuration):
+
+```yaml
+featureGates:
+  KubeRayServiceUsingTopLevelSuspend: false
+```
+
+With the gate disabled, or on Kueue versions before it was introduced, Kueue
+controls `spec.rayClusterConfig.suspend` instead. When a RayService is admitted,
+Kueue sets the applicable suspend field to `false`, regardless of its previous
+value. These API requirements do not imply that every older KubeRay version has
+been tested with the current Kueue release.
 
 ### d. Limitations
 

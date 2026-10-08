@@ -11,7 +11,15 @@ description: >
 
 Check the [MultiKueue installation guide](/docs/tasks/manage/setup_multikueue) on how to properly setup MultiKueue clusters.
 
-For the ease of setup and use we recommend using at least Kueue v0.11.0 and for KubeRay Operator at least v1.3.1.
+For the ease of setup and use we recommend using at least Kueue v0.11.0.
+See [KubeRay compatibility](/docs/tasks/run/rayclusters/#kuberay-compatibility)
+for the tested operator version and requirements for each workload kind.
+For the `spec.managedBy` workflow, KubeRay v1.3.1 or newer is recommended for
+RayJob and RayCluster; RayService requires KubeRay v1.6.0 or newer.
+RayService additionally requires KubeRay v1.7.0 or newer when
+`KubeRayServiceUsingTopLevelSuspend` is enabled (the default starting in Kueue
+v0.21.0); see [RayService suspend control](/docs/tasks/run/rayservices/#c-suspend-control)
+for the configuration needed with older KubeRay versions.
 
 See [KubeRay Operator Installation](https://docs.ray.io/en/latest/cluster/kubernetes/getting-started/raycluster-quick-start.html#step-2-deploy-a-kuberay-operator) for installation and configuration details of KubeRay Operator.
 
@@ -52,7 +60,7 @@ operator. Kueue propagates the options to the worker cluster and accounts for
 the collector sidecar resources in every Ray head and worker Pod.
 
 These additional requirements apply only to History Server. Other KubeRay
-workloads retain the minimum versions listed above. Kueue doesn't enforce the
+workloads follow the per-kind requirements listed above. Kueue doesn't enforce the
 worker operator version or its feature gates; older CRDs can't persist
 `historyServerOptions`, so no collector is configured.
 {{% /alert %}}
