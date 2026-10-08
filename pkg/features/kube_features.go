@@ -619,7 +619,7 @@ const (
 	// preemptors within a single scheduling cycle in classical preemption, and the
 	// lazy segment/bucket merge iterator that consumes it, instead of re-sorting a
 	// flat candidate list for every preemptor.
-	CandidateOrderCache featuregate.Feature = "CandidateOrderCache"
+	ClassicalPreemptionCandidateOrderCache featuregate.Feature = "CandidateOrderCache"
 
 	// owner: @vladikkuzn
 	//
