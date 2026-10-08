@@ -24,7 +24,7 @@ LD_FLAGS=${LD_FLAGS:-}
 
 BUILD_NAME=${BUILD_NAME:-kueuectl}
 PLATFORMS=${PLATFORMS:-linux/amd64}
-BUILD_NPROCS=${BUILD_NPROCS:-2}
+BUILD_NPROCS=${BUILD_NPROCS:-4}
 if ! [[ "${BUILD_NPROCS}" =~ ^[1-9][0-9]*$ ]]; then
   echo "BUILD_NPROCS must be a positive integer" >&2
   exit 1

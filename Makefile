@@ -27,7 +27,7 @@ GIT_COMMIT ?= $(shell git rev-parse HEAD)
 HOST_IMAGE_PLATFORM ?= linux/$(shell go env GOARCH)
 PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
-CLI_BUILD_NPROCS ?= 2
+CLI_BUILD_NPROCS ?= 4
 VIZ_PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 # Ray only provides PyPI wheels for amd64 and arm64
 RAY_PLATFORMS ?= linux/amd64,linux/arm64
