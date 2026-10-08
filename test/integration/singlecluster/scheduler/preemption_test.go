@@ -733,9 +733,9 @@ var _ = ginkgo.Describe("Preemption", func() {
 					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 				}).
 				Obj()
-			util.MustCreate(ctx, k8sClient, cq1)
+			behavioral.MustCreate(ctx, k8sClient, cq1)
 			q1 = utiltestingapi.MakeLocalQueue("same-queue-q1", ns.Name).ClusterQueue(cq1.Name).Obj()
-			util.MustCreate(ctx, k8sClient, q1)
+			behavioral.MustCreate(ctx, k8sClient, q1)
 
 			cq2 = utiltestingapi.MakeClusterQueue("same-queue-cq2").
 				Cohort("same-queue-cohort").
@@ -746,17 +746,17 @@ var _ = ginkgo.Describe("Preemption", func() {
 						Obj(),
 				).
 				Obj()
-			util.MustCreate(ctx, k8sClient, cq2)
+			behavioral.MustCreate(ctx, k8sClient, cq2)
 			q2 = utiltestingapi.MakeLocalQueue("same-queue-q2", ns.Name).ClusterQueue(cq2.Name).Obj()
-			util.MustCreate(ctx, k8sClient, q2)
+			behavioral.MustCreate(ctx, k8sClient, q2)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, q1, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, q2, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, q1, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, q2, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
 		})
 
 		ginkgo.It("should preempt a same-ClusterQueue workload while borrowing without BorrowWithinCohort", func() {
@@ -767,8 +767,8 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Request(corev1.ResourceCPU, "4").
 				Request(corev1.ResourceMemory, "1Gi").
 				Obj()
-			util.MustCreate(ctx, k8sClient, lowWl)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowWl)
+			behavioral.MustCreate(ctx, k8sClient, lowWl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowWl)
 
 			ginkgo.By("Creating a higher priority workload in the same ClusterQueue")
 			highWl := utiltestingapi.MakeWorkload("same-queue-high", ns.Name).
@@ -777,22 +777,22 @@ var _ = ginkgo.Describe("Preemption", func() {
 				Request(corev1.ResourceCPU, "4").
 				Request(corev1.ResourceMemory, "1Gi").
 				Obj()
-			util.MustCreate(ctx, k8sClient, highWl)
+			behavioral.MustCreate(ctx, k8sClient, highWl)
 
 			ginkgo.By("Verifying that the low priority workload is preempted within its ClusterQueue")
 			cqPath := "/" + string(cq1.Spec.CohortName) + "/" + cq1.Name
-			util.ExpectPreemptedCondition(ctx, k8sClient, kueue.InClusterQueueReason, metav1.ConditionTrue, lowWl, highWl, string(highWl.UID), "UNKNOWN", cqPath, cqPath)
-			util.ExpectPreemptedWorkloadsTotalMetric(cq1.Name, kueue.InClusterQueueReason, 1)
-			util.ExpectPreemptedWorkloadsTotalMetric(cq2.Name, kueue.InClusterQueueReason, 0)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, highWl)
+			behavioral.ExpectPreemptedCondition(ctx, k8sClient, kueue.InClusterQueueReason, metav1.ConditionTrue, lowWl, highWl, string(highWl.UID), "UNKNOWN", cqPath, cqPath)
+			behavioral.ExpectPreemptedWorkloadsTotalMetric(cq1.Name, kueue.InClusterQueueReason, 1)
+			behavioral.ExpectPreemptedWorkloadsTotalMetric(cq2.Name, kueue.InClusterQueueReason, 0)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, highWl)
 
 			ginkgo.By("Finishing eviction of the low priority workload")
-			util.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
 
 			ginkgo.By("Verifying that the high priority workload is admitted and the victim is pending")
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq1.Name, highWl)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, highWl)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq1.Name, highWl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, highWl)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl)
 		})
 	})
 
