@@ -133,6 +133,37 @@ func (s *Snapshot) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFla
 	}
 }
 
+// UsesTASNodesOf reports whether the Workload holds TAS capacity on nodes
+// selected by any of the given flavors, whichever flavor it uses there. It
+// relies on TASHandleOverlappingFlavors, with which flavors with a hostname
+// lowest level account for the usage of each other on the nodes they share,
+// and therefore ignores the other flavors.
+func (s *Snapshot) UsesTASNodesOf(wl *workload.Info, flavors sets.Set[kueue.ResourceFlavorReference]) bool {
+	if !features.Enabled(features.TASHandleOverlappingFlavors) {
+		return false
+	}
+	usage := wl.TASUsage()
+	for flavor := range flavors {
+		target := s.hostnameLeafTASFlavors[flavor]
+		if target == nil {
+			continue
+		}
+		for usageFlavor, flavorUsage := range usage {
+			// Only flavors with a hostname leaf level record their usage per
+			// node, while the domains of other levels can be named like nodes.
+			if s.hostnameLeafTASFlavors[usageFlavor] == nil {
+				continue
+			}
+			for _, tr := range flavorUsage {
+				if target.hasDomain(utiltas.DomainID(tr.Values)) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // SimulateWorkloadUsageRemoval modifies the snapshot by removing the usage
 // corresponding to the list of workloads from workloads' respective
 // ClusterQueues. It returns a function which can be used to restore
