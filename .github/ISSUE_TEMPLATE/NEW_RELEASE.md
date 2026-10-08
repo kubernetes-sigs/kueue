@@ -13,8 +13,8 @@ Please do not remove items from the checklist
 - [ ] [OWNERS](https://github.com/kubernetes-sigs/kueue/blob/main/OWNERS) must LGTM the release proposal.
   At least two for minor or major releases. At least one for a patch release.
 - [ ] Verify that the changelog in this issue and the CHANGELOG folder is up-to-date
-  - [ ] Use `/sync-release-notes` to generate and publish the release notes
-- [ ] For major or minor releases (`v$MAJ.$MIN.0`), use the `/create-release-branch` ChatOps command to create a new release branch.
+  - [ ] Use `/sync-release-notes` to generate and publish the release notes <!-- step:sync-release-notes -->
+- [ ] For major or minor releases (`v$MAJ.$MIN.0`), use the `/create-release-branch` ChatOps command to create a new release branch. <!-- step:create-release-branch -->
 - [ ] Update the release branch:
   - [ ] Run `/prepare-pull release` ChatOps command (or locally: `./hack/releasing/prepare_pull.sh --target release $VERSION`)
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_RELEASE --> <!-- example #211 -->
@@ -24,22 +24,22 @@ Please do not remove items from the checklist
       version dropdown, and prunes old snapshots. Patch releases re-freeze the existing snapshot
       to the new patch version (e.g. v0.17.7 -> v0.17.8). No Netlify/DNS steps are required. Just
       confirm the snapshot dirs and the `[[params.versions]]` entry are present in that PR.
-- [ ] Run ChatOps command `/tag-release` on this issue. This will:
+- [ ] Run ChatOps command `/tag-release` on this issue. This will: <!-- step:tag-release -->
   - Extract the changelog from the issue description.
   - Create the release tag at the tip of the release branch.
   - Push the tag upstream (triggers Prow to build and publish staging container image: `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$VERSION`).
-- [ ] Run ChatOps command `/create-draft-release` on this issue. This will:
+- [ ] Run ChatOps command `/create-draft-release` on this issue. This will: <!-- step:create-draft-release -->
   - Extract the changelog from the issue description.
   - Create the draft release pointing out to the created tag.
   - Write the change log into the draft release.
   - Generate the artifacts in the `release-artifacts` folder.
   - Upload the files in the `release-artifacts` folder to the draft release.
 - [ ] Promote images and Helm Charts to production:
-  - [ ] Use `/wait-for-images` to await for the staging images.
+  - [ ] Use `/wait-for-images` to await for the staging images. <!-- step:wait-for-images -->
   - [ ] Run `./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR
   - [ ] Wait for the PR to be merged <!-- K8S_IO_PULL --> <!-- example kubernetes/k8s.io#7899 -->
-  - [ ] Use `/wait-for-prod-images` to verify that the promoted images are available.
-- [ ] Use `/publish-release` to publish the release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases).
+  - [ ] Use `/wait-for-prod-images` to verify that the promoted images are available. <!-- step:wait-for-prod-images -->
+- [ ] Use `/publish-release` to publish the release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases). <!-- step:publish-release -->
       Link: <!-- RELEASE_LINK --> <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
 - [ ] Run the [openvex action](https://github.com/kubernetes-sigs/kueue/actions/workflows/openvex.yaml) to generate openvex data. The action will add the file to the release artifacts.
 - [ ] Run the [SBOM action](https://github.com/kubernetes-sigs/kueue/actions/workflows/sbom.yaml) to generate the SBOM and add it to the release.
