@@ -424,7 +424,7 @@ release-artifacts: ## Generate release artifacts.
 	$(MAKE) artifacts ARTIFACTS="$(RELEASE_ARTIFACTS)"
 
 .PHONY: prepare-release-branch
-prepare-release-branch: yq kustomize ## Prepare the release branch with the release version.
+prepare-release-branch: yq kustomize helm-docs ## Prepare the release branch with the release version.
 	@$(call set-release-branch-images)
 	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml -i cmd/kueueviz/INSTALL.md
 	$(SED) -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "$(APP_VERSION)/g' -i README.md -i site/hugo.toml
@@ -445,7 +445,7 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(YQ) e '.kueuePriorityBooster.image.tag = "$(RELEASE_BRANCH)"' -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml
 	$(SED) -r 's/[0-9]+\.[0-9]+\.[0-9]+/$(APP_VERSION)/g' -i cmd/experimental/kueue-priority-booster/README.md
 
-	$(MAKE) generate-helm-docs
+	$(_generate_helm_docs_recipe)
 
 .PHONY: update-security-insights
 update-security-insights: yq
@@ -602,8 +602,9 @@ generate-kueuectl-docs: kueuectl-docs
 		$(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands
 
 .PHONY: generate-helm-docs
+_generate_helm_docs_recipe = $(HELM_DOCS) -c $(PROJECT_DIR)/charts/kueue
 generate-helm-docs: helm-docs
-	$(HELM_DOCS) -c $(PROJECT_DIR)/charts/kueue
+	$(_generate_helm_docs_recipe)
 
 .PHONY: generate-metrics-tables
 generate-metrics-tables: metricsdoc

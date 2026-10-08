@@ -44,7 +44,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 ##
 ## What it does:
 ## - Phase 1: regenerate everything that is checked into git (Go code, docs site data, Helm docs/manifests)
-## - Phase 2: run verification checks (linters, formatting checks, helm rendering/unit tests, npm dep checks)
+## - Phase 2: run checks once their required generated inputs are ready
 ## - Phase 3: assert the repo is clean for $(PATHS_TO_VERIFY)
 ##
 ## Why it matters:
@@ -58,9 +58,9 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 ##
 ## How to extend `make verify`
 ##
-## `make verify` is intentionally split into two broad phases:
+## `make verify` tracks generation prerequisites for each check:
 ## - `verify-tree-prereqs`: targets that *may write to the working tree* (codegen, docs generation, helm docs, etc.)
-## - `verify-checks`: targets that should be *read-only* (linters, formatting verification, template rendering, unit tests)
+## - `verify-checks`: checks that wait for the generators of their inputs; Go lint and artifact builds can overlap site generation
 ##
 ## To add a new step:
 ## - If it GENERATES/UPDATES files checked into git: add it under one of the `verify-*-prereqs` targets.
@@ -89,7 +89,8 @@ verify-docs-prereqs: generate-apiref generate-kueuectl-docs generate-metrics-tab
 
 .PHONY: verify-helm-prereqs
 verify-helm-prereqs: ## Prerequisites for Helm checks.
-verify-helm-prereqs: compile-crd-manifests update-helm generate-helm-docs prepare-release-branch
+# Release preparation renders Helm docs after updating chart versions and values.
+verify-helm-prereqs: compile-crd-manifests update-helm prepare-release-branch
 
 .PHONY: verify-tree-prereqs
 verify-tree-prereqs: ## Prerequisites to ensure repo is fully regenerated.
@@ -98,8 +99,8 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 .PHONY: verify-checks
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
-verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
+verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -107,7 +108,7 @@ verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify
 # the exact same commands.  Only the prerequisites differ:
 #
 #   standalone  →  tool binary only          (fast, for local use)
-#   verify-*    →  verify-tree-prereqs + …   (full generation first)
+#   verify-*    →  required generation prerequisites + …
 #
 # A recipe-less wrapper like
 #
@@ -237,13 +238,15 @@ endef
 
 .PHONY: verify-artifacts
 verify-artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
-verify-artifacts: verify-tree-prereqs verify-git-tag clean-artifacts kustomize helm yq ## Build artifacts after ensuring generated code is up to date.
+# Artifacts consume Go code and Helm manifests, but not generated site pages.
+verify-artifacts: verify-go-prereqs verify-helm-prereqs gomod-verify verify-git-tag clean-artifacts kustomize helm yq ## Build artifacts after their generated inputs are ready.
 	$(_helm_chart_package_recipe)
 	$(_prepare_manifests_recipe)
 	$(_artifacts_recipe)
 
 .PHONY: verify-ci-lint
-verify-ci-lint: verify-tree-prereqs gomod-verify golangci-lint ## CI-style golangci-lint (includes generation + go.mod checks)
+# Site and manifest generators do not rewrite the Go sources that lint reads.
+verify-ci-lint: verify-go-prereqs gomod-verify golangci-lint ## CI-style golangci-lint (includes generation + go.mod checks)
 	$(_ci_lint_recipe)
 
 .PHONY: verify-lint-api
@@ -273,6 +276,10 @@ verify-milestone-pull-test: verify-tree-prereqs ## milestone_pull shell tests af
 .PHONY: verify-unit-test-selection
 verify-unit-test-selection: ## Validate unit-test selection and sharding without compiling Go.
 	bash $(PROJECT_DIR)/hack/testing/unit-test-selection_test.sh
+
+.PHONY: verify-generation-order
+verify-generation-order: ## Validate generation barriers and overlap without compiling Go.
+	bash $(PROJECT_DIR)/hack/testing/verify-generation-order_test.sh
 
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation
