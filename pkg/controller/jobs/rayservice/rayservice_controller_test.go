@@ -110,7 +110,7 @@ func TestPodSets(t *testing.T) {
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
 					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}}).
 					Obj(),
-				*utiltestingapi.MakePodSet("group1", 1).
+				*utiltestingapi.MakePodSet("group1", 0).
 					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
 					Obj(),
 				*utiltestingapi.MakePodSet("group2", 3).
@@ -187,7 +187,7 @@ func TestPodSets(t *testing.T) {
 					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					RequiredTopologyRequest("cloud.com/block").
 					Obj(),
-				*utiltestingapi.MakePodSet("group1", 1).
+				*utiltestingapi.MakePodSet("group1", 0).
 					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
 					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					RequiredTopologyRequest("cloud.com/block").
