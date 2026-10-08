@@ -289,6 +289,9 @@ function submit_mapping_pr() {
   if [[ -n "${existing_pr}" ]]; then
     PR_RESULT="already open: ${existing_pr}"
     echo "+++ A pull request for this change is already open: ${existing_pr}"
+    if [[ -z "${DRY_RUN:-}" ]]; then
+      update_release_issue "${kueue_repo}" "${test_infra_repo}" "${existing_pr}"
+    fi
     return 0
   fi
 

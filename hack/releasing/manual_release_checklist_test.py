@@ -137,6 +137,89 @@ function make_pr() { gh pr create; }
                         self.assertEqual(checked, want_steps)
                         self.assertNotIn("- [x] Wait for", body)
 
+    def test_existing_milestone_pr_retries_issue_update(self):
+        cases = {
+            "success": ("", "0", True),
+            "dry run": ("1", "0", False),
+            "issue edit failed": ("", "1", True),
+        }
+        for name, (dry_run, edit_status, want_edit) in cases.items():
+            with self.subTest(case=name), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                plugins = root / "config/prow/plugins.yaml"
+                plugins.parent.mkdir(parents=True)
+                plugins.touch()
+                calls = root / "calls.jsonl"
+                gh = root / "gh.py"
+                gh.write_text('''
+import json
+import os
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+with Path(os.environ["GH_CALLS"]).open("a") as calls:
+    calls.write(json.dumps(args) + "\\n")
+if args[:2] == ["pr", "list"]:
+    print(json.dumps([{"title": "Kueue: add milestone for 0.20",
+                       "url": "https://github.com/kubernetes/test-infra/pull/42"}]))
+elif args[:2] == ["issue", "view"]:
+    print(json.dumps({"body": os.environ["TEST_ISSUE_BODY"]}))
+elif args[:2] == ["issue", "edit"]:
+    sys.exit(int(os.environ["EDIT_STATUS"]))
+else:
+    raise AssertionError(args)
+''')
+                env = {
+                    **os.environ,
+                    "REPO_ROOT": str(REPO_ROOT),
+                    "KUBERNETES_REPOS_PATH": str(root),
+                    "KUBERNETES_TEST_INFRA_PATH": str(root),
+                    "KUBERNETES_TEST_INFRA_UPSTREAM_REMOTE": "upstream",
+                    "KUBERNETES_TEST_INFRA_FORK_REMOTE": "origin",
+                    "GITHUB_USER": "release-test",
+                    "RELEASE_ISSUE_NUMBER": "1",
+                    "RELEASE_ISSUE_NAME": "Release v0.20.0",
+                    "TEST_ISSUE_BODY": TEMPLATE,
+                    "GH_CALLS": str(calls),
+                    "GH_STUB": str(gh),
+                    "TEST_PYTHON": sys.executable,
+                    "DRY_RUN": dry_run,
+                    "EDIT_STATUS": edit_status,
+                }
+                harness = '''
+source "$REPO_ROOT/hack/releasing/milestone_pull.sh"
+function git() {
+  case "$*" in
+    "status --porcelain --untracked=no"|"fetch upstream") ;;
+    "remote get-url upstream") echo https://github.com/kubernetes/test-infra.git ;;
+    "symbolic-ref --short HEAD") echo master ;;
+    *) echo "Unexpected git call: $*" >&2; exit 1 ;;
+  esac
+}
+function gh() { "$TEST_PYTHON" "$GH_STUB" "$@"; }
+derive_values v0.20.0
+submit_mapping_pr owner/repo
+echo "$PR_RESULT"
+'''
+                result = subprocess.run(["bash", "-c", harness], env=env, cwd=root,
+                                        capture_output=True, text=True, check=False)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("already open: https://github.com/kubernetes/test-infra/pull/42", result.stdout)
+                recorded = [json.loads(line) for line in calls.read_text().splitlines()]
+                edits = [args for args in recorded if args[:2] == ["issue", "edit"]]
+                self.assertEqual(len(edits), 1 if want_edit else 0, recorded)
+                if want_edit:
+                    body = edits[0][edits[0].index("--body") + 1]
+                    checked = set(re.findall(r"- \[x\][^\n]*<!-- step:([a-z-]+) -->", body))
+                    self.assertEqual(checked, {"milestone-pull"})
+                    self.assertIn("kubernetes/test-infra#42", body)
+                    self.assertNotIn("<!-- MILESTONE_PULL -->", body)
+                else:
+                    self.assertEqual([args[:2] for args in recorded], [["pr", "list"]])
+                if edit_status != "0":
+                    self.assertIn("Failed to edit release issue", result.stdout)
+
     def test_milestone_and_release_notes_update_only_the_completed_step(self):
         milestone = (REPO_ROOT / "hack/releasing/milestone_pull.sh").read_text()
         update_function = re.search(r"^function update_release_issue\(\) \{.*?^\}",
