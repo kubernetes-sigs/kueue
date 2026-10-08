@@ -45,17 +45,23 @@ func (c *pendingWorkloadsStatusChecker) ClusterQueueActive(kueue.ClusterQueueRef
 // A CQ state change must refresh metrics even when the requeuer moves no
 // workloads and no subsequent Workload update triggers another report.
 func TestPendingWorkloadsMetricsOnClusterQueueStopResume(t *testing.T) {
-	for _, custom := range []bool{false, true} {
-		name := "without custom labels"
-		if custom {
-			name = "with clusterqueue custom labels"
-		}
+	cases := map[string]struct {
+		customLabelsEnabled bool
+	}{
+		"without custom labels": {
+			customLabelsEnabled: false,
+		},
+		"with clusterqueue custom labels": {
+			customLabelsEnabled: true,
+		},
+	}
+	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, custom)
+			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, tc.customLabelsEnabled)
 			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
 			ctx, log := utiltesting.ContextWithLog(t)
 			var customLabels *metrics.CustomLabels
-			if custom {
+			if tc.customLabelsEnabled {
 				customLabels = metrics.NewCustomLabels([]config.ControllerMetricsCustomLabel{
 					utiltestingapi.MakeCustomLabel("team").SourceLabelKey("team").SourceKind(config.SourceKindClusterQueue).Obj(),
 				})
@@ -68,7 +74,7 @@ func TestPendingWorkloadsMetricsOnClusterQueueStopResume(t *testing.T) {
 			checker := &pendingWorkloadsStatusChecker{active: true}
 			m, requeuer := NewManagerForUnitTestsWithRequeuer(cl, checker,
 				WithCustomLabels(customLabels), WithPreemptionExpectations(preemptexpectations.New()))
-			if custom {
+			if tc.customLabelsEnabled {
 				customLabels.CQStore("cq", cq.Labels, cq.Annotations)
 			}
 			if err := m.AddClusterQueue(ctx, cq); err != nil {
@@ -85,7 +91,7 @@ func TestPendingWorkloadsMetricsOnClusterQueueStopResume(t *testing.T) {
 			checkMetrics := func(phase string, active, inadmissible float64) {
 				t.Helper()
 				filter := map[string]string{"cluster_queue": cq.Name, "replica_role": roletracker.RoleStandalone}
-				if custom {
+				if tc.customLabelsEnabled {
 					filter["custom_team"] = "alpha"
 				}
 				got := make(map[string]float64)
