@@ -31,6 +31,7 @@ import (
 	dracel "k8s.io/dynamic-resource-allocation/cel"
 
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
 func makeDevice(name string, profile string, memoryValue string) resourcev1.Device {
@@ -452,9 +453,7 @@ func TestGroupSlicesByPool(t *testing.T) {
 
 func TestSelectorErrorPaths(t *testing.T) {
 	ctx, _ := utiltesting.ContextWithLog(t)
-	cl := utiltesting.NewClientBuilder().WithObjects(&resourcev1.DeviceClass{
-		ObjectMeta: metav1.ObjectMeta{Name: "valid-device-class"},
-	}).Build()
+	cl := utiltesting.NewClientBuilder().WithObjects(testingdra.MakeDeviceClass("valid-device-class").Obj()).Build()
 	claimPath := field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0)
 	reqPath := claimPath.Child("devices", "requests").Index(1)
 
