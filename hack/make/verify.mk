@@ -19,8 +19,12 @@ CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2
 SKILLSAW_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/skillsaw/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
 SKILLSAW_IMAGE := "ghcr.io/stbenjam/skillsaw:${SKILLSAW_VERSION}"
 VERIFY_NPROCS ?= 8
-# Share CPU capacity with platform builds and race compilation; 0 is unlimited.
-CI_LINT_NPROCS ?= 2
+# Bound each Go process as well as the number of concurrent build/lint processes.
+# These limits apply to verify; standalone artifact builds retain their defaults.
+VERIFY_GOMAXPROCS ?= 2
+VERIFY_CLI_BUILD_NPROCS ?= 2
+# Share CPU capacity with platform builds and documentation generation; 0 is unlimited.
+CI_LINT_NPROCS ?= 1
 # Output sync mode for parallel verification. Set to empty to disable.
 # Requires GNU Make 4.0+. Values: target, line, recurse, or empty.
 ifeq ($(shell uname),Darwin)
@@ -54,6 +58,9 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 ##
 ## Notes:
 ## - The work is parallelized. Override parallelism with `VERIFY_NPROCS=<n> make verify`.
+## - `VERIFY_GOMAXPROCS` sets Go runtime concurrency and Go's default build -p.
+## - Verify builds `VERIFY_CLI_BUILD_NPROCS` CLI platforms and lints `CI_LINT_NPROCS` modules concurrently.
+## - These per-process limits reduce contention; they are not a global CPU semaphore.
 ## - Output is grouped by target to make failures easier to find. Disable with `VERIFY_OUTPUT_SYNC= make verify`.
 ##
 ## How to extend `make verify`
@@ -97,6 +104,9 @@ verify-tree-prereqs: ## Prerequisites to ensure repo is fully regenerated.
 verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 
 .PHONY: verify-checks
+# Propagate the budget to generators, tools, builds, and linter subprocesses.
+# The unit/race jobs and standalone build targets keep their existing settings.
+verify-checks: export GOMAXPROCS = $(VERIFY_GOMAXPROCS)
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
@@ -123,6 +133,7 @@ verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify
 # from the target list — golangci-lint's path/generated exclusions only filter reported
 # issues, not the analysis work, so they must be excluded before the linter runs.
 define _ci_lint_recipe
+@echo "Module lint concurrency: processes=$(CI_LINT_NPROCS), GOMAXPROCS=$${GOMAXPROCS:-default}"
 @find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; \
 	| xargs -P $(CI_LINT_NPROCS) -n 1 sh -c ' \
 		cd "$$1" || exit 1; \
@@ -238,8 +249,10 @@ endef
 
 .PHONY: verify-artifacts
 verify-artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
+verify-artifacts: CLI_BUILD_NPROCS = $(VERIFY_CLI_BUILD_NPROCS)
 # Artifacts consume Go code and Helm manifests, but not generated site pages.
 verify-artifacts: verify-go-prereqs verify-helm-prereqs gomod-verify verify-git-tag clean-artifacts kustomize helm yq ## Build artifacts after their generated inputs are ready.
+	@echo "Artifact build concurrency: platforms=$(CLI_BUILD_NPROCS), GOMAXPROCS=$${GOMAXPROCS:-default}"
 	$(_helm_chart_package_recipe)
 	$(_prepare_manifests_recipe)
 	$(_artifacts_recipe)
