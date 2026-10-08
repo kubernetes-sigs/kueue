@@ -51,10 +51,17 @@ diff -u "$TEST_DIR/expected" "$TEST_DIR/actual"
 mkdir -p "$TEST_DIR/bin"
 cat > "$TEST_DIR/bin/go" <<'EOF'
 #!/usr/bin/env bash
+set -o errexit
+set -o nounset
+if [[ "$#" -ne 2 || "$1" != list || "$2" != "$UNIT_SELECTION_PATTERN" ]]; then
+  echo "Unexpected package discovery arguments: $*" >&2
+  exit 1
+fi
 cat "$UNIT_SELECTION_FIXTURE"
 EOF
 chmod +x "$TEST_DIR/bin/go"
 export UNIT_SELECTION_FIXTURE="$TEST_DIR/packages"
+export UNIT_SELECTION_PATTERN="./..."
 export PATH="$TEST_DIR/bin:$PATH"
 for shards in 1 2 3; do
   : > "$TEST_DIR/combined"
@@ -63,6 +70,20 @@ for shards in 1 2 3; do
   done
   sort "$TEST_DIR/combined" > "$TEST_DIR/actual-sorted"
   sort "$TEST_DIR/expected" > "$TEST_DIR/expected-sorted"
+  diff -u "$TEST_DIR/expected-sorted" "$TEST_DIR/actual-sorted"
+done
+
+# A focused target must reach Go discovery before packages are assigned to shards.
+awk '/^sigs[.]k8s[.]io\/kueue\/test\/performance\/multikueue(\/|$)/' "$TEST_DIR/expected" > "$TEST_DIR/focused"
+export UNIT_SELECTION_FIXTURE="$TEST_DIR/focused"
+export UNIT_SELECTION_PATTERN="./test/performance/multikueue/..."
+for shards in 1 2 3; do
+  : > "$TEST_DIR/combined"
+  for ((shard = 0; shard < shards; shard++)); do
+    bash "$SCRIPT_DIR/shard-unit-tests.sh" "$shard" "$shards" ./test/performance/multikueue >> "$TEST_DIR/combined" 2> "$TEST_DIR/shard-log"
+  done
+  sort "$TEST_DIR/combined" > "$TEST_DIR/actual-sorted"
+  sort "$TEST_DIR/focused" > "$TEST_DIR/expected-sorted"
   diff -u "$TEST_DIR/expected-sorted" "$TEST_DIR/actual-sorted"
 done
 
