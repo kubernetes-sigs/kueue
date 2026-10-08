@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
 	nativeplanner "sigs.k8s.io/kueue/pkg/scheduler/assignment/native"
+	wasplanner "sigs.k8s.io/kueue/pkg/scheduler/assignment/was"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
@@ -473,7 +474,13 @@ func (s *Scheduler) processEntry(
 	// We may also recompute in case of overlapping preemption targets with another workload.
 	// Recompute when needed so CQs considered later in the cycle don't repeatedly
 	// lose to earlier CQs and starve for prolonged periods.
-	fits := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
+	fits, err := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
+	if err != nil {
+		log.Error(err, "Failed to re-compute the assignment")
+		e.markSkipped(err.Error())
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonAssignmentError
+		return
+	}
 	mode := e.assignment.RepresentativeMode()
 
 	// A refilled entry acts only on Fit: capacity reserved mid-cycle for
@@ -837,8 +844,11 @@ func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qca
 				e.requeueReason = qcache.RequeueReasonNamespaceMismatch
 			}
 		}
+	} else if assignment, targets, err := s.getAssignments(ctx, &e.Info, snap); err != nil {
+		log.Error(err, "Failed to compute the initial assignment")
+		e.inadmissibleMsg = err.Error()
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonAssignmentError
 	} else {
-		assignment, targets := s.getAssignments(ctx, &e.Info, snap)
 		e.recordAssignment(assignment, targets)
 		return e, true
 	}
@@ -851,7 +861,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	e *entry,
 	snapshot *schdcache.Snapshot,
 	cq *schdcache.ClusterQueueSnapshot,
-	preemptedWorkloads preemption.PreemptedWorkloads) bool {
+	preemptedWorkloads preemption.PreemptedWorkloads) (bool, error) {
 	fitsCheck := e.checkFits(log, snapshot, cq, preemptedWorkloads)
 
 	needsTASRecompute := fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)
@@ -865,7 +875,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		// fitting has nothing to gain from it. One that is fitting still needs
 		// it: the rewrite is how refill defers it.
 		if e.refilled && e.assignment.RepresentativeMode() != flavorassigner.Fit {
-			return schdcache.FitsCheckOk == fitsCheck
+			return schdcache.FitsCheckOk == fitsCheck, nil
 		}
 		log.V(2).Info("Re-computing the assignment as preemption targets overlap")
 		revertRemoval = simulateOtherPreemptions(ctx, log, snapshot, preemptedWorkloads)
@@ -873,26 +883,29 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		log.V(2).Info("Re-computing the assignment as it doesn't fit for TAS")
 	default:
 		// Short-circuit, nothing to recompute.
-		return schdcache.FitsCheckOk == fitsCheck
+		return schdcache.FitsCheckOk == fitsCheck, nil
 	}
 	// Clear the flavor scan state so that we can start from the first flavor again and
 	// reach all flavors from the nomination.
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
-	newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
+	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot)
+	if revertRemoval != nil {
+		revertRemoval()
+	}
+	// clear the assignment flavors as they are only used within a single scheduling cycle
+	e.NominationMapping = nil
+
+	if err != nil {
+		return false, err
+	}
+
 	e.recordAssignment(newAssignment, newTargets)
-	if needsOverlapRecompute {
-		if revertRemoval != nil {
-			revertRemoval()
-		}
-		if e.assignment.RepresentativeMode() == flavorassigner.Fit {
-			e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
-		}
+	if needsOverlapRecompute && e.assignment.RepresentativeMode() == flavorassigner.Fit {
+		e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
 	}
 	fitsCheck = e.checkFits(log, snapshot, cq, preemptedWorkloads)
 	log.V(3).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode(), "fitsCheck", fitsCheck)
-	// clear the assignment flavors as they are only used within a single scheduling cycle
-	e.NominationMapping = nil
 
 	// Determine the overlap recomputation result for metrics reporting.
 	if needsOverlapRecompute {
@@ -908,7 +921,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		metrics.ReportPreemptionTargetRecomputation(e.ClusterQueue, overlapRecomputeResult, s.customLabels.CQGet(e.ClusterQueue), s.roleTracker)
 	}
 
-	return schdcache.FitsCheckOk == fitsCheck
+	return schdcache.FitsCheckOk == fitsCheck, nil
 }
 
 func fits(snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot, usage *workload.Usage, preemptedWorkloads preemption.PreemptedWorkloads,
@@ -1545,6 +1558,7 @@ func resolveFlavorIndex(wl *workload.Info, flavors []kueue.ResourceFlavorReferen
 func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap *schdcache.Snapshot) (
 	fullAssignment flavorassigner.Assignment,
 	targets []*preemption.Target,
+	err error,
 ) {
 	log := log.FromContext(ctx)
 	cq := snap.ClusterQueue(wl.ClusterQueue)
@@ -1565,11 +1579,17 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		replaceableWorkloadSlice, s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
 	)
 
+	var planner assignment.Planner
+	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		planner = wasplanner.NewPlanner(wl, snap)
+	} else {
+		planner = nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
+	}
+
 	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
-	planner := nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
 	assignmentPlan := planner.Plan(ctx, &initialAssignment)
 
-	if !assignmentPlan.CanFit() && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
+	if !assignmentPlan.CanFit() && assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
 		// bestPA is tracked here, not returned by fitsFn(), so it can't drift from
 		// the counts Reduce returns.
 		var bestPartialPlan *assignment.Plan
@@ -1590,7 +1610,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		}
 	}
 
-	fullAssignment, targets = *assignmentPlan.Assignment, assignmentPlan.PreemptionTargets
+	fullAssignment, targets, err = *assignmentPlan.Assignment, assignmentPlan.PreemptionTargets, assignmentPlan.Error
 	if assignmentPlan.CanFit() {
 		targets = append(slicePreemptTargets, targets...)
 	}
