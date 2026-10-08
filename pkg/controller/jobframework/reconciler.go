@@ -226,6 +226,8 @@ func WithManagerName(n string) Option {
 
 // These labels and annotations control how Kueue handles a Workload, so they
 // are never copied from the Job or Pod, whose author could otherwise set them.
+// The labelKeysToCopy field comment, the Workload concept page and the custom
+// metric labels page list these keys by name; keep them in sync.
 var (
 	nonInheritableLabels = []string{
 		kueue.MultiKueueOriginLabel,
