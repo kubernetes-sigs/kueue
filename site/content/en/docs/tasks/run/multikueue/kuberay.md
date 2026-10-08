@@ -11,7 +11,7 @@ description: >
 
 Check the [MultiKueue installation guide](/docs/tasks/manage/setup_multikueue) on how to properly setup MultiKueue clusters.
 
-For the ease of setup and use we recommend using at least Kueue v0.11.0.
+For the ease of setup and use we recommend using a supported version of Kueue.
 See [KubeRay compatibility](/docs/tasks/run/rayclusters/#kuberay-compatibility)
 for the tested operator version and requirements for each workload kind.
 For the `spec.managedBy` workflow, KubeRay v1.3.1 or newer is recommended for

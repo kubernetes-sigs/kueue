@@ -15,8 +15,8 @@ This guide is for [serving users](/docs/tasks#serving-user) that have a basic un
 
 ## Before you begin
 
-1. Make sure you are using Kueue v0.17.0 or newer. Basic RayService integration
-   requires KubeRay APIs available since v1.3.0. Top-level suspend requires
+1. Make sure you are using Kueue v0.17.0 or newer. For nested suspend, this guide
+   retains the previously documented KubeRay v1.3.0 minimum. Top-level suspend requires
    v1.7.0; see [suspend control](#c-suspend-control). See
    [KubeRay compatibility](/docs/tasks/run/rayclusters/#kuberay-compatibility)
    when choosing a KubeRay version, especially if you use MultiKueue.
@@ -68,8 +68,8 @@ Starting in Kueue v0.21.0, `KubeRayServiceUsingTopLevelSuspend` is enabled by
 default and Kueue controls the RayService's top-level `spec.suspend` field.
 This requires KubeRay v1.7.0 or newer.
 
-When using a KubeRay version older than v1.7.0 with a Kueue version that provides
-this gate, disable it in the [Kueue configuration](/docs/getting-started/installation/#change-the-feature-gates-configuration):
+When using KubeRay v1.3.0 through v1.6.x with a Kueue version that provides this
+gate, disable it in the [Kueue configuration](/docs/getting-started/installation/#change-the-feature-gates-configuration):
 
 ```yaml
 featureGates:

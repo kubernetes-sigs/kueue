@@ -48,7 +48,7 @@ feature gates and configuration:
 
 | Feature | KubeRay requirement | Details |
 | --- | --- | --- |
-| Basic RayService integration using nested suspend | v1.3.0 or newer | Historical API requirement for Kueue v0.17.0 and newer; see [RayService suspend control](/docs/tasks/run/rayservices/#c-suspend-control). |
+| Basic RayService integration using nested suspend | v1.3.0 or newer | Previously documented minimum for Kueue v0.17.0 and newer; see [RayService suspend control](/docs/tasks/run/rayservices/#c-suspend-control). |
 | RayService top-level `spec.suspend` | v1.7.0 or newer | `KubeRayServiceUsingTopLevelSuspend` is enabled by default starting in Kueue v0.21.0. Disable it when using older KubeRay versions. |
 | MultiKueue with RayJob or RayCluster | v1.3.1 or newer is recommended for the `spec.managedBy` workflow | See [MultiKueue setup](/docs/tasks/run/multikueue/kuberay/). |
 | MultiKueue with RayService | v1.6.0 or newer for `spec.managedBy` | The field was introduced in [KubeRay v1.6.0](https://github.com/ray-project/kuberay/releases/tag/v1.6.0). The top-level suspend requirement also applies when that Kueue feature gate is enabled. |
