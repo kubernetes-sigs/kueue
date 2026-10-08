@@ -568,7 +568,7 @@ func (c *Cache) ResyncCohortGaugeMetrics(log logr.Logger, cohortName kueue.Cohor
 			customLabelValues = c.customLabels.CohortGet(cohort.Name)
 		}
 		weightedShare := drs.PreciseWeightedShare()
-		if weightedShare == math.Inf(1) {
+		if drs.ZeroWeightBorrows() {
 			weightedShare = math.NaN()
 		}
 		metrics.ReportCohortWeightedShare(cohort.Name, weightedShare, customLabelValues, c.roleTracker)
@@ -917,6 +917,7 @@ type ClusterQueueUsageStats struct {
 	AdmittedResources  []kueue.FlavorUsage
 	AdmittedWorkloads  int
 	WeightedShare      float64
+	ZeroWeightBorrows  bool
 }
 
 // Usage reports the reserved and admitted resources and number of workloads holding them in the ClusterQueue.
@@ -939,12 +940,14 @@ func (c *Cache) Usage(cqObj *kueue.ClusterQueue) (*ClusterQueueUsageStats, error
 	if c.fairSharingEnabled && (!cq.HasParent() || !hierarchy.HasCycle(cq.Parent())) {
 		drs := dominantResourceShare(cq, nil)
 		stats.WeightedShare = drs.PreciseWeightedShare()
+		stats.ZeroWeightBorrows = drs.ZeroWeightBorrows()
 	}
 	return stats, nil
 }
 
 type CohortUsageStats struct {
-	WeightedShare float64
+	WeightedShare     float64
+	ZeroWeightBorrows bool
 }
 
 func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) {
@@ -960,6 +963,7 @@ func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) 
 	if c.fairSharingEnabled {
 		drs := dominantResourceShare(cohort, nil)
 		stats.WeightedShare = drs.PreciseWeightedShare()
+		stats.ZeroWeightBorrows = drs.ZeroWeightBorrows()
 	}
 
 	return stats, nil
