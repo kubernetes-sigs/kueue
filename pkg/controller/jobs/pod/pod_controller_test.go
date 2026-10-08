@@ -338,41 +338,17 @@ func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testi
 		features.PodGroupSchedulingShapeOrdering: false,
 	})
 
-	leader := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Annotations: map[string]string{
-				podconstants.RoleHashAnnotation: "zzzz",
-			},
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "leader",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
-					},
-				},
-			}},
-		},
-	}
+	leader := *testingpod.MakePod("", "").
+		RoleHash("zzzz").
+		Request(corev1.ResourceCPU, "1").
+		ContainerName("leader").
+		Obj()
 
-	worker := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Annotations: map[string]string{
-				podconstants.RoleHashAnnotation: "aaaa",
-			},
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "worker",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("4"),
-					},
-				},
-			}},
-		},
-	}
+	worker := *testingpod.MakePod("", "").
+		RoleHash("aaaa").
+		Request(corev1.ResourceCPU, "4").
+		ContainerName("worker").
+		Obj()
 
 	got, err := constructGroupPodSets([]corev1.Pod{leader, worker}, nil)
 	if err != nil {
@@ -464,37 +440,15 @@ func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 		features.PodGroupSchedulingShapeOrdering: true,
 	})
-	leader := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Annotations: map[string]string{},
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "leader",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
-					},
-				},
-			}},
-		},
-	}
+	leader := *testingpod.MakePod("", "").
+		Request(corev1.ResourceCPU, "1").
+		ContainerName("leader").
+		Obj()
 
-	worker := corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Annotations: map[string]string{},
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "worker",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("4"),
-					},
-				},
-			}},
-		},
-	}
+	worker := *testingpod.MakePod("", "").
+		Request(corev1.ResourceCPU, "4").
+		ContainerName("worker").
+		Obj()
 
 	leaderShapeHash, err := utilpod.GenerateRoleHash(&leader.Spec)
 	if err != nil {
