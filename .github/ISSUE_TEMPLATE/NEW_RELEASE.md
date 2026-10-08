@@ -49,7 +49,7 @@ Please do not remove items from the checklist
     confirm the snapshot dirs and the `[[params.versions]]` entry are present in that PR.
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_MAIN --> <!-- example #214 -->
   - [ ] Cherry-pick the pull request onto the `website` branch
-- [ ] For major and minor releases, merge the `main` branch into the `website` branch to publish the updated documentation. <!-- step:merge-main-into-website -->
+- [ ] For major and minor releases, run the ChatOps command `/merge-main-into-website` to merge the `main` branch into the `website` branch and publish the updated documentation. <!-- step:merge-main-into-website -->
 - [ ] Send an announcement email to `sig-scheduling@kubernetes.io` and `wg-batch@kubernetes.io` with the subject `[ANNOUNCE] kueue $VERSION is released`.   <!--Link: example https://groups.google.com/a/kubernetes.io/g/wg-batch/c/-gZOrSnwDV4 -->
 - [ ] For a major or minor release, prepare the repo for the next version:
   - [ ] Run the ChatOps command `/create-devel-tag` on this issue. This will: <!-- step:create-devel-tag -->
