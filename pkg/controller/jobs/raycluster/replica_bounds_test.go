@@ -50,7 +50,7 @@ func TestWorkerPodCountsRespectReplicaBounds(t *testing.T) {
 			group:     rayv1.WorkerGroupSpec{Replicas: new(int32(4)), MinReplicas: new(int32(1)), MaxReplicas: new(int32(2)), NumOfHosts: 3},
 			wantCount: 6,
 		},
-		"absent API defaults": {wantCount: 1},
+		"absent API defaults": {wantCount: 0},
 		"absent replicas with minimum": {
 			group:     rayv1.WorkerGroupSpec{MinReplicas: new(int32(2))},
 			wantCount: 2,

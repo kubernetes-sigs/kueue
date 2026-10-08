@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -80,13 +81,17 @@ var (
 // BuildPodSets, UpdatePodSets, and the MultiKueue elastic replica sync
 // all call this so the per-group count derivation stays in one place.
 func effectiveWorkerCount(wgs *rayv1.WorkerGroupSpec) int32 {
-	// API defaults may be absent on objects constructed before admission.
-	replicas := ptr.Deref(wgs.Replicas, int32(1))
+	var replicas int32
 	minReplicas := ptr.Deref(wgs.MinReplicas, int32(0))
-	if replicas < minReplicas {
+	maxReplicas := ptr.Deref(wgs.MaxReplicas, int32(math.MaxInt32))
+	// Replicas is defaulted by the CRD, but may be nil before admission.
+	switch {
+	case wgs.Replicas == nil || *wgs.Replicas < minReplicas:
 		replicas = minReplicas
-	} else if wgs.MaxReplicas != nil && replicas > *wgs.MaxReplicas {
-		replicas = *wgs.MaxReplicas
+	case *wgs.Replicas > maxReplicas:
+		replicas = maxReplicas
+	default:
+		replicas = *wgs.Replicas
 	}
 	return replicas * max(wgs.NumOfHosts, 1)
 }
