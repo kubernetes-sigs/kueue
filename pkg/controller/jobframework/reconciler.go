@@ -226,6 +226,8 @@ func WithManagerName(n string) Option {
 
 // These labels and annotations control how Kueue handles a Workload, so they
 // are never copied from the Job or Pod, whose author could otherwise set them.
+// The labelKeysToCopy field comment, the Workload concept page and the custom
+// metric labels page list these keys by name; keep them in sync.
 var (
 	nonInheritableLabels = []string{
 		kueue.MultiKueueOriginLabel,
@@ -1956,7 +1958,7 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 		return nil, err
 	}
 	extra := ""
-	if shouldCreatePartialScaleUpProbe(job) {
+	if ElasticPartialScaleUpEnabled(job) {
 		extra, err = prepareWorkloadSliceForScaleUp(ctx, c, job, podSets)
 		if err != nil {
 			return nil, err
@@ -1983,14 +1985,6 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 	}
 
 	return wl, nil
-}
-
-// shouldCreatePartialScaleUpProbe reports whether the job takes the partial
-// replica scale-up path for its workload slices.
-func shouldCreatePartialScaleUpProbe(job GenericJob) bool {
-	return WorkloadSliceEnabled(job) &&
-		features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
-		job.Object().GetAnnotations()[constants.ElasticJobScaleUpStrategyAnnotationKey] == constants.ElasticJobScaleUpStrategyPartial
 }
 
 func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job GenericJob, podSets []kueue.PodSet) (string, error) {
