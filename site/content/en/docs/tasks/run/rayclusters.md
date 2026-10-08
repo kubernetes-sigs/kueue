@@ -28,11 +28,11 @@ You can do it by running: `kubectl delete pods -l control-plane=controller-manag
 
 ## KubeRay compatibility
 
-On Kueue's `main` branch, the default end-to-end test configuration uses
+On Kueue's `main` branch, the KubeRay-enabled extended end-to-end test targets use
 **KubeRay v1.7.0**, the
 `github.com/ray-project/kuberay/ray-operator` version pinned in
 [`go.mod`](https://github.com/kubernetes-sigs/kueue/blob/main/go.mod).
-The test targets derive `KUBERAY_VERSION` from this dependency and use it to
+These targets derive `KUBERAY_VERSION` from this dependency and use it to
 install the operator and its CRDs. For an older Kueue release, check the
 dependency and documentation at that release's Git tag rather than relying on
 the version documented for `main`.
