@@ -87,7 +87,8 @@ ifeq ($(UNIT_TEST_PACKAGES),)
 $(error Aborting: shard-unit-tests.sh returned no packages. Check UNIT_SHARD_INDEX / UNIT_TOTAL_SHARDS.)
 endif
 else
-UNIT_TEST_PACKAGES := $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/')
+# Enumerate packages only when unit tests need them, avoiding scans during verify.
+UNIT_TEST_PACKAGES = $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/')
 endif
 
 OPTIONAL_SHARD_SUFFIX = $(if $(UNIT_TOTAL_SHARDS),-shard-$(UNIT_SHARD_INDEX))
@@ -817,11 +818,15 @@ MULTIKUEUE_PERFORMANCE_EXPECTATIONS ?= $(PROJECT_DIR)/test/performance/multikueu
 
 # The runner lives under ./test/, which 'make test' excludes, so its unit tests need their own
 # target to run anywhere.
-.PHONY: test-performance-multikueue-runner
-test-performance-multikueue-runner: gotestsum
+define _test_performance_multikueue_runner_recipe
 	mkdir -p $(ARTIFACTS)
 	$(GOTESTSUM) --junitfile $(ARTIFACTS)/junit-performance-multikueue-runner.xml -- \
 		$(GOFLAGS) $(GO_TEST_FLAGS) ./test/performance/multikueue/...
+endef
+
+.PHONY: test-performance-multikueue-runner
+test-performance-multikueue-runner: gotestsum
+	$(_test_performance_multikueue_runner_recipe)
 
 .PHONY: run-performance-multikueue
 run-performance-multikueue: envtest performance-multikueue-runner

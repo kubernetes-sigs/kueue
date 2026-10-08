@@ -19,8 +19,8 @@ CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2
 SKILLSAW_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/skillsaw/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
 SKILLSAW_IMAGE := "ghcr.io/stbenjam/skillsaw:${SKILLSAW_VERSION}"
 VERIFY_NPROCS ?= 8
-# Number of modules to lint concurrently in ci-lint (xargs -P). 0 = as many as possible.
-CI_LINT_NPROCS ?= 0
+# Share CPU capacity with platform builds and race compilation; 0 is unlimited.
+CI_LINT_NPROCS ?= 2
 # Output sync mode for parallel verification. Set to empty to disable.
 # Requires GNU Make 4.0+. Values: target, line, recurse, or empty.
 ifeq ($(shell uname),Darwin)
@@ -271,8 +271,8 @@ verify-milestone-pull-test: verify-tree-prereqs ## milestone_pull shell tests af
 	$(_milestone_pull_test_recipe)
 
 .PHONY: verify-test-performance-multikueue-runner
-verify-test-performance-multikueue-runner: verify-tree-prereqs ## MultiKueue performance runner unit tests after generation
-	$(MAKE) test-performance-multikueue-runner
+verify-test-performance-multikueue-runner: verify-tree-prereqs gotestsum ## MultiKueue performance runner unit tests after generation.
+	$(_test_performance_multikueue_runner_recipe)
 
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation
