@@ -38,6 +38,35 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 - **Topology Spreading**: Allows to improve availability of serving workloads by [spreading separate workloads across failure domains](/docs/concepts/topology_aware_scheduling/#topology-spreading), limiting how many of them may occupy a single zone or rack.
 - **Dynamic Resource Allocation (DRA):** Quota management for devices such as GPUs requested through [DRA](/docs/concepts/dynamic_resource_allocation/), either with ResourceClaimTemplates or extended resources, including partitionable devices. Consumable capacity is available as an alpha feature.
 
+## In-tree integrations
+
+Kueue provides the following in-tree integrations:
+
+| Name | Graduation level |
+|------|------------------|
+| [AppWrapper](/docs/tasks/run/appwrappers/) | Stable |
+| [Batch Job](/docs/tasks/run/jobs/) | Stable |
+| [Deployment](/docs/tasks/run/deployment/) | Stable |
+| [JAXJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/jaxjobs/) | Deprecated |
+| [JobSet](/docs/tasks/run/jobsets/) | Stable |
+| [LeaderWorkerSet](/docs/tasks/run/leaderworkerset/) | Stable |
+| [MPIJob](/docs/tasks/run/kubeflow/mpijobs/) | Stable |
+| [PaddleJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/paddlejobs/) | Deprecated |
+| [Pod and Pod groups](/docs/tasks/run/plain_pods/) | Stable |
+| [PyTorchJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/pytorchjobs/) | Deprecated |
+| [RayCluster](/docs/tasks/run/rayclusters/) | Stable |
+| [RayJob](/docs/tasks/run/rayjobs/) | Stable |
+| [RayService](/docs/tasks/run/rayservices/) | Stable |
+| [SparkApplication](/docs/tasks/run/kubeflow/sparkapplications/) | Alpha |
+| [StatefulSet](/docs/tasks/run/statefulset/) | Stable |
+| [TFJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/tfjobs/) | Deprecated |
+| [TrainJob (Kubeflow Trainer v2)](/docs/tasks/run/trainjobs/) | Alpha |
+| [XGBoostJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/xgboostjobs/) | Deprecated |
+
+For the deprecated Kubeflow Trainer v1 integrations, migrate to
+[TrainJob (Kubeflow Trainer v2)](/docs/tasks/run/trainjobs/) or
+[JobSet](/docs/tasks/run/jobsets/).
+
 ## Job-integrated features
 
 | Feature                                                                                                         | Batch&nbsp;Job | JobSet | PaddleJob | PytorchJob | TFJob | TrainJob | XGBoostJob | MPIJob | JAXJob | Pod | RayCluster | RayJob | AppWrapper | Deployment | StatefulSet | LeaderWorkerSet |
