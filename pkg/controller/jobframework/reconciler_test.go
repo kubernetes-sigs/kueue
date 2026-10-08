@@ -2134,15 +2134,88 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 		Message:            workload.PodsNotReadyMessage,
 		LastTransitionTime: metav1.NewTime(admittedAt),
 	}
+	waitForRecovery := metav1.Condition{
+		Type:               kueue.WorkloadPodsReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             kueue.WorkloadWaitForRecovery,
+		Message:            waitingForRecoveryMsg,
+		LastTransitionTime: metav1.NewTime(admittedAt),
+	}
+
+	// The Job asks for 10 pods, but only 7 are admitted while the full-size probe waits for quota.
+	scaleUpFeatures := map[featuregate.Feature]bool{
+		features.WaitForPodsReadyUnscheduledTimeout:                    true,
+		features.ElasticJobsViaWorkloadSlices:                          true,
+		features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+	}
+	partiallyAdmitted := utiltestingapi.MakeWorkload("job-"+jobName+"-admitted", metav1.NamespaceDefault).
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Annotation(kueueconstants.ElasticJobAnnotation, "true").
+		ControllerReference(testGVK, jobName, jobName).
+		Queue(testLocalQueueName).
+		Creation(admittedAt.Add(-time.Hour)).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("default-cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(7).Obj()).
+				Obj(),
+			admittedAt,
+		).
+		AdmittedAt(true, admittedAt)
+	pendingProbe := utiltestingapi.MakeWorkload("job-"+jobName+"-probe", metav1.NamespaceDefault).
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		Annotation(kueueconstants.ElasticJobAnnotation, "true").
+		Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(partiallyAdmitted.Clone().Obj()))).
+		ControllerReference(testGVK, jobName, jobName).
+		Queue(testLocalQueueName).
+		Creation(admittedAt).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Obj()).
+		Obj()
+	scaleUpJob := func(readyPods int32) GenericJob {
+		return (*job.Job)(testingjob.MakeJob(jobName, metav1.NamespaceDefault).
+			UID(jobName).
+			Label(constants.QueueLabel, string(testLocalQueueName)).
+			SetAnnotation(kueueconstants.ElasticJobAnnotation, "true").
+			SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyPartial).
+			Parallelism(10).
+			Completions(10).
+			Suspend(false).
+			Containers(corev1.Container{Name: "c", Resources: corev1.ResourceRequirements{Requests: make(corev1.ResourceList)}}).
+			Ready(readyPods).
+			Obj())
+	}
 
 	testCases := map[string]struct {
-		configuration    *configapi.WaitForPodsReady
-		features         map[featuregate.Feature]bool
-		workload         *kueue.Workload
+		configuration *configapi.WaitForPodsReady
+		features      map[featuregate.Feature]bool
+		workload      *kueue.Workload
+		// extraWorkloads must never get a PodsReady condition.
+		extraWorkloads   []*kueue.Workload
 		job              GenericJob
 		wantError        error
 		wantPodCondition *metav1.Condition
 	}{
+		"pending scale-up probe: PodsReady is set on the admitted slice once its granted count is ready": {
+			features:         scaleUpFeatures,
+			workload:         partiallyAdmitted.Clone().Obj(),
+			extraWorkloads:   []*kueue.Workload{pendingProbe.DeepCopy()},
+			job:              scaleUpJob(7),
+			wantPodCondition: &ready,
+		},
+		"pending scale-up probe: admitted slice stays not ready below its granted count": {
+			features:         scaleUpFeatures,
+			workload:         partiallyAdmitted.Clone().Obj(),
+			extraWorkloads:   []*kueue.Workload{pendingProbe.DeepCopy()},
+			job:              scaleUpJob(5),
+			wantPodCondition: &notReady,
+		},
+		"pending scale-up probe: admitted slice waits for recovery when a pod is lost": {
+			features:         scaleUpFeatures,
+			workload:         partiallyAdmitted.Clone().Condition(ready).Obj(),
+			extraWorkloads:   []*kueue.Workload{pendingProbe.DeepCopy()},
+			job:              scaleUpJob(5),
+			wantPodCondition: &waitForRecovery,
+		},
 		"non-admitted workload resets readiness without changing scheduling": {
 			features:         map[featuregate.Feature]bool{features.WaitForPodsReadyUnscheduledTimeout: true},
 			workload:         resetWorkload.Clone().Condition(ready).Condition(scheduled).Obj(),
@@ -2615,9 +2688,13 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 			managedNamespace := utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).
 				Label("managed-by-kueue", "true").
 				Obj()
+			objs := []client.Object{tc.workload, tc.job.Object(), managedNamespace}
+			for _, extra := range tc.extraWorkloads {
+				objs = append(objs, extra)
+			}
 			builder := utiltesting.NewClientBuilder(batchv1.AddToScheme, kueue.AddToScheme).
-				WithObjects(tc.workload, tc.job.Object(), managedNamespace).
-				WithStatusSubresource(tc.workload, tc.job.Object()).
+				WithObjects(objs...).
+				WithStatusSubresource(&kueue.Workload{}, tc.job.Object()).
 				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(testGVK), indexer.WorkloadOwnerIndexFunc(testGVK)).
 				WithInterceptorFuncs(interceptor.Funcs{
 					SubResourceApply: func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
@@ -2654,6 +2731,15 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 			gotPodCondition := apimeta.FindStatusCondition(gotWl.Status.Conditions, tc.wantPodCondition.Type)
 			if diff := cmp.Diff(tc.wantPodCondition, gotPodCondition, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")); diff != "" {
 				t.Errorf("unexpected PodsReady condition (-want,+got):\n%s", diff)
+			}
+			for _, extra := range tc.extraWorkloads {
+				var gotExtra kueue.Workload
+				if err := cl.Get(ctx, client.ObjectKeyFromObject(extra), &gotExtra); err != nil {
+					t.Fatalf("failed to get workload %q: %v", extra.Name, err)
+				}
+				if cond := apimeta.FindStatusCondition(gotExtra.Status.Conditions, kueue.WorkloadPodsReady); cond != nil {
+					t.Errorf("workload %q must not get a PodsReady condition, got %v", extra.Name, cond)
+				}
 			}
 		})
 	}
