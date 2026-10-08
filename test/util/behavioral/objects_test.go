@@ -17,7 +17,6 @@ limitations under the License.
 package behavioral
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -25,7 +24,6 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -33,7 +31,7 @@ import (
 )
 
 func TestSetNodeCondition(t *testing.T) {
-	ctx := context.Background()
+	updateTime := metav1.NewTime(time.Date(2026, time.February, 1, 0, 0, 0, 0, time.UTC))
 
 	testCases := map[string]struct {
 		initialConditions []corev1.NodeCondition
@@ -59,23 +57,21 @@ func TestSetNodeCondition(t *testing.T) {
 			newCondition: corev1.NodeCondition{
 				Type:               corev1.NodeReady,
 				Status:             corev1.ConditionTrue,
-				LastTransitionTime: metav1.NewTime(time.Date(2026, time.February, 1, 0, 0, 0, 0, time.UTC)),
+				LastTransitionTime: updateTime,
 			},
 			wantStatus: corev1.ConditionTrue,
-			wantTime:   ptr.To(metav1.NewTime(time.Date(2026, time.February, 1, 0, 0, 0, 0, time.UTC))),
+			wantTime:   &updateTime,
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			ctx := t.Context()
 			gomega.RegisterTestingT(t)
 
-			node := &corev1.Node{
-				ObjectMeta: metav1.ObjectMeta{Name: "node"},
-				Status: corev1.NodeStatus{
-					Conditions: tc.initialConditions,
-				},
-			}
+			node := &corev1.Node{}
+			node.Name = "node"
+			node.Status.Conditions = tc.initialConditions
 			k8sClient := utiltesting.NewClientBuilder().
 				WithObjects(node).
 				WithStatusSubresource(&corev1.Node{}).
