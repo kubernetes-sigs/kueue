@@ -201,8 +201,7 @@ type Manager struct {
 }
 
 // NewManager is a factory for cache.queue.Manager. For tests,
-// NewManagerForUnitTests or NewManagerForIntegrationTests should be
-// used.
+// NewManagerForUnitTests or integration.NewManager should be used.
 func NewManager(client client.Client, checker StatusChecker, requeuer inadmissibleRequeuer, options ...Option) *Manager {
 	m := &Manager{
 		clock:                  realClock,
@@ -431,9 +430,8 @@ func (m *Manager) UpdateClusterQueue(cq *kueue.ClusterQueue, requeueInadmissible
 		notifyRetryInadmissibleWithoutLock(m, sets.New(cqName))
 	}
 	becameActive := !oldActive && cqImpl.Active()
-	if becameActive {
-		reportPendingWorkloads(m, cqName)
-	}
+	// CQ readiness changes the metric classification even if no workload moves.
+	reportPendingWorkloads(m, cqName)
 	if becameActive {
 		m.Broadcast()
 	}
@@ -532,9 +530,13 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 		qImpl.AddOrUpdate(wInfo)
 	}
 
-	if cq != nil && cq.AddFromLocalQueue(qImpl, m.roleTracker, m.customLabels) {
-		m.Broadcast()
+	if cq != nil {
+		if cq.AddFromLocalQueue(qImpl, m.roleTracker, m.customLabels) {
+			m.Broadcast()
+		}
+		reportCQPendingWorkloads(m, cq)
 	}
+	reportLQPendingWorkloads(m, qImpl)
 
 	return draWorkloads, nil
 }
@@ -571,16 +573,21 @@ func (m *Manager) UpdateLocalQueue(log logr.Logger, q *kueue.LocalQueue) error {
 		if oldCQ != nil {
 			oldCQ.DeleteFromLocalQueue(log, qImpl, m.roleTracker, m.customLabels)
 			oldCQ.deleteLocalQueue(queue.Key(q))
+			reportCQPendingWorkloads(m, oldCQ)
 		}
 		newCQ := m.hm.ClusterQueue(q.Spec.ClusterQueue)
 		if newCQ != nil {
 			// Seed the weight before pushing so the heap uses it from the start.
 			newCQ.addLocalQueue(queue.Key(q), afs.LQWeightAsFloat64(q))
 			newCQ.AddFromLocalQueue(qImpl, m.roleTracker, m.customLabels)
+			reportCQPendingWorkloads(m, newCQ)
 			m.Broadcast()
 		}
 	}
 	qImpl.update(q)
+	if cqChanged {
+		reportLQPendingWorkloads(m, qImpl)
+	}
 	// Sync the cached weight with the spec and reheapify if it changed.
 	if newCQ := m.hm.ClusterQueue(q.Spec.ClusterQueue); newCQ != nil {
 		newCQ.UpdateLocalQueueWeight(queue.Key(q), afs.LQWeightAsFloat64(q))
@@ -605,6 +612,7 @@ func (m *Manager) DeleteLocalQueue(log logr.Logger, q *kueue.LocalQueue) {
 	if cq != nil {
 		cq.DeleteFromLocalQueue(log, qImpl, m.roleTracker, m.customLabels)
 		cq.deleteLocalQueue(key)
+		reportCQPendingWorkloads(m, cq)
 	}
 	if m.lqMetrics.IsEnabled() {
 		clearLQMetrics(key)

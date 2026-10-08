@@ -32,7 +32,8 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Topology Aware Scheduling with workload slices and fair sharing refill", ginkgo.Ordered, func() {
@@ -60,7 +61,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with workload slices and fair
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FairSharingRefill, true)
 
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-slice-refill-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-slice-refill-")
 
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("slice-refill-x1").
@@ -73,35 +74,35 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with workload slices and fair
 				Ready().
 				Obj(),
 		}
-		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = utiltestingapi.MakeDefaultOneLevelTopology("default")
-		util.MustCreate(ctx, k8sClient, topology)
+		behavioral.MustCreate(ctx, k8sClient, topology)
 
 		tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 			NodeLabel("node-group", "tas").
 			TopologyName("default").Obj()
-		util.MustCreate(ctx, k8sClient, tasFlavor)
+		behavioral.MustCreate(ctx, k8sClient, tasFlavor)
 
 		// Quota is above the node's capacity, so placement decides.
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "10").Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
+		behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-		gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 		for _, node := range nodes {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 		}
 		gomega.Expect(forceDeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
@@ -125,12 +126,12 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with workload slices and fair
 				Priority(100).
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Obj()
-			util.MustCreate(ctx, k8sClient, old)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, old)
+			behavioral.MustCreate(ctx, k8sClient, old)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, old)
 
 			blocker = tasWorkload("blocker", 2).Obj()
-			util.MustCreate(ctx, k8sClient, blocker)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, blocker)
+			behavioral.MustCreate(ctx, k8sClient, blocker)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, blocker)
 		})
 
 		// The slice outranks the successor, so the replacement heads the cycle
@@ -142,11 +143,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with workload slices and fair
 				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 				Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(old))).
 				Obj()
-			util.MustCreate(ctx, k8sClient, grow)
+			behavioral.MustCreate(ctx, k8sClient, grow)
 			succ = tasWorkload("succ", 1).Obj()
-			util.MustCreate(ctx, k8sClient, succ)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, grow, succ)
-			util.ExpectPendingWorkloadsMetric(clusterQueue, 0, 2)
+			behavioral.MustCreate(ctx, k8sClient, succ)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, grow, succ)
+			behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 2)
 		})
 
 		// The parked event must predate freedAt, and seeing it shows that the
@@ -158,15 +159,15 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with workload slices and fair
 				g.Expect(events.Items).To(gomega.ContainElement(gomega.Satisfy(func(e eventsv1.Event) bool {
 					return e.Regarding.Name == succ.Name && e.Type == corev1.EventTypeWarning
 				})))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 		freedAt := metav1.NowMicro()
 		ginkgo.By("freeing 2 CPU in a single step", func() {
-			util.FinishWorkloads(ctx, k8sClient, blocker)
+			integration.FinishWorkloads(ctx, k8sClient, blocker)
 		})
 
 		ginkgo.By("admitting the replacement and the successor", func() {
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, grow, succ)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, grow, succ)
 		})
 
 		// The successor is admitted either way once the replaced slice leaves
@@ -185,7 +186,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with workload slices and fair
 						g.Expect(e.Series.LastObservedTime.Before(&freedAt)).To(gomega.BeTrue(), "successor was turned away after the free step: %s", e.Note)
 					}
 				}
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })

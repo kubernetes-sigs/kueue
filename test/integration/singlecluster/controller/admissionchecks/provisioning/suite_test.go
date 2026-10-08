@@ -40,7 +40,8 @@ import (
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -51,15 +52,15 @@ var (
 )
 
 func TestProvisioning(t *testing.T) {
-	util.RunSuite(t, "Provisioning admission check suite")
+	behavioral.RunSuite(t, "Provisioning admission check suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
 		DepCRDPaths: []string{
-			util.AutoscalerCrds,
+			behavioral.AutoscalerCrds,
 		},
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
@@ -108,7 +109,7 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 		cCache := schdcache.New(mgr.GetClient())
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		if opts.runJobController {
 			var err error

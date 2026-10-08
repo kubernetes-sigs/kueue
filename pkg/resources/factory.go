@@ -50,17 +50,18 @@ func NewRequests() Requests {
 }
 
 // NewRequestsFromMap creates a Requests instance from a map based on feature gates.
-// Each value already fits an int64, so wrapping it is exact.
+// Each value already fits an int64, so wrapping it is exact. Vectorized requests
+// are built straight from m, with no intermediate map.
 func NewRequestsFromMap(m map[corev1.ResourceName]int64) Requests {
 	if len(m) == 0 {
 		return NewRequests()
 	}
+	if features.Enabled(features.VectorizedResourceRequests) {
+		return new(int64MapToSliceRequests(m))
+	}
 	am := make(MapRequests, len(m))
 	for name, v := range m {
 		am[name] = NewAmount(v)
-	}
-	if features.Enabled(features.VectorizedResourceRequests) {
-		return new(toSliceRequests(am))
 	}
 	return am
 }

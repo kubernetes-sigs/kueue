@@ -1063,7 +1063,7 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 			Subsystem: constants.KueueName,
 			Name:      "cohort_subtree_admitted_workloads_total",
 			Help:      "The total number of admitted workloads per cohort's subtree",
-		}, append([]string{"cohort", "priority_class", "replica_role"}, cohortMetricLabels...),
+		}, append([]string{"cohort", "priority_class", "replica_role"}, cl.LabelNames(configapi.SourceKindCohort, configapi.SourceKindWorkload)...),
 	)
 
 	CohortSubtreeResourceReservations = prometheus.NewGaugeVec(
@@ -1726,6 +1726,7 @@ func Register() {
 		QueuedUntilReadyWaitTime,
 		AdmittedUntilReadyWaitTime,
 		EvictedWorkloadsTotal,
+		ReplacedWorkloadSlicesTotal,
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
 		WorkloadEvictionLatencySeconds,

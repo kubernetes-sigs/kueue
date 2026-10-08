@@ -33,7 +33,8 @@ import (
 	kueuetestalpha1 "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configurablepreemptions"), func() {
@@ -51,7 +52,7 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 				Request(extraResource, extraResourceRequests).
 				NodeSelector(nodeSelector).Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, wl)
+		behavioral.MustCreate(ctx, k8sClient, wl)
 		return wl
 	}
 
@@ -60,11 +61,11 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 	}
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "configurablepreemptions-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "configurablepreemptions-")
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.When("Defragmentation is configured", func() {
@@ -97,7 +98,7 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 					}).
 					Ready().Obj(),
 			}
-			util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 			defragPreemptionConfigName := "preemption-configuration"
 			config = kueuetestalpha1.MakePreemptionConfig(defragPreemptionConfigName).
@@ -117,17 +118,17 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 							},
 						},
 					}).Obj()
-			util.MustCreate(ctx, k8sClient, config)
+			behavioral.MustCreate(ctx, k8sClient, config)
 
 			topology = utiltestingapi.MakeDefaultOneLevelTopology("defrag-topology")
-			util.MustCreate(ctx, k8sClient, topology)
+			behavioral.MustCreate(ctx, k8sClient, topology)
 
 			flavor = utiltestingapi.MakeResourceFlavor("rf-defrag").
 				// NodeLabel is required when TopologyName exists
 				NodeLabel(commonLabelKey, commonLabelValue).
 				TopologyName(topology.Name).
 				Obj()
-			util.MustCreate(ctx, k8sClient, flavor)
+			behavioral.MustCreate(ctx, k8sClient, flavor)
 
 			cqA = utiltestingapi.MakeClusterQueue("cq-defrag-a").
 				Cohort("root").
@@ -136,9 +137,9 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 					Obj()).
 				Annotation(kueuealpha.PreemptionConfigNameAnnotation, defragPreemptionConfigName).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cqA)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cqA)
 			lqA = utiltestingapi.MakeLocalQueue("lq-a", ns.Name).ClusterQueue(cqA.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqA)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqA)
 
 			cqB = utiltestingapi.MakeClusterQueue("cq-defrag-b").
 				Cohort("root").
@@ -147,28 +148,28 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 					Obj()).
 				Annotation(kueuealpha.PreemptionConfigNameAnnotation, defragPreemptionConfigName).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cqB)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cqB)
 			lqB = utiltestingapi.MakeLocalQueue("lq-b", ns.Name).ClusterQueue(cqB.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqB)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqB)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, lqA, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, lqB, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqA, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqB, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, config, true)
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lqA, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lqB, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cqA, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cqB, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, config, true)
 		})
 
 		ginkgo.It("Should reschedule running workload and schedule incoming", func() {
 			var wlA *kueue.Workload
 			ginkgo.By("Scheduling small workload on topology domain", func() {
 				wlA = createWorkload("lq-a", "1", map[string]string{})
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqA.Name, wlA)
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqA.Name, wlA)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
 			})
 
 			var wlAHostnameBeforeReschedule string
@@ -183,10 +184,10 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 			ginkgo.By("Large workload requires same domain - needing defrag", func() {
 				// Simulate already taken topology by requiring workload to schedule on the same node as first workload.
 				wlB = createWorkload("lq-b", "2", map[string]string{corev1.LabelHostname: wlAHostnameBeforeReschedule})
-				util.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
-				util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqB.Name, wlB)
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
+				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqB.Name, wlB)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlB)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
 			})
 
 			ginkgo.By("Verify small workload was rescheduled", func() {
@@ -200,7 +201,7 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 
 			ginkgo.By("Same size workload requiring same domain remains pending", func() {
 				wlC := createWorkload("lq-a", "2", map[string]string{corev1.LabelHostname: wlAHostnameBeforeReschedule})
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wlC)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlC)
 			})
 		})
 	})
@@ -223,19 +224,19 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 					kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 						Scope: kueuealpha.AnyClusterQueue,
 					}).Obj()
-			util.MustCreate(ctx, k8sClient, config)
+			behavioral.MustCreate(ctx, k8sClient, config)
 
 			flavor = utiltestingapi.MakeResourceFlavor("rf").Obj()
-			util.MustCreate(ctx, k8sClient, flavor)
+			behavioral.MustCreate(ctx, k8sClient, flavor)
 
 			cqA = utiltestingapi.MakeClusterQueue("cq-regular").
 				Cohort("root").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).
 					Resource(corev1.ResourceCPU, "2").Obj()).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cqA)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cqA)
 			lqA = utiltestingapi.MakeLocalQueue("lq-regular", ns.Name).ClusterQueue(cqA.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqA)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqA)
 
 			cqHero = utiltestingapi.MakeClusterQueue("cq-hero").
 				Cohort("root").
@@ -243,19 +244,19 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 					Resource(corev1.ResourceCPU, "1").Obj()).
 				Annotation(kueuealpha.PreemptionConfigNameAnnotation, heroJobConfiguration).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cqHero)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cqHero)
 			lqHero = utiltestingapi.MakeLocalQueue("lq-hero", ns.Name).ClusterQueue(cqHero.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqHero)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lqHero)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, lqA, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, lqHero, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqA, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cqHero, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, config, true)
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lqA, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lqHero, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cqA, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cqHero, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, config, true)
 		})
 
 		ginkgo.It("Should preempt regular jobs to schedule hero-job", func() {
@@ -263,21 +264,21 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 				Queue(kueue.LocalQueueName("lq-regular")).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wlA)
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqA.Name, wlA)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
+			behavioral.MustCreate(ctx, k8sClient, wlA)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqA.Name, wlA)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA)
 
 			wlHero := utiltestingapi.MakeWorkloadWithGeneratedName("workload-", ns.Name).
 				Queue(kueue.LocalQueueName("lq-hero")).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wlHero)
-			util.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
-			util.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqHero.Name, wlHero)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlHero)
+			behavioral.MustCreate(ctx, k8sClient, wlHero)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqHero.Name, wlHero)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlHero)
 
-			util.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlA)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlA)
 		})
 	})
 
@@ -305,27 +306,27 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 					kueuetestalpha1.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
 						LabelSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"fallback": "true"}}).Obj(),
 				).Obj()
-			util.MustCreate(ctx, k8sClient, config)
+			behavioral.MustCreate(ctx, k8sClient, config)
 
 			flavor = utiltestingapi.MakeResourceFlavor("rf-invalid-selector").Obj()
-			util.MustCreate(ctx, k8sClient, flavor)
+			behavioral.MustCreate(ctx, k8sClient, flavor)
 
 			cq = utiltestingapi.MakeClusterQueue("cq-invalid-selector").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).
 					Resource(corev1.ResourceCPU, "2").Obj()).
 				Annotation(kueuealpha.PreemptionConfigNameAnnotation, config.Name).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 			lq = utiltestingapi.MakeLocalQueue("lq-invalid-selector", ns.Name).ClusterQueue(cq.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, config, true)
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, config, true)
 		})
 
 		ginkgo.It("stops before evaluating the InsufficientQuota rule", func() {
@@ -339,9 +340,9 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 				Label("fallback", "true").
 				Priority(10).
 				Request(corev1.ResourceCPU, "1").Obj()
-			util.MustCreate(ctx, k8sClient, wlA)
-			util.MustCreate(ctx, k8sClient, wlB)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA, wlB)
+			behavioral.MustCreate(ctx, k8sClient, wlA)
+			behavioral.MustCreate(ctx, k8sClient, wlB)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlA, wlB)
 
 			_ = fwk.ObservedLogs.TakeAll()
 			newPreemptor := func() *kueue.Workload {
@@ -352,11 +353,11 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 					Request(corev1.ResourceCPU, "1").Obj()
 			}
 			wlC := newPreemptor()
-			util.MustCreate(ctx, k8sClient, wlC)
+			behavioral.MustCreate(ctx, k8sClient, wlC)
 			gomega.Eventually(func() int {
 				return len(fwk.ObservedLogs.FilterMessage("Failed to get candidates for preemption").All())
-			}, util.Timeout, util.Interval).Should(gomega.BeNumerically(">", 0))
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wlC)
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeNumerically(">", 0))
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlC)
 			gomega.Consistently(func(g gomega.Gomega) {
 				for _, wl := range []*kueue.Workload{wlA, wlB} {
 					updated := &kueue.Workload{}
@@ -364,17 +365,17 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 					g.Expect(updated.Status.Admission).NotTo(gomega.BeNil())
 					g.Expect(meta.IsStatusConditionTrue(updated.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
 				}
-			}, util.LongConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, wlC, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wlC, true)
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(config), config)).To(gomega.Succeed())
 			config.Spec.Rules[0].CandidateSelectors[0].LabelSelector.MatchExpressions[0].Operator = metav1.LabelSelectorOpIn
 			gomega.Expect(k8sClient.Update(ctx, config)).To(gomega.Succeed())
 
 			wlC = newPreemptor()
-			util.MustCreate(ctx, k8sClient, wlC)
-			util.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlC)
+			behavioral.MustCreate(ctx, k8sClient, wlC)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlA)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlC)
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlB), wlB)).To(gomega.Succeed())
 			gomega.Expect(meta.IsStatusConditionTrue(wlB.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
 		})

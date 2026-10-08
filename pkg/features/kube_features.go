@@ -586,6 +586,13 @@ const (
 	// to use elastic workload slicing.
 	RayServiceValidateUpgradeStrategy featuregate.Feature = "RayServiceValidateUpgradeStrategy"
 
+	// owner: @kevin85421
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/16870
+	//
+	// Enables using the top-level RayService suspend field. Disable this gate
+	// when using a KubeRay version older than 1.7.
+	KubeRayServiceUsingTopLevelSuspend featuregate.Feature = "KubeRayServiceUsingTopLevelSuspend"
+
 	// owner: @j-skiba
 	//
 	// Enable caching node matching results (NodeSelector, Tolerations, Affinity) per workload/PodSet
@@ -611,7 +618,9 @@ const (
 	// owner: @kshalot
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8871
-	// Enable integration of the https://github.com/kubernetes-sigs/scheduler-library.
+	// Enable shallow integration of the https://github.com/kubernetes-sigs/scheduler-library.
+	// The core scheduling loop is still calculated by native kueue logic.
+	// Scheduler library is used as feasibility-checker.
 	SchedulerLibraryIntegration featuregate.Feature = "SchedulerLibraryIntegration"
 
 	// owner: @sohankunkerkar
@@ -836,10 +845,31 @@ const (
 	// pods are dropped from the assignment.
 	TASPartialSlices featuregate.Feature = "TASPartialSlices"
 
+	// owner: @alien1403
+	//
+	// Enable the usage of the ScheduleWorkload() method from
+	// https://github.com/kubernetes-sigs/scheduler-library to plan Pod placement.
+	SchedulerLibraryDeepIntegration featuregate.Feature = "SchedulerLibraryDeepIntegration"
+
 	// owner: @olekzabl
 	//
 	// Increases max parallelism for batch operations within a single reconcile thread from 8 to 32.
 	HighMaxParallelismWithinReconcile featuregate.Feature = "HighMaxParallelismWithinReconcile"
+
+	// owner: @spencer-p
+	//
+	// Enables strict comparison in ComparePodSets for Ray TopologyRequest
+	// index and subgroup fields. When disabled (the default), relaxed
+	// comparison is used to prevent eviction of existing workloads created
+	// before rank-based ordering was added.
+	KubeRayEvictOnInconsistentTopologyRequest featuregate.Feature = "KubeRayEvictOnInconsistentTopologyRequest"
+
+	// owner: @JanKaczmarski
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/14543
+	//
+	// Verifies fair sharing preemption targets after fillBackWorkloads
+	// to prevent preemption loops caused by temporary share deflation.
+	FairSharingVerifyFinalTargets featuregate.Feature = "FairSharingVerifyFinalTargets"
 )
 
 func init() {
@@ -867,7 +897,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASRecomputeAssignmentWithinSchedulingCycle:         {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesWithTAS:                 {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesFlavorChangeFromZero:    {ElasticJobsViaWorkloadSlices},
-	MultiKueueRayInTreeAutoscaling:                      {MultiKueue, ElasticJobsViaWorkloadSlices},
+	MultiKueueRayInTreeAutoscaling:                      {MultiKueue, ElasticJobsViaWorkloadSlices, SkipChildJobSuspension},
 	KueueDRAIntegrationExtendedResource:                 {KueueDRAIntegration},
 	KueueDRAIntegrationPartitionableDevices:             {KueueDRAIntegration},
 	KueueDRAIntegrationConsumableCapacity:               {KueueDRAIntegration},
@@ -882,6 +912,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASPartialSlices:                                    {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesForProvisioningRequests: {ElasticJobsViaWorkloadSlices},
 	SchedulerLibraryIntegration:                         {TopologyAwareScheduling},
+	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1173,6 +1204,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
 
+	KubeRayServiceUsingTopLevelSuspend: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.23
+	},
+
 	TASCacheNodeMatchResults: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -1287,7 +1322,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	PodIntegrationCountSucceededPodsAsReady: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
-
 	WorkloadLevelWaitForPodsReady: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
@@ -1302,6 +1336,18 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	HighMaxParallelismWithinReconcile: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	SchedulerLibraryDeepIntegration: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	KubeRayEvictOnInconsistentTopologyRequest: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha}, // Beta in 0.22
+	},
+
+	FairSharingVerifyFinalTargets: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }
 

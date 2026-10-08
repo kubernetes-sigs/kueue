@@ -39,7 +39,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -54,12 +55,12 @@ var (
 )
 
 func TestKueuectl(t *testing.T) {
-	util.RunSuite(t, "Kueuectl Suite")
+	behavioral.RunSuite(t, "Kueuectl Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
@@ -95,7 +96,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	cCache := schdcache.New(mgr.GetClient())
 	preemptionExpectations := preemptexpectations.New()
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+	queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 	failedCtrl, err := core.SetupControllers(
 		mgr,

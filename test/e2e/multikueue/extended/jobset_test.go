@@ -33,7 +33,8 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
 	testingjobset "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 type jobSetTestContext struct {
@@ -59,9 +60,9 @@ func registerJobSetTests(contextProvider func() jobSetTestContext) {
 					Replicas:    2,
 					Parallelism: 2,
 					Completions: 2,
-					Image:       util.GetAgnHostImage(),
+					Image:       e2e.GetAgnHostImage(),
 					// Give it the time to be observed Active in the live status update step.
-					Args: util.BehaviorWaitForDeletion,
+					Args: e2e.BehaviorWaitForDeletion,
 				},
 			).
 			RequestAndLimit("replicated-job-1", corev1.ResourceCPU, "100m").
@@ -70,13 +71,13 @@ func registerJobSetTests(contextProvider func() jobSetTestContext) {
 			Obj()
 
 		ginkgo.By("Creating the jobSet", func() {
-			util.MustCreate(ctx, k8sManagerClient, jobSet)
+			behavioral.MustCreate(ctx, k8sManagerClient, jobSet)
 		})
 
 		createdLeaderWorkload := &kueue.Workload{}
 		wlLookupKey := types.NamespacedName{Name: workloadjobset.GetWorkloadNameForJobSet(jobSet.Name, jobSet.UID), Namespace: managerNs.Name}
 
-		admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+		admittedWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 		admittedWorker := kubernetesClients[admittedWorkerName]
 
 		ginkgo.By("Waiting for the jobSet to get status updates", func() {
@@ -91,12 +92,12 @@ func registerJobSetTests(contextProvider func() jobSetTestContext) {
 						Active: 2,
 					},
 				}, cmpopts.IgnoreFields(jobset.ReplicatedJobStatus{}, "Succeeded", "Failed")))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Finishing the jobset pods", func() {
-			listOpts := util.GetListOptsFromLabel(fmt.Sprintf("jobset.sigs.k8s.io/jobset-name=%s", jobSet.Name))
-			util.WaitForActivePodsAndTerminate(ctx, admittedWorker.client, admittedWorker.restClient, admittedWorker.cfg, jobSet.Namespace, 4, 0, listOpts)
+			listOpts := e2e.GetListOptsFromLabel(fmt.Sprintf("jobset.sigs.k8s.io/jobset-name=%s", jobSet.Name))
+			e2e.WaitForActivePodsAndTerminate(ctx, admittedWorker.client, admittedWorker.restClient, admittedWorker.cfg, jobSet.Namespace, 4, 0, listOpts)
 		})
 
 		ginkgo.By("Waiting for the jobSet to finish", func() {
@@ -108,13 +109,13 @@ func registerJobSetTests(contextProvider func() jobSetTestContext) {
 					Status:  metav1.ConditionTrue,
 					Reason:  kueue.WorkloadFinishedReasonSucceeded,
 					Message: "jobset completed successfully",
-				}, util.IgnoreConditionTimestampsAndObservedGeneration))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.IgnoreConditionTimestampsAndObservedGeneration))
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking no objects are left in the worker clusters and the jobSet is completed", func() {
-			util.ExpectObjectToBeDeletedOnClusters(ctx, createdLeaderWorkload, k8sWorker1Client, k8sWorker2Client)
-			util.ExpectObjectToBeDeletedOnClusters(ctx, jobSet, k8sWorker1Client, k8sWorker2Client)
+			e2e.ExpectObjectToBeDeletedOnClusters(ctx, createdLeaderWorkload, k8sWorker1Client, k8sWorker2Client)
+			e2e.ExpectObjectToBeDeletedOnClusters(ctx, jobSet, k8sWorker1Client, k8sWorker2Client)
 
 			createdJobSet := &jobset.JobSet{}
 			gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobSet)).To(gomega.Succeed())
@@ -126,7 +127,7 @@ func registerJobSetTests(contextProvider func() jobSetTestContext) {
 					Reason:  "AllJobsCompleted",
 					Message: "jobset completed successfully",
 				},
-				util.IgnoreConditionTimestampsAndObservedGeneration)))
+				behavioral.IgnoreConditionTimestampsAndObservedGeneration)))
 		})
 	})
 }

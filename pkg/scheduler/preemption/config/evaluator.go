@@ -35,8 +35,8 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
-	"sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/config/filters"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -118,9 +118,9 @@ func (p *PreemptionEvaluator) FindCandidates(
 	preemptor *workload.Info,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
 	workloadQuotaFits func() bool,
-	yield func(*common.Target) bool,
+	yield func(*policy.Target) bool,
 ) (interrupted bool) {
-	yield = common.YieldFromSnapshot(snapshot, yield)
+	yield = policy.YieldFromSnapshot(snapshot, yield)
 
 	if !p.HasRules() {
 		return
@@ -169,14 +169,14 @@ func (p *PreemptionEvaluator) FindCandidates(
 func iterateOverCandidates(
 	snapshot *schdcache.Snapshot,
 	candidates []*configurableCandidate,
-	yield func(*common.Target) bool,
+	yield func(*policy.Target) bool,
 ) (interrupted bool) {
 	for _, candidate := range candidates {
-		if !yield(&common.Target{
+		if !yield(&policy.Target{
 			WorkloadInfo: candidate.WlInfo,
 			Reason:       kueue.ConfigurablePreemptionReason,
 			WorkloadCq:   snapshot.ClusterQueue(candidate.WlInfo.ClusterQueue),
-			ConfigurablePreemptionReasonData: &common.ConfigurablePreemptionReasonData{
+			ConfigurablePreemptionReasonData: &policy.ConfigurablePreemptionReasonData{
 				ConfigName:                candidate.ConfigName,
 				RuleNameToSelectorIndexes: candidate.RuleNameToSelectorIndexes,
 			},
@@ -211,8 +211,8 @@ func (p *PreemptionEvaluator) hasConditionalRules() bool {
 // together with the configuration rules and selectors that selected it.
 type configurableCandidate struct {
 	WlInfo                    *workload.Info
-	ConfigName                common.PreemptionConfigReference
-	RuleNameToSelectorIndexes map[common.PreemptionConfigRuleReference][]int
+	ConfigName                policy.PreemptionConfigReference
+	RuleNameToSelectorIndexes map[policy.PreemptionConfigRuleReference][]int
 }
 
 // orderedCandidates returns the candidates selected by the rules of the
@@ -278,7 +278,7 @@ func (p *PreemptionEvaluator) candidatesFor(
 				continue
 			}
 
-			ruleReference := common.PreemptionConfigRuleReference(rule.Name)
+			ruleReference := policy.PreemptionConfigRuleReference(rule.Name)
 			p.addMatchingCandidates(&filter, snapshot, flavorsNeedPreemption, ruleReference, seen, &candidates, selectorIndex)
 		}
 	}
@@ -294,7 +294,7 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 	filter *filters.CandidateFilters,
 	snapshot *schdcache.Snapshot,
 	flavorsNeedPreemption sets.Set[resources.FlavorResource],
-	ruleReference common.PreemptionConfigRuleReference,
+	ruleReference policy.PreemptionConfigRuleReference,
 	seen map[types.UID]int,
 	candidates *[]*configurableCandidate,
 	selectorIndex int,
@@ -327,8 +327,8 @@ func (p *PreemptionEvaluator) ensureCandidate(
 	seen[wlInfo.Obj.UID] = len(*candidates)
 	candidate := &configurableCandidate{
 		WlInfo:                    wlInfo,
-		ConfigName:                common.PreemptionConfigReference(p.config.Name),
-		RuleNameToSelectorIndexes: map[common.PreemptionConfigRuleReference][]int{},
+		ConfigName:                policy.PreemptionConfigReference(p.config.Name),
+		RuleNameToSelectorIndexes: map[policy.PreemptionConfigRuleReference][]int{},
 	}
 
 	*candidates = append(*candidates, candidate)

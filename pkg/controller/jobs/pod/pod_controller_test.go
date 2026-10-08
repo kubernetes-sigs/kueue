@@ -514,14 +514,14 @@ func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testi
 	leader := *testingpod.MakePod("", "").
 		RoleHash("zzzz").
 		Request(corev1.ResourceCPU, "1").
+		ContainerName("leader").
 		Obj()
-	leader.Spec.Containers[0].Name = "leader"
 
 	worker := *testingpod.MakePod("", "").
 		RoleHash("aaaa").
 		Request(corev1.ResourceCPU, "4").
+		ContainerName("worker").
 		Obj()
-	worker.Spec.Containers[0].Name = "worker"
 
 	got, err := constructGroupPodSets([]corev1.Pod{leader, worker}, nil)
 	if err != nil {
@@ -640,13 +640,13 @@ func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
 
 	leader := *testingpod.MakePod("", "").
 		Request(corev1.ResourceCPU, "1").
+		ContainerName("leader").
 		Obj()
-	leader.Spec.Containers[0].Name = "leader"
 
 	worker := *testingpod.MakePod("", "").
 		Request(corev1.ResourceCPU, "4").
+		ContainerName("worker").
 		Obj()
-	worker.Spec.Containers[0].Name = "worker"
 
 	leaderShapeHash, err := utilpod.GenerateRoleHash(&leader.Spec)
 	if err != nil {
@@ -6227,6 +6227,64 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads:   nil,
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			wantErr:         errPodGroupLabelsMismatch,
+		},
+		"workload is created for pod group whose pods differ only in a label Kueue never copies": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					Label("toCopyKey1", "toCopyValue1").
+					Label(controllerconsts.ConcurrentAdmissionParentLabelKey, "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupIndex("0").
+					GroupTotalCount("2").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					Label("toCopyKey1", "toCopyValue1").
+					Label(controllerconsts.ConcurrentAdmissionParentLabelKey, "false").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupIndex("1").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			wantPods: nil,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithLabelKeysToCopy(sets.New("toCopyKey1", controllerconsts.ConcurrentAdmissionParentLabelKey)),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					Labels(map[string]string{
+						"toCopyKey1": "toCopyValue1",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
 		},
 		"workload is created with correct annotations for a single pod": {
 			featureGates: map[featuregate.Feature]bool{

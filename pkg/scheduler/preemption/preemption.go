@@ -46,9 +46,9 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	configurable "sigs.k8s.io/kueue/pkg/scheduler/preemption/config"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/util/priority"
@@ -88,6 +88,36 @@ type PreemptionStrategy struct {
 	// The context is shared across all iterations of this strategy's candidates.
 	// Warning: Eeach time a candidate is yielded, it is preempted from the active context.
 	pCtx *preemptionCtx
+	// verify checks whether the final target set satisfies this strategy's invariants.
+	// If nil, any target set that fits is valid. It returns whether the target set is valid
+	// and an optional failure reason.
+	verify func(targets []*Target) (bool, string)
+}
+
+type strategyOption func(*PreemptionStrategy)
+
+func withVerify(verify func(targets []*Target) (bool, string)) strategyOption {
+	return func(ps *PreemptionStrategy) {
+		ps.verify = verify
+	}
+}
+
+func newPreemptionStrategy(
+	candidates iter.Seq[*Target],
+	allowBorrowing bool,
+	pCtx *preemptionCtx,
+	opts ...strategyOption,
+) PreemptionStrategy {
+	ps := PreemptionStrategy{
+		candidates:     candidates,
+		allowBorrowing: allowBorrowing,
+		pCtx:           pCtx,
+	}
+	for _, opt := range opts {
+		opt(&ps)
+	}
+
+	return ps
 }
 
 type preemptionCtx struct {
@@ -127,7 +157,7 @@ func New(
 	return p
 }
 
-type Target = preemptioncommon.Target
+type Target = policy.Target
 
 // ensures that Target implements ObjectRefProvider interface at compile time
 var _ logging.ObjectRefProvider = (*Target)(nil)
@@ -199,7 +229,7 @@ func (p *Preemptor) newConfigurableEvaluator(ctx context.Context, log logr.Logge
 // considered for a preemptor of the given ClusterQueue.
 func (p *Preemptor) candidatesOrdering(log logr.Logger, cq kueue.ClusterQueueReference) func(a, b *workload.Info) int {
 	return func(a, b *workload.Info) int {
-		return preemptioncommon.CandidatesOrdering(log, p.enabledAfs, a, b, cq, p.clock.Now())
+		return policy.CandidatesOrdering(log, p.enabledAfs, a, b, cq, p.clock.Now())
 	}
 }
 
@@ -357,6 +387,17 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 			targets = append(targets, candidate)
 			if workloadFits(ctx, strategy.pCtx, strategy.allowBorrowing) {
 				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
+				if strategy.verify != nil {
+					if valid, reason := strategy.verify(targets); !valid {
+						if logV := log.V(6); logV.Enabled() {
+							logV.Info("Discarding preemption targets: strategy verification failed",
+								"preemptingWorkload", klog.KObj(strategy.pCtx.preemptor.Obj),
+								"targets", logging.GetObjectReferences(targets),
+								"reason", reason)
+						}
+						break
+					}
+				}
 				restoreSnapshot(strategy.pCtx.snapshot, targets)
 				if logV := log.V(6); logV.Enabled() {
 					logV.Info("Preemption succeeded",
@@ -380,8 +421,8 @@ func restoreSnapshot(snapshot *schdcache.Snapshot, targets []*Target) {
 	}
 }
 
+// fillBackWorkloads checks in the reverse order if any of the workloads can be added back.
 func fillBackWorkloads(ctx context.Context, preemptionCtx *preemptionCtx, targets []*Target, allowBorrowing bool) []*Target {
-	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
 		preemptionCtx.snapshot.AddWorkload(targets[i].WorkloadInfo)
 		if workloadFits(ctx, preemptionCtx, allowBorrowing) {
@@ -459,18 +500,18 @@ func findCandidatesForPolicy(
 	log logr.Logger,
 	wl *kueue.Workload,
 	workloadsToFilter map[workload.Reference]*workload.Info,
-	policy kueue.PreemptionPolicy,
+	preemptionPolicy kueue.PreemptionPolicy,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
 	workloadOrdering workload.Ordering,
 ) []*workload.Info {
 	var candidates []*workload.Info
 	for _, candidateWl := range workloadsToFilter {
-		if !preemptioncommon.SatisfiesPreemptionPolicy(
+		if !policy.SatisfiesPreemptionPolicy(
 			log,
 			wl,
 			candidateWl.Obj,
 			workloadOrdering,
-			policy) {
+			preemptionPolicy) {
 			continue
 		}
 

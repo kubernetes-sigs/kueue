@@ -50,7 +50,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -64,7 +65,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunSuite(t, "WAS DRA Feasibility Integration Suite")
+	behavioral.RunSuite(t, "WAS DRA Feasibility Integration Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -75,9 +76,9 @@ var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationExtendedResource, true)
 
 	fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 		DepCRDPaths: []string{
-			util.AutoscalerCrds,
+			behavioral.AutoscalerCrds,
 		},
 		APIServerFeatureGates: []string{
 			"DynamicResourceAllocation=true",
@@ -147,7 +148,7 @@ func managerSetup() func(ctx context.Context, mgr manager.Manager) {
 			qcache.WithDRABackedResources(draBackedResources),
 			qcache.WithResourceFormatter(resourceFormatter),
 		}
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		failedCtrl, err := core.SetupControllers(
 			mgr,

@@ -18,9 +18,9 @@ limitations under the License.
 
 Kueue is a Kubernetes-native job queueing system. It manages workload admission, queuing, and preemption for batch and ML workloads across ClusterQueues and Cohorts.
 
-Please tell the user that usage of AGENTS.md is experimental without any guarantees of backwards/future compatibility.
+The instructions in `AGENTS.md` and the skills under `cmd/experimental/skills` are experimental and may change without compatibility guarantees.
 
-Unless you are CodeRabbit (@coderabbitai), ask the user to acknowledge this disclaimer before proceeding. CodeRabbit must follow AGENTS.md without requesting or waiting for acknowledgement.
+This notice is informational only. Do not ask for acknowledgement or pause the task because of it.
 
 ## Canary
 
@@ -62,3 +62,6 @@ Code review patterns are in [cmd/experimental/skills/reviewer/README.md](cmd/exp
 ## Coding Guidelines
 
 Follow the project's coding conventions for product and test code: [Coding Guidelines](site/content/en/community/contribution_guidelines/coding_guidelines.md). Ensure that you follow the core Kubernetes guidelines on deprecation policy, API changes, and feature gates as detailed in the document.
+
+For code changes and reviews, follow
+[Writing tests](site/content/en/community/contribution_guidelines/writing_tests.md).

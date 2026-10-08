@@ -25,7 +25,8 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueueclientset "sigs.k8s.io/kueue/client-go/clientset/versioned"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -49,7 +50,7 @@ var _ = ginkgo.Describe("PreemptionConfig RBAC", ginkgo.Label("area:singlecluste
 			preemptionConfig := makePreemptionConfig("preemptionconfig-rbac-admin")
 			// Also removed by the last step; this covers a failure before then.
 			ginkgo.DeferCleanup(func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, preemptionConfig, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, preemptionConfig, true)
 			})
 
 			ginkgo.By("Creating a PreemptionConfig", func() {
@@ -97,9 +98,9 @@ var _ = ginkgo.Describe("PreemptionConfig RBAC", ginkgo.Label("area:singlecluste
 		ginkgo.BeforeEach(func() {
 			// The viewer cannot create its own fixture, so the suite's admin client does it.
 			preemptionConfig = makePreemptionConfig("preemptionconfig-rbac-viewer")
-			util.MustCreate(ctx, k8sClient, preemptionConfig)
+			behavioral.MustCreate(ctx, k8sClient, preemptionConfig)
 			ginkgo.DeferCleanup(func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, preemptionConfig, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, preemptionConfig, true)
 			})
 
 			viewerClient = bindUserToClusterRole(
@@ -142,7 +143,7 @@ var _ = ginkgo.Describe("PreemptionConfig RBAC", ginkgo.Label("area:singlecluste
 	ginkgo.When("A subject is bound to neither kueue-batch-admin-role nor kueue-batch-user-role", func() {
 		ginkgo.It("Should be Forbidden from accessing PreemptionConfigs", func() {
 			expectPreemptionConfigAccessForbidden(
-				util.CreateKueueClientset(preemptionConfigNoRoleUser), "preemptionconfig-rbac-nobody")
+				e2e.CreateKueueClientset(preemptionConfigNoRoleUser), "preemptionconfig-rbac-nobody")
 		})
 	})
 })
@@ -178,18 +179,18 @@ func bindUserToClusterRole(user, clusterRole string, probe func(kueueclientset.I
 		RoleRef(rbacv1.GroupName, "ClusterRole", clusterRole).
 		UserSubject(user).
 		Obj()
-	util.MustCreate(ctx, k8sClient, binding)
+	behavioral.MustCreate(ctx, k8sClient, binding)
 	// Registered before the gate below: a gate failure must not leak this cluster-scoped object,
 	// or the next run collides with it on create.
 	ginkgo.DeferCleanup(func() {
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, binding, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, binding, true)
 	})
 
-	clientset := util.CreateKueueClientset(user)
+	clientset := e2e.CreateKueueClientset(user)
 	ginkgo.By("Wait for an already granted request to succeed to make sure the role binding is in effect", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(probe(clientset)).To(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 	return clientset
 }
@@ -237,7 +238,7 @@ func expectPreemptionConfigAccessForbiddenForWrites(c kueueclientset.Interface, 
 
 	// Only needed if the create below unexpectedly succeeds.
 	ginkgo.DeferCleanup(func() {
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, preemptionConfig, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, preemptionConfig, true)
 	})
 
 	ginkgo.By("Returning a Forbidden error for a create request", func() {

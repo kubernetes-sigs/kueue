@@ -29,13 +29,17 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:scheduler-library"), func() {
@@ -54,7 +58,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 		gomega.Expect(k8sClient.Create(ctx, ns)).To(gomega.Succeed())
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.When("DRA device feasibility filters nodes", func() {
@@ -99,7 +103,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					Ready().
 					Obj(),
 			}
-			util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 			deviceClass = testingdra.MakeDeviceClass("gpu.test.com").Obj()
 			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
@@ -137,7 +141,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					Resource("test.com/gpu", "4").
 					Obj()).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			claimTemplate = utiltesting.MakeResourceClaimTemplate("gpu-claim", ns.Name).
 				DeviceRequest("gpu", "gpu.test.com", 1).
@@ -160,27 +164,27 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 				DeviceRequest("gpu", "gpu.test.com", 1).
 				WithToleration("test.com/maintenance", resourceapi.DeviceTaintEffectNoSchedule).
 				Obj()
-			util.MustCreate(ctx, k8sClient, tolerantClaim)
+			behavioral.MustCreate(ctx, k8sClient, tolerantClaim)
 
 			localQueue = utiltestingapi.MakeLocalQueue("was-dra-lq", ns.Name).
 				ClusterQueue(clusterQueue.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, claimTemplate)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, tooBigClaim)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, tolerantClaim)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, gpuSlice, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, extendedClass, true)
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, claimTemplate)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, tooBigClaim)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, tolerantClaim)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, gpuSlice, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, extendedClass, true)
 			for _, node := range nodes {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 			}
 		})
 
@@ -199,7 +203,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 			ta := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
@@ -221,7 +225,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 			ta := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
@@ -244,7 +248,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 						Obj()).
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 				wls = append(wls, wl)
 			}
 			for _, wl := range wls {
@@ -252,6 +256,269 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 				ta := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
 				gomega.Expect(ta.Domains[0].Values).To(gomega.ContainElement("was-n2"))
 			}
+		})
+
+		// was-n3 and was-n4 each publish one test.com/gpu through a device plugin, so TAS
+		// counts the device from the Node instead of leaving it to the device check. The
+		// PodSets select only these two, so neither can fall back on was-n2's DRA devices
+		// while a node is still missing from the cache.
+		ginkgo.It("should not place two PodSets on the only device a device plugin publishes", func() {
+			pluginNodes := []corev1.Node{
+				*testingnode.MakeNode("was-n3").
+					Label("node-group", "was-dra").
+					Label("gpu-source", "device-plugin").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r3").
+					Label(corev1.LabelHostname, "was-n3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("4"),
+						corev1.ResourceMemory: resource.MustParse("8Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+						"test.com/gpu":        resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("was-n4").
+					Label("node-group", "was-dra").
+					Label("gpu-source", "device-plugin").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r4").
+					Label(corev1.LabelHostname, "was-n4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("4"),
+						corev1.ResourceMemory: resource.MustParse("8Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+						"test.com/gpu":        resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			}
+			integration.CreateNodesWithStatus(ctx, k8sClient, pluginNodes)
+			ginkgo.DeferCleanup(func() {
+				for _, node := range pluginNodes {
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+				}
+			})
+
+			wl := utiltestingapi.MakeWorkload("wl-dra-ext-podsets", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet("first", 1).
+						Request(corev1.ResourceCPU, "1").
+						Request("test.com/gpu", "1").
+						NodeSelector(map[string]string{"gpu-source": "device-plugin"}).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj(),
+					*utiltestingapi.MakePodSet("second", 1).
+						Request(corev1.ResourceCPU, "1").
+						Request("test.com/gpu", "1").
+						NodeSelector(map[string]string{"gpu-source": "device-plugin"}).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj(),
+				).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			// TAS breaks the tie on was-n3, so the second PodSet has to go to was-n4.
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			first := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+			gomega.Expect(first.Domains).To(gomega.HaveLen(1))
+			gomega.Expect(first.Domains[0].Values).To(gomega.ContainElement("was-n3"))
+			second := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment)
+			gomega.Expect(second.Domains).To(gomega.HaveLen(1))
+			gomega.Expect(second.Domains[0].Values).To(gomega.ContainElement("was-n4"))
+		})
+
+		// was-n5 publishes two test.com/gpu through a device plugin and is the only node the
+		// PodSets select, so it takes one Pod of each. Its replacements publish one each, so
+		// the second PodSet gets its own node only if the device the first took is counted.
+		ginkgo.It("should not place two replaced PodSets on the only device a device plugin publishes", func() {
+			// The first attempt may run before the replacement nodes exist and must not evict.
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
+			failedNode := testingnode.MakeNode("was-n5").
+				Label("node-group", "was-dra").
+				Label("gpu-source", "device-plugin").
+				Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+				Label(utiltesting.DefaultRackTopologyLevel, "r5").
+				Label(corev1.LabelHostname, "was-n5").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("4"),
+					corev1.ResourceMemory: resource.MustParse("8Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
+					"test.com/gpu":        resource.MustParse("2"),
+				}).
+				Ready().
+				Obj()
+			integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*failedNode})
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, failedNode, true)
+			})
+
+			wl := utiltestingapi.MakeWorkload("wl-dra-ext-replaced", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				PodSets(
+					*utiltestingapi.MakePodSet("first", 1).
+						Request(corev1.ResourceCPU, "1").
+						Request("test.com/gpu", "1").
+						NodeSelector(map[string]string{"gpu-source": "device-plugin"}).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj(),
+					*utiltestingapi.MakePodSet("second", 1).
+						Request(corev1.ResourceCPU, "1").
+						Request("test.com/gpu", "1").
+						NodeSelector(map[string]string{"gpu-source": "device-plugin"}).
+						RequiredTopologyRequest(corev1.LabelHostname).
+						Obj(),
+				).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+			for _, psa := range wl.Status.Admission.PodSetAssignments {
+				gomega.Expect(utiltas.InternalFrom(psa.TopologyAssignment).Domains).To(gomega.ConsistOf(
+					utiltas.TopologyDomainAssignment{Count: 1, Values: []string{"was-n5"}},
+				))
+			}
+
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, failedNode, true)
+			behavioral.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl, "was-n5")
+
+			replacementNodes := []corev1.Node{
+				*testingnode.MakeNode("was-n3").
+					Label("node-group", "was-dra").
+					Label("gpu-source", "device-plugin").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r3").
+					Label(corev1.LabelHostname, "was-n3").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("4"),
+						corev1.ResourceMemory: resource.MustParse("8Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+						"test.com/gpu":        resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+				*testingnode.MakeNode("was-n4").
+					Label("node-group", "was-dra").
+					Label("gpu-source", "device-plugin").
+					Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+					Label(utiltesting.DefaultRackTopologyLevel, "r4").
+					Label(corev1.LabelHostname, "was-n4").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("4"),
+						corev1.ResourceMemory: resource.MustParse("8Gi"),
+						corev1.ResourcePods:   resource.MustParse("10"),
+						"test.com/gpu":        resource.MustParse("1"),
+					}).
+					Ready().
+					Obj(),
+			}
+			integration.CreateNodesWithStatus(ctx, k8sClient, replacementNodes)
+			ginkgo.DeferCleanup(func() {
+				for _, node := range replacementNodes {
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+				}
+			})
+
+			// TAS breaks the tie on was-n3, so the second PodSet has to go to was-n4.
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
+				g.Expect(wl.Status.UnhealthyNodes).To(gomega.BeEmpty())
+				first := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
+				g.Expect(first.Domains).To(gomega.HaveLen(1))
+				g.Expect(first.Domains[0].Values).To(gomega.ContainElement("was-n3"))
+				second := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment)
+				g.Expect(second.Domains).To(gomega.HaveLen(1))
+				g.Expect(second.Domains[0].Values).To(gomega.ContainElement("was-n4"))
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeNil())
+		})
+
+		// was-n3 publishes one test.com/gpu through a device plugin, and was-n4 joins only once
+		// the slice holds was-n3, which also wins the tie for the added Pod. While the slice
+		// grows, its cached usage is set aside and the Pod it keeps is counted again, so the
+		// added Pod goes to was-n4 only if that recount includes the device.
+		ginkgo.It("should not scale a slice up onto the device its retained Pod holds", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+			retainedNode := testingnode.MakeNode("was-n3").
+				Label("node-group", "was-dra").
+				Label("gpu-source", "device-plugin").
+				Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+				Label(utiltesting.DefaultRackTopologyLevel, "r3").
+				Label(corev1.LabelHostname, "was-n3").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("4"),
+					corev1.ResourceMemory: resource.MustParse("8Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
+					"test.com/gpu":        resource.MustParse("1"),
+				}).
+				Ready().
+				Obj()
+			integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*retainedNode})
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, retainedNode, true)
+			})
+
+			old := utiltestingapi.MakeWorkload("wl-dra-ext-slice", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Request("test.com/gpu", "1").
+					NodeSelector(map[string]string{"gpu-source": "device-plugin"}).
+					UnconstrainedTopologyRequest().
+					Obj()).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, old)
+
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, old)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(old), old)).To(gomega.Succeed())
+			gomega.Expect(utiltas.InternalFrom(old.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains).To(gomega.ConsistOf(
+				utiltas.TopologyDomainAssignment{Count: 1, Values: []string{"was-n3"}},
+			))
+
+			spareNode := testingnode.MakeNode("was-n4").
+				Label("node-group", "was-dra").
+				Label("gpu-source", "device-plugin").
+				Label(utiltesting.DefaultBlockTopologyLevel, "b1").
+				Label(utiltesting.DefaultRackTopologyLevel, "r4").
+				Label(corev1.LabelHostname, "was-n4").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:    resource.MustParse("4"),
+					corev1.ResourceMemory: resource.MustParse("8Gi"),
+					corev1.ResourcePods:   resource.MustParse("10"),
+					"test.com/gpu":        resource.MustParse("1"),
+				}).
+				Ready().
+				Obj()
+			integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*spareNode})
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, spareNode, true)
+			})
+
+			grown := utiltestingapi.MakeWorkload("wl-dra-ext-slice-grown", ns.Name).
+				Queue(kueue.LocalQueueName(localQueue.Name)).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(old))).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+					Request(corev1.ResourceCPU, "1").
+					Request("test.com/gpu", "1").
+					NodeSelector(map[string]string{"gpu-source": "device-plugin"}).
+					UnconstrainedTopologyRequest().
+					Obj()).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, grown)
+
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, grown)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(grown), grown)).To(gomega.Succeed())
+			gomega.Expect(utiltas.InternalFrom(grown.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains).To(gomega.ConsistOf(
+				utiltas.TopologyDomainAssignment{Count: 1, Values: []string{"was-n3"}},
+				utiltas.TopologyDomainAssignment{Count: 1, Values: []string{"was-n4"}},
+			))
 		})
 
 		ginkgo.It("should not admit a DRA workload when no node has enough devices", func() {
@@ -265,7 +532,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
 
 			ginkgo.By("reporting the devices as the reason, not a generic no-fit", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -275,7 +542,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					g.Expect(cond).NotTo(gomega.BeNil())
 					g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
 					g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit"))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
@@ -287,17 +554,17 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 				taintRule = utiltesting.MakeDeviceTaintRule("was-dra-maintenance", "test.com/maintenance").
 					Driver("gpu.test.com").
 					Obj()
-				util.MustCreate(ctx, k8sClient, taintRule)
+				behavioral.MustCreate(ctx, k8sClient, taintRule)
 				// The rule's name repeats across specs, so wait for this rule, not a previous one.
 				gomega.Eventually(func(g gomega.Gomega) {
 					var cached resourceapi.DeviceTaintRule
 					g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(taintRule), &cached)).To(gomega.Succeed())
 					g.Expect(cached.UID).To(gomega.Equal(taintRule.UID))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.AfterEach(func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, taintRule, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, taintRule, true)
 			})
 
 			ginkgo.It("should not admit a DRA workload that does not tolerate the taint", func() {
@@ -311,7 +578,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
 
 				ginkgo.By("reporting the devices as the reason, not a generic no-fit", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
@@ -321,7 +588,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 						g.Expect(cond).NotTo(gomega.BeNil())
 						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
 						g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit"))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 			})
 
@@ -336,7 +603,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					Obj()
 				gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 
 				gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 				ta := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
@@ -353,7 +620,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Obj()).
 					Obj()
-				util.MustCreate(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
 				ginkgo.By("waiting for the devices to reject it", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						read := kueue.Workload{}
@@ -362,12 +629,12 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 						g.Expect(cond).NotTo(gomega.BeNil())
 						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
 						g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit"))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, taintRule, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, taintRule, true)
 
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			})
 		})
 
@@ -383,8 +650,8 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 			})
 
 			ginkgo.AfterEach(func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, heldClaim, true)
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, extraSlice, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, heldClaim, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, extraSlice, true)
 			})
 
 			ginkgo.It("should admit it once a ResourceSlice publishes more devices", func() {
@@ -396,7 +663,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Obj()).
 					Obj()
-				util.MustCreate(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
 				ginkgo.By("waiting for the devices to reject it", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						read := kueue.Workload{}
@@ -405,7 +672,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 						g.Expect(cond).NotTo(gomega.BeNil())
 						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
 						g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit"))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 
 				extraSlice = testingdra.MakeResourceSlice("was-n2-more-gpus", "gpu.test.com").
@@ -413,9 +680,9 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					Pool("was-n2-more-gpu-pool", 1, 1).
 					Device("gpu-2").
 					Obj()
-				util.MustCreate(ctx, k8sClient, extraSlice)
+				behavioral.MustCreate(ctx, k8sClient, extraSlice)
 
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			})
 
 			ginkgo.It("should admit it once a ResourceSlice update adds devices", func() {
@@ -427,7 +694,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Obj()).
 					Obj()
-				util.MustCreate(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
 				ginkgo.By("waiting for the devices to reject it", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						read := kueue.Workload{}
@@ -436,7 +703,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 						g.Expect(cond).NotTo(gomega.BeNil())
 						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
 						g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit"))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -447,26 +714,26 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 						Device("gpu-2").
 						Obj().Spec.Devices
 					g.Expect(k8sClient.Update(ctx, gpuSlice)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			})
 
 			ginkgo.It("should admit it once a ResourceClaim releases its devices", func() {
 				heldClaim = utiltesting.MakeResourceClaim("was-held", ns.Name).DeviceRequest("gpu", "gpu.test.com", 2).Obj()
-				util.MustCreate(ctx, k8sClient, heldClaim)
+				behavioral.MustCreate(ctx, k8sClient, heldClaim)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(heldClaim), heldClaim)).To(gomega.Succeed())
 					heldClaim.Status = utiltesting.MakeResourceClaim("was-held", ns.Name).
 						Allocated("gpu", "gpu.test.com", "was-n2-gpu-pool", "gpu-0", "gpu-1").
 						Obj().Status
 					g.Expect(k8sClient.Status().Update(ctx, heldClaim)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					var cached resourceapi.ResourceClaim
 					g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(heldClaim), &cached)).To(gomega.Succeed())
 					g.Expect(cached.Status.Allocation).NotTo(gomega.BeNil())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 				wl := utiltestingapi.MakeWorkload("wl-dra-released", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -476,7 +743,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Obj()).
 					Obj()
-				util.MustCreate(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
 				ginkgo.By("waiting for the devices to reject it", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						read := kueue.Workload{}
@@ -485,16 +752,16 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 						g.Expect(cond).NotTo(gomega.BeNil())
 						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
 						g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit"))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(heldClaim), heldClaim)).To(gomega.Succeed())
 					heldClaim.Status.Allocation = nil
 					g.Expect(k8sClient.Status().Update(ctx, heldClaim)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			})
 
 			ginkgo.It("should admit it once the DeviceClass selects the devices", func() {
@@ -502,12 +769,12 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deviceClass), deviceClass)).To(gomega.Succeed())
 					deviceClass.Spec.Selectors = testingdra.MakeDeviceClass(deviceClass.Name).CELSelector(`device.driver == "other.test.com"`).Obj().Spec.Selectors
 					g.Expect(k8sClient.Update(ctx, deviceClass)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				gomega.Eventually(func(g gomega.Gomega) {
 					var cached resourceapi.DeviceClass
 					g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(deviceClass), &cached)).To(gomega.Succeed())
 					g.Expect(cached.Spec.Selectors).To(gomega.HaveLen(1))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 				wl := utiltestingapi.MakeWorkload("wl-dra-reselected", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -517,7 +784,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Obj()).
 					Obj()
-				util.MustCreate(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
 				ginkgo.By("waiting for the devices to reject it", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						read := kueue.Workload{}
@@ -526,16 +793,16 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 						g.Expect(cond).NotTo(gomega.BeNil())
 						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
 						g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit"))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(deviceClass), deviceClass)).To(gomega.Succeed())
 					deviceClass.Spec.Selectors = nil
 					g.Expect(k8sClient.Update(ctx, deviceClass)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			})
 
 			// Of two DeviceClasses for one extended resource the newer resolves, so deleting it
@@ -545,12 +812,12 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					ExtendedResourceName("test.com/gpu").
 					CELSelector(`device.driver == "other.test.com"`).
 					Obj()
-				util.MustCreate(ctx, k8sClient, brokenClass)
+				behavioral.MustCreate(ctx, k8sClient, brokenClass)
 				gomega.Eventually(func(g gomega.Gomega) {
 					var cached resourceapi.DeviceClass
 					g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(brokenClass), &cached)).To(gomega.Succeed())
 					g.Expect(cached.UID).To(gomega.Equal(brokenClass.UID))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 				wl := utiltestingapi.MakeWorkload("wl-dra-ext-reresolved", ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
@@ -560,7 +827,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 						RequiredTopologyRequest(corev1.LabelHostname).
 						Obj()).
 					Obj()
-				util.MustCreate(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
 				ginkgo.By("waiting for the devices to reject it", func() {
 					gomega.Eventually(func(g gomega.Gomega) {
 						read := kueue.Workload{}
@@ -569,7 +836,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 						g.Expect(cond).NotTo(gomega.BeNil())
 						g.Expect(cond.Status).To(gomega.Equal(metav1.ConditionFalse))
 						g.Expect(cond.Message).To(gomega.ContainSubstring("draNoFit"))
-					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 
 				// Creating the class requeues too, a batch period later, so hold on until that
@@ -578,11 +845,11 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					read := kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())
 					g.Expect(apimeta.IsStatusConditionTrue(read.Status.Conditions, kueue.WorkloadQuotaReserved)).To(gomega.BeFalse())
-				}, util.LongConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, brokenClass, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, brokenClass, true)
 
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			})
 		})
 
@@ -596,7 +863,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
 
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 		})
 	})
 
@@ -636,7 +903,7 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					Ready().
 					Obj(),
 			}
-			util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+			integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 			// A Pod outside Kueue holds hostPort 8080 on was-n1, the node TAS
 			// picks on its own. It is created before the queues so that its
@@ -646,11 +913,11 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 				Port(8080, 8080, corev1.ProtocolTCP).
 				TerminationGracePeriod(0).
 				Obj()
-			util.MustCreate(ctx, k8sClient, holder)
+			behavioral.MustCreate(ctx, k8sClient, holder)
 			gomega.Eventually(func(g gomega.Gomega) {
 				var cached corev1.Pod
 				g.Expect(managerClient.Get(ctx, client.ObjectKeyFromObject(holder), &cached)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			topology = utiltestingapi.MakeDefaultThreeLevelTopology("was-ports-topology")
 			gomega.Expect(k8sClient.Create(ctx, topology)).To(gomega.Succeed())
@@ -665,21 +932,21 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					Resource(corev1.ResourceCPU, "10").
 					Obj()).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("was-ports-lq", ns.Name).
 				ClusterQueue(clusterQueue.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 			for _, node := range nodes {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 			}
 		})
 
@@ -695,9 +962,9 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					RequiredTopologyRequest(corev1.LabelHostname).
 					Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
 
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 			ta := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
@@ -716,9 +983,9 @@ var _ = ginkgo.Describe("WAS Simulator", ginkgo.Ordered, ginkgo.Label("feature:s
 					RequiredTopologyRequest(corev1.LabelHostname).
 					Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
 
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 			ta := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
