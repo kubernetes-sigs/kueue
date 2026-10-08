@@ -39,6 +39,7 @@ type Plan struct {
 	// and preemptions make the fit feasible.
 	PreemptionTargets []*preemption.Target
 
+	// Error denotes a fatal failure when trying to buld the plan.
 	Error error
 }
 
