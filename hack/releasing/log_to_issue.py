@@ -14,6 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import argparse
 import sys
 import re
 import os
@@ -188,4 +189,11 @@ def main():
     print(final_body)
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Update a release issue body.")
+    parser.add_argument("--mark-step-done", metavar="COMMAND",
+                        help="Check a checklist step in the body read from stdin, without adding a log entry.")
+    args = parser.parse_args()
+    if args.mark_step_done:
+        sys.stdout.write(mark_step_done(sys.stdin.read(), args.mark_step_done))
+    else:
+        main()

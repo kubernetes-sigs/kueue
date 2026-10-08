@@ -17,7 +17,7 @@ Please do not remove items from the checklist
   At least two for minor or major releases. At least one for a patch release.
 - [ ] For major or minor releases (`v$MAJ.$MIN.0`), use the `/create-release-branch` ChatOps command to create a new release branch. <!-- step:create-release-branch -->
 - [ ] Update the release branch:
-  - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/prepare_pull.sh --target release $VERSION` locally.
+  - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/prepare_pull.sh --target release $VERSION` locally. <!-- step:prepare-pull-release -->
   - [ ] Wait for this PR to merge <!-- PREPARE_PULL_RELEASE --> <!-- example #211 -->
 - [ ] Run ChatOps command `/tag-release` on this issue. This will: <!-- step:tag-release -->
   - Extract the changelog from the issue description.
@@ -33,14 +33,14 @@ Please do not remove items from the checklist
   - Generate the SBOM and add it to the release.
 - [ ] Promote images and Helm Charts to production:
   - [ ] Use `/wait-for-images` to await for the staging images. <!-- step:wait-for-images -->
-  - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR
+  - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR <!-- step:promote-pull -->
   - [ ] Wait for the PR to be merged <!-- K8S_IO_PULL --> <!-- example kubernetes/k8s.io#7899 -->
   - [ ] Use `/wait-for-prod-images` to verify that the promoted images are available. <!-- step:wait-for-prod-images -->
 - [ ] Use `/publish-release` to publish the release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases). <!-- step:publish-release -->
       Link: <!-- RELEASE_LINK --> <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
 - [ ] For the latest published release, run ChatOps command `/update-krew-index` on this issue to submit the krew plugin release. <!-- step:update-krew-index -->
 - [ ] Update the `main` branch :
-  - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/prepare_pull.sh --target main $VERSION` locally.
+  - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/prepare_pull.sh --target main $VERSION` locally. <!-- step:prepare-pull-main -->
     - *Note: The script automatically detects if a newer version is already out and skips version updates if so. Specifying `--skip-version-updates` is not necessary in a default workflow.*
     - *Note: Versioned docs are handled automatically during releases -- major, minor, and patch: the
     `main`-update PR from `prepare_pull.sh` runs `hack/releasing/snapshot-docs.py`, which
@@ -59,10 +59,10 @@ Please do not remove items from the checklist
         from the `main` branch have a meaningful version number.
   - [ ] Create a milestone for the next minor release and update prow to set it automatically for new PRs:
     - [ ] Run the ChatOps command `/create-milestone` on this issue to create the `v$MAJ.$(($MIN+1))` milestone. <!-- step:create-milestone -->
-    - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/milestone_pull.sh $VERSION` to submit the `milestone_applier` PR.
+    - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/milestone_pull.sh $VERSION` to submit the `milestone_applier` PR. <!-- step:milestone-pull -->
     - [ ] Wait for this PR to merge <!-- MILESTONE_PULL --> <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
   - [ ] Create the presubmits and periodic jobs for the next patch release, and remove the CI jobs for testing the unsupported branch:
-    - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/ci_pull.sh $VERSION` locally.
+    - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/ci_pull.sh $VERSION` locally. <!-- step:ci-pull -->
     - [ ] Wait for this PR to merge <!-- CI_PULL --> <!-- example https://github.com/kubernetes/test-infra/pull/37948 -->
 
 

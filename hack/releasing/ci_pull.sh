@@ -267,6 +267,7 @@ function push_and_create_pr() {
   read -p "+++ Proceed (anything other than 'y' aborts it)? [y/N] " -r
   if ! [[ "${REPLY}" =~ ^[yY]$ ]]; then
     echo "Aborting." >&2
+    exit 1
   else
     git push "${KUBERNETES_TEST_INFRA_FORK_REMOTE}" -f "${3}:${2}"
     make_pr "$1" "$2" "$4"
@@ -292,6 +293,7 @@ push_and_create_pr master "${CI_BRANCH}" "${CI_BRANCH_UNIQUE}" "${CI_PR_NAME}"
 CI_PR_NUMBER=$(gh pr list --repo="${KUBERNETES_TEST_INFRA_MAIN_REPO_ORG}/${KUBERNETES_TEST_INFRA_MAIN_REPO_NAME}" | grep "${CI_PR_NAME}" | awk '{print $1}' || true)
 if [ -n "$CI_PR_NUMBER" ]; then
   NEW_RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- CI_PULL -->/${KUBERNETES_TEST_INFRA_MAIN_REPO_ORG}/${KUBERNETES_TEST_INFRA_MAIN_REPO_NAME}#${CI_PR_NUMBER}}
+  NEW_RELEASE_ISSUE_BODY=$(printf '%s' "${NEW_RELEASE_ISSUE_BODY}" | python3 "${KUBERNETES_SIGS_KUEUE_PATH}/hack/releasing/log_to_issue.py" --mark-step-done ci-pull)
   gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG}/${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME}" || {
     echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
   }

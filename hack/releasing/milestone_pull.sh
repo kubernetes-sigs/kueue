@@ -195,9 +195,10 @@ function update_release_issue() {
 
   body=$(gh issue view "${RELEASE_ISSUE_NUMBER}" --repo="$1" --json body | jq -r '.body')
   new_body=${body//<!-- MILESTONE_PULL -->/$2#${pr_number}}
+  new_body=$(printf '%s' "${new_body}" | python3 "${KUBERNETES_SIGS_KUEUE_PATH}/hack/releasing/log_to_issue.py" --mark-step-done milestone-pull)
 
   if [[ "${new_body}" == "${body}" ]]; then
-    echo "!!! The <!-- MILESTONE_PULL --> placeholder was not found in the release issue; leaving the body unchanged."
+    echo "!!! No release issue checklist update needed; leaving the body unchanged."
     return 0
   fi
 
