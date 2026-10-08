@@ -245,14 +245,14 @@ var _ = ginkgo.Describe("SparkApplication controller interacting with scheduler"
 	ginkgo.It("Should suspend a SparkApplication without executor instances when its Workload is deactivated", func() {
 		ginkgo.By("creating localQueue")
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
 
 		ginkgo.By("creating a SparkApplication without executor instances")
 		sparkApplication := testingsparkapplication.MakeSparkApplication(jobName, ns.Name).
 			Queue(localQueue.Name).
 			Obj()
 		sparkApplication.Spec.Executor.Instances = nil
-		util.MustCreate(ctx, k8sClient, sparkApplication)
+		behavioral.MustCreate(ctx, k8sClient, sparkApplication)
 
 		ginkgo.By("checking the SparkApplication is unsuspended")
 		sparkAppKey := client.ObjectKeyFromObject(sparkApplication)
@@ -260,21 +260,21 @@ var _ = ginkgo.Describe("SparkApplication controller interacting with scheduler"
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, sparkAppKey, createdSparkApplication)).Should(gomega.Succeed())
 			g.Expect(ptr.Deref(createdSparkApplication.Spec.Suspend, true)).Should(gomega.BeFalse())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("deactivating the Workload")
 		wlKey := types.NamespacedName{
 			Name:      workloadsparkapplication.GetWorkloadNameForSparkApplication(sparkApplication.Name, sparkApplication.UID),
 			Namespace: ns.Name,
 		}
-		util.DeactivateWorkload(ctx, k8sClient, wlKey)
+		behavioral.DeactivateWorkload(ctx, k8sClient, wlKey)
 
 		ginkgo.By("checking the SparkApplication is suspended and executor instances stay unset")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, sparkAppKey, createdSparkApplication)).Should(gomega.Succeed())
 			g.Expect(ptr.Deref(createdSparkApplication.Spec.Suspend, false)).Should(gomega.BeTrue())
 			g.Expect(createdSparkApplication.Spec.Executor.Instances).Should(gomega.BeNil())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })
 
