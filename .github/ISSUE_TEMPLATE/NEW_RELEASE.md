@@ -59,7 +59,8 @@ Please do not remove items from the checklist
         from the `main` branch have a meaningful version number.
   - [ ] Create a milestone for the next minor release and update prow to set it automatically for new PRs:
     - [ ] Run the ChatOps command `/create-milestone` on this issue to create the `v$MAJ.$(($MIN+1))` milestone. <!-- step:create-milestone -->
-    - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/milestone_pull.sh $VERSION` to submit the `milestone_applier` PR.
+      - *Alternatively, with write access to the Kueue repository, run `./hack/releasing/milestone_pull.sh --create-milestone $VERSION` locally.*
+    - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/milestone_pull.sh --create-pr $VERSION` to submit the `milestone_applier` PR.
     - [ ] Wait for this PR to merge <!-- MILESTONE_PULL --> <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->
   - [ ] Create the presubmits and periodic jobs for the next patch release, and remove the CI jobs for testing the unsupported branch:
     - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/ci_pull.sh $VERSION` locally.
