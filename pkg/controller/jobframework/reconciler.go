@@ -392,8 +392,8 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	ns := corev1.Namespace{}
 	if err := r.client.Get(ctx, client.ObjectKey{Name: req.Namespace}, &ns); err != nil {
 		if apierrors.IsNotFound(err) {
-			log.V(2).Info("Namespace not found; skipping selector check", "namespace", req.Namespace)
-			return ctrl.Result{}, nil
+			log.V(2).Info("Namespace not found in cache; requeueing", "namespace", req.Namespace)
+			return ctrl.Result{}, err
 		}
 		log.Error(err, "failed to get namespace for selector check")
 		return ctrl.Result{}, err
