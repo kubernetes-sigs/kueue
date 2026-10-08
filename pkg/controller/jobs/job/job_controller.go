@@ -360,6 +360,9 @@ func (j *Job) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 		Count:    j.podsCount(),
 		MinCount: j.minPodsCount(),
 	}
+	if jobframework.ElasticPartialScaleUpEnabled(j) {
+		podSet.MinCount = new(podSet.Count)
+	}
 	if features.Enabled(features.TopologyAwareScheduling) {
 		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
 			&j.Spec.Template.ObjectMeta).PodIndexLabel(
