@@ -692,15 +692,6 @@ func TestPreemptionEvaluatorOverlappingTASCandidates(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 
-			// The trigger only defines when the rule applies, so any trigger
-			// selects the same candidates.
-			trigger := kueuealpha.Always
-			config := *utiltestingalpha.MakePreemptionConfig("test").
-				Rule("test", trigger,
-					utiltestingalpha.MakeCandidateSelector(kueuealpha.AnyClusterQueue).Obj(),
-				).Obj()
-			evaluator := NewPreemptionEvaluator(ctx, log, clock.RealClock{}, config, candidatesByName)
-
 			preemptor := workload.NewInfo(log, utiltestingapi.MakeWorkload("a-incoming", "").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 					RequiredTopologyRequest(corev1.LabelHostname).
@@ -710,17 +701,33 @@ func TestPreemptionEvaluatorOverlappingTASCandidates(t *testing.T) {
 			preemptor.ClusterQueue = "a"
 
 			frsNeedPreemption := sets.New(resources.FlavorResource{Flavor: "tas-default", Resource: corev1.ResourceCPU})
-			candidates, err := evaluator.candidatesFor(snapshot, preemptor, frsNeedPreemption, trigger)
-			if err != nil {
-				t.Fatalf("candidatesFor() unexpected error: %v", err)
-			}
 
-			// Candidates are not ordered, so compare them as sorted lists.
-			gotCandidates := slices.Sorted(slices.Values(utilslices.Map(candidates, func(candidate **configurableCandidate) string {
-				return (*candidate).WlInfo.Obj.Name
-			})))
-			if diff := cmp.Diff(tc.wantCandidates, gotCandidates, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("Selected candidates (-want,+got):\n%s", diff)
+			// The trigger only defines when the rule applies, so any trigger
+			// selects the same candidates.
+			triggers := []kueuealpha.PreemptionConfigActivationTrigger{
+				kueuealpha.Always,
+				kueuealpha.InsufficientQuota,
+				kueuealpha.QuotaFeasibleAndInsufficientTopology,
+			}
+			for _, trigger := range triggers {
+				config := *utiltestingalpha.MakePreemptionConfig("test").
+					Rule("test", trigger,
+						utiltestingalpha.MakeCandidateSelector(kueuealpha.AnyClusterQueue).Obj(),
+					).Obj()
+				evaluator := NewPreemptionEvaluator(ctx, log, clock.RealClock{}, config, candidatesByName)
+
+				candidates, err := evaluator.candidatesFor(snapshot, preemptor, frsNeedPreemption, trigger)
+				if err != nil {
+					t.Fatalf("candidatesFor() unexpected error: %v", err)
+				}
+
+				// Candidates are not ordered, so compare them as sorted lists.
+				gotCandidates := slices.Sorted(slices.Values(utilslices.Map(candidates, func(candidate **configurableCandidate) string {
+					return (*candidate).WlInfo.Obj.Name
+				})))
+				if diff := cmp.Diff(tc.wantCandidates, gotCandidates, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Selected candidates (-want,+got) for trigger %s:\n%s", trigger, diff)
+				}
 			}
 		})
 	}
