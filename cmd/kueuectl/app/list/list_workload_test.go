@@ -1029,9 +1029,11 @@ metadata: {}
 			},
 			job: []runtime.Object{
 				&batchv1.Job{
-					Name:      "job-test",
-					Namespace: "default",
-					UID:       types.UID("job-test-uid"),
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "job-test",
+						Namespace: "default",
+						UID:       types.UID("job-test-uid"),
+					},
 				},
 			},
 			wantOut: `NAME   JOB TYPE    JOB NAME   LOCALQUEUE   CLUSTERQUEUE   STATUS    POSITION IN QUEUE   EXEC TIME   AGE
@@ -1067,9 +1069,11 @@ wl1    job.batch   job-test   lq1          cq1            PENDING               
 			},
 			job: []runtime.Object{
 				&batchv1.Job{
-					Name:      "job-test",
-					Namespace: "default",
-					UID:       types.UID("job-test-uid"),
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "job-test",
+						Namespace: "default",
+						UID:       types.UID("job-test-uid"),
+					},
 				},
 			},
 			wantOutErr: fmt.Sprintf("No resources found in %s namespace.\n", metav1.NamespaceDefault),
