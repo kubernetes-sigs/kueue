@@ -25,6 +25,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -44,8 +45,9 @@ import (
 // TargetClusterQueueOrdering.DropQueue must be called between each
 // entry returned.
 type TargetClusterQueueOrdering struct {
-	clock       clock.Clock
-	preemptorCq *schdcache.ClusterQueueSnapshot
+	clock              clock.Clock
+	preemptorCq        *schdcache.ClusterQueueSnapshot
+	frsNeedPreemption  sets.Set[resources.FlavorResource]
 	// ancestor Cohorts of the preemptor ClusterQueue.
 	preemptorAncestors sets.Set[*schdcache.CohortSnapshot]
 
@@ -61,11 +63,17 @@ type TargetClusterQueueOrdering struct {
 	log                 logr.Logger
 }
 
-func MakeClusterQueueOrdering(cq *schdcache.ClusterQueueSnapshot, candidates []*workload.Info, log logr.Logger, clk clock.Clock) TargetClusterQueueOrdering {
+func MakeClusterQueueOrdering(
+	cq *schdcache.ClusterQueueSnapshot,
+	candidates []*workload.Info,
+	frsNeedPreemption sets.Set[resources.FlavorResource],
+	log logr.Logger,
+	clk clock.Clock,
+) TargetClusterQueueOrdering {
 	t := TargetClusterQueueOrdering{
-		clock: clk,
-
+		clock:              clk,
 		preemptorCq:        cq,
+		frsNeedPreemption:  frsNeedPreemption,
 		preemptorAncestors: sets.New[*schdcache.CohortSnapshot](),
 
 		clusterQueueToTarget: make(map[kueue.ClusterQueueReference][]*workload.Info),
@@ -135,6 +143,13 @@ func (t *TargetClusterQueueOrdering) hasWorkload(cq *schdcache.ClusterQueueSnaps
 	return len(t.clusterQueueToTarget[cq.GetName()]) > 0
 }
 
+func (t *TargetClusterQueueOrdering) isBorrowing(drs schdcache.DRS) bool {
+	if len(t.frsNeedPreemption) > 0 {
+		return drs.IsBorrowingOnAny(t.frsNeedPreemption)
+	}
+	return drs.IsBorrowing()
+}
+
 // nextTarget is a recursive algorithm for finding the next
 // TargetClusterQueue.  It finds the child with the highest DRS,
 // returning it if it is a ClusterQueue, or entering the recursive
@@ -153,7 +168,7 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		// we can't prune the preemptor ClusterQueue itself,
 		// until it runs out of candidates.
 		switch {
-		case (!drs.IsBorrowing() && cq != t.preemptorCq) || !t.hasWorkload(cq):
+		case (!t.isBorrowing(drs) && cq != t.preemptorCq) || !t.hasWorkload(cq):
 			t.prunedClusterQueues.Insert(cq)
 			if logV := t.log.V(6); logV.Enabled() {
 				logV.Info("Pruning ClusterQueue during Target ordering", "clusterQueue", cq.GetName(), "drs", drs)
@@ -186,7 +201,7 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		// subtree, or a possible preemption within Preemptor
 		// CQ itself.  We will only prune such a Cohort if all
 		// of its children have been pruned.
-		if !drs.IsBorrowing() && !t.onPathFromRootToPreemptorCQ(cohort) {
+		if !t.isBorrowing(drs) && !t.onPathFromRootToPreemptorCQ(cohort) {
 			t.prunedCohorts.Insert(cohort)
 			if logV := t.log.V(6); logV.Enabled() {
 				logV.Info("Pruning Cohort during Target ordering", "cohort", cohort.GetName(), "drs", drs)

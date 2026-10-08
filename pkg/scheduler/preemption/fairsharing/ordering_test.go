@@ -28,6 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -46,6 +47,8 @@ func TestMakeClusterQueueOrdering(t *testing.T) {
 		preemptorCQ kueue.ClusterQueueReference
 		// candidateCQs restricts which admitted workloads become candidates (by CQ name).
 		candidateCQs []kueue.ClusterQueueReference
+		// frsNeedPreemption restricts borrowing check to contested resources.
+		frsNeedPreemption sets.Set[resources.FlavorResource]
 		// actions controls per-iteration behavior: "drop" calls DropQueue, anything else calls PopWorkload.
 		actions   []string
 		wantOrder []kueue.ClusterQueueReference
@@ -216,6 +219,38 @@ func TestMakeClusterQueueOrdering(t *testing.T) {
 			candidateCQs: []kueue.ClusterQueueReference{"left-cq", "right-cq"},
 			wantOrder:    []kueue.ClusterQueueReference{"left-cq", "right-cq"},
 		},
+		"CQ borrowing on unrelated resource but within nominal on frsNeedPreemption is pruned": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("preemptor-cq").
+					Cohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "4").
+							Resource(corev1.ResourceMemory, "4Gi").Obj(),
+					).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("borrower-cq").
+					Cohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "4").
+							Resource(corev1.ResourceMemory, "4Gi").Obj(),
+					).
+					Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("borrower-mem-wl", "ns").
+					Request(corev1.ResourceMemory, "6Gi").
+					SimpleReserveQuota("borrower-cq", "default", now).Obj(),
+			},
+			preemptorCQ:       "preemptor-cq",
+			candidateCQs:      []kueue.ClusterQueueReference{"borrower-cq"},
+			frsNeedPreemption: sets.New(resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}),
+			wantOrder:         nil,
+		},
 	}
 
 	for name, tc := range cases {
@@ -254,7 +289,7 @@ func TestMakeClusterQueueOrdering(t *testing.T) {
 				}
 			}
 
-			ordering := MakeClusterQueueOrdering(preemptorCQ, candidates, log, clk)
+			ordering := MakeClusterQueueOrdering(preemptorCQ, candidates, tc.frsNeedPreemption, log, clk)
 
 			var gotOrder []kueue.ClusterQueueReference
 			actionIdx := 0

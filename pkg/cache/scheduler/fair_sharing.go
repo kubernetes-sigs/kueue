@@ -22,6 +22,7 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -76,6 +77,17 @@ func (d DRS) IsBorrowing() bool {
 func (d DRS) IsBorrowingOn(requestedFRs resources.FlavorResourceQuantities) bool {
 	for _, fr := range d.borrowedFRs {
 		if requestedFRs[fr].CmpInt64(0) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// IsBorrowingOnAny reports whether the node borrows on any
+// FlavorResource present in the given set.
+func (d DRS) IsBorrowingOnAny(frs sets.Set[resources.FlavorResource]) bool {
+	for _, fr := range d.borrowedFRs {
+		if frs.Has(fr) {
 			return true
 		}
 	}

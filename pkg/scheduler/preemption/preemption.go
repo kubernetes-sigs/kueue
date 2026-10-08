@@ -494,28 +494,59 @@ func (p *Preemptor) findCandidates(log logr.Logger, wl *kueue.Workload, cq *schd
 	}
 
 	if cq.HasParent() && cq.Preemption.ReclaimWithinCohort != kueue.PreemptionPolicyNever {
+		preemptorAncestors := sets.New[*schdcache.CohortSnapshot]()
+		for ancestor := range cq.PathParentToRoot() {
+			preemptorAncestors.Insert(ancestor)
+		}
 		for _, cohortCQ := range cq.Parent().Root().SubtreeClusterQueues() {
-			if cq == cohortCQ || !cqIsBorrowing(cohortCQ, frsNeedPreemption) {
-				// Can't reclaim quota from itself or ClusterQueues that are not borrowing.
+			if cq == cohortCQ {
+				// Can't reclaim quota from itself.
 				continue
 			}
-			newCandidates := findCandidatesForPolicy(log, wl, cohortCQ.Workloads, cq.Preemption.ReclaimWithinCohort, frsNeedPreemption, p.workloadOrdering)
+			borrowedFrs := borrowedFrsFromLCA(preemptorAncestors, cohortCQ, frsNeedPreemption)
+			if borrowedFrs.Len() == 0 {
+				// Can't reclaim quota from ClusterQueues that are not borrowing from the common ancestor.
+				continue
+			}
+			newCandidates := findCandidatesForPolicy(log, wl, cohortCQ.Workloads, cq.Preemption.ReclaimWithinCohort, borrowedFrs, p.workloadOrdering)
 			candidates = append(candidates, newCandidates...)
 		}
 	}
 	return candidates
 }
 
-func cqIsBorrowing(cq *schdcache.ClusterQueueSnapshot, frsNeedPreemption sets.Set[resources.FlavorResource]) bool {
-	if !cq.HasParent() {
-		return false
+func borrowedFrsFromLCA(
+	preemptorAncestors sets.Set[*schdcache.CohortSnapshot],
+	targetCQ *schdcache.ClusterQueueSnapshot,
+	frsNeedPreemption sets.Set[resources.FlavorResource],
+) sets.Set[resources.FlavorResource] {
+	if !targetCQ.HasParent() {
+		return sets.New[resources.FlavorResource]()
 	}
+	var intermediateCohorts []*schdcache.CohortSnapshot
+	for ancestor := range targetCQ.PathParentToRoot() {
+		if preemptorAncestors.Has(ancestor) {
+			break
+		}
+		intermediateCohorts = append(intermediateCohorts, ancestor)
+	}
+	borrowedFrs := sets.New[resources.FlavorResource]()
 	for fr := range frsNeedPreemption {
-		if cq.Borrowing(fr) {
-			return true
+		if !targetCQ.Borrowing(fr) {
+			continue
+		}
+		borrowedFromLCA := true
+		for _, cohort := range intermediateCohorts {
+			if schdcache.IsWithinNominalInResources(cohort, sets.New(fr)) {
+				borrowedFromLCA = false
+				break
+			}
+		}
+		if borrowedFromLCA {
+			borrowedFrs.Insert(fr)
 		}
 	}
-	return false
+	return borrowedFrs
 }
 
 // workloadFits determines if the workload can be admitted given the simulated usage

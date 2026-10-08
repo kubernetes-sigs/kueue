@@ -101,6 +101,7 @@ func TestFairPreemptions(t *testing.T) {
 		cohorts          []*kueue.Cohort
 		flavors          []*kueue.ResourceFlavor
 		assignmentFlavor kueue.ResourceFlavorReference
+		assignment       flavorassigner.Assignment
 		strategies       []config.PreemptionStrategy
 		admitted         []kueue.Workload
 		incoming         *kueue.Workload
@@ -1196,6 +1197,91 @@ func TestFairPreemptions(t *testing.T) {
 			),
 			featureGates: map[featuregate.Feature]bool{features.FairSharingReevaluatePreemptionCandidates: true},
 		},
+		"hierarchical cohort borrowing internally does not allow preemption on non-borrowed contested resource (issue #16666)": {
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-a").Parent("root").Obj(),
+				utiltestingapi.MakeCohort("cohort-b").Parent("root").Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("a-train").
+					Cohort("cohort-a").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceName("gpu-x"), "8").
+							Resource(corev1.ResourceName("gpu-y"), "8").Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyNever,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("b-owner").
+					Cohort("cohort-b").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceName("gpu-x"), "8").
+							Resource(corev1.ResourceName("gpu-y"), "0").Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("b-inf").
+					Cohort("cohort-b").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceName("gpu-x"), "0").
+							Resource(corev1.ResourceName("gpu-y"), "0").Obj(),
+					).
+					Preemption(kueue.ClusterQueuePreemption{
+						WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+						BorrowWithinCohort: &kueue.BorrowWithinCohort{
+							Policy: kueue.BorrowWithinCohortPolicyLowerPriority,
+						},
+					}).
+					Obj(),
+			},
+			strategies: []config.PreemptionStrategy{config.LessThanOrEqualToFinalShare},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("b-owner-wl", "").
+					Priority(0).
+					Request(corev1.ResourceName("gpu-y"), "6").
+					SimpleReserveQuota("b-owner", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b-inf-wl1", "").
+					Priority(0).
+					Request(corev1.ResourceName("gpu-x"), "4").
+					SimpleReserveQuota("b-inf", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("b-inf-wl2", "").
+					Priority(0).
+					Request(corev1.ResourceName("gpu-x"), "4").
+					SimpleReserveQuota("b-inf", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("a-train-wl", "").
+					Priority(0).
+					Request(corev1.ResourceName("gpu-x"), "6").
+					SimpleReserveQuota("a-train", "default", now).Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("a-incoming", "").
+				Priority(100).
+				Request(corev1.ResourceName("gpu-x"), "4").Obj(),
+			targetCQ: "a-train",
+			assignment: singlePodSetAssignment(
+				flavorassigner.ResourceAssignment{
+					corev1.ResourceName("gpu-x"): &flavorassigner.FlavorAssignment{
+						Name: "default", Mode: flavorassigner.Preempt,
+					},
+				},
+			),
+			wantPreempted: nil,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -1247,13 +1333,17 @@ func TestFairPreemptions(t *testing.T) {
 			}
 			wlInfo := workload.NewInfo(log, tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
-			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, singlePodSetAssignment(
+			assignment := singlePodSetAssignment(
 				flavorassigner.ResourceAssignment{
 					corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 						Name: flavorName, Mode: flavorassigner.Preempt,
 					},
 				},
-			))
+			)
+			if len(tc.assignment.PodSets) > 0 {
+				assignment = tc.assignment
+			}
+			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, assignment)
 			targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 			gotTargets := sets.New(utilslices.Map(targets, func(t **Target) string {
 				return targetKeyReason(workload.Key((*t).WorkloadInfo.Obj), (*t).Reason)
