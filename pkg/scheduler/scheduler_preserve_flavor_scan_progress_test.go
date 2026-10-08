@@ -83,57 +83,9 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	singleLevelTopology := *utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
 
-	// Each flavor has a single node; whichever node the blocking Workload occupies
-	// (selected via tc.blockerNodeFlavor) cannot fit the tested Workload's
-	// topology, while the other flavor's node has room for it.
-	nodes := []corev1.Node{
-		*testingnode.MakeNode("node-f1").
-			Label("tas-node", "true").
-			Label("tas-flavor", "f1").
-			Label(corev1.LabelHostname, "node-f1").
-			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:  resource.MustParse("2"),
-				corev1.ResourcePods: resource.MustParse("10"),
-			}).
-			Ready().
-			Obj(),
-		*testingnode.MakeNode("node-f2").
-			Label("tas-node", "true").
-			Label("tas-flavor", "f2").
-			Label(corev1.LabelHostname, "node-f2").
-			StatusAllocatable(corev1.ResourceList{
-				corev1.ResourceCPU:  resource.MustParse("2"),
-				corev1.ResourcePods: resource.MustParse("10"),
-			}).
-			Ready().
-			Obj(),
-	}
-	resourceFlavors := []kueue.ResourceFlavor{
-		*utiltestingapi.MakeResourceFlavor("tas-flavor-1").
-			NodeLabel("tas-flavor", "f1").
-			TopologyName("tas-single-level").
-			Obj(),
-		*utiltestingapi.MakeResourceFlavor("tas-flavor-2").
-			NodeLabel("tas-flavor", "f2").
-			TopologyName("tas-single-level").
-			Obj(),
-	}
 	queues := []kueue.LocalQueue{
 		*utiltestingapi.MakeLocalQueue("tas-lq", "default").ClusterQueue("tas-cq").Obj(),
 	}
-	// blocker occupies one flavor's node (selected via tc.blockerNodeFlavor)
-	// entirely; pending needs a whole node and so can only be placed on the other flavor's
-	// node. They share a priority so that a LowerPriority policy finds no
-	// victim, matching a ClusterQueue whose Workloads all run at the same priority.
-	blocker := *utiltestingapi.MakeWorkload("blocker", "default").
-		Queue("tas-lq").
-		Creation(now.Add(-time.Minute)).
-		Priority(equalTestPriority).
-		PodSets(*utiltestingapi.MakePodSet("one", 1).
-			RequiredTopologyRequest(corev1.LabelHostname).
-			Request(corev1.ResourceCPU, "2").
-			Obj()).
-		Obj()
 	pending := *utiltestingapi.MakeWorkload("pending", "default").
 		Queue("tas-lq").
 		Creation(now).
@@ -144,65 +96,148 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 			Obj()).
 		Obj()
 
+	type testFlavor struct {
+		quotas      kueue.FlavorQuotas
+		cohortQuota string
+		blocked     bool
+	}
+
 	cases := map[string]struct {
-		gateEnabled bool
-		// noChurn leaves the ClusterQueue's quotas alone between cycles, so
-		// AllocatableResourceGeneration never advances.
-		noChurn             bool
-		flavorANominalQuota string
-		flavorBNominalQuota string
-		cohortSpareQuota    string
-		blockerNodeFlavor   string
-		wantBlockerFlavor   kueue.ResourceFlavorReference
-		// wantPendingFlavor is the flavor "pending" must end up admitted on, or empty if
-		// it must remain unadmitted.
+		featureGates      map[featuregate.Feature]bool
+		noChurn           bool
+		flavors           []testFlavor
 		wantPendingFlavor kueue.ResourceFlavorReference
 	}{
 		"gate disabled": {
-			gateEnabled:         false,
-			flavorANominalQuota: "4",
-			flavorBNominalQuota: "4",
-			blockerNodeFlavor:   "f1",
-			wantBlockerFlavor:   "tas-flavor-1",
-			wantPendingFlavor:   "",
+			featureGates: map[featuregate.Feature]bool{
+				features.FlavorFungibilityPreserveScanProgress: false,
+			},
+			flavors: []testFlavor{
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+					blocked: true,
+				},
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-2").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				},
+			},
+			wantPendingFlavor: "",
 		},
 		"gate enabled": {
-			gateEnabled:         true,
-			flavorANominalQuota: "4",
-			flavorBNominalQuota: "4",
-			blockerNodeFlavor:   "f1",
-			wantBlockerFlavor:   "tas-flavor-1",
-			wantPendingFlavor:   "tas-flavor-2",
+			featureGates: map[featuregate.Feature]bool{
+				features.FlavorFungibilityPreserveScanProgress: true,
+			},
+			flavors: []testFlavor{
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+					blocked: true,
+				},
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-2").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				},
+			},
+			wantPendingFlavor: "tas-flavor-2",
 		},
 		// Without churn the recorded flavor progress is never discarded, so the Workload
 		// escapes the first flavor on its own and the gate makes no difference. This is why
 		// an integration spec cannot discriminate between the two gate states: a settled
 		// ClusterQueue stops advancing its generation.
 		"no generation churn, gate disabled": {
-			gateEnabled:         false,
-			noChurn:             true,
-			flavorANominalQuota: "4",
-			flavorBNominalQuota: "4",
-			blockerNodeFlavor:   "f1",
-			wantBlockerFlavor:   "tas-flavor-1",
-			wantPendingFlavor:   "tas-flavor-2",
+			featureGates: map[featuregate.Feature]bool{
+				features.FlavorFungibilityPreserveScanProgress: false,
+			},
+			noChurn: true,
+			flavors: []testFlavor{
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+					blocked: true,
+				},
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-2").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				},
+			},
+			wantPendingFlavor: "tas-flavor-2",
 		},
 		"no generation churn, gate enabled": {
-			gateEnabled:         true,
-			noChurn:             true,
-			flavorANominalQuota: "4",
-			flavorBNominalQuota: "4",
-			blockerNodeFlavor:   "f1",
-			wantBlockerFlavor:   "tas-flavor-1",
-			wantPendingFlavor:   "tas-flavor-2",
+			featureGates: map[featuregate.Feature]bool{
+				features.FlavorFungibilityPreserveScanProgress: true,
+			},
+			noChurn: true,
+			flavors: []testFlavor{
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+					blocked: true,
+				},
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-2").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				},
+			},
+			wantPendingFlavor: "tas-flavor-2",
 		},
 	}
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.FlavorFungibilityPreserveScanProgress: tc.gateEnabled,
-			})
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+
+			cqFlavors := make([]kueue.FlavorQuotas, len(tc.flavors))
+			nodes := make([]corev1.Node, len(tc.flavors))
+			resourceFlavors := make([]kueue.ResourceFlavor, len(tc.flavors))
+			var blockerWls []kueue.Workload
+
+			hasCohort := false
+			for i, tf := range tc.flavors {
+				cqFlavors[i] = tf.quotas
+				flavorName := string(tf.quotas.Name)
+				if tf.cohortQuota != "" {
+					hasCohort = true
+				}
+
+				nodes[i] = *testingnode.MakeNode("node-"+flavorName).
+					Label("tas-node", "true").
+					Label("tas-flavor", flavorName).
+					Label(corev1.LabelHostname, "node-"+flavorName).
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("2"),
+						corev1.ResourcePods: resource.MustParse("10"),
+					}).
+					Ready().
+					Obj()
+
+				resourceFlavors[i] = *utiltestingapi.MakeResourceFlavor(flavorName).
+					NodeLabel("tas-flavor", flavorName).
+					TopologyName("tas-single-level").
+					Obj()
+
+				if tf.blocked {
+					blockerWls = append(blockerWls, *utiltestingapi.MakeWorkload("blocker-"+flavorName, "default").
+						Queue("tas-lq").
+						Creation(now.Add(-time.Minute)).
+						Priority(equalTestPriority).
+						PodSets(*utiltestingapi.MakePodSet("one", 1).
+							NodeSelector(map[string]string{"tas-flavor": flavorName}).
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Request(corev1.ResourceCPU, "2").
+							Obj()).
+						Obj())
+				}
+			}
 
 			// Quota on the blocked flavor (via nominal quota or cohort borrowing) exceeds what its
 			// single node can host, so it keeps looking admissible to the quota-only flavor selection
@@ -213,11 +248,8 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
 				}).
-				ResourceGroup(
-					*utiltestingapi.MakeFlavorQuotas("tas-flavor-1").Resource(corev1.ResourceCPU, tc.flavorANominalQuota).Obj(),
-					*utiltestingapi.MakeFlavorQuotas("tas-flavor-2").Resource(corev1.ResourceCPU, tc.flavorBNominalQuota).Obj(),
-				)
-			if tc.cohortSpareQuota != "" {
+				ResourceGroup(cqFlavors...)
+			if hasCohort {
 				cqWrapper = cqWrapper.Cohort("tas-cohort").
 					FlavorFungibility(kueue.FlavorFungibility{
 						WhenCanBorrow:  kueue.TryNextFlavor,
@@ -226,11 +258,9 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 			}
 			clusterQueue := *cqWrapper.Obj()
 
-			blockerCopy := *blocker.DeepCopy()
-			blockerCopy.Spec.PodSets[0].Template.Spec.NodeSelector = map[string]string{"tas-flavor": tc.blockerNodeFlavor}
-
 			ctx, log := utiltesting.ContextWithLog(t)
-			testWls := []kueue.Workload{blockerCopy, *pending.DeepCopy()}
+			testWls := append([]kueue.Workload{}, blockerWls...)
+			testWls = append(testWls, *pending.DeepCopy())
 			clientBuilder := utiltesting.NewClientBuilder().
 				WithLists(
 					&kueue.WorkloadList{Items: testWls},
@@ -255,13 +285,20 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 				cqCache.AddOrUpdateResourceFlavor(log, &flavor)
 				cqCache.AddOrUpdateTopology(log, &singleLevelTopology)
 			}
-			if tc.cohortSpareQuota != "" {
+			if hasCohort {
+				lenderQuotas := make([]kueue.FlavorQuotas, len(tc.flavors))
+				for i, tf := range tc.flavors {
+					quota := tf.cohortQuota
+					if quota == "" {
+						quota = "0"
+					}
+					lenderQuotas[i] = *utiltestingapi.MakeFlavorQuotas(string(tf.quotas.Name)).
+						Resource(corev1.ResourceCPU, quota).
+						Obj()
+				}
 				lenderCQ := utiltestingapi.MakeClusterQueue("lender-cq").
 					Cohort("tas-cohort").
-					ResourceGroup(
-						*utiltestingapi.MakeFlavorQuotas("tas-flavor-1").Resource(corev1.ResourceCPU, tc.cohortSpareQuota).Obj(),
-						*utiltestingapi.MakeFlavorQuotas("tas-flavor-2").Resource(corev1.ResourceCPU, tc.cohortSpareQuota).Obj(),
-					).
+					ResourceGroup(lenderQuotas...).
 					Obj()
 				if err := cqCache.AddClusterQueue(ctx, lenderCQ); err != nil {
 					t.Fatalf("Inserting lenderCQ in cache: %v", err)
@@ -306,23 +343,23 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 				wg.Wait()
 				// Reproduce a busy Cohort. AllocatableResourceGeneration only advances when
 				// the quotas actually change (see updateQuotasAndResourceGroups), so flip
-				// flavor-2's quota between two values to force a real bump every cycle. The
+				// the last flavor's quota between two values to force a real bump every cycle. The
 				// bump is what discards FlavorScanState in flavorScanStateOutdated, and with
 				// it the flavor progress recorded one cycle earlier. On a cluster with
 				// steady admissions and evictions that bump happens continuously, which is
 				// the condition this gate exists to survive.
 				//
-				// Flipping flavor-2's quota by 1 unit on even cycles forces
+				// Flipping the last flavor's quota by 1 unit on even cycles forces
 				// AllocatableResourceGeneration to advance without altering admissibility.
 				if !tc.noChurn {
 					churned := clusterQueue.DeepCopy()
-					churnQuota := tc.flavorBNominalQuota
+					churnFlavorIdx := len(tc.flavors) - 1
+					baseQuota := clusterQueue.Spec.ResourceGroups[0].Flavors[churnFlavorIdx].Resources[0].NominalQuota
+					churnQuota := baseQuota.DeepCopy()
 					if i%2 == 0 {
-						q := resource.MustParse(tc.flavorBNominalQuota)
-						q.Add(resource.MustParse("1"))
-						churnQuota = q.String()
+						churnQuota.Add(resource.MustParse("1"))
 					}
-					churned.Spec.ResourceGroups[0].Flavors[1].Resources[0].NominalQuota = resource.MustParse(churnQuota)
+					churned.Spec.ResourceGroups[0].Flavors[churnFlavorIdx].Resources[0].NominalQuota = churnQuota
 					if err := cqCache.UpdateClusterQueue(log, churned); err != nil {
 						t.Fatalf("Updating clusterQueue in cache: %v", err)
 					}
@@ -335,9 +372,14 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 			if got := admittedFlavorForPodSet(ctx, t, cl, "pending"); got != tc.wantPendingFlavor {
 				t.Errorf("workload \"pending\" admitted on flavor %q, want %q", got, tc.wantPendingFlavor)
 			}
-			// The blocker must keep its place on its assigned flavor in every case.
-			if got := admittedFlavorForPodSet(ctx, t, cl, "blocker"); got != tc.wantBlockerFlavor {
-				t.Errorf("workload \"blocker\" admitted on flavor %q, want %q", got, tc.wantBlockerFlavor)
+			// Each blocker must keep its place on its assigned flavor in every case.
+			for _, tf := range tc.flavors {
+				if tf.blocked {
+					blockerName := "blocker-" + string(tf.quotas.Name)
+					if got := admittedFlavorForPodSet(ctx, t, cl, blockerName); got != tf.quotas.Name {
+						t.Errorf("workload %q admitted on flavor %q, want %q", blockerName, got, tf.quotas.Name)
+					}
+				}
 			}
 		})
 	}
