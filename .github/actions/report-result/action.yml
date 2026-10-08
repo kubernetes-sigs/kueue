@@ -21,6 +21,10 @@ inputs:
     description: 'If false, this entry will not be archived to command history nor recorded as a comment.'
     required: false
     default: 'true'
+  mark-done:
+    description: 'If true, check the release checklist item tagged with <!-- step:<command> --> in the issue body.'
+    required: false
+    default: 'false'
 
 runs:
   using: 'composite'
@@ -35,6 +39,7 @@ runs:
         INPUT_MESSAGE: ${{ inputs.message }}
         INPUT_CLEANUP: ${{ inputs.cleanup }}
         INPUT_KEEP_HISTORY: ${{ inputs.keep-history }}
+        INPUT_MARK_DONE: ${{ inputs.mark-done }}
       run: |
         if [[ "$INPUT_CLEANUP" != "true" && "$INPUT_CLEANUP" != "false" ]]; then
           echo "Error: cleanup parameter must be either 'true' or 'false'." >&2
@@ -46,6 +51,11 @@ runs:
           exit 1
         fi
 
+        if [[ "$INPUT_MARK_DONE" != "true" && "$INPUT_MARK_DONE" != "false" ]]; then
+          echo "Error: mark-done parameter must be either 'true' or 'false'." >&2
+          exit 1
+        fi
+
         if [ -z "$ISSUE_NUMBER" ]; then
           echo "Error: No issue found" >&2
           exit 1
@@ -53,6 +63,11 @@ runs:
 
         if [ -z "$INPUT_COMMAND" ] && [ -z "$INPUT_ALIAS" ]; then
           echo "Error: Neither command nor alias was provided." >&2
+          exit 1
+        fi
+
+        if [ "$INPUT_MARK_DONE" = "true" ] && [ -z "$INPUT_COMMAND" ]; then
+          echo "Error: command is required when mark-done is true." >&2
           exit 1
         fi
 
