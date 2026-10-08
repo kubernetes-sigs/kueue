@@ -99,7 +99,7 @@ func TestPodSets(t *testing.T) {
 					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
 						PodSpec(*rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
 						Obj(),
-					*utiltestingapi.MakePodSet("group1", 1).
+					*utiltestingapi.MakePodSet("group1", 0).
 						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
 						Obj(),
 					*utiltestingapi.MakePodSet("group2", 3).
@@ -150,7 +150,7 @@ func TestPodSets(t *testing.T) {
 						Annotations(rayService.Spec.RayClusterSpec.HeadGroupSpec.Template.Annotations).
 						RequiredTopologyRequest("cloud.com/block").
 						Obj(),
-					*utiltestingapi.MakePodSet("group1", 1).
+					*utiltestingapi.MakePodSet("group1", 0).
 						PodSpec(*rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
 						Annotations(rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations).
 						RequiredTopologyRequest("cloud.com/block").
