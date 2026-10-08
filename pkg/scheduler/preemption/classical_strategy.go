@@ -97,7 +97,7 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 					)
 				}
 			}
-			if !yieldStrategy(PreemptionStrategy{candidateIter, allowBorrowing, preemptionCtx}) {
+			if !yieldStrategy(newPreemptionStrategy(candidateIter, allowBorrowing, preemptionCtx)) {
 				return
 			}
 		}

@@ -45,9 +45,9 @@ import (
 // TargetClusterQueueOrdering.DropQueue must be called between each
 // entry returned.
 type TargetClusterQueueOrdering struct {
-	clock              clock.Clock
-	preemptorCq        *schdcache.ClusterQueueSnapshot
-	frsNeedPreemption  sets.Set[resources.FlavorResource]
+	clock             clock.Clock
+	preemptorCq       *schdcache.ClusterQueueSnapshot
+	frsNeedPreemption sets.Set[resources.FlavorResource]
 	// ancestor Cohorts of the preemptor ClusterQueue.
 	preemptorAncestors sets.Set[*schdcache.CohortSnapshot]
 

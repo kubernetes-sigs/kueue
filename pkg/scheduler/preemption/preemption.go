@@ -88,6 +88,36 @@ type PreemptionStrategy struct {
 	// The context is shared across all iterations of this strategy's candidates.
 	// Warning: Eeach time a candidate is yielded, it is preempted from the active context.
 	pCtx *preemptionCtx
+	// verify checks whether the final target set satisfies this strategy's invariants.
+	// If nil, any target set that fits is valid. It returns whether the target set is valid
+	// and an optional failure reason.
+	verify func(targets []*Target) (bool, string)
+}
+
+type strategyOption func(*PreemptionStrategy)
+
+func withVerify(verify func(targets []*Target) (bool, string)) strategyOption {
+	return func(ps *PreemptionStrategy) {
+		ps.verify = verify
+	}
+}
+
+func newPreemptionStrategy(
+	candidates iter.Seq[*Target],
+	allowBorrowing bool,
+	pCtx *preemptionCtx,
+	opts ...strategyOption,
+) PreemptionStrategy {
+	ps := PreemptionStrategy{
+		candidates:     candidates,
+		allowBorrowing: allowBorrowing,
+		pCtx:           pCtx,
+	}
+	for _, opt := range opts {
+		opt(&ps)
+	}
+
+	return ps
 }
 
 type preemptionCtx struct {
@@ -357,6 +387,17 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 			targets = append(targets, candidate)
 			if workloadFits(ctx, strategy.pCtx, strategy.allowBorrowing) {
 				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
+				if strategy.verify != nil {
+					if valid, reason := strategy.verify(targets); !valid {
+						if logV := log.V(6); logV.Enabled() {
+							logV.Info("Discarding preemption targets: strategy verification failed",
+								"preemptingWorkload", klog.KObj(strategy.pCtx.preemptor.Obj),
+								"targets", logging.GetObjectReferences(targets),
+								"reason", reason)
+						}
+						break
+					}
+				}
 				restoreSnapshot(strategy.pCtx.snapshot, targets)
 				if logV := log.V(6); logV.Enabled() {
 					logV.Info("Preemption succeeded",
@@ -380,8 +421,8 @@ func restoreSnapshot(snapshot *schdcache.Snapshot, targets []*Target) {
 	}
 }
 
+// fillBackWorkloads checks in the reverse order if any of the workloads can be added back.
 func fillBackWorkloads(ctx context.Context, preemptionCtx *preemptionCtx, targets []*Target, allowBorrowing bool) []*Target {
-	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
 		preemptionCtx.snapshot.AddWorkload(targets[i].WorkloadInfo)
 		if workloadFits(ctx, preemptionCtx, allowBorrowing) {
@@ -515,29 +556,32 @@ func (p *Preemptor) findCandidates(log logr.Logger, wl *kueue.Workload, cq *schd
 	return candidates
 }
 
+// borrowedFrsFromLCA returns the subset of frsNeedPreemption that targetCQ borrows
+// from at or above the least common ancestor (LCA) with the preemptor. If any
+// ancestor cohort along the path between targetCQ and the LCA is within nominal
+// quota for a flavor resource, that resource is contained internally within the
+// subtree and cannot be reclaimed across the LCA boundary.
 func borrowedFrsFromLCA(
 	preemptorAncestors sets.Set[*schdcache.CohortSnapshot],
 	targetCQ *schdcache.ClusterQueueSnapshot,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
 ) sets.Set[resources.FlavorResource] {
-	if !targetCQ.HasParent() {
-		return sets.New[resources.FlavorResource]()
-	}
-	var intermediateCohorts []*schdcache.CohortSnapshot
+	var cohortsBelowLCA []*schdcache.CohortSnapshot
 	for ancestor := range targetCQ.PathParentToRoot() {
 		if preemptorAncestors.Has(ancestor) {
 			break
 		}
-		intermediateCohorts = append(intermediateCohorts, ancestor)
+		cohortsBelowLCA = append(cohortsBelowLCA, ancestor)
 	}
 	borrowedFrs := sets.New[resources.FlavorResource]()
 	for fr := range frsNeedPreemption {
 		if !targetCQ.Borrowing(fr) {
 			continue
 		}
+		frSet := sets.New(fr)
 		borrowedFromLCA := true
-		for _, cohort := range intermediateCohorts {
-			if schdcache.IsWithinNominalInResources(cohort, sets.New(fr)) {
+		for _, cohort := range cohortsBelowLCA {
+			if schdcache.IsWithinNominalInResources(cohort, frSet) {
 				borrowedFromLCA = false
 				break
 			}
