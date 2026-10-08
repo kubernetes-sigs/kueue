@@ -76,11 +76,11 @@ var (
 )
 
 // effectiveWorkerCount returns the effective worker pod count for a worker
-// group: Replicas scaled by NumOfHosts, with Replicas defaulting to 1 when
+// group: Replicas scaled by NumOfHosts, with Replicas defaulting to 0 when
 // unset. BuildPodSets, UpdatePodSets, and the MultiKueue elastic replica sync
 // all call this so the per-group count derivation stays in one place.
 func effectiveWorkerCount(wgs *rayv1.WorkerGroupSpec) int32 {
-	count := int32(1)
+	count := int32(0)
 	if wgs.Replicas != nil {
 		count = *wgs.Replicas
 	}
