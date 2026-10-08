@@ -253,16 +253,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RuntimeClassScheduling, true)
 			cpuFlavor = utiltestingapi.MakeResourceFlavor("rc-cpu-pool").NodeLabel("pool", "cpu").Obj()
-			util.MustCreate(ctx, k8sClient, cpuFlavor)
+			behavioral.MustCreate(ctx, k8sClient, cpuFlavor)
 			gpuFlavor = utiltestingapi.MakeResourceFlavor("rc-gpu-pool").NodeLabel("pool", "gpu").Obj()
-			util.MustCreate(ctx, k8sClient, gpuFlavor)
+			behavioral.MustCreate(ctx, k8sClient, gpuFlavor)
 
 			// The RuntimeClass admission controller merges this selector into every Pod
 			// admitted with the class, so only the gpu-pool flavor can hold them.
 			runtimeClass = utiltesting.MakeRuntimeClass("kata-scheduling", "bar-handler").
 				Scheduling(map[string]string{"pool": "gpu"}).
 				Obj()
-			util.MustCreate(ctx, k8sClient, runtimeClass)
+			behavioral.MustCreate(ctx, k8sClient, runtimeClass)
 
 			clusterQueue = utiltestingapi.MakeClusterQueue("clusterqueue").
 				ResourceGroup(
@@ -270,16 +270,16 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					*utiltestingapi.MakeFlavorQuotas(gpuFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj(),
 				).
 				Obj()
-			util.MustCreate(ctx, k8sClient, clusterQueue)
+			behavioral.MustCreate(ctx, k8sClient, clusterQueue)
 			localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-			util.MustCreate(ctx, k8sClient, localQueue)
+			behavioral.MustCreate(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cpuFlavor, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, gpuFlavor, true)
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, runtimeClass)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cpuFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, gpuFlavor, true)
 		})
 
 		ginkgo.It("Should assign the flavor matching the RuntimeClass's nodeSelector", func() {
@@ -288,7 +288,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				Request(corev1.ResourceCPU, "1").
 				RuntimeClass("kata-scheduling").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				read := kueue.Workload{}
@@ -297,7 +297,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				g.Expect(read.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 				g.Expect(read.Status.Admission.PodSetAssignments[0].Flavors).Should(
 					gomega.HaveKeyWithValue(corev1.ResourceCPU, kueue.ResourceFlavorReference(gpuFlavor.Name)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should admit a Workload rejected for a conflicting nodeSelector once the RuntimeClass is fixed", func() {
@@ -308,7 +308,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					RuntimeClass("kata-scheduling").
 					NodeSelector(map[string]string{"pool": "cpu"}).
 					Obj()
-				util.MustCreate(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
 
 				gomega.Eventually(func(g gomega.Gomega) {
 					read := kueue.Workload{}
@@ -316,7 +316,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					cond := apimeta.FindStatusCondition(read.Status.Conditions, kueue.WorkloadQuotaReserved)
 					g.Expect(cond).ShouldNot(gomega.BeNil())
 					g.Expect(cond.Reason).Should(gomega.Equal(kueue.WorkloadQuotaReservedReasonMisconfigured))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Change the RuntimeClass's nodeSelector to match the workload", func() {
@@ -334,7 +334,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 					g.Expect(read.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(1))
 					g.Expect(read.Status.Admission.PodSetAssignments[0].Flavors).Should(
 						gomega.HaveKeyWithValue(corev1.ResourceCPU, kueue.ResourceFlavorReference(cpuFlavor.Name)))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
