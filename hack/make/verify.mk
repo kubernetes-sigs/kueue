@@ -99,7 +99,7 @@ verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-test-performance-multikueue-runner verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -270,9 +270,9 @@ verify-release-utils-test: verify-tree-prereqs ## Release utility Python unit te
 verify-milestone-pull-test: verify-tree-prereqs ## milestone_pull shell tests after generation
 	$(_milestone_pull_test_recipe)
 
-.PHONY: verify-test-performance-multikueue-runner
-verify-test-performance-multikueue-runner: verify-tree-prereqs gotestsum ## MultiKueue performance runner unit tests after generation.
-	$(_test_performance_multikueue_runner_recipe)
+.PHONY: verify-unit-test-selection
+verify-unit-test-selection: ## Validate unit-test selection and sharding without compiling Go.
+	bash $(PROJECT_DIR)/hack/testing/unit-test-selection_test.sh
 
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation
