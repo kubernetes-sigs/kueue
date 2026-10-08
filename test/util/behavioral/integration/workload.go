@@ -78,6 +78,12 @@ func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...
 				LastTransitionTime: metav1.Now(),
 				Reason:             "ByTest",
 				Message:            "Finished by test",
+			apimeta.SetStatusCondition(&newWL.Status.Conditions, metav1.Condition{
+				Type:               kueue.WorkloadFinished,
+				Status:             metav1.ConditionTrue,
+				LastTransitionTime: metav1.Now(),
+				Reason:             "ByTest",
+				Message:            "Finished by test",
 			})
 			g.Expect(k8sClient.Status().Update(ctx, &newWL)).Should(gomega.Succeed())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("Failed to finish workload", &newWL))
