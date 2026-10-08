@@ -1593,7 +1593,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {policy.NoCandidates, 1},
 			},
 			wantRepMode: NoFit,
 			wantAssignment: Assignment{
@@ -1652,7 +1652,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {policy.NoCandidates, 1},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1666,7 +1666,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.NoCandidates),
+							PreemptionPossibility: new(policy.NoCandidates),
 							Borrow:                1,
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 2 more needed"},
 						},
@@ -1716,7 +1716,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {policy.NoCandidates, 1},
 			},
 			wantRepMode: Preempt,
 			wantAssignment: Assignment{
@@ -1730,7 +1730,7 @@ func TestAssignFlavors(t *testing.T) {
 						{
 							Flavor:                "one",
 							Mode:                  Preempt,
-							PreemptionPossibility: new(preemptioncommon.NoCandidates),
+							PreemptionPossibility: new(policy.NoCandidates),
 							Borrow:                1,
 							Reasons:               []string{"insufficient unused quota for cpu in flavor one, 4 more needed"},
 						},
@@ -1780,7 +1780,7 @@ func TestAssignFlavors(t *testing.T) {
 				{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(3_000),
 			},
 			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
-				{Flavor: "one", Resource: corev1.ResourceCPU}: {preemptioncommon.NoCandidates, 1},
+				{Flavor: "one", Resource: corev1.ResourceCPU}: {policy.NoCandidates, 1},
 			},
 			wantRepMode: NoFit,
 			wantAssignment: Assignment{
