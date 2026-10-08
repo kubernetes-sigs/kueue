@@ -18,7 +18,7 @@ package was
 
 import (
 	"context"
-	"fmt"
+	"errors"
 
 	ctrl "sigs.k8s.io/controller-runtime"
 
@@ -65,6 +65,6 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 
 	// Any path that requires additional processing fails as
 	// wasPlanner does not support them yet.
-	plan.Error = fmt.Errorf("was planner unable to process assignment")
+	plan.Error = errors.New("was planner unable to process assignment")
 	return
 }
