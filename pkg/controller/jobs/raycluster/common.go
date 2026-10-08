@@ -80,11 +80,18 @@ var (
 // BuildPodSets, UpdatePodSets, and the MultiKueue elastic replica sync
 // all call this so the per-group count derivation stays in one place.
 func effectiveWorkerCount(wgs *rayv1.WorkerGroupSpec) int32 {
+	if ptr.Deref(wgs.Suspend, false) {
+		return 0
+	}
 	// API defaults may be absent on objects constructed before admission.
-	group := *wgs
-	group.Replicas = new(ptr.Deref(wgs.Replicas, int32(1)))
-	group.NumOfHosts = max(wgs.NumOfHosts, 1)
-	return rayutils.GetWorkerGroupDesiredReplicas(group)
+	replicas := ptr.Deref(wgs.Replicas, int32(1))
+	minReplicas := ptr.Deref(wgs.MinReplicas, int32(0))
+	if replicas < minReplicas {
+		replicas = minReplicas
+	} else if wgs.MaxReplicas != nil && replicas > *wgs.MaxReplicas {
+		replicas = *wgs.MaxReplicas
+	}
+	return replicas * max(wgs.NumOfHosts, 1)
 }
 
 // BuildPodSets builds PodSets from RayClusterSpec.
