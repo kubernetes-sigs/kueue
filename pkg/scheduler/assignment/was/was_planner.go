@@ -18,7 +18,9 @@ package was
 
 import (
 	"context"
-	"errors"
+	"fmt"
+
+	ctrl "sigs.k8s.io/controller-runtime"
 
 	schedcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
@@ -43,9 +45,26 @@ type wasPlanner struct {
 }
 
 // Plan is currently inert and always returns an error.
-func (p *wasPlanner) Plan(_ context.Context, initialAssignment *flavorassigner.Assignment, _ ...assignment.PlannerOption) assignment.Plan {
-	return assignment.Plan{
+func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner.Assignment, _ ...assignment.PlannerOption) (plan assignment.Plan) {
+	plan = assignment.Plan{
 		Assignment: initialAssignment,
-		Error:      errors.ErrUnsupported,
 	}
+	arm := plan.Assignment.RepresentativeMode()
+	if arm == flavorassigner.NoFit {
+		// NoFit, nothing to do.
+		return
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+	cq := p.snapshot.ClusterQueue(p.wl.ClusterQueue)
+	tasRequests := plan.Assignment.WorkloadsTopologyRequests(log, p.wl, cq)
+	if arm == flavorassigner.Fit && len(tasRequests) == 0 {
+		// Fit without TAS. Nothing to do.
+		return
+	}
+
+	// Any path that requires additional processing fails as
+	// wasPlanner does not support them yet.
+	plan.Error = fmt.Errorf("was planner unable to process assignment")
+	return
 }

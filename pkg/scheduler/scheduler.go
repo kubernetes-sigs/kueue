@@ -50,6 +50,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
 	nativeplanner "sigs.k8s.io/kueue/pkg/scheduler/assignment/native"
+	wasplanner "sigs.k8s.io/kueue/pkg/scheduler/assignment/was"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
@@ -476,7 +477,7 @@ func (s *Scheduler) processEntry(
 	fits, err := s.updateAssignmentIfNeeded(ctx, log, e, snapshot, cq, preemptedWorkloads)
 	if err != nil {
 		log.Error(err, "Failed to re-compute the assignment")
-		e.inadmissibleMsg = err.Error()
+		e.markSkipped(err.Error())
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonAssignmentError
 		return
 	}
@@ -1578,8 +1579,14 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		replaceableWorkloadSlice, s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
 	)
 
+	var planner assignment.Planner
+	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		planner = wasplanner.NewPlanner(wl, snap)
+	} else {
+		planner = nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
+	}
+
 	initialAssignment := flvAssigner.AssignFlavors(ctx, log, nil)
-	planner := nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
 	assignmentPlan := planner.Plan(ctx, &initialAssignment)
 
 	if !assignmentPlan.CanFit() && assignmentPlan.Error == nil && workload.MinCountsUsable(wl.Obj) && wl.CanBePartiallyAdmitted() {
