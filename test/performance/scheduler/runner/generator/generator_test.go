@@ -21,10 +21,12 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestLoadConfig_StandardScheduler(t *testing.T) {
@@ -560,7 +562,28 @@ func TestValidateDevices(t *testing.T) {
 	}
 }
 
-func TestLoadConfigNestedCohorts(t *testing.T) {
+func TestValidateDevicesNestedCohort(t *testing.T) {
+	g := gomega.NewWithT(t)
+	config := Config{
+		Cohorts: []CohortSet{{
+			Children: []CohortSet{{
+				QueuesSets: []QueuesSet{{
+					ClassName: "child-cq",
+					WorkloadsSets: []WorkloadsSet{{Workloads: []WorkloadTemplate{{
+						ClassName: "child-wl",
+						TASLevel:  "kubernetes.io/hostname",
+						Devices:   1,
+					}}}},
+				}},
+			}},
+		}},
+	}
+
+	g.Expect(validateDevices(&config)).To(gomega.MatchError(`workload class "child-wl" requests devices but the config has no dra section`))
+}
+
+func TestLoadAndGenerateNestedCohorts(t *testing.T) {
+	g := gomega.NewWithT(t)
 	content := `cohorts:
 - className: root
   count: 1
@@ -581,19 +604,41 @@ func TestLoadConfigNestedCohorts(t *testing.T) {
         workloads:
         - className: wl
           request: 1
+  - className: unused
+    count: 0
 `
 	file := filepath.Join(t.TempDir(), "nested.yaml")
 	if err := os.WriteFile(file, []byte(content), 0600); err != nil {
 		t.Fatal(err)
 	}
 	got, err := LoadConfig(file)
+	g.Expect(err).NotTo(gomega.HaveOccurred())
 	if err != nil {
-		t.Fatal(err)
+		return
 	}
 	queue := got.Cohorts[0].Children[0].QueuesSets[0]
-	if got.Cohorts[0].Children[0].Count != 2 || queue.LendingLimit != "5" ||
-		queue.BorrowWithinCohort == nil || queue.BorrowWithinCohort.Policy != kueue.BorrowWithinCohortPolicyLowerPriority ||
-		queue.WorkloadsSets[0].InitialDelayMs != 100 {
-		t.Fatalf("unexpected nested config: %#v", got.Cohorts)
+	g.Expect(got.Cohorts[0].Children).To(gomega.HaveLen(2))
+	g.Expect(got.Cohorts[0].Children[0].Count).To(gomega.Equal(2))
+	g.Expect(got.Cohorts[0].Children[1].Count).To(gomega.Equal(0))
+	g.Expect(queue.LendingLimit).To(gomega.Equal("5"))
+	g.Expect(queue.BorrowWithinCohort).NotTo(gomega.BeNil())
+	g.Expect(queue.BorrowWithinCohort.Policy).To(gomega.Equal(kueue.BorrowWithinCohortPolicyLowerPriority))
+	g.Expect(queue.WorkloadsSets[0].InitialDelayMs).To(gomega.Equal(uint(100)))
+
+	cl := utiltesting.NewClientBuilder().Build()
+	g.Expect(Generate(t.Context(), cl, got)).NotTo(gomega.HaveOccurred())
+
+	var cohorts kueue.CohortList
+	g.Expect(cl.List(t.Context(), &cohorts)).NotTo(gomega.HaveOccurred())
+
+	actualNames := sets.New[string]()
+	for _, cohort := range cohorts.Items {
+		actualNames.Insert(cohort.Name)
 	}
+	expectedNames := sets.New(
+		"root-0",
+		"root-0-child-0",
+		"root-0-child-1",
+	)
+	g.Expect(actualNames).To(gomega.Equal(expectedNames))
 }

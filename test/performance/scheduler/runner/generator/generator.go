@@ -126,10 +126,22 @@ func validateDevices(config *Config) error {
 		return errors.New("dra.devicesPerNode must be positive")
 	}
 	for _, cohort := range config.Cohorts {
-		for _, qSet := range cohort.QueuesSets {
-			if err := validateQueueSetDevices(qSet, config.DRA); err != nil {
-				return err
-			}
+		if err := validateCohortSetDevices(cohort, config.DRA); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateCohortSetDevices(cSet CohortSet, dra *DRAConfig) error {
+	for _, qSet := range cSet.QueuesSets {
+		if err := validateQueueSetDevices(qSet, dra); err != nil {
+			return err
+		}
+	}
+	for _, child := range cSet.Children {
+		if err := validateCohortSetDevices(child, dra); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -335,23 +347,33 @@ func generateQueueSet(ctx context.Context, c client.Client, qSet QueuesSet, coho
 	})
 }
 
+func makeCohortName(cSet CohortSet, cohortIdx int, parentName kueue.CohortReference) kueue.CohortReference {
+	name := fmt.Sprintf("%s-%d", cSet.ClassName, cohortIdx)
+	if parentName != "" {
+		name = fmt.Sprintf("%s-%s", parentName, name)
+	}
+	return kueue.CohortReference(name)
+}
+
 func generateCohort(ctx context.Context, c client.Client, cSet CohortSet, flavorName string, cohortIdx int, parentName kueue.CohortReference) error {
 	log := ctrl.LoggerFrom(ctx).WithName("generate cohort").WithValues("idx", cohortIdx, "prefix", cSet.ClassName)
 	log.Info("Start generation")
 	defer log.Info("End generation")
-	cohortName := kueue.CohortReference(fmt.Sprintf("%s-%d", cSet.ClassName, cohortIdx))
+	cohortName := makeCohortName(cSet, cohortIdx, parentName)
 	cohort := utiltestingapi.MakeCohort(cohortName).Parent(parentName).Obj()
 	cohort.Labels = map[string]string{CleanupLabel: "true"}
 	if err := c.Create(ctx, cohort); err != nil {
 		return err
 	}
-	if err := concurrent(cSet, func(cs CohortSet) int { return len(cs.QueuesSets) }, func(idx int) error {
-		return generateQueueSet(ctx, c, cSet.QueuesSets[idx], cohortName, flavorName, idx)
-	}); err != nil {
-		return err
-	}
-	return concurrent(cSet, func(cs CohortSet) int { return len(cs.Children) }, func(idx int) error {
-		return generateCohort(ctx, c, cSet.Children[idx], flavorName, idx, cohortName)
+
+	return concurrent(cSet, func(cs CohortSet) int {
+		return len(cs.QueuesSets) + len(cs.Children)
+	}, func(idx int) error {
+		if idx < len(cSet.QueuesSets) {
+			return generateQueueSet(ctx, c, cSet.QueuesSets[idx], cohortName, flavorName, idx)
+		}
+		childIdx := idx - len(cSet.QueuesSets)
+		return generateCohortSet(ctx, c, cSet.Children[childIdx], flavorName, cohortName)
 	})
 }
 
