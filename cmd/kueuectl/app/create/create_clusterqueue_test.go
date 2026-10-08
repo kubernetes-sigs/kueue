@@ -117,6 +117,20 @@ func TestParseResourceQuotas(t *testing.T) {
 				},
 			},
 		},
+		"should create one resource group with hyphenated extended resource name": {
+			quotaArgs: []string{"alpha:example.com/v100-gpu=1;intel.com/sriov-net=2"},
+			wantResourceGroups: []kueue.ResourceGroup{
+				{
+					CoveredResources: []corev1.ResourceName{"example.com/v100-gpu", "intel.com/sriov-net"},
+					Flavors: []kueue.FlavorQuotas{
+						*utiltestingapi.MakeFlavorQuotas("alpha").
+							Resource("example.com/v100-gpu", "1").
+							Resource("intel.com/sriov-net", "2").
+							Obj(),
+					},
+				},
+			},
+		},
 		"should create one resource group with one flavor and borrowingLimit set": {
 			borrowingArgs: []string{"alpha:cpu=1;memory=1"},
 			wantResourceGroups: []kueue.ResourceGroup{
