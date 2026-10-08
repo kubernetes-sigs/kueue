@@ -30,16 +30,22 @@ type Planner interface {
 	Plan(ctx context.Context, initialAssignment *flavorassigner.Assignment, opts ...PlannerOption) Plan
 }
 
+// Plan represents the proposed assignment and necessary preemption targets
+// allowing for workload admission.
+// The whole plan is considered invalid if the Error field is set.
 type Plan struct {
 	// Assignment - the updated workload assignment.
+	// Only valid if Error is nil.
 	Assignment *flavorassigner.Assignment
 	// PreemptionTargets - the list of preemption targets necessary
 	// to make the admission based on the returned assignment possible.
 	// Empty unless Assignment.RepresentativeMode() is Preempt
 	// and preemptions make the fit feasible.
+	// Only valid if Error is nil.
 	PreemptionTargets []*preemption.Target
 
-	// Error denotes a fatal failure when trying to buld the plan.
+	// Error denotes a fatal failure when trying to build the plan.
+	// If present, renders the whole plan invalid.
 	Error error
 }
 
