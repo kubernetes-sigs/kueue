@@ -71,8 +71,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilwait "sigs.k8s.io/kueue/pkg/util/wait"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -424,7 +426,68 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 	}
 
 	rc.resetFailedConnAttempt()
+
+	if err := rc.queueWorkloadsWaitingForDispatch(watchCtx); err != nil {
+		ctrl.LoggerFrom(watchCtx).Error(err, "Queueing the workloads waiting for this cluster to dispatch them")
+	}
 	return nil, nil
+}
+
+// queueWorkloadsWaitingForDispatch wakes the local Workloads that are waiting for this
+// cluster to dispatch them, by walking this cluster's MultiKueueConfigs and their
+// AdmissionChecks back to the Workloads referencing those checks.
+func (rc *remoteClient) queueWorkloadsWaitingForDispatch(ctx context.Context) error {
+	configs := &kueue.MultiKueueConfigList{}
+	if err := rc.localClient.List(ctx, configs, client.MatchingFields{UsingMultiKueueClusters: rc.clusterName}); err != nil {
+		return fmt.Errorf("listing the MultiKueueConfigs using cluster %q: %w", rc.clusterName, err)
+	}
+
+	var errs []error
+	queued := sets.New[types.NamespacedName]()
+	for _, config := range configs.Items {
+		checks := &kueue.AdmissionCheckList{}
+		if err := rc.localClient.List(ctx, checks, client.MatchingFields{AdmissionCheckUsingConfigKey: config.Name}); err != nil {
+			errs = append(errs, fmt.Errorf("listing the AdmissionChecks using MultiKueueConfig %q: %w", config.Name, err))
+			continue
+		}
+		for _, check := range checks.Items {
+			wls := &kueue.WorkloadList{}
+			if err := rc.localClient.List(ctx, wls, client.MatchingFields{WorkloadsWithAdmissionCheckKey: check.Name}); err != nil {
+				errs = append(errs, fmt.Errorf("listing the Workloads using AdmissionCheck %q: %w", check.Name, err))
+				continue
+			}
+			for i := range wls.Items {
+				wl := &wls.Items[i]
+				if !waitsForDispatch(wl, kueue.AdmissionCheckReference(check.Name)) {
+					continue
+				}
+				key := client.ObjectKeyFromObject(wl)
+				if queued.Has(key) {
+					continue
+				}
+				queued.Insert(key)
+				select {
+				case rc.wlUpdateCh <- event.GenericEvent{Object: wl}:
+				case <-ctx.Done():
+					// The watchers are being stopped, so the remaining workloads are woken by
+					// the next connection instead.
+					return errors.Join(append(errs, ctx.Err())...)
+				}
+			}
+		}
+	}
+	if logV := ctrl.LoggerFrom(ctx).V(3); logV.Enabled() && queued.Len() > 0 {
+		logV.Info("Queued the workloads waiting for dispatch", "count", queued.Len())
+	}
+	return errors.Join(errs...)
+}
+
+func waitsForDispatch(wl *kueue.Workload, acName kueue.AdmissionCheckReference) bool {
+	if !workload.HasQuotaReservation(wl) {
+		return false
+	}
+	acs := admissioncheck.FindAdmissionCheck(wl.Status.AdmissionChecks, acName)
+	return acs != nil && acs.State == kueue.CheckStatePending
 }
 
 // cancelOnStopWatcher carries the establishment context's cancel func so it

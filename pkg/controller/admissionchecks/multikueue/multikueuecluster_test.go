@@ -962,6 +962,170 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 	}
 }
 
+func TestConnectQueuesWorkloadsWaitingForDispatch(t *testing.T) {
+	kubeconfig := testKubeconfig("worker1")
+	now := time.Now().Truncate(time.Second)
+
+	waitingWl := utiltestingapi.MakeWorkload("wl-waiting", TestNamespace).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").Obj(), now).
+		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+		Obj()
+
+	cases := map[string]struct {
+		reconnecting     bool
+		alreadyConnected bool
+		extraObjects     []client.Object
+		workloads        []kueue.Workload
+		wantQueued       []types.NamespacedName
+	}{
+		"reconnecting with an unchanged config queues the waiting workload": {
+			reconnecting: true,
+			workloads:    []kueue.Workload{*waitingWl},
+			wantQueued:   []types.NamespacedName{{Namespace: TestNamespace, Name: "wl-waiting"}},
+		},
+		"reconciling an already connected cluster does not queue again": {
+			reconnecting:     true,
+			alreadyConnected: true,
+			workloads:        []kueue.Workload{*waitingWl},
+		},
+		"connecting for the first time queues the waiting workload": {
+			workloads:  []kueue.Workload{*waitingWl},
+			wantQueued: []types.NamespacedName{{Namespace: TestNamespace, Name: "wl-waiting"}},
+		},
+		"workloads that are not waiting for dispatch are not queued": {
+			reconnecting: true,
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-ready", TestNamespace).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").Obj(), now).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-no-quota", TestNamespace).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					Obj(),
+			},
+		},
+		"workloads of other clusters and controllers are not queued": {
+			reconnecting: true,
+			extraObjects: []client.Object{
+				utiltestingapi.MakeMultiKueueConfig("config2").Clusters("worker2").Obj(),
+				utiltestingapi.MakeAdmissionCheck("ac2").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config2").
+					Obj(),
+				utiltestingapi.MakeAdmissionCheck("ac-other").ControllerName("not-multikueue").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-other-cluster", TestNamespace).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").Obj(), now).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac2", State: kueue.CheckStatePending}).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-other-controller", TestNamespace).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").Obj(), now).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac-other", State: kueue.CheckStatePending}).
+					Obj(),
+			},
+		},
+		"a workload reached through two of the cluster's checks is queued once": {
+			reconnecting: true,
+			extraObjects: []client.Object{
+				utiltestingapi.MakeMultiKueueConfig("config2").Clusters("worker1").Obj(),
+				utiltestingapi.MakeAdmissionCheck("ac2").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config2").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-two-checks", TestNamespace).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq1").Obj(), now).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac2", State: kueue.CheckStatePending}).
+					Obj(),
+			},
+			wantQueued: []types.NamespacedName{{Namespace: TestNamespace, Name: "wl-two-checks"}},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			cluster := utiltestingapi.MakeMultiKueueCluster("worker1").
+				KubeConfig(kueue.SecretLocationType, "worker1").
+				Active(metav1.ConditionTrue, "Active", "Connected", 1).
+				Generation(1).
+				Obj()
+			secret := makeTestSecret("worker1", kubeconfig)
+
+			builder := getClientBuilder(ctx)
+			builder = builder.WithObjects(cluster, &secret,
+				utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
+				utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
+					Obj(),
+			)
+			builder = builder.WithObjects(tc.extraObjects...)
+			builder = builder.WithLists(&kueue.WorkloadList{Items: tc.workloads})
+			builder = builder.WithStatusSubresource(&kueue.MultiKueueCluster{})
+			c := builder.Build()
+
+			adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+			reconciler := newClustersReconciler(c, TestNamespace,
+				withAdapters(adapters),
+				withEventRecorder(&utiltesting.EventRecorder{}),
+			)
+			reconciler.rootContext = ctx
+			reconciler.builderOverride = fakeClientBuilder(ctx)
+
+			if tc.reconnecting {
+				rc := newRemoteClient(c, reconciler.wlUpdateCh, reconciler.watchEndedCh, reconciler.cqUpdateCh, defaultOrigin, "worker1", adapters)
+				rc.config = &clientConfig{Kubeconfig: []byte(kubeconfig)}
+				rc.builderOverride = reconciler.builderOverride
+				if tc.alreadyConnected {
+					rc.connState.markConnected()
+				}
+				reconciler.remoteClients["worker1"] = rc
+				defer rc.StopWatchers()
+			}
+
+			if _, err := reconciler.Reconcile(ctx, reconcile.Request{Name: "worker1"}); err != nil {
+				t.Fatalf("unexpected reconcile error: %v", err)
+			}
+			rc, found := reconciler.controllerFor("worker1")
+			if !found || !rc.connState.isConnected() {
+				t.Fatalf("want a connected client for worker1, got found=%v", found)
+			}
+			if !tc.reconnecting {
+				defer rc.StopWatchers()
+			}
+
+			gotQueued := sets.New[types.NamespacedName]()
+			for drained := false; !drained; {
+				select {
+				case ev := <-reconciler.wlUpdateCh:
+					gotQueued.Insert(client.ObjectKeyFromObject(ev.Object))
+				default:
+					drained = true
+				}
+			}
+			if diff := cmp.Diff(sets.New(tc.wantQueued...), gotQueued, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("unexpected queued workloads (-want,+got):\n%s", diff)
+			}
+
+			// The wake-up must not rely on the Active condition changing: it still reports
+			// the same value it had while the cluster was unreachable.
+			got := &kueue.MultiKueueCluster{}
+			if err := c.Get(ctx, client.ObjectKeyFromObject(cluster), got); err != nil {
+				t.Fatalf("get cluster: %v", err)
+			}
+			if active := apimeta.FindStatusCondition(got.Status.Conditions, kueue.MultiKueueClusterActive); active == nil ||
+				active.Status != metav1.ConditionTrue || active.Reason != "Active" {
+				t.Errorf("want the Active condition to stay True/Active, got %+v", active)
+			}
+		})
+	}
+}
+
 func TestConnectionStateTransitions(t *testing.T) {
 	now := time.Now()
 	fakeClock := testingclock.NewFakeClock(now)

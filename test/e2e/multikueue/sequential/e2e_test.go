@@ -461,6 +461,78 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 				behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sWorker1Client, worker1Cq2, true, behavioral.VeryLongTimeout)
 			})
 		})
+
+		ginkgo.It("Should dispatch a workload that was held back while every worker was disconnected", func() {
+			job := testingjob.MakeJob("held-back-job", managerNs.Name).
+				Queue(kueue.LocalQueueName(managerLq.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "1500m").
+				RequestAndLimit(corev1.ResourceMemory, "2G").
+				TerminationGracePeriod(1).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+				Obj()
+			behavioral.MustCreate(ctx, k8sManagerClient, job)
+
+			wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
+
+			ginkgo.By("Waiting for the workload to hold quota with the check still pending", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWorkload := &kueue.Workload{}
+					g.Expect(k8sManagerClient.Get(ctx, wlKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.ExpectAdmissionCheckState(ctx, k8sManagerClient, wlKey, multiKueueAc.Name, kueue.CheckStatePending)
+			})
+
+			ginkgo.By("Waiting for the workload to reach both workers", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					remoteWorkload := &kueue.Workload{}
+					g.Expect(k8sWorker1Client.Get(ctx, wlKey, remoteWorkload)).To(gomega.Succeed())
+					g.Expect(k8sWorker2Client.Get(ctx, wlKey, remoteWorkload)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			restoreWorker1Connection := behavioral.BreakConnection(ctx, k8sManagerClient, workerCluster1, kueueNS)
+			restoreWorker2Connection := behavioral.BreakConnection(ctx, k8sManagerClient, workerCluster2, kueueNS)
+			workersReconnected := false
+			ginkgo.DeferCleanup(func() {
+				if !workersReconnected {
+					restoreWorker1Connection()
+					restoreWorker2Connection()
+				}
+			})
+
+			ginkgo.By("Deleting the remote workloads while no worker is reachable", func() {
+				remoteWorkload := &kueue.Workload{}
+				gomega.Expect(k8sWorker1Client.Get(ctx, wlKey, remoteWorkload)).To(gomega.Succeed())
+				gomega.Expect(k8sWorker1Client.Delete(ctx, remoteWorkload)).To(gomega.Succeed())
+				gomega.Expect(k8sWorker2Client.Get(ctx, wlKey, remoteWorkload)).To(gomega.Succeed())
+				gomega.Expect(k8sWorker2Client.Delete(ctx, remoteWorkload)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the workload keeps waiting for dispatch while disconnected", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					createdWorkload := &kueue.Workload{}
+					g.Expect(k8sManagerClient.Get(ctx, wlKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
+					g.Expect(k8sWorker1Client.Get(ctx, wlKey, createdWorkload)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sWorker2Client.Get(ctx, wlKey, createdWorkload)).To(utiltesting.BeNotFoundError())
+				}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Reconnecting the workers", func() {
+				restoreWorker1Connection()
+				restoreWorker2Connection()
+				workersReconnected = true
+			})
+
+			ginkgo.By("Checking the workload is dispatched again after the reconnection alone", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					remoteWorkload := &kueue.Workload{}
+					g.Expect(k8sWorker1Client.Get(ctx, wlKey, remoteWorkload)).To(gomega.Succeed())
+					g.Expect(k8sWorker2Client.Get(ctx, wlKey, remoteWorkload)).To(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
 	})
 
 	ginkgo.Describe("Connection via ClusterProfile no plugins", ginkgo.Label(e2e.Shard0), ginkgo.Ordered, func() {
