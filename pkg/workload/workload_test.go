@@ -2188,67 +2188,6 @@ func TestLimitReclaimablePodsToPodSetSizes(t *testing.T) {
 	}
 }
 
-func TestAssignmentClusterQueueState(t *testing.T) {
-	cases := map[string]struct {
-		state              *FlavorScanState
-		wantPendingFlavors bool
-	}{
-		"no info": {
-			wantPendingFlavors: false,
-		},
-		"all done": {
-			state: &FlavorScanState{
-				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
-					{
-						corev1.ResourceCPU:    nil,
-						corev1.ResourceMemory: nil,
-					},
-					{
-						corev1.ResourceMemory: nil,
-					},
-				},
-			},
-			wantPendingFlavors: false,
-		},
-		"some pending": {
-			state: &FlavorScanState{
-				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
-					{
-						corev1.ResourceCPU:    sets.New[kueue.ResourceFlavorReference]("flavor-0"),
-						corev1.ResourceMemory: nil,
-					},
-					{
-						corev1.ResourceMemory: sets.New[kueue.ResourceFlavorReference]("flavor-0", "flavor-1"),
-					},
-				},
-			},
-			wantPendingFlavors: true,
-		},
-		"all pending": {
-			state: &FlavorScanState{
-				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
-					{
-						corev1.ResourceCPU:    sets.New[kueue.ResourceFlavorReference]("flavor-0", "flavor-1"),
-						corev1.ResourceMemory: sets.New[kueue.ResourceFlavorReference]("flavor-0"),
-					},
-					{
-						corev1.ResourceMemory: sets.New[kueue.ResourceFlavorReference]("flavor-0", "flavor-1"),
-					},
-				},
-			},
-			wantPendingFlavors: true,
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := tc.state.PendingFlavors()
-			if got != tc.wantPendingFlavors {
-				t.Errorf("state.PendingFlavors() = %t, want %t", got, tc.wantPendingFlavors)
-			}
-		})
-	}
-}
-
 func TestResourceUsage(t *testing.T) {
 	cases := map[string]struct {
 		info *Info

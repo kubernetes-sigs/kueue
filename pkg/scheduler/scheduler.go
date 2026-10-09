@@ -974,26 +974,6 @@ func quotaResourcesToReserve(e *entry, cq *schdcache.ClusterQueueSnapshot) resou
 	return reservedUsage
 }
 
-// flavorScanStateOutdated reports whether the recorded flavor assignment no longer describes
-// the current state, in which case the flavor scan has to start over.
-func flavorScanStateOutdated(last *workload.FlavorScanState, currentCQGeneration, currentSchedulingCycle int64, currentSchedulingHash workload.EquivalenceHash) bool {
-	if features.Enabled(features.FlavorFungibilityPreserveScanProgress) {
-		// Checked before the cycle age, so that a Workload whose shape changed starts over
-		// even when it was assigned in the preceding cycle.
-		if !last.MatchesSchedulingShape(currentSchedulingHash) {
-			return true
-		}
-		// An assignment computed in the current or the immediately preceding cycle is not
-		// treated as outdated. The ClusterQueue generation advances on every admission or
-		// eviction in the Cohort, which on a busy cluster discards the flavor progress
-		// recorded one cycle earlier before it can be used.
-		if currentSchedulingCycle-last.SchedulingCycle <= 1 {
-			return false
-		}
-	}
-	return currentCQGeneration > last.AllocatableResourceGeneration
-}
-
 func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {
 	unhealthyNodes := workload.UnhealthyNodeNames(wl)
 	unhealthyNodesCsv := strings.Join(unhealthyNodes, ",")
@@ -1571,7 +1551,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	// dropped once it no longer describes the current state. Deciding that here rather than
 	// inside the assigner keeps it to one place per Workload per cycle: the assigner runs
 	// again for each reduced pod count when partial admission is in play.
-	if wl.FlavorScanState != nil && flavorScanStateOutdated(wl.FlavorScanState, cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
+	if wl.FlavorScanState != nil && wl.FlavorScanState.IsOutdated(cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
 		log.V(6).Info("Clearing Workload's flavor scan state because it was outdated",
 			"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
 			"wl.FlavorScanState.AllocatableResourceGeneration", wl.FlavorScanState.AllocatableResourceGeneration)
