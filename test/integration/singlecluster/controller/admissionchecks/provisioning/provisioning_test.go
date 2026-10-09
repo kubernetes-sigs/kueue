@@ -719,6 +719,26 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
+			ginkgo.By("Dropping a parameter from the provisioning request config", func() {
+				updatedPRC := &kueue.ProvisioningRequestConfig{}
+				prcKey := types.NamespacedName{Name: prc.Name}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, prcKey, updatedPRC)).Should(gomega.Succeed())
+					updatedPRC.Spec.Parameters = map[string]kueue.Parameter{"p1": "v1updated"}
+					g.Expect(k8sClient.Update(ctx, updatedPRC)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the dropped parameter leaves the request", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).To(gomega.Succeed())
+					g.Expect(createdRequest.Spec.Parameters).To(gomega.BeComparableTo(map[string]autoscaling.Parameter{
+						"p1":                "v1updated",
+						"ValidUntilSeconds": "0",
+					}))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.By("Changing the provisioning request config used by the admission check", func() {
 				updatedAC := &kueue.AdmissionCheck{}
 				acKey := types.NamespacedName{Name: ac.Name}
@@ -763,6 +783,58 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 					ac.Name,
 					kueue.CheckStatePending,
 					provisioning.CheckInactiveMessage,
+				)
+			})
+		})
+
+		ginkgo.It("Should set the condition ready when a workload annotation overrides a config parameter", framework.SlowSpec, func() {
+			ginkgo.By("Setting on the config the parameter the workload annotation also sets", func() {
+				updatedPRC := &kueue.ProvisioningRequestConfig{}
+				prcKey := types.NamespacedName{Name: prc.Name}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, prcKey, updatedPRC)).Should(gomega.Succeed())
+					updatedPRC.Spec.Parameters = map[string]kueue.Parameter{
+						"p1":                "v1",
+						"p2":                "v2",
+						"ValidUntilSeconds": "60",
+					}
+					g.Expect(k8sClient.Update(ctx, updatedPRC)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Setting the quota reservation to the workload", func() {
+				behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+			})
+
+			ginkgo.By("Setting the provision request as Provisioned", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+					g.Expect(createdRequest.Spec.Parameters).Should(gomega.HaveKeyWithValue("ValidUntilSeconds", autoscaling.Parameter("0")))
+					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+						Type:   autoscaling.Provisioned,
+						Status: metav1.ConditionTrue,
+						Reason: autoscaling.Provisioned,
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the admission check", func() {
+				behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady,
+					kueue.PodSetUpdate{
+						Name: "ps1",
+						Annotations: map[string]string{
+							autoscaling.ProvisioningRequestPodAnnotationKey: provReqKey.Name,
+							autoscaling.ProvisioningClassPodAnnotationKey:   prc.Spec.ProvisioningClassName,
+						},
+					},
+					kueue.PodSetUpdate{
+						Name: "ps2",
+						Annotations: map[string]string{
+							autoscaling.ProvisioningRequestPodAnnotationKey: provReqKey.Name,
+							autoscaling.ProvisioningClassPodAnnotationKey:   prc.Spec.ProvisioningClassName,
+						},
+					},
 				)
 			})
 		})
