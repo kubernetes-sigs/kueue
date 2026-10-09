@@ -373,6 +373,42 @@ func TestReport(t *testing.T) {
 		}
 	})
 
+	t.Run("merges duplicate atomic blocks into the filtered profile", func(t *testing.T) {
+		dir := t.TempDir()
+		profile := filepath.Join(dir, "cover.out")
+		input := "mode: atomic\n" +
+			"sigs.k8s.io/kueue/pkg/util/slices/slices.go:1.1,2.2 1 2\n" +
+			"sigs.k8s.io/kueue/pkg/util/slices/slices.go:1.1,2.2 1 3\n"
+		if err := os.WriteFile(profile, []byte(input), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var stdout bytes.Buffer
+		if err := coverage.Report(profile, &stdout); err != nil {
+			t.Fatal(err)
+		}
+		filtered, err := os.ReadFile(filepath.Join(dir, "cover.filtered.out"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantProfile := "mode: atomic\n" +
+			"sigs.k8s.io/kueue/pkg/util/slices/slices.go:1.1,2.2 1 5\n"
+		if diff := cmp.Diff(wantProfile, string(filtered)); diff != "" {
+			t.Errorf("filtered profile mismatch (-want +got):\n%s", diff)
+		}
+		wantSummary := "sigs.k8s.io/kueue/pkg/util/slices/slices.go: 100.0% of statements (1/1)\n" +
+			"total: (statements) 100.0%\n"
+		summary, err := os.ReadFile(filepath.Join(dir, "cover.filtered.txt"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if diff := cmp.Diff(wantSummary, string(summary)); diff != "" {
+			t.Errorf("summary file mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(wantSummary, stdout.String()); diff != "" {
+			t.Errorf("stdout mismatch (-want +got):\n%s", diff)
+		}
+	})
+
 	t.Run("set mode duplicate blocks stay covered once", func(t *testing.T) {
 		dir := t.TempDir()
 		profile := filepath.Join(dir, "cover.out")
