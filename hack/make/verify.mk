@@ -73,7 +73,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 verify: ## Ensure repo is clean after generation/formatting.
 	$(MAKE) -j $(VERIFY_NPROCS) $(if $(VERIFY_OUTPUT_SYNC),--output-sync=$(VERIFY_OUTPUT_SYNC)) verify-checks
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
-	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then \
+	@if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then \
 		echo "ERROR: untracked files found under: $(PATHS_TO_VERIFY)" >&2; \
 		git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) >&2; \
 		exit 1; \
