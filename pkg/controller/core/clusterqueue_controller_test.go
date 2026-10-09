@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -292,6 +293,45 @@ func TestUpdateCqStatusIfChanged(t *testing.T) {
 				t.Errorf("unexpected number of status updates: want %d, got %d", tc.wantStatusUpdates, statusUpdates)
 			}
 		})
+	}
+}
+
+// TestClusterQueueDeleteClearsMultiKueueWorkloadCounters verifies that the Delete event
+// handler, which runs regardless of the MultiKueue feature gates, drops the MultiKueue
+// workload counters of the deleted ClusterQueue and keeps those of other ClusterQueues.
+func TestClusterQueueDeleteClearsMultiKueueWorkloadCounters(t *testing.T) {
+	cl := utiltesting.NewClientBuilder().Build()
+	cqCache := schdcache.New(cl)
+	r := NewClusterQueueReconciler(cl, qcache.NewManagerForUnitTests(cl, cqCache), cqCache)
+
+	resetCounters := func() {
+		metrics.MultiKueueWorkloadsDispatchedTotal.Reset()
+		metrics.MultiKueueWorkloadsAdmittedTotal.Reset()
+		metrics.MultiKueueWorkloadsEvictedTotal.Reset()
+	}
+	resetCounters()
+	t.Cleanup(resetCounters)
+	for _, cq := range []kueue.ClusterQueueReference{"deleted-cq", "kept-cq"} {
+		metrics.ReportMultiKueueWorkloadDispatched(cq, "worker1", nil)
+		metrics.ReportMultiKueueWorkloadDispatched(cq, "worker2", nil)
+		metrics.ReportMultiKueueWorkloadAdmitted(cq, "worker1", nil)
+		metrics.ReportMultiKueueWorkloadAdmitted(cq, "worker2", nil)
+		metrics.ReportMultiKueueWorkloadEvicted(cq, "worker1", kueue.WorkloadEvictedByPreemption, nil)
+		metrics.ReportMultiKueueWorkloadEvicted(cq, "worker1", kueue.WorkloadEvictedByPodsReadyTimeout, nil)
+		metrics.ReportMultiKueueWorkloadEvicted(cq, "worker2", kueue.WorkloadEvictedByPreemption, nil)
+	}
+
+	r.Delete(event.TypedDeleteEvent[*kueue.ClusterQueue]{Object: utiltestingapi.MakeClusterQueue("deleted-cq").Obj()})
+
+	// Only the series of kept-cq remain: 2 dispatched, 2 admitted, 3 evicted.
+	if got := testutil.CollectAndCount(metrics.MultiKueueWorkloadsDispatchedTotal); got != 2 {
+		t.Errorf("dispatched series = %d, want 2", got)
+	}
+	if got := testutil.CollectAndCount(metrics.MultiKueueWorkloadsAdmittedTotal); got != 2 {
+		t.Errorf("admitted series = %d, want 2", got)
+	}
+	if got := testutil.CollectAndCount(metrics.MultiKueueWorkloadsEvictedTotal); got != 3 {
+		t.Errorf("evicted series = %d, want 3", got)
 	}
 }
 

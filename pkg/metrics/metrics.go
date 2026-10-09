@@ -1139,17 +1139,36 @@ func ReportMultiKueueClusterStatus(cqName kueue.ClusterQueueReference, cluster s
 }
 
 // ClearMultiKueueClusterMetrics drops every series reported for a worker cluster,
-// across all ClusterQueues. Called when the cluster is removed.
+// across all ClusterQueues: the cluster status gauge and the workload counters.
+// Called when the cluster is removed.
 func ClearMultiKueueClusterMetrics(cluster string) {
-	clearScopedGaugeMetrics(gaugeCleanupScopeMultiKueueCluster, prometheus.Labels{"cluster": cluster})
+	lbls := prometheus.Labels{"cluster": cluster}
+	clearScopedGaugeMetrics(gaugeCleanupScopeMultiKueueCluster, lbls)
+	clearMultiKueueWorkloadCounters(lbls)
 }
 
-// ClearMultiKueueClusterQueueMetrics drops every series reported for a manager
-// ClusterQueue, across all worker clusters. Called when the ClusterQueue is deleted,
-// stops using MultiKueue, or before re-reporting its current set of workers so that
-// clusters it no longer references do not linger.
+// ClearMultiKueueClusterQueueMetrics drops the worker cluster status gauge series
+// reported for a manager ClusterQueue, across all worker clusters. Called when the
+// ClusterQueue is deleted, stops using MultiKueue, or before re-reporting its current
+// set of workers so that clusters it no longer references do not linger.
+// It does not touch the workload counters, because it runs for live ClusterQueues;
+// see ClearMultiKueueClusterQueueWorkloadCounters.
 func ClearMultiKueueClusterQueueMetrics(cqName kueue.ClusterQueueReference) {
 	clearScopedGaugeMetrics(gaugeCleanupScopeMultiKueueCluster, prometheus.Labels{"cluster_queue": string(cqName)})
+}
+
+// ClearMultiKueueClusterQueueWorkloadCounters drops the MultiKueue workload counter
+// series (dispatched, admitted, evicted) reported for a manager ClusterQueue, across
+// all worker clusters. Counters must only be reset when the ClusterQueue is deleted,
+// so call it from the deletion path only.
+func ClearMultiKueueClusterQueueWorkloadCounters(cqName kueue.ClusterQueueReference) {
+	clearMultiKueueWorkloadCounters(prometheus.Labels{"cluster_queue": string(cqName)})
+}
+
+func clearMultiKueueWorkloadCounters(lbls prometheus.Labels) {
+	MultiKueueWorkloadsDispatchedTotal.DeletePartialMatch(lbls)
+	MultiKueueWorkloadsAdmittedTotal.DeletePartialMatch(lbls)
+	MultiKueueWorkloadsEvictedTotal.DeletePartialMatch(lbls)
 }
 
 func ReportMultiKueueWorkloadEvicted(cqName kueue.ClusterQueueReference, cluster, reason string, tracker *roletracker.RoleTracker) {
