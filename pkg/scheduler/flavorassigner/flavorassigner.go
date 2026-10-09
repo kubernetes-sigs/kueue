@@ -318,12 +318,12 @@ func (a *FlavorAssigner) AssignFlavors(
 				Unassigned: make(resources.MapRequests),
 			},
 		},
-		FlavorScanState: workload.FlavorScanState{
-			TriedFlavors:                  make([]map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference], 0, len(requests)),
-			AllocatableResourceGeneration: a.cq.AllocatableResourceGeneration,
-			SchedulingCycle:               a.schedulingCycle,
-			SchedulingHash:                a.wl.SchedulingHash,
-		},
+		FlavorScanState: workload.NewFlavorScanState(
+			len(requests),
+			a.cq.AllocatableResourceGeneration,
+			a.schedulingCycle,
+			a.wl.SchedulingHash,
+		),
 		replaceWorkloadSlice: a.replaceWorkloadSlice,
 	}
 
