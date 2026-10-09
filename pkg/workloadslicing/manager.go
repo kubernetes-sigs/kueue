@@ -159,8 +159,9 @@ func (r *Manager) EnsureWorkloadSlices(
 
 // FinishReplacedWorkloadSlices finishes predecessors referenced by status.replaces
 // only if they are present in the workloads argument. Referenced workloads absent
-// from the argument are not finished. The caller is responsible for supplying
-// workload slices belonging to the job being reconciled.
+// from the argument are not finished to avoid finishing an unrelated Workload with
+// the same name after the original slice was deleted. The caller is responsible
+// for supplying workload slices belonging to the job being reconciled.
 func (r *Manager) FinishReplacedWorkloadSlices(ctx context.Context, workloads []kueue.Workload) error {
 	byName := make(map[types.NamespacedName]*kueue.Workload, len(workloads))
 	for i := range workloads {
