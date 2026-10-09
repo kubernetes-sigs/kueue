@@ -1,0 +1,174 @@
+name: Unit coverage
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  unit-coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      # codecov/codecov-action documents use_oidc and requires id-token: write.
+      # Fork pull requests often cannot obtain this token; the Record Codecov
+      # upload result step treats that authentication failure as a skip.
+      id-token: write
+    env:
+      # Match the go directive in go.mod. Do not let the toolchain float.
+      GOTOOLCHAIN: local
+      # -race in make test needs cgo. The Makefile default is not exported.
+      CGO_ENABLED: "1"
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Codecov resolves the commit from the local git history.
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Run unit tests
+        run: make test
+
+      - name: Summarize unit coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          profile=artifacts/cover.out
+          if [[ ! -s "${profile}" ]]; then
+            echo "coverage profile ${profile} is missing or empty" >&2
+            exit 1
+          fi
+          go tool cover -func="${profile}" | tee "${RUNNER_TEMP}/cover-func.txt"
+          total="$(awk '/^total:/ { line=$0 } END { print line }' "${RUNNER_TEMP}/cover-func.txt")"
+          if [[ -z "${total}" ]]; then
+            echo "coverage profile ${profile} has no total" >&2
+            exit 1
+          fi
+          echo "${total}" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload coverage to Codecov
+        id: codecov
+        continue-on-error: true
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
+        with:
+          disable_search: true
+          fail_ci_if_error: true
+          files: artifacts/cover.out
+          plugins: noop
+          use_oidc: true
+          verbose: true
+
+      - name: Record Codecov upload result
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          outcome="${{ steps.codecov.outcome }}"
+          if [[ "${outcome}" == "success" ]]; then
+            echo "Codecov upload succeeded." >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          if [[ "${outcome}" != "failure" ]]; then
+            echo "Codecov upload step ended with outcome ${outcome}." >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+
+          missing=""
+          for cmd in bash git curl gpg; do
+            if ! command -v "${cmd}" >/dev/null 2>&1; then
+              missing="${missing} ${cmd}"
+            fi
+          done
+          if [[ -n "${missing}" ]]; then
+            echo "Codecov upload cannot run; missing:${missing}" >&2
+            exit 1
+          fi
+
+          # The action writes CC_FORK and CC_TOKEN into the job environment.
+          # No uploader binary means it failed before upload-coverage ran.
+          if [[ ! -x ./codecov ]]; then
+            if [[ -n "${CC_TOKEN:-}" || "${CC_FORK:-}" == "true" ]]; then
+              echo "Codecov action failed before the uploader binary was ready." >&2
+              exit 1
+            fi
+            {
+              echo "Codecov upload skipped: authentication unavailable (missing OIDC token or GitHub App)."
+              echo "The unit coverage profile was produced and checked above."
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+
+          # The action does not publish uploader stderr. Re-run the CLI it
+          # already downloaded so an auth miss can be distinguished from a
+          # broken upload. The profile itself was validated in the previous step.
+          log="${RUNNER_TEMP}/codecov-upload.log"
+          args=(
+            ./codecov
+            upload-coverage
+            --fail-on-error
+            --disable-search
+            --plugin noop
+            --git-service github
+            --file artifacts/cover.out
+          )
+          if [[ -n "${CC_SHA:-}" ]]; then
+            args+=(--sha "${CC_SHA}")
+          fi
+          if [[ -n "${CC_PR:-}" ]]; then
+            args+=(--pr "${CC_PR}")
+          fi
+          if [[ -n "${CC_BRANCH:-}" ]]; then
+            args+=(--branch "${CC_BRANCH}")
+          fi
+          if [[ -n "${CC_TOKEN:-}" ]]; then
+            args+=(--token "${CC_TOKEN}")
+          fi
+          set +e
+          "${args[@]}" >"${log}" 2>&1
+          status=$?
+          set -e
+          # Drop the upload token and any JWT before the log is printed or classified.
+          python3 - "${log}" << 'PY'
+          import re, sys
+          path, token = sys.argv[1], __import__("os").environ.get("CC_TOKEN", "")
+          text = open(path, errors="replace").read()
+          if token:
+              text = text.replace(token, "[redacted]")
+          text = re.sub(
+              r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}",
+              "[redacted]",
+              text,
+          )
+          open(path, "w").write(text)
+          PY
+          cat "${log}"
+          if [[ "${status}" -eq 0 ]]; then
+            echo "Codecov upload succeeded." >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          auth_re='token not found|token required|not valid tokenless|tokenless upload|must provide a token|repository upload token|repo upload token|unable to locate build via github actions api|invalid token|unauthori[sz]ed|HTTP Error 401|status code 401'
+          if grep -Eiq "${auth_re}" "${log}"; then
+            {
+              echo "Codecov upload skipped: authentication unavailable (missing token, OIDC, or GitHub App)."
+              echo "The unit coverage profile was produced and checked above."
+              echo
+              echo '```'
+              tail -n 30 "${log}"
+              echo '```'
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
+          echo "Codecov upload failed for a reason other than authentication." >> "${GITHUB_STEP_SUMMARY}"
+          exit 1
