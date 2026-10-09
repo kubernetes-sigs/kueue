@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	testingclock "k8s.io/utils/clock/testing"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -1503,13 +1504,13 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 		"didn't fit and no pending flavors": {
 			reason: RequeueReasonGeneric,
 			flavorScanState: &workload.FlavorScanState{
-				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
+				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
 					{
-						corev1.ResourceMemory: -1,
+						corev1.ResourceMemory: nil,
 					},
 					{
-						corev1.ResourceCPU:    -1,
-						corev1.ResourceMemory: -1,
+						corev1.ResourceCPU:    nil,
+						corev1.ResourceMemory: nil,
 					},
 				},
 			},
@@ -1518,13 +1519,13 @@ func TestBestEffortFIFORequeueIfNotPresent(t *testing.T) {
 		"didn't fit but pending flavors": {
 			reason: RequeueReasonGeneric,
 			flavorScanState: &workload.FlavorScanState{
-				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
+				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
 					{
-						corev1.ResourceCPU:    -1,
-						corev1.ResourceMemory: 0,
+						corev1.ResourceCPU:    nil,
+						corev1.ResourceMemory: sets.New[kueue.ResourceFlavorReference]("flavor-0"),
 					},
 					{
-						corev1.ResourceMemory: 1,
+						corev1.ResourceMemory: sets.New[kueue.ResourceFlavorReference]("flavor-0", "flavor-1"),
 					},
 				},
 			},

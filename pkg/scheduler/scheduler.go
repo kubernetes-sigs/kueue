@@ -300,6 +300,19 @@ func (e *entry) recordAssignment(a flavorassigner.Assignment, targets []*preempt
 	e.FlavorScanState = &e.assignment.FlavorScanState
 }
 
+// restoreNominationScanState retains the flavor scan progress from nomination
+// for every PodSet resource whose nominated flavor is still accepted by quota
+// after an in-cycle recomputation.
+func (e *entry) restoreNominationScanState(nominationScanState workload.FlavorScanState) {
+	for psID, recomputedPodSetFlavors := range e.assignment.FlavorScanState.TriedFlavors {
+		for resName, flavorsTriedAtNomination := range nominationScanState.TriedFlavors[psID] {
+			if len(recomputedPodSetFlavors[resName]) > 0 {
+				recomputedPodSetFlavors[resName] = flavorsTriedAtNomination
+			}
+		}
+	}
+}
+
 // markPreemptionOutcome records the outcome of IssuePreemptions and
 // clears the cached flavor assignment so the next cycle reconsiders
 // every flavor.
@@ -886,7 +899,11 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		return schdcache.FitsCheckOk == fitsCheck, nil
 	}
 	// Clear the flavor scan state so that we can start from the first flavor again and
-	// reach all flavors from the nomination.
+	// reach all flavors from the nomination. Preserve the nomination's scan state across
+	// this in-cycle recompute when quota still accepts the nominated flavor, so that a
+	// workload whose TAS placement is invalidated mid-cycle resumes the next cycle with
+	// its nomination scan state intact.
+	nominationScanState := e.assignment.FlavorScanState
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
 	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot)
@@ -901,6 +918,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	}
 
 	e.recordAssignment(newAssignment, newTargets)
+	e.restoreNominationScanState(nominationScanState)
 	if needsOverlapRecompute && e.assignment.RepresentativeMode() == flavorassigner.Fit {
 		e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
 	}

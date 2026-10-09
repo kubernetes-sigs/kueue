@@ -190,6 +190,92 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 			},
 			wantPendingFlavor: "tas-flavor-2",
 		},
+		"all flavors borrow (TryNextFlavor), gate enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FlavorFungibilityPreserveScanProgress: true,
+			},
+			flavors: []testFlavor{
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+					cohortQuota: "4",
+					blocked:     true,
+				},
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-2").
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+					cohortQuota: "4",
+				},
+			},
+			wantPendingFlavor: "tas-flavor-2",
+		},
+		"all flavors borrow (TryNextFlavor), no generation churn, gate disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FlavorFungibilityPreserveScanProgress: false,
+			},
+			noChurn: true,
+			flavors: []testFlavor{
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+					cohortQuota: "4",
+					blocked:     true,
+				},
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-2").
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+					cohortQuota: "4",
+				},
+			},
+			wantPendingFlavor: "tas-flavor-2",
+		},
+		"second flavor has nominal quota and fails TAS while first flavor borrows, gate enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FlavorFungibilityPreserveScanProgress: true,
+			},
+			flavors: []testFlavor{
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+					cohortQuota: "4",
+				},
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-2").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+					cohortQuota: "4",
+					blocked:     true,
+				},
+			},
+			wantPendingFlavor: "tas-flavor-1",
+		},
+		"second flavor has nominal quota and fails TAS while first flavor borrows, no generation churn, gate disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FlavorFungibilityPreserveScanProgress: false,
+			},
+			noChurn: true,
+			flavors: []testFlavor{
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+					cohortQuota: "4",
+				},
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-2").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+					cohortQuota: "4",
+					blocked:     true,
+				},
+			},
+			wantPendingFlavor: "tas-flavor-1",
+		},
 	}
 
 	for name, tc := range cases {
@@ -257,7 +343,6 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 					})
 			}
 			clusterQueue := *cqWrapper.Obj()
-
 			ctx, log := utiltesting.ContextWithLog(t)
 			testWls := append([]kueue.Workload{}, blockerWls...)
 			testWls = append(testWls, *pending.DeepCopy())
