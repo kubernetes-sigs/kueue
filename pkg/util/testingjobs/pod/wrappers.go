@@ -439,3 +439,9 @@ func (p *PodWrapper) TerminationGracePeriod(seconds int64) *PodWrapper {
 	p.Spec.TerminationGracePeriodSeconds = &seconds
 	return p
 }
+
+// DeletionGracePeriod sets the deletionGracePeriodSeconds on the pod object
+func (p *PodWrapper) DeletionGracePeriod(seconds int64) *PodWrapper {
+	p.Pod.DeletionGracePeriodSeconds = &seconds
+	return p
+}
