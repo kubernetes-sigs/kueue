@@ -3009,6 +3009,7 @@ func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
 		PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj()
 	replacement := utiltestingapi.MakeWorkload("new", "ns").Queue("q").
+		Replaces("old").
 		Annotation(kueue.WorkloadSliceNameAnnotation, "old").
 		Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").
 		PodSets(*utiltestingapi.MakePodSet("main", 2).Obj()).

@@ -3742,6 +3742,32 @@ level.</p>
 </tbody>
 </table>
 
+## `WorkloadReplacement`     {#kueue-x-k8s-io-v1beta2-WorkloadReplacement}
+    
+
+**Appears in:**
+
+- [WorkloadStatus](#kueue-x-k8s-io-v1beta2-WorkloadStatus)
+
+
+<p>WorkloadReplacement identifies a workload slice whose replacement was committed.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>name</code> <B>[Required]</B><br/>
+<code>string</code>
+</td>
+<td>
+   <p>name is the name of the replaced workload in the same namespace.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
 ## `WorkloadSchedulingStatsEviction`     {#kueue-x-k8s-io-v1beta2-WorkloadSchedulingStatsEviction}
     
 
@@ -3909,6 +3935,17 @@ conditions are limited to 16 items.</li>
    <p>admission holds the parameters of the admission of the workload by a
 ClusterQueue. admission can be set back to null, but its fields cannot be
 changed once set.</p>
+</td>
+</tr>
+<tr><td><code>replaces</code><br/>
+<a href="#kueue-x-k8s-io-v1beta2-WorkloadReplacement"><code>WorkloadReplacement</code></a>
+</td>
+<td>
+   <p>replaces identifies the workload slice this workload committed to replace
+when its quota reservation was persisted. The referenced workload is in the
+same namespace. This record is retained after admission is cleared so the
+job controller can finish the old slice even after eviction or restart.
+This field is only set when ElasticJobsViaWorkloadSlices is enabled.</p>
 </td>
 </tr>
 <tr><td><code>requeueState</code><br/>

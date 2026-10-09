@@ -9302,6 +9302,23 @@ spec:
                   x-kubernetes-list-map-keys:
                     - name
                   x-kubernetes-list-type: map
+                replaces:
+                  description: |-
+                    replaces identifies the workload slice this workload committed to replace
+                    when its quota reservation was persisted. The referenced workload is in the
+                    same namespace. This record is retained after admission is cleared so the
+                    job controller can finish the old slice even after eviction or restart.
+                    This field is only set when ElasticJobsViaWorkloadSlices is enabled.
+                  properties:
+                    name:
+                      description: name is the name of the replaced workload in the same namespace.
+                      maxLength: 253
+                      minLength: 1
+                      type: string
+                  required:
+                    - name
+                  type: object
+                  x-kubernetes-map-type: atomic
                 requeueState:
                   description: |-
                     requeueState holds the re-queue state
@@ -9418,6 +9435,8 @@ spec:
                   rule: '!has(oldSelf.clusterName) || !has(self.clusterName) || oldSelf.clusterName == self.clusterName'
                 - message: clusterName and nominatedClusterNames are mutually exclusive
                   rule: '!has(self.clusterName) || (!has(self.nominatedClusterNames) || (has(self.nominatedClusterNames) && size(self.nominatedClusterNames) == 0))'
+                - message: replaces is immutable once set
+                  rule: '!has(oldSelf.replaces) || (has(self.replaces) && self.replaces == oldSelf.replaces)'
           type: object
           x-kubernetes-validations:
             - message: podSetAssignments must have the same number of podSets as the spec

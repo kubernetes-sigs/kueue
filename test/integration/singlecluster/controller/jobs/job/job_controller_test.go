@@ -6749,6 +6749,35 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		ginkgo.By("verifying the old slice is not finished when the new slice becomes admitted")
 		behavioral.ExpectWorkloadSliceAdmittedBeforeOldFinished(watcher, oldWorkloadSlice.Name, behavioral.Timeout)
 
+		ginkgo.By("the replacement commitment is persisted with admission")
+		var replacement *kueue.Workload
+		gomega.Eventually(func(g gomega.Gomega) {
+			list := &kueue.WorkloadList{}
+			g.Expect(k8sClient.List(ctx, list, client.InNamespace(elasticJob.Namespace))).To(gomega.Succeed())
+			for i := range list.Items {
+				if list.Items[i].Name != oldWorkloadSlice.Name {
+					replacement = &list.Items[i]
+				}
+			}
+			g.Expect(replacement).NotTo(gomega.BeNil())
+			g.Expect(replacement.Status.Admission).NotTo(gomega.BeNil())
+			g.Expect(replacement.Status.Replaces).To(gomega.Equal(&kueue.WorkloadReplacement{Name: oldWorkloadSlice.Name}))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("the committed replacement cannot be changed or cleared")
+		for _, clearRecord := range []bool{false, true} {
+			gomega.Eventually(func(g gomega.Gomega) {
+				latest := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(replacement), latest)).To(gomega.Succeed())
+				if clearRecord {
+					latest.Status.Replaces = nil
+				} else {
+					latest.Status.Replaces.Name = "another-slice"
+				}
+				g.Expect(apierrors.IsInvalid(k8sClient.Status().Update(ctx, latest))).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
 		ginkgo.By("old workload is finished")
 		behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(oldWorkloadSlice))
 	})

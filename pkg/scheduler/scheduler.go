@@ -1041,7 +1041,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 
 	newWorkload := e.Obj.DeepCopy()
 	s.admissionRoutineWrapper.Run(func() {
-		err := s.patchWorkloadAdmission(ctx, log, newWorkload, cq, admission)
+		err := s.patchWorkloadAdmission(ctx, log, newWorkload, cq, admission, oldWorkloadSlice)
 		if err == nil {
 			// Make sure the preemption expectation for an assumed workload is satisfied.
 			// See: https://github.com/kubernetes-sigs/kueue/issues/11480
@@ -1099,6 +1099,7 @@ func (s *Scheduler) patchWorkloadAdmission(
 	wl *kueue.Workload,
 	cq *schdcache.ClusterQueueSnapshot,
 	admission *kueue.Admission,
+	oldWorkloadSlice *preemption.Target,
 ) error {
 	replacedNodeName := workload.FirstUnhealthyNodeName(wl)
 	patchOptions := []workloadpatching.PatchStatusOption{
@@ -1114,6 +1115,10 @@ func (s *Scheduler) patchWorkloadAdmission(
 	}
 	return workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
 		s.prepareWorkload(log, wl, cq, admission)
+		if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil && wl.Status.Replaces == nil {
+			oldSlice := oldWorkloadSlice.WorkloadInfo.Obj
+			wl.Status.Replaces = &kueue.WorkloadReplacement{Name: oldSlice.Name}
+		}
 		updateUnhealthyNodesAfterTASReplacement(log, wl, replacedNodeName)
 		return true, nil
 	}, patchOptions...)
@@ -1369,17 +1374,9 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 	}
 }
 
-// replaceWorkloadSlice handles the replacement of a workload slice by deactivating the old slice and
-// marking it as finished. It logs the replacement operation, records an event, and reports metrics.
-//
-// This function performs the following steps:
-//  1. Checks if the old workload slice is already finished by inspecting the "Finished" condition in its status.
-//     If the slice is already finished, the function logs a message and returns early.
-//  2. If the old slice is not finished, it deactivates the old slice and marks it with a "Finished" condition,
-//     indicating that the slice was replaced to accommodate the new workload slice.
-//  3. The function logs details about the replacement, including the reason for the removal and the associated message.
-//  4. An event is recorded for the old slice to indicate that the slice was aggregated (replaced) by the new slice.
-//  5. The function reports metrics for the aggregation of workload slices for the old queue.
+// TODO(kevin85421): Deprecate this function and make the job reconciler the sole
+// place that finishes replaced slices in both single-cluster and MultiKueue setups,
+// using Workload status.replaces to identify the replaced slices.
 func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.ClusterQueueReference, newSlice, oldSlice *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
 	if workloadfinish.IsFinished(oldSlice) {

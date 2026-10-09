@@ -40,6 +40,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/workload"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -359,7 +360,7 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 		})
 	})
 
-	ginkgo.It("Should keep a replaced elastic-job slice's worker objects when normalizeActiveSlices finishes it", func() {
+	ginkgo.It("Should keep a replaced elastic-job slice's worker objects when the job reconciler finishes it", func() {
 		manager := managerTestCluster
 		worker1 := worker1TestCluster
 
@@ -429,22 +430,23 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 			gomega.Expect(list.Items).To(gomega.HaveLen(2))
 		})
 
-		ginkgo.By("emulate the scheduler admitting the replacement slice (clusterName + quota reservation), but leave the old slice for normalizeActiveSlices to finish", func() {
+		ginkgo.By("emulate the scheduler committing replacement and quota reservation in the same status update", func() {
 			oldWorkload := &kueue.Workload{}
 			gomega.Expect(manager.client.Get(manager.ctx, oldWorkloadKey, oldWorkload)).To(gomega.Succeed())
 			gomega.Eventually(func(g gomega.Gomega) {
 				newWorkload := &kueue.Workload{}
 				g.Expect(manager.client.Get(manager.ctx, newWorkloadKey, newWorkload)).To(gomega.Succeed())
 				newWorkload.Status.ClusterName = oldWorkload.Status.ClusterName
+				newWorkload.Status.Replaces = &kueue.WorkloadReplacement{Name: oldWorkload.Name}
+				workload.SetQuotaReservation(newWorkload,
+					utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj(), behavioral.RealClock)
 				g.Expect(manager.client.Status().Update(manager.ctx, newWorkload)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			integration.SetQuotaReservation(manager.ctx, manager.client, newWorkloadKey,
-				utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
-					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj())
 		})
 
-		ginkgo.By("observe: normalizeActiveSlices finishes the old slice with reason WorkloadSliceReplaced (not OutOfSync)", func() {
+		ginkgo.By("observe: the job reconciler finishes the committed predecessor with reason WorkloadSliceReplaced", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				oldWorkload := &kueue.Workload{}
 				g.Expect(manager.client.Get(manager.ctx, oldWorkloadKey, oldWorkload)).To(gomega.Succeed())
