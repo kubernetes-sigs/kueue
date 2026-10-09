@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/component-base/featuregate"
@@ -3952,7 +3953,7 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 		},
-		"A workload is only eligible to do preemptions if it fits fully within nominal quota": {
+		"A workload can preempt within its ClusterQueue while borrowing": {
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("other-alpha").
 					Cohort("other").
@@ -4014,6 +4015,21 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "on-demand", "1").
 							Obj()).
 						Obj(), now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue; preemptor path: /other/other-alpha; preemptee path: /other/other-alpha",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue; preemptor path: /other/other-alpha; preemptee path: /other/other-alpha",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("incoming", "eng-alpha").
 					Priority(1).
@@ -4022,8 +4038,8 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed. Pending the preemption of 1 workload(s)",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -4051,7 +4067,7 @@ func TestSchedule(t *testing.T) {
 						Obj(), now).
 					Obj(),
 			},
-			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/incoming"},
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
@@ -10686,8 +10702,8 @@ func TestEntryMarkSkipped(t *testing.T) {
 
 			e := entry{
 				FlavorScanState: &workload.FlavorScanState{
-					LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
-						{corev1.ResourceCPU: 0},
+					TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+						{corev1.ResourceCPU: sets.New[kueue.ResourceFlavorReference]("flavor-0")},
 					},
 				},
 			}
@@ -10705,9 +10721,10 @@ func TestEntryMarkSkipped(t *testing.T) {
 			}
 			if !tc.wantFlavorScanStateNil {
 				// The retained progress must still name the flavor that was tried, since
-				// that is what NextFlavorToTryForPodSetResource reads.
-				if got := e.FlavorScanState.LastTriedFlavorIndexes[0][corev1.ResourceCPU]; got != 0 {
-					t.Errorf("retained LastTriedFlavorIdx = %d, want 0", got)
+				// that is what TriedFlavorsForPodSetResource reads.
+				want := sets.New[kueue.ResourceFlavorReference]("flavor-0")
+				if got := e.FlavorScanState.TriedFlavors[0][corev1.ResourceCPU]; !got.Equal(want) {
+					t.Errorf("retained TriedFlavors = %v, want %v", got, want)
 				}
 			}
 		})
