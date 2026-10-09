@@ -729,6 +729,66 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.It("Should not adopt a prebuilt workload which is already finished", func() {
+			container := corev1.Container{
+				Name:  "c",
+				Image: "pause",
+			}
+			testingjob.SetContainerDefaults(&container)
+
+			// The workload was left finished by a deleted predecessor: it keeps the
+			// in-use finalizer but has no controller, so the job must not adopt it.
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Containers(*container.DeepCopy()).
+					Obj()).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			// Status is a subresource, so the finished condition passed to Create
+			// is not persisted. Mark the workload finished explicitly and wait for
+			// the update to be observed before the job is created.
+			ginkgo.By("Marking the prebuilt workload finished", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdWl := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+					apimeta.SetStatusCondition(&createdWl.Status.Conditions, metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Message: "The workload is declared finished",
+					})
+					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			job := testingjob.MakeJob("job", ns.Name).
+				Queue("main").
+				PrebuiltWorkloadLabel("wl").
+				Containers(*container.DeepCopy()).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, job)
+
+			ginkgo.By("Checking the job gets suspended instead of adopting the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdJob := batchv1.Job{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Checking the finished workload is not adopted and keeps its finalizer", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					createdWl := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+					g.Expect(createdWl.OwnerReferences).To(gomega.BeEmpty())
+					g.Expect(createdWl.Finalizers).To(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
+					g.Expect(createdWl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+
 		ginkgo.It("Should reconcile job when the workload is created later", func() {
 			container := corev1.Container{
 				Name:  "c",
