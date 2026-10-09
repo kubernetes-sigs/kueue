@@ -1,0 +1,239 @@
+suite: test network policies
+templates:
+  - networkpolicy/manager-ingress.yaml
+  - networkpolicy/manager-egress.yaml
+  - networkpolicy/kueueviz-backend.yaml
+  - networkpolicy/kueueviz-frontend.yaml
+tests:
+  - it: should not render any network policy by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render the ControllerManager ingress policy when enabled
+    template: networkpolicy/manager-ingress.yaml
+    set:
+      networkPolicy:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-kueue-controller-manager-ingress
+      - equal:
+          path: spec.podSelector.matchLabels
+          value:
+            control-plane: controller-manager
+      - equal:
+          path: spec.policyTypes
+          value:
+            - Ingress
+
+  - it: should allow only the ports the ControllerManager serves
+    template: networkpolicy/manager-ingress.yaml
+    set:
+      networkPolicy:
+        enabled: true
+    asserts:
+      # webhook and the aggregated visibility API, both reached by kube-apiserver
+      - equal:
+          path: spec.ingress[0].ports
+          value:
+            - protocol: TCP
+              port: 9443
+            - protocol: TCP
+              port: 8082
+      # metrics
+      - equal:
+          path: spec.ingress[1].ports
+          value:
+            - protocol: TCP
+              port: 8443
+      # health and readiness probes, reached by kubelet
+      - equal:
+          path: spec.ingress[2].ports
+          value:
+            - protocol: TCP
+              port: 8081
+      - lengthEqual:
+          path: spec.ingress
+          count: 3
+
+  - it: should append extraIngress rules to the ControllerManager ingress policy
+    template: networkpolicy/manager-ingress.yaml
+    set:
+      networkPolicy:
+        enabled: true
+        extraIngress:
+          - from:
+              - namespaceSelector:
+                  matchLabels:
+                    kubernetes.io/metadata.name: monitoring
+            ports:
+              - protocol: TCP
+                port: 8443
+    asserts:
+      - lengthEqual:
+          path: spec.ingress
+          count: 4
+      - equal:
+          path: spec.ingress[0].from[0].namespaceSelector.matchLabels
+          value:
+            kubernetes.io/metadata.name: monitoring
+
+  - it: should fail when combined with hostNetwork, where policies are not enforced
+    template: networkpolicy/manager-ingress.yaml
+    set:
+      networkPolicy:
+        enabled: true
+      controllerManager:
+        hostNetwork: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "networkPolicy.enabled cannot be used with controllerManager.hostNetwork: most CNI plugins do not apply NetworkPolicy to host-network pods, so the policy would silently have no effect."
+
+  - it: should not render the egress policy when only networkPolicy is enabled
+    template: networkpolicy/manager-egress.yaml
+    set:
+      networkPolicy:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render the egress policy when egress is enabled
+    template: networkpolicy/manager-egress.yaml
+    set:
+      networkPolicy:
+        enabled: true
+        egress:
+          enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-kueue-controller-manager-egress
+      - equal:
+          path: spec.policyTypes
+          value:
+            - Egress
+      # cluster DNS, needed to resolve MultiKueue remote clusters by hostname
+      - equal:
+          path: spec.egress[0].ports
+          value:
+            - protocol: UDP
+              port: 53
+            - protocol: TCP
+              port: 53
+      # the in-cluster API server and MultiKueue remote API servers
+      - equal:
+          path: spec.egress[1].ports
+          value:
+            - protocol: TCP
+              port: 443
+            - protocol: TCP
+              port: 6443
+
+  - it: should append extraEgress rules to the ControllerManager egress policy
+    template: networkpolicy/manager-egress.yaml
+    set:
+      networkPolicy:
+        enabled: true
+        egress:
+          enabled: true
+          extraEgress:
+            - to:
+                - ipBlock:
+                    cidr: 10.10.0.0/16
+              ports:
+                - protocol: TCP
+                  port: 6443
+    asserts:
+      - lengthEqual:
+          path: spec.egress
+          count: 3
+      - equal:
+          path: spec.egress[0].to[0].ipBlock.cidr
+          value: 10.10.0.0/16
+
+  - it: should not render the egress policy when networkPolicy is disabled
+    template: networkpolicy/manager-egress.yaml
+    set:
+      networkPolicy:
+        enabled: false
+        egress:
+          enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render the KueueViz policies when KueueViz is disabled
+    templates:
+      - networkpolicy/kueueviz-backend.yaml
+      - networkpolicy/kueueviz-frontend.yaml
+    set:
+      networkPolicy:
+        enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should not render the KueueViz policies when networkPolicy is disabled
+    templates:
+      - networkpolicy/kueueviz-backend.yaml
+      - networkpolicy/kueueviz-frontend.yaml
+    set:
+      networkPolicy:
+        enabled: false
+      enableKueueViz: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should render the KueueViz backend policy when both are enabled
+    template: networkpolicy/kueueviz-backend.yaml
+    set:
+      networkPolicy:
+        enabled: true
+      enableKueueViz: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - isKind:
+          of: NetworkPolicy
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-kueue-kueueviz-backend
+      # KueueViz pods carry only the app label, not the app.kubernetes.io/* set
+      - equal:
+          path: spec.podSelector.matchLabels
+          value:
+            app: kueueviz-backend
+      - equal:
+          path: spec.ingress[0].ports
+          value:
+            - protocol: TCP
+              port: 8080
+
+  - it: should render the KueueViz frontend policy when both are enabled
+    template: networkpolicy/kueueviz-frontend.yaml
+    set:
+      networkPolicy:
+        enabled: true
+      enableKueueViz: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-kueue-kueueviz-frontend
+      - equal:
+          path: spec.podSelector.matchLabels
+          value:
+            app: kueueviz-frontend
