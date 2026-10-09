@@ -641,9 +641,13 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 	// first flavor again, mirroring updateAssignmentIfNeeded.
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
-	newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
+	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot)
 	e.NominationMapping = nil
 	revertRemoval()
+	if err != nil {
+		log.Error(err, "Failed to recompute the assignment for the deferred replacement check")
+		return false
+	}
 	if newAssignment.RepresentativeMode() != flavorassigner.Fit {
 		return false
 	}
