@@ -124,6 +124,33 @@ func TestPodRequests(t *testing.T) {
 				corev1.ResourceMemory: resource.MustParse("8Gi"),
 			},
 		},
+		"pods overhead is not charged": {
+			podSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+				}}},
+				Overhead: corev1.ResourceList{corev1.ResourcePods: resource.MustParse("8")},
+			},
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+		},
+		"negative overhead is not charged": {
+			podSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+				}}},
+				Overhead: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-1")},
+			},
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+		},
+		"positive overhead is charged": {
+			podSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+				}}},
+				Overhead: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+			},
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("3")},
+		},
 	}
 
 	for name, tc := range cases {

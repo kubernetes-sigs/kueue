@@ -29,6 +29,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -1691,6 +1692,185 @@ func TestWlReconcile(t *testing.T) {
 				*baseJobManagedByKueueBuilder.DeepCopy(),
 			},
 		},
+		// The remote was created without the entry, so a scale-down must send the local spec without it too.
+		"elastic job local workload scaled-down with a pods overhead": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			reconcileFor: "wl1",
+
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodOverHead(corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")}).
+						Obj()).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					ClusterName("worker1").
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.DeepCopy(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodOverHead(corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")}).
+						Obj()).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					ClusterName("worker1").
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.DeepCopy(),
+			},
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.DeepCopy()),
+					EventType: "Normal",
+					Reason:    "MultiKueue",
+					Message:   `The workload was admitted on "worker1"`,
+				},
+			},
+		},
+		"elastic job local workload scaled-down with a negative overhead": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+			reconcileFor: "wl1",
+
+			managersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-1")}).
+						Obj()).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					ClusterName("worker1").
+					Obj(),
+			},
+			managersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.DeepCopy(),
+			},
+			worker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).Obj()).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Obj(),
+			},
+			worker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+
+			wantManagersWorkloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-1")}).
+						Obj()).
+					AdmissionCheck(kueue.AdmissionCheckState{
+						Name:    "ac1",
+						State:   kueue.CheckStateReady,
+						Message: `The workload was admitted on "worker1"`,
+					}).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					ClusterName("worker1").
+					Obj(),
+			},
+			wantManagersJobs: []batchv1.Job{
+				*baseJobManagedByKueueBuilder.DeepCopy(),
+			},
+			wantWorker1Workloads: []kueue.Workload{
+				*baseWorkloadBuilder.Clone().
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadAdmitted,
+						Status: metav1.ConditionTrue,
+						Reason: "Admitted",
+					}).
+					Obj(),
+			},
+			wantWorker1Jobs: []batchv1.Job{
+				*baseJobBuilder.Clone().
+					PrebuiltWorkloadLabel("wl1").
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKeyFromObject(baseWorkloadBuilder.DeepCopy()),
+					EventType: "Normal",
+					Reason:    "MultiKueue",
+					Message:   `The workload was admitted on "worker1"`,
+				},
+			},
+		},
 		"creating remote workloads with preemption gates": {
 			featureGates: map[featuregate.Feature]bool{
 				features.MultiKueueOrchestratedPreemption: true,
@@ -3231,5 +3411,64 @@ func TestReconcileGroup_SyncDeferred_ShortRequeue(t *testing.T) {
 	if gotResult.RequeueAfter != syncDeferredRequeueAfter {
 		t.Fatalf("reconcileGroup result has RequeueAfter=%v; want %v (sync was deferred)",
 			gotResult.RequeueAfter, syncDeferredRequeueAfter)
+	}
+}
+
+// The remote is created without uncharged overhead, so the sync check must not read that as a difference.
+func TestCloneForCreateAndRemoteSync(t *testing.T) {
+	cases := map[string]struct {
+		local            corev1.ResourceList
+		wantRemote       corev1.ResourceList
+		remoteAfterClone corev1.ResourceList
+		wantOutOfSync    bool
+	}{
+		"an entry that is not charged is dropped on the way and does not read as a difference": {
+			local:      corev1.ResourceList{corev1.ResourcePods: resource.MustParse("1")},
+			wantRemote: corev1.ResourceList{},
+		},
+		"a negative one goes the same way": {
+			local:      corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")},
+			wantRemote: corev1.ResourceList{},
+		},
+		"an overhead that is charged reaches the remote unchanged": {
+			local:      corev1.ResourceList{"example.com/gpu": resource.MustParse("2")},
+			wantRemote: corev1.ResourceList{"example.com/gpu": resource.MustParse("2")},
+		},
+		"a remote carrying a different charged overhead is still out of sync": {
+			local:            corev1.ResourceList{"example.com/gpu": resource.MustParse("2")},
+			wantRemote:       corev1.ResourceList{"example.com/gpu": resource.MustParse("2")},
+			remoteAfterClone: corev1.ResourceList{"example.com/gpu": resource.MustParse("3")},
+			wantOutOfSync:    true,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			local := utiltestingapi.MakeWorkload("wl", TestNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "1").
+					PodOverHead(tc.local).
+					Obj()).
+				Obj()
+			before := local.Spec.PodSets[0].Template.Spec.Overhead.DeepCopy()
+
+			remote := cloneForCreate(local, "origin1", false)
+			if diff := cmp.Diff(tc.wantRemote, remote.Spec.PodSets[0].Template.Spec.Overhead); diff != "" {
+				t.Errorf("remote overhead (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(before, local.Spec.PodSets[0].Template.Spec.Overhead); diff != "" {
+				t.Errorf("the local workload was modified (-before +after):\n%s", diff)
+			}
+
+			if tc.remoteAfterClone != nil {
+				remote.Spec.PodSets[0].Template.Spec.Overhead = tc.remoteAfterClone
+			}
+			if got := isRemoteSpecOutOfSync(local.Spec, remote.Spec); got != tc.wantOutOfSync {
+				t.Errorf("out of sync = %v, want %v", got, tc.wantOutOfSync)
+			}
+			if diff := cmp.Diff(before, local.Spec.PodSets[0].Template.Spec.Overhead); diff != "" {
+				t.Errorf("comparing modified the local workload (-before +after):\n%s", diff)
+			}
+		})
 	}
 }
