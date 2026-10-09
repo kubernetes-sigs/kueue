@@ -319,7 +319,7 @@ func (a *FlavorAssigner) AssignFlavors(
 			},
 		},
 		FlavorScanState: workload.FlavorScanState{
-			LastTriedFlavorIndexes:        make([]map[corev1.ResourceName]int, 0, len(requests)),
+			TriedFlavors:                  make([]map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference], 0, len(requests)),
 			AllocatableResourceGeneration: a.cq.AllocatableResourceGeneration,
 			SchedulingCycle:               a.schedulingCycle,
 			SchedulingHash:                a.wl.SchedulingHash,
@@ -622,6 +622,24 @@ func (a *FlavorAssigner) zeroCountFallbackMessage(podSets []indexedPodSet, flavo
 		flavors[resName].Name, podSetNames, slices.Sorted(maps.Keys(flavors)), a.cq.Name, probeReason)
 }
 
+// triedFlavors returns a fresh set of flavors already tried for resName in the
+// current scan pass by looking up the first PodSet in psIDs that recorded
+// progress for resName (some PodSets in a group, such as a zero-request leader,
+// may not request resName themselves).
+func (a *FlavorAssigner) triedFlavors(psIDs []int, resName corev1.ResourceName, resourceGroup *resourcegroups.ResourceGroup) sets.Set[kueue.ResourceFlavorReference] {
+	for _, psID := range psIDs {
+		if tf := a.wl.FlavorScanState.TriedFlavorsForPodSetResource(psID, resName); len(tf) > 0 {
+			// If the ClusterQueue removed the remaining untried flavors between cycles so
+			// every current flavor was already tried, start over from the first flavor.
+			if !tf.HasAll(resourceGroup.Flavors...) {
+				return tf.Clone()
+			}
+			break
+		}
+	}
+	return sets.New[kueue.ResourceFlavorReference]()
+}
+
 // findFlavorForPodSets finds the flavor which can satisfy all the PodSet requests
 // for all resources in the same group as resName.
 // Returns the chosen flavor, along with the information about resources that need to be borrowed
@@ -660,22 +678,25 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	bestAssignmentMode := worstGranularMode()
 	consideredFlavors := newFlavorAssignmentAttempts(len(resourceGroup.Flavors))
 
+	triedFlavors := a.triedFlavors(psIDs, resName, resourceGroup)
+
 	// We will only check against the flavors' labels for the resource.
-	attemptedFlavorIdx := -1
-	idx := a.wl.FlavorScanState.NextFlavorToTryForPodSetResource(psIDs[0], resName)
-	for ; idx < len(resourceGroup.Flavors); idx++ {
-		attemptedFlavorIdx = idx
-		fName := resourceGroup.Flavors[idx]
+	for _, fName := range resourceGroup.Flavors {
+		if triedFlavors.Has(fName) {
+			continue
+		}
 		if a.shouldRespectNominationMapping() && a.shouldSkipBasedOnNominationMapping(log, fName, psIDs, resName) {
 			status.appendf("skipping flavor %s as it is not found in the nomination mapping for resource %s", fName, resName)
 			continue
 		}
 		if features.Enabled(features.ConcurrentAdmission) && !concurrentadmission.IsFlavorAllowedForVariant(a.wl.Obj, fName) {
+			triedFlavors.Insert(fName)
 			status.appendf("skipping flavor %s due to WorkloadAllowedResourceFlavorAnnotation annotation", fName)
 			continue
 		}
 
 		if flavorStatus := a.checkFlavorForPodSets(log, fName, psIDs, podSets, resourceGroup); !flavorStatus.IsFit() {
+			triedFlavors.Insert(fName)
 			flavorStatus.noFitReason = kueue.WorkloadQuotaReservedReasonNoMatchingFlavor
 			status.reasons = append(status.reasons, flavorStatus.reasons...)
 			consideredFlavors.AddNoFitFlavorAttempt(fName, flavorStatus)
@@ -696,6 +717,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 				}
 			})
 			if !probeStatus.IsFit() {
+				triedFlavors.Insert(fName)
 				status.reasons = append(status.reasons, probeStatus.reasons...)
 				consideredFlavors.AddNoFitFlavorAttempt(fName, probeStatus)
 				continue
@@ -774,6 +796,10 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			}
 		})
 
+		if representativeMode.preemptionMode <= noPreemptionCandidates {
+			triedFlavors.Insert(fName)
+		}
+
 		consideredFlavors.AddRepresentativeModeFlavorAttempt(fName, representativeMode.preemptionMode, maxBorrow, flavorQuotaReasons, flavorNoFitReason)
 
 		if features.Enabled(features.FlavorFungibility) {
@@ -797,13 +823,20 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	}
 
 	if features.Enabled(features.FlavorFungibility) {
-		for _, assignment := range bestAssignment {
-			if attemptedFlavorIdx == len(resourceGroup.Flavors)-1 {
-				// we have reach the last flavor, try from the first flavor next time
-				assignment.TriedFlavorIdx = -1
-			} else {
-				assignment.TriedFlavorIdx = attemptedFlavorIdx
+		if bestAssignmentMode.preemptionMode > noPreemptionCandidates {
+			for _, assignment := range bestAssignment {
+				triedFlavors.Insert(assignment.Name)
+				break
 			}
+		}
+		// Check HasAll so a flavor removed from the ClusterQueue between cycles
+		// does not count toward exhaustion.
+		if bestAssignmentMode.preemptionMode <= noPreemptionCandidates || triedFlavors.HasAll(resourceGroup.Flavors...) {
+			// we have tried all flavors, try from the first flavor next time
+			triedFlavors = nil
+		}
+		for _, assignment := range bestAssignment {
+			assignment.TriedFlavors = triedFlavors
 		}
 		if bestAssignmentMode.preemptionMode == fit {
 			return bestAssignment, nil, consideredFlavors
