@@ -844,15 +844,15 @@ const (
 type PreemptionConfigPriorityConstraint struct {
   // mode specifies whether priority comparison uses base or boosted (effective) priority.
   //
-  // +kubebuilder:validation:Required
-  Mode PreemptionConfigPriorityMode `json:"mode"`
+  // +required
+  Mode PreemptionConfigPriorityMode `json:"mode,omitempty"`
 
   // comparison defines how the candidate's priority compares to the preemptor's priority.
   // For example, "LessThan" means that only workloads with lower
   // priority will be allowed as preemption candidates.
   //
-  // +kubebuilder:validation:Required
-  Comparison NumericComparison `json:"comparison"`
+  // +required
+  Comparison NumericComparison `json:"comparison,omitempty"`
 }
 
 // PriorityClassName is the name of a PriorityClass or WorkloadPriorityClass.
@@ -875,6 +875,7 @@ type PreemptionConfigPriorityClassSelector struct {
   //
   // +optional
   // +listType=atomic
+  // +kubebuilder:validation:MinItems=1
   // +kubebuilder:validation:MaxItems=32
   MatchExpressions []PriorityClassSelectorRequirement `json:"matchExpressions,omitempty"`
 }
@@ -885,8 +886,8 @@ type PriorityClassSelectorRequirement struct {
   // operator represents a priority class name's relationship to a set of values.
   // Valid operators are In and NotIn.
   //
-  // +kubebuilder:validation:Required
-  Operator PriorityClassSelectorOperator `json:"operator"`
+  // +required
+  Operator PriorityClassSelectorOperator `json:"operator,omitempty"`
 
   // values is an array of priority class names.
   // For In, a workload matches only if its spec.priorityClassRef.name equals any name in this list
@@ -894,11 +895,11 @@ type PriorityClassSelectorRequirement struct {
   // For NotIn, a workload matches only if its spec.priorityClassRef.name does not equal any name
   // in this list (workloads without a priorityClassRef always match).
   //
-  // +kubebuilder:validation:Required
+  // +required
   // +listType=set
   // +kubebuilder:validation:MinItems=1
   // +kubebuilder:validation:MaxItems=32
-  Values []PriorityClassName `json:"values"`
+  Values []PriorityClassName `json:"values,omitempty"`
 }
 
 // PriorityClassSelectorOperator is the set of operators that can be used in a PriorityClassSelectorRequirement.
