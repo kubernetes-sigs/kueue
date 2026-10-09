@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/clientgetter"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/completion"
 	"sigs.k8s.io/kueue/cmd/kueuectl/app/flags"
+	kueuectlutil "sigs.k8s.io/kueue/cmd/kueuectl/app/util"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -166,7 +167,7 @@ func getWorkloadStatuses(cmd *cobra.Command) (sets.Set[int], error) {
 func (o *WorkloadOptions) Complete(clientGetter clientgetter.ClientGetter, cmd *cobra.Command) error {
 	var err error
 
-	o.Limit, err = listRequestLimit()
+	o.Limit, err = kueuectlutil.ListRequestLimit()
 	if err != nil {
 		return err
 	}
