@@ -158,8 +158,8 @@ func TestCohortReconcileCycleReturnsSuccess(t *testing.T) {
 func TestCohortReconcileCycleCacheSnapshotBehavior(t *testing.T) {
 	// This test verifies the cache Snapshot state during and after a cohort cycle.
 	// When AddOrUpdateCohort errors (cycle detected), the reconciler returns early
-	// without calling qManager.AddOrUpdateCohort. The observable effect is that
-	// cyclic cohorts are excluded from cache.Snapshot until the cycle is resolved.
+	// after recording the new parent in the queue manager. The observable effect is
+	// that cyclic cohorts are excluded from cache.Snapshot until the cycle is resolved.
 	cohortA := utiltestingapi.MakeCohort("cohort-a").Parent("cohort-b").Obj()
 	cohortB := utiltestingapi.MakeCohort("cohort-b").Parent("cohort-a").Obj()
 	cl := utiltesting.NewClientBuilder().
@@ -177,7 +177,7 @@ func TestCohortReconcileCycleCacheSnapshotBehavior(t *testing.T) {
 	}
 
 	// Reconcile cohort-b: B -> A closes the cycle. The reconciler handles the
-	// scheduler-cache cycle error without retrying or updating the queue manager.
+	// scheduler-cache cycle error without retrying, but still updates the queue manager.
 	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(cohortB)}); err != nil {
 		t.Fatalf("unexpected error when adding cycle: %v", err)
 	}
