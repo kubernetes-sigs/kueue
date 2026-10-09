@@ -18,6 +18,7 @@ package preemption
 
 import (
 	"context"
+	"fmt"
 	"iter"
 	"slices"
 
@@ -28,12 +29,30 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
-	"sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	"sigs.k8s.io/kueue/pkg/util/logging"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+// fairPreemptionStrategy finds workloads to preempt using fair sharing rules.
+//
+// While picking candidates, it adds the incoming workload's usage to the
+// preemptor queue so share comparisons reflect the state after admission. It
+// temporarily removes this usage each time it yields a candidate so the caller
+// can test if the workload fits.
+//
+// It yields candidates in up to three steps:
+//  1. First fair sharing rule (usually LessThanOrEqualToFinalShare). If an own
+//     workload is evicted and lowers the preemptor's share, this step can run
+//     again when FairSharingReevaluatePreemptionCandidates is enabled.
+//  2. Second fair sharing rule (LessThanInitialShare), if configured, for
+//     candidates skipped in step 1.
+//  3. Configurable preemption rules, if enabled.
+//
+// The returned strategy provides a validate function. Callers can use it to
+// verify that a proposed set of preemption targets still satisfies at least one
+// fair sharing rule against the snapshot state.
 func fairPreemptionStrategy(
 	ctx context.Context,
 	preemptor *Preemptor,
@@ -47,10 +66,7 @@ func fairPreemptionStrategy(
 	if noCandidates(preemptionCtx, candidateWls) {
 		return func(yieldStrategy func(PreemptionStrategy) bool) {}
 	}
-	orderingFn := func(a, b *workload.Info) int {
-		return common.CandidatesOrdering(log, preemptor.enabledAfs, a, b, preemptionCtx.preemptorCQ.Name, preemptor.clock.Now())
-	}
-	slices.SortFunc(candidateWls, orderingFn)
+	slices.SortFunc(candidateWls, preemptor.candidatesOrdering(log, preemptionCtx.preemptorCQ.Name))
 	if logV := log.V(5); logV.Enabled() {
 		logV.Info(
 			"Simulating fair preemption",
@@ -118,7 +134,6 @@ func fairPreemptionStrategy(
 				preemptionCtx.snapshot,
 				&preemptionCtx.preemptor,
 				preemptionCtx.frsNeedPreemption,
-				orderingFn,
 				func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing) },
 				yieldAndRecord,
 			)
@@ -133,8 +148,84 @@ func fairPreemptionStrategy(
 	}
 
 	return func(yieldStrategy func(PreemptionStrategy) bool) {
-		yieldStrategy(PreemptionStrategy{candidatesIter, allowBorrowing, preemptionCtx})
+		yieldStrategy(newPreemptionStrategy(
+			candidatesIter,
+			allowBorrowing,
+			preemptionCtx,
+			withVerify(func(targets []*Target) (bool, string) {
+				return verifyFairSharingTargets(preemptionCtx, targets, fsStrategies)
+			}),
+		))
 	}
+}
+
+// verifyFairSharingTargets checks that every cross-ClusterQueue target in targets
+// still satisfies at least one configured FairSharing strategy when evaluated
+// against the final post-fill-back state (incoming workload admitted, all
+// surviving targets removed).
+//
+// During candidate selection, preempting an intra-CQ workload lowers the
+// preemptor's simulated DominantResourceShare, which can make a cross-CQ
+// target appear fair. If fillBackWorkloads later restores that intra-CQ workload
+// (or if it is immediately re-admitted in the next scheduling cycle), the
+// preemptor's actual post-preemption share is higher than the share used to
+// justify the cross-CQ preemption, causing a preemption loop between queues (#14543).
+func verifyFairSharingTargets(preemptionCtx *preemptionCtx, targets []*Target, fsStrategies []fairsharing.Strategy) (bool, string) {
+	if !features.Enabled(features.FairSharingVerifyFinalTargets) {
+		return true, ""
+	}
+
+	revertSimulation := preemptionCtx.preemptorCQ.SimulateUsageAddition(preemptionCtx.workloadUsage)
+	defer revertSimulation()
+
+	withinNominal := features.Enabled(features.FairSharingPreemptWithinNominal) &&
+		queueWithinNominalInResourcesNeedingPreemption(preemptionCtx)
+
+	for _, t := range targets {
+		if passed, reason := verifyFairSharingTarget(preemptionCtx, t, fsStrategies, withinNominal); !passed {
+			return false, reason
+		}
+	}
+	return true, ""
+}
+
+// verifyFairSharingTarget checks if evicting target t from its ClusterQueue is justified under
+// at least one of the configured fair sharing strategies in the final state.
+// It computes the preemptor's final share, the target queue's final share (TargetNew),
+// and temporarily simulates restoring t's usage to compute TargetOld.
+func verifyFairSharingTarget(
+	preemptionCtx *preemptionCtx,
+	t *Target,
+	strategies []fairsharing.Strategy,
+	withinNominal bool,
+) (bool, string) {
+	if t.Reason == kueue.InClusterQueueReason ||
+		t.Reason == kueue.ConfigurablePreemptionReason ||
+		(t.Reason == kueue.InCohortReclamationReason && withinNominal) {
+		return true, ""
+	}
+
+	preemptorNode, targetNode := fairsharing.AlmostLCAs(preemptionCtx.preemptorCQ, t.WorkloadCq)
+	preemptorShare := fairsharing.PreemptorNewShare(preemptorNode.DominantResourceShare())
+	newShare := fairsharing.TargetNewShare(targetNode.DominantResourceShare())
+
+	revert := t.WorkloadCq.SimulateUsageAddition(t.WorkloadInfo.Usage())
+	oldShare := fairsharing.TargetOldShare(targetNode.DominantResourceShare())
+	revert()
+
+	for _, strategy := range strategies {
+		if strategy(preemptorShare, oldShare, newShare) {
+			return true, ""
+		}
+	}
+
+	reason := fmt.Sprintf("target %s in %s violates fair sharing (preemptorShare=%s, targetOldShare=%s, targetNewShare=%s)",
+		klog.KObj(t.WorkloadInfo.Obj),
+		klog.KRef("", string(t.WorkloadCq.Name)),
+		schdcache.DRS(preemptorShare).PreciseWeightedShareSerialized(),
+		schdcache.DRS(oldShare).PreciseWeightedShareSerialized(),
+		schdcache.DRS(newShare).PreciseWeightedShareSerialized())
+	return false, reason
 }
 
 func noCandidates(preemptionCtx *preemptionCtx, candidates []*workload.Info) bool {
@@ -157,7 +248,7 @@ func iterateWithFirstFsStrategy(
 	fsStrategy fairsharing.Strategy,
 	yield func(*Target) bool,
 ) (retryCandidates []*workload.Info, cont bool) {
-	yield = common.YieldFromSnapshot(preemptionCtx.snapshot, yield)
+	yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
 	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, candidates, log, preemptionCtx.clock)
 	// If the preemptor CQ stays within nominal quota for the contested
 	// resources (including the incoming workload, already simulated),
@@ -231,7 +322,7 @@ func iterateWithSecondFsStrategy(
 	retryCandidates []*workload.Info,
 	yield func(*Target) bool,
 ) bool {
-	yield = common.YieldFromSnapshot(preemptionCtx.snapshot, yield)
+	yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
 	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, retryCandidates, log, preemptionCtx.clock)
 	for candCQ := range ordering.Iter() {
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()

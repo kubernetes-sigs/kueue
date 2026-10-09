@@ -61,6 +61,11 @@ type Snapshot struct {
 	// capacity, fixed once the snapshot is built.
 	hostnameLeafTASFlavors map[kueue.ResourceFlavorReference]*TASFlavorSnapshot
 
+	// released holds workloads that stay in their ClusterQueue after their
+	// usage has left the snapshot. Removing or restoring them, including in
+	// simulations, leaves the usage untouched.
+	released sets.Set[workload.Reference]
+
 	// candidateOrderCache memoizes per-CQ preemption candidate ordering per snapshot.
 	candidateOrderCache *CandidateOrderCache
 }
@@ -77,7 +82,9 @@ func (s *Snapshot) CandidateOrder() *CandidateOrderCache {
 func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
 	delete(cq.Workloads, workload.Key(wl.Obj))
-	s.removeUsage(cq, wl.Usage())
+	if !s.released.Has(workload.Key(wl.Obj)) {
+		s.removeUsage(cq, wl.Usage())
+	}
 }
 
 // AddWorkload adds a workload to its corresponding ClusterQueue and
@@ -85,7 +92,24 @@ func (s *Snapshot) RemoveWorkload(wl *workload.Info) {
 func (s *Snapshot) AddWorkload(wl *workload.Info) {
 	cq := s.ClusterQueue(wl.ClusterQueue)
 	cq.Workloads[workload.Key(wl.Obj)] = wl
-	s.AddUsage(cq, wl.Usage())
+	if !s.released.Has(workload.Key(wl.Obj)) {
+		s.AddUsage(cq, wl.Usage())
+	}
+}
+
+// ReleaseWorkloadUsage removes a workload's usage while keeping the workload in
+// its ClusterQueue, for a workload the rest of the cycle must still find, such
+// as a replaced workload slice.
+func (s *Snapshot) ReleaseWorkloadUsage(wl *workload.Info) {
+	key := workload.Key(wl.Obj)
+	if s.released.Has(key) {
+		return
+	}
+	if s.released == nil {
+		s.released = sets.New[workload.Reference]()
+	}
+	s.released.Insert(key)
+	s.removeUsage(s.ClusterQueue(wl.ClusterQueue), wl.Usage())
 }
 
 // AddUsage adds usage to the ClusterQueue and updates overlapping TAS flavors.
@@ -119,6 +143,37 @@ func (s *Snapshot) updateOverlappingTASUsage(sourceFlavors map[kueue.ResourceFla
 	}
 }
 
+// UsesTASNodesOf reports whether the Workload holds TAS capacity on nodes
+// selected by any of the given flavors, whichever flavor it uses there. It
+// relies on TASHandleOverlappingFlavors, with which flavors with a hostname
+// lowest level account for the usage of each other on the nodes they share,
+// and therefore ignores the other flavors.
+func (s *Snapshot) UsesTASNodesOf(wl *workload.Info, flavors sets.Set[kueue.ResourceFlavorReference]) bool {
+	if !features.Enabled(features.TASHandleOverlappingFlavors) {
+		return false
+	}
+	usage := wl.TASUsage()
+	for flavor := range flavors {
+		target := s.hostnameLeafTASFlavors[flavor]
+		if target == nil {
+			continue
+		}
+		for usageFlavor, flavorUsage := range usage {
+			// Only flavors with a hostname leaf level record their usage per
+			// node, while the domains of other levels can be named like nodes.
+			if s.hostnameLeafTASFlavors[usageFlavor] == nil {
+				continue
+			}
+			for _, tr := range flavorUsage {
+				if target.hasDomain(utiltas.DomainID(tr.Values)) {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // SimulateWorkloadUsageRemoval modifies the snapshot by removing the usage
 // corresponding to the list of workloads from workloads' respective
 // ClusterQueues. It returns a function which can be used to restore
@@ -130,6 +185,9 @@ func (s *Snapshot) SimulateWorkloadUsageRemoval(workloads []*workload.Info) func
 	}
 	cqUsages := make([]cqUsage, 0, len(workloads))
 	for _, w := range workloads {
+		if s.released.Has(workload.Key(w.Obj)) {
+			continue
+		}
 		cqUsages = append(cqUsages, cqUsage{cq: w.ClusterQueue, usage: w.Usage()})
 	}
 	for _, cqUsage := range cqUsages {
@@ -224,6 +282,10 @@ func WithAfsUsageLedger(ledger *queueafs.AfsUsageLedger) SnapshotOption {
 	}
 }
 
+// Snapshot returns a point-in-time copy of the ClusterQueue and Cohort trees for
+// one scheduling cycle. Quota is fixed for the snapshot's lifetime while Usage is
+// cloned, so callers can simulate admission and preemption against it without
+// affecting the cache.
 func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snapshot, error) {
 	c.RLock()
 	defer c.RUnlock()

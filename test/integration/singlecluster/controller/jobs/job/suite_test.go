@@ -46,7 +46,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -57,7 +58,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunSuite(t, "Job Controller Suite")
+	behavioral.RunSuite(t, "Job Controller Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -124,7 +125,8 @@ func managerAndControllersSetup(
 		}
 		mgr.GetScheme().Default(configuration)
 
-		lqMetrics := metrics.NewLocalQueueMetricsConfig(configuration.Metrics.LocalQueueMetrics)
+		lqMetrics, err := metrics.NewLocalQueueMetricsConfig(configuration.Metrics.LocalQueueMetrics)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		customLabels := metrics.NewCustomLabels(configuration.Metrics.CustomLabels)
 
 		cCache := schdcache.New(mgr.GetClient(),
@@ -137,7 +139,7 @@ func managerAndControllersSetup(
 			qcache.WithLocalQueueMetrics(lqMetrics),
 			qcache.WithCustomLabels(customLabels),
 		}
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		opts = append(opts, jobframework.WithCache(cCache), jobframework.WithCustomLabels(customLabels))
 		managerSetupWithConfiguration(configuration, opts...)(ctx, mgr)

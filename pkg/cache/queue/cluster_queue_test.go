@@ -38,6 +38,7 @@ import (
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -945,25 +946,25 @@ func TestPendingResources(t *testing.T) {
 	got := cq.pendingResources()
 
 	// All three workloads (heap + inadmissible + inflight) should be counted.
-	if got[corev1.ResourceCPU] == 0 {
+	if got[corev1.ResourceCPU].Sign() == 0 {
 		t.Errorf("expected non-zero CPU in PendingResources, got %v", got)
 	}
-	if got[corev1.ResourceMemory] == 0 {
+	if got[corev1.ResourceMemory].Sign() == 0 {
 		t.Errorf("expected non-zero memory in PendingResources, got %v", got)
 	}
 
 	// Sum should equal wl1 + wl2 + wl3: CPU = 2+1+3 = 6000m, Memory = 1Gi+512Mi+2Gi.
-	wantCPU := wl1.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU) +
-		wl2.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU) +
-		wl3.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU)
-	wantMemory := wl1.TotalRequests[0].Requests.ResourceValue(corev1.ResourceMemory) +
-		wl2.TotalRequests[0].Requests.ResourceValue(corev1.ResourceMemory) +
-		wl3.TotalRequests[0].Requests.ResourceValue(corev1.ResourceMemory)
-	if got[corev1.ResourceCPU] != wantCPU {
-		t.Errorf("CPU mismatch: want %d, got %d", wantCPU, got[corev1.ResourceCPU])
+	wantCPU := wl1.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU).
+		Add(wl2.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU)).
+		Add(wl3.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU))
+	wantMemory := wl1.TotalRequests[0].Requests.ResourceValue(corev1.ResourceMemory).
+		Add(wl2.TotalRequests[0].Requests.ResourceValue(corev1.ResourceMemory)).
+		Add(wl3.TotalRequests[0].Requests.ResourceValue(corev1.ResourceMemory))
+	if !got[corev1.ResourceCPU].Equal(wantCPU) {
+		t.Errorf("CPU mismatch: want %s, got %s", wantCPU, got[corev1.ResourceCPU])
 	}
-	if got[corev1.ResourceMemory] != wantMemory {
-		t.Errorf("memory mismatch: want %d, got %d", wantMemory, got[corev1.ResourceMemory])
+	if !got[corev1.ResourceMemory].Equal(wantMemory) {
+		t.Errorf("memory mismatch: want %s, got %s", wantMemory, got[corev1.ResourceMemory])
 	}
 }
 
@@ -983,7 +984,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 		wantInInadmissible bool
 		wantInInflight     bool
 		wantPendingActive  int
-		wantCPU            func(wInfo *workload.Info) int64
+		wantCPU            func(wInfo *workload.Info) resources.Amount
 	}{
 		"the workload stays tracked as inadmissible": {
 			beforeResync: func(_ *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
@@ -1011,7 +1012,7 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 			afterResync: func(cq *ClusterQueue, wInfo *workload.Info) {
 				cq.Delete(log, workloadKey(wInfo))
 			},
-			wantCPU: func(*workload.Info) int64 { return 0 },
+			wantCPU: func(*workload.Info) resources.Amount { return resources.Amount{} },
 		},
 		"the workload stays tracked as inflight": {
 			beforeResync: func(t *testing.T, cq *ClusterQueue, wInfo *workload.Info) {
@@ -1063,14 +1064,14 @@ func TestPendingResourcesAfterLocalQueueResync(t *testing.T) {
 			if got := cq.workloads.pendingActive(); got.Total() != tc.wantPendingActive {
 				t.Errorf("pending active workloads = %d, want %d", got.Total(), tc.wantPendingActive)
 			}
-			if gotCPU, wantCPU := cq.pendingResources()[corev1.ResourceCPU], tc.wantCPU(wInfo); gotCPU != wantCPU {
-				t.Errorf("pending CPU = %d, want %d", gotCPU, wantCPU)
+			if gotCPU, wantCPU := cq.pendingResources()[corev1.ResourceCPU], tc.wantCPU(wInfo); !gotCPU.Equal(wantCPU) {
+				t.Errorf("pending CPU = %s, want %s", gotCPU, wantCPU)
 			}
 		})
 	}
 }
 
-func singleWorkloadCPU(wInfo *workload.Info) int64 {
+func singleWorkloadCPU(wInfo *workload.Info) resources.Amount {
 	return wInfo.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU)
 }
 

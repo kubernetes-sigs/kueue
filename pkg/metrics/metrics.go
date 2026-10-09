@@ -1063,7 +1063,7 @@ If the Cohort has a weight of zero and is borrowing, this will return NaN.`,
 			Subsystem: constants.KueueName,
 			Name:      "cohort_subtree_admitted_workloads_total",
 			Help:      "The total number of admitted workloads per cohort's subtree",
-		}, append([]string{"cohort", "priority_class", "replica_role"}, cohortMetricLabels...),
+		}, append([]string{"cohort", "priority_class", "replica_role"}, cl.LabelNames(configapi.SourceKindCohort, configapi.SourceKindWorkload)...),
 	)
 
 	CohortSubtreeResourceReservations = prometheus.NewGaugeVec(
@@ -1593,6 +1593,10 @@ func ReportCohortSubtreeAdmittedActiveWorkloads(cohort kueue.CohortReference, co
 	CohortSubtreeAdmittedActiveWorkloads.WithLabelValues(labels...).Set(float64(count))
 }
 
+func ClearCohortSubtreeAdmittedActiveWorkloads(cohort kueue.CohortReference) {
+	CohortSubtreeAdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{"cohort": string(cohort)})
+}
+
 func ReportAdmittedActiveWorkloads(cqName kueue.ClusterQueueReference, incr int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(cqName), roletracker.GetRole(tracker)}, customLabelValues...)
 	AdmittedActiveWorkloads.WithLabelValues(labels...).Add(float64(incr))
@@ -1722,6 +1726,7 @@ func Register() {
 		QueuedUntilReadyWaitTime,
 		AdmittedUntilReadyWaitTime,
 		EvictedWorkloadsTotal,
+		ReplacedWorkloadSlicesTotal,
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
 		WorkloadEvictionLatencySeconds,
@@ -1746,9 +1751,7 @@ func Register() {
 		UnadmittedWorkloads,
 		ExecutionTimeSeconds,
 	)
-	if features.Enabled(features.MetricForWorkloadCreationLatency) {
-		metrics.Registry.MustRegister(WorkloadCreationLatency)
-	}
+	metrics.Registry.MustRegister(WorkloadCreationLatency)
 	if features.Enabled(features.LocalQueueMetrics) {
 		RegisterLQMetrics()
 	}

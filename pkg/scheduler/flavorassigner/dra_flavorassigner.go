@@ -26,7 +26,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
-	"sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 // delegateDRABackedExtendedResources zeroes the PodSet's DRA-backed extended resources so
@@ -52,19 +51,7 @@ func delegateDRABackedExtendedResources(spec *corev1.PodSpec, erCache *dra.Exten
 	}
 	undelegated := requests.Clone()
 	for _, name := range names {
-		requests.Set(name, 0)
+		requests.Set(name, resources.Amount{})
 	}
 	return &schdcache.DRADelegation{Resources: names, Undelegated: undelegated}
-}
-
-// requestsForDomain is the single-Pod request to record against a domain. A domain whose
-// nodes publish the delegated resources consumed them, so the usage has to say so.
-func requestsForDomain(requests resources.Requests, delegation *schdcache.DRADelegation, tasFlavor *schdcache.TASFlavorSnapshot, domain []string) resources.Requests {
-	if !features.Enabled(features.KueueDRADeviceFeasibility) || delegation == nil || tasFlavor == nil {
-		return requests
-	}
-	if !tasFlavor.DomainAdvertises(tas.DomainID(domain), delegation.Resources) {
-		return requests
-	}
-	return delegation.Undelegated
 }

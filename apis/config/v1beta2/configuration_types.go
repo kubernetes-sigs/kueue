@@ -592,6 +592,9 @@ type Integrations struct {
 	// match or otherwise the workload creation would fail. The labels are copied only
 	// during the workload creation and are not updated even if the labels of the
 	// underlying job are changed.
+	// Kueue never copies its internal labels kueue.x-k8s.io/multikueue-origin,
+	// kueue.x-k8s.io/concurrent-admission-parent and kueue.x-k8s.io/job-uid from
+	// the job.
 	LabelKeysToCopy []string `json:"labelKeysToCopy,omitempty"`
 }
 

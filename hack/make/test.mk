@@ -59,6 +59,8 @@ E2E_KIND_VERSION ?= kindest/node:v$(E2E_K8S_FULL_VERSION)
 E2E_USE_HELM ?= false
 E2E_MODE ?= ci
 E2E_SKIP_REINSTALL ?= false
+E2E_BIN_DIR ?= $(abspath $(BIN_DIR))
+export E2E_BIN_DIR
 PROMETHEUS_OPERATOR_VERSION ?= $(shell grep '^FROM' "${TESTING_DIR}/prometheus-operator/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
 # When truthy, force re-installing external operators (MPI, Ray, etc.) on each run, even in E2E_MODE=dev.
 E2E_ENFORCE_OPERATOR_UPDATE ?= false
@@ -80,12 +82,13 @@ GO_TEST_TARGET ?= .
 # UNIT_SHARD_INDEX selects which shard this job runs (0-based).
 # When UNIT_TOTAL_SHARDS is not set, all packages run in a single job (existing behaviour).
 ifdef UNIT_TOTAL_SHARDS
-UNIT_TEST_PACKAGES := $(shell ./hack/testing/shard-unit-tests.sh $(UNIT_SHARD_INDEX) $(UNIT_TOTAL_SHARDS))
+UNIT_TEST_PACKAGES := $(shell ./hack/testing/shard-unit-tests.sh $(UNIT_SHARD_INDEX) $(UNIT_TOTAL_SHARDS) $(GO_TEST_TARGET))
 ifeq ($(UNIT_TEST_PACKAGES),)
 $(error Aborting: shard-unit-tests.sh returned no packages. Check UNIT_SHARD_INDEX / UNIT_TOTAL_SHARDS.)
 endif
 else
-UNIT_TEST_PACKAGES := $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/')
+# Enumerate packages only when unit tests need them, avoiding scans during verify.
+UNIT_TEST_PACKAGES = $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | $(PROJECT_DIR)/hack/testing/filter-unit-test-packages.sh)
 endif
 
 OPTIONAL_SHARD_SUFFIX = $(if $(UNIT_TOTAL_SHARDS),-shard-$(UNIT_SHARD_INDEX))
@@ -293,7 +296,7 @@ test-e2e-extended-shard-2: GINKGO_ARGS=--label-filter='feature:kuberay && shard:
 test-e2e-extended-shard-2: setup-e2e-env run-test-e2e-extended-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 ## Label Taxonomy:
-##   Features: certs,deployment,job,fairsharing,kueuectl,metrics,pod,statefulset,visibility,e2e_v1beta1,ha
+##   Features: certs,deployment,job,fairsharing,kueuectl,metrics,pod,statefulset,visibility,ha
 ##
 ## Examples:
 ##   Run only job tests: GINKGO_ARGS="--label-filter=feature:job" make test-e2e-baseline
@@ -367,6 +370,23 @@ test-e2e-was-tas-baseline-helm: test-tas-e2e-baseline-helm
 .PHONY: test-e2e-was-tas-extended-helm
 test-e2e-was-tas-extended-helm: WAS_ENABLED=true
 test-e2e-was-tas-extended-helm: test-tas-e2e-extended-helm
+
+# WAS deep integration version of TAS e2e tests
+.PHONY: test-e2e-was-deep-tas-baseline
+test-e2e-was-deep-tas-baseline: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
+test-e2e-was-deep-tas-baseline: test-tas-e2e-baseline
+
+.PHONY: test-e2e-was-deep-tas-extended
+test-e2e-was-deep-tas-extended: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
+test-e2e-was-deep-tas-extended: test-tas-e2e-extended
+
+.PHONY: test-e2e-was-deep-tas-extended-shard-0
+test-e2e-was-deep-tas-extended-shard-0: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
+test-e2e-was-deep-tas-extended-shard-0: test-tas-e2e-extended-shard-0
+
+.PHONY: test-e2e-was-deep-tas-extended-shard-1
+test-e2e-was-deep-tas-extended-shard-1: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
+test-e2e-was-deep-tas-extended-shard-1: test-tas-e2e-extended-shard-1
 
 # Backwards compatibility aliases for CI/Prow
 .PHONY: test-tas-was-e2e-baseline
@@ -518,6 +538,7 @@ run-test-tas-e2e-baseline-%:
 		E2E_CONFIG_FOLDER="baseline" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
+		E2E_EXTRA_KUEUE_FEATURE_GATES="$(E2E_EXTRA_KUEUE_FEATURE_GATES)" \
 		./hack/testing/e2e-test.sh
 
 run-test-tas-e2e-extended-%: K8S_VERSION = $(@:run-test-tas-e2e-extended-%=%)
@@ -533,6 +554,7 @@ run-test-tas-e2e-extended-%:
 		E2E_CONFIG_FOLDER="extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
+		E2E_EXTRA_KUEUE_FEATURE_GATES="$(E2E_EXTRA_KUEUE_FEATURE_GATES)" \
 		./hack/testing/e2e-test.sh
 
 run-test-e2e-sequential-baseline-%: K8S_VERSION = $(@:run-test-e2e-sequential-baseline-%=%)
@@ -794,8 +816,7 @@ run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 MULTIKUEUE_PERFORMANCE_CONFIG ?= $(PROJECT_DIR)/test/performance/multikueue/configs/baseline/configuration.yaml
 MULTIKUEUE_PERFORMANCE_EXPECTATIONS ?= $(PROJECT_DIR)/test/performance/multikueue/configs/baseline/expectations.yaml
 
-# The runner lives under ./test/, which 'make test' excludes, so its unit tests need their own
-# target to run anywhere.
+# These tests also run in unit CI; retain a focused target for performance workflows.
 .PHONY: test-performance-multikueue-runner
 test-performance-multikueue-runner: gotestsum
 	mkdir -p $(ARTIFACTS)
@@ -929,7 +950,7 @@ ginkgo-top:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(BIN_DIR)/ginkgo-top ./ginkgo-top
 
 .PHONY: setup-e2e-env
-setup-e2e-env: kustomize yq dep-crds kind helm ginkgo ginkgo-top ## Setup environment for e2e tests without running tests.
+setup-e2e-env: kustomize yq dep-crds kind helm ginkgo ginkgo-top kubectl ## Setup environment for e2e tests without running tests.
 	@echo "Setting up environment for e2e tests"
 
 .PHONY: test-e2e-kueueviz-local
@@ -942,7 +963,8 @@ test-e2e-kueueviz-local: setup-e2e-env ## Run end-to-end tests for kueueviz with
 
 .PHONY: test-kueueviz-backend
 test-kueueviz-backend: ## Run KueueViz backend tests.
-	cd $(PROJECT_DIR)/cmd/kueueviz/backend && $(GO_CMD) test $(GOFLAGS) $(GO_TEST_FLAGS) ./...
+	cd $(PROJECT_DIR)/cmd/kueueviz/backend && $(NETWORK_INSTALL_RETRY) $(GO_CMD) mod download && \
+	$(GO_CMD) test $(GOFLAGS) $(GO_TEST_FLAGS) ./...
 
 .PHONY: test-e2e-kueueviz
 test-e2e-kueueviz: test-kueueviz-backend setup-e2e-env ## Run end-to-end tests for kueueviz without running kueue tests.

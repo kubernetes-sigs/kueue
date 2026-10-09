@@ -41,7 +41,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -53,14 +54,14 @@ var (
 )
 
 func TestScheduler(t *testing.T) {
-	util.RunSuite(t, "Scheduler Fair Sharing Suite")
+	behavioral.RunSuite(t, "Scheduler Fair Sharing Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegration, true)
 
 	fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 		APIServerFeatureGates: []string{
 			"DynamicResourceAllocation=true",
 		},
@@ -104,7 +105,7 @@ func managerAndSchedulerSetup(
 		queueOptions := []qcache.Option{}
 		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(admissionFairSharing))
 		queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 		qManager = queues
 
 		configuration := &config.Configuration{

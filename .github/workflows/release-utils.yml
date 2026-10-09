@@ -25,7 +25,9 @@ jobs:
        contains(github.event.comment.body, '/wait-for-images') ||
        contains(github.event.comment.body, '/wait-for-prod-images') ||
        contains(github.event.comment.body, '/publish-release') ||
-       contains(github.event.comment.body, '/merge-main-into-website'))
+       contains(github.event.comment.body, '/update-krew-index') ||
+       contains(github.event.comment.body, '/merge-main-into-website') ||
+       contains(github.event.comment.body, '/create-milestone'))
     steps:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,6 +49,7 @@ jobs:
             ".github/actions/merge-main-into-website/action.yml"
             ".github/actions/publish-release/action.yml"
             ".github/actions/update-krew-index/action.yml"
+            ".github/actions/create-milestone/action.yml"
             ".github/actions/report-result/action.yml"
             "hack/releasing/authorize_release_actor.py"
             "hack/releasing/authorize_release_actor_test.py"
@@ -146,8 +149,12 @@ jobs:
             COMMAND="wait-for-prod-images"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/publish-release[[:space:]]*$'; then
             COMMAND="publish-release"
+          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/update-krew-index[[:space:]]*$'; then
+            COMMAND="update-krew-index"
           elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/merge-main-into-website[[:space:]]*$'; then
             COMMAND="merge-main-into-website"
+          elif printf '%s' "$BODY" | tr -d '\r' | grep -qE '^/create-milestone[[:space:]]*$'; then
+            COMMAND="create-milestone"
           else
             echo "error_message=❌ Invalid command format in comment: $COMMENT." >> "$GITHUB_OUTPUT"
             exit 1
@@ -175,7 +182,7 @@ jobs:
 
           # Commands that can only run after the release has been published.
           case "$COMMAND" in
-            merge-main-into-website|create-devel-tag) POST_PUBLISH=true ;;
+            update-krew-index|merge-main-into-website|create-devel-tag|create-milestone) POST_PUBLISH=true ;;
             *) POST_PUBLISH=false ;;
           esac
 
@@ -276,6 +283,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.sync.outputs.message || '✅ Release notes have been synced.' }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -353,6 +361,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.publish.outputs.message }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -430,6 +439,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.push.outputs.message }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -467,6 +477,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.devel.outputs.message }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -555,6 +566,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.wait_images.outputs.message }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -605,6 +617,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.tag.outputs.message || '✅ Release tag created.' }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -671,6 +684,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.draft.outputs.message || '✅ Draft release created.' }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -704,7 +718,40 @@ jobs:
           repo: ${{ github.repository }}
           update-release-issue: true
 
+      - name: Report Success
+        if: ${{ success() }}
+        uses: $/.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.publish.outputs.message }}
+          mark-done: true
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: $/.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.publish.outputs.message || '❌ Failed to publish release.' }}
+
+  update-krew-index:
+    name: Update Krew Index
+    runs-on: ubuntu-latest
+    needs: authorize
+    timeout-minutes: 10
+    if: ${{ needs.authorize.outputs.command == 'update-krew-index' }}
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: main
+          persist-credentials: false
+
       - name: Update new version in krew-index
+        id: krew
         uses: $/.github/actions/update-krew-index
         with:
           version: ${{ needs.authorize.outputs.version }}
@@ -715,14 +762,15 @@ jobs:
         uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
-          message: ${{ steps.publish.outputs.message }}
+          message: ${{ steps.krew.outputs.message }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
         uses: $/.github/actions/report-result
         with:
           command: ${{ needs.authorize.outputs.command }}
-          message: ${{ steps.publish.outputs.message || '❌ Failed to publish release.' }}
+          message: "❌ Failed to update krew-index for version `${{ needs.authorize.outputs.version }}`."
 
   merge-main-into-website:
     name: Merge main into website
@@ -751,6 +799,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.merge-main-into-website.outputs.message }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -758,3 +807,42 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.merge-main-into-website.outputs.message || '❌ Failed to merge the main branch into the website branch.' }}
+
+  create-milestone:
+    name: Create Next Milestone
+    runs-on: ubuntu-latest
+    needs: authorize
+    timeout-minutes: 10
+    if: ${{ needs.authorize.outputs.command == 'create-milestone' }}
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: main
+          persist-credentials: false
+
+      - name: Create Next Milestone
+        id: milestone
+        uses: $/.github/actions/create-milestone
+        with:
+          version: ${{ needs.authorize.outputs.version }}
+          repo: ${{ github.repository }}
+
+      - name: Report Success
+        if: ${{ success() }}
+        uses: $/.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.milestone.outputs.message }}
+          mark-done: true
+
+      - name: Report Failure
+        if: ${{ failure() }}
+        uses: $/.github/actions/report-result
+        with:
+          command: ${{ needs.authorize.outputs.command }}
+          message: ${{ steps.milestone.outputs.message || '❌ Failed to create milestone.' }}

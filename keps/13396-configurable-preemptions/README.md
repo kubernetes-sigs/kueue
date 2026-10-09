@@ -248,7 +248,7 @@ Introduce a new CRD **PreemptionConfig** that will be used to define:
 - triggers for when preemption should occur (e.g. insufficient topology to schedule the workload),
 - rules defining which workloads should be considered for preemption.
 
-In the initial iteration, candidate workloads are gathered from both strategies into two separate sets, merged, deduplicated, and ordered using the default ordering rules from classical preemption and fair sharing (reusing the existing preemption ordering logic in `pkg/scheduler/preemption/common/ordering.go`) to change existing logic as little as possible. Configurable candidate ordering and advanced candidate organization (such as Per-Selector, Per-ClusterQueue priority queues) are deferred to [Future Work](FUTURE_WORK.md).
+In the initial iteration, candidate workloads are gathered from both strategies into two separate sets, merged, deduplicated, and ordered using the default ordering rules from classical preemption and fair sharing (reusing the existing preemption ordering logic in `pkg/scheduler/preemption/policy/ordering.go`) to change existing logic as little as possible. Configurable candidate ordering and advanced candidate organization (such as Per-Selector, Per-ClusterQueue priority queues) are deferred to [Future Work](FUTURE_WORK.md).
 
 The **PreemptionConfig** object is a cluster-wide resource that can be referenced by multiple ClusterQueues.
 
@@ -345,6 +345,11 @@ spec:
 As it has an `AnyClusterQueue` relation, it can preempt workloads even if they are not related in any way to the preemptor ClusterQueue.
 In combination with a custom numeric label selector using strict `LessThan`, this guarantees asymmetry: a larger-topology workload can preempt smaller workloads blocking the required topology domain, but smaller or equal-sized workloads cannot preempt the larger workload in return, preventing mutual preemption loops.
 Effectively, when the smaller workloads are re-admitted, they can be placed in smaller fragmented domains (where the larger workload cannot fit), thereby defragmenting the cluster.
+
+> [!NOTE]
+> With the `TASHandleOverlappingFlavors` feature gate, TAS flavors with a hostname lowest level account for the usage of each other on the nodes they share.
+> Then, candidates also include the workloads holding capacity on nodes of those flavors, whichever flavor and resource they use,
+> as preempting them frees capacity in the topology of the preemptor. This applies to every trigger, as triggers only define when the rules apply.
 
 #### Story 2 - Hero job
 

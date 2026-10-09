@@ -24,6 +24,7 @@ If your repo has certain guidelines for contribution, put them here ahead of the
 - [AI Tool Usage Policy](https://www.kubernetes.dev/docs/guide/pull-requests/#ai-guidance) - 🤖 Guidelines for using AI tools when contributing.
 - [Coding Guidelines]({{< relref "/community/contribution_guidelines/coding_guidelines.md" >}}) - Coding conventions and patterns for Kueue product and test code
 - [Development]({{< relref "/community/contribution_guidelines/development.md" >}}) - Kueue development
+- [Writing tests]({{< relref "/community/contribution_guidelines/writing_tests.md" >}}) - Coverage, test levels, and test design
 - [Running and debugging tests]({{< relref "/community/contribution_guidelines/testing.md" >}}) - How to run and debug Kueue tests
 - [Website contributions]({{< relref "/community/contribution_guidelines/website.md" >}}) - Kueue website development
 

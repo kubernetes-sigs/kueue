@@ -53,7 +53,7 @@ func Join[T ~string](a []T, sep string) string {
 // valueSep = ","
 // entrySep = "; "
 // result = "a:1,2; b:3"
-func JoinMap(m map[string][]int, keyValueSep string, valueSep string, entrySep string) string {
+func JoinMap[T ~string](m map[T][]int, keyValueSep string, valueSep string, entrySep string) string {
 	itoa := func(value *int) string { return strconv.Itoa(*value) }
 
 	keys := slices.Collect(maps.Keys(m))
@@ -64,7 +64,7 @@ func JoinMap(m map[string][]int, keyValueSep string, valueSep string, entrySep s
 		if i > 0 {
 			builder.WriteString(entrySep)
 		}
-		builder.WriteString(key)
+		builder.WriteString(string(key))
 		if len(m[key]) > 0 {
 			builder.WriteString(keyValueSep)
 

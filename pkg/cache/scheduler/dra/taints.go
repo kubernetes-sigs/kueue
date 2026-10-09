@@ -89,10 +89,9 @@ func applyRulesToSlice(slice *resourceapi.ResourceSlice, rules []*resourceapi.De
 // determineDeviceName reports whether the selector matches the slice, and the device it
 // narrows the match to, if any.
 func determineDeviceName(selector *resourceapi.DeviceTaintSelector, slice *resourceapi.ResourceSlice) (*string, bool) {
-	// No selector taints every device. The API comment says it matches nothing, but the
-	// tracker, which is what kube-scheduler sees, taints everything.
+	// No selector matches no devices, per the API spec and the upstream tracker.
 	if selector == nil {
-		return nil, true
+		return nil, false
 	}
 	if selector.Driver != nil && *selector.Driver != slice.Spec.Driver {
 		return nil, false

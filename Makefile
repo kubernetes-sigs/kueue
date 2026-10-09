@@ -27,6 +27,7 @@ GIT_COMMIT ?= $(shell git rev-parse HEAD)
 HOST_IMAGE_PLATFORM ?= linux/$(shell go env GOARCH)
 PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 CLI_PLATFORMS ?= linux/amd64,linux/arm64,darwin/amd64,darwin/arm64
+CLI_BUILD_NPROCS ?= 4
 VIZ_PLATFORMS ?= linux/amd64,linux/arm64,linux/s390x,linux/ppc64le
 # Ray only provides PyPI wheels for amd64 and arm64
 RAY_PLATFORMS ?= linux/amd64,linux/arm64
@@ -115,7 +116,7 @@ LD_FLAGS += -X '$(version_pkg).BuildDate=$(shell date -u +%Y-%m-%dT%H:%M:%SZ)'
 
 # Update these variables when preparing a new release or a release branch.
 # Then run `make prepare-release-branch`
-RELEASE_VERSION=v0.19.6
+RELEASE_VERSION=v0.20.1
 RELEASE_BRANCH=main
 # Application version for Helm and npm (strips leading 'v' from RELEASE_VERSION)
 APP_VERSION := $(shell echo $(RELEASE_VERSION) | cut -c2-)
@@ -157,7 +158,7 @@ include hack/make/verify.mk
 manifests: controller-gen generate-code ## Generate WebhookConfiguration, ClusterRole and CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) \
 		crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/bases\
-		paths="./apis/kueue/v1beta1/...;./apis/kueue/v1beta2/...;./apis/visibility/...;./apis/config/..."
+		paths="./apis/kueue/v1beta2/...;./apis/visibility/...;./apis/config/..."
 	$(CONTROLLER_GEN) \
 		crd:generateEmbeddedObjectMeta=true output:crd:artifacts:config=config/components/crd/alpha/bases\
 		paths="./apis/kueue/v1alpha1/..."
@@ -405,7 +406,7 @@ $(KUSTOMIZE) build cmd/experimental/kueue-priority-booster/config -o $(ARTIFACTS
 $(KUSTOMIZE) build config/components/map -o $(ARTIFACTS)/workload-map.yaml
 $(KUSTOMIZE) build config/components/crd/alpha -o $(ARTIFACTS)/alpha-crds.yaml
 @$(call set-release-branch-images)
-CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
+CGO_ENABLED=$(CGO_ENABLED) GO_CMD="$(GO_CMD)" LD_FLAGS="$(LD_FLAGS)" BUILD_PATH="$(ARTIFACTS)" BUILD_NAME=kubectl-kueue PLATFORMS="$(CLI_PLATFORMS)" BUILD_NPROCS="$(CLI_BUILD_NPROCS)" ./hack/multiplatform-build.sh ./cmd/kueuectl/main.go
 endef
 
 # helm-chart-package and prepare-manifests write to the working tree, so they run from the recipe
@@ -423,7 +424,7 @@ release-artifacts: ## Generate release artifacts.
 	$(MAKE) artifacts ARTIFACTS="$(RELEASE_ARTIFACTS)"
 
 .PHONY: prepare-release-branch
-prepare-release-branch: yq kustomize ## Prepare the release branch with the release version.
+prepare-release-branch: yq kustomize helm-docs ## Prepare the release branch with the release version.
 	@$(call set-release-branch-images)
 	$(SED) -r 's/v[0-9]+\.[0-9]+\.[0-9]+/$(RELEASE_VERSION)/g' -i README.md -i site/hugo.toml -i cmd/kueueviz/INSTALL.md
 	$(SED) -r 's/chart_version = "[0-9]+\.[0-9]+\.[0-9]+/chart_version = "$(APP_VERSION)/g' -i README.md -i site/hugo.toml
@@ -444,7 +445,7 @@ prepare-release-branch: yq kustomize ## Prepare the release branch with the rele
 	$(YQ) e '.kueuePriorityBooster.image.tag = "$(RELEASE_BRANCH)"' -i cmd/experimental/kueue-priority-booster/charts/kueue-priority-booster/values.yaml
 	$(SED) -r 's/[0-9]+\.[0-9]+\.[0-9]+/$(APP_VERSION)/g' -i cmd/experimental/kueue-priority-booster/README.md
 
-	$(MAKE) generate-helm-docs
+	$(_generate_helm_docs_recipe)
 
 .PHONY: update-security-insights
 update-security-insights: yq
@@ -516,6 +517,7 @@ kueueviz-image-build:
 		-t $(IMAGE_TAG_KUEUEVIZ_FRONTEND) \
 		-t $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(RELEASE_BRANCH) \
 		--platform=$(VIZ_PLATFORMS) \
+		--build-context retry=./hack/testing \
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) \
 		-f ./cmd/kueueviz/frontend/Dockerfile ./cmd/kueueviz/frontend
@@ -600,8 +602,9 @@ generate-kueuectl-docs: kueuectl-docs
 		$(PROJECT_DIR)/site/content/en/docs/reference/kubectl-kueue/commands
 
 .PHONY: generate-helm-docs
+_generate_helm_docs_recipe = $(HELM_DOCS) -c $(PROJECT_DIR)/charts/kueue
 generate-helm-docs: helm-docs
-	$(HELM_DOCS) -c $(PROJECT_DIR)/charts/kueue
+	$(_generate_helm_docs_recipe)
 
 .PHONY: generate-metrics-tables
 generate-metrics-tables: metricsdoc

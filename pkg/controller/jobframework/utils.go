@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -97,9 +98,6 @@ func sanitizeContainer(container *corev1.Container) {
 
 // RecordWorkloadCreationLatency records the latency between job creation and workload creation.
 func RecordWorkloadCreationLatency(ctx context.Context, job client.Object, jobKind string, wl *kueue.Workload, customLabels *metrics.CustomLabels, tracker *roletracker.RoleTracker) {
-	if !features.Enabled(features.MetricForWorkloadCreationLatency) {
-		return
-	}
 	if job.GetGeneration() > 1 {
 		ctrl.LoggerFrom(ctx).V(4).Info("Skip recording the workload creation metrics as the owner generation is already greater than 1", "generation", job.GetGeneration())
 		return
@@ -344,4 +342,12 @@ func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, r
 	}
 
 	return adapter.DeleteRemoteObject(ctx, localClient, remoteClient, key)
+}
+
+// ElasticPartialScaleUpEnabled reports whether the job takes the partial
+// replica scale-up path for its workload slices.
+func ElasticPartialScaleUpEnabled(job GenericJob) bool {
+	return features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
+		WorkloadSliceEnabled(job) &&
+		job.Object().GetAnnotations()[constants.ElasticJobScaleUpStrategyAnnotationKey] == constants.ElasticJobScaleUpStrategyPartial
 }

@@ -28,7 +28,10 @@ type DynamicQuotaOrchestratorStatusApplyConfiguration struct {
 	// conditions represents the current state of the DQO.
 	//
 	Conditions []v1.ConditionApplyConfiguration `json:"conditions,omitempty"`
-	// effectiveCapacity is the capacity aggregated from the referenced providers.
+	// effectiveCapacity is the combined capacity from the referenced providers.
+	// Each provider's capacity is multiplied by its effectiveCapacityMultiplier.
+	// DQO clears this field if any referenced provider is missing or does not
+	// have CapacitySynchronized=True.
 	//
 	EffectiveCapacity *EffectiveCapacityApplyConfiguration `json:"effectiveCapacity,omitempty"`
 }

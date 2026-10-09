@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -35,6 +36,7 @@ import (
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -57,7 +59,7 @@ import (
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 type ManagerSetup func(context.Context, manager.Manager)
@@ -92,12 +94,18 @@ type Framework struct {
 	ObservedLogs *observer.ObservedLogs
 }
 
+var setupLoggerGetObservedLogs = sync.OnceValue(func() *observer.ObservedLogs {
+	logger, observedLogs := behavioral.NewTestingLoggerAndObservedLogs(ginkgo.GinkgoWriter)
+	ctrl.SetLogger(logger)
+	return observedLogs
+})
+
 func (f *Framework) Init() *rest.Config {
-	f.ObservedLogs = util.SetupLoggerGetObservedLogs()
+	f.ObservedLogs = setupLoggerGetObservedLogs()
 
 	var cfg *rest.Config
 	ginkgo.By("bootstrapping test environment", func() {
-		baseCrdPath := filepath.Join(util.ProjectBaseDir, "config", "components", "crd", "_output")
+		baseCrdPath := filepath.Join(behavioral.ProjectBaseDir, "config", "components", "crd", "_output")
 		f.testEnv = &envtest.Environment{
 			CRDDirectoryPaths:       append(f.DepCRDPaths, baseCrdPath),
 			ErrorIfCRDPathMissing:   true,
@@ -241,7 +249,7 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 			conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 			conn.Close()
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 }
 
@@ -261,6 +269,16 @@ func (f *Framework) StopManager(ctx context.Context) {
 	})
 }
 
+func verifyLogs(observedLogs *observer.ObservedLogs) {
+	errorOrMoreSevereLogs := observedLogs.Filter(func(le observer.LoggedEntry) bool {
+		return le.Level >= zapcore.ErrorLevel
+	})
+
+	concurrentModificationErrorLogs := errorOrMoreSevereLogs.Filter(behavioral.IsLoggedEntryAConcurrentModification)
+
+	gomega.ExpectWithOffset(1, concurrentModificationErrorLogs.TakeAll()).To(gomega.BeEmpty())
+}
+
 func (f *Framework) Teardown() {
 	ginkgo.By("tearing down the test environment")
 	if f.cancel != nil {
@@ -268,7 +286,7 @@ func (f *Framework) Teardown() {
 	}
 	err := f.testEnv.Stop()
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
-	util.VerifyLogs(f.ObservedLogs)
+	verifyLogs(f.ObservedLogs)
 }
 
 var (

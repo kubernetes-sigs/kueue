@@ -43,8 +43,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
@@ -57,7 +57,7 @@ var snapCmpOpts = cmp.Options{
 	// ignore zero values during comparison, as we consider
 	// zero FlavorResource usage to be same as no map entry.
 	cmpopts.IgnoreMapEntries(func(_ resources.FlavorResource, v resources.Amount) bool { return v.CmpInt64(0) == 0 }),
-	cmpopts.IgnoreFields(schdcache.Snapshot{}, "hostnameLeafTASFlavors", "candidateOrderCache"),
+	cmpopts.IgnoreFields(schdcache.Snapshot{}, "hostnameLeafTASFlavors", "released", "candidateOrderCache"),
 	cmp.AllowUnexported(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}),
 	cmpopts.IgnoreFields(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}, "cohortFactory"),
 	cmpopts.IgnoreFields(schdcache.CohortSnapshot{}, "Cohort"),
@@ -4304,7 +4304,8 @@ func TestPreemption(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(log, tc.incoming)
 				wlInfo.ClusterQueue = tc.targetCQ
-				targets := preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy)
+				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, tc.assignment)
+				targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 				preempted, failed, err := preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
 					t.Fatalf("Failed doing preemption")
@@ -4538,7 +4539,8 @@ func TestPreemptionWhenWorkloadModifiedConcurrently(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(log, tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
-				targets := preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshotWorkingCopy)
+				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, tc.assignment)
+				targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 				_, _, err = preemptor.IssuePreemptions(ctx, cqCache, wlInfo, targets, snapshotWorkingCopy.ClusterQueue(wlInfo.ClusterQueue))
 				if err != nil {
 					t.Fatalf("Failed doing preemption")
@@ -4766,7 +4768,8 @@ func TestIssuePreemptionsSkipsDuplicate(t *testing.T) {
 				}
 				wlInfo := workload.NewInfo(log, tc.incoming)
 				wlInfo.ClusterQueue = kueue.ClusterQueueReference(cq.Name)
-				targets := preemptor.GetTargets(ctx, *wlInfo, tc.assignment, snapshot)
+				strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, tc.assignment)
+				targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 
 				if len(targets) == 0 {
 					t.Fatal("Expected preemption targets")
@@ -4978,7 +4981,7 @@ func TestCandidatesOrdering(t *testing.T) {
 	for _, tc := range cases {
 		features.SetFeatureGatesDuringTest(t, tc.featureGates)
 		slices.SortFunc(tc.candidates, func(a, b workload.Info) int {
-			return preemptioncommon.CandidatesOrdering(log, tc.featureGates != nil && tc.featureGates[features.AdmissionFairSharing], &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
+			return policy.CandidatesOrdering(log, tc.featureGates != nil && tc.featureGates[features.AdmissionFairSharing], &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
 		})
 		got := utilslices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
 			return workload.Reference(c.Obj.Name)
@@ -5129,10 +5132,10 @@ func TestPriorityInfo(t *testing.T) {
 	}
 }
 
-// TestGetTargetsWithPodsQuota pins that target selection counts Pods when the
+// TestPreemptionWithPodsQuota pins that target selection counts Pods when the
 // ClusterQueue has quota for them: a 7-Pod workload needs both lower-priority
 // workloads, and one victim alone is not enough.
-func TestGetTargetsWithPodsQuota(t *testing.T) {
+func TestPreemptionWithPodsQuota(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	cases := map[string]struct {
 		quota     corev1.ResourceName
@@ -5210,8 +5213,9 @@ func TestGetTargetsWithPodsQuota(t *testing.T) {
 			}
 
 			preemptor := New(cl, workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
+			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, assignment)
 			var got []string
-			for _, target := range preemptor.GetTargets(ctx, *wlInfo, assignment, snapshot) {
+			for _, target := range preemptor.GetTargetsWithStrategy(ctx, strategies) {
 				got = append(got, target.WorkloadInfo.Obj.Name)
 			}
 			slices.Sort(got)

@@ -16,3 +16,6 @@ metadata:
 3. The new tests would add a significant block of lines (roughly 150+) to a file that is already large.
 
 **Ask:** Extract the feature's tests into `<package>_<feature>_test.go`. Precedent: `scheduler_tas_test.go`, `scheduler_afs_test.go`. This keeps the base file navigable and makes feature-specific scenarios easy to find and extend.
+
+See [Writing tests](../../../../../site/content/en/community/contribution_guidelines/writing_tests.md)
+for reusing tables and runners.
