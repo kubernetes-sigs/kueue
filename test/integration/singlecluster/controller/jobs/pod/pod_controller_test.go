@@ -22,6 +22,7 @@ import (
 	"maps"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -1255,6 +1256,186 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 					g.Expect(createdWorkload.UID).To(gomega.Equal(wlUID))
 					g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.When("replacing a failed pod of an admitted group", func() {
+				const roleHash = "role-a"
+				var (
+					pod1LookupKey   types.NamespacedName
+					wlLookupKey     types.NamespacedName
+					createdWorkload *kueue.Workload
+				)
+
+				ginkgo.JustBeforeEach(func() {
+					pod1 := testingpod.MakePod("test-pod1", ns.Name).
+						GroupNameLabel("test-group").
+						GroupTotalCount("2").
+						RoleHash(roleHash).
+						Request(corev1.ResourceCPU, "1").
+						Queue(lq.Name).
+						Obj()
+					pod2 := testingpod.MakePod("test-pod2", ns.Name).
+						GroupNameLabel("test-group").
+						GroupTotalCount("2").
+						RoleHash(roleHash).
+						Request(corev1.ResourceCPU, "1").
+						Queue(lq.Name).
+						Obj()
+					pod1LookupKey = client.ObjectKeyFromObject(pod1)
+					pod2LookupKey := client.ObjectKeyFromObject(pod2)
+
+					behavioral.MustCreate(ctx, k8sClient, pod1)
+					behavioral.MustCreate(ctx, k8sClient, pod2)
+
+					wlLookupKey = types.NamespacedName{Namespace: ns.Name, Name: "test-group"}
+					createdWorkload = &kueue.Workload{}
+					ginkgo.By("checking that the group workload is created")
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+						g.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(1))
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+					ginkgo.By("admitting the group")
+					admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(roleHash)).
+							Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1").
+							Count(2).
+							Obj()).
+						Obj()
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod1LookupKey, nil)
+					behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, pod2LookupKey, nil)
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod1, pod2)
+					gomega.Eventually(func(g gomega.Gomega) {
+						createdCQ := &kueue.ClusterQueue{}
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdCQ)).To(gomega.Succeed())
+						g.Expect(createdCQ.Status.ReservingWorkloads).To(gomega.Equal(int32(1)))
+						g.Expect(createdCQ.Status.AdmittedWorkloads).To(gomega.Equal(int32(1)))
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+					ginkgo.By("failing one pod of the group")
+					integration.SetPodsPhase(ctx, k8sClient, corev1.PodFailed, pod2)
+				})
+
+				ginkgo.When("PodIntegrationVerifyRoleRequests is enabled", func() {
+					ginkgo.BeforeEach(func() {
+						features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PodIntegrationVerifyRoleRequests, true)
+					})
+
+					ginkgo.It("Should keep an oversized replacement pod gated without disrupting the group", func() {
+						ginkgo.By("creating an oversized replacement with the same role-hash")
+						replacementPod := testingpod.MakePod("replacement-oversized", ns.Name).
+							GroupNameLabel("test-group").
+							GroupTotalCount("2").
+							RoleHash(roleHash).
+							Request(corev1.ResourceCPU, "2").
+							Queue(lq.Name).
+							Obj()
+						behavioral.MustCreate(ctx, k8sClient, replacementPod)
+						replacementKey := client.ObjectKeyFromObject(replacementPod)
+
+						ginkgo.By("checking that a Warning is emitted for the oversized replacement")
+						gomega.Eventually(func(g gomega.Gomega) {
+							ok, err := utiltesting.HasMatchingEventAppeared(ctx, k8sClient, func(e *eventsv1.Event) bool {
+								return e.Reason == podcontroller.ReasonPodExceedsRoleRequests &&
+									e.Type == corev1.EventTypeWarning &&
+									e.Regarding.Name == replacementPod.Name &&
+									strings.Contains(e.Note, "requests more cpu than podset")
+							})
+							g.Expect(err).NotTo(gomega.HaveOccurred())
+							g.Expect(ok).To(gomega.BeTrue(), "expected a PodExceedsRoleRequests warning event")
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+						ginkgo.By("checking that the replacement stays gated while the group keeps running within its quota")
+						gomega.Consistently(func(g gomega.Gomega) {
+							created := &corev1.Pod{}
+							g.Expect(k8sClient.Get(ctx, replacementKey, created)).To(gomega.Succeed())
+							g.Expect(created.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
+
+							g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+							g.Expect(createdWorkload.Status.Conditions).NotTo(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+							g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+
+							createdPod1 := &corev1.Pod{}
+							g.Expect(k8sClient.Get(ctx, pod1LookupKey, createdPod1)).To(gomega.Succeed())
+							g.Expect(createdPod1.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+							g.Expect(createdPod1.DeletionTimestamp).To(gomega.BeNil())
+							g.Expect(createdPod1.Finalizers).To(gomega.ContainElement(podconstants.PodFinalizer))
+
+							createdCQ := &kueue.ClusterQueue{}
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdCQ)).To(gomega.Succeed())
+							g.Expect(createdCQ.Status.ReservingWorkloads).To(gomega.Equal(int32(1)))
+							g.Expect(createdCQ.Status.AdmittedWorkloads).To(gomega.Equal(int32(1)))
+						}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+
+						ginkgo.By("replacing the oversized pod with an honest one")
+						gomega.Expect(k8sClient.Delete(ctx, replacementPod)).To(gomega.Succeed())
+						honestReplacement := testingpod.MakePod("replacement-honest", ns.Name).
+							GroupNameLabel("test-group").
+							GroupTotalCount("2").
+							RoleHash(roleHash).
+							Request(corev1.ResourceCPU, "1").
+							Queue(lq.Name).
+							Obj()
+						behavioral.MustCreate(ctx, k8sClient, honestReplacement)
+						behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(honestReplacement), nil)
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, replacementKey, &corev1.Pod{})).To(utiltesting.BeNotFoundError())
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+
+					ginkgo.It("Should ungate an honest replacement pod that fits its role reservation", func() {
+						ginkgo.By("creating an honest replacement with the same role-hash")
+						replacementPod := testingpod.MakePod("replacement-honest", ns.Name).
+							GroupNameLabel("test-group").
+							GroupTotalCount("2").
+							RoleHash(roleHash).
+							Request(corev1.ResourceCPU, "1").
+							Queue(lq.Name).
+							Obj()
+						behavioral.MustCreate(ctx, k8sClient, replacementPod)
+
+						ginkgo.By("checking that the honest replacement is ungated")
+						behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(replacementPod), nil)
+					})
+				})
+
+				ginkgo.When("PodIntegrationVerifyRoleRequests is disabled", func() {
+					ginkgo.BeforeEach(func() {
+						features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PodIntegrationVerifyRoleRequests, false)
+					})
+
+					ginkgo.It("Should ungate an oversized replacement pod", func() {
+						ginkgo.By("creating an oversized replacement with the same role-hash")
+						replacementPod := testingpod.MakePod("replacement-oversized", ns.Name).
+							GroupNameLabel("test-group").
+							GroupTotalCount("2").
+							RoleHash(roleHash).
+							Request(corev1.ResourceCPU, "2").
+							Queue(lq.Name).
+							Obj()
+						behavioral.MustCreate(ctx, k8sClient, replacementPod)
+
+						ginkgo.By("checking that the oversized replacement is ungated")
+						behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(replacementPod), nil)
+					})
+
+					ginkgo.It("Should ungate an honest replacement pod", func() {
+						ginkgo.By("creating an honest replacement with the same role-hash")
+						replacementPod := testingpod.MakePod("replacement-honest", ns.Name).
+							GroupNameLabel("test-group").
+							GroupTotalCount("2").
+							RoleHash(roleHash).
+							Request(corev1.ResourceCPU, "1").
+							Queue(lq.Name).
+							Obj()
+						behavioral.MustCreate(ctx, k8sClient, replacementPod)
+
+						ginkgo.By("checking that the honest replacement is ungated")
+						behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(replacementPod), nil)
+					})
+				})
 			})
 
 			ginkgo.It("Should finish the group if one Pod has the `retriable-in-group: false` annotation", framework.SlowSpec, func() {
