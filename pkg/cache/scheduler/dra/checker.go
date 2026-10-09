@@ -21,6 +21,7 @@ import (
 	"errors"
 	"iter"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/dynamic-resource-allocation/structured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -138,4 +139,8 @@ func (c *Checker) filterByDevices(
 		draFeasible = append(draFeasible, candidate)
 	}
 	return draFeasible, nil
+}
+
+func (c *Checker) ScheduleWorkload(ctx context.Context, wlPods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
+	return c.inner.ScheduleWorkload(ctx, wlPods, opts...)
 }
