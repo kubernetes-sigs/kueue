@@ -319,6 +319,33 @@ func TestPodSetsInfo(t *testing.T) {
 				},
 			},
 		},
+		"elastic job with partial scale-up does not rewrite parallelism": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
+				Parallelism(5).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+				Obj()),
+			runInfo: []podset.PodSetInfo{
+				{
+					Count: 3,
+				},
+			},
+			wantUnsuspended: utiltestingjob.MakeJob("job", "ns").
+				Parallelism(5).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+				Suspend(false).
+				Obj(),
+			restoreInfo: []podset.PodSetInfo{
+				{
+					Count: 5,
+				},
+			},
+		},
 		"noInfoOnRun": {
 			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
 				Parallelism(5).
