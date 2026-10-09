@@ -17,6 +17,7 @@ limitations under the License.
 package metrics
 
 import (
+	"errors"
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,6 +26,10 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 )
+
+// ErrInvalidLocalQueueSelector indicates that
+// metrics.localQueueMetrics.localQueueSelector does not compile into a label selector.
+var ErrInvalidLocalQueueSelector = errors.New("invalid metrics.localQueueMetrics.localQueueSelector")
 
 type LocalQueueMetricsConfig struct {
 	Enabled       bool
@@ -48,7 +53,7 @@ func NewLocalQueueMetricsConfig(cfg *configapi.LocalQueueMetrics) (*LocalQueueMe
 	if cfg.LocalQueueSelector != nil {
 		q, err := metav1.LabelSelectorAsSelector(cfg.LocalQueueSelector)
 		if err != nil {
-			return nil, fmt.Errorf("invalid metrics.localQueueMetrics.localQueueSelector: %w", err)
+			return nil, fmt.Errorf("%w: %w", ErrInvalidLocalQueueSelector, err)
 		}
 
 		lqMetricsConfig.QueueSelector = q
