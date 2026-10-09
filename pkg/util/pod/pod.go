@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 
@@ -104,6 +105,11 @@ func IgnoreLabelNotFoundError(err error) error {
 		return nil
 	}
 	return err
+}
+
+// ReadUIntFromLabel is ReadUIntFromLabelBelowBound without an upper bound.
+func ReadUIntFromLabel(obj client.Object, labelKey string) (*int, error) {
+	return ReadUIntFromLabelBelowBound(obj, labelKey, math.MaxInt)
 }
 
 func ReadUIntFromLabelBelowBound(obj client.Object, labelKey string, bound int) (*int, error) {
