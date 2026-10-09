@@ -52,6 +52,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 		)
 
 		createWorkloadWithDRA := func(queue string) *kueue.Workload {
+			ginkgo.GinkgoHelper()
 			wl := utiltestingapi.MakeWorkloadWithGeneratedName("wl-dra-", ns.Name).
 				Queue(kueue.LocalQueueName(queue)).
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -66,6 +67,7 @@ var _ = ginkgo.Describe("DRA with Admission Fair Sharing", ginkgo.Label("feature
 		}
 
 		createWorkloadCPUOnly := func(queue string, cpuRequests string) *kueue.Workload {
+			ginkgo.GinkgoHelper()
 			wl := utiltestingapi.MakeWorkloadWithGeneratedName("wl-cpu-", ns.Name).
 				Queue(kueue.LocalQueueName(queue)).
 				Request(corev1.ResourceCPU, cpuRequests).

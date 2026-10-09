@@ -75,6 +75,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 	// production. envtest runs no KubeRay operator, so the spec drives the scale event itself,
 	// exactly like the existing scale-up/scale-down specs in this package do.
 	scaleFirstWorkerGroup := func(rayCluster *rayv1.RayCluster, replicas int32) {
+		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), rayCluster)).Should(gomega.Succeed())
 			rayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(replicas)

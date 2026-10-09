@@ -1317,6 +1317,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			defer cancel() // Stop goroutines.
 
 			setClusterStatusPending := func(id int) {
+				ginkgo.GinkgoHelper()
 				defer ginkgo.GinkgoRecover()
 
 				for i := 0; ; i++ {

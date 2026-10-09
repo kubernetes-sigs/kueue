@@ -52,6 +52,7 @@ var _ = ginkgo.Describe("RayJob with partial replica scale-up for elastic jobs",
 	)
 
 	scaleFirstWorkerGroup := func(job *rayv1.RayJob, replicas int32) {
+		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).Should(gomega.Succeed())
 			job.Spec.RayClusterSpec.WorkerGroupSpecs[0].Replicas = new(replicas)
