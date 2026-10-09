@@ -27,27 +27,34 @@ source "${KUBERNETES_SIGS_KUEUE_PATH}/hack/utils.sh"
 
 MILESTONE_RESULT="not run"
 PR_RESULT="not run"
+RUN_MILESTONE=""
+RUN_PR=""
 TEST_INFRA_STARTING_BRANCH=""
 TEST_INFRA_WORK_BRANCH=""
 
 function usage() {
-  echo "${0} <release-version>"
+  echo "${0} [--create-milestone] [--create-pr] <release-version>"
   echo
   echo "  Create the prow milestone_applier PR in test-infra, and optionally the next minor's milestone."
   echo
-  echo "  Example:"
+  echo "  Examples:"
   echo "    $0 v0.20.0"
+  echo "    $0 --create-milestone v0.20.0"
   echo
   echo "  Applies to major and minor releases only; patch releases have no milestone step."
   echo
+  echo "  --create-milestone creates only the next minor's milestone, and --create-pr creates only the PR."
+  echo "  Pass both to do both, the milestone first. Without either flag only the PR is created."
+  echo
   echo "  Set the DRY_RUN environment var to skip the git push and PR creation."
-  echo "  When CREATE_MILESTONE is also set, DRY_RUN additionally skips the milestone creation."
+  echo "  When the milestone is also requested, DRY_RUN additionally skips the milestone creation."
   echo "  When DRY_RUN is set the script will leave you in a branch containing the commits."
   echo
-  echo "  The next minor's milestone is created by the /create-milestone ChatOps command. Set CREATE_MILESTONE"
+  echo "  The next minor's milestone is created by the /create-milestone ChatOps command. Pass --create-milestone"
   echo "  to create it from this script instead; that needs write access to the Kueue repository."
   echo
-  echo "  Set SKIP_PR to skip the pull request phase."
+  echo "  Without a flag, set CREATE_MILESTONE to also create the milestone, or SKIP_PR to skip the PR."
+  echo "  With a flag, CREATE_MILESTONE without --create-milestone, or SKIP_PR with --create-pr, is rejected."
   echo
   echo "  Set KUBERNETES_TEST_INFRA_UPSTREAM_REMOTE (default: upstream) and KUBERNETES_TEST_INFRA_FORK_REMOTE (default: origin)"
   echo "  to override the default remote names to what you have locally."
@@ -79,6 +86,46 @@ function derive_values() {
   MILESTONE_TITLE="${NEXT_MINOR}"
   PR_TITLE="Kueue: add milestone for ${MAJOR}.${MINOR}"
   PR_BRANCH="kueue-milestone-${MAJOR}.${MINOR}"
+}
+
+# select_phases sets RUN_MILESTONE and RUN_PR, and the summary result of each phase that will not run.
+# With a phase flag, an environment variable that contradicts it is rejected rather than ignored, so
+# --create-pr can guarantee that no milestone is touched.
+# $1 - "yes" when --create-milestone was passed
+# $2 - "yes" when --create-pr was passed
+function select_phases() {
+  local want_milestone="$1" want_pr="$2"
+
+  if [[ -z "${want_milestone}" && -z "${want_pr}" ]]; then
+    RUN_MILESTONE="${CREATE_MILESTONE:+yes}"
+    RUN_PR="yes"
+    if [[ -z "${RUN_MILESTONE}" ]]; then
+      MILESTONE_RESULT="skipped (use /create-milestone, or set CREATE_MILESTONE)"
+    fi
+    if [[ -n "${SKIP_PR:-}" ]]; then
+      RUN_PR=""
+      PR_RESULT="skipped (SKIP_PR)"
+    fi
+    return 0
+  fi
+
+  if [[ -n "${CREATE_MILESTONE:-}" && -z "${want_milestone}" ]]; then
+    echo "!!! CREATE_MILESTONE is set but --create-milestone was not passed. Unset it or add the flag."
+    return 2
+  fi
+  if [[ -n "${SKIP_PR:-}" && -n "${want_pr}" ]]; then
+    echo "!!! SKIP_PR is set but --create-pr was passed. Unset it or drop the flag."
+    return 2
+  fi
+
+  RUN_MILESTONE="${want_milestone}"
+  RUN_PR="${want_pr}"
+  if [[ -z "${RUN_MILESTONE}" ]]; then
+    MILESTONE_RESULT="not requested (--create-pr)"
+  fi
+  if [[ -z "${RUN_PR}" ]]; then
+    PR_RESULT="not requested (--create-milestone)"
+  fi
 }
 
 # read_mapping_state prints "<main-value> <yes|no>" for the milestone_applier Kueue block.
@@ -147,20 +194,18 @@ function apply_mapping_edit() {
   ' "$1" > "$2"
 }
 
-# ensure_milestone, when CREATE_MILESTONE is set, creates the milestone when absent and leaves any
-# existing one alone, including a closed one — reopening it would be a surprising write to state
-# the release team owns. The lookup uses state=all so a closed milestone is found rather than
-# duplicated, which GitHub would reject with a 422.
+# ensure_milestone creates the milestone when absent and leaves any existing one alone, including a
+# closed one — reopening it would be a surprising write to state the release team owns. The lookup
+# uses state=all so a closed milestone is found rather than duplicated, which GitHub would reject
+# with a 422.
 #
 # $1 - repository, e.g. kubernetes-sigs/kueue
 # $2 - milestone title, e.g. v0.21
 function ensure_milestone() {
   local repo="$1" title="$2" state
 
-  if [[ -z "${CREATE_MILESTONE:-}" ]]; then
-    MILESTONE_RESULT="skipped (use /create-milestone, or set CREATE_MILESTONE)"
-    return 0
-  fi
+  # Overwritten on every success path, so an errexit abort in either gh call is summarized as FAILED.
+  MILESTONE_RESULT="FAILED"
 
   state=$(gh api "repos/${repo}/milestones?state=all" --paginate \
     | jq -r --arg t "${title}" 'first(.[] | select(.title == $t) | .state) // empty')
@@ -392,12 +437,43 @@ function on_exit() {
 }
 
 function main() {
-  if [[ "$#" -ne 1 ]]; then
+  local want_milestone="" want_pr="" version=""
+
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      --create-milestone)
+        want_milestone="yes"
+        ;;
+      --create-pr)
+        want_pr="yes"
+        ;;
+      -h|--help)
+        usage
+        exit 0
+        ;;
+      -*)
+        echo "!!! Unknown option \"$1\"."
+        usage
+        exit 2
+        ;;
+      *)
+        if [[ -n "${version}" ]]; then
+          usage
+          exit 2
+        fi
+        version="$1"
+        ;;
+    esac
+    shift
+  done
+
+  if [[ -z "${version}" ]]; then
     usage
     exit 2
   fi
 
-  derive_values "$1" || exit $?
+  derive_values "${version}" || exit $?
+  select_phases "${want_milestone}" "${want_pr}" || exit $?
 
   local kueue_repo
   kueue_repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO_ORG}/${KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME}"
@@ -412,28 +488,31 @@ function main() {
     exit 2
   fi
 
-  if ! gh api "repos/${kueue_repo}/branches/${RELEASE_BRANCH}" > /dev/null 2>&1; then
-    echo "!!! Branch ${RELEASE_BRANCH} does not exist in ${kueue_repo}. Create the release branch first."
-    exit 2
-  fi
+  # The pull request phase's checks run before any phase, so a run with both phases cannot create the
+  # milestone and then stop on a missing release issue.
+  if [[ -n "${RUN_PR}" ]]; then
+    if ! gh api "repos/${kueue_repo}/branches/${RELEASE_BRANCH}" > /dev/null 2>&1; then
+      echo "!!! Branch ${RELEASE_BRANCH} does not exist in ${kueue_repo}. Create the release branch first."
+      exit 2
+    fi
 
-  RELEASE_ISSUE_NAME="Release ${RELEASE_VERSION}"
-  RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${kueue_repo}" --search "in:title ${RELEASE_ISSUE_NAME}" | awk 'NR==1{print $1}' || true)
-  if [ -z "${RELEASE_ISSUE_NUMBER}" ]; then
-    echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create '${RELEASE_ISSUE_NAME}' issue first."
-    exit 2
+    RELEASE_ISSUE_NAME="Release ${RELEASE_VERSION}"
+    RELEASE_ISSUE_NUMBER=$(gh issue list --repo="${kueue_repo}" --search "in:title ${RELEASE_ISSUE_NAME}" | awk 'NR==1{print $1}' || true)
+    if [ -z "${RELEASE_ISSUE_NUMBER}" ]; then
+      echo "!!! No release issue found for version ${RELEASE_VERSION}. Please create '${RELEASE_ISSUE_NAME}' issue first."
+      exit 2
+    fi
   fi
 
   trap on_exit EXIT
 
-  ensure_milestone "${kueue_repo}" "${MILESTONE_TITLE}"
-
-  if [[ -n "${SKIP_PR:-}" ]]; then
-    PR_RESULT="skipped (SKIP_PR)"
-    return 0
+  if [[ -n "${RUN_MILESTONE}" ]]; then
+    ensure_milestone "${kueue_repo}" "${MILESTONE_TITLE}"
   fi
 
-  submit_mapping_pr "${kueue_repo}"
+  if [[ -n "${RUN_PR}" ]]; then
+    submit_mapping_pr "${kueue_repo}"
+  fi
 }
 
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
