@@ -56,6 +56,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -71,6 +72,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
@@ -2161,6 +2163,10 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
+	admissionChecks, err := admissionChecksForPodSetsInfo(ctx, c, w)
+	if err != nil {
+		return nil, err
+	}
 
 	podSetsInfo := make([]podset.PodSetInfo, len(w.Status.Admission.PodSetAssignments))
 
@@ -2187,7 +2193,7 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 			assignQueueLabels(ctx, info.Labels, w)
 		}
 
-		for _, admissionCheck := range w.Status.AdmissionChecks {
+		for _, admissionCheck := range admissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
 				if podSetUpdate.Name == info.Name {
 					if err := info.Merge(podset.FromUpdate(&podSetUpdate)); err != nil {
@@ -2200,6 +2206,34 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		podSetsInfo[i] = info
 	}
 	return podSetsInfo, nil
+}
+
+// admissionChecksForPodSetsInfo returns the admission checks whose PodSetUpdates
+// should be applied to the job's pod templates. Concurrent Admission keeps these
+// checks on the admitted Variant while the job integration reconciles its Parent
+// Workload. Match the Variant by its admission to avoid applying updates from a
+// different flavor attempt.
+func admissionChecksForPodSetsInfo(ctx context.Context, c client.Client, w *kueue.Workload) ([]kueue.AdmissionCheckState, error) {
+	if !features.Enabled(features.ConcurrentAdmission) || !concurrentadmission.IsParent(w) {
+		return w.Status.AdmissionChecks, nil
+	}
+
+	variants := &kueue.WorkloadList{}
+	if err := c.List(ctx, variants,
+		client.InNamespace(w.Namespace),
+		client.MatchingFields{indexer.OwnerReferenceUID: string(w.UID)},
+	); err != nil {
+		return nil, fmt.Errorf("listing Concurrent Admission variants for Workload %s/%s: %w", w.Namespace, w.Name, err)
+	}
+
+	for i := range variants.Items {
+		variant := &variants.Items[i]
+		if workload.IsAdmitted(variant) && apiequality.Semantic.DeepEqual(variant.Status.Admission, w.Status.Admission) {
+			return variant.Status.AdmissionChecks, nil
+		}
+	}
+
+	return nil, fmt.Errorf("no admitted Concurrent Admission variant matches the admission of Parent Workload %s/%s", w.Namespace, w.Name)
 }
 
 func assignQueueLabels(ctx context.Context, labels map[string]string, wl *kueue.Workload) {
