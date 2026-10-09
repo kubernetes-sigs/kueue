@@ -31,6 +31,7 @@ import (
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -851,9 +852,12 @@ func getAdmittedVariant(variants []kueue.Workload) *kueue.Workload {
 }
 
 func migrationMode(cq *kueue.ClusterQueue) kueue.ConcurrentAdmissionMigrationMode {
-	if cq.Spec.ConcurrentAdmissionPolicy == nil ||
-		cq.Spec.ConcurrentAdmissionPolicy.Migration.Mode == "" {
+	if cq.Spec.ConcurrentAdmissionPolicy == nil {
 		return kueue.ConcurrentAdmissionTryPreferredFlavors
 	}
-	return cq.Spec.ConcurrentAdmissionPolicy.Migration.Mode
+	mode := ptr.Deref(cq.Spec.ConcurrentAdmissionPolicy.Migration.Mode, "")
+	if mode == "" {
+		return kueue.ConcurrentAdmissionTryPreferredFlavors
+	}
+	return mode
 }
