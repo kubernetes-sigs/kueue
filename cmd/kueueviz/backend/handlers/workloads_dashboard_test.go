@@ -179,6 +179,77 @@ func TestFetchWorkloadsDashboardDataSkipsPodsWithoutControllerUID(t *testing.T) 
 	}
 }
 
+func TestFetchWorkloadsDashboardDataMatchesPodGroupPods(t *testing.T) {
+	unrelatedPod := corev1.Pod{Name: "unrelated", Namespace: "ns-1"}
+
+	cases := map[string]struct {
+		workload kueueapi.Workload
+		pods     []corev1.Pod
+		wantPods []string
+	}{
+		"batch Job": {
+			workload: makeDashboardWorkload("job-wl", "ns-1", "wl-uid-1", "job-uid-1"),
+			pods: []corev1.Pod{
+				makeDashboardPod("job-wl-0", "ns-1", "job-uid-1"),
+				unrelatedPod,
+			},
+			wantPods: []string{"job-wl-0"},
+		},
+		"pod group named by label": {
+			workload: kueueapi.Workload{Name: "group", Namespace: "ns-1", UID: "wl-uid-1"},
+			pods: []corev1.Pod{
+				{Name: "group-0", Namespace: "ns-1", Labels: map[string]string{"kueue.x-k8s.io/pod-group-name": "group"}},
+				{Name: "group-1", Namespace: "ns-1", Labels: map[string]string{"kueue.x-k8s.io/pod-group-name": "group"}},
+				unrelatedPod,
+			},
+			wantPods: []string{"group-0", "group-1"},
+		},
+		"pod group named by annotation": {
+			workload: kueueapi.Workload{Name: "group", Namespace: "ns-1", UID: "wl-uid-1"},
+			pods: []corev1.Pod{
+				{Name: "group-0", Namespace: "ns-1", Annotations: map[string]string{"kueue.x-k8s.io/pod-group-name": "group"}},
+				unrelatedPod,
+			},
+			wantPods: []string{"group-0"},
+		},
+		"StatefulSet Workload with a job UID": {
+			workload: makeDashboardWorkload("sts-wl", "ns-1", "wl-uid-1", "sts-uid-1"),
+			pods: []corev1.Pod{
+				{Name: "sts-0", Namespace: "ns-1", Annotations: map[string]string{"kueue.x-k8s.io/pod-group-name": "sts-wl"}},
+				unrelatedPod,
+			},
+			wantPods: []string{"sts-0"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			client := &fakeDashboardClient{
+				workloads: []kueueapi.Workload{tc.workload},
+				pods:      tc.pods,
+			}
+			h := &Handlers{client: client}
+
+			got, _, err := h.fetchWorkloadsDashboardData(t.Context(), "ns-1", middleware.Identity{})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			items := dashboardWorkloadItems(t, got)
+			if len(items) != 1 {
+				t.Fatalf("got %d workloads, want 1", len(items))
+			}
+			gotPods := make([]string, 0, len(items[0].Pods))
+			for _, pod := range items[0].Pods {
+				gotPods = append(gotPods, pod["name"].(string))
+			}
+			if diff := cmp.Diff(tc.wantPods, gotPods); diff != "" {
+				t.Errorf("unexpected pods (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func dashboardWorkloadItems(t *testing.T, got any) []workloadResult {
 	t.Helper()
 
