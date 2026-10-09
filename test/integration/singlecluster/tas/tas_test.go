@@ -3836,6 +3836,11 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				ginkgo.It("should preserve the assignment when the required domain cannot be determined", framework.SlowSpec, func() {
 					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceMultipleFailedNodes, true)
 					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
+					// The asserted reason is specific to the gate-off path, where NotReady nodes are
+					// dropped from the node cache. With SchedulerLibraryIntegration the failed nodes
+					// stay in the hostname-level snapshot, so the required block still resolves from
+					// them and the replacement fails with a generic no-fit reason instead.
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SchedulerLibraryIntegration, false)
 
 					var wl *kueue.Workload
 					originalAssignment := utiltas.V1Beta2From(&utiltas.TopologyAssignment{
@@ -4276,6 +4281,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 						Status:             corev1.ConditionFalse,
 						LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
 					})
+					integration.TaintNodeNotReady(ctx, k8sClient, nodeToUpdate)
 				})
 
 				ginkgo.By("verify the workload is evicted due to no replacement possible", func() {
@@ -5814,6 +5820,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 							Status:             corev1.ConditionFalse,
 							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
 						})
+						integration.TaintNodeNotReady(ctx, k8sClient, nodeToUpdate)
 					})
 
 					ginkgo.By("verifying the failed node is replaced and UnhealthyNodes is cleared", func() {

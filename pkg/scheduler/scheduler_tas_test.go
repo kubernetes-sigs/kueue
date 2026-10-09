@@ -11031,15 +11031,22 @@ func TestFailedSecondPassKeepsReservationWhenAlreadyPrequeued(t *testing.T) {
 		}
 	}
 	noDomains := "couldn't assign flavors to pod set one: no topology domains at level: kubernetes.io/hostname"
+	// noDomains relies on the gate-off node cache dropping the NotReady node;
+	// with SchedulerLibraryIntegration the node stays at hostname level.
+	delayedTopologyAssignment := newCase(delayedWorkload, cq, noDomains)
+	delayedTopologyAssignment.featureGates = map[featuregate.Feature]bool{features.SchedulerLibraryIntegration: false}
 	failedNodeReplacement := newCase(failedNodeWorkload, cq, noDomains)
 	// With fail-fast, a failed topology assignment evicts the Workload instead.
-	failedNodeReplacement.featureGates = map[featuregate.Feature]bool{features.TASFailedNodeReplacementFailFast: false}
+	failedNodeReplacement.featureGates = map[featuregate.Feature]bool{
+		features.TASFailedNodeReplacementFailFast: false,
+		features.SchedulerLibraryIntegration:      false,
+	}
 
 	runTASScheduleTestCases(t, tasScheduleTestConfig{
 		queues: []kueue.LocalQueue{*lq},
 		now:    now,
 	}, map[string]tasScheduleTestCase{
-		"delayed topology assignment": newCase(delayedWorkload, cq, noDomains),
+		"delayed topology assignment": delayedTopologyAssignment,
 		"failed node replacement":     failedNodeReplacement,
 		// Reachable with default gates: fail-fast only applies to a nominated pass.
 		"failed node replacement in a stopped ClusterQueue": newCase(failedNodeWorkload, stoppedCQ, "ClusterQueue tas-main is inactive"),
