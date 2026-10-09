@@ -29,6 +29,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-logr/logr"
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -107,7 +108,7 @@ func run() int {
 	ctx, cancel := context.WithCancel(ctrl.LoggerInto(context.Background(), log))
 	defer cancel()
 	if *cpuprofile != "" {
-		stopCPUProfiling, err := startCPUProfiling(ctx, *cpuprofile, *cpuProfileCount, *cpuProfileStartDelay, *cpuProfileDuration, *cpuProfileInterval)
+		stopCPUProfiling, err := startCPUProfiling(ctx, log, *cpuprofile, *cpuProfileCount, *cpuProfileStartDelay, *cpuProfileDuration, *cpuProfileInterval)
 		if err != nil {
 			log.Error(err, "Could not start CPU profiling")
 			return 1
@@ -218,21 +219,16 @@ func run() int {
 	return 0
 }
 
-func startCPUProfiling(ctx context.Context, profilePath string, count int, startDelay, duration, interval time.Duration) (func(), error) {
+func startCPUProfiling(ctx context.Context, log logr.Logger, profilePath string, count int, startDelay, duration, interval time.Duration) (func(), error) {
 	if count > 0 {
 		if startDelay < 0 || duration <= 0 || interval < 0 {
 			return nil, errors.New("scheduled CPU profile delays must be non-negative and duration must be positive")
-		}
-		files, err := createCPUProfileFiles(profilePath, count)
-		if err != nil {
-			return nil, err
 		}
 		profileCtx, cancel := context.WithCancel(ctx)
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
-			defer closeCPUProfileFiles(files)
-			runCPUProfileSchedule(profileCtx, files, startDelay, duration, interval)
+			runCPUProfileSchedule(profileCtx, log, profilePath, count, startDelay, duration, interval)
 		}()
 		return func() { cancel(); <-done }, nil
 	}
@@ -245,46 +241,33 @@ func startCPUProfiling(ctx context.Context, profilePath string, count int, start
 		return nil, fmt.Errorf("start CPU profile: %w", err)
 	}
 	return func() {
-		defer func() { _ = f.Close() }()
 		pprof.StopCPUProfile()
+		_ = f.Close()
 	}, nil
 }
 
-func createCPUProfileFiles(profilePath string, count int) ([]*os.File, error) {
+func runCPUProfileSchedule(ctx context.Context, log logr.Logger, profilePath string, count int, startDelay, duration, interval time.Duration) {
+	if err := waitForDuration(ctx, startDelay); err != nil {
+		return
+	}
 	ext := filepath.Ext(profilePath)
 	base := strings.TrimSuffix(profilePath, ext)
-	files := make([]*os.File, 0, count)
 	for i := 1; i <= count; i++ {
 		path := fmt.Sprintf("%s.%03d%s", base, i, ext)
 		f, err := os.Create(path)
 		if err != nil {
-			closeCPUProfileFiles(files)
-			return nil, fmt.Errorf("create scheduled CPU profile %q: %w", path, err)
+			log.Error(err, "Could not create scheduled CPU profile", "path", path)
+			return
 		}
-		files = append(files, f)
-	}
-	return files, nil
-}
-
-func closeCPUProfileFiles(files []*os.File) {
-	for _, f := range files {
-		_ = f.Close()
-	}
-}
-
-func runCPUProfileSchedule(ctx context.Context, files []*os.File, startDelay, duration, interval time.Duration) {
-	log := ctrl.LoggerFrom(ctx)
-	if err := waitForDuration(ctx, startDelay); err != nil {
-		return
-	}
-	for i, f := range files {
 		if err := pprof.StartCPUProfile(f); err != nil {
-			log.Error(err, "Could not start scheduled CPU profile", "path", f.Name())
+			_ = f.Close()
+			log.Error(err, "Could not start scheduled CPU profile", "path", path)
 			return
 		}
 		completed := waitForDuration(ctx, duration) == nil
 		pprof.StopCPUProfile()
-		if !completed || i == len(files)-1 || waitForDuration(ctx, interval) != nil {
+		_ = f.Close()
+		if !completed || i == count || waitForDuration(ctx, interval) != nil {
 			return
 		}
 	}
