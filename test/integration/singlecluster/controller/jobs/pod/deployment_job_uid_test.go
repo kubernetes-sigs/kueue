@@ -54,6 +54,7 @@ import (
 // deploymentJobUIDManagerSetup enables the Deployment integration, which the shared
 // managerSetup does not, so that the ancestor walk can resolve a Deployment.
 func deploymentJobUIDManagerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		integrationManager := jobcontrollers.NewIntegrationManager()
 		integrationManager.EnableIntegration(deployment.FrameworkName)

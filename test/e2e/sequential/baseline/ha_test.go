@@ -306,6 +306,7 @@ func scaleKueueControllerManager(replicas int32) {
 	}
 
 	ginkgo.By("scaling kueue-controller-manager", func() {
+		ginkgo.GinkgoHelper()
 		e2e.UpdateDeploymentAndWaitForProgressing(ctx, k8sClient, key, kindClusterName, func(deployment *appsv1.Deployment) {
 			deployment.Spec.Replicas = &replicas
 		})

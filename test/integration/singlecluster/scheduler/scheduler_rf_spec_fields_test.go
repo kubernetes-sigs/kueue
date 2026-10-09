@@ -78,6 +78,7 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor tolerations", ginkgo.O
 	}
 
 	addFlavorToleration := func() {
+		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			var updatedFlavor kueue.ResourceFlavor
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(flavor), &updatedFlavor)).To(gomega.Succeed())
@@ -168,6 +169,7 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor nodeLabels", ginkgo.Or
 	}
 
 	setFlavorZone := func(zone string) {
+		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			var updatedFlavor kueue.ResourceFlavor
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(flavor), &updatedFlavor)).To(gomega.Succeed())

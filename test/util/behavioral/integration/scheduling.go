@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -34,8 +35,9 @@ import (
 )
 
 func FinishRunningWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, n int) {
+	ginkgo.GinkgoHelper()
 	var wList kueue.WorkloadList
-	gomega.ExpectWithOffset(1, k8sClient.List(ctx, &wList)).To(gomega.Succeed())
+	gomega.Expect(k8sClient.List(ctx, &wList)).To(gomega.Succeed())
 	finished := 0
 	for i := 0; i < len(wList.Items) && finished < n; i++ {
 		wl := wList.Items[i]
@@ -44,13 +46,14 @@ func FinishRunningWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq
 			finished++
 		}
 	}
-	gomega.ExpectWithOffset(1, finished).To(gomega.Equal(n), "Not enough workloads finished")
+	gomega.Expect(finished).To(gomega.Equal(n), "Not enough workloads finished")
 }
 
 func FinishEvictionOfWorkloadsInCQ(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, n int) {
+	ginkgo.GinkgoHelper()
 	wList := &kueue.WorkloadList{}
 	finished := sets.New[types.UID]()
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.List(ctx, wList)).To(gomega.Succeed())
 		for _, wl := range wList.Items {
 			if wl.Status.Admission == nil || string(wl.Status.Admission.ClusterQueue) != cq.Name {
