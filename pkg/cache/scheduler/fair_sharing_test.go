@@ -1283,6 +1283,15 @@ func TestIsBorrowingOn(t *testing.T) {
 			if got := drs.IsBorrowingOn(tc.requestedFRs); got != tc.wantBorrowingOnRequested {
 				t.Errorf("IsBorrowingOn() = %v, want %v", got, tc.wantBorrowingOnRequested)
 			}
+			frs := sets.New[resources.FlavorResource]()
+			for fr, q := range tc.requestedFRs {
+				if q.CmpInt64(0) > 0 {
+					frs.Insert(fr)
+				}
+			}
+			if got := drs.IsBorrowingOnAny(frs); got != tc.wantBorrowingOnRequested {
+				t.Errorf("IsBorrowingOnAny() = %v, want %v", got, tc.wantBorrowingOnRequested)
+			}
 		})
 	}
 }
