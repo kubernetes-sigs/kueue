@@ -86,11 +86,12 @@ func newProvisioningConfigHelper(c client.Client) (*provisioningConfigHelper, er
 }
 
 type Controller struct {
-	client      client.Client
-	record      events.EventRecorder
-	helper      *provisioningConfigHelper
-	clock       clock.Clock
-	roleTracker *roletracker.RoleTracker
+	client               client.Client
+	record               events.EventRecorder
+	helper               *provisioningConfigHelper
+	clock                clock.Clock
+	roleTracker          *roletracker.RoleTracker
+	serverVersionFetcher workload.ServerVersionFetcher
 }
 
 type workloadInfo struct {
@@ -107,19 +108,35 @@ var _ reconcile.Reconciler = (*Controller)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=admissionchecks,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=provisioningrequestconfigs,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=limitranges,verbs=get;list;watch
 
-func NewController(client client.Client, record events.EventRecorder, roleTracker *roletracker.RoleTracker) (*Controller, error) {
+// Option configures the provisioning controller.
+type Option func(*Controller)
+
+// WithServerVersionFetcher sets the fetcher used to determine the API server
+// version the resource defaults of the built pod templates mirror.
+func WithServerVersionFetcher(f workload.ServerVersionFetcher) Option {
+	return func(c *Controller) {
+		c.serverVersionFetcher = f
+	}
+}
+
+func NewController(client client.Client, record events.EventRecorder, roleTracker *roletracker.RoleTracker, options ...Option) (*Controller, error) {
 	helper, err := newProvisioningConfigHelper(client)
 	if err != nil {
 		return nil, err
 	}
-	return &Controller{
+	c := &Controller{
 		client:      client,
 		record:      record,
 		helper:      helper,
 		clock:       realClock,
 		roleTracker: roleTracker,
-	}, nil
+	}
+	for _, option := range options {
+		option(c)
+	}
+	return c, nil
 }
 
 // Reconcile performs a full reconciliation for the object referred to by the Request.
@@ -463,6 +480,18 @@ func (c *Controller) buildPodTemplate(ctx context.Context, wl *kueue.Workload, n
 
 	// copy limits to requests if needed
 	workload.UseLimitsAsMissingRequestsInPod(&newPt.Template.Spec)
+
+	// Mirror the API server and the LimitRanger admission plugin so the template
+	// carries the resource requests the pods of this Workload will run with.
+	limitRangeSummary, err := workload.ResolveLimitRangeSummary(ctx, c.client, wl.Namespace)
+	if err != nil {
+		return nil, err
+	}
+	inputs := workload.AdjustmentInputs{LimitRangeSummary: limitRangeSummary}
+	if c.serverVersionFetcher != nil {
+		inputs.LegacyPodLevelDefaulting = workload.UsesLegacyPodLevelDefaulting(c.serverVersionFetcher.GetServerVersion())
+	}
+	workload.ApplyLimitRangeAndPodLevelDefaults(&newPt.Template.Spec, inputs)
 
 	return newPt, nil
 }
