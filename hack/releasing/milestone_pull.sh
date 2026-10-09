@@ -195,9 +195,10 @@ function update_release_issue() {
 
   body=$(gh issue view "${RELEASE_ISSUE_NUMBER}" --repo="$1" --json body | jq -r '.body')
   new_body=${body//<!-- MILESTONE_PULL -->/$2#${pr_number}}
+  new_body=$(printf '%s' "${new_body}" | python3 "${KUBERNETES_SIGS_KUEUE_PATH}/hack/releasing/log_to_issue.py" --mark-step-done milestone-pull)
 
   if [[ "${new_body}" == "${body}" ]]; then
-    echo "!!! The <!-- MILESTONE_PULL --> placeholder was not found in the release issue; leaving the body unchanged."
+    echo "!!! No release issue checklist update needed; leaving the body unchanged."
     return 0
   fi
 
@@ -283,11 +284,21 @@ function submit_mapping_pr() {
   TEST_INFRA_STARTING_BRANCH=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse HEAD)
 
   local existing_pr
-  existing_pr=$(gh pr list --repo="${test_infra_repo}" --search "${PR_TITLE} in:title" --json title,url \
-    | jq -r --arg t "${PR_TITLE}" 'first(.[] | select(.title == $t) | .url) // empty')
+  existing_pr=$(gh pr list --repo="${test_infra_repo}" --search "${PR_TITLE} in:title" \
+    --json title,url,headRefName,baseRefName,headRepositoryOwner \
+    | jq -r --arg title "${PR_TITLE}" --arg head "${PR_BRANCH}" --arg owner "${GITHUB_USER}" '
+      first(.[] | select(
+        .title == $title and
+        .headRefName == $head and
+        .baseRefName == "master" and
+        ((.headRepositoryOwner.login // "" | ascii_downcase) == ($owner | ascii_downcase))
+      ) | .url) // empty')
   if [[ -n "${existing_pr}" ]]; then
     PR_RESULT="already open: ${existing_pr}"
     echo "+++ A pull request for this change is already open: ${existing_pr}"
+    if [[ -z "${DRY_RUN:-}" ]]; then
+      update_release_issue "${kueue_repo}" "${test_infra_repo}" "${existing_pr}"
+    fi
     return 0
   fi
 

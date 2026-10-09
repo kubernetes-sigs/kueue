@@ -18,6 +18,8 @@ import contextlib
 import io
 import os
 import re
+import subprocess
+import sys
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -40,8 +42,10 @@ def checked_lines(body: str) -> list[str]:
 
 
 class MarkStepDoneTest(unittest.TestCase):
-    def test_template_markers_match_workflow_commands(self) -> None:
+    def test_template_markers_match_workflow_or_manual_commands(self) -> None:
         commands = set(re.findall(r'COMMAND="([a-z-]+)"', WORKFLOW_PATH.read_text()))
+        for script in (REPO_ROOT / "hack/releasing").glob("*.sh"):
+            commands.update(re.findall(r"--mark-step-done ([a-z-]+)", script.read_text()))
         markers = template_markers()
         self.assertTrue(markers)
         # A marker that matches no command (typo, renamed or removed command)
@@ -54,7 +58,7 @@ class MarkStepDoneTest(unittest.TestCase):
             with self.subTest(command):
                 lines = checked_lines(log_to_issue.mark_step_done(template, command))
                 self.assertEqual(len(lines), 1)
-                self.assertIn(f"`/{command}`", lines[0])
+                self.assertIn(f"<!-- step:{command} -->", lines[0])
 
     def test_release_log_is_not_changed(self) -> None:
         template = TEMPLATE_PATH.read_text()
@@ -111,6 +115,29 @@ class MainTest(unittest.TestCase):
                 out = self.run_main(env)
                 self.assertEqual(len(checked_lines(out)), want_checked)
                 self.assertIn("Command: /tag-release", out)
+
+
+class CommandLineTest(unittest.TestCase):
+    def test_mark_step_done_without_adding_a_log(self) -> None:
+        template = TEMPLATE_PATH.read_text()
+        log = f"{log_to_issue.LOG_MARKER_START}\nexisting log\n{log_to_issue.LOG_MARKER_END}\n"
+        cases = {
+            "new release issue": (template, "prepare-pull-release"),
+            "existing release log": (template + log, "prepare-pull-main"),
+            "already completed step": (log_to_issue.mark_step_done(template, "ci-pull"), "ci-pull"),
+            "older template": ("- [ ] Run prepare_pull.sh\n", "prepare-pull-release"),
+            "unknown step": (template, "unknown-step"),
+        }
+        for name, (body, command) in cases.items():
+            with self.subTest(name=name):
+                result = subprocess.run(
+                    [sys.executable, str(REPO_ROOT / "hack/releasing/log_to_issue.py"),
+                     "--mark-step-done", command],
+                    input=body, capture_output=True, text=True, check=False,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, log_to_issue.mark_step_done(body, command))
+                self.assertEqual(result.stderr, "")
 
 
 if __name__ == "__main__":
