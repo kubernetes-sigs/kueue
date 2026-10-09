@@ -1086,6 +1086,62 @@ type reconcileTestCase struct {
 	beforeReconcile           func(context.Context, client.Client, *qcache.Manager)
 }
 
+func TestPendingEventsPreserveAssumedReservation(t *testing.T) {
+	cases := map[string]struct {
+		tasEnabled bool
+		create     bool
+	}{
+		"pending update with TAS enabled":  {tasEnabled: true},
+		"pending create with TAS enabled":  {tasEnabled: true, create: true},
+		"pending update with TAS disabled": {},
+		"pending create with TAS disabled": {create: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, tc.tasEnabled)
+			ctx, log := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder().Build()
+			cache := schdcache.New(cl)
+			queues := qcache.NewManagerForUnitTests(cl, cache,
+				qcache.WithPreemptionExpectations(preemptexpectations.New()))
+			r := NewWorkloadReconciler(cl, queues, cache, &utiltesting.EventRecorder{})
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "2").Obj()).Obj()
+			setupClusterQueue(ctx, t, cl, queues, cache, cq, false)
+			if err := cache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("adding ClusterQueue to scheduler cache: %v", err)
+			}
+			setupLocalQueue(ctx, t, cl, queues, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
+			pending := utiltestingapi.MakeWorkload("wl", "ns").Queue("lq").Request(corev1.ResourceCPU, "2").Obj()
+			assumed := (&utiltestingapi.WorkloadWrapper{Workload: *pending.DeepCopy()}).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "2").Obj()).Obj(), time.Now()).Obj()
+			if !cache.AddOrUpdateWorkload(ctx, log, assumed) {
+				t.Fatal("adding scheduler assumption")
+			}
+			if tc.create {
+				r.handleCreate(ctx, event.TypedCreateEvent[*kueue.Workload]{Object: pending})
+			} else {
+				updated := pending.DeepCopy()
+				updated.Annotations = map[string]string{"test": "pending update"}
+				r.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: pending, ObjectNew: updated})
+			}
+			if !cache.IsAdded(*workload.NewInfo(log, assumed)) {
+				t.Fatal("stale pending event removed assumed reservation")
+			}
+			usage, err := cache.Usage(cq)
+			if err != nil {
+				t.Fatalf("reading quota usage: %v", err)
+			}
+			if usage.ReservingWorkloads != 1 || len(usage.ReservedResources) != 1 ||
+				len(usage.ReservedResources[0].Resources) != 1 || usage.ReservedResources[0].Resources[0].Total.Cmp(resource.MustParse("2")) != 0 {
+				t.Fatalf("pending event changed assumed quota: %+v", usage)
+			}
+		})
+	}
+}
+
 func TestUpdateSkipsRequeueForOnHoldWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)

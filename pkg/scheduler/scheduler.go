@@ -535,7 +535,11 @@ func (s *Scheduler) processEntry(
 	// If the workload only fits because of other preemptions in this cycle,
 	// we must wait for those preemptions to complete.
 	if mode == flavorassigner.DeferredFit {
-		e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
+		if e.assignment.WaitingForResidualTASPods {
+			e.inadmissibleMsg = "Workload will fit after bound Pods from released TAS reservations terminate or are deleted"
+		} else {
+			e.inadmissibleMsg = "Workload has overlapping preemption targets with another workload, but will fit after these preemptions complete"
+		}
 		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
 		e.requeueReason = qcache.RequeueReasonPendingPreemption
 		// Clear FlavorScanState to force a full re-evaluation of all flavors in the next cycle.
@@ -863,6 +867,9 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	cq *schdcache.ClusterQueueSnapshot,
 	preemptedWorkloads preemption.PreemptedWorkloads) (bool, error) {
 	fitsCheck := e.checkFits(log, snapshot, cq, preemptedWorkloads)
+	if e.assignment.WaitingForResidualTASPods && fitsCheck == schdcache.FitsCheckNoTAS {
+		return false
+	}
 
 	needsTASRecompute := fitsCheck == schdcache.FitsCheckNoTAS && features.Enabled(features.TASRecomputeAssignmentWithinSchedulingCycle)
 	needsOverlapRecompute := preemptedWorkloads.HasAny(e.preemptionTargets) && features.Enabled(features.RecomputeAssignmentUponPreemptionTargetsOverlap)
@@ -1596,6 +1603,12 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 		fitsFn := func(nextCounts []int32) bool {
 			initialAssignment := flvAssigner.AssignFlavors(ctx, log, nextCounts)
 			if partialPlan := planner.Plan(ctx, &initialAssignment); partialPlan.CanFit() {
+				// A reduced count may fit only by evicting another victim. Keep
+				// waiting for residual Pods unless it fits without preemption.
+				if assignmentPlan.Assignment.WaitingForResidualTASPods &&
+					partialPlan.Assignment.RepresentativeMode() == flavorassigner.Preempt {
+					return false
+				}
 				bestPartialPlan = &partialPlan
 				return true
 			}

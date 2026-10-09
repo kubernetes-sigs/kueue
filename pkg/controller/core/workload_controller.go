@@ -1329,6 +1329,11 @@ func (r *WorkloadReconciler) handleCreate(ctx context.Context, e event.TypedCrea
 
 	ctx = ctrl.LoggerInto(ctx, log)
 	wl := e.Object
+	if !workload.HasActiveQuotaReservation(wl) {
+		// Rebuild eviction intent for residual bound Pods on informer startup,
+		// even when a pending Workload goes directly to the scheduling queue.
+		r.cache.ObserveTASWorkloadIntent(wl)
+	}
 
 	if r.needsDRAReconcile(ctx, e.Object) {
 		log.V(2).Info("Skipping DRA workload in Create event - will be handled in Reconcile")
@@ -1366,7 +1371,7 @@ func (r *WorkloadReconciler) handleDelete(ctx context.Context, e event.TypedDele
 	// by the scheduler, and leaving them blocks ClusterQueue finalizer removal.
 	// The operation is idempotent if the workload was never in the cache.
 	r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
-		if err := r.cache.DeleteWorkload(log, wlKey); err != nil {
+		if err := r.cache.ForgetWorkload(log, e.Object); err != nil {
 			log.Error(err, "Failed to delete workload from cache")
 		}
 	})
@@ -1437,11 +1442,14 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(log, wlKey); err != nil && prevStatus == workload.StatusAdmitted {
+			if err := r.cache.DeleteWorkload(log, wlKey, wl); err != nil && prevStatus == workload.StatusAdmitted {
 				log.Error(err, "Failed to delete workload from cache")
 			}
 		})
 	case prevStatus == workload.StatusPending && status == workload.StatusPending:
+		// Keep residual-Pod eviction intent current without clearing a newer
+		// scheduler assumption while the informer still reports pending.
+		r.cache.ObserveTASWorkloadIntent(wl)
 		switch {
 		case onHold:
 			log.V(2).Info("Removing workload from queue because it is on-hold")
@@ -1473,7 +1481,7 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 			// Delete the workload from cache while holding the queues lock
 			// to guarantee that requeued workloads are taken into account before
 			// the next scheduling cycle.
-			if err := r.cache.DeleteWorkload(log, wlKey); err != nil {
+			if err := r.cache.DeleteWorkload(log, wlKey, wl); err != nil {
 				log.Error(err, "Failed to delete workload from cache")
 			}
 			// Here we don't take the lock as it is already taken by the wrapping function.
