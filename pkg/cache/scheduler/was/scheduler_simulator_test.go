@@ -20,6 +20,7 @@ package was
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -28,11 +29,25 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes/fake"
+	featuregatetesting "k8s.io/component-base/featuregate/testing"
 	"k8s.io/klog/v2"
+	fwk "k8s.io/kube-scheduler/framework"
+	kubefeatures "k8s.io/kubernetes/pkg/features"
+	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
+	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
+	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/scheduler-library/pkg/framework"
+	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
+	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
@@ -861,6 +876,282 @@ func TestPreemptWorkloadReleasesPodsOnEveryNode(t *testing.T) {
 			}
 			if got := feasible(); len(got) != 0 {
 				t.Errorf("after revert: want no feasible node, got %v", got)
+			}
+		})
+	}
+}
+
+// preFilterErrorPluginName names preFilterErrorPlugin in the profile.
+const preFilterErrorPluginName = "TestPreFilterError"
+
+// preFilterErrorPodLabel marks the Pods preFilterErrorPlugin fails.
+const preFilterErrorPodLabel = "test.kueue.x-k8s.io/prefilter-error"
+
+// preFilterErrorPlugin fails PreFilter with an error status for Pods carrying
+// preFilterErrorPodLabel.
+// This is used to simulate a Pod-specific error being returned in scheduler-library result.
+type preFilterErrorPlugin struct{}
+
+var _ fwk.PreFilterPlugin = preFilterErrorPlugin{}
+
+func (preFilterErrorPlugin) Name() string { return preFilterErrorPluginName }
+
+func (preFilterErrorPlugin) PreFilter(_ context.Context, _ fwk.CycleState, pod *corev1.Pod, _ []fwk.NodeInfo) (*fwk.PreFilterResult, *fwk.Status) {
+	if _, ok := pod.Labels[preFilterErrorPodLabel]; ok {
+		return nil, fwk.AsStatus(fmt.Errorf("injected PreFilter error for pod %s", pod.Name))
+	}
+	return nil, nil
+}
+
+func (preFilterErrorPlugin) PreFilterExtensions() fwk.PreFilterExtensions { return nil }
+
+// testSimulatorOption adjusts the profile and the out-of-tree plugin registry
+// newTestSimulatorWithPodGroups builds the simulator with.
+type testSimulatorOption func(profile *schedulerconfig.KubeSchedulerProfile, registry frameworkruntime.Registry)
+
+// withPreFilterErrorPlugin adds preFilterErrorPlugin to the profile.
+func withPreFilterErrorPlugin(profile *schedulerconfig.KubeSchedulerProfile, registry frameworkruntime.Registry) {
+	registry[preFilterErrorPluginName] = func(context.Context, runtime.Object, fwk.Handle) (fwk.Plugin, error) {
+		return preFilterErrorPlugin{}, nil
+	}
+	profile.Plugins.PreFilter.Enabled = append(profile.Plugins.PreFilter.Enabled, schedulerconfig.Plugin{Name: preFilterErrorPluginName})
+}
+
+// newTestSimulatorWithPodGroups builds a wasSimulator the same way the factory
+// does, but seeds the snapshot with PodGroups, which ScheduleWorkload resolves the
+// workload's Pods against and the factory has no way to provide yet.
+func newTestSimulatorWithPodGroups(
+	ctx context.Context,
+	t *testing.T,
+	nodes []*corev1.Node,
+	existingPods []*corev1.Pod,
+	podGroups []*schedulingv1beta1.PodGroup,
+	opts ...testSimulatorOption,
+) *wasSimulator {
+	t.Helper()
+	kubeClient := fake.NewSimpleClientset()
+	informerFactory := informers.NewSharedInformerFactory(kubeClient, 0)
+	_ = informerFactory.Core().V1().Nodes().Informer()
+	_ = informerFactory.Core().V1().Pods().Informer()
+	cfg := newWASSchedulerConfig()
+	registry := frameworkruntime.Registry{}
+	for _, opt := range opts {
+		opt(&cfg.Profiles[0], registry)
+	}
+	comps, err := upstreamsync.NewFrameworkComponents(ctx, kubeClient, informerFactory,
+		upstreamsync.WithProfiles(cfg.Profiles...),
+		upstreamsync.WithFrameworkOutOfTreeRegistry(registry))
+	if err != nil {
+		t.Fatalf("NewFrameworkComponents failed: %v", err)
+	}
+	informerFactory.StartWithContext(ctx)
+	if err := informerFactory.WaitForCacheSyncWithContext(ctx).AsError(); err != nil {
+		t.Fatalf("WaitForCacheSync failed: %v", err)
+	}
+	if err := comps.WaitForHandlersSync(ctx); err != nil {
+		t.Fatalf("WaitForHandlersSync failed: %v", err)
+	}
+
+	snap := cache.NewTestSnapshotWithPodGroups(existingPods, nodes, podGroups)
+	profiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, snap)
+	if err != nil {
+		t.Fatalf("NewFrameworkMap failed: %v", err)
+	}
+	framework.ApplySimulationNeutralizers(profiles)
+	return &wasSimulator{wasSnapshot: schedLibSnapshot.New(snap, profiles)}
+}
+
+// cmpErrorMessage compares errors by message, as the scheduler-library returns
+// plain fmt.Errorf errors that cannot be matched with errors.Is.
+var cmpErrorMessage = cmp.Comparer(func(a, b error) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return a.Error() == b.Error()
+})
+
+func TestScheduleWorkload(t *testing.T) {
+	const ns = "default"
+
+	makeNode := func(name string) *corev1.Node {
+		return testingnode.MakeNode(name).
+			Label(corev1.LabelHostname, name).
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj()
+	}
+	nodes := []*corev1.Node{makeNode("node1"), makeNode("node2")}
+
+	// blocker holds host port 8080 on node1, so a Pod asking for that port can
+	// only go to node2.
+	blocker := testingpod.MakePod("blocker", ns).
+		UID("blocker-uid").
+		NodeName("node1").
+		StatusPhase(corev1.PodRunning).
+		Port(8080, 8080, corev1.ProtocolTCP).
+		Obj()
+
+	gangPodGroup := func(name string, minCount int32) *schedulingv1beta1.PodGroup {
+		return &schedulingv1beta1.PodGroup{
+			Name: name, Namespace: ns,
+			Spec: schedulingv1beta1.PodGroupSpec{
+				SchedulingPolicy: schedulingv1beta1.PodGroupSchedulingPolicy{
+					Gang: &schedulingv1beta1.GangSchedulingPolicy{MinCount: minCount},
+				},
+			},
+		}
+	}
+	// workloadPod returns a Pod of the scheduled workload, asking for host port
+	// 8080 and belonging to the given PodGroup (none when podGroup is empty).
+	workloadPod := func(name, podGroup string) *testingpod.PodWrapper {
+		w := testingpod.MakePod(name, ns).
+			UID(name+"-uid").
+			Port(8080, 8080, corev1.ProtocolTCP)
+		if podGroup != "" {
+			w.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: new(podGroup)}
+		}
+		return w
+	}
+	key := func(name string) client.ObjectKey {
+		return client.ObjectKey{Namespace: ns, Name: name}
+	}
+
+	// noFeasibleNode is the library's reason for a Pod pinned to node1 while
+	// node1's host port 8080 is taken.
+	const noFeasibleNode = "0/2 nodes are available: 1 node(s) didn't have free ports for the requested pod ports, 1 node(s) didn't match Pod's node affinity/selector."
+
+	// injectedErr is how the framework reports the error preFilterErrorPlugin
+	// returns for the "errors" Pod.
+	const injectedErr = `running PreFilter plugin "TestPreFilterError": injected PreFilter error for pod errors`
+
+	// otherSchedulerPod is a workload Pod naming a scheduler the simulator does not build.
+	otherSchedulerPod := workloadPod("p", "pg").Obj()
+	otherSchedulerPod.Spec.SchedulerName = "secondary-scheduler"
+
+	cases := map[string]struct {
+		existingPods      []*corev1.Pod
+		podGroups         []*schedulingv1beta1.PodGroup
+		pods              []*corev1.Pod
+		simulatorOpts     []testSimulatorOption
+		wantPlacements    simulator.PodPlacements
+		wantTopLevelError bool
+	}{
+		"no pods: no placements": {
+			wantPlacements: simulator.PodPlacements{},
+		},
+		"pod outside any PodGroup: the result reports the error": {
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
+			pods: []*corev1.Pod{
+				workloadPod("in-group", "pg").Obj(),
+				workloadPod("no-group", "").Obj(),
+			},
+			wantTopLevelError: true,
+		},
+		"PodGroup missing from the snapshot: the result reports the error": {
+			pods:              []*corev1.Pod{workloadPod("p", "missing").Obj()},
+			wantTopLevelError: true,
+		},
+		"pod is placed on the only feasible node": {
+			existingPods: []*corev1.Pod{blocker},
+			podGroups:    []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
+			pods:         []*corev1.Pod{workloadPod("p", "pg").Obj()},
+			wantPlacements: simulator.PodPlacements{
+				key("p"): simulator.NewSuccessfulPlacement("node2"),
+			},
+		},
+		// The simulator builds one profile, so a workload naming a profile it does
+		// not build is judged by that profile rather than failing to schedule.
+		"pod naming another scheduler is placed on the only feasible node": {
+			existingPods: []*corev1.Pod{blocker},
+			podGroups:    []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
+			pods:         []*corev1.Pod{otherSchedulerPod},
+			wantPlacements: simulator.PodPlacements{
+				key("p"): simulator.NewSuccessfulPlacement("node2"),
+			},
+		},
+		"pod with no feasible node fails with reasons": {
+			existingPods: []*corev1.Pod{blocker},
+			podGroups:    []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
+			pods:         []*corev1.Pod{workloadPod("p", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj()},
+			wantPlacements: simulator.PodPlacements{
+				key("p"): simulator.NewFailedPlacement(noFeasibleNode),
+			},
+		},
+		"pods of the workload are each placed on their feasible node": {
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 2)},
+			pods: []*corev1.Pod{
+				workloadPod("p1", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj(),
+				workloadPod("p2", "pg").NodeSelector(corev1.LabelHostname, "node2").Obj(),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("p1"): simulator.NewSuccessfulPlacement("node1"),
+				key("p2"): simulator.NewSuccessfulPlacement("node2"),
+			},
+		},
+		// Both Pods want host port 8080 on node1, so only one of them could go
+		// there. The library fails the whole workload when any of its Pods does
+		// not fit, so none of them is placed, not even the one that would fit.
+		"one pod of the workload cannot be placed: none of its pods is placed": {
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 2)},
+			pods: []*corev1.Pod{
+				workloadPod("p1", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj(),
+				workloadPod("p2", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj(),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("p1"): simulator.NewFailedPlacement("pod group is unschedulable"),
+				key("p2"): simulator.NewFailedPlacement(noFeasibleNode),
+			},
+		},
+		// The library tries the Pods in order and stops at the first one that
+		// does not fit:
+		//   - "fits" fits, but as the workload fails it gets the PodGroup's status;
+		//   - "errors" is failed with an error by preFilterErrorPlugin;
+		//   - "skipped1" and "skipped2" are never tried, so the library returns nothing for them.
+		"pods placed, errored and skipped by the library": {
+			podGroups:     []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 4)},
+			simulatorOpts: []testSimulatorOption{withPreFilterErrorPlugin},
+			pods: []*corev1.Pod{
+				workloadPod("fits", "pg").Obj(),
+				workloadPod("errors", "pg").Label(preFilterErrorPodLabel, "true").Obj(),
+				workloadPod("skipped1", "pg").Obj(),
+				workloadPod("skipped2", "pg").Obj(),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("fits"):     simulator.NewFailedPlacement("pod group is unschedulable"),
+				key("errors"):   simulator.NewPlacementError(errors.New(injectedErr), injectedErr),
+				key("skipped1"): simulator.NewFailedPlacement(FailedReasonSkipped),
+				key("skipped2"): simulator.NewFailedPlacement(FailedReasonSkipped),
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			// The library only resolves the workload's PodGroups with this gate on.
+			featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, kubefeatures.GenericWorkload, true)
+			ctx := klog.NewContext(t.Context(), logr.Discard())
+			schedulerSimulator := newTestSimulatorWithPodGroups(ctx, t, nodes, tc.existingPods, tc.podGroups, tc.simulatorOpts...)
+
+			// ScheduleWorkload runs dry, so asking twice must give the same answer:
+			// the first call must not leave its Pods on the nodes.
+			for attempt := range 2 {
+				got := schedulerSimulator.ScheduleWorkload(ctx, tc.pods)
+
+				if gotError := got.Error != nil; gotError != tc.wantTopLevelError {
+					t.Errorf("attempt %d: got error %v, want error: %t", attempt, got.Error, tc.wantTopLevelError)
+				}
+
+				if diff := cmp.Diff(
+					tc.wantPlacements,
+					got.PodPlacements,
+					cmpErrorMessage,
+					cmp.AllowUnexported(*simulator.NewSuccessfulPlacement("")),
+				); diff != "" {
+					t.Errorf("attempt %d: unexpected placements (-want,+got):\n%s", attempt, diff)
+				}
 			}
 		})
 	}
