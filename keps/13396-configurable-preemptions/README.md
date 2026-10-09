@@ -40,6 +40,7 @@
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+  - [Priority Class Selectors](#priority-class-selectors)
 - [Future Work Ideas](#future-work-ideas)
 <!-- /toc -->
 
@@ -408,8 +409,8 @@ Requested functionalities from the community can be satisfied with the following
                  maxValue: 8
    ```
 
-2. **Priority threshold for within-ClusterQueue preemptions ([Issue #12001](https://github.com/kubernetes-sigs/kueue/issues/12001)):** _(Temporary solution — proper handling deferred to [Future Work](FUTURE_WORK.md#priority-selectors))_
-   Restricted preemption within the same ClusterQueue targeting only candidates matching a specific priority class using `labelSelector`:
+2. **Priority threshold for within-ClusterQueue preemptions ([Issue #12001](https://github.com/kubernetes-sigs/kueue/issues/12001)):**
+   Restrict preemption within the same ClusterQueue to lower-priority candidates matching specific priority classes using `priority.matchNames` (alongside `mode: "Base"` and `comparison: "LessThan"`):
 
    ```yaml
    spec:
@@ -419,17 +420,13 @@ Requested functionalities from the community can be satisfied with the following
            trigger: "InsufficientQuota"
          candidateSelectors:
            - scope: "WithinClusterQueue"
-             labelSelector:
-               matchLabels:
-                 kueue.x-k8s.io/priority-class: "batch-low"
+             priority:
+               mode: "Base"
+               comparison: "LessThan"
+               matchNames:
+                 - "batch-low"
+                 - "dev-preemptible"
    ```
-
-> [!NOTE]
-> Better support for this use case is planned for the future (see [Future Work](FUTURE_WORK.md#priority-selectors)). Current usage of `labelSelector` for this purpose has several requirements and limitations:
-> - The `kueue.x-k8s.io/priority-class` label must be added to the list of copied labels in the Kueue configuration.
-> - Only `WorkloadPriorityClass` is supported under `kueue.x-k8s.io/priority-class`. Kueue does not populate this label for pod `PriorityClass`; to filter by pod `PriorityClass`, a custom label must be used and included in `labelKeysToCopy`, Kueue will not support Pod `PriorityClass` in `kueue.x-k8s.io/priority-class` label.
->
-> `labelSelector` will remain supported as it is enabling many other use cases, e.g. filtering of workloads by custom user labels.
 
 3. **Priority threshold for reclaim within Cohort ([Issue #12046](https://github.com/kubernetes-sigs/kueue/issues/12046)):** _(Deferred to [Future Work](FUTURE_WORK.md#quota-based-candidate-selectors-preemptionconfigquotaconstraint))_
    Reclaim borrowed capacity within the cohort only from candidates matching a specific priority class using `priority.matchNames`:
@@ -625,6 +622,13 @@ type PreemptionConfigPreemptionRule struct {
   //
   // +optional
   PreemptorSelector *metav1.LabelSelector `json:"preemptorSelector,omitempty"`
+
+  // preemptorPriorityClassSelector filters which preempting workloads can activate this rule
+  // based on their spec.priorityClassRef.name.
+  // If omitted or empty, workloads of any priority class can trigger this rule.
+  //
+  // +optional
+  PreemptorPriorityClassSelector *PreemptionConfigPriorityClassSelector `json:"preemptorPriorityClassSelector,omitempty"`
 
 
   // activationPolicy determines when this rule contributes matching
@@ -825,18 +829,59 @@ const (
 // clear, intuitive semantics for cluster administrators.
 
 // PreemptionConfigPriorityConstraint defines the requirements for the priority of preemption candidates.
+// +kubebuilder:validation:XValidation:rule="has(self.mode) == has(self.comparison)",message="mode and comparison must be specified together"
 type PreemptionConfigPriorityConstraint struct {
   // mode specifies whether priority comparison uses base or boosted (effective) priority.
+  // Must be specified together with comparison.
   //
-  // +kubebuilder:validation:Required
-  Mode PreemptionConfigPriorityMode `json:"mode"`
+  // +optional
+  Mode *PreemptionConfigPriorityMode `json:"mode,omitempty"`
 
-  // comparison defines how the candidate's priority compares to the preemptor's priority.
-  // For example, "LessThan" means that only workloads with lower
-  // priority will be allowed as preemption candidates.
+  // comparison is the relational operator comparing the candidate's priority
+  // against the preemptor's priority (i.e., <candidate> <comparison> <preemptor>).
+  // For example, LessThan means the candidate must have strictly lower priority than the preemptor.
+  // Must be specified together with mode.
   //
-  // +kubebuilder:validation:Required
-  Comparison NumericComparison `json:"comparison"`
+  // +optional
+  Comparison *NumericComparison `json:"comparison,omitempty"`
+
+  // PreemptionConfigPriorityClassSelector filters candidate workloads by priority class name.
+  PreemptionConfigPriorityClassSelector `json:",inline"`
+}
+
+// PreemptionConfigPriorityClassSelector filters workloads by their priority class name
+// (matched against the Workload's spec.priorityClassRef.name, which is populated by Kueue
+// for both WorkloadPriorityClass and Pod PriorityClass).
+// When WorkloadPriorityClassDefaulting is enabled and a "default" WorkloadPriorityClass exists,
+// or when a globalDefault Pod PriorityClass is configured, its name (e.g., "default") can be used
+// in matchNames or notMatchNames to match or exclude workloads that do not explicitly specify a priority class.
+type PreemptionConfigPriorityClassSelector struct {
+  // matchNames is an allowlist of PriorityClass or WorkloadPriorityClass names.
+  // If specified, a workload matches only if its spec.priorityClassRef.name equals
+  // any name in this list (OR semantics); if specified workloads without a priorityClassRef do not match. If not specified does not impose any class names restrictions on workloads.
+  //
+  // +optional
+  // +listType=set
+  // +kubebuilder:validation:MinItems=1
+  // +kubebuilder:validation:MaxItems=32
+  // +kubebuilder:validation:items:MinLength=1
+  // +kubebuilder:validation:items:MaxLength=253
+  // +kubebuilder:validation:items:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+  MatchNames []string `json:"matchNames,omitempty"`
+
+  // notMatchNames is a denylist of PriorityClass or WorkloadPriorityClass names.
+  // If specified, a workload matches only if its spec.priorityClassRef.name does not equal
+  // any name in this list; workloads without a priorityClassRef always match. If not specified does not impose any class names restrictions on workloads.
+  // If both matchNames and notMatchNames are specified, both conditions must be satisfied (AND semantics).
+  //
+  // +optional
+  // +listType=set
+  // +kubebuilder:validation:MinItems=1
+  // +kubebuilder:validation:MaxItems=32
+  // +kubebuilder:validation:items:MinLength=1
+  // +kubebuilder:validation:items:MaxLength=253
+  // +kubebuilder:validation:items:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
+  NotMatchNames []string `json:"notMatchNames,omitempty"`
 }
 
 // PreemptionConfigPriorityMode defines whether base or boosted (effective) priority is used when comparing candidates against the preemptor.
@@ -853,8 +898,6 @@ const (
   // Boosted uses the effective priority value, adjusted by the priority boost mechanism (if enabled), for both the candidate and preemptor.
   Boosted PreemptionConfigPriorityMode = "Boosted"
 )
-
-
 ```
 
 #### Default Candidate Ordering
@@ -1073,6 +1116,37 @@ Why should this KEP _not_ be implemented?
    - `ClusterQueue.spec.preemption` has declarative defaulting (`+kubebuilder:default={}`). Setting it to `null` or altering declarative defaulting in a mutating webhook is a breaking change for existing clients and manifests.
    - If a formal field `spec.preemptionConfigName` were added in Alpha with merged behavior alongside `spec.preemption`, changing it to mutually exclusive in Beta would be a breaking change to the field's semantics.
    - Using an annotation (`kueue.x-k8s.io/preemption-config-name`) avoids creating a premature field contract while allowing the outputs of both strategies to be merged cleanly for Alpha. When `PreemptionConfig` reaches full feature parity in Beta, both strategies can be made mutually exclusive via a formal API field without breaking backward compatibility.
+
+### Priority Class Selectors
+
+Instead of matching `Workload.spec.priorityClassRef.name` directly via `PreemptionConfigPriorityClassSelector` (`matchNames` and `notMatchNames`), the following alternatives were considered for filtering workloads by priority tier:
+
+1. **Workload `labelSelector` (Alpha Workaround)**:
+   Filtering candidates via `labelSelector` matching `kueue.x-k8s.io/priority-class`.
+   - _Drawbacks_:
+     - Creates **two sources of truth** and data duplication, since `Workload.spec.priorityClassRef` already authoritatively stores the priority class.
+     - Requires configuring `managedJobs.labelKeysToCopy` to propagate the label from jobs to workloads.
+     - Supports only `WorkloadPriorityClass` (Pod `PriorityClass` is ignored unless custom labels are injected).
+   - _Advantages_:
+     - Can be fully set up on the user side without any code changes in OSS Kueue.
+
+2. **Absolute Priority Value Bounds (`minValue` / `maxValue`)**:
+   Adding absolute integer thresholds (e.g. `maxValue: 1000` or `minValue: 0`) to `PreemptionConfigPriorityConstraint`.
+   - _Drawbacks_:
+     - Hardcodes numeric values into cluster policies rather than semantic names. Policies break when integer mappings change or vary between environments.
+     - Cannot distinguish distinct priority classes that share identical integer values.
+   - _Advantages_:
+     - Can easily take into account boosted values.
+     - Can cover many priority classes at once without referencing them all by name.
+
+3. **Priority class `labelSelector`**:
+   Filtering candidates by matching labels defined on `PriorityClass` or `WorkloadPriorityClass` resources via a `metav1.LabelSelector`.
+   - _Drawbacks_:
+     - **Semantics spanning two different resource types**: Priority in Kueue can originate from either Kubernetes core `PriorityClass` (`scheduling.k8s.io/v1`) or Kueue's `WorkloadPriorityClass` (`kueue.x-k8s.io/v1beta1`). Evaluating label selectors across two distinct resource types introduces semantic ambiguity and operational inconsistency, as administrators would need to manage and align label schemes across separate kinds with different lifecycles and scopes.
+     - **Increased API and configuration complexity**: Requires administrators to manage labels across priority class objects and configure full `LabelSelector` schemas rather than simply referencing priority class names. Directly matching `spec.priorityClassRef.name` via `matchNames` is significantly simpler, more intuitive, and covers almost all practical use cases without added indirection.
+   - _Advantages_:
+     - Can cover many priority classes at once through labels.
+     - Reusing existing well known LabelSelector semantic.
 
 ## Future Work Ideas
 
