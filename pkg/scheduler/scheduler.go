@@ -1356,8 +1356,9 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 	}
 }
 
-// TODO(kevin85421): Deprecate this function once both single-cluster and MultiKueue
-// reconciliation use Workload status.replaces to identify and finish replaced slices.
+// TODO(kevin85421): Deprecate this function and make the job reconciler the sole
+// place that finishes replaced slices in both single-cluster and MultiKueue setups,
+// using Workload status.replaces to identify the replaced slices.
 func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.ClusterQueueReference, newSlice, oldSlice *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
 	if workloadfinish.IsFinished(oldSlice) {
