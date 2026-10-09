@@ -34,6 +34,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -146,6 +147,7 @@ func (w *JobWebhook) validateCreate(ctx context.Context, job *Job) (field.ErrorL
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(job, w.maxTimeoutOnWorkload)...)
 	allErrs = append(allErrs, w.validatePartialAdmissionCreate(job)...)
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(job)...)
+	allErrs = append(allErrs, w.validateElasticJobPartialScaleUp(job)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
 		validationErrs, err := w.validateTopologyRequest(ctx, job)
 		if err != nil {
@@ -198,6 +200,23 @@ func (w *JobWebhook) validateSyncCompletionCreate(job *Job) field.ErrorList {
 	return allErrs
 }
 
+// validateElasticJobPartialScaleUp mirrors upstream's constraint that a running Indexed Job's
+// parallelism and completions can only be mutated together. NonIndexed Jobs don't need this:
+// their .spec.parallelism is already freely mutable upstream, independently of completions.
+func (w *JobWebhook) validateElasticJobPartialScaleUp(job *Job) field.ErrorList {
+	if !jobframework.ElasticPartialScaleUpEnabled(job) ||
+		job.Spec.CompletionMode == nil || *job.Spec.CompletionMode != batchv1.IndexedCompletion {
+		return nil
+	}
+
+	var allErrs field.ErrorList
+	if ptr.Deref(job.Spec.Parallelism, 1) != ptr.Deref(job.Spec.Completions, 1) {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("spec", "completions"), job.Spec.Completions,
+			"elastic job partial scale-up requires completions to equal parallelism"))
+	}
+	return allErrs
+}
+
 // ValidateUpdate implements webhook.Validator so a webhook will be registered for the type
 func (w *JobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *batchv1.Job) (admission.Warnings, error) {
 	oldJob := fromObject(oldObj)
@@ -222,6 +241,9 @@ func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (f
 		allErrs = append(allErrs, w.validatePartialAdmissionCreate(newJob)...)
 	}
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(newJob)...)
+	if elasticJobPartialScaleUpFieldsChanged(oldJob, newJob) {
+		allErrs = append(allErrs, w.validateElasticJobPartialScaleUp(newJob)...)
+	}
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)...)
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
@@ -232,6 +254,15 @@ func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (f
 		allErrs = append(allErrs, validationErrs...)
 	}
 	return allErrs, nil
+}
+
+// elasticJobPartialScaleUpFieldsChanged - allow update to go through
+// even if the Job is already in a state the check would otherwise reject
+// (e.g. suspending a Job that predates the feature, or was created while it was disabled).
+func elasticJobPartialScaleUpFieldsChanged(oldJob, newJob *Job) bool {
+	return newJob.Annotations[kueueconstants.ElasticJobScaleUpStrategyAnnotationKey] != oldJob.Annotations[kueueconstants.ElasticJobScaleUpStrategyAnnotationKey] ||
+		ptr.Deref(newJob.Spec.Parallelism, 1) != ptr.Deref(oldJob.Spec.Parallelism, 1) ||
+		ptr.Deref(newJob.Spec.Completions, 1) != ptr.Deref(oldJob.Spec.Completions, 1)
 }
 
 func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
