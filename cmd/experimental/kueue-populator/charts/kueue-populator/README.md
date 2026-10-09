@@ -150,7 +150,8 @@ The following table lists the configurable parameters under the `kueuePopulator`
 | `config.topology.levels`                           | list     | `[]`              | Optional list of node labels for Topology Aware Scheduling levels. Enables Topology creation.            |
 | `config.resourceFlavor.nodeLabels`                 | object   | `{}`              | Node labels to associate with the default ResourceFlavor.                                                  |
 | `config.managedJobsNamespaceSelector`              | object   | unset             | Optional selector to override Kueue's `managedJobsNamespaceSelector` for the populator.                   |
-| `kueue.managerConfig.controllerManagerConfigYaml`  | string   | (see Kueue chart) | Kueue controller manager configuration. The chart copies `managedJobsNamespaceSelector` from this config into the populator config. |
+| `kueue.managerConfig.config`                       | object   | (not set) | Structured Kueue manager configuration. The populator inherits its `managedJobsNamespaceSelector` unless explicitly overridden. |
+| `kueue.managerConfig.controllerManagerConfigYaml`  | string   | (not set)         | Optional full Kueue manager configuration as YAML; a nonempty string takes precedence over `kueue.managerConfig.config`. |
 
 ### Kueue Subchart Configuration
 
@@ -158,7 +159,7 @@ This chart includes the official `kueue` chart as a dependency. You can configur
 
 -   `kueue.enabled: false`: Disables the subchart installation by default. Set to `true` to install Kueue.
 -   `kueue.controllerManager.featureGates`: Enables `TopologyAwareScheduling`.
--   `kueue.managerConfig.controllerManagerConfigYaml`: Provides Kueue's controller manager configuration. The chart copies its `managedJobsNamespaceSelector` into the populator config unless `kueuePopulator.config.managedJobsNamespaceSelector` is set explicitly.
+-   `kueue.managerConfig.config`: Provides structured Kueue manager configuration. The chart copies its `managedJobsNamespaceSelector` into the populator config unless `kueuePopulator.config.managedJobsNamespaceSelector` is set explicitly. `kueue.managerConfig.controllerManagerConfigYaml` takes precedence as a full replacement when nonempty, matching the Kueue chart. Set it to `""` to use structured configuration instead. The two inputs are not merged. These supplied settings also apply to the populator when the Kueue subchart is disabled.
 
 See the [Kueue chart README](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md) for all possible Kueue configuration options.
 

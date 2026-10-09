@@ -249,6 +249,9 @@ make undeploy
 
 To install and configure Kueue with [Helm](https://helm.sh/), follow the [instructions](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md).
 
+For manager configuration and migration from the YAML string, see the chart's
+[manager configuration guide](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md#manager-configuration).
+
 ## Change the feature gates configuration
 
 Kueue uses a similar mechanism to configure features as described in [Kubernetes Feature Gates](https://kubernetes.io/docs/reference/command-line-tools-reference/feature-gates).

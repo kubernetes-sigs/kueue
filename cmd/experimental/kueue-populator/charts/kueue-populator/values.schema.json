@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "Copyright The Kubernetes Authors. Licensed under the Apache License, Version 2.0; see https://www.apache.org/licenses/LICENSE-2.0.",
+  "type": "object",
+  "properties": {
+    "kueue": {
+      "type": "object",
+      "properties": {
+        "managerConfig": {
+          "type": "object",
+          "description": "A nonempty controllerManagerConfigYaml takes precedence over config. Set the YAML string to an empty string to migrate to structured configuration.",
+          "properties": {
+            "config": {
+              "type": "object"
+            },
+            "controllerManagerConfigYaml": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

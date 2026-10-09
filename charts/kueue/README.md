@@ -107,6 +107,88 @@ for more information on installing kueue with metrics using our Helm chart.
 
 ### Configuration
 
+#### Manager configuration
+
+The chart resolves manager configuration once, before rendering the manager and
+job webhooks:
+
+| Inputs under `managerConfig` | Behavior |
+|---|---|
+| Nonempty `controllerManagerConfigYaml` | Use the YAML string as the complete configuration. Ignore `config`. |
+| YAML string absent or `""`, with `config` | Merge the structured map with this chart version's defaults. |
+| Both inputs unspecified | Use this chart version's defaults. |
+| YAML string `""`, without `config` | Use this chart version's defaults. |
+
+The two inputs are never merged together. Both must have the correct type when
+supplied: `controllerManagerConfigYaml` is a string and `config` is a map. Values
+schema validation checks these types during `helm lint`, `helm template`,
+installation, and upgrade. To check your values before upgrading, run
+`helm lint <chart> --values values.yaml`.
+
+For structured configuration, specify only your customizations:
+
+```yaml
+managerConfig:
+  config:
+    clientConnection:
+      qps: 600
+    integrations:
+      frameworks: ["batch/job", "pod"]
+```
+
+The chart merges maps recursively, replaces lists and scalars, and removes fields
+set to `null` inside `config`. This example keeps the default client burst and
+enables only the two listed integrations. Neither input itself accepts `null`;
+use `""` to clear a legacy string.
+
+The defaults are defined in [templates/manager/_config.tpl](templates/manager/_config.tpl),
+separately from user inputs. Unspecified structured settings follow the selected
+chart version's defaults, **including with `--reuse-values`**. Explicitly supplied
+settings remain pinned. Review the rendered configuration when upgrading.
+Existing certificate-management defaults still apply when `internalCertManagement`
+is not set.
+
+Nonempty legacy YAML configurations require no migration. A customer-supplied
+YAML string continues to win if a wrapper chart adopts structured defaults.
+**An explicitly empty YAML string now selects structured configuration or chart
+defaults.** Previously it supplied an empty configuration. To keep an intentionally
+empty configuration instead, use the nonempty YAML string `"{}"`.
+
+To migrate to structured configuration, copy every intentional manager
+customization into `config` and explicitly clear the legacy string in the same
+values file:
+
+```yaml
+managerConfig:
+  controllerManagerConfigYaml: ""
+  config:
+    clientConnection:
+      qps: 600
+```
+
+For example, retain other saved chart customizations while migrating:
+
+```shell
+helm upgrade kueue <chart> --namespace kueue-system --reuse-values --values migration.yaml
+```
+
+The explicit empty string replaces any retained legacy string. Omitting it can
+leave a nonempty string in place, causing `config` to be ignored. Settings inside
+the old YAML are not converted automatically; fields omitted from `config` use
+the new chart's defaults.
+
+The same migration values work with `--reset-values` or `--reset-then-reuse-values`.
+With `--reset-values`, or an upgrade that supplies new values without a reuse flag,
+include **all other chart customizations you want to retain** in the values file.
+With either reuse flag, other saved customizations are retained unless overridden.
+When Kueue is a dependency, nest these values under its dependency name or alias.
+
+The chart no longer exposes its defaults in `controllerManagerConfigYaml` or
+`config`. Tools that previously read the default string directly should consume
+the rendered manager ConfigMap instead.
+
+#### Chart values
+
 The following table lists the configurable parameters of the kueue chart and their default values.
 
 | Key | Type | Default | Description |
@@ -197,7 +279,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.ingress.ingressClassName | string | `nil` | Path-routed ingress class name |
 | kueueViz.ingress.tlsEnabled | string | `nil` | If true, enable tls on the path-routed ingress. Defaults to true if tlsSecretName is set. |
 | kueueViz.ingress.tlsSecretName | string | `""` | Path-routed ingress tls secret name |
-| managerConfig.controllerManagerConfigYaml | string | controllerManagerConfigYaml | controller_manager_config.yaml. ControllerManager utilizes this yaml via manager-config Configmap. |
+| managerConfig | object | `{}` | Manager configuration inputs. A nonempty controllerManagerConfigYaml string takes precedence as a complete replacement. Otherwise, merge config with the defaults in templates/manager/_config.tpl. To migrate, set the YAML string to "" and supply config. |
 | metrics.prometheusNamespace | string | `"monitoring"` | Prometheus namespace |
 | metrics.serviceMonitor.tlsConfig | object | `{}` | ServiceMonitor's tlsConfig. When empty, the chart verifies the metrics certificate issued by cert-manager if `enableCertManager` is true, and skips verification otherwise. When set, it replaces the generated tlsConfig, and `insecureSkipVerify` defaults to true unless set explicitly. |
 | metricsService.annotations | object | `{}` | metricsService's annotations |

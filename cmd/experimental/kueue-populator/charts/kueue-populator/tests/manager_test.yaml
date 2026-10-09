@@ -146,3 +146,107 @@ tests:
       - equal:
           path: spec.template.spec.imagePullSecrets[0].name
           value: my-secret
+
+  - it: should inherit the structured Kueue namespace selector without enabling the subchart
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.config.managedJobsNamespaceSelector:
+        matchLabels:
+          team: research
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "managedJobsNamespaceSelector:\\n\\s+matchLabels:\\n\\s+team: research"
+
+  - it: should prefer nonempty YAML with the Kueue subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.config.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.controllerManagerConfigYaml: |
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: legacy
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: legacy"
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: structured"
+
+  - it: should use structured configuration when the YAML is cleared with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.config.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.controllerManagerConfigYaml: ""
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: structured"
+
+  - it: should prefer nonempty YAML through the enabled Kueue subchart
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.config.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.controllerManagerConfigYaml: |
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: legacy
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: legacy"
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: structured"
+
+  - it: should preserve the explicit populator selector over structured Kueue configuration
+    documentIndex: 3
+    set:
+      kueue.managerConfig.config.managedJobsNamespaceSelector:
+        matchLabels:
+          team: research
+      kueuePopulator.config.managedJobsNamespaceSelector:
+        matchLabels:
+          team: populator
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: populator"
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "team: research"
+
+  - it: should preserve an explicit empty structured Kueue selector
+    documentIndex: 3
+    set:
+      kueue.managerConfig.config.managedJobsNamespaceSelector: {}
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: 'managedJobsNamespaceSelector:\s+{}'
+
+  - it: should use the structured Kueue namespace in the default selector
+    documentIndex: 3
+    set:
+      kueue.managerConfig.config.namespace: custom-kueue-system
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: 'values:\s+- kube-system\s+- custom-kueue-system'
+
+  - it: should resolve structured configuration through the enabled Kueue subchart
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.config.managedJobsNamespaceSelector:
+        matchLabels:
+          team: research
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "managedJobsNamespaceSelector:\\n\\s+matchLabels:\\n\\s+team: research"
