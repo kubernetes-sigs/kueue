@@ -130,7 +130,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 			Queue(localQueue.Name).
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			FirstWorkerGroupReplicas(5, 10, 10).
+			FirstWorkerGroupReplicas(5, 5, 12).
 			Obj()
 
 		// -------------------------------------------------------------------------------------
@@ -487,7 +487,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 			Queue(localQueue.Name).
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			FirstWorkerGroupReplicas(5, 10, 10).
+			FirstWorkerGroupReplicas(5, 5, 10).
 			Obj()
 
 		ginkgo.By("admitting the raycluster at 5 workers")
@@ -560,7 +560,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 			Queue(localQueue.Name).
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			FirstWorkerGroupReplicas(5, 10, 10).
+			FirstWorkerGroupReplicas(5, 5, 10).
 			Obj()
 
 		ginkgo.By("admitting the raycluster at 5 workers")
@@ -630,7 +630,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 			Queue(localQueue.Name).
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			FirstWorkerGroupReplicas(5, 10, 10).
+			FirstWorkerGroupReplicas(5, 5, 10).
 			Obj()
 
 		ginkgo.By("admitting the raycluster at 5 workers")
@@ -700,7 +700,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 			Queue(localQueue.Name).
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			FirstWorkerGroupReplicas(5, 10, 10).
+			FirstWorkerGroupReplicas(5, 5, 10).
 			Obj()
 
 		ginkgo.By("admitting the raycluster at 5 workers")

@@ -416,7 +416,7 @@ func TestBuildPodSets(t *testing.T) {
 				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 					{
 						GroupName: "workers",
-						// MinReplicas is deliberately absent - it's not consulted at all.
+						// An absent MinReplicas does not constrain the count.
 						Replicas: new(int32(3)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{
@@ -640,11 +640,89 @@ func TestBuildPodSets(t *testing.T) {
 					Obj(),
 			},
 		},
+		"allocation timeout lowers replicas below minimum": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{GroupName: "workers", Replicas: new(int32(1)), MinReplicas: new(int32(2)), MaxReplicas: new(int32(2))},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).PodSpec(corev1.PodSpec{}).Obj(),
+				*utiltestingapi.MakePodSet("workers", 2).PodSpec(corev1.PodSpec{}).Obj(),
+			},
+		},
+		"replicas above maximum": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{GroupName: "workers", Replicas: new(int32(4)), MinReplicas: new(int32(1)), MaxReplicas: new(int32(2))},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).PodSpec(corev1.PodSpec{}).Obj(),
+				*utiltestingapi.MakePodSet("workers", 2).PodSpec(corev1.PodSpec{}).Obj(),
+			},
+		},
+		"replicas within bounds": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{GroupName: "workers", Replicas: new(int32(3)), MinReplicas: new(int32(2)), MaxReplicas: new(int32(4))},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).PodSpec(corev1.PodSpec{}).Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).PodSpec(corev1.PodSpec{}).Obj(),
+			},
+		},
+		"multi-host replicas below minimum": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{GroupName: "workers", Replicas: new(int32(1)), MinReplicas: new(int32(2)), MaxReplicas: new(int32(3)), NumOfHosts: 4},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).PodSpec(corev1.PodSpec{}).Obj(),
+				*utiltestingapi.MakePodSet("workers", 8).PodSpec(corev1.PodSpec{}).Obj(),
+			},
+		},
+		"multi-host replicas above maximum": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{GroupName: "workers", Replicas: new(int32(4)), MinReplicas: new(int32(1)), MaxReplicas: new(int32(2)), NumOfHosts: 4},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).PodSpec(corev1.PodSpec{}).Obj(),
+				*utiltestingapi.MakePodSet("workers", 8).PodSpec(corev1.PodSpec{}).Obj(),
+			},
+		},
+		"absent replicas with minimum": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{GroupName: "workers", MinReplicas: new(int32(2))},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).PodSpec(corev1.PodSpec{}).Obj(),
+				*utiltestingapi.MakePodSet("workers", 2).PodSpec(corev1.PodSpec{}).Obj(),
+			},
+		},
+		"zero replicas and zero minimum": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{GroupName: "workers", Replicas: new(int32(0)), MinReplicas: new(int32(0)), MaxReplicas: new(int32(2))},
+				},
+			},
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).PodSpec(corev1.PodSpec{}).Obj(),
+				*utiltestingapi.MakePodSet("workers", 0).PodSpec(corev1.PodSpec{}).Obj(),
+			},
+		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, tc.enablePartialScaleUpFeature)
+			before := tc.rayClusterSpec.DeepCopy()
 			gotPodSets, err := BuildPodSets(tc.rayClusterSpec, tc.annotations)
 
 			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
@@ -653,6 +731,21 @@ func TestBuildPodSets(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantPodSets, gotPodSets, cmpopts.IgnoreFields(kueue.PodSet{}, "TopologyRequest")); diff != "" {
 				t.Errorf("Unexpected podSets (-want +got):\n%s", diff)
+			}
+
+			if err == nil {
+				wantCounts := make(map[kueue.PodSetReference]int32)
+				for _, podSet := range tc.wantPodSets {
+					if podSet.Name != headGroupPodSetName {
+						wantCounts[podSet.Name] = podSet.Count
+					}
+				}
+				if diff := cmp.Diff(wantCounts, WorkerGroupPodCounts(tc.rayClusterSpec)); diff != "" {
+					t.Errorf("WorkerGroupPodCounts mismatch (-want +got):\n%s", diff)
+				}
+			}
+			if diff := cmp.Diff(before, tc.rayClusterSpec); diff != "" {
+				t.Errorf("count derivation mutated the RayCluster spec (-before +after):\n%s", diff)
 			}
 		})
 	}
@@ -831,6 +924,28 @@ func TestUpdatePodSets(t *testing.T) {
 					PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
 					SubGroupCount(new(int32(5))).
 					Obj(), // Updated from 3 to 5
+			},
+		},
+		"autoscaling update respects minimum worker replicas": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 1).Obj(),
+			},
+			object: testingrayutil.MakeCluster("raycluster", "ns").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				WithEnableAutoscaling(new(true)).
+				Obj(),
+			enableInTreeAutoscaling: new(true),
+			rayClusterName:          "target-raycluster",
+			rayClusterInClient: testingrayutil.MakeCluster("target-raycluster", "ns").
+				WithWorkerGroups(rayv1.WorkerGroupSpec{
+					GroupName: "workers", Replicas: new(int32(1)), MinReplicas: new(int32(2)), MaxReplicas: new(int32(2)),
+				}).Obj(),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 2).
+					SubGroupCount(new(int32(1))).
+					Obj(),
 			},
 		},
 		"successful update with NumOfHosts": {
