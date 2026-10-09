@@ -23,11 +23,9 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
-	"k8s.io/utils/clock"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -39,10 +37,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
-	"sigs.k8s.io/kueue/pkg/workload"
-	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
-	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -54,15 +48,11 @@ const (
 var ErrNoMoreWorkers = errors.New("no more workers to nominate")
 
 type IncrementalDispatcherReconciler struct {
-	client          client.Client
-	helper          *admissioncheck.MultiKueueStoreHelper
-	clock           clock.Clock
+	dispatcher
 	roundStartTimes *utilmaps.SyncMap[types.NamespacedName, time.Time]
-	roleTracker     *roletracker.RoleTracker
 	cfg             *kueueconfig.IncrementalDispatcherConfig
 }
 
-var realClock = clock.RealClock{}
 var _ reconcile.Reconciler = (*IncrementalDispatcherReconciler)(nil)
 
 func (r *IncrementalDispatcherReconciler) SetupWithManager(mgr ctrl.Manager, cfg *kueueconfig.Configuration) error {
@@ -80,54 +70,17 @@ func NewIncrementalDispatcherReconciler(
 	cfg *kueueconfig.IncrementalDispatcherConfig,
 ) *IncrementalDispatcherReconciler {
 	return &IncrementalDispatcherReconciler{
-		client:          c,
-		helper:          helper,
-		clock:           realClock,
+		dispatcher:      newDispatcher(c, helper, roleTracker),
 		roundStartTimes: utilmaps.NewSyncMap[types.NamespacedName, time.Time](0),
-		roleTracker:     roleTracker,
 		cfg:             cfg,
 	}
 }
 
 func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	wl := &kueue.Workload{}
-	err := r.client.Get(ctx, req.NamespacedName, wl)
-	if err != nil {
-		log.Error(err, "Failed to retrieve Workload, skip the reconciliation")
-		if apierrors.IsNotFound(err) {
-			r.clearRoundStartTime(req.NamespacedName)
-		}
+	wl, remoteClusters, err := r.workloadToNominate(ctx, req, r.clearRoundStartTime)
+	if wl == nil || err != nil {
 		return reconcile.Result{}, err
-	}
-
-	if !wl.DeletionTimestamp.IsZero() {
-		log.V(3).Info("Workload is deleted, skip the reconciliation")
-		r.clearRoundStartTime(req.NamespacedName)
-		return reconcile.Result{}, nil
-	}
-
-	mkAc, err := admissioncheck.GetMultiKueueAdmissionCheck(ctx, r.client, wl)
-	if err != nil {
-		log.Error(err, "Can not get MultiKueue AdmissionCheckState")
-		return reconcile.Result{}, err
-	}
-
-	if workload.ShouldSkipClusterNomination(mkAc, wl, workloadslicing.IsElasticWorkload(wl)) {
-		log.V(3).Info("Skipping cluster nomination phase")
-		return reconcile.Result{}, nil
-	}
-
-	remoteClusters, err := admissioncheck.GetRemoteClusters(ctx, r.helper, mkAc.Name)
-	if err != nil {
-		log.Error(err, "Can not get workload group")
-		return reconcile.Result{}, err
-	}
-
-	if workloadfinish.IsFinished(wl) || !workload.HasQuotaReservation(wl) {
-		log.V(3).Info("Workload is already finished or has no quota reserved, skip the reconciliation")
-		r.clearRoundStartTime(req.NamespacedName)
-		return reconcile.Result{}, nil
 	}
 
 	log.V(3).Info("Nominate Worker Clusters with Incremental Dispatcher")
@@ -153,11 +106,7 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 	}
 
 	nominatedWorkers := append(wl.Status.NominatedClusterNames, nextNominatedWorkers...)
-	if err = workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-		wl.Status.NominatedClusterNames = nominatedWorkers
-		return true, nil
-	}); err != nil {
-		log.V(2).Error(err, "Failed to patch nominated clusters")
+	if err := r.nominate(ctx, wl, nominatedWorkers); err != nil {
 		return reconcile.Result{}, err
 	}
 	// only update the round start time if we successfully nominated workers

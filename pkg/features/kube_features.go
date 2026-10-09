@@ -336,6 +336,18 @@ const (
 	// Enabled failure recovery of pods stuck in terminating state.
 	FailureRecoveryPolicy featuregate.Feature = "FailureRecoveryPolicy"
 
+	// owner: @andrewseif
+	//
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/6803
+	// Run the AllAtOnce MultiKueue dispatcher as a dedicated controller in the
+	// workloaddispatcher package, instead of inline in the MultiKueue workload
+	// reconciler. The controller nominates the Active MultiKueueClusters of the
+	// Workload's MultiKueueConfig and does not nominate while the Workload is being
+	// evicted. When disabled, the MultiKueue workload reconciler nominates the
+	// clusters it is connected to, as before.
+	// TODO(#6803): remove the inline path once this gate is GA.
+	MultiKueueAllAtOnceExternal featuregate.Feature = "MultiKueueAllAtOnceExternal"
+
 	// owner: @kannon92
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8190
@@ -1076,6 +1088,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FailureRecoveryPolicy: {
 		{Version: version.MustParse("0.15"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	MultiKueueAllAtOnceExternal: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TLSOptions: {
 		{Version: version.MustParse("0.16"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.20
