@@ -1394,12 +1394,10 @@ func ensurePodWorkloadsRunning(deployment *appsv1.Deployment, managerNs corev1.N
 		client.MatchingLabels(deployment.Spec.Selector.MatchLabels))).To(gomega.Succeed())
 	for i, pod := range pods.Items { // We want to test that all deployment pods have workloads.
 		ginkgo.By(fmt.Sprintf("Verifying pod status: %s [%d/%d]", pod.Name, i+1, len(pods.Items)), func() {
-			ginkgo.GinkgoHelper()
 			var createdLeaderWorkload *kueue.Workload
 			var admissionCheck *kueue.AdmissionCheckState
 			wlLookupKey := types.NamespacedName{Name: workloadpod.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: managerNs.Name}
 			ginkgo.By("Checking pod is admitted on manager", func() {
-				ginkgo.GinkgoHelper()
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdLeaderWorkload = &kueue.Workload{}
 					gomega.Expect(k8sManagerClient.Get(ctx, wlLookupKey, createdLeaderWorkload)).To(gomega.Succeed())
@@ -1419,7 +1417,6 @@ func ensurePodWorkloadsRunning(deployment *appsv1.Deployment, managerNs corev1.N
 			}
 
 			ginkgo.By(fmt.Sprintf("Verifying pod is running on worker cluster %s", workerClusterName), func() {
-				ginkgo.GinkgoHelper()
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdPod := &corev1.Pod{}
 					g.Expect(workerCluster.client.Get(ctx, client.ObjectKey{Namespace: pod.Namespace, Name: pod.Name}, createdPod)).To(gomega.Succeed())

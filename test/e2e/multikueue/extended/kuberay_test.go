@@ -414,7 +414,6 @@ func runElasticRayClusterCleanupAfterPreemptionTest(
 		Obj()
 
 	ginkgo.By("Creating the low-priority elastic RayCluster with one worker", func() {
-		ginkgo.GinkgoHelper()
 		behavioral.MustCreate(ctx, k8sManagerClient, rayCluster)
 	})
 
@@ -432,7 +431,6 @@ func runElasticRayClusterCleanupAfterPreemptionTest(
 
 	var workerRayClusterUID types.UID
 	ginkgo.By("Waiting for the one-worker RayCluster on worker1", func() {
-		ginkgo.GinkgoHelper()
 		workerRayCluster := &rayv1.RayCluster{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(workerClient.Get(ctx, rayClusterKey, workerRayCluster)).To(gomega.Succeed())
@@ -445,7 +443,6 @@ func runElasticRayClusterCleanupAfterPreemptionTest(
 	initialSlice := &kueue.Workload{}
 	gomega.Expect(k8sManagerClient.Get(ctx, wlLookupKey, initialSlice)).To(gomega.Succeed())
 	ginkgo.By("Scaling the RayCluster from one worker to two on the manager", func() {
-		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			createdRayCluster := &rayv1.RayCluster{}
 			g.Expect(k8sManagerClient.Get(ctx, rayClusterKey, createdRayCluster)).To(gomega.Succeed())
@@ -456,7 +453,6 @@ func runElasticRayClusterCleanupAfterPreemptionTest(
 
 	var scaledSlice *kueue.Workload
 	ginkgo.By("Checking the scale-up replacement slice is admitted on worker1", func() {
-		ginkgo.GinkgoHelper()
 		scaledSlice = behavioral.ExpectNewWorkloadSliceWithTimeout(ctx, k8sManagerClient, initialSlice, behavioral.MediumTimeout)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(scaledSlice), scaledSlice)).To(gomega.Succeed())
@@ -479,7 +475,6 @@ func runElasticRayClusterCleanupAfterPreemptionTest(
 		TerminationGracePeriod(1).
 		Obj()
 	ginkgo.By("Creating a high-priority Job that preempts the scaled-up RayCluster", func() {
-		ginkgo.GinkgoHelper()
 		behavioral.MustCreate(ctx, k8sManagerClient, highJob)
 	})
 	highWlKey := types.NamespacedName{
@@ -488,7 +483,6 @@ func runElasticRayClusterCleanupAfterPreemptionTest(
 	}
 
 	ginkgo.By("Checking the RayCluster is preempted and the high-priority Job is admitted on worker1", func() {
-		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			createdSlice := &kueue.Workload{}
 			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(scaledSlice), createdSlice)).To(gomega.Succeed())
@@ -504,7 +498,6 @@ func runElasticRayClusterCleanupAfterPreemptionTest(
 	})
 
 	ginkgo.By("Checking the preempted RayCluster is deleted from worker1", func() {
-		ginkgo.GinkgoHelper()
 		behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, workerClient, rayCluster, false, behavioral.MediumTimeout)
 	})
 }

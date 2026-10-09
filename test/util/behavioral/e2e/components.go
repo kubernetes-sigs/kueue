@@ -61,7 +61,6 @@ func waitForDummyWorkloadToRunOnNode(ctx context.Context, c client.Client, node 
 	ginkgo.GinkgoHelper()
 
 	ginkgo.By(fmt.Sprintf("Waiting for a dummy workload to run on the recovered node %s", node.Name), func() {
-		ginkgo.GinkgoHelper()
 		dummyJob := testingjob.MakeJob(fmt.Sprintf("dummy-job-%s", node.Name), lq.Namespace).
 			Queue(kueue.LocalQueueName(lq.Name)).
 			NodeSelector(corev1.LabelHostname, node.Name).
