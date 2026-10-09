@@ -4,6 +4,7 @@ authors:
   - "@vicentefb"
   - "@ichekrygin"
   - "@sohankunkerkar"
+  - "@zhengchenyu"
 status: provisional
 creation-date: 2024-03-14
 reviewers:
@@ -35,3 +36,4 @@ see-also:
 feature-gates:
   - name: ElasticJobsViaWorkloadSlices
   - name: ElasticJobsViaWorkloadSlicesWithTAS
+  - name: ElasticJobsViaWorkloadResize
