@@ -83,12 +83,13 @@ GO_TEST_TARGET ?= .
 # UNIT_SHARD_INDEX selects which shard this job runs (0-based).
 # When UNIT_TOTAL_SHARDS is not set, all packages run in a single job (existing behaviour).
 ifdef UNIT_TOTAL_SHARDS
-UNIT_TEST_PACKAGES := $(shell ./hack/testing/shard-unit-tests.sh $(UNIT_SHARD_INDEX) $(UNIT_TOTAL_SHARDS))
+UNIT_TEST_PACKAGES := $(shell ./hack/testing/shard-unit-tests.sh $(UNIT_SHARD_INDEX) $(UNIT_TOTAL_SHARDS) $(GO_TEST_TARGET))
 ifeq ($(UNIT_TEST_PACKAGES),)
 $(error Aborting: shard-unit-tests.sh returned no packages. Check UNIT_SHARD_INDEX / UNIT_TOTAL_SHARDS.)
 endif
 else
-UNIT_TEST_PACKAGES := $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/')
+# Enumerate packages only when unit tests need them, avoiding scans during verify.
+UNIT_TEST_PACKAGES = $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | $(PROJECT_DIR)/hack/testing/filter-unit-test-packages.sh)
 endif
 
 OPTIONAL_SHARD_SUFFIX = $(if $(UNIT_TOTAL_SHARDS),-shard-$(UNIT_SHARD_INDEX))
