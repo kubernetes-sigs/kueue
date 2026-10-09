@@ -495,8 +495,11 @@ spec:
 
 `workloadLabelSelectors` picks the admitted Workloads that count against each
 other; when omitted it defaults to the parent job's `kueue.x-k8s.io/job-uid`,
-which groups the replicas of one LeaderWorkerSet but not the Pods of a
-Deployment. Kueue applies that default when it schedules the Workload and does
+which groups the replicas of one LeaderWorkerSet, and the replicas of one
+Deployment while the `DeploymentJobUIDLabel` feature gate is enabled (the
+default). With that gate disabled, each Deployment Pod's Workload carries its
+own UID, so the default groups nothing and a Deployment needs an explicit
+selector. Kueue applies that default when it schedules the Workload and does
 not write it into the annotation, so the annotation always reads back exactly as
 you wrote it. A Workload with no `kueue.x-k8s.io/job-uid` label has no group to
 spread within and is scheduled as if it carried no spreading annotation.
