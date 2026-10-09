@@ -709,6 +709,15 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			return ctrl.Result{}, err
 		}
 
+		if features.Enabled(features.DeploymentParentSuspension) {
+			if js, ok := job.(JobWithParentSuspension); ok {
+				if err := js.SuspendParent(ctx, r.client); err != nil {
+					log.Error(err, "Failed to suspend parent")
+					return ctrl.Result{}, err
+				}
+			}
+		}
+
 		log.V(3).Info("Job is suspended and workload not yet admitted by a clusterQueue, nothing to do")
 		return ctrl.Result{}, nil
 	}
@@ -729,8 +738,18 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
-	// Workload is admitted and job is running, nothing to do. For elastic jobs,
-	// pod ungating is handled by the ElasticJobUngater controller.
+	// Workload is admitted and job is running.
+	// ResumeParent is not gated — it must clean up existing Kueue-managed
+	// pauses even when DeploymentParentSuspension is disabled, so that
+	// disabling the gate does not leave Deployments permanently paused.
+	if js, ok := job.(JobWithParentSuspension); ok {
+		if err := js.ResumeParent(ctx, r.client); err != nil {
+			log.Error(err, "Failed to resume parent")
+			return ctrl.Result{}, err
+		}
+	}
+
+	// For elastic jobs, pod ungating is handled by the ElasticJobUngater controller.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
 	return ctrl.Result{}, nil
 }
@@ -755,6 +774,11 @@ func (r *JobReconciler) loadJob(ctx context.Context, key *types.NamespacedName, 
 // ensuring proper cleanup during object deletion.
 func (r *JobReconciler) finalize(ctx context.Context, key types.NamespacedName, job GenericJob, jobFound bool) error {
 	if jobFound {
+		if js, ok := job.(JobWithParentSuspension); ok {
+			if err := js.ResumeParent(ctx, r.client); err != nil {
+				ctrl.LoggerFrom(ctx).Error(err, "Failed to resume parent during finalize")
+			}
+		}
 		if err := client.IgnoreNotFound(r.finalizeJob(ctx, job)); err != nil {
 			return err
 		}
