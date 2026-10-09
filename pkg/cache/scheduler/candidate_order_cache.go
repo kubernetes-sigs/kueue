@@ -40,7 +40,7 @@ type CandidateOrderCache struct {
 
 type candidateOrderEntry struct {
 	// sorted holds the CQ's workloads ordered by the comparator.
-	sorted []*workload.Info
+	workloads []*workload.Info
 	// evictedCount is the length of the evicted prefix of sorted.
 	evictedCount int
 }
