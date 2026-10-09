@@ -3910,6 +3910,13 @@ type tasScheduleTestCase struct {
 
 	featureGates map[featuregate.Feature]bool
 
+	// forceSimulator ensures the recording simulator is installed.
+	forceSimulator bool
+
+	// scheduleWorkloadErrorGenerator configiures after how many callsshould
+	// the simulator return an error. Setting it installs a recording simulator.
+	scheduleWorkloadErrorGenerator *errorGenerator
+
 	// wantSimulatorPreemptions are the Workloads the scheduler must tell the
 	// simulator to preempt. Setting it installs a recording simulator.
 	wantSimulatorPreemptions []workload.Reference
@@ -3921,6 +3928,34 @@ type tasScheduleTestCase struct {
 	// at the same moment feasibility runs. A call count cannot tell that apart from a
 	// release that happened afterwards.
 	wantSimulatorReleasedTogether []workload.Reference
+}
+
+// errorGenerator returns an error after being called a specific number of times.
+type errorGenerator struct {
+	err             error
+	returnAfterCall int
+
+	callsRecorded int
+}
+
+func newErrorGenerator(err error, returnAfterCall int) *errorGenerator {
+	return &errorGenerator{
+		err:             err,
+		returnAfterCall: returnAfterCall,
+		callsRecorded:   0,
+	}
+}
+
+// tryGenerate returns an error after being called the configured number of times.
+func (ep *errorGenerator) tryGenerate() error {
+	if ep == nil {
+		return nil
+	}
+	ep.callsRecorded++
+	if ep.callsRecorded == ep.returnAfterCall {
+		return ep.err
+	}
+	return nil
 }
 
 // tasScheduleTestConfig carries the per-suite fixtures shared by the TAS preemption
@@ -3954,12 +3989,13 @@ type recordingSchedulerSimulator struct {
 	failPreempt bool
 	// asked holds every Workload the scheduler tried to release, released holds the
 	// ones it managed to. They differ when failPreempt is set.
-	asked              []workload.Reference
-	released           int
-	reverted           int
-	releasedNow        sets.Set[workload.Reference]
-	releasedTogether   sets.Set[workload.Reference]
-	schedulerSimulator simulator.SchedulerSimulator
+	asked                          []workload.Reference
+	released                       int
+	reverted                       int
+	releasedNow                    sets.Set[workload.Reference]
+	releasedTogether               sets.Set[workload.Reference]
+	schedulerSimulator             simulator.SchedulerSimulator
+	scheduleWorkloadErrorGenerator *errorGenerator
 }
 
 func (s *recordingSchedulerSimulator) Simulate(ctx context.Context, fn func()) error {
@@ -4000,6 +4036,9 @@ func (s *recordingSchedulerSimulator) FindFeasibleNodes(
 }
 
 func (s *recordingSchedulerSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
+	if err := s.scheduleWorkloadErrorGenerator.tryGenerate(); err != nil {
+		return simulator.SchedulingResult{Error: err}
+	}
 	return s.schedulerSimulator.ScheduleWorkload(ctx, workloadPods, opts...)
 }
 
@@ -4113,7 +4152,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					recorder := &utiltesting.EventRecorder{}
 					var recordingFactory *recordingSimulatorFactory
 					cacheOptions := []schdcache.Option{}
-					if tc.wantSimulatorPreemptions != nil {
+					if tc.forceSimulator || tc.scheduleWorkloadErrorGenerator != nil || tc.wantSimulatorPreemptions != nil {
 						// main.go only installs a simulator behind this gate, so a test
 						// that installs one has to set it too.
 						features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
@@ -4123,6 +4162,7 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 						}
 						recordingFactory = &recordingSimulatorFactory{simulatorFactory: simulatorFactory}
 						recordingFactory.recorder.failPreempt = tc.failSimulatorPreemption
+						recordingFactory.recorder.scheduleWorkloadErrorGenerator = tc.scheduleWorkloadErrorGenerator
 						cacheOptions = append(cacheOptions, schdcache.WithSimulatorFactory(recordingFactory))
 					}
 					cqCache := schdcache.New(cl, cacheOptions...)

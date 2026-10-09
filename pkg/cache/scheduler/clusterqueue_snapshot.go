@@ -210,6 +210,16 @@ func (c *ClusterQueueSnapshot) DominantResourceShare() DRS {
 
 type WorkloadTASRequests map[kueue.ResourceFlavorReference]FlavorTASRequests
 
+func (r WorkloadTASRequests) OrderedIterator() iter.Seq2[kueue.ResourceFlavorReference, FlavorTASRequests] {
+	return func(yield func(kueue.ResourceFlavorReference, FlavorTASRequests) bool) {
+		for _, tasFlavor := range slices.Sorted(maps.Keys(r)) {
+			if !yield(tasFlavor, r[tasFlavor]) {
+				return
+			}
+		}
+	}
+}
+
 func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 	ctx context.Context,
 	tasRequestsByFlavor WorkloadTASRequests,
@@ -230,8 +240,7 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 	if opts.simulateEmpty {
 		spreadCountsOpts = []TopologySpreadCountsOption{WithSpreadCountsSimulateEmpty(true)}
 	}
-	for _, tasFlavor := range slices.Sorted(maps.Keys(tasRequestsByFlavor)) {
-		flavorTASRequests := tasRequestsByFlavor[tasFlavor]
+	for tasFlavor, flavorTASRequests := range tasRequestsByFlavor.OrderedIterator() {
 		// We assume the `tasFlavor` is already in the snapshot as this was
 		// already checked earlier during flavor assignment, and the set of
 		// flavors is immutable in snapshot.

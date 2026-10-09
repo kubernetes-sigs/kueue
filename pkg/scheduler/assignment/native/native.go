@@ -68,13 +68,11 @@ func (p *nativePlanner) Plan(ctx context.Context, asgn *flavorassigner.Assignmen
 		faPreemptionTargets := p.preemptor.GetTargetsWithStrategy(ctx, strategies)
 		if len(faPreemptionTargets) > 0 {
 			p.updateAssignmentForTAS(ctx, cq, asgn, faPreemptionTargets)
-			resolveNoFit(asgn, cq)
 			return assignment.Plan{Assignment: asgn, PreemptionTargets: faPreemptionTargets}
 		}
 	}
 
 	p.updateAssignmentForTAS(ctx, cq, asgn, nil)
-	resolveNoFit(asgn, cq)
 	return assignment.Plan{Assignment: asgn, PreemptionTargets: nil}
 }
 
@@ -123,11 +121,5 @@ func (p *nativePlanner) updateAssignmentForTAS(
 			)
 		}
 		asgn.UpdateForTASResult(log, cq, p.wl, tasResult)
-	}
-}
-
-func resolveNoFit(asgn *flavorassigner.Assignment, cq *schdcache.ClusterQueueSnapshot) {
-	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		asgn.ResolveNoFitReason(cq)
 	}
 }
