@@ -414,6 +414,24 @@ wl2                                             very-long-local-queue-name      
 			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-cq2a"))
 			gomega.Expect(output.String()).ShouldNot(gomega.ContainSubstring("wl-cq2b"))
 		})
+
+		ginkgo.It("Should print workloads list when a pending workload has no queue name", func() {
+			wlNoQueue := utiltestingapi.MakeWorkload("wl-no-queue", ns.Name).Obj()
+			behavioral.MustCreate(ctx, k8sClient, wlNoQueue)
+
+			streams, _, output, errOutput := genericiooptions.NewTestIOStreams()
+			configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+			kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams, Clock: testingclock.NewFakeClock(time.Now())})
+			kueuectl.SetArgs([]string{"list", "workload", "--namespace", ns.Name})
+			err := kueuectl.Execute()
+
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(errOutput.String()).Should(gomega.BeEmpty())
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl-no-queue"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl1"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("wl2"))
+			gomega.Expect(output.String()).Should(gomega.ContainSubstring("very-long-workload-name"))
+		})
 	})
 
 	ginkgo.When("List ResourceFlavors", func() {
