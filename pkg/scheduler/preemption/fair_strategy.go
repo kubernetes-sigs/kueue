@@ -257,7 +257,7 @@ func iterateWithFirstFsStrategy(
 	// (bypassing the strategy check), so no retryCandidates are produced
 	// and iterateWithSecondFsStrategy has nothing to do.
 	preemptorWithinNominal := features.Enabled(features.FairSharingPreemptWithinNominal) &&
-		queueWithinNominalInResourcesNeedingPreemption(preemptionCtx)
+		queueWithinNominalInRequestedResources(preemptionCtx)
 	for candCQ := range ordering.Iter() {
 		if candCQ.InClusterQueuePreemption() {
 			candWl := candCQ.PopWorkload()
