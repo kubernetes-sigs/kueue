@@ -3003,9 +3003,9 @@ func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
 	obj := testingjob.MakeJob("job", "ns").UID("job-uid").Queue("q").Suspend(false).
 		PrebuiltWorkloadLabel("new").
 		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).Obj()
-	// The scheduler admitted the replacement but failed to finish the old slice.
+	// MultiKueue creates worker workloads without owner references. The first
+	// reconciliation must finish the predecessor while adopting the successor.
 	old := utiltestingapi.MakeWorkload("old", "ns").
-		ControllerReference(gvk, obj.Name, string(obj.UID)).
 		PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj()
 	replacement := utiltestingapi.MakeWorkload("new", "ns").Queue("q").
@@ -3049,6 +3049,9 @@ func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
 		}
 		if diff := cmp.Diff(before.Spec.PodSets, got.Spec.PodSets, cmpopts.EquateEmpty()); diff != "" {
 			t.Errorf("PodSets changed: %s", diff)
+		}
+		if got.Name == "new" && !metav1.IsControlledBy(got, obj) {
+			t.Error("prebuilt workload was not adopted by the worker job")
 		}
 		wantFinished := before.Name == "old"
 		if workloadfinish.IsFinished(got) != wantFinished {
