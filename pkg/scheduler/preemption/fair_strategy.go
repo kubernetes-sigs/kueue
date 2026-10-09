@@ -249,7 +249,7 @@ func iterateWithFirstFsStrategy(
 	yield func(*Target) bool,
 ) (retryCandidates []*workload.Info, cont bool) {
 	yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
-	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, candidates, log, preemptionCtx.clock)
+	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, candidates, preemptionCtx.frsNeedPreemption, log, preemptionCtx.clock)
 	// If the preemptor CQ stays within nominal quota for the contested
 	// resources (including the incoming workload, already simulated),
 	// preemption is allowed regardless of DRS (nominal entitlement).
@@ -323,7 +323,7 @@ func iterateWithSecondFsStrategy(
 	yield func(*Target) bool,
 ) bool {
 	yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
-	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, retryCandidates, log, preemptionCtx.clock)
+	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, retryCandidates, preemptionCtx.frsNeedPreemption, log, preemptionCtx.clock)
 	for candCQ := range ordering.Iter() {
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
 		passed := fairsharing.LessThanInitialShare(preemptorNewShare, targetOldShare, fairsharing.TargetNewShare{})
