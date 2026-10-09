@@ -23,6 +23,25 @@ LOG_MARKER_START = "<!-- release-log-start -->"
 LOG_MARKER_END = "<!-- release-log-end -->"
 LOG_HEADER = "## Release log"
 HISTORY_SECTION_MARKER = "<!-- history-section-start -->"
+STEP_MARKER = "<!-- step:{} -->"
+
+def mark_step_done(issue_body: str, command: str) -> str:
+    """Check the release checklist item tagged with <!-- step:<command> -->.
+    Only unchecked items ("- [ ]") on the same line as the marker are changed,
+    and only in the part of the body before the release log, so log messages
+    can never affect the checklist. Bodies without the marker (e.g. issues
+    created from an older template) are returned unchanged.
+    """
+    log_start = issue_body.find(LOG_MARKER_START)
+    if log_start == -1:
+        checklist, rest = issue_body, ""
+    else:
+        checklist, rest = issue_body[:log_start], issue_body[log_start:]
+
+    marker = re.escape(STEP_MARKER.format(command))
+    pattern = re.compile(r'^([ \t]*[-*][ \t]+)\[ \]([^\n]*' + marker + r')', re.MULTILINE)
+    return pattern.sub(r'\1[x]\2', checklist) + rest
+
 
 def main():
     command = os.environ.get("INPUT_COMMAND", "").strip()
@@ -33,7 +52,7 @@ def main():
     message = os.environ.get("INPUT_MESSAGE", "").strip()
     cleanup = os.environ.get("INPUT_CLEANUP", "").strip().lower() == "true"
     keep_in_history = os.environ.get("INPUT_KEEP_HISTORY", "true").strip().lower() == "true"
-
+    mark_done = os.environ.get("INPUT_MARK_DONE", "false").strip().lower() == "true"
     actor = os.environ.get("GITHUB_ACTOR", "").strip()
     run_id = os.environ.get("GITHUB_RUN_ID", "").strip()
     repository = os.environ.get("GITHUB_REPOSITORY", "").strip()
@@ -43,7 +62,8 @@ def main():
     action_link = f"{server_url}/{repository}/actions/runs/{run_id}"
 
     issue_body = os.environ.get("ISSUE_BODY", "").strip()
-
+    if mark_done:
+        issue_body = mark_step_done(issue_body, command)
     if alias:
         title = alias
     else:

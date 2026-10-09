@@ -283,6 +283,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.sync.outputs.message || '✅ Release notes have been synced.' }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -360,6 +361,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.publish.outputs.message }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -437,6 +439,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.push.outputs.message }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -474,6 +477,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.devel.outputs.message }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -562,6 +566,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.wait_images.outputs.message }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -612,6 +617,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.tag.outputs.message || '✅ Release tag created.' }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -678,6 +684,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.draft.outputs.message || '✅ Draft release created.' }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -717,6 +724,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.publish.outputs.message }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -755,6 +763,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.krew.outputs.message }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -790,6 +799,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.merge-main-into-website.outputs.message }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}
@@ -828,6 +838,7 @@ jobs:
         with:
           command: ${{ needs.authorize.outputs.command }}
           message: ${{ steps.milestone.outputs.message }}
+          mark-done: true
 
       - name: Report Failure
         if: ${{ failure() }}

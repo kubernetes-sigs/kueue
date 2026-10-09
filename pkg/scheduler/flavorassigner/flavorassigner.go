@@ -488,10 +488,11 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 		result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(a.wl))
 		if failure := result.Failure(); failure != nil {
 			// There is at least one PodSet which does not fit
-			psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
-			psAssignment.reason(failure.Reason)
-			// update the mode for all flavors and the representative mode
-			assignment.updateMode(failure.PodSetName, Preempt)
+			assignment.ResolvePodSetFailure(
+				failure.PodSetName,
+				Preempt,
+				*NewStatus(failure.Reason),
+			)
 		} else {
 			// All PodSets fit, we just update the TopologyAssignments
 			assignment.UpdateForTASResult(log, a.cq, a.wl, result)
@@ -988,7 +989,21 @@ func (a *FlavorAssigner) fitsResourceQuota(
 		}
 		return mode, borrowAfterPreemptions, &status
 	}
+	// The Workload needs to borrow and cannot preempt in other ClusterQueues, but
+	// lower-priority Workloads in its own ClusterQueue may still make room. Without
+	// such candidates keep NoFit, so the Workload doesn't hold capacity in the cohort.
+	if a.canPreemptWithinClusterQueue() {
+		preemptionPossibility, borrowAfterPreemptions := a.oracle.SimulatePreemption(ctx, a.cq, *a.wl, fr, val)
+		if preemptionPossibility != policy.NoCandidates {
+			status.noFitReason = ""
+			return fromPreemptionPossibility(preemptionPossibility), borrowAfterPreemptions, &status
+		}
+	}
 	return noFit, borrow, &status
+}
+
+func (a *FlavorAssigner) canPreemptWithinClusterQueue() bool {
+	return a.cq.Preemption.WithinClusterQueue != "" && a.cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever
 }
 
 func (a *FlavorAssigner) canPreemptWhileBorrowing() bool {

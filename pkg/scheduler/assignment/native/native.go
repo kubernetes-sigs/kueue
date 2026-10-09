@@ -51,6 +51,8 @@ type nativePlanner struct {
 	assigner  *flavorassigner.FlavorAssigner
 }
 
+// Plan builds an assignment plan using kueue-native algorithms.
+// As of right now, this implementation is expected to never return an Error-Plan.
 func (p *nativePlanner) Plan(ctx context.Context, asgn *flavorassigner.Assignment, _ ...assignment.PlannerOption) assignment.Plan {
 	log := log.FromContext(ctx)
 	cq := p.snapshot.ClusterQueue(p.wl.ClusterQueue)
