@@ -58,8 +58,8 @@ var (
 	enableTAS = flag.Bool("enableTAS", false, "enable TAS controllers and indexers")
 	enableDRA = flag.Bool("enableDRA", false, "enable the DRA device feasibility check and map the generated DeviceClass to quota")
 
-	qps                 = flag.Float64("qps", 0, "Kubernetes client QPS; 0 falls back to the kubeconfig default")
-	burst               = flag.Int("burst", 0, "Kubernetes client burst; 0 falls back to the kubeconfig default")
+	qps                 = flag.Float64("qps", 50, "Kubernetes client QPS")
+	burst               = flag.Int("burst", 100, "Kubernetes client burst")
 	workloadConcurrency = flag.Int("workloadConcurrency", 5, "maximum number of concurrent Workload reconciles, use default if non-positive")
 
 	cpuProfileStartDelay = flag.Duration("cpuProfileStartDelay", 0, "delay before the first scheduled CPU profile")
