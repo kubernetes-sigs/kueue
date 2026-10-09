@@ -18,6 +18,7 @@ package resources
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	resourcehelpers "k8s.io/component-helpers/resource"
 
 	"sigs.k8s.io/kueue/pkg/features"
@@ -82,19 +83,95 @@ func NewRequestsFromPodSpec(podSpec *corev1.PodSpec) Requests {
 	return NewRequestsFromResourceList(PodRequests(podSpec))
 }
 
-// PodRequests returns the effective requests for a PodSpec. For malformed specs,
-// it keeps the aggregate container request when a smaller pod-level request would
-// otherwise replace it. Valid PodSpecs are unchanged because Kubernetes requires
-// pod-level requests to cover the aggregate container requests.
+// PodRequests returns the effective requests for a PodSpec, overhead included.
 func PodRequests(podSpec *corev1.PodSpec) corev1.ResourceList {
+	return podRequests(podSpec, true)
+}
+
+// ContainerRequests is PodRequests without the overhead.
+func ContainerRequests(podSpec *corev1.PodSpec) corev1.ResourceList {
+	return podRequests(podSpec, false)
+}
+
+// podRequests keeps the aggregate container request when a smaller pod-level
+// request would otherwise replace it, and reads a negative request as zero so
+// that one cannot spend what another container, the overhead or a
+// transformation charges under the same name. Valid PodSpecs are unchanged:
+// Kubernetes requires pod-level requests to cover the aggregate container
+// requests and refuses negative quantities, and the Workload webhook refuses
+// them too while WorkloadValidateResourcesAreNonNegative is enabled.
+func podRequests(podSpec *corev1.PodSpec, withOverhead bool) corev1.ResourceList {
 	if podSpec == nil {
 		return nil
 	}
-	pod := &corev1.Pod{Spec: *podSpec}
+	spec := podSpec
+	if hasNegativeRequest(spec) {
+		spec = chargeableSpec(spec)
+	}
+	pod := &corev1.Pod{Spec: *spec}
 	requests := resourcehelpers.PodRequests(pod, resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
 	containerRequests := resourcehelpers.AggregateContainerRequests(pod, resourcehelpers.PodResourcesOptions{})
 	requests = utilresource.MergeResourceListKeepMax(requests, containerRequests)
-	return utilresource.MergeResourceListKeepSum(requests, podSpec.Overhead)
+	if withOverhead {
+		requests = utilresource.MergeResourceListKeepSum(requests, spec.Overhead)
+	}
+	return requests
+}
+
+func hasNegativeRequest(spec *corev1.PodSpec) bool {
+	for _, containers := range [][]corev1.Container{spec.InitContainers, spec.Containers} {
+		for _, c := range containers {
+			if hasNegativeQuantity(c.Resources.Requests) {
+				return true
+			}
+		}
+	}
+	if spec.Resources != nil && hasNegativeQuantity(spec.Resources.Requests) {
+		return true
+	}
+	return hasNegativeQuantity(spec.Overhead)
+}
+
+func hasNegativeQuantity(rl corev1.ResourceList) bool {
+	for _, q := range rl {
+		if q.Sign() < 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// chargeableSpec returns a copy of spec with every negative request read as
+// zero. A zero pod-level entry is raised back to the container aggregate by
+// the merge in podRequests, and a name nothing else asks for stays at zero, so
+// a multiplyBy reading it scales by zero rather than by one.
+func chargeableSpec(spec *corev1.PodSpec) *corev1.PodSpec {
+	out := spec.DeepCopy()
+	for i := range out.InitContainers {
+		out.InitContainers[i].Resources.Requests = chargeableRequests(out.InitContainers[i].Resources.Requests)
+	}
+	for i := range out.Containers {
+		out.Containers[i].Resources.Requests = chargeableRequests(out.Containers[i].Resources.Requests)
+	}
+	if out.Resources != nil {
+		out.Resources.Requests = chargeableRequests(out.Resources.Requests)
+	}
+	if out.Overhead != nil {
+		out.Overhead = chargeableRequests(out.Overhead)
+	}
+	return out
+}
+
+// chargeableRequests copies input, reading a negative quantity as zero.
+func chargeableRequests(input corev1.ResourceList) corev1.ResourceList {
+	res := make(corev1.ResourceList, len(input))
+	for name, quantity := range input {
+		if quantity.Sign() < 0 {
+			quantity = resource.Quantity{}
+		}
+		res[name] = quantity
+	}
+	return res
 }
 
 // ToMap converts any Requests instance into a MapRequests map.

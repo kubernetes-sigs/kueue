@@ -242,6 +242,44 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
+		// The webhook refuses a negative request while the gate is on, so this
+		// is the shape a Workload written before the gate keeps.
+		ginkgo.It("Should not let a negative sidecar request reduce the charge", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadValidateResourcesAreNonNegative, false)
+			ginkgo.By("Create a Workload whose sidecar asks for -1 CPU beside a 3 CPU container", func() {
+				wl = utiltestingapi.MakeWorkload("one", ns.Name).
+					Queue(kueue.LocalQueueName(localQueue.Name)).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						Request(corev1.ResourceCPU, "3").
+						InitContainers(*utiltesting.MakeContainer().Name("sidecar").AsSidecar().WithResourceReq(corev1.ResourceCPU, "-1").Obj()).
+						Obj()).
+					Obj()
+				util.MustCreate(ctx, k8sClient, wl)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					read := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).Should(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(&read)).Should(gomega.BeTrue())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				ginkgo.By("Check the sidecar is charged as zero, not spent against the container", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
+						g.Expect(updatedCQ.Status).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{
+							PendingWorkloads:   0,
+							ReservingWorkloads: 1,
+							FlavorsReservation: []kueue.FlavorUsage{{
+								Name: kueue.ResourceFlavorReference(onDemandFlavor.Name),
+								Resources: []kueue.ResourceUsage{{
+									Name:  corev1.ResourceCPU,
+									Total: resource.MustParse("3"),
+								}},
+							}},
+						}, ignoreCqCondition, ignoreInClusterQueueStatus))
+					}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				})
+			})
+		})
+
 	})
 
 	ginkgo.When("Workload with non-existent RuntimeClass defined", func() {
