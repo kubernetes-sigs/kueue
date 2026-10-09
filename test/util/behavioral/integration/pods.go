@@ -53,15 +53,16 @@ func podKeys(pods []*corev1.Pod) []client.ObjectKey {
 }
 
 func BindPodWithNode(ctx context.Context, k8sClient client.Client, nodeName string, pods ...*corev1.Pod) {
+	ginkgo.GinkgoHelper()
 	for _, p := range pods {
 		updatedPod := corev1.Pod{}
-		gomega.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &updatedPod)).To(gomega.Succeed())
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &updatedPod)).To(gomega.Succeed())
 		binding := corev1.Binding{
 			Target: corev1.ObjectReference{
 				Kind: "Node",
 				Name: nodeName,
 			},
 		}
-		gomega.ExpectWithOffset(1, k8sClient.SubResource("binding").Create(ctx, &updatedPod, &binding)).To(gomega.Succeed())
+		gomega.Expect(k8sClient.SubResource("binding").Create(ctx, &updatedPod, &binding)).To(gomega.Succeed())
 	}
 }

@@ -48,6 +48,7 @@ func RunSuite(t *testing.T, suiteName string) {
 }
 
 func ConfigureSuiteReporting(report ginkgo.Report) {
+	ginkgo.GinkgoHelper()
 	junitConfig := reporters.JunitReportConfig{
 		OmitFailureMessageAttr: true,
 	}

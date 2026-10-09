@@ -55,6 +55,7 @@ type rayAutoscalingTestContext struct {
 }
 
 func liveRayWorkloadSlice(g gomega.Gomega, c client.Client, ns, sliceName string) *kueue.Workload {
+	ginkgo.GinkgoHelper()
 	wls := &kueue.WorkloadList{}
 	g.Expect(c.List(ctx, wls, client.InNamespace(ns))).To(gomega.Succeed())
 	var live []kueue.Workload
@@ -105,6 +106,7 @@ func runRayClusterSequentialScaleUpTest(
 	multiKueueAc *kueue.AdmissionCheck,
 	kubernetesClients kubernetesClientsMap,
 ) {
+	ginkgo.GinkgoHelper()
 	const (
 		workerResource = "worker-unit"
 		actorA         = "raycluster-sequential-scale-up-actor-a"
@@ -213,6 +215,7 @@ func runRayJobAutoscalingTest(
 	multiKueueAc *kueue.AdmissionCheck,
 	kubernetesClients kubernetesClientsMap,
 ) {
+	ginkgo.GinkgoHelper()
 	const (
 		workerResource = "worker-unit"
 		actorA         = "rayjob-actor-a"
@@ -387,6 +390,7 @@ func runRayClusterAutoscalingTest(
 	multiKueueAc *kueue.AdmissionCheck,
 	kubernetesClients kubernetesClientsMap,
 ) {
+	ginkgo.GinkgoHelper()
 	const (
 		workerResource = "worker-unit"
 		actorA         = "raycluster-actor-a"
@@ -581,6 +585,7 @@ func runRayClusterReadmissionAfterPreemptionTest(
 	multiKueueAc *kueue.AdmissionCheck,
 	kubernetesClients kubernetesClientsMap,
 ) {
+	ginkgo.GinkgoHelper()
 	const (
 		workerResource = "worker-unit"
 		actorA         = "raycluster-preemption-actor-a"

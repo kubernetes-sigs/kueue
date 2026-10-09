@@ -360,6 +360,7 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(e2e.Shard0),
 // cloneControllerRBAC dynamically copies all RoleBindings and ClusterRoleBindings
 // from the default Kueue SA to our custom SA, explicitly omitting system:auth-delegator.
 func cloneControllerRBAC(ctx context.Context) {
+	ginkgo.GinkgoHelper()
 	// Clone ClusterRoleBindings
 	var crbs rbacv1.ClusterRoleBindingList
 	gomega.Expect(k8sClient.List(ctx, &crbs)).To(gomega.Succeed())

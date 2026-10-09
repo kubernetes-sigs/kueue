@@ -86,6 +86,7 @@ func runJobController(opts *managerSetupOpts) {
 }
 
 func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		integrationManager := jobcontrollers.NewIntegrationManager()
 		var opts managerSetupOpts

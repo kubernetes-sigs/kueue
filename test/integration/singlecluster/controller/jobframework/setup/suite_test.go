@@ -45,6 +45,7 @@ func TestAPIs(t *testing.T) {
 }
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		integrationManager := jobcontrollers.NewIntegrationManager()
 		opts = append(opts, jobframework.WithIntegrationManager(integrationManager))

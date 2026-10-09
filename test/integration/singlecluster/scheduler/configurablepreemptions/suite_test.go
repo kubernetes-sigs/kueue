@@ -90,6 +90,7 @@ var _ = ginkgo.AfterEach(func() {
 })
 
 func managerAndSchedulerSetup() framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).ToNot(gomega.HaveOccurred())

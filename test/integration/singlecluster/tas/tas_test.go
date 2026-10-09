@@ -61,6 +61,7 @@ import (
 )
 
 func createPodsForWorkload(wl *kueue.Workload, nsName string, withTopologyRequestAnnotation bool, running bool) {
+	ginkgo.GinkgoHelper()
 	gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 	ginkgo.By(fmt.Sprintf("creating pods (running=%v)", running), func() {
 		ta := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
@@ -99,6 +100,7 @@ func createPodsForWorkload(wl *kueue.Workload, nsName string, withTopologyReques
 }
 
 func forceDeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	ginkgo.GinkgoHelper()
 	if ns == nil {
 		return nil
 	}
@@ -151,6 +153,7 @@ func podSetAssignmentByName(wl *kueue.Workload, name kueue.PodSetReference) *kue
 // topologyAssignmentByName returns the topology assignment of the named pod set
 // in the internal representation, failing when the pod set has no assignment yet.
 func topologyAssignmentByName(g gomega.Gomega, wl *kueue.Workload, name kueue.PodSetReference) *utiltas.TopologyAssignment {
+	ginkgo.GinkgoHelper()
 	psa := podSetAssignmentByName(wl, name)
 	g.Expect(psa).ShouldNot(gomega.BeNil(), "no pod set assignment for pod set %q", name)
 	g.Expect(psa.TopologyAssignment).ShouldNot(gomega.BeNil(), "no topology assignment for pod set %q", name)
@@ -410,6 +413,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					Obj()
 			}
 			updateTolerations := func(tolerations ...corev1.Toleration) {
+				ginkgo.GinkgoHelper()
 				gomega.Eventually(func(g gomega.Gomega) {
 					var updatedFlavor kueue.ResourceFlavor
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updatedFlavor)).To(gomega.Succeed())
@@ -525,6 +529,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 				Obj()
 		}
 		removeNodeTaints := func() {
+			ginkgo.GinkgoHelper()
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedFlavor kueue.ResourceFlavor
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasFlavor), &updatedFlavor)).To(gomega.Succeed())
@@ -1063,6 +1068,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		}
 
 		updateNodeLabels := func(flavor *kueue.ResourceFlavor, nodeLabels map[string]string) {
+			ginkgo.GinkgoHelper()
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedFlavor kueue.ResourceFlavor
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(flavor), &updatedFlavor)).To(gomega.Succeed())
@@ -1072,6 +1078,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 		}
 
 		expectAdmittedOnNode := func(wl *kueue.Workload, hostname string) {
+			ginkgo.GinkgoHelper()
 			expected := utiltas.V1Beta2From(&utiltas.TopologyAssignment{
 				Levels:  []string{corev1.LabelHostname},
 				Domains: []utiltas.TopologyDomainAssignment{{Count: 1, Values: []string{hostname}}},
@@ -9537,6 +9544,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 					Request(corev1.ResourceCPU, "1").TopologySchedulingGate().Obj()
 			}
 			expectUngated := func(pod *corev1.Pod) {
+				ginkgo.GinkgoHelper()
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
 					g.Expect(pod.Spec.SchedulingGates).To(gomega.BeEmpty())

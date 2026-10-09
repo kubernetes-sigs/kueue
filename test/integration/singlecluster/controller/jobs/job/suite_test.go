@@ -72,10 +72,12 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return managerSetupWithConfiguration(nil, opts...)
 }
 
 func managerSetupWithConfiguration(configuration *config.Configuration, opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		if configuration == nil {
 			configuration = &config.Configuration{}
@@ -119,6 +121,7 @@ func managerAndControllersSetup(
 	configuration *config.Configuration,
 	opts ...jobframework.Option,
 ) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		if configuration == nil {
 			configuration = &config.Configuration{}

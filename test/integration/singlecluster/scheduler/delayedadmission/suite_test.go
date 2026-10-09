@@ -65,6 +65,7 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerAndSchedulerSetup(configuration *configapi.Configuration) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	if configuration == nil {
 		configuration = &configapi.Configuration{}
 	}

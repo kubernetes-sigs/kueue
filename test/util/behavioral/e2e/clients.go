@@ -49,70 +49,72 @@ import (
 )
 
 func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config, error) {
+	ginkgo.GinkgoHelper()
 	cfg, err := config.GetConfigWithContext(kContext)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to get kubeconfig for context %q: %w", kContext, err)
 	}
-	gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
+	gomega.Expect(cfg).NotTo(gomega.BeNil())
 
 	err = apiextensionsv1.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = kueue.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = cmv1.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = kueuealpha.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	err = visibility.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = jobset.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = kftraining.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = autoscaling.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = kfmpi.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = leaderworkersetv1.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	cfg.APIPath = "/api"
 	cfg.GroupVersion = &schema.GroupVersion{Group: "", Version: "v1"}
 	cfg.NegotiatedSerializer = scheme.Codecs.WithoutConversion()
 
 	err = awv1beta2.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = rayv1.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = kftrainer.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = inventoryv1alpha1.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = sparkv1beta2.AddToScheme(scheme.Scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	client, err := client.NewWithWatch(cfg, client.Options{Scheme: scheme.Scheme})
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return client, cfg, nil
 }
 
 // CreateRestClient creates a *rest.RESTClient using the provided config.
 func CreateRestClient(cfg *rest.Config) *rest.RESTClient {
+	ginkgo.GinkgoHelper()
 	restClient, err := rest.RESTClientFor(cfg)
-	gomega.ExpectWithOffset(1, err).Should(gomega.Succeed())
-	gomega.ExpectWithOffset(1, restClient).NotTo(gomega.BeNil())
+	gomega.Expect(err).Should(gomega.Succeed())
+	gomega.Expect(restClient).NotTo(gomega.BeNil())
 
 	return restClient
 }
@@ -131,6 +133,7 @@ func CreateKueueClientset(user string) kueueclientset.Interface {
 }
 
 func CreateVisibilityClient(user string) visibilityv1beta2.VisibilityV1beta2Interface {
+	ginkgo.GinkgoHelper()
 	kueueClientset := CreateKueueClientset(user)
 	return kueueClientset.VisibilityV1beta2()
 }
