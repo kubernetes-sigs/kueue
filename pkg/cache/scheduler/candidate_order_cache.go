@@ -65,22 +65,22 @@ func (c *CandidateOrderCache) Get(cq *ClusterQueueSnapshot, cmp CandidateOrderCo
 
 // Warm builds the entries for the given ClusterQueues concurrently.
 func (c *CandidateOrderCache) Warm(cqs []*ClusterQueueSnapshot, cmp CandidateOrderComparator) {
-	var todo []*ClusterQueueSnapshot
+	var cqsToBuild []*ClusterQueueSnapshot
 	for _, cq := range cqs {
 		if e, ok := c.entries[cq.Name]; ok && matches(e, cq) {
 			continue
 		}
-		todo = append(todo, cq)
+		cqsToBuild = append(cqsToBuild, cq)
 	}
-	if len(todo) == 0 {
+	if len(cqsToBuild) == 0 {
 		return
 	}
-	entries := make([]*candidateOrderEntry, len(todo))
-	_ = parallelize.Until(context.Background(), len(todo), func(j int) error {
-		entries[j] = buildCandidateOrderEntry(todo[j], cmp)
+	entries := make([]*candidateOrderEntry, len(cqsToBuild))
+	_ = parallelize.Until(context.Background(), len(cqsToBuild), func(j int) error {
+		entries[j] = buildCandidateOrderEntry(cqsToBuild[j], cmp)
 		return nil
 	})
-	for j, cq := range todo {
+	for j, cq := range cqsToBuild {
 		c.entries[cq.Name] = entries[j]
 	}
 }

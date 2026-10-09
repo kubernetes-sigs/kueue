@@ -192,38 +192,49 @@ func (c *cacheCandidateIterator) Next(borrow bool) (*workload.Info, string) {
 // merging a segment is O(K×L) over its L candidates. Candidates are usually few, so
 // this simple scan is enough; if needed we may later heap or merge-sort the bucket
 // tops to lower the per-pop cost.
-func (c *cacheCandidateIterator) nextFromSegment(seg []*bucket, borrow bool) (*workload.Info, preemptionVariant, bool) {
-	for {
-		var best *bucket
-		for _, b := range seg {
-			if b.empty() {
-				continue
-			}
-			// Whole-bucket pruning: once a target CQ (or a node on its path up
-			// to the lca) is back within nominal, none of its remaining
-			// candidates can be preempted, so drop the entire bucket.
-			if !b.isSameQueue && c.cqIsPruned(b) {
-				b.drain()
-				continue
-			}
-			if best == nil || c.cmp(b.top(), best.top()) < 0 {
-				best = b
-			}
-		}
-		if best == nil {
-			return nil, Never, false
-		}
-		wl := best.top()
-		best.advance()
-		variant := classifyPreemptionVariant(c.hierarchicalReclaimCtx, wl, best.hasHierarchicalAdvantage)
-		if variant == Never {
+func (c *cacheCandidateIterator) nextFromSegment(buckets []*bucket, borrow bool) (*workload.Info, preemptionVariant, bool) {
+	var bestBucket *bucket
+	var bestVariant preemptionVariant
+	for _, b := range buckets {
+		variant, ok := c.advanceToEligible(b, borrow)
+		if !ok {
 			continue
 		}
-		if borrow && variant == ReclaimWithoutBorrowing {
-			continue
+		if bestBucket == nil || c.cmp(b.top(), bestBucket.top()) < 0 {
+			bestBucket = b
+			bestVariant = variant
 		}
-		return wl, variant, true
 	}
+	if bestBucket == nil {
+		return nil, Never, false
+	}
+	wl := bestBucket.top()
+	bestBucket.advance()
+	return wl, bestVariant, true
+}
+
+// advanceToEligible skips candidates that cannot be returned in the current run
+// and leaves the first eligible candidate at the bucket head.
+func (c *cacheCandidateIterator) advanceToEligible(b *bucket, borrow bool) (preemptionVariant, bool) {
+	if b.empty() {
+		return Never, false
+	}
+	// Whole-bucket pruning: once a target CQ (or a node on its path up
+	// to the lca) is back within nominal, none of its remaining
+	// candidates can be preempted, so drop the entire bucket.
+	if !b.isSameQueue && c.cqIsPruned(b) {
+		b.drain()
+		return Never, false
+	}
+
+	for !b.empty() {
+		variant := classifyPreemptionVariant(c.hierarchicalReclaimCtx, b.top(), b.hasHierarchicalAdvantage)
+		if variant != Never && (!borrow || variant != ReclaimWithoutBorrowing) {
+			return variant, true
+		}
+		b.advance()
+	}
+	return Never, false
 }
 
 func (c *cacheCandidateIterator) cqIsPruned(b *bucket) bool {
