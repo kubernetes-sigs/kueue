@@ -138,7 +138,6 @@ func runRayClusterSequentialScaleUpTest(
 		Obj()
 
 	ginkgo.By("Creating the elastic RayCluster with zero initial workers", func() {
-		ginkgo.GinkgoHelper()
 		behavioral.MustCreate(ctx, k8sManagerClient, rayCluster)
 	})
 
@@ -157,7 +156,6 @@ func runRayClusterSequentialScaleUpTest(
 	rayClusterKey := client.ObjectKeyFromObject(rayCluster)
 
 	ginkgo.By("Waiting for the zero-worker RayCluster to become ready on the worker cluster", func() {
-		ginkgo.GinkgoHelper()
 		workerRayCluster := &rayv1.RayCluster{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(workerClient.Get(ctx, rayClusterKey, workerRayCluster)).To(gomega.Succeed())
@@ -169,7 +167,6 @@ func runRayClusterSequentialScaleUpTest(
 
 	initialSlice := liveRayWorkloadSlice(gomega.Default, k8sManagerClient, managerNs.Name, wlLookupKey.Name)
 	ginkgo.By("Creating the first actor so the autoscaler scales from zero to one worker", func() {
-		ginkgo.GinkgoHelper()
 		e2e.CreateDetachedRayActor(
 			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorA, workerResource,
 		)
@@ -177,7 +174,6 @@ func runRayClusterSequentialScaleUpTest(
 
 	var firstScaleUpSlice *kueue.Workload
 	ginkgo.By("Checking the first scale-up is admitted and exactly one worker runs", func() {
-		ginkgo.GinkgoHelper()
 		firstScaleUpSlice = behavioral.ExpectNewWorkloadSliceWithTimeout(ctx, k8sManagerClient, initialSlice, behavioral.MediumTimeout)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(firstScaleUpSlice), firstScaleUpSlice)).To(gomega.Succeed())
@@ -192,14 +188,12 @@ func runRayClusterSequentialScaleUpTest(
 	})
 
 	ginkgo.By("Creating the second actor so the autoscaler requests a second worker", func() {
-		ginkgo.GinkgoHelper()
 		e2e.CreateDetachedRayActor(
 			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorB, workerResource,
 		)
 	})
 
 	ginkgo.By("Checking the second scale-up is admitted and exactly two workers run", func() {
-		ginkgo.GinkgoHelper()
 		secondScaleUpSlice := behavioral.ExpectNewWorkloadSliceWithTimeout(ctx, k8sManagerClient, firstScaleUpSlice, behavioral.MediumTimeout)
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(secondScaleUpSlice), secondScaleUpSlice)).To(gomega.Succeed())
@@ -270,7 +264,6 @@ func runRayJobAutoscalingTest(
 	rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](2)
 
 	ginkgo.By("Creating the elastic autoscaling RayJob", func() {
-		ginkgo.GinkgoHelper()
 		behavioral.MustCreate(ctx, k8sManagerClient, rayJob)
 	})
 
@@ -287,7 +280,6 @@ func runRayJobAutoscalingTest(
 	workerRayJob := &rayv1.RayJob{}
 	workerRayCluster := &rayv1.RayCluster{}
 	ginkgo.By("Waiting for the RayJob to create its child RayCluster on the worker cluster", func() {
-		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(workerClient.Get(ctx, client.ObjectKeyFromObject(rayJob), workerRayJob)).To(gomega.Succeed())
 			g.Expect(workerRayJob.Status.RayClusterName).NotTo(gomega.BeEmpty())
@@ -297,7 +289,6 @@ func runRayJobAutoscalingTest(
 	childKey := client.ObjectKeyFromObject(workerRayCluster)
 
 	ginkgo.By("Waiting for the zero-worker child RayCluster to become ready on the worker cluster", func() {
-		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(workerClient.Get(ctx, childKey, workerRayCluster)).To(gomega.Succeed())
 			g.Expect(ptr.Deref(workerRayCluster.Spec.Suspend, false)).To(gomega.BeFalse())
@@ -307,7 +298,6 @@ func runRayJobAutoscalingTest(
 	})
 
 	ginkgo.By("Creating two detached actors so the autoscaler scales the child up to two workers", func() {
-		ginkgo.GinkgoHelper()
 		e2e.CreateDetachedRayActor(
 			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorA, workerResource,
 		)
@@ -318,7 +308,6 @@ func runRayJobAutoscalingTest(
 
 	var upSliceName string
 	ginkgo.By("Checking the scale-up is reflected on the manager", func() {
-		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			workerPods, err := e2e.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -339,7 +328,6 @@ func runRayJobAutoscalingTest(
 	})
 
 	ginkgo.By("Terminating both actors so the autoscaler scales the child back down to zero workers", func() {
-		ginkgo.GinkgoHelper()
 		e2e.TerminateDetachedRayActor(
 			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorA,
 		)
@@ -349,7 +337,6 @@ func runRayJobAutoscalingTest(
 	})
 
 	ginkgo.By("Checking the scale-down is reflected on the manager", func() {
-		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			workerPods, err := e2e.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -370,14 +357,12 @@ func runRayJobAutoscalingTest(
 	})
 
 	ginkgo.By("Creating one detached actor so the autoscaler scales the child back up to one worker", func() {
-		ginkgo.GinkgoHelper()
 		e2e.CreateDetachedRayActor(
 			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorC, workerResource,
 		)
 	})
 
 	ginkgo.By("Checking the second scale-up is reflected on the manager", func() {
-		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			workerPods, err := e2e.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -437,7 +422,6 @@ func runRayClusterAutoscalingTest(
 		Obj()
 
 	ginkgo.By("Creating the elastic autoscaling RayCluster", func() {
-		ginkgo.GinkgoHelper()
 		behavioral.MustCreate(ctx, k8sManagerClient, rayCluster)
 	})
 
@@ -456,7 +440,6 @@ func runRayClusterAutoscalingTest(
 	rayClusterKey := client.ObjectKeyFromObject(rayCluster)
 
 	ginkgo.By("Waiting for the zero-worker RayCluster to become ready on the worker cluster", func() {
-		ginkgo.GinkgoHelper()
 		workerRayCluster := &rayv1.RayCluster{}
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(workerClient.Get(ctx, rayClusterKey, workerRayCluster)).To(gomega.Succeed())
@@ -467,7 +450,6 @@ func runRayClusterAutoscalingTest(
 	})
 
 	ginkgo.By("Creating two detached actors so the autoscaler scales up to two workers", func() {
-		ginkgo.GinkgoHelper()
 		e2e.CreateDetachedRayActor(
 			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorA, workerResource,
 		)
@@ -478,7 +460,6 @@ func runRayClusterAutoscalingTest(
 
 	var upSliceName string
 	ginkgo.By("Checking the scale-up is reflected on the manager and worker", func() {
-		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			workerPods, err := e2e.GetRayClusterWorkerPods(ctx, workerClient, rayClusterKey, corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -504,7 +485,6 @@ func runRayClusterAutoscalingTest(
 	})
 
 	ginkgo.By("Checking the worker RayCluster keeps the autoscaled size", func() {
-		ginkgo.GinkgoHelper()
 		gomega.Consistently(func(g gomega.Gomega) {
 			workerRayCluster := &rayv1.RayCluster{}
 			g.Expect(workerClient.Get(ctx, rayClusterKey, workerRayCluster)).To(gomega.Succeed())
@@ -514,7 +494,6 @@ func runRayClusterAutoscalingTest(
 	})
 
 	ginkgo.By("Terminating both actors so the autoscaler scales back down to zero workers", func() {
-		ginkgo.GinkgoHelper()
 		e2e.TerminateDetachedRayActor(
 			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorA,
 		)
@@ -524,7 +503,6 @@ func runRayClusterAutoscalingTest(
 	})
 
 	ginkgo.By("Checking the scale-down is reflected on the manager and worker", func() {
-		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			workerPods, err := e2e.GetRayClusterWorkerPods(ctx, workerClient, rayClusterKey, corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -550,7 +528,6 @@ func runRayClusterAutoscalingTest(
 	})
 
 	ginkgo.By("Checking the worker RayCluster keeps running at the scaled-down size", func() {
-		ginkgo.GinkgoHelper()
 		gomega.Consistently(func(g gomega.Gomega) {
 			workerRayCluster := &rayv1.RayCluster{}
 			g.Expect(workerClient.Get(ctx, rayClusterKey, workerRayCluster)).To(gomega.Succeed())
@@ -560,14 +537,12 @@ func runRayClusterAutoscalingTest(
 	})
 
 	ginkgo.By("Creating one detached actor so the autoscaler scales back up to one worker", func() {
-		ginkgo.GinkgoHelper()
 		e2e.CreateDetachedRayActor(
 			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorC, workerResource,
 		)
 	})
 
 	ginkgo.By("Checking the second scale-up is reflected on the manager and worker", func() {
-		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			workerPods, err := e2e.GetRayClusterWorkerPods(ctx, workerClient, rayClusterKey, corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -593,7 +568,6 @@ func runRayClusterAutoscalingTest(
 	})
 
 	ginkgo.By("Checking the worker RayCluster keeps the re-scaled-up size", func() {
-		ginkgo.GinkgoHelper()
 		gomega.Consistently(func(g gomega.Gomega) {
 			workerRayCluster := &rayv1.RayCluster{}
 			g.Expect(workerClient.Get(ctx, rayClusterKey, workerRayCluster)).To(gomega.Succeed())
@@ -643,7 +617,6 @@ func runRayClusterReadmissionAfterPreemptionTest(
 		Obj()
 
 	ginkgo.By("Creating the low-priority elastic RayCluster with one worker in its manager spec", func() {
-		ginkgo.GinkgoHelper()
 		behavioral.MustCreate(ctx, k8sManagerClient, rayCluster)
 	})
 
@@ -662,7 +635,6 @@ func runRayClusterReadmissionAfterPreemptionTest(
 	rayClusterKey := client.ObjectKeyFromObject(rayCluster)
 
 	ginkgo.By("Creating two actors so the worker-side autoscaler scales from one worker to two", func() {
-		ginkgo.GinkgoHelper()
 		e2e.CreateDetachedRayActor(
 			ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, rayClusterKey, actorA, workerResource,
 		)
@@ -676,7 +648,6 @@ func runRayClusterReadmissionAfterPreemptionTest(
 		workerRayClusterUID types.UID
 	)
 	ginkgo.By("Checking the manager spec stays at one worker while the runtime annotation and workload slice reflect two", func() {
-		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			workerPods, err := e2e.GetRayClusterWorkerPods(ctx, workerClient, rayClusterKey, corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -715,7 +686,6 @@ func runRayClusterReadmissionAfterPreemptionTest(
 		TerminationGracePeriod(1).
 		Obj()
 	ginkgo.By("Creating a high-priority Job that preempts the autoscaled RayCluster", func() {
-		ginkgo.GinkgoHelper()
 		behavioral.MustCreate(ctx, k8sManagerClient, highJob)
 	})
 	highWlKey := types.NamespacedName{
@@ -724,7 +694,6 @@ func runRayClusterReadmissionAfterPreemptionTest(
 	}
 
 	ginkgo.By("Checking the scaled RayCluster has been preempted and the high-priority Job remains admitted", func() {
-		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			createdSlice := &kueue.Workload{}
 			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(scaledSlice), createdSlice)).To(gomega.Succeed())
@@ -739,7 +708,6 @@ func runRayClusterReadmissionAfterPreemptionTest(
 	})
 
 	ginkgo.By("Checking the high-priority Job exists on worker1 and not on worker2", func() {
-		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sWorker1Client.Get(ctx, client.ObjectKeyFromObject(highJob), highJob.DeepCopy())).To(gomega.Succeed())
 			g.Expect(k8sWorker2Client.Get(ctx, client.ObjectKeyFromObject(highJob), highJob.DeepCopy())).To(utiltesting.BeNotFoundError())
@@ -747,7 +715,6 @@ func runRayClusterReadmissionAfterPreemptionTest(
 	})
 
 	ginkgo.By("Checking the RayCluster is re-admitted from its one-worker manager spec", func() {
-		ginkgo.GinkgoHelper()
 		readmittedSliceKey := client.ObjectKeyFromObject(scaledSlice)
 		gomega.Eventually(func(g gomega.Gomega) {
 			highWl := &kueue.Workload{}

@@ -42,7 +42,6 @@ test/e2e/kueueviz/cypress/screenshots
 test/e2e/kueueviz/cypress/videos
 
 # Python bytecode caches
-.cache/
 __pycache__/
 *.pyc
 

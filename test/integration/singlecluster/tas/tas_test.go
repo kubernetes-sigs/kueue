@@ -64,7 +64,6 @@ func createPodsForWorkload(wl *kueue.Workload, nsName string, withTopologyReques
 	ginkgo.GinkgoHelper()
 	gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 	ginkgo.By(fmt.Sprintf("creating pods (running=%v)", running), func() {
-		ginkgo.GinkgoHelper()
 		ta := utiltas.InternalFrom(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment)
 		idx := 0
 		for _, domain := range ta.Domains {
