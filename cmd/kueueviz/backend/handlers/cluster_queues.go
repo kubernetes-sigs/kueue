@@ -56,7 +56,7 @@ func (h *Handlers) fetchClusterQueues(ctx context.Context) ([]map[string]any, er
 	}
 
 	// Process the ClusterQueue objects
-	var result []map[string]any
+	result := make([]map[string]any, 0)
 	for _, item := range cql.Items {
 		// Extract relevant fields
 		name := item.GetName()
