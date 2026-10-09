@@ -129,7 +129,7 @@ for fail_stage in '' generate-code update-helm gomod gomod-verified; do
   fi
 done
 
-# 拆分后仍需保留 Helm/manifests，并且不再触发 CLI 编译。
+# Skipping CLI builds must retain Helm and manifest packaging.
 export ORDER_FAIL_STAGE=''
 export ORDER_STATE="$TEST_DIR/state-without-cli"
 mkdir -p "$ORDER_STATE"
@@ -139,14 +139,14 @@ for step in helm-package prepare-manifests artifacts generate-apiref; do
 done
 test ! -f "$ORDER_STATE/cli-started"
 
-# 独立 CLI job 等待全部 Go 写入者，并传播生成、模块、版本和编译失败。
+# Standalone CLI builds must wait for Go writers and propagate prerequisite/build failures.
 for fail_stage in '' generate-code generate-mocks gomod gomod-verified verify-git-tag cli; do
   export ORDER_FAIL_STAGE="$fail_stage"
   export ORDER_STATE="$TEST_DIR/state-cli-${fail_stage:-success}"
   mkdir -p "$ORDER_STATE"
   if make --no-print-directory -s -k -j 8 -f "$TEST_DIR/Makefile" verify-cli-artifacts VERIFY_CLI_ARTIFACTS=0 > "$TEST_DIR/make.log" 2>&1; then
     if [[ -n "$fail_stage" ]]; then
-      echo "CLI 验证未传播失败：$fail_stage" >&2
+      echo "CLI verification failure was not propagated: $fail_stage" >&2
       exit 1
     fi
     test -f "$ORDER_STATE/cli"

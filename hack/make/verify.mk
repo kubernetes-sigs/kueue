@@ -23,7 +23,7 @@ VERIFY_NPROCS ?= 8
 # These limits apply to verify; standalone artifact builds retain their defaults.
 VERIFY_GOMAXPROCS ?= 2
 VERIFY_CLI_BUILD_NPROCS ?= 2
-# 默认保留 CLI 覆盖；仅在独立的必跑 CLI job 接管后设为 0。
+# Keep CLI coverage by default; set to 0 only when a required standalone job handles it.
 VERIFY_CLI_ARTIFACTS ?= 1
 ifneq ($(VERIFY_CLI_ARTIFACTS),0)
 ifneq ($(VERIFY_CLI_ARTIFACTS),1)
@@ -269,8 +269,8 @@ verify-artifacts: verify-go-prereqs verify-helm-prereqs gomod-verify verify-git-
 	$(if $(filter 1,$(VERIFY_CLI_ARTIFACTS)),$(_cli_artifacts_recipe))
 
 .PHONY: verify-cli-artifacts
-# 等 Go 源码生成、模块检查和版本校验完成后，再调用共享构建配方。
-verify-cli-artifacts: verify-go-prereqs gomod-verify verify-git-tag ## 独立验证所有 CLI 平台的构建与打包。
+# Build after Go generation, module verification, and Git-tag verification finish.
+verify-cli-artifacts: verify-go-prereqs gomod-verify verify-git-tag ## Verify CLI builds and packaging for all configured platforms.
 	$(_cli_artifacts_recipe)
 
 .PHONY: verify-ci-lint
