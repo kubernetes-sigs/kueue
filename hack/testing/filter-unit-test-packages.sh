@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Copyright 2026 The Kubernetes Authors.
 #
@@ -14,19 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Wrapper around shard_test_packages.sh for unit tests.
-# Include MultiKueue performance-tool unit tests while excluding other ./test/ suites.
-#
-# Usage: shard-unit-tests.sh <shard_index> <total_shards> [go_test_target]
+set -o errexit
+set -o nounset
+set -o pipefail
 
-UNIT_SHARD_INDEX=$1
-UNIT_TOTAL_SHARDS=$2
-GO_TEST_TARGET=${3:-.}
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-bash "$SCRIPT_DIR/shard_test_packages.sh" \
-    "$UNIT_SHARD_INDEX" \
-    "$UNIT_TOTAL_SHARDS" \
-    "${GO_TEST_TARGET}/..." \
-    | "$SCRIPT_DIR/filter-unit-test-packages.sh"
+# These packages test the performance tooling without running a benchmark or cluster.
+awk 'index($0, "/test/") == 0 || /^sigs[.]k8s[.]io\/kueue\/test\/performance\/multikueue(\/|$)/'
