@@ -2154,13 +2154,13 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 		},
 		"all done": {
 			state: &FlavorScanState{
-				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
+				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
 					{
-						corev1.ResourceCPU:    -1,
-						corev1.ResourceMemory: -1,
+						corev1.ResourceCPU:    nil,
+						corev1.ResourceMemory: nil,
 					},
 					{
-						corev1.ResourceMemory: -1,
+						corev1.ResourceMemory: nil,
 					},
 				},
 			},
@@ -2168,13 +2168,13 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 		},
 		"some pending": {
 			state: &FlavorScanState{
-				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
+				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
 					{
-						corev1.ResourceCPU:    0,
-						corev1.ResourceMemory: -1,
+						corev1.ResourceCPU:    sets.New[kueue.ResourceFlavorReference]("flavor-0"),
+						corev1.ResourceMemory: nil,
 					},
 					{
-						corev1.ResourceMemory: 1,
+						corev1.ResourceMemory: sets.New[kueue.ResourceFlavorReference]("flavor-0", "flavor-1"),
 					},
 				},
 			},
@@ -2182,13 +2182,13 @@ func TestAssignmentClusterQueueState(t *testing.T) {
 		},
 		"all pending": {
 			state: &FlavorScanState{
-				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
+				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
 					{
-						corev1.ResourceCPU:    1,
-						corev1.ResourceMemory: 0,
+						corev1.ResourceCPU:    sets.New[kueue.ResourceFlavorReference]("flavor-0", "flavor-1"),
+						corev1.ResourceMemory: sets.New[kueue.ResourceFlavorReference]("flavor-0"),
 					},
 					{
-						corev1.ResourceMemory: 1,
+						corev1.ResourceMemory: sets.New[kueue.ResourceFlavorReference]("flavor-0", "flavor-1"),
 					},
 				},
 			},

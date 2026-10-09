@@ -2957,14 +2957,18 @@ func TestAddOrUpdateWorkloadCarriesFlavorScanState(t *testing.T) {
 	// heap. exhaustedScan has none, so requeueing holds it as inadmissible.
 	pendingFlavors := func() *workload.FlavorScanState {
 		return &workload.FlavorScanState{
-			LastTriedFlavorIndexes:        []map[corev1.ResourceName]int{{corev1.ResourceCPU: 1}},
+			TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+				{corev1.ResourceCPU: sets.New[kueue.ResourceFlavorReference]("flavor-0", "flavor-1")},
+			},
 			AllocatableResourceGeneration: 3,
 			SchedulingCycle:               7,
 		}
 	}
 	exhaustedScan := func() *workload.FlavorScanState {
 		return &workload.FlavorScanState{
-			LastTriedFlavorIndexes:        []map[corev1.ResourceName]int{{corev1.ResourceCPU: -1}},
+			TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+				{corev1.ResourceCPU: nil},
+			},
 			AllocatableResourceGeneration: 3,
 			SchedulingCycle:               7,
 		}
@@ -3018,7 +3022,7 @@ func TestAddOrUpdateWorkloadCarriesFlavorScanState(t *testing.T) {
 			recorded:         pendingFlavors(),
 			wantCarried:      false,
 		},
-		// The recorded flavor indices were chosen for the old requests, so resuming from
+		// The recorded flavors were chosen for the old requests, so resuming from
 		// them could skip a flavor the changed Workload now fits.
 		"a changed scheduling shape is not carried": {
 			preserveProgress: true,
