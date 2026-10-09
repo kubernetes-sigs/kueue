@@ -107,7 +107,6 @@ func BreakConnection(ctx context.Context, cli client.Client, cluster *kueue.Mult
 	gomega.Expect(originalKubeConfig).NotTo(gomega.BeEmpty())
 
 	ginkgo.By(fmt.Sprintf("breaking the connection to %s", clusterKey), func() {
-		ginkgo.GinkgoHelper()
 		setSecretKubeConfig(ctx, cli, secretKey, unreachableKubeConfig(originalKubeConfig))
 		expectClusterActive(ctx, cli, clusterKey, metav1.ConditionFalse, "ClientConnectionFailed")
 	})
@@ -115,7 +114,6 @@ func BreakConnection(ctx context.Context, cli client.Client, cluster *kueue.Mult
 	return func() {
 		ginkgo.GinkgoHelper()
 		ginkgo.By(fmt.Sprintf("restoring the connection to %s", clusterKey), func() {
-			ginkgo.GinkgoHelper()
 			setSecretKubeConfig(ctx, cli, secretKey, originalKubeConfig)
 			expectClusterActive(ctx, cli, clusterKey, metav1.ConditionTrue, "Active")
 		})

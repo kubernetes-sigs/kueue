@@ -106,7 +106,6 @@ func (f *Framework) Init() *rest.Config {
 
 	var cfg *rest.Config
 	ginkgo.By("bootstrapping test environment", func() {
-		ginkgo.GinkgoHelper()
 		baseCrdPath := filepath.Join(behavioral.ProjectBaseDir, "config", "components", "crd", "_output")
 		f.testEnv = &envtest.Environment{
 			CRDDirectoryPaths:       append(f.DepCRDPaths, baseCrdPath),
@@ -209,7 +208,6 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithW
 func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup, opts ...ManagerOption) {
 	ginkgo.GinkgoHelper()
 	ginkgo.By("starting the manager", func() {
-		ginkgo.GinkgoHelper()
 		webhookInstallOptions := &f.testEnv.WebhookInstallOptions
 		mgrOptions := manager.Options{
 			Scheme: f.scheme,
@@ -244,7 +242,7 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 			defer close(done)
 			defer ginkgo.GinkgoRecover()
 			err := mgr.Start(managerCtx)
-			gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to run manager")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to run manager")
 		}()
 
 		// wait for the webhook server to get ready
@@ -261,7 +259,6 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 func (f *Framework) StopManager(ctx context.Context) {
 	ginkgo.GinkgoHelper()
 	ginkgo.By("stopping the manager", func() {
-		ginkgo.GinkgoHelper()
 		if f.managerCancel == nil {
 			return
 		}
