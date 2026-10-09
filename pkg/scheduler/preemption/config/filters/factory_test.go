@@ -215,8 +215,8 @@ func TestNewCandidateFilters(t *testing.T) {
 					MatchLabels: map[string]string{"env": "prod"},
 				},
 				Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
-					Mode:       kueuealpha.Base,
-					Comparison: kueuealpha.LessThan,
+					Mode:       new(kueuealpha.Base),
+					Comparison: new(kueuealpha.LessThan),
 				},
 				NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
 					{
@@ -248,20 +248,20 @@ func TestNewCandidateFilters(t *testing.T) {
 						},
 						preemptorVal: ptr.To[int32](8),
 					},
-					&priorityFilter{
-						mode:              kueuealpha.Base,
+					&priorityComparisonFilter{
 						comparison:        kueuealpha.LessThan,
 						preemptorPriority: 100,
 					},
 				},
 			},
 		},
-		"WithinClusterQueue with Priority compiles both CQ and WL priority filters": {
+		"WithinClusterQueue with Priority and MatchNames compiles CQ, priorityComparison, and priorityClass filters": {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.WithinClusterQueue,
 				Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
-					Mode:       kueuealpha.Base,
-					Comparison: kueuealpha.LessThan,
+					Mode:       new(kueuealpha.Base),
+					Comparison: new(kueuealpha.LessThan),
+					MatchNames: []string{"low-priority"},
 				},
 			},
 			preemptor: preemptor,
@@ -270,11 +270,27 @@ func TestNewCandidateFilters(t *testing.T) {
 					&withinClusterQueueFilter{preemptorCQ: "cq1"},
 				},
 				WLFilters: []WorkloadFilter{
-					&priorityFilter{
-						mode:              kueuealpha.Base,
+					&priorityComparisonFilter{
 						comparison:        kueuealpha.LessThan,
 						preemptorPriority: 100,
 					},
+					&priorityClassFilter{
+						selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+							MatchNames: []string{"low-priority"},
+						},
+					},
+				},
+			},
+		},
+		"WithinClusterQueue with empty Priority produces no extra WorkloadFilters": {
+			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope:    kueuealpha.WithinClusterQueue,
+				Priority: &kueuealpha.PreemptionConfigPriorityConstraint{},
+			},
+			preemptor: preemptor,
+			wantFilters: CandidateFilters{
+				CQFilters: []ClusterQueueFilter{
+					&withinClusterQueueFilter{preemptorCQ: "cq1"},
 				},
 			},
 		},
@@ -376,8 +392,8 @@ func TestNewCandidateFilters(t *testing.T) {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.WithinClusterQueue,
 				Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
-					Mode:       kueuealpha.PreemptionConfigPriorityMode("InvalidMode"),
-					Comparison: kueuealpha.LessThan,
+					Mode:       new(kueuealpha.PreemptionConfigPriorityMode("InvalidMode")),
+					Comparison: new(kueuealpha.LessThan),
 				},
 			},
 			preemptor: preemptor,
@@ -392,8 +408,8 @@ func TestNewCandidateFilters(t *testing.T) {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.WithinClusterQueue,
 				Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
-					Mode:       kueuealpha.Base,
-					Comparison: kueuealpha.NumericComparison("InvalidComparison"),
+					Mode:       new(kueuealpha.Base),
+					Comparison: new(kueuealpha.NumericComparison("InvalidComparison")),
 				},
 			},
 			preemptor: preemptor,
@@ -454,10 +470,11 @@ func TestNewCandidateFilters(t *testing.T) {
 			workloadLabelFilter{},
 			clusterQueueLabelFilter{},
 			numericLabelFilter{},
-			priorityFilter{},
+			priorityComparisonFilter{},
+			priorityClassFilter{},
 		),
 		cmpopts.IgnoreFields(numericLabelFilter{}, "log"),
-		cmpopts.IgnoreFields(priorityFilter{}, "log", "priorityFn"),
+		cmpopts.IgnoreFields(priorityComparisonFilter{}, "log", "priorityFn"),
 		cmp.Comparer(func(a, b labels.Selector) bool {
 			if a == nil && b == nil {
 				return true

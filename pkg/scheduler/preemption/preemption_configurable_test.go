@@ -311,13 +311,14 @@ func TestConfigurablePreemptions(t *testing.T) {
 		"incoming workload cannot fit because it doesn't match any rule": {
 			clusterQueues: baseCQs,
 			config: *utiltestingalpha.MakePreemptionConfig(defaultConfigName).
-				RuleWithPreemptorSelector(
-					"test-rule-one",
-					kueuealpha.Always,
-					&metav1.LabelSelector{
+				Rules(
+					utiltestingalpha.MakePreemptionRule(
+						"test-rule-one",
+						kueuealpha.Always,
+						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
+					).PreemptorSelector(&metav1.LabelSelector{
 						MatchLabels: map[string]string{"team": "research"},
-					},
-					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
+					}).Obj(),
 				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
@@ -348,18 +349,19 @@ func TestConfigurablePreemptions(t *testing.T) {
 		"returns no candidates when requested config has incorrect parameters": {
 			clusterQueues: baseCQs,
 			config: *utiltestingalpha.MakePreemptionConfig(defaultConfigName).
-				RuleWithPreemptorSelector(
-					"test-rule-one",
-					kueuealpha.Always,
-					&metav1.LabelSelector{
+				Rules(
+					utiltestingalpha.MakePreemptionRule(
+						"test-rule-one",
+						kueuealpha.Always,
+						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
+					).PreemptorSelector(&metav1.LabelSelector{
 						MatchExpressions: []metav1.LabelSelectorRequirement{
 							{
 								Key:      "test",
 								Operator: "invalid",
 							},
 						},
-					},
-					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
+					}).Obj(),
 				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
@@ -623,6 +625,36 @@ func TestConfigurablePreemptions(t *testing.T) {
 			},
 			incoming: unitWl.Clone().Name("a_incoming").
 				Priority(70).
+				Obj(),
+			targetCQ:      "a",
+			wantPreempted: sets.New[workload.Reference]("/a2"),
+			wantReasons: map[workload.Reference]string{
+				"/a2": kueue.ConfigurablePreemptionReason,
+			},
+		},
+		"Priority class selectors filter preemptors and candidates in preemption configurable pipeline": {
+			clusterQueues: baseCQs,
+			config: *utiltestingalpha.MakePreemptionConfig(defaultConfigName).
+				Rules(
+					utiltestingalpha.MakePreemptionRule("priority-class-rule", kueuealpha.Always,
+						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+							PriorityMatchNames("low-priority").Obj(),
+					).PreemptorPriorityClassMatchNames("high-priority").Obj(),
+				).
+				Obj(),
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").
+					WorkloadPriorityClassRef("mid-priority").
+					Priority(10).
+					SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").
+					WorkloadPriorityClassRef("low-priority").
+					Priority(50).
+					SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			incoming: unitWl.Clone().Name("a_incoming").
+				WorkloadPriorityClassRef("high-priority").
+				Priority(100).
 				Obj(),
 			targetCQ:      "a",
 			wantPreempted: sets.New[workload.Reference]("/a2"),

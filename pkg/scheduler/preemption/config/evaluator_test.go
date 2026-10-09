@@ -107,17 +107,16 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 		"returns error for selector with invalid label's operator while matching preemptor's workload": {
 			clusterQueues: baseCqs,
 			config: *utiltestingalpha.MakePreemptionConfig("test").
-				RuleWithPreemptorSelector(
-					"test",
-					kueuealpha.Always,
-					&metav1.LabelSelector{
-						MatchExpressions: []metav1.LabelSelectorRequirement{
-							{
-								Key:      "test",
-								Operator: "invalid",
+				Rules(
+					utiltestingalpha.MakePreemptionRule("test", kueuealpha.Always).
+						PreemptorSelector(&metav1.LabelSelector{
+							MatchExpressions: []metav1.LabelSelectorRequirement{
+								{
+									Key:      "test",
+									Operator: "invalid",
+								},
 							},
-						},
-					},
+						}).Obj(),
 				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
@@ -287,13 +286,14 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 		"rule with matching preemptor labels selector is triggered for matching workload": {
 			clusterQueues: baseCqs,
 			config: *utiltestingalpha.MakePreemptionConfig("test").
-				RuleWithPreemptorSelector(
-					"test",
-					kueuealpha.Always,
-					&metav1.LabelSelector{
+				Rules(
+					utiltestingalpha.MakePreemptionRule(
+						"test",
+						kueuealpha.Always,
+						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).Obj(),
+					).PreemptorSelector(&metav1.LabelSelector{
 						MatchLabels: map[string]string{"active": "true"},
-					},
-					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).Obj(),
+					}).Obj(),
 				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
@@ -306,13 +306,14 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 		"rule does not apply because of not matching preemptor labels selector": {
 			clusterQueues: baseCqs,
 			config: *utiltestingalpha.MakePreemptionConfig("test").
-				RuleWithPreemptorSelector(
-					"test",
-					kueuealpha.Always,
-					&metav1.LabelSelector{
+				Rules(
+					utiltestingalpha.MakePreemptionRule(
+						"test",
+						kueuealpha.Always,
+						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).Obj(),
+					).PreemptorSelector(&metav1.LabelSelector{
 						MatchLabels: map[string]string{"active": "true"},
-					},
-					utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinCohortTree).Obj(),
+					}).Obj(),
 				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
@@ -490,6 +491,43 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			preemptorWl:    unitWl.Clone().Name("a-incoming").Priority(100).Obj(),
 			preemptorCq:    "a",
 			wantCandidates: []string{"a1"},
+		},
+		"rule with matching preemptor priority class selector and candidate priority notMatchNames": {
+			clusterQueues: baseCqs,
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rules(
+					utiltestingalpha.MakePreemptionRule(
+						"priority-class-rule",
+						kueuealpha.Always,
+						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+							PriorityNotMatchNames("protected-priority").
+							Obj(),
+					).PreemptorPriorityClassMatchNames("high-priority").Obj(),
+				).Obj(),
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").WorkloadPriorityClassRef("low-priority").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a2").WorkloadPriorityClassRef("protected-priority").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			preemptorWl:    unitWl.Clone().Name("a-incoming").WorkloadPriorityClassRef("high-priority").Obj(),
+			preemptorCq:    "a",
+			wantCandidates: []string{"a1"},
+		},
+		"rule does not apply because of excluded preemptor priority class selector": {
+			clusterQueues: baseCqs,
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rules(
+					utiltestingalpha.MakePreemptionRule(
+						"priority-class-rule",
+						kueuealpha.Always,
+						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
+					).PreemptorPriorityClassNotMatchNames("low-priority").Obj(),
+				).Obj(),
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			preemptorWl:    unitWl.Clone().Name("a-incoming").WorkloadPriorityClassRef("low-priority").Obj(),
+			preemptorCq:    "a",
+			wantCandidates: []string{},
 		},
 		"NumericLabels filters candidates with numeric label constraint": {
 			clusterQueues: baseCqs,

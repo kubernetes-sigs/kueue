@@ -269,7 +269,7 @@ func (p *PreemptionEvaluator) candidatesFor(
 		if rule.ActivationPolicy.Trigger != trigger {
 			continue
 		}
-		matches, err := workloadMatchesSelector(rule.PreemptorSelector, preemptor)
+		matches, err := matchesPreemptor(&rule, preemptor)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("preemptionConfig %q rule %q: %w", p.config.Name, rule.Name, err))
 			continue
@@ -362,6 +362,14 @@ func matchesWorkload(filter *filters.CandidateFilters, wl *workload.Info) bool {
 		}
 	}
 	return true
+}
+
+func matchesPreemptor(rule *kueuealpha.PreemptionConfigPreemptionRule, preemptor *workload.Info) (bool, *filters.FilterBuildError) {
+	matches, err := workloadMatchesSelector(rule.PreemptorSelector, preemptor)
+	if err != nil || !matches {
+		return false, err
+	}
+	return filters.MatchesPriorityClassSelector(rule.PreemptorPriorityClassSelector, preemptor), nil
 }
 
 // workloadMatchesSelector returns whether the labels of the workload match the
