@@ -726,6 +726,76 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 						gomega.Expect(createdPod.Spec.NodeSelector).Should(gomega.HaveKeyWithValue("selector1", "selector-value1"))
 					})
 				})
+
+				ginkgo.It("Should requeue the pod-owned workload evicted by preemption while its pod is still gated when SkipReassignmentForPodOwnedWorkloads is enabled", func() {
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SkipReassignmentForPodOwnedWorkloads, true)
+
+					createdPod := &corev1.Pod{}
+					createdWorkload := &kueue.Workload{}
+					pod := testingpod.MakePod(podName, ns.Name).
+						Queue(localQueue.Name).
+						Request(corev1.ResourceCPU, "1").
+						Obj()
+					behavioral.MustCreate(ctx, k8sClient, pod)
+
+					wlLookupKey := types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: ns.Name}
+					ginkgo.By("waiting for the pending admission check to be added to the workload", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+							g.Expect(createdWorkload.Status.AdmissionChecks).Should(gomega.ContainElement(
+								gomega.HaveField("Name", kueue.AdmissionCheckReference(admissionCheck.Name)),
+							))
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("reserving quota while the admission check is still pending", func() {
+						admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueueAc.Name)).
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "test-flavor", "1").
+								Count(createdWorkload.Spec.PodSets[0].Count).
+								Obj()).
+							Obj()
+						integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+						integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					})
+
+					ginkgo.By("checking the workload is not admitted and the pod is still gated", func() {
+						gomega.Consistently(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+							g.Expect(createdWorkload.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadQuotaReserved))
+							g.Expect(createdWorkload.Status.Conditions).ToNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+							g.Expect(k8sClient.Get(ctx, *podLookupKey, createdPod)).To(gomega.Succeed())
+							g.Expect(createdPod.Spec.SchedulingGates).Should(
+								gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}),
+							)
+						}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("evicting the workload by preemption", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+							g.Expect(
+								workload.SetConditionAndUpdate(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue,
+									kueue.WorkloadEvictedByPreemption, "By test", "evict", behavioral.RealClock),
+							).To(gomega.Succeed())
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("checking the workload is requeued with Requeued=True", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+							g.Expect(createdWorkload.Status.Conditions).Should(gomega.ContainElement(gomega.BeComparableTo(
+								metav1.Condition{
+									Type:    kueue.WorkloadRequeued,
+									Status:  metav1.ConditionTrue,
+									Reason:  kueue.WorkloadEvictedByPreemption,
+									Message: "By test",
+								},
+								behavioral.IgnoreConditionTimestampsAndObservedGeneration,
+							)))
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+				})
 			})
 
 			ginkgo.It("Should ungate pod with prebuilt workload", framework.SlowSpec, func() {
@@ -3728,6 +3798,108 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 
 			ginkgo.By("Checking that workload was admitted", func() {
 				behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, wlKey)
+			})
+		})
+	})
+
+	ginkgo.When("a pod-owned workload is preempted while its pod is still gated", func() {
+		var (
+			admissionCheck *kueue.AdmissionCheck
+			borrowerCQ     *kueue.ClusterQueue
+			ownerCQ        *kueue.ClusterQueue
+			borrowerLQ     *kueue.LocalQueue
+			ownerLQ        *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			admissionCheck = utiltestingapi.MakeAdmissionCheck("check").ControllerName("ac-controller").Obj()
+			behavioral.MustCreate(ctx, k8sClient, admissionCheck)
+			behavioral.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
+
+			// The borrower only has what it can borrow from the owner, and its
+			// admission check keeps its pods gated after quota is reserved.
+			borrowerCQ = utiltestingapi.MakeClusterQueue("cq-borrower").
+				Cohort("cohort").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(fl.Name).Resource(corev1.ResourceCPU, "0").Obj()).
+				AdmissionChecks(kueue.AdmissionCheckReference(admissionCheck.Name)).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, borrowerCQ)
+			ownerCQ = utiltestingapi.MakeClusterQueue("cq-owner").
+				Cohort("cohort").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(fl.Name).Resource(corev1.ResourceCPU, "1").Obj()).
+				Preemption(kueue.ClusterQueuePreemption{ReclaimWithinCohort: kueue.PreemptionPolicyAny}).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, ownerCQ)
+			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, borrowerCQ, ownerCQ)
+
+			borrowerLQ = utiltestingapi.MakeLocalQueue("borrower-lq", ns.Name).ClusterQueue(borrowerCQ.Name).Obj()
+			behavioral.MustCreate(ctx, k8sClient, borrowerLQ)
+			ownerLQ = utiltestingapi.MakeLocalQueue("owner-lq", ns.Name).ClusterQueue(ownerCQ.Name).Obj()
+			behavioral.MustCreate(ctx, k8sClient, ownerLQ)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, borrowerCQ, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ownerCQ, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
+		})
+
+		ginkgo.It("should requeue the workload and admit it again once the preemptor finishes when SkipReassignmentForPodOwnedWorkloads is enabled", func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SkipReassignmentForPodOwnedWorkloads, true)
+
+			borrowerPod := testingpod.MakePod("borrower-pod", ns.Name).Queue(borrowerLQ.Name).Request(corev1.ResourceCPU, "1").Obj()
+			borrowerPodKey := client.ObjectKeyFromObject(borrowerPod)
+			var borrowerWlKey types.NamespacedName
+			borrowerWl := &kueue.Workload{}
+			ginkgo.By("creating the borrower pod, which reserves quota by borrowing and stays gated on its pending admission check", func() {
+				behavioral.MustCreate(ctx, k8sClient, borrowerPod)
+				borrowerWlKey = types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(borrowerPod.Name, borrowerPod.UID), Namespace: ns.Name}
+				behavioral.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, borrowerCQ.Name, borrowerWlKey)
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, borrowerWlKey, borrowerWl)).To(gomega.Succeed())
+					g.Expect(borrowerWl.Status.Conditions).ToNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+					createdPod := &corev1.Pod{}
+					g.Expect(k8sClient.Get(ctx, borrowerPodKey, createdPod)).To(gomega.Succeed())
+					g.Expect(createdPod.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+
+			ownerPod := testingpod.MakePod("owner-pod", ns.Name).Queue(ownerLQ.Name).Request(corev1.ResourceCPU, "1").Obj()
+			var ownerWlKey types.NamespacedName
+			ginkgo.By("creating the owner pod, which reclaims its quota by preempting the borrower", func() {
+				behavioral.MustCreate(ctx, k8sClient, ownerPod)
+				ownerWlKey = types.NamespacedName{Name: podcontroller.GetWorkloadNameForPod(ownerPod.Name, ownerPod.UID), Namespace: ns.Name}
+				behavioral.ExpectWorkloadsToBePreemptedByKeys(ctx, k8sClient, borrowerWlKey)
+			})
+
+			ginkgo.By("checking the borrower workload is requeued while its gated pod is left in place", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, borrowerWlKey, borrowerWl)).To(gomega.Succeed())
+					g.Expect(borrowerWl.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadRequeued, kueue.WorkloadEvictedByPreemption))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				createdPod := &corev1.Pod{}
+				gomega.Expect(k8sClient.Get(ctx, borrowerPodKey, createdPod)).To(gomega.Succeed())
+				gomega.Expect(createdPod.DeletionTimestamp).To(gomega.BeNil())
+				gomega.Expect(createdPod.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
+			})
+
+			ginkgo.By("finishing the owner pod to release the quota", func() {
+				behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, ownerWlKey)
+				integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, ownerPod)
+				behavioral.ExpectWorkloadToFinish(ctx, k8sClient, ownerWlKey)
+			})
+
+			ginkgo.By("checking the borrower workload reserves quota again and is admitted once its check passes", func() {
+				behavioral.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, borrowerCQ.Name, borrowerWlKey)
+				gomega.Expect(k8sClient.Get(ctx, borrowerWlKey, borrowerWl)).To(gomega.Succeed())
+				behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, borrowerWl, kueue.AdmissionCheckReference(admissionCheck.Name), kueue.CheckStateReady, true)
+				behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, borrowerWlKey)
+				gomega.Eventually(func(g gomega.Gomega) {
+					createdPod := &corev1.Pod{}
+					g.Expect(k8sClient.Get(ctx, borrowerPodKey, createdPod)).To(gomega.Succeed())
+					g.Expect(createdPod.Spec.SchedulingGates).To(gomega.BeEmpty())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

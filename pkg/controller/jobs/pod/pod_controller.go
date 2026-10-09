@@ -194,6 +194,7 @@ var (
 	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
 	_ jobframework.TopLevelJob                     = (*Pod)(nil)
 	_ jobframework.JobWithCustomQueueNameChange    = (*Pod)(nil)
+	_ jobframework.JobWithStarted                  = (*Pod)(nil)
 )
 
 // PodOption is a function type that modifies a Pod. It allows customization of a Pod's
@@ -301,6 +302,23 @@ func (p *Pod) IsSuspended() bool {
 
 	for i := range p.list.Items {
 		if podSuspended(&p.list.Items[i]) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsStarted returns whether at least one pod of the job has been released to the
+// scheduler by removing its scheduling gate. Stop leaves a gated pod in place, so
+// such a pod cannot carry its Workload to completion.
+func (p *Pod) IsStarted() bool {
+	if !p.isGroup {
+		return !isGated(&p.pod)
+	}
+
+	for i := range p.list.Items {
+		if !isGated(&p.list.Items[i]) {
 			return true
 		}
 	}

@@ -673,7 +673,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 		if !job.IsActive() {
 			log.V(6).Info("The job is no longer active, clear the workloads admission")
-			if err := r.clearAdmissionAfterEviction(ctx, wl); err != nil {
+			if err := r.clearAdmissionAfterEviction(ctx, job, wl); err != nil {
 				return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
 			}
 		}
@@ -809,7 +809,7 @@ func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.Namespa
 				return err
 			}
 			if hasLiveOwner {
-				if err := r.clearAdmissionAfterEviction(ctx, wl); err != nil {
+				if err := r.clearAdmissionAfterEviction(ctx, job, wl); err != nil {
 					return fmt.Errorf("clearing admission for empty composable job: %w", err)
 				}
 				continue
@@ -851,7 +851,7 @@ func (r *JobReconciler) hasLiveManagedOwner(ctx context.Context, wl *kueue.Workl
 	return false, nil
 }
 
-func (r *JobReconciler) clearAdmissionAfterEviction(ctx context.Context, wl *kueue.Workload) error {
+func (r *JobReconciler) clearAdmissionAfterEviction(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
 	return workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 		evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
 		if evCond == nil || evCond.Status != metav1.ConditionTrue || !workload.HasQuotaReservation(wl) {
@@ -861,7 +861,10 @@ func (r *JobReconciler) clearAdmissionAfterEviction(ctx context.Context, wl *kue
 		setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
 		// A pod-owned Workload dies with its pod; requeuing it would
 		// recompute an assignment nothing can consume (placement drift).
-		if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wl) {
+		// That only holds once the pod was released: a pod that never
+		// started has nothing placed and is left in place by Stop, so
+		// parking its Workload would strand both forever.
+		if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wl) && isStarted(job) {
 			setRequeued = false
 		}
 		updated := workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
@@ -879,6 +882,17 @@ func (r *JobReconciler) clearAdmissionAfterEviction(ctx context.Context, wl *kue
 		}
 		return updated, nil
 	})
+}
+
+// isStarted returns whether the job has been released to run. Jobs that do not
+// implement JobWithStarted are assumed to have started: the only caller consults
+// it for Workloads owned by a single Pod, which only the Pod integration creates,
+// and that integration's compliance with the interface is checked at compile time.
+func isStarted(job GenericJob) bool {
+	if js, implements := job.(JobWithStarted); implements {
+		return js.IsStarted()
+	}
+	return true
 }
 
 func (r *JobReconciler) handleQueueNameChange(ctx context.Context, job GenericJob, wl *kueue.Workload) error {

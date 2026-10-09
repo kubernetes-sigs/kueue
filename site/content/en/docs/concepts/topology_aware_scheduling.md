@@ -312,7 +312,11 @@ assignment while its pod is still draining the termination grace period on the
 original node — an assignment no pod can consume, blocking the newly assigned
 node's capacity for the full grace period. With the gate enabled, evicted pod-owned
 Workloads get `Requeued=False` instead: the Workload finishes with its pod, and the
-owning controller's replacement pod arrives as a new Workload.
+owning controller's replacement pod arrives as a new Workload. This applies only once
+Kueue has released the pod to the scheduler. A pod that still carries the
+`kueue.x-k8s.io/admission` scheduling gate at eviction time, for example because an
+AdmissionCheck was still pending, has not been placed and is not deleted, so its
+Workload is requeued as usual.
 
 #### Usage Scenarios
 
