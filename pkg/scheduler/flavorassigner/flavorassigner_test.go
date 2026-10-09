@@ -1548,7 +1548,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
+						corev1.ResourceCPU: {Name: "one", Mode: Preempt},
 					},
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 4 more needed"),
 					Requests: corev1.ResourceList{
@@ -1659,7 +1659,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
+						corev1.ResourceCPU: {Name: "one", Mode: Preempt},
 					},
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 2 more needed"),
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
@@ -1723,7 +1723,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
+						corev1.ResourceCPU: {Name: "one", Mode: Preempt},
 					},
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 4 more needed"),
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
@@ -2725,6 +2725,44 @@ func TestAssignFlavors(t *testing.T) {
 				}},
 				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
 					{Flavor: "three", Resource: "example.com/gpu"}: resources.NewAmount(0),
+				}}},
+			},
+		},
+		"PodSet group resumes the flavor scan when leader does not request the resource": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("leader", 1).PodSetGroup("g").Obj(),
+				*utiltestingapi.MakePodSet("worker", 1).Request("example.com/gpu", "1").PodSetGroup("g").Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("one").Resource("example.com/gpu", "1").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("two").Resource("example.com/gpu", "1").Obj(),
+				).Obj(),
+			flavorScanState: &workload.FlavorScanState{
+				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+					nil,
+					{"example.com/gpu": sets.New[kueue.ResourceFlavorReference]("one")},
+				},
+			},
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name:     "leader",
+						Requests: corev1.ResourceList{},
+						Count:    1,
+					},
+					{
+						Name: "worker",
+						Flavors: ResourceAssignment{
+							"example.com/gpu": {Name: "two", Mode: Fit},
+						},
+						Requests: corev1.ResourceList{"example.com/gpu": resource.MustParse("1")},
+						Count:    1,
+					},
+				},
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "two", Resource: "example.com/gpu"}: resources.NewAmount(1),
 				}}},
 			},
 		},
@@ -8064,11 +8102,14 @@ func TestAssignFlavors_RecordsTriedFlavors(t *testing.T) {
 		// simulationResult lets a flavor report whether preemption could help.
 		simulationResult map[resources.FlavorResource]simulationResultForFlavor
 		fungibility      kueue.FlavorFungibility
+		// initialTriedFlavors simulates resuming a scan with flavors already tried in previous cycles.
+		initialTriedFlavors sets.Set[kueue.ResourceFlavorReference]
 
 		// wantMode is the mode as the quota scan leaves it, which is not always the mode
 		// the workload ends the cycle in.
-		wantMode         FlavorAssignmentMode
-		wantTriedFlavors sets.Set[kueue.ResourceFlavorReference]
+		wantMode           FlavorAssignmentMode
+		wantAssignedFlavor kueue.ResourceFlavorReference
+		wantTriedFlavors   sets.Set[kueue.ResourceFlavorReference]
 	}{
 		"quota and topology both fit on the first flavor: bookmark names it": {
 			nominalPerFlavor: "10",
@@ -8187,6 +8228,66 @@ func TestAssignFlavors_RecordsTriedFlavors(t *testing.T) {
 			wantMode:         Preempt,
 			wantTriedFlavors: nil,
 		},
+		"needs preemption and candidates exist on multiple flavors; WhenCanPreempt=TryNextFlavor: bookmark records only the selected candidate": {
+			nominalPerFlavor: "2",
+			cohortSpare:      "0",
+			request:          "2",
+			clusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+			},
+			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {policy.Preempt, 0},
+				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {policy.Preempt, 0},
+			},
+			fungibility: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     new(kueue.PreemptionOverBorrowing),
+			},
+			wantMode:           Preempt,
+			wantAssignedFlavor: "flavor-1",
+			wantTriedFlavors:   sets.New[kueue.ResourceFlavorReference]("flavor-1"),
+		},
+		"needs preemption and previous flavor was already tried; WhenCanPreempt=TryNextFlavor: advances to next flavor and resets bookmark": {
+			nominalPerFlavor: "2",
+			cohortSpare:      "0",
+			request:          "2",
+			clusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+			},
+			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {policy.Preempt, 0},
+				{Flavor: "flavor-2", Resource: corev1.ResourceCPU}: {policy.Preempt, 0},
+			},
+			fungibility: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     new(kueue.PreemptionOverBorrowing),
+			},
+			initialTriedFlavors: sets.New[kueue.ResourceFlavorReference]("flavor-1"),
+			wantMode:            Preempt,
+			wantAssignedFlavor:  "flavor-2",
+			wantTriedFlavors:    nil,
+		},
+		"remaining untried flavor was removed from ClusterQueue: scan starts over from the first flavor": {
+			nominalPerFlavor: "10",
+			cohortSpare:      "0",
+			request:          "2",
+			fungibility: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     new(kueue.PreemptionOverBorrowing),
+			},
+			// In previous cycles the ClusterQueue had [flavor-1, flavor-2, flavor-3] and
+			// flavor-1 and flavor-2 were tried. Before this cycle, the untried flavor-3
+			// was removed from the ClusterQueue, leaving only [flavor-1, flavor-2].
+			initialTriedFlavors: sets.New[kueue.ResourceFlavorReference]("flavor-1", "flavor-2"),
+			wantMode:            Fit,
+			wantAssignedFlavor:  "flavor-1",
+			wantTriedFlavors:    sets.New[kueue.ResourceFlavorReference]("flavor-1"),
+		},
 	}
 
 	for name, tc := range cases {
@@ -8204,6 +8305,13 @@ func TestAssignFlavors_RecordsTriedFlavors(t *testing.T) {
 			}
 
 			wlInfo := bookmarkTestWorkload(log, tc.request)
+			if len(tc.initialTriedFlavors) > 0 {
+				wlInfo.FlavorScanState = &workload.FlavorScanState{
+					TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+						{corev1.ResourceCPU: tc.initialTriedFlavors},
+					},
+				}
+			}
 			assigner := New(wlInfo, cqSnapshot, bookmarkTestFlavors(), false,
 				&testOracle{simulationResult: tc.simulationResult}, nil,
 				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle)
@@ -8211,6 +8319,11 @@ func TestAssignFlavors_RecordsTriedFlavors(t *testing.T) {
 
 			if gotMode := assignment.RepresentativeMode(); gotMode != tc.wantMode {
 				t.Errorf("RepresentativeMode() = %s, want %s", gotMode, tc.wantMode)
+			}
+			if tc.wantAssignedFlavor != "" {
+				if gotFlavor := assignment.PodSets[0].Flavors[corev1.ResourceCPU].Name; gotFlavor != tc.wantAssignedFlavor {
+					t.Errorf("Assigned flavor for cpu = %s, want %s", gotFlavor, tc.wantAssignedFlavor)
+				}
 			}
 			got, ok := triedFlavors(assignment, corev1.ResourceCPU)
 			if !ok {

@@ -299,19 +299,6 @@ func (e *entry) recordAssignment(a flavorassigner.Assignment, targets []*preempt
 	e.FlavorScanState = &e.assignment.FlavorScanState
 }
 
-// restoreNominationScanState retains the flavor scan progress from nomination
-// for every PodSet resource whose nominated flavor is still accepted by quota
-// after an in-cycle recomputation.
-func (e *entry) restoreNominationScanState(nominationScanState workload.FlavorScanState) {
-	for psID, recomputedPodSetFlavors := range e.assignment.FlavorScanState.TriedFlavors {
-		for resName, flavorsTriedAtNomination := range nominationScanState.TriedFlavors[psID] {
-			if len(recomputedPodSetFlavors[resName]) > 0 {
-				recomputedPodSetFlavors[resName] = flavorsTriedAtNomination
-			}
-		}
-	}
-}
-
 // markPreemptionOutcome records the outcome of IssuePreemptions and
 // clears the cached flavor assignment so the next cycle reconsiders
 // every flavor.
@@ -901,7 +888,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		revertRemoval()
 	}
 	e.recordAssignment(newAssignment, newTargets)
-	e.restoreNominationScanState(nominationScanState)
+	e.assignment.FlavorScanState.RestoreAfterRecompute(nominationScanState)
 	if needsOverlapRecompute && e.assignment.RepresentativeMode() == flavorassigner.Fit {
 		e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
 	}
