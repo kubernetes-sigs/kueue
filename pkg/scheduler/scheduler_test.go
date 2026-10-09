@@ -11135,6 +11135,34 @@ func TestResourcesToReserve(t *testing.T) {
 				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}:                   resources.NewAmount(2),
 			},
 		},
+		{
+			name:           "Reserved gpu is what is left under the borrowing limit, assignment preempts while borrowing",
+			assignmentMode: flavorassigner.Preempt,
+			borrowing:      1,
+			assignmentUsage: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(4),
+			},
+			cqUsage: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(12),
+			},
+			wantReserved: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(3),
+			},
+		},
+		{
+			name:           "Reserved gpu is zero when usage is already past the borrowing limit, assignment preempts while borrowing",
+			assignmentMode: flavorassigner.Preempt,
+			borrowing:      1,
+			assignmentUsage: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(4),
+			},
+			cqUsage: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(20),
+			},
+			wantReserved: resources.FlavorResourceQuantities{
+				{Flavor: kueue.ResourceFlavorReference("model-b"), Resource: "gpu"}: resources.NewAmount(0),
+			},
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
