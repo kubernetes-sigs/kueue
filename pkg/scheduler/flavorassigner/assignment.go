@@ -350,10 +350,7 @@ func (a *Assignment) append(psIdx int, requests resources.Requests, psAssignment
 	}
 	// The next attempt resumes each PodSet by its position in the Workload, not by the
 	// order in which the groups were assigned.
-	if missing := psIdx + 1 - len(a.FlavorScanState.TriedFlavors); missing > 0 {
-		a.FlavorScanState.TriedFlavors = append(a.FlavorScanState.TriedFlavors, make([]map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference], missing)...)
-	}
-	a.FlavorScanState.TriedFlavors[psIdx] = triedFlavors
+	a.FlavorScanState.RecordPodSet(psIdx, triedFlavors)
 }
 
 // findOldPodSetRequest returns the resource request from the old workload slice

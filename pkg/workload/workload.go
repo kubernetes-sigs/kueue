@@ -236,7 +236,10 @@ func (s *FlavorScanState) PendingFlavors() bool {
 	return false
 }
 
-func (s *FlavorScanState) TriedFlavorsForPodSetResource(ps int, res corev1.ResourceName) sets.Set[kueue.ResourceFlavorReference] {
+func (s *FlavorScanState) TriedFlavorsForPodSetResource(
+	ps int,
+	res corev1.ResourceName,
+) sets.Set[kueue.ResourceFlavorReference] {
 	if !features.Enabled(features.FlavorFungibility) {
 		return nil
 	}
@@ -244,6 +247,45 @@ func (s *FlavorScanState) TriedFlavorsForPodSetResource(ps int, res corev1.Resou
 		return nil
 	}
 	return s.TriedFlavors[ps][res]
+}
+
+func (s *FlavorScanState) TriedFlavorsForGroup(
+	psIDs []int,
+	resName corev1.ResourceName,
+	currentFlavors []kueue.ResourceFlavorReference,
+) sets.Set[kueue.ResourceFlavorReference] {
+	for _, psID := range psIDs {
+		tried := s.TriedFlavorsForPodSetResource(psID, resName)
+		if len(tried) == 0 {
+			continue
+		}
+		if !tried.HasAll(currentFlavors...) {
+			return tried.Clone()
+		}
+		break
+	}
+	return sets.New[kueue.ResourceFlavorReference]()
+}
+
+func (s *FlavorScanState) RestoreAfterRecompute(previous FlavorScanState) {
+	for psID, recomputed := range s.TriedFlavors {
+		for resName, tried := range recomputed {
+			if len(tried) > 0 {
+				recomputed[resName] =
+					previous.TriedFlavorsForPodSetResource(psID, resName).Clone()
+			}
+		}
+	}
+}
+
+func (s *FlavorScanState) RecordPodSet(
+	psID int,
+	progress map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference],
+) {
+	if missing := psID + 1 - len(s.TriedFlavors); missing > 0 {
+		s.TriedFlavors = append(s.TriedFlavors, make([]map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference], missing)...)
+	}
+	s.TriedFlavors[psID] = progress
 }
 
 type ResourceToFlavor map[corev1.ResourceName]kueue.ResourceFlavorReference
