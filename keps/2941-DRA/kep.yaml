@@ -20,6 +20,7 @@ see-also:
   - "https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/5075-dra-consumable-capacity"
   - "https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/5055-dra-device-taints-and-tolerations"
   - "https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/4816-dra-prioritized-list"
+  - "https://github.com/kubernetes/enhancements/tree/master/keps/sig-scheduling/5517-dra-node-allocatable-resources"
 replaces:
   - "https://github.com/kubernetes-sigs/kueue/pull/3071"
 
