@@ -194,6 +194,7 @@ var (
 	_ jobframework.JobWithCustomWorkloadConditions = (*Pod)(nil)
 	_ jobframework.TopLevelJob                     = (*Pod)(nil)
 	_ jobframework.JobWithCustomQueueNameChange    = (*Pod)(nil)
+	_ jobframework.JobWithStarted                  = (*Pod)(nil)
 )
 
 // PodOption is a function type that modifies a Pod. It allows customization of a Pod's
@@ -295,6 +296,26 @@ func (p *Pod) IsSuspended() bool {
 
 	for i := range p.list.Items {
 		if podSuspended(&p.list.Items[i]) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// IsStarted returns whether at least one pod of the job has had the
+// kueue.x-k8s.io/admission scheduling gate removed. This mirrors the check in
+// Stop: a pod still holding that gate is skipped and left in place, while any
+// other pod, including one that only holds the TAS topology gate, is deleted.
+// For a pod group, the job counts as started once any of its pods has been
+// released; today only Workloads owned by a single Pod consult this method.
+func (p *Pod) IsStarted() bool {
+	if !p.isGroup {
+		return !isGated(&p.pod)
+	}
+
+	for i := range p.list.Items {
+		if !isGated(&p.list.Items[i]) {
 			return true
 		}
 	}
