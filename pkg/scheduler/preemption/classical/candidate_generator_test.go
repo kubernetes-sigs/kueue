@@ -240,11 +240,11 @@ func TestBuildBuckets(t *testing.T) {
 	cqEmpty := &schdcache.ClusterQueueSnapshot{Name: "cqEmpty"}
 
 	cases := map[string]struct {
-		classes       []classifiedClusterQueue
-		wantEvicted   int
-		wantNonEvicted int
-		wantEvictedCQ   string
-		wantEvictedTop  string
+		classes           []classifiedClusterQueue
+		wantEvicted       int
+		wantNonEvicted    int
+		wantEvictedCQ     string
+		wantEvictedTop    string
 		wantNonEvictedCQs []string
 	}{
 		"evicted bucket, non-evicted bucket, empty CQ skipped": {

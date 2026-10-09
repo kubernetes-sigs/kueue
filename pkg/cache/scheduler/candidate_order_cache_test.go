@@ -105,7 +105,7 @@ func TestBuildCandidateOrderEntry(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			e := buildCandidateOrderEntry(tc.cq, orderCmp)
-			if got := names(e.sorted); !slices.Equal(got, tc.wantSorted) {
+			if got := names(e.workloads); !slices.Equal(got, tc.wantSorted) {
 				t.Errorf("sorted names = %v, want %v", got, tc.wantSorted)
 			}
 			if e.evictedCount != tc.wantEvicted {
@@ -213,7 +213,7 @@ func TestWarm(t *testing.T) {
 		if !okA || !okB {
 			t.Fatalf("Warm did not populate both entries: a=%v b=%v", okA, okB)
 		}
-		if got, want := names(entryA.sorted), []string{"e1", "n1"}; !slices.Equal(got, want) {
+		if got, want := names(entryA.workloads), []string{"e1", "n1"}; !slices.Equal(got, want) {
 			t.Errorf("warmed a sorted = %v, want %v", got, want)
 		}
 	})

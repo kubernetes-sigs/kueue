@@ -39,9 +39,9 @@ type CandidateOrderCache struct {
 }
 
 type candidateOrderEntry struct {
-	// sorted holds the CQ's workloads ordered by the comparator.
+	// workloads holds the CQ's workloads ordered by the comparator.
 	workloads []*workload.Info
-	// evictedCount is the length of the evicted prefix of sorted.
+	// evictedCount is the length of the evicted prefix of workloads.
 	evictedCount int
 }
 
@@ -56,11 +56,11 @@ func newCandidateOrderCache() *CandidateOrderCache {
 // is unchanged.
 func (c *CandidateOrderCache) Get(cq *ClusterQueueSnapshot, cmp CandidateOrderComparator) ([]*workload.Info, int) {
 	if e, ok := c.entries[cq.Name]; ok && matches(e, cq) {
-		return e.sorted, e.evictedCount
+		return e.workloads, e.evictedCount
 	}
 	e := buildCandidateOrderEntry(cq, cmp)
 	c.entries[cq.Name] = e
-	return e.sorted, e.evictedCount
+	return e.workloads, e.evictedCount
 }
 
 // Warm builds the entries for the given ClusterQueues concurrently.
@@ -88,7 +88,7 @@ func (c *CandidateOrderCache) Warm(cqs []*ClusterQueueSnapshot, cmp CandidateOrd
 func buildCandidateOrderEntry(cq *ClusterQueueSnapshot, cmp CandidateOrderComparator) *candidateOrderEntry {
 	sorted := slices.AppendSeq(make([]*workload.Info, 0, len(cq.Workloads)), maps.Values(cq.Workloads))
 	slices.SortFunc(sorted, cmp)
-	return &candidateOrderEntry{sorted: sorted, evictedCount: evictedPrefixLen(sorted)}
+	return &candidateOrderEntry{workloads: sorted, evictedCount: evictedPrefixLen(sorted)}
 }
 
 func evictedPrefixLen(sorted []*workload.Info) int {
@@ -98,10 +98,10 @@ func evictedPrefixLen(sorted []*workload.Info) int {
 }
 
 func matches(e *candidateOrderEntry, cq *ClusterQueueSnapshot) bool {
-	if len(e.sorted) != len(cq.Workloads) {
+	if len(e.workloads) != len(cq.Workloads) {
 		return false
 	}
-	for _, wl := range e.sorted {
+	for _, wl := range e.workloads {
 		if _, ok := cq.Workloads[workload.Key(wl.Obj)]; !ok {
 			return false
 		}
