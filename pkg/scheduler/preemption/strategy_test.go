@@ -130,6 +130,7 @@ type strategyFixtureCfg struct {
 	incoming         *kueue.Workload
 	targetCQ         kueue.ClusterQueueReference
 	assignmentFlavor kueue.ResourceFlavorReference
+	assignment       flavorassigner.ResourceAssignment
 	fairSharing      *config.FairSharing
 	now              time.Time
 }
@@ -193,12 +194,16 @@ func newStrategyFixture(ctx context.Context, t *testing.T, log logr.Logger, cfg 
 	}
 	wlInfo := workload.NewInfo(log, cfg.incoming)
 	wlInfo.ClusterQueue = cfg.targetCQ
-	assignment := singlePodSetAssignment(flavorassigner.ResourceAssignment{
-		corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
-			Name: flavorName,
-			Mode: flavorassigner.Preempt,
-		},
-	})
+	resourceAssignment := cfg.assignment
+	if resourceAssignment == nil {
+		resourceAssignment = flavorassigner.ResourceAssignment{
+			corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+				Name: flavorName,
+				Mode: flavorassigner.Preempt,
+			},
+		}
+	}
+	assignment := singlePodSetAssignment(resourceAssignment)
 
 	return strategyFixture{
 		preemptor: preemptor,
@@ -674,6 +679,7 @@ func TestFairSharingPreemptionStrategy(t *testing.T) {
 		targetCQ      kueue.ClusterQueueReference
 		strategies    []config.PreemptionStrategy
 		featureGates  map[featuregate.Feature]bool
+		assignment    flavorassigner.ResourceAssignment
 		// stopAfterTargets, when positive, abandons the iteration after that
 		// many targets. Fair sharing yields a single strategy, so this is
 		// the only way a consumer can leave it early.
@@ -773,7 +779,68 @@ func TestFairSharingPreemptionStrategy(t *testing.T) {
 				}},
 			},
 		},
-		// F6: a borrowing preemptor takes one candidate from the ClusterQueue
+		// F6: A preemptor that is within nominal only for the contested resource
+		// must not take the nominal-first shortcut if another requested resource
+		// is still borrowing after admitting the workload. Otherwise preemption
+		// can evict a candidate that fair-sharing admission will immediately
+		// prefer again.
+		"preemptor borrowing on another requested resource follows the strategy path": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("p").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "4").
+						Resource(corev1.ResourceMemory, "2Gi").Obj()).
+					Preemption(basePreemption).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("w").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").
+						Resource(corev1.ResourceMemory, "0").Obj()).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("y").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "20").Obj()).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("l").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceMemory, "10Gi").Obj()).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("w1", "").
+					Request(corev1.ResourceCPU, "4").
+					SimpleReserveQuota("w", "default", now).
+					Obj(),
+				*utiltestingapi.MakeWorkload("y1", "").
+					Request(corev1.ResourceCPU, "20").
+					SimpleReserveQuota("y", "default", now).
+					Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("in", "").
+				Request(corev1.ResourceCPU, "4").
+				Request(corev1.ResourceMemory, "6Gi").
+				Obj(),
+			targetCQ: "p",
+			assignment: flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+				corev1.ResourceMemory: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Fit,
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.FairSharingPreemptWithinNominal: true},
+			wantStrategies: []wantStrategy{
+				{Borrowing: true, Targets: []wantTarget{}},
+			},
+		},
+		// F7: a borrowing preemptor takes one candidate from the ClusterQueue
 		// with the highest DominantResourceShare, and then re-evaluates the
 		// ordering, which no longer allows preempting anything.
 		"a borrowing preemptor takes from the ClusterQueue with the highest share": {
@@ -984,6 +1051,7 @@ func TestFairSharingPreemptionStrategy(t *testing.T) {
 				incoming:      tc.incoming,
 				targetCQ:      tc.targetCQ,
 				fairSharing:   &config.FairSharing{PreemptionStrategies: tc.strategies},
+				assignment:    tc.assignment,
 				now:           now,
 			})
 
