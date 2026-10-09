@@ -105,6 +105,10 @@ linters:
     - text: "(nobools|optionalorrequired): field (Active|Unconstrained) .*(should not use a bool|must be marked as optional or required)"
       path: "apis/kueue/v1beta2"
 
+    # Unschedulable intentionally mirrors Node.spec.unschedulable for binary cordon.
+    - text: "nobools: field Unschedulable pointer should not use a bool."
+      path: "apis/kueue/v1beta2/multikueue_types.go"
+
 issues:
   max-same-issues: 0
   max-issues-per-linter: 0

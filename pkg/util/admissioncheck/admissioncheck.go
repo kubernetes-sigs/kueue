@@ -22,14 +22,17 @@ import (
 	"fmt"
 	"strings"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 )
@@ -236,4 +239,30 @@ func GetRemoteClusters(ctx context.Context, helper *MultiKueueStoreHelper, acNam
 	}
 
 	return cfg.Spec.Clusters, nil
+}
+
+// GetSchedulableRemoteClusters returns configured clusters that accept new workloads,
+// preserving their configured order. Missing clusters are excluded.
+func GetSchedulableRemoteClusters(ctx context.Context, helper *MultiKueueStoreHelper, acName kueue.AdmissionCheckReference) ([]string, error) {
+	clusters, err := GetRemoteClusters(ctx, helper, acName)
+	if err != nil {
+		return nil, err
+	}
+	if !features.Enabled(features.MultiKueueClusterCordon) {
+		return clusters, nil
+	}
+	var schedulable []string
+	for _, name := range clusters {
+		cluster := &kueue.MultiKueueCluster{}
+		if err := helper.client.Get(ctx, types.NamespacedName{Name: name}, cluster); err != nil {
+			if apierrors.IsNotFound(err) {
+				continue
+			}
+			return nil, err
+		}
+		if !ptr.Deref(cluster.Spec.Unschedulable, false) {
+			schedulable = append(schedulable, name)
+		}
+	}
+	return schedulable, nil
 }
