@@ -505,7 +505,7 @@ func (s *Scheduler) processEntry(
 	}
 
 	if shouldFailFastTASReplacement(e.Obj, mode) {
-		if s.tryDeferFailedTASReplacement(ctx, log, e, snapshot, cq) {
+		if s.tryDeferFailedTASReplacement(ctx, log, e, snapshot) {
 			return
 		}
 		s.handleFailedTASReplacement(ctx, log, e)
@@ -620,7 +620,7 @@ func shouldFailFastTASReplacement(wl *kueue.Workload, mode flavorassigner.Flavor
 // suitable placement shortly, we simulate their removal, recompute the
 // assignment, and defer with PendingPreemption semantics when the replacement
 // then fits. Otherwise fail-fast eviction is preserved.
-func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.Logger, e *entry, snapshot *schdcache.Snapshot, cq *schdcache.ClusterQueueSnapshot) bool {
+func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.Logger, e *entry, snapshot *schdcache.Snapshot) bool {
 	victims := inFlightEvictionVictims(snapshot)
 	if len(victims) == 0 {
 		return false
@@ -655,11 +655,15 @@ func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.L
 	// Clear the flavor scan state to force a full re-evaluation of all flavors
 	// in the next cycle, mirroring the DeferredFit branch.
 	e.FlavorScanState = nil
-	// Reserve the net usage of the recomputed assignment, mirroring the
-	// DeferredFit branch, so that the placement the replacement will claim
-	// once the evictions complete is not admitted to another workload later
-	// in the same cycle.
-	snapshot.AddUsage(cq, e.assignmentUsage(log))
+	// Unlike the DeferredFit branch, we deliberately do not book the recomputed
+	// usage in the shared snapshot. The capacity freed by the in-flight
+	// evictions may already be claimed by a pending preemptor (the workload the
+	// victims were preempted for); booking it would invalidate that preemptor's
+	// current plan and make it pick additional preemption targets later in the
+	// same cycle. Nothing is lost by not booking: until the evictions complete,
+	// the victims still hold their usage, and a workload that can only fit by
+	// taking them as its own preemption targets is left waiting for those
+	// evictions instead of being admitted in the same cycle.
 	log.V(2).Info("Deferring failed TAS replacement; waiting for in-flight evictions to free capacity")
 	return true
 }
