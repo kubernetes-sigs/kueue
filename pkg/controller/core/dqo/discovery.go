@@ -34,6 +34,10 @@ import (
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
+// maxEffectiveCapacityFlavors must match the MaxItems marker on
+// EffectiveCapacity.Flavors in apis/kueue/v1alpha1/dynamicquotaorchestrator_types.go.
+const maxEffectiveCapacityFlavors = 128
+
 // reconcileDiscovery performs Phase 1 reconciliation: aggregates normalized capacities across referenced CapacityProviders.
 func (r *Reconciler) reconcileDiscovery(ctx context.Context, orchestrator *kueuealpha.DynamicQuotaOrchestrator) error {
 	aggregatedCapacity := make(map[kueuealpha.ResourceFlavorReference]corev1.ResourceList)
@@ -66,6 +70,18 @@ func (r *Reconciler) reconcileDiscovery(ctx context.Context, orchestrator *kueue
 		}
 
 		aggregateProviderCapacity(capacityProvider.Status.Capacity, capacityProvider.Spec.OrchestratedFlavors, providerContribution.EffectiveCapacityMultiplier, aggregatedCapacity)
+	}
+
+	if len(aggregatedCapacity) > maxEffectiveCapacityFlavors {
+		r.setDiscoveryCondition(
+			orchestrator,
+			metav1.ConditionFalse,
+			kueuealpha.DynamicQuotaOrchestratorReasonAggregationFailed,
+			fmt.Sprintf("Aggregated capacity covers %d distinct flavors, which exceeds the supported limit of %d",
+				len(aggregatedCapacity), maxEffectiveCapacityFlavors),
+		)
+		orchestrator.Status.EffectiveCapacity = nil
+		return nil
 	}
 
 	effectiveCapacityFlavors := make([]kueuealpha.EffectiveCapacityFlavor, 0, len(aggregatedCapacity))
