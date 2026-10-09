@@ -214,6 +214,9 @@ const (
 	// post-eviction requeue) for Workloads owned by a single Pod; the pod
 	// cannot relocate and the Workload cannot outlive it, so a recomputed
 	// topologyAssignment only diverges from the node the pod runs on.
+	// The post-eviction skip applies only once the pod has been released
+	// to the scheduler (see jobframework.JobWithStarted); a pod that is
+	// still gated has nothing placed, and its Workload is requeued.
 	SkipReassignmentForPodOwnedWorkloads featuregate.Feature = "SkipReassignmentForPodOwnedWorkloads"
 
 	// owner: @yakticus
