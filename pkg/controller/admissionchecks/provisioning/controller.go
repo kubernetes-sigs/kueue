@@ -692,7 +692,9 @@ func (c *Controller) syncCheckStates(
 			} else {
 				pr := activeOrLastPRForChecks[check]
 				if pr == nil {
-					return false, nil
+					// Returning would drop what the other checks stage in this patch.
+					log.V(4).Info("Skipping admission check without a ProvisioningRequest", "wl", klog.KObj(wl), "check", check)
+					continue
 				}
 				log.V(3).Info("Synchronizing admission check state based on provisioning request", "wl", klog.KObj(wl),
 					"check", check,

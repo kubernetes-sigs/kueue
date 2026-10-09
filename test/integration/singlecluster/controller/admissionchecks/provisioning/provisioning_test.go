@@ -18,6 +18,7 @@ package provisioning
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -837,6 +838,97 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(utiltesting.BeNotFoundError())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.When("A second provisioning check is added", func() {
+			var (
+				ac2         *kueue.AdmissionCheck
+				provReqKey2 types.NamespacedName
+			)
+
+			ginkgo.JustBeforeEach(func() {
+				ac2 = utiltestingapi.MakeAdmissionCheck("ac-prov2").
+					ControllerName(kueue.ProvisioningRequestControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "ProvisioningRequestConfig", prc2.Name).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, ac2)
+				behavioral.ExpectAdmissionChecksToBeActive(ctx, k8sClient, ac2)
+				provReqKey2 = types.NamespacedName{
+					Namespace: ns.Name,
+					Name:      provisioning.ProvisioningRequestName(wlKey.Name, kueue.AdmissionCheckReference(ac2.Name), 1),
+				}
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					cq.Spec.AdmissionChecksStrategy.AdmissionChecks = append(
+						cq.Spec.AdmissionChecksStrategy.AdmissionChecks,
+						kueue.AdmissionCheckStrategyRule{Name: kueue.AdmissionCheckReference(ac2.Name)},
+					)
+					g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.AfterEach(func() {
+				// The check keeps its in-use finalizer while the queue still lists it.
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+					cq.Spec.AdmissionChecksStrategy.AdmissionChecks = slices.DeleteFunc(cq.Spec.AdmissionChecksStrategy.AdmissionChecks,
+						func(r kueue.AdmissionCheckStrategyRule) bool {
+							return r.Name == kueue.AdmissionCheckReference(ac2.Name)
+						})
+					g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, ac2, true)
+			})
+
+			ginkgo.It("Should keep syncing the other checks after a ready check loses its request", func() {
+				ginkgo.By("Setting the quota reservation to the workload", func() {
+					behavioral.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+					behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStatePending)
+					behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac2.Name, kueue.CheckStatePending)
+				})
+
+				ginkgo.By("Setting the first provisioning request as Provisioned", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).To(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+							Reason: autoscaling.Provisioned,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
+				})
+
+				// A ready check gets no replacement request, so from here on the
+				// first check has none while the second still has a pending one.
+				ginkgo.By("Deleting the first provisioning request", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Delete(ctx, &createdRequest)).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(utiltesting.BeNotFoundError())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Setting the second provisioning request as Provisioned", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey2, &createdRequest)).To(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+							Reason: autoscaling.Provisioned,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking both checks are ready", func() {
+					behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac2.Name, kueue.CheckStateReady)
+					behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
+				})
 			})
 		})
 	})
