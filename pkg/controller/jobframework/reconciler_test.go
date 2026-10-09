@@ -2968,10 +2968,10 @@ func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
 		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).Obj()
 	// MultiKueue creates worker workloads without owner references. The first
 	// reconciliation must finish the predecessor while adopting the successor.
-	old := utiltestingapi.MakeWorkload("old", "ns").UID("old-uid").
+	old := utiltestingapi.MakeWorkload("old", "ns").
 		PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj()
-	replacement := utiltestingapi.MakeWorkload("new", "ns").UID("new-uid").Queue("q").
+	replacement := utiltestingapi.MakeWorkload("new", "ns").Queue("q").
 		Replaces("old").
 		Annotation(kueue.WorkloadSliceNameAnnotation, "old").
 		Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").
