@@ -100,7 +100,7 @@ func TestValidateCreate(t *testing.T) {
 				SetAnnotation(JobMinParallelismAnnotation, "5").
 				Obj(),
 			wantValidationErrs: field.ErrorList{
-				field.Invalid(minPodsCountAnnotationsPath, 5, "should be between 0 and 3"),
+				field.Invalid(minPodsCountAnnotationsPath, 5, "should be greater than 0 and less than 4"),
 			},
 		},
 		{
@@ -823,6 +823,68 @@ func TestValidateUpdate(t *testing.T) {
 				Parallelism(5).
 				Completions(6).
 				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantValidationErrs: nil,
+		},
+		{
+			name: "lower parallelism above the minimum while suspended with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantValidationErrs: nil,
+		},
+		{
+			name: "lower parallelism below the minimum while suspended with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(2).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, 3, "should be greater than 0 and less than 2"),
+			},
+		},
+		{
+			name: "lower parallelism below the minimum while adding the stopping annotation to a suspended job with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Parallelism(2).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				SetAnnotation(StoppingAnnotation, "true").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(minPodsCountAnnotationsPath, 3, "should be greater than 0 and less than 2"),
+			},
+		},
+		{
+			name: "unsuspend with parallelism below the minimum with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Parallelism(6).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "4").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(3).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "4").
 				Obj(),
 			wantValidationErrs: nil,
 		},
