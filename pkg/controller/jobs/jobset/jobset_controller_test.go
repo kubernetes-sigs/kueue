@@ -18,6 +18,7 @@ package jobset
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -26,11 +27,14 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/component-base/featuregate"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -419,10 +423,14 @@ func TestReconciler(t *testing.T) {
 
 	testNamespace := utiltesting.MakeNamespaceWrapper("ns").Label(corev1.LabelMetadataName, "ns").Obj()
 
+	now := time.Now()
+
 	cases := map[string]struct {
 		reconcilerOptions []jobframework.Option
 		job               *jobset.JobSet
 		priorityClasses   []client.Object
+		initObjects       []client.Object
+		workloads         []kueue.Workload
 		wantJob           *jobset.JobSet
 		wantWorkloads     []kueue.Workload
 		wantErr           error
@@ -562,6 +570,270 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"job is started with PodSet info matched by name when admission order differs from spec": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
+			},
+			job: testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name: "leader", Replicas: 1, Completions: 1, Parallelism: 1,
+					PodAnnotations: map[string]string{
+						kueue.PodSetGroupName:                  "g",
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.provider.com/topology-block",
+					},
+				},
+				testingjobset.ReplicatedJobRequirements{
+					Name: "other", Replicas: 1, Completions: 1, Parallelism: 1,
+				},
+				testingjobset.ReplicatedJobRequirements{
+					Name: "worker", Replicas: 1, Completions: 2, Parallelism: 2,
+					PodAnnotations: map[string]string{
+						kueue.PodSetGroupName:                  "g",
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.provider.com/topology-block",
+					},
+				},
+			).Obj(),
+			initObjects: []client.Object{
+				utiltestingapi.MakeResourceFlavor("flavor-a").NodeLabel("pool", "a").Obj(),
+				utiltestingapi.MakeResourceFlavor("flavor-b").NodeLabel("pool", "b").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Queue("lq").
+					PodSets(
+						*utiltestingapi.MakePodSet("leader", 1).PodSpec(testingjobset.TestPodSpec).
+							RequiredTopologyRequest("cloud.provider.com/topology-block").PodSetGroup("g").
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(new(jobset.JobIndexKey)).SubGroupCount(new(int32(1))).Obj(),
+						*utiltestingapi.MakePodSet("other", 1).PodSpec(testingjobset.TestPodSpec).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(new(jobset.JobIndexKey)).SubGroupCount(new(int32(1))).Obj(),
+						*utiltestingapi.MakePodSet("worker", 2).PodSpec(testingjobset.TestPodSpec).
+							RequiredTopologyRequest("cloud.provider.com/topology-block").PodSetGroup("g").
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(new(jobset.JobIndexKey)).SubGroupCount(new(int32(1))).Obj(),
+					).
+					// The scheduler admits the members of PodSet group g together.
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+						utiltestingapi.MakePodSetAssignment("leader").Flavor(corev1.ResourceCPU, "flavor-a").Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{"cloud.provider.com/topology-block"}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").Flavor(corev1.ResourceCPU, "flavor-a").Count(2).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{"cloud.provider.com/topology-block"}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1"}, 2).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("other").Flavor(corev1.ResourceCPU, "flavor-b").Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Queue("lq").
+					PodSets(
+						*utiltestingapi.MakePodSet("leader", 1).PodSpec(testingjobset.TestPodSpec).
+							RequiredTopologyRequest("cloud.provider.com/topology-block").PodSetGroup("g").
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(new(jobset.JobIndexKey)).SubGroupCount(new(int32(1))).Obj(),
+						*utiltestingapi.MakePodSet("other", 1).PodSpec(testingjobset.TestPodSpec).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(new(jobset.JobIndexKey)).SubGroupCount(new(int32(1))).Obj(),
+						*utiltestingapi.MakePodSet("worker", 2).PodSpec(testingjobset.TestPodSpec).
+							RequiredTopologyRequest("cloud.provider.com/topology-block").PodSetGroup("g").
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(new(jobset.JobIndexKey)).SubGroupCount(new(int32(1))).Obj(),
+					).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+						utiltestingapi.MakePodSetAssignment("leader").Flavor(corev1.ResourceCPU, "flavor-a").Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{"cloud.provider.com/topology-block"}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("worker").Flavor(corev1.ResourceCPU, "flavor-a").Count(2).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{"cloud.provider.com/topology-block"}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1"}, 2).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("other").Flavor(corev1.ResourceCPU, "flavor-b").Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantJob: testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name: "leader", Replicas: 1, Completions: 1, Parallelism: 1,
+					PodLabels: map[string]string{
+						constants.PodSetLabel:       "leader",
+						constants.LocalQueueLabel:   "lq",
+						constants.ClusterQueueLabel: "cq",
+					},
+					PodAnnotations: map[string]string{
+						kueue.PodSetGroupName:                  "g",
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.provider.com/topology-block",
+						kueue.WorkloadAnnotation:               "wl",
+					},
+					NodeSelector:    map[string]string{"pool": "a"},
+					SchedulingGates: []corev1.PodSchedulingGate{{Name: kueue.TopologySchedulingGate}},
+				},
+				testingjobset.ReplicatedJobRequirements{
+					Name: "other", Replicas: 1, Completions: 1, Parallelism: 1,
+					PodLabels: map[string]string{
+						constants.PodSetLabel:       "other",
+						constants.LocalQueueLabel:   "lq",
+						constants.ClusterQueueLabel: "cq",
+					},
+					PodAnnotations: map[string]string{
+						kueue.WorkloadAnnotation:                    "wl",
+						kueue.PodSetUnconstrainedTopologyAnnotation: "true",
+					},
+					NodeSelector:    map[string]string{"pool": "b"},
+					SchedulingGates: []corev1.PodSchedulingGate{{Name: kueue.TopologySchedulingGate}},
+				},
+				testingjobset.ReplicatedJobRequirements{
+					Name: "worker", Replicas: 1, Completions: 2, Parallelism: 2,
+					PodLabels: map[string]string{
+						constants.PodSetLabel:       "worker",
+						constants.LocalQueueLabel:   "lq",
+						constants.ClusterQueueLabel: "cq",
+					},
+					PodAnnotations: map[string]string{
+						kueue.PodSetGroupName:                  "g",
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.provider.com/topology-block",
+						kueue.WorkloadAnnotation:               "wl",
+					},
+					NodeSelector:    map[string]string{"pool": "a"},
+					SchedulingGates: []corev1.PodSchedulingGate{{Name: kueue.TopologySchedulingGate}},
+				},
+			).Suspend(false).Obj(),
+		},
+		"workload is finished when the admission has no assignment for a PodSet": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
+			},
+			job: testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name: "leader", Replicas: 1, Completions: 1, Parallelism: 1,
+					PodAnnotations: map[string]string{
+						kueue.PodSetGroupName:                  "g",
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.provider.com/topology-block",
+					},
+				},
+				testingjobset.ReplicatedJobRequirements{
+					Name: "other", Replicas: 1, Completions: 1, Parallelism: 1,
+				},
+				testingjobset.ReplicatedJobRequirements{
+					Name: "worker", Replicas: 1, Completions: 2, Parallelism: 2,
+					PodAnnotations: map[string]string{
+						kueue.PodSetGroupName:                  "g",
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.provider.com/topology-block",
+					},
+				},
+			).Obj(),
+			initObjects: []client.Object{
+				utiltestingapi.MakeResourceFlavor("flavor-a").NodeLabel("pool", "a").Obj(),
+				utiltestingapi.MakeResourceFlavor("flavor-b").NodeLabel("pool", "b").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Queue("lq").
+					PodSets(
+						*utiltestingapi.MakePodSet("leader", 1).PodSpec(testingjobset.TestPodSpec).
+							RequiredTopologyRequest("cloud.provider.com/topology-block").PodSetGroup("g").
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(new(jobset.JobIndexKey)).SubGroupCount(new(int32(1))).Obj(),
+						*utiltestingapi.MakePodSet("other", 1).PodSpec(testingjobset.TestPodSpec).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(new(jobset.JobIndexKey)).SubGroupCount(new(int32(1))).Obj(),
+						*utiltestingapi.MakePodSet("worker", 2).PodSpec(testingjobset.TestPodSpec).
+							RequiredTopologyRequest("cloud.provider.com/topology-block").PodSetGroup("g").
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(new(jobset.JobIndexKey)).SubGroupCount(new(int32(1))).Obj(),
+					).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+						utiltestingapi.MakePodSetAssignment("leader").Flavor(corev1.ResourceCPU, "flavor-a").Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{"cloud.provider.com/topology-block"}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("other").Flavor(corev1.ResourceCPU, "flavor-b").Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).Obj(), now).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Queue("lq").
+					PodSets(
+						*utiltestingapi.MakePodSet("leader", 1).PodSpec(testingjobset.TestPodSpec).
+							RequiredTopologyRequest("cloud.provider.com/topology-block").PodSetGroup("g").
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(new(jobset.JobIndexKey)).SubGroupCount(new(int32(1))).Obj(),
+						*utiltestingapi.MakePodSet("other", 1).PodSpec(testingjobset.TestPodSpec).
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(new(jobset.JobIndexKey)).SubGroupCount(new(int32(1))).Obj(),
+						*utiltestingapi.MakePodSet("worker", 2).PodSpec(testingjobset.TestPodSpec).
+							RequiredTopologyRequest("cloud.provider.com/topology-block").PodSetGroup("g").
+							PodIndexLabel(new("batch.kubernetes.io/job-completion-index")).
+							SubGroupIndexLabel(new(jobset.JobIndexKey)).SubGroupCount(new(int32(1))).Obj(),
+					).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+						utiltestingapi.MakePodSetAssignment("leader").Flavor(corev1.ResourceCPU, "flavor-a").Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{"cloud.provider.com/topology-block"}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1"}, 1).Obj()).
+								Obj()).
+							Obj(),
+						utiltestingapi.MakePodSetAssignment("other").Flavor(corev1.ResourceCPU, "flavor-b").Count(1).
+							TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+								Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"node-a"}, 1).Obj()).
+								Obj()).
+							Obj(),
+					).Obj(), now).
+					AdmittedAt(true, now).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadFinished,
+						Status:  metav1.ConditionTrue,
+						Reason:  jobframework.FailedToStartFinishedReason,
+						Message: `invalid podset infos: admission has no assignment for PodSet "worker"`,
+					}).
+					Obj(),
+			},
+			wantJob: testingjobset.MakeJobSet("jobset", "ns").ReplicatedJobs(
+				testingjobset.ReplicatedJobRequirements{
+					Name: "leader", Replicas: 1, Completions: 1, Parallelism: 1,
+					PodAnnotations: map[string]string{
+						kueue.PodSetGroupName:                  "g",
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.provider.com/topology-block",
+					},
+				},
+				testingjobset.ReplicatedJobRequirements{
+					Name: "other", Replicas: 1, Completions: 1, Parallelism: 1,
+				},
+				testingjobset.ReplicatedJobRequirements{
+					Name: "worker", Replicas: 1, Completions: 2, Parallelism: 2,
+					PodAnnotations: map[string]string{
+						kueue.PodSetGroupName:                  "g",
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.provider.com/topology-block",
+					},
+				},
+			).Obj(),
+		},
 		"workload is created with podsets, workloadPriorityClass and PriorityClass": {
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
@@ -605,13 +877,26 @@ func TestReconciler(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder(jobset.AddToScheme)
+			clientBuilder := utiltesting.NewClientBuilder(jobset.AddToScheme).WithInterceptorFuncs(
+				interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				})
 			indexer := utiltesting.AsIndexer(clientBuilder)
 			if err := SetupIndexes(ctx, indexer); err != nil {
 				t.Fatalf("Could not setup indexes: %v", err)
 			}
 			objs := append(tc.priorityClasses, tc.job, testNamespace)
-			kClient := clientBuilder.WithObjects(objs...).Build()
+			objs = append(objs, tc.initObjects...)
+			kClient := clientBuilder.WithObjects(objs...).WithStatusSubresource(&kueue.Workload{}).Build()
+			for i := range tc.workloads {
+				wl := tc.workloads[i].DeepCopy()
+				if err := ctrl.SetControllerReference(tc.job, wl, kClient.Scheme()); err != nil {
+					t.Fatalf("Could not setup owner reference in Workloads: %v", err)
+				}
+				if err := kClient.Create(ctx, wl); err != nil {
+					t.Fatalf("Could not create workload: %v", err)
+				}
+			}
 			recorder := &utiltesting.EventRecorder{}
 			reconciler, err := NewReconciler(ctx, kClient, indexer, recorder, tc.reconcilerOptions...)
 			if err != nil {
