@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/component-base/featuregate"
@@ -2313,18 +2314,20 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 	successor := utiltestingapi.MakeWorkload("new", "ns").Replaces("old")
 	for name, tc := range map[string]struct {
 		workloads    []*kueue.Workload
-		wantFinished []string
+		wantFinished sets.Set[string]
 	}{
 		"intent alone retains predecessor":                   {workloads: []*kueue.Workload{old.Obj(), utiltestingapi.MakeWorkload("new", "ns").Annotation(WorkloadSliceReplacementFor, "ns/old").Obj()}},
-		"evicted successor retains commitment":               {workloads: []*kueue.Workload{old.Obj(), successor.Clone().EvictedAt(now).Obj()}, wantFinished: []string{"old"}},
-		"finished successor retains commitment":              {workloads: []*kueue.Workload{old.Obj(), successor.Clone().FinishedAt(now).Obj()}, wantFinished: []string{"old"}},
-		"all committed replacements in a chain are finished": {workloads: []*kueue.Workload{old.Obj(), successor.Clone().Name("mid").Obj(), successor.Clone().Replaces("mid").Obj()}, wantFinished: []string{"old", "mid"}},
+		"evicted successor retains commitment":               {workloads: []*kueue.Workload{old.Obj(), successor.Clone().EvictedAt(now).Obj()}, wantFinished: sets.New("old")},
+		"finished successor retains commitment":              {workloads: []*kueue.Workload{old.Obj(), successor.Clone().FinishedAt(now).Obj()}, wantFinished: sets.New("old")},
+		"all committed replacements in a chain are finished": {workloads: []*kueue.Workload{old.Obj(), successor.Clone().Name("mid").Obj(), successor.Clone().Replaces("mid").Obj()}, wantFinished: sets.New("old", "mid")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			var objects []client.Object
+			wantStatus := make(map[string]kueue.WorkloadStatus, len(tc.workloads))
 			for _, wl := range tc.workloads {
 				objects = append(objects, wl.DeepCopy())
+				wantStatus[wl.Name] = wl.DeepCopy().Status
 			}
 			cl := utiltesting.NewClientBuilder().WithObjects(objects...).WithStatusSubresource(&kueue.Workload{}).
 				WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).Build()
@@ -2337,20 +2340,19 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, before := range tc.workloads {
-				got := &kueue.Workload{}
-				if err := cl.Get(ctx, client.ObjectKeyFromObject(before), got); err != nil {
-					t.Fatal(err)
+			if err := cl.List(ctx, list); err != nil {
+				t.Fatal(err)
+			}
+			for _, got := range list.Items {
+				before := wantStatus[got.Name]
+				if diff := cmp.Diff(before.Replaces, got.Status.Replaces); diff != "" {
+					t.Errorf("%s status.replaces changed (-want,+got): %s", got.Name, diff)
 				}
-				wasReplaced := false
-				for _, name := range tc.wantFinished {
-					wasReplaced = wasReplaced || name == got.Name
-				}
-				if wasReplaced {
+				if tc.wantFinished.Has(got.Name) {
 					if !IsReplaced(got.Status) {
 						t.Errorf("%s was not finished with WorkloadSliceReplaced", got.Name)
 					}
-				} else if diff := cmp.Diff(before.Status, got.Status, cmpopts.EquateEmpty()); diff != "" {
+				} else if diff := cmp.Diff(before, got.Status, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("%s changed unexpectedly (-want,+got): %s", got.Name, diff)
 				}
 			}
