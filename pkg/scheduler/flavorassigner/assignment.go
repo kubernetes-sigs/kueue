@@ -88,10 +88,30 @@ func (a *Assignment) UpdateForTASResult(log logr.Logger, cq *schdcache.ClusterQu
 	a.Usage.TAS = a.ComputeTASNetUsage(log, cq, wl, nil)
 }
 
+// ResolvePodSetFailure updates the status of the given PodSet and adjusts
+// the RepresentativeMode of the PodSet and the Assignment at large.
+func (a *Assignment) ResolvePodSetFailure(psRef kueue.PodSetReference, targetMode FlavorAssignmentMode, failStatus Status) {
+	psAssignment := a.podSetAssignmentByName(psRef)
+	psAssignment.Status = failStatus
+	// update the mode for all flavors and the representative mode
+	a.demoteTo(targetMode)
+	psAssignment.demoteTo(targetMode)
+}
+
+// SetRepresentativeMode updates the representative mode
+// and flavor assignment modes across all registered PodSets.
 func (a *Assignment) SetRepresentativeMode(mode FlavorAssignmentMode) {
 	a.representativeMode = &mode
 	for i := range a.PodSets {
 		a.PodSets[i].updateMode(mode)
+	}
+}
+
+// demoteTo demotes representative mode of asssignment to the targeted mode.
+// Can only lower the mode (e.g. Fit to Preempt).
+func (a *Assignment) demoteTo(targetMode FlavorAssignmentMode) {
+	if targetMode < *a.representativeMode {
+		a.representativeMode = new(targetMode)
 	}
 }
 
@@ -481,8 +501,10 @@ func (psa *PodSetAssignment) updateMode(newMode FlavorAssignmentMode) {
 	}
 }
 
-func (psa *PodSetAssignment) reason(reason string) {
-	psa.Status.reasons = append(psa.Status.reasons, reason)
+func (psa *PodSetAssignment) demoteTo(targetMode FlavorAssignmentMode) {
+	for _, flvAssignment := range psa.Flavors {
+		flvAssignment.Mode = min(flvAssignment.Mode, targetMode)
+	}
 }
 
 func (psa *PodSetAssignment) markFlavorAttempt(flavor kueue.ResourceFlavorReference, mode FlavorAssignmentMode, reason string) {

@@ -110,6 +110,11 @@ func (p *PreemptionEvaluator) HasRules() bool {
 // and finally QuotaFeasibleAndInsufficientTopology once the quota is sufficient but no
 // topology assignment can be found.
 //
+// Whatever the trigger, candidates must use one of the flavor resources needing
+// preemption, which frees the quota the preemptor needs, or hold TAS capacity on
+// nodes of the flavors needing preemption, which frees node capacity in their
+// topologies.
+//
 // Because candidates are removed from the snapshot as they are evaluated, subsequent
 // fit checks observe the updated snapshot state, and the evaluator only returns
 // candidates still admitted in the snapshot.
@@ -251,6 +256,10 @@ func (p *PreemptionEvaluator) candidatesFor(
 		candidates []*configurableCandidate
 		errs       []error
 	)
+	neededFlavors := sets.New[kueue.ResourceFlavorReference]()
+	for fr := range flavorsNeedPreemption {
+		neededFlavors.Insert(fr.Flavor)
+	}
 	// Several rules, or several selectors of a rule, can select the same workload.
 	// Therefore, we need to keep track of the UIDs of the selected workloads
 	// to avoid duplicates. Additionally map's value is used as index of already recorded candidate
@@ -279,7 +288,7 @@ func (p *PreemptionEvaluator) candidatesFor(
 			}
 
 			ruleReference := policy.PreemptionConfigRuleReference(rule.Name)
-			p.addMatchingCandidates(&filter, snapshot, flavorsNeedPreemption, ruleReference, seen, &candidates, selectorIndex)
+			p.addMatchingCandidates(&filter, snapshot, flavorsNeedPreemption, neededFlavors, ruleReference, seen, &candidates, selectorIndex)
 		}
 	}
 
@@ -294,6 +303,7 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 	filter *filters.CandidateFilters,
 	snapshot *schdcache.Snapshot,
 	flavorsNeedPreemption sets.Set[resources.FlavorResource],
+	neededFlavors sets.Set[kueue.ResourceFlavorReference],
 	ruleReference policy.PreemptionConfigRuleReference,
 	seen map[types.UID]int,
 	candidates *[]*configurableCandidate,
@@ -305,7 +315,8 @@ func (p *PreemptionEvaluator) addMatchingCandidates(
 		}
 
 		for _, wlInfo := range targetCq.Workloads {
-			if matchesWorkload(filter, wlInfo) && classical.WorkloadUsesResources(wlInfo, flavorsNeedPreemption) {
+			if matchesWorkload(filter, wlInfo) &&
+				(classical.WorkloadUsesResources(wlInfo, flavorsNeedPreemption) || snapshot.UsesTASNodesOf(wlInfo, neededFlavors)) {
 				candidate := p.ensureCandidate(seen, candidates, wlInfo)
 
 				indexes := candidate.RuleNameToSelectorIndexes[ruleReference]

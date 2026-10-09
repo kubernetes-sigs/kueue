@@ -166,7 +166,7 @@ func TestBuildPodSets(t *testing.T) {
 						Containers: []corev1.Container{{Name: "head"}},
 					}).
 					Obj(),
-				*utiltestingapi.MakePodSet("workers", 1).
+				*utiltestingapi.MakePodSet("workers", 0).
 					PodSpec(corev1.PodSpec{
 						Containers: []corev1.Container{{Name: "worker"}},
 					}).
