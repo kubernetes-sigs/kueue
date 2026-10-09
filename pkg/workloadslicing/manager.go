@@ -158,9 +158,8 @@ func (r *Manager) EnsureWorkloadSlices(
 }
 
 // FinishReplacedWorkloadSlices finishes predecessors referenced by status.replaces
-// in workloads, including finished and evicted successors, and records each
-// successful replacement event and metric. The caller supplies workloads
-// belonging to the job or slice chain being reconciled.
+// in workloads. The caller supplies workloads belonging to the job or slice chain
+// being reconciled.
 func (r *Manager) FinishReplacedWorkloadSlices(ctx context.Context, workloads []kueue.Workload) error {
 	byName := make(map[types.NamespacedName]*kueue.Workload, len(workloads))
 	for i := range workloads {
