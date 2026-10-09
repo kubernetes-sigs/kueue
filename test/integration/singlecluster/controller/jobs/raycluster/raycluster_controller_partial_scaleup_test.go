@@ -241,7 +241,8 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 
 		// -------------------------------------------------------------------------------------
 		// KEP Step 4: a scale-down after the full scale-up was admitted updates the Workload
-		// requested count, but keeps the admitted count until the usage accounting catches up.
+		// requested count while the admission count remains at the higher grant; usage
+		// accounting should still drop to the scaled-down size.
 		// -------------------------------------------------------------------------------------
 		ginkgo.By("scaling the worker group down to 8 replicas")
 		scaleFirstWorkerGroup(testRayCluster, 8)
