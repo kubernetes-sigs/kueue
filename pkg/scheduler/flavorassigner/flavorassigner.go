@@ -386,6 +386,7 @@ func (a *FlavorAssigner) AssignFlavors(
 			requests.Add(podset.podSet.Requests)
 		}
 		probeRequests := a.probeRequestsFor(podSets)
+		zeroCount := probeRequests != nil
 
 		consideredFlavors := make(map[kueue.ResourceFlavorReference]FlavorAssignmentAttempt)
 
@@ -414,11 +415,11 @@ func (a *FlavorAssigner) AssignFlavors(
 				continue
 			}
 
-			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, probeRequests, resName, assignment.Usage.Quota.Assigned, assignedRequests)
+			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, probeRequests, zeroCount, resName, assignment.Usage.Quota.Assigned, assignedRequests)
 			if probeRequests != nil && len(flavors) == 0 && !status.IsError() {
 				// The probe is a preference, not an admission barrier for zero-count PodSets.
 				probeReason := status.Message()
-				flavors, status, considered = a.findFlavorForPodSets(ctx, log, psIDs, requests, nil, resName, assignment.Usage.Quota.Assigned, assignedRequests)
+				flavors, status, considered = a.findFlavorForPodSets(ctx, log, psIDs, requests, nil, zeroCount, resName, assignment.Usage.Quota.Assigned, assignedRequests)
 				if len(flavors) > 0 && !status.IsError() {
 					if assignment.ZeroCountFlavorFallback != "" {
 						assignment.ZeroCountFlavorFallback += " "
@@ -634,6 +635,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	psIDs []int,
 	requests resources.Requests,
 	probeRequests resources.Requests,
+	zeroCount bool,
 	resName corev1.ResourceName,
 	assignmentUsage resources.FlavorResourceQuantities,
 	assignedRequests resources.FlavorResourceQuantities,
@@ -660,7 +662,11 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	bestAssignmentMode := worstGranularMode()
 	consideredFlavors := newFlavorAssignmentAttempts(len(resourceGroup.Flavors))
 
-	triedFlavors := a.wl.FlavorScanState.TriedFlavorsForGroup(psIDs, resName, resourceGroup.Flavors)
+	// Zero-count groups restart both the capacity probe and fallback on every attempt.
+	triedFlavors := sets.New[kueue.ResourceFlavorReference]()
+	if !zeroCount {
+		triedFlavors = a.wl.FlavorScanState.TriedFlavorsForGroup(psIDs, resName, resourceGroup.Flavors)
+	}
 
 	// We will only check against the flavors' labels for the resource.
 	for _, fName := range resourceGroup.Flavors {
@@ -810,8 +816,9 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 		}
 		// Check HasAll so a flavor removed from the ClusterQueue between cycles
 		// does not count toward exhaustion.
-		if bestAssignmentMode.preemptionMode <= noPreemptionCandidates || triedFlavors.HasAll(resourceGroup.Flavors...) {
-			// we have tried all flavors, try from the first flavor next time
+		if zeroCount || bestAssignmentMode.preemptionMode <= noPreemptionCandidates || triedFlavors.HasAll(resourceGroup.Flavors...) {
+			// Zero-count groups must not trigger more retries while another PodSet is blocked.
+			// Completed scans also restart from the first flavor next time.
 			triedFlavors = nil
 		}
 		for _, assignment := range bestAssignment {
