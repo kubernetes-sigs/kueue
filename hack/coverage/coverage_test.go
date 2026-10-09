@@ -218,6 +218,30 @@ func TestSummary(t *testing.T) {
 				"pkg/util/slices/slices.go: 0.0% of statements (0/4)\n" +
 				"total: (statements) 0.0%\n",
 		},
+		"duplicate set blocks merge to covered": {
+			profile: coverage.Profile{
+				Mode: "set",
+				Blocks: []coverage.Block{
+					{File: "a.go", StartLine: 1, StartCol: 1, EndLine: 2, EndCol: 2, NumStmt: 1, Count: 1},
+					{File: "a.go", StartLine: 1, StartCol: 1, EndLine: 2, EndCol: 2, NumStmt: 1, Count: 0},
+				},
+			},
+			want: "" +
+				"a.go: 100.0% of statements (1/1)\n" +
+				"total: (statements) 100.0%\n",
+		},
+		"duplicate count blocks sum and cover once": {
+			profile: coverage.Profile{
+				Mode: "count",
+				Blocks: []coverage.Block{
+					{File: "a.go", StartLine: 1, StartCol: 1, EndLine: 2, EndCol: 2, NumStmt: 1, Count: 2},
+					{File: "a.go", StartLine: 1, StartCol: 1, EndLine: 2, EndCol: 2, NumStmt: 1, Count: 3},
+				},
+			},
+			want: "" +
+				"a.go: 100.0% of statements (1/1)\n" +
+				"total: (statements) 100.0%\n",
+		},
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -310,6 +334,65 @@ func TestReport(t *testing.T) {
 		}
 		if string(summary) != want || stdout.String() != want {
 			t.Fatalf("summary = %q, stdout = %q, want %q", summary, stdout.String(), want)
+		}
+	})
+
+	t.Run("merges duplicate blocks into the filtered profile", func(t *testing.T) {
+		dir := t.TempDir()
+		profile := filepath.Join(dir, "cover.out")
+		input := "mode: count\n" +
+			"sigs.k8s.io/kueue/pkg/util/slices/slices.go:1.1,2.2 1 2\n" +
+			"sigs.k8s.io/kueue/pkg/util/slices/slices.go:1.1,2.2 1 3\n"
+		if err := os.WriteFile(profile, []byte(input), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var stdout bytes.Buffer
+		if err := coverage.Report(profile, &stdout); err != nil {
+			t.Fatal(err)
+		}
+		filtered, err := os.ReadFile(filepath.Join(dir, "cover.filtered.out"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantProfile := "mode: count\n" +
+			"sigs.k8s.io/kueue/pkg/util/slices/slices.go:1.1,2.2 1 5\n"
+		if diff := cmp.Diff(wantProfile, string(filtered)); diff != "" {
+			t.Errorf("filtered profile mismatch (-want +got):\n%s", diff)
+		}
+		wantSummary := "sigs.k8s.io/kueue/pkg/util/slices/slices.go: 100.0% of statements (1/1)\n" +
+			"total: (statements) 100.0%\n"
+		summary, err := os.ReadFile(filepath.Join(dir, "cover.filtered.txt"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if diff := cmp.Diff(wantSummary, string(summary)); diff != "" {
+			t.Errorf("summary file mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff(wantSummary, stdout.String()); diff != "" {
+			t.Errorf("stdout mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("set mode duplicate blocks stay covered once", func(t *testing.T) {
+		dir := t.TempDir()
+		profile := filepath.Join(dir, "cover.out")
+		input := "mode: set\n" +
+			"sigs.k8s.io/kueue/pkg/util/slices/slices.go:1.1,2.2 1 1\n" +
+			"sigs.k8s.io/kueue/pkg/util/slices/slices.go:1.1,2.2 1 1\n"
+		if err := os.WriteFile(profile, []byte(input), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := coverage.Report(profile, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		filtered, err := os.ReadFile(filepath.Join(dir, "cover.filtered.out"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		wantProfile := "mode: set\n" +
+			"sigs.k8s.io/kueue/pkg/util/slices/slices.go:1.1,2.2 1 1\n"
+		if diff := cmp.Diff(wantProfile, string(filtered)); diff != "" {
+			t.Errorf("filtered profile mismatch (-want +got):\n%s", diff)
 		}
 	})
 

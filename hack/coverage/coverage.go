@@ -173,10 +173,64 @@ func hasDirSegment(path, segment string) bool {
 		strings.Contains(path, "/"+segment+"/")
 }
 
+// blockKey is one cover block. make test -coverpkg repeats the same
+// file:start,end block once per test package.
+type blockKey struct {
+	file      string
+	startLine int
+	startCol  int
+	endLine   int
+	endCol    int
+	numStmt   int
+}
+
+// mergeBlocks collapses duplicate blocks so statement totals count each
+// block once. Mode set is covered when any copy has a positive count.
+// Modes count and atomic add the counts; the block is covered when the
+// sum is positive.
+func mergeBlocks(p Profile) Profile {
+	if len(p.Blocks) < 2 {
+		return p
+	}
+	out := Profile{Mode: p.Mode, Blocks: make([]Block, 0, len(p.Blocks))}
+	index := make(map[blockKey]int, len(p.Blocks))
+	for _, block := range p.Blocks {
+		key := blockKey{
+			file:      block.File,
+			startLine: block.StartLine,
+			startCol:  block.StartCol,
+			endLine:   block.EndLine,
+			endCol:    block.EndCol,
+			numStmt:   block.NumStmt,
+		}
+		i, ok := index[key]
+		if !ok {
+			index[key] = len(out.Blocks)
+			out.Blocks = append(out.Blocks, block)
+			continue
+		}
+		out.Blocks[i].Count = mergeCount(p.Mode, out.Blocks[i].Count, block.Count)
+	}
+	return out
+}
+
+func mergeCount(mode string, a, b int) int {
+	if mode == "set" {
+		if a > 0 || b > 0 {
+			return 1
+		}
+		return 0
+	}
+	// count and atomic: add execution counts.
+	return a + b
+}
+
 // Summary is a short report of statement coverage in p.
-// The last line is an overall percentage a human can read in a log.
-// A profile with no statements reports 0.0% and "no statements".
+// Duplicate blocks are merged first. The last line is an overall percentage
+// a human can read in a log. A profile with no statements reports 0.0% and
+// "no statements".
 func Summary(p Profile) string {
+	p = mergeBlocks(p)
 	type stat struct {
 		covered int
 		total   int
@@ -227,8 +281,8 @@ func OutputPaths(profilePath string) (filtered, summary string) {
 	return base + ".filtered.out", base + ".filtered.txt"
 }
 
-// Report filters profilePath and writes the filtered profile and text summary
-// beside it. The summary is also written to stdout.
+// Report filters profilePath, merges duplicate blocks, and writes the filtered
+// profile and text summary beside it. The summary is also written to stdout.
 //
 // A missing or empty profile returns an error. A profile that becomes empty
 // after filtering is written with a 0% summary and a nil error. There is no
@@ -251,7 +305,7 @@ func Report(profilePath string, stdout io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("parse coverage profile %q: %w", profilePath, err)
 	}
-	filtered := Filter(parsed)
+	filtered := mergeBlocks(Filter(parsed))
 	summary := Summary(filtered)
 	filteredPath, summaryPath := OutputPaths(profilePath)
 	if err := os.WriteFile(filteredPath, []byte(filtered.Format()), 0o644); err != nil {
