@@ -18,6 +18,7 @@ package queue
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"testing"
@@ -325,6 +326,72 @@ func TestPushOrUpdateGenerationChanged(t *testing.T) {
 
 			// PushOrUpdate from informer event with the updated workload.
 			cq.PushOrUpdate(workload.NewInfo(log, tc.updatedWorkload))
+
+			if active, _ := cq.Dump(); len(active) != tc.wantActiveWorkloads {
+				t.Errorf("got %d active workloads, want %d", len(active), tc.wantActiveWorkloads)
+			}
+			if inadmissible, _ := cq.DumpInadmissible(); len(inadmissible) != tc.wantInadmissibleWorkloads {
+				t.Errorf("got %d inadmissible workloads, want %d", len(inadmissible), tc.wantInadmissibleWorkloads)
+			}
+		})
+	}
+}
+
+func TestPushOrUpdateAdjustmentErrResolved(t *testing.T) {
+	now := time.Now()
+
+	cases := map[string]struct {
+		initialAdjustmentErr      error
+		updatedAdjustmentErr      error
+		wantActiveWorkloads       int
+		wantInadmissibleWorkloads int
+	}{
+		"moves to heap when adjustment error resolved": {
+			initialAdjustmentErr:      errors.New("missing runtime class"),
+			updatedAdjustmentErr:      nil,
+			wantActiveWorkloads:       1,
+			wantInadmissibleWorkloads: 0,
+		},
+		"stays inadmissible when adjustment error persists": {
+			initialAdjustmentErr:      errors.New("missing runtime class"),
+			updatedAdjustmentErr:      errors.New("still missing"),
+			wantActiveWorkloads:       0,
+			wantInadmissibleWorkloads: 1,
+		},
+		"stays inadmissible when adjustment error was and remains nil": {
+			initialAdjustmentErr:      nil,
+			updatedAdjustmentErr:      nil,
+			wantActiveWorkloads:       0,
+			wantInadmissibleWorkloads: 1,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
+
+			wl := utiltestingapi.MakeWorkload("workload-1", defaultNamespace).
+				Creation(now).Generation(1).Obj()
+			wInfo := workload.NewInfo(log, wl)
+			wInfo.AdjustmentErr = tc.initialAdjustmentErr
+			cq.PushOrUpdate(wInfo)
+
+			head := cq.Pop()
+			if head == nil {
+				t.Fatal("expected to pop workload")
+			}
+
+			// Simulate RequeueWorkload into inadmissible queue.
+			inadmissibleInfo := workload.NewInfo(log, wl)
+			inadmissibleInfo.AdjustmentErr = tc.initialAdjustmentErr
+			inadmissibleInfo.LastEvaluatedGeneration = head.LastEvaluatedGeneration
+			cq.requeueIfNotPresent(log, inadmissibleInfo, false, RequeueReasonGeneric, "")
+
+			// PushOrUpdate with updated adjustment error.
+			updatedInfo := workload.NewInfo(log, wl)
+			updatedInfo.AdjustmentErr = tc.updatedAdjustmentErr
+			cq.PushOrUpdate(updatedInfo)
 
 			if active, _ := cq.Dump(); len(active) != tc.wantActiveWorkloads {
 				t.Errorf("got %d active workloads, want %d", len(active), tc.wantActiveWorkloads)
