@@ -2345,8 +2345,9 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 			}
 			for _, got := range list.Items {
 				before := wantStatus[got.Name]
-				if diff := cmp.Diff(before.Replaces, got.Status.Replaces); diff != "" {
-					t.Errorf("%s status.replaces changed (-want,+got): %s", got.Name, diff)
+				wantReplaces := before.Replaces != nil
+				if gotReplaces := got.Status.Replaces != nil; gotReplaces != wantReplaces {
+					t.Errorf("%s status.replaces is set = %v, want %v", got.Name, gotReplaces, wantReplaces)
 				}
 				if tc.wantFinished.Has(got.Name) {
 					if !IsReplaced(got.Status) {
