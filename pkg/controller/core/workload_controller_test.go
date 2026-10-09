@@ -33,6 +33,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	nodev1 "k8s.io/api/node/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
@@ -2699,6 +2700,141 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"reserved workload with RuntimeClass and extended resource does not unset quota reservation when overhead unchanged": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				RuntimeClass("runtime").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor1", "1250m").
+						Assignment("example.com/gpu", "flavor-gpu", "1").
+						Obj()).
+					Obj(), now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "ac",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("queue").
+				Obj(),
+			additionalObjects: []client.Object{
+				utiltesting.MakeRuntimeClass("runtime", "handler").
+					PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m")}).
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor-gpu").Obj(),
+				).
+				AdmissionChecks("ac").
+				Obj(),
+			lq: utiltestingapi.MakeLocalQueue("queue", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				RuntimeClass("runtime").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor1", "1250m").
+						Assignment("example.com/gpu", "flavor-gpu", "1").
+						Obj()).
+					Obj(), now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "ac",
+					State: kueue.CheckStatePending,
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks,
+					Message: "The workload has not all checks ready",
+				}).
+				Queue("queue").
+				Obj(),
+		},
+		"reserved workload with RuntimeClass and extended resource unsets quota reservation when overhead changed": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				RuntimeClass("runtime").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor1", "1250m").
+						Assignment("example.com/gpu", "flavor-gpu", "1").
+						Obj()).
+					Obj(), now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "ac",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("queue").
+				Obj(),
+			additionalObjects: []client.Object{
+				utiltesting.MakeRuntimeClass("runtime", "handler").
+					PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").Obj(),
+					*utiltestingapi.MakeFlavorQuotas("flavor-gpu").Obj(),
+				).
+				AdmissionChecks("ac").
+				Obj(),
+			lq: utiltestingapi.MakeLocalQueue("queue", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				RuntimeClass("runtime").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "flavor1", "1250m").
+						Assignment("example.com/gpu", "flavor-gpu", "1").
+						Obj()).
+					Obj(), now).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "ac",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("queue").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message: "RuntimeClass overhead changed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+			wantWorkloadUseMergePatch: utiltestingapi.MakeWorkload("wl", "ns").
+				RuntimeClass("runtime").
+				Request(corev1.ResourceCPU, "1").
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:  "ac",
+					State: kueue.CheckStatePending,
+				}).
+				Queue("queue").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+					Message: "RuntimeClass overhead changed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)
 }
@@ -3585,5 +3721,219 @@ func TestRepeatedAfsSettlementFoldsPenaltyOnce(t *testing.T) {
 	}
 	if qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
 		t.Errorf("penalty still pending after settlement: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
+	}
+}
+
+func TestIsOverheadCandidateResource(t *testing.T) {
+	testCases := map[string]struct {
+		resName         corev1.ResourceName
+		currentOverhead corev1.ResourceList
+		want            bool
+	}{
+		"cpu is always a candidate even with nil overhead": {
+			resName:         corev1.ResourceCPU,
+			currentOverhead: nil,
+			want:            true,
+		},
+		"memory is always a candidate even with nil overhead": {
+			resName:         corev1.ResourceMemory,
+			currentOverhead: nil,
+			want:            true,
+		},
+		"ephemeral-storage is always a candidate even with nil overhead": {
+			resName:         corev1.ResourceEphemeralStorage,
+			currentOverhead: nil,
+			want:            true,
+		},
+		"extended resource not present in current overhead is not a candidate": {
+			resName:         corev1.ResourceName("example.com/gpu"),
+			currentOverhead: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m")},
+			want:            false,
+		},
+		"extended resource present in current overhead is a candidate": {
+			resName:         corev1.ResourceName("example.com/gpu"),
+			currentOverhead: corev1.ResourceList{corev1.ResourceName("example.com/gpu"): resource.MustParse("1")},
+			want:            true,
+		},
+		"extended resource present in pod requests but absent from overhead is not a candidate": {
+			resName:         corev1.ResourceName("example.com/gpu"),
+			currentOverhead: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m")},
+			want:            false,
+		},
+		"DRA logical resource not present in current overhead is not a candidate": {
+			resName:         corev1.ResourceName("dra-gpu-logical"),
+			currentOverhead: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m")},
+			want:            false,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got := isOverheadCandidateResource(tc.resName, tc.currentOverhead)
+			if got != tc.want {
+				t.Errorf("isOverheadCandidateResource(%q) = %v, want %v", tc.resName, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReconcileOnRuntimeClassOverheadChange(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(now)
+
+	testCases := map[string]struct {
+		workload           *kueue.Workload
+		runtimeClass       *nodev1.RuntimeClass
+		wantUpdated        bool
+		wantReservationSet bool
+	}{
+		"workload without RuntimeClass is skipped": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			wantUpdated:        false,
+			wantReservationSet: true,
+		},
+		"workload with RuntimeClass and unchanged overhead does not trigger drift": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				RuntimeClass("runtime").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1250m").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			runtimeClass: utiltesting.MakeRuntimeClass("runtime", "handler").
+				PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m")}).
+				Obj(),
+			wantUpdated:        false,
+			wantReservationSet: true,
+		},
+		"workload with RuntimeClass and DRA / extended resource does not trigger false drift when overhead is unchanged": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				RuntimeClass("runtime").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1250m").
+						Assignment("example.com/gpu", "gpu-flavor", "1").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			runtimeClass: utiltesting.MakeRuntimeClass("runtime", "handler").
+				PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m")}).
+				Obj(),
+			wantUpdated:        false,
+			wantReservationSet: true,
+		},
+		"workload with RuntimeClass and DRA / extended resource triggers drift when overhead changes": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				RuntimeClass("runtime").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1250m").
+						Assignment("example.com/gpu", "gpu-flavor", "1").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			runtimeClass: utiltesting.MakeRuntimeClass("runtime", "handler").
+				PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).
+				Obj(),
+			wantUpdated:        true,
+			wantReservationSet: false,
+		},
+		"workload with RuntimeClass ignores extended resource overhead removal to prevent transformation livelocks": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				RuntimeClass("runtime").
+				Request(corev1.ResourceCPU, "1").
+				Request("example.com/gpu", "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1250m").
+						Assignment("example.com/gpu", "gpu-flavor", "2").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			runtimeClass: utiltesting.MakeRuntimeClass("runtime", "handler").
+				PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m")}).
+				Obj(),
+			wantUpdated:        false,
+			wantReservationSet: true,
+		},
+		"workload with transformed extended resource does not trigger false drift when overhead is unchanged": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				RuntimeClass("runtime").
+				Request(corev1.ResourceCPU, "1").
+				Request("example.com/gpu", "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1250m").
+						Assignment("example.com/gpu", "gpu-flavor", "2").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			runtimeClass: utiltesting.MakeRuntimeClass("runtime", "handler").
+				PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("250m")}).
+				Obj(),
+			wantUpdated:        false,
+			wantReservationSet: true,
+		},
+		"workload with RuntimeClass triggers drift when overhead is cleared": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				RuntimeClass("runtime").
+				Request(corev1.ResourceCPU, "1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+						Assignment(corev1.ResourceCPU, "default", "1250m").
+						Obj()).
+					Obj(), now).
+				Obj(),
+			runtimeClass:       utiltesting.MakeRuntimeClass("runtime", "handler").Obj(),
+			wantUpdated:        true,
+			wantReservationSet: false,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			objs := []client.Object{tc.workload}
+			if tc.runtimeClass != nil {
+				objs = append(objs, tc.runtimeClass)
+			}
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(objs...).
+				WithStatusSubresource(tc.workload).
+				WithIndex(&corev1.LimitRange{}, utilindexer.LimitRangeHasContainerOrPodType, utilindexer.IndexLimitRangeHasContainerOrPodType).
+				Build()
+
+			r := &WorkloadReconciler{
+				client: cl,
+				clock:  fakeClock,
+			}
+
+			updated, err := r.reconcileOnRuntimeClassOverheadChange(t.Context(), tc.workload)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if updated != tc.wantUpdated {
+				t.Errorf("reconcileOnRuntimeClassOverheadChange updated = %v, want %v", updated, tc.wantUpdated)
+			}
+
+			gotWl := &kueue.Workload{}
+			if err := cl.Get(t.Context(), client.ObjectKeyFromObject(tc.workload), gotWl); err != nil {
+				t.Fatalf("unexpected error getting workload: %v", err)
+			}
+			hasReservation := workload.HasQuotaReservation(gotWl)
+			if hasReservation != tc.wantReservationSet {
+				t.Errorf("hasReservation = %v, want %v", hasReservation, tc.wantReservationSet)
+			}
+		})
 	}
 }

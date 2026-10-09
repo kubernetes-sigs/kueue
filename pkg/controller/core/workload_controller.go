@@ -68,6 +68,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	qutil "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/resource"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -762,6 +763,12 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		}
 	}
 
+	if workload.HasQuotaReservation(&wl) && !workload.IsAdmitted(&wl) {
+		if updated, err := r.reconcileOnRuntimeClassOverheadChange(ctx, &wl); updated || err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+	}
+
 	// If the workload is admitted, updating the status here would set the Admitted condition to
 	// false before the workloads eviction.
 	if !workload.IsAdmitted(&wl) {
@@ -1154,6 +1161,93 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 	}
 
 	return false, nil
+}
+
+func hasRuntimeClass(wl *kueue.Workload) bool {
+	for i := range wl.Spec.PodSets {
+		ps := &wl.Spec.PodSets[i]
+		if ps.Template.Spec.RuntimeClassName != nil && *ps.Template.Spec.RuntimeClassName != "" && len(ps.Template.Spec.Overhead) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func isOverheadCandidateResource(resName corev1.ResourceName, currentOverhead corev1.ResourceList) bool {
+	if _, ok := currentOverhead[resName]; ok {
+		return true
+	}
+	switch resName {
+	case corev1.ResourceCPU, corev1.ResourceMemory, corev1.ResourceEphemeralStorage:
+		return true
+	}
+	return false
+}
+
+func (r *WorkloadReconciler) reconcileOnRuntimeClassOverheadChange(ctx context.Context, wl *kueue.Workload) (bool, error) {
+	if !hasRuntimeClass(wl) {
+		return false, nil
+	}
+	if wl.Status.Admission == nil {
+		return false, nil
+	}
+
+	in, errs := workload.ResolveAdjustmentInputs(ctx, r.client, wl)
+	for _, err := range errs {
+		if !apierrors.IsNotFound(err) {
+			return false, err
+		}
+	}
+	effectiveSpecs := workload.EffectivePodSpecs(wl, in)
+
+	var mismatch bool
+	for i := range wl.Status.Admission.PodSetAssignments {
+		psa := &wl.Status.Admission.PodSetAssignments[i]
+		ps := utilpodset.FindPodSetByName(wl.Spec.PodSets, psa.Name)
+		if ps == nil || ps.Template.Spec.RuntimeClassName == nil || *ps.Template.Spec.RuntimeClassName == "" || len(ps.Template.Spec.Overhead) > 0 {
+			continue
+		}
+
+		psIndex := slices.IndexFunc(wl.Spec.PodSets, func(p kueue.PodSet) bool { return p.Name == psa.Name })
+		if psIndex == -1 || psIndex >= len(effectiveSpecs) {
+			continue
+		}
+
+		currentOverhead := in.PodOverheads[*ps.Template.Spec.RuntimeClassName]
+		expectedRequests := resources.PodRequests(&effectiveSpecs[psIndex])
+		count := int64(ptr.Deref(psa.Count, ps.Count))
+		for resName := range psa.Flavors {
+			if !isOverheadCandidateResource(resName, currentOverhead) {
+				continue
+			}
+			expectedUsage := expectedRequests[resName]
+			expectedTotal := expectedUsage.DeepCopy()
+			expectedTotal.Mul(count)
+
+			actualUsage := psa.ResourceUsage[resName]
+			if !actualUsage.Equal(expectedTotal) {
+				mismatch = true
+				break
+			}
+		}
+		if mismatch {
+			break
+		}
+	}
+
+	if !mismatch {
+		return false, nil
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+	log.V(2).Info("Unsetting quota reservation due to RuntimeClass overhead change", "workload", klog.KObj(wl))
+	return true, workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		reason := workload.UnadmittedWorkloadReasonWithFallback(
+			kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+			kueue.WorkloadPending, //nolint:staticcheck // SA1019: fallback
+		)
+		return workload.UnsetQuotaReservationWithCondition(wl, reason, "RuntimeClass overhead changed", r.clock.Now()), nil
+	})
 }
 
 // mayUpdateConditionForAdmissionGatedBy updates the Condition of a Workload when it first detects that it is
@@ -1936,6 +2030,7 @@ func (h *resourceUpdatesHandler) handle(ctx context.Context, obj client.Object, 
 		log := ctrl.LoggerFrom(ctx).WithValues("runtimeClass", klog.KObj(v))
 		ctx = ctrl.LoggerInto(ctx, log)
 		h.queueReconcileForPending(ctx, q, client.MatchingFields{indexer.WorkloadRuntimeClassKey: v.Name})
+		h.queueReconcileForReserved(ctx, q, client.MatchingFields{indexer.WorkloadRuntimeClassKey: v.Name})
 	default:
 		panic(v)
 	}
@@ -1969,6 +2064,28 @@ func (h *resourceUpdatesHandler) queueReconcileForPending(ctx context.Context, q
 			if err = h.r.queues.AddOrUpdateWorkload(ctx, log, wl); err != nil {
 				log.V(2).Info("ignored an error for now", "error", err)
 			}
+		}
+	}
+}
+
+func (h *resourceUpdatesHandler) queueReconcileForReserved(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request], opts ...client.ListOption) {
+	log := ctrl.LoggerFrom(ctx)
+	lst := kueue.WorkloadList{}
+	opts = append(opts, client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionTrue)})
+	err := h.r.client.List(ctx, &lst, opts...)
+	if err != nil {
+		log.Error(err, "Could not list reserved workloads")
+		return
+	}
+	log.V(4).Info("Queueing reconcile for reserved workloads on resource update", "count", len(lst.Items))
+	for i := range lst.Items {
+		wl := &lst.Items[i]
+		if !workload.IsAdmitted(wl) {
+			req := reconcile.Request{
+				NamespacedName: client.ObjectKeyFromObject(wl),
+			}
+			q.Add(req)
+			log.V(2).Info("Queued reconcile for reserved workload due to resource update", "workload", klog.KObj(wl))
 		}
 	}
 }
