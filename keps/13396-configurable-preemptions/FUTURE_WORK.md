@@ -23,6 +23,12 @@
     - [Story 2 - SLA Protection Based on Workload Creation Time](#story-2---sla-protection-based-on-workload-creation-time)
 - [Quota-Based Candidate Selectors (PreemptionConfigQuotaConstraint)](#quota-based-candidate-selectors-preemptionconfigquotaconstraint)
   - [Proposed API for Quota-Based Candidate Selectors](#proposed-api-for-quota-based-candidate-selectors)
+- [Priority Selectors](#priority-selectors)
+  - [Proposed API for Priority Selectors](#proposed-api-for-priority-selectors)
+  - [Examples with Priority Selectors](#examples-with-priority-selectors)
+    - [Story 1 - Reclaim Within Cohort by Priority Class](#story-1---reclaim-within-cohort-by-priority-class)
+    - [Story 2 - Restrict Preemption Within ClusterQueue](#story-2---restrict-preemption-within-clusterqueue)
+  - [Alternatives Considered](#alternatives-considered)
 - [PreemptionLimit (Rate-Limiting Guardrails)](#preemptionlimit-rate-limiting-guardrails)
   - [Proposed API for PreemptionLimit](#proposed-api-for-preemptionlimit)
   - [Observability When Reaching Preemption Limits](#observability-when-reaching-preemption-limits)
@@ -506,6 +512,136 @@ type PreemptionConfigPreemptionCandidateSelector struct {
   Quota *PreemptionConfigQuotaConstraint `json:"quota,omitempty"`
 }
 ```
+
+## Priority Selectors
+
+Administrators often need to restrict preemption candidates to specific priority tiers—such as only reclaiming cohort quota from `batch-low` workloads ([Issue #12046](https://github.com/kubernetes-sigs/kueue/issues/12046)) or limiting within-ClusterQueue preemption to lower-priority classes ([Issue #12001](https://github.com/kubernetes-sigs/kueue/issues/12001)).
+
+### Proposed API for Priority Selectors
+
+To avoid duplicating priority metadata, we propose a `PreemptionConfigPriorityClassSelector` evaluated directly against `spec.priorityClassRef.name`:
+
+```go
+// PreemptionConfigPriorityClassSelector defines selection criteria for priority class names,
+// evaluated directly against the candidate workload's spec.priorityClassRef.name.
+type PreemptionConfigPriorityClassSelector struct {
+  // matchNames is a list of priority class names. Candidate workloads matching any of the
+  // specified priority class names are eligible for preemption (OR semantics).
+  //
+  // +optional
+  // +listType=set
+  MatchNames []string `json:"matchNames,omitempty"`
+
+  // notMatchNames is a list of priority class names that candidate workloads must not have.
+  // Candidate workloads with any of the specified priority classes are excluded from preemption.
+  //
+  // +optional
+  // +listType=set
+  NotMatchNames []string `json:"notMatchNames,omitempty"`
+}
+```
+
+In `PreemptionConfigPreemptionCandidateSelector`, `Priority` is extended by inlining `PriorityClassSelector`:
+
+```go
+type PreemptionConfigPriorityConstraint struct {
+  // mode specifies whether priority comparison uses base or boosted (effective) priority.
+  // +optional
+  Mode *PreemptionConfigPriorityMode `json:"mode,omitempty"`
+
+  // comparison defines how candidate priority compares to the preemptor's priority.
+  // +optional
+  Comparison *NumericComparison `json:"comparison,omitempty"`
+
+  // PriorityClassSelector inlined to filter candidates by priority class name.
+  PreemptionConfigPriorityClassSelector `json:",inline"`
+}
+```
+
+Similarly, `PreemptionConfigPreemptionRule` is extended to allow filtering preemptor workloads by priority class, alongside `PreemptorSelector`:
+
+```go
+type PreemptionConfigPreemptionRule struct {
+  ...
+
+  // PreemptorPriorityClassSelector specifies priority class requirements for workloads that can trigger
+  // preemptions using this rule. Accepts all workloads if not set.
+  // +optional
+  PreemptorPriorityClassSelector *PreemptionConfigPriorityClassSelector `json:"preemptorPriorityClassSelector,omitempty"`
+
+}
+```
+
+### Examples with Priority Selectors
+
+#### Story 1 - Reclaim Within Cohort by Priority Class
+
+Related [issue #12046](https://github.com/kubernetes-sigs/kueue/issues/12046).
+
+Reclaim cohort quota only from candidates assigned the `batch-low` priority class using `matchNames`:
+
+```yaml
+spec:
+  rules:
+    - name: reclaim-cohort-quota-from-low-priority
+      activationPolicy:
+        trigger: "InsufficientQuota"
+      candidateSelectors:
+        - scope: "WithinParentCohort"
+          quota: "BorrowingCapacityFromPreemptor"
+          priority:
+            matchNames:
+              - "batch-low"
+```
+
+#### Story 2 - Restrict Preemption Within ClusterQueue
+
+Related [issue #12001](https://github.com/kubernetes-sigs/kueue/issues/12001).
+
+Filter candidates in the same ClusterQueue using `matchNames`:
+
+```yaml
+spec:
+  rules:
+    - name: preempt-same-cq-low-priority
+      activationPolicy:
+        trigger: "InsufficientQuota"
+      candidateSelectors:
+        - scope: "WithinClusterQueue"
+          priority:
+            matchNames:
+              - "batch-low"
+              - "dev-preemptible"
+```
+
+### Alternatives Considered
+
+1. **Workload `labelSelector` (Alpha Workaround)**:
+   Filtering candidates via `labelSelector` matching `kueue.x-k8s.io/priority-class`.
+   - _Drawbacks_:
+     - Creates **two sources of truth** and data duplication, since `Workload.spec.priorityClassRef` already authoritatively stores the priority class. 
+     - Requires configuring `managedJobs.labelKeysToCopy` to propagate the label from jobs to workloads.
+     - Supports only `WorkloadPriorityClass` (Pod `PriorityClass` is ignored unless custom labels are injected).
+   - _Advantages_:
+     - Can be fully set up on the user side without any code changes in OSS Kueue.
+
+2. **Absolute Priority Value Bounds (`minValue` / `maxValue`)**:
+   Adding absolute integer thresholds (e.g. `maxValue: 1000` or `minValue: 0`) to `PreemptionConfigPriorityConstraint`.
+   - _Drawbacks_:
+     - Hardcodes numeric values into cluster policies rather than semantic names. Policies break when integer mappings change or vary between environments.
+     - Cannot distinguish distinct priority classes that share identical integer values.
+   - _Advantages_:
+     - Can easily take into account boosted values.
+     - Can cover many priority classes at once without referencing them all by name.
+
+3. **Priority class `labelSelector`**:
+   Filtering candidates by matching labels defined on `PriorityClass` or `WorkloadPriorityClass` resources via a `metav1.LabelSelector`.
+   - _Drawbacks_:
+     - **Semantics spanning two different resource types**: Priority in Kueue can originate from either Kubernetes core `PriorityClass` (`scheduling.k8s.io/v1`) or Kueue's `WorkloadPriorityClass` (`kueue.x-k8s.io/v1beta1`). Evaluating label selectors across two distinct resource types introduces semantic ambiguity and operational inconsistency, as administrators would need to manage and align label schemes across separate kinds with different lifecycles and scopes.
+     - **Increased API and configuration complexity**: Requires administrators to manage labels across priority class objects and configure full `LabelSelector` schemas rather than simply referencing priority class names. Directly matching `spec.priorityClassRef.name` via `matchNames` is significantly simpler, more intuitive, and covers almost all practical use cases without added indirection.
+    - _Advantages_:
+      - Can cover many priority classes at once through labels.
+      - Reusing existing well known LabelSelector semantic.
 
 ## PreemptionLimit (Rate-Limiting Guardrails)
 
