@@ -99,8 +99,11 @@ by default. Pass `--zap-log-level=debug` (or `info`) through
 the cost of perturbing the measurement. Expected reconcile conflicts are logged
 as errors, so `runner.log` is rarely empty on a healthy run.
 
-The runner's own unit tests live beside it and are excluded from `make test`
-along with everything else under `./test/`, so they have a dedicated target:
+The runner and its tooling unit tests run in both unsharded `make test` and
+unit CI shards, with race detection, JUnit reports, and coverage output.
+The cluster benchmark remains a separate performance target.
+Other integration, E2E, and performance suites under `./test/` remain excluded.
+For focused validation of these tooling packages, use the dedicated target:
 
 ```bash
 make test-performance-multikueue-runner
