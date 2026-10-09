@@ -16,8 +16,8 @@ jobs:
     permissions:
       contents: read
       # codecov/codecov-action documents use_oidc and requires id-token: write.
-      # Fork pull requests often cannot obtain this token; the upload step
-      # treats that authentication failure as a skip.
+      # Fork pull requests often cannot obtain this token; the Record Codecov
+      # upload result step treats that authentication failure as a skip.
       id-token: write
     env:
       # Match the go directive in go.mod. Do not let the toolchain float.
@@ -158,7 +158,7 @@ jobs:
             echo "Codecov upload succeeded." >> "${GITHUB_STEP_SUMMARY}"
             exit 0
           fi
-          auth_re='token not found|token required|not valid tokenless|tokenless upload|must provide a token|could not find a repository|repository upload token|unable to locate build via github actions api|invalid token|unauthori[sz]ed|HTTP Error 401|HTTP Error 403|status code 401|status code 403'
+          auth_re='token not found|token required|not valid tokenless|tokenless upload|must provide a token|repository upload token|unable to locate build via github actions api|invalid token|unauthori[sz]ed|HTTP Error 401|status code 401'
           if grep -Eiq "${auth_re}" "${log}"; then
             {
               echo "Codecov upload skipped: authentication unavailable (missing token, OIDC, or GitHub App)."
