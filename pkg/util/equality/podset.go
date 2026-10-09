@@ -59,6 +59,10 @@ func ComparePodTemplate(a, b *corev1.PodSpec, options ...ComparePodSetsOption) b
 	for _, opt := range options {
 		opt(opts)
 	}
+	// The class decides the overhead the Pods will carry.
+	if ptr.Deref(a.RuntimeClassName, "") != ptr.Deref(b.RuntimeClassName, "") {
+		return false
+	}
 	if !opts.ignoreTolerations && !equality.Semantic.DeepEqual(a.Tolerations, b.Tolerations) {
 		return false
 	}
