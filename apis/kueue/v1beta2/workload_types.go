@@ -988,6 +988,10 @@ const (
 	// failed because the workload's DRA resources could not be resolved.
 	WorkloadQuotaReservedReasonDRAResourcesUnresolved = "DRAResourcesUnresolved"
 
+	// WorkloadQuotaReservedReasonUnableToVirtualize indicates that quota reservation
+	// because kueue was unable to virtualize Pods and/or PodGroups necessary to simulate workload scheduling.
+	WorkloadQuotaReservedReasonUnableToVirtualize = "UnableToVirtualize"
+
 	// WorkloadAdmittedReasonNoReservation indicates that the workload has no reservation.
 	WorkloadAdmittedReasonNoReservation = "NoReservation"
 

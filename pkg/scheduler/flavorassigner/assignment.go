@@ -103,7 +103,9 @@ func (a *Assignment) ResolvePodSetFailure(psRef kueue.PodSetReference, targetMod
 func (a *Assignment) SetRepresentativeMode(mode FlavorAssignmentMode) {
 	a.representativeMode = &mode
 	for i := range a.PodSets {
-		a.PodSets[i].updateMode(mode)
+		if a.PodSets[i].RepresentativeMode() != mode {
+			a.PodSets[i].updateMode(mode)
+		}
 	}
 }
 
@@ -414,7 +416,9 @@ func (a *Assignment) ResolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
 
 		overallReason = mostSevereReason(overallReason, podSetReason)
 	}
-	a.NoFitReason = overallReason
+	if overallReason != "" {
+		a.NoFitReason = overallReason
+	}
 }
 
 type Status struct {
@@ -426,6 +430,13 @@ type Status struct {
 func NewStatus(reasons ...string) *Status {
 	return &Status{
 		reasons: reasons,
+	}
+}
+
+func NewErrorStatus(err error, reasons []string) *Status {
+	return &Status{
+		reasons: reasons,
+		err:     err,
 	}
 }
 

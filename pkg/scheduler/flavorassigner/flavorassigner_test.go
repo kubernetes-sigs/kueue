@@ -8838,10 +8838,10 @@ func TestResolveNoFitReason(t *testing.T) {
 			cq:   cqWithGroups([]kueue.ResourceFlavorReference{"flavor-a"}),
 			want: "untouched",
 		},
-		"an assignment with no pod sets resolves to no reason": {
-			assignment: Assignment{NoFitReason: "stale"},
+		"an assignment with no pod sets keeps its own reason": {
+			assignment: Assignment{NoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed},
 			cq:         cqWithGroups([]kueue.ResourceFlavorReference{"flavor-a"}),
-			want:       "",
+			want:       kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
 		},
 		"pod sets that are not NoFit are skipped": {
 			assignment: Assignment{
