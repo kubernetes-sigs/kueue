@@ -102,7 +102,7 @@ func NewCandidateIterator(
 	clock clock.Clock,
 	ordering func(logr.Logger, bool, *workload.Info, *workload.Info, kueue.ClusterQueueReference, time.Time) int,
 ) CandidateIterator {
-	if features.Enabled(features.CandidateOrderCache) {
+	if features.Enabled(features.ClassicalPreemptionCandidateOrderCache) {
 		return newCacheCandidateIterator(hierarchicalReclaimCtx, enabledAfs, frsNeedPreemption, snapshot, clock, ordering)
 	}
 	return newCandidateIterator(hierarchicalReclaimCtx, enabledAfs, frsNeedPreemption, snapshot, clock, ordering)
