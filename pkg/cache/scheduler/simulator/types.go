@@ -20,6 +20,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -71,6 +72,21 @@ type PodRequirements struct {
 	// Workload that is waiting for preemption candidates.
 	SimulateEmpty bool
 }
+
+// Planned options (once schedlib.ClusterSnapshot::ScheduleWorkload supports preemptions):
+//   - PreemptedWorkloads: []wlKey,
+//   - PreemptionCandidates: iter.Seq[wlKey]
+type scheduleOptions struct{}
+
+type ScheduleOption func(*scheduleOptions)
+
+// SchedulingResult encapsulates the node assignments for the pods of the Workload.
+type SchedulingResult struct {
+	PodPlacements PodPlacements
+	Error         error
+}
+
+type PodPlacements map[client.ObjectKey]*podPlacement
 
 type NodeExclusionType int
 

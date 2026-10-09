@@ -3999,6 +3999,10 @@ func (s *recordingSchedulerSimulator) FindFeasibleNodes(
 	return s.schedulerSimulator.FindFeasibleNodes(ctx, candidates, requirements, stats)
 }
 
+func (s *recordingSchedulerSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
+	return s.schedulerSimulator.ScheduleWorkload(ctx, workloadPods, opts...)
+}
+
 type tasScheduleTestConfig struct {
 	queues []kueue.LocalQueue
 	now    time.Time
