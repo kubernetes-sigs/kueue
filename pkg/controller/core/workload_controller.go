@@ -1699,7 +1699,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 	dch := &deviceClassHandler{r: r}
 	weh := &workloadEventHandler{r: r}
 	workloadSource := &workloadEventSource{
-		SyncingSource: source.TypedKind(mgr.GetCache(), &kueue.Workload{}, weh),
+		SyncingSource: r.cache.TrackInitialSync(source.TypedKind(mgr.GetCache(), &kueue.Workload{}, weh)),
 		handler:       weh,
 	}
 	bld := builder.TypedControllerManagedBy[reconcile.Request](mgr).

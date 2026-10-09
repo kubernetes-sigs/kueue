@@ -619,12 +619,14 @@ func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Co
 	}
 	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("localqueue_controller").
-		WatchesRawSource(source.TypedKind(
+		// The scheduler also waits for this source, so that pending workloads
+		// of every LocalQueue are queued before the first cycle picks heads.
+		WatchesRawSource(r.cache.TrackInitialSync(source.TypedKind(
 			mgr.GetCache(),
 			&kueue.LocalQueue{},
 			&handler.TypedEnqueueRequestForObject[*kueue.LocalQueue]{},
 			r,
-		)).
+		))).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("LocalQueue").GroupKind().String()],
