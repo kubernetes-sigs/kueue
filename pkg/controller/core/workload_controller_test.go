@@ -3587,3 +3587,77 @@ func TestRepeatedAfsSettlementFoldsPenaltyOnce(t *testing.T) {
 		t.Errorf("penalty still pending after settlement: %v", qManager.AfsUsageLedger.PeekPenalty(lqKey))
 	}
 }
+
+// TestReconcileConvergesSchedulerCacheFromAPIState verifies the level-triggered
+// cache convergence added to Reconcile: a Workload that holds a quota reservation in
+// the API but is missing from the scheduler cache (the cache<->API divergence that an
+// admit-time client error can leave behind when the apiserver committed the write) is
+// re-added on the next reconcile, while a pending Workload with no reservation is not.
+func TestReconcileConvergesSchedulerCacheFromAPIState(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now().Truncate(time.Second)
+
+	rf := utiltestingapi.MakeResourceFlavor("rf").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("rf").Resource(corev1.ResourceCPU, "10").Obj()).
+		Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj()
+
+	cases := map[string]struct {
+		wl          *kueue.Workload
+		wantInCache bool
+	}{
+		"reserved Workload absent from the cache is re-added (divergence repaired)": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj()).
+				SimpleReserveQuota("cq", "rf", now).
+				Obj(),
+			wantInCache: true,
+		},
+		"pending Workload without a quota reservation is not added": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			wantInCache: false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(utiltesting.MakeNamespaceWrapper("ns").Obj(), rf, cq, lq, tc.wl).
+				WithStatusSubresource(&kueue.Workload{}).
+				Build()
+			cqCache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache, qcache.WithPreemptionExpectations(preemptexpectations.New()))
+			cqCache.AddOrUpdateResourceFlavor(log, rf)
+			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("AddLocalQueue: %v", err)
+			}
+			if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("cache AddClusterQueue: %v", err)
+			}
+			if err := qManager.AddClusterQueue(ctx, cq); err != nil {
+				t.Fatalf("manager AddClusterQueue: %v", err)
+			}
+			// Model the divergence: AddClusterQueue loads the admitted Workload into the
+			// scheduler cache from the API, then the scheduler's optimistic-assume
+			// rollback forgets it. DeleteWorkload reproduces that forget (for the pending
+			// case the Workload is simply absent, so the error is ignored).
+			_ = cqCache.DeleteWorkload(log, workload.Key(tc.wl))
+			if cqCache.IsAdded(*workload.NewInfo(log, tc.wl)) {
+				t.Fatal("precondition failed: Workload should be absent from the scheduler cache before Reconcile")
+			}
+
+			reconciler := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{})
+			if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(tc.wl)}); err != nil {
+				t.Fatalf("unexpected Reconcile error: %v", err)
+			}
+
+			if got := cqCache.IsAdded(*workload.NewInfo(log, tc.wl)); got != tc.wantInCache {
+				t.Errorf("Workload present in scheduler cache after Reconcile = %v, want %v", got, tc.wantInCache)
+			}
+		})
+	}
+}

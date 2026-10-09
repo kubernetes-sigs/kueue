@@ -762,6 +762,27 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		}
 	}
 
+	// Converge the scheduler cache with the API state. A Workload can hold a quota
+	// reservation in the API yet be absent from the scheduler cache — for example when
+	// the scheduler's optimistic assume is rolled back on a client error even though the
+	// apiserver committed the admission write (an overloaded apiserver can persist the
+	// write while the client only observes a timeout or reset). Cache membership is
+	// otherwise populated only by edge-triggered update handlers, so such a divergence
+	// would persist until the Workload's next update event. Re-adding it here, which is
+	// level-triggered on every reconcile, repairs the divergence regardless of its source
+	// and without depending on the freshness of any single read. The membership check
+	// uses a minimal Info (IsAdded only reads Obj and ClusterQueue) to avoid building the
+	// full effective-resource view on every reconcile, and guards against re-adding (and
+	// thus resetting) a Workload that is already tracked.
+	if cqOk && cq != nil && workload.HasQuotaReservation(&wl) &&
+		!r.cache.IsAdded(workload.Info{Obj: &wl, ClusterQueue: wl.Status.Admission.ClusterQueue}) {
+		if !r.cache.AddOrUpdateWorkload(ctx, log, &wl) {
+			log.V(2).Info("Reserved Workload is missing from the scheduler cache, but its ClusterQueue is not cached yet; will retry", "workload", workload.Key(&wl), "clusterQueue", cqName)
+		} else {
+			log.V(3).Info("Re-added reserved Workload to the scheduler cache to converge with API state", "workload", workload.Key(&wl), "clusterQueue", cqName)
+		}
+	}
+
 	// If the workload is admitted, updating the status here would set the Admitted condition to
 	// false before the workloads eviction.
 	if !workload.IsAdmitted(&wl) {
