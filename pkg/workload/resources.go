@@ -44,6 +44,7 @@ const (
 
 	ErrInvalidWLResources                        = "resources validation failed"
 	ErrLimitRangeConstraintsUnsatisfiedResources = "resources didn't satisfy LimitRange constraints"
+	ErrRuntimeClassSchedulingConflict            = "podSet nodeSelector conflicts with its RuntimeClass"
 )
 
 // UseLimitsAsMissingRequestsInPod adjust the resource requests to the limits value
@@ -160,6 +161,10 @@ func ValidateAdmissibility(
 
 	if errs := ValidateResources(wi); len(errs) > 0 {
 		return fmt.Errorf("%s: %w", ErrInvalidWLResources, errs.ToAggregate())
+	}
+
+	if errs := ValidateRuntimeClassScheduling(ctx, c, wi); len(errs) > 0 {
+		return fmt.Errorf("%s: %w", ErrRuntimeClassSchedulingConflict, errs.ToAggregate())
 	}
 
 	if errs := ValidateLimitRange(ctx, c, wi); len(errs) > 0 {

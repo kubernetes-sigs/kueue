@@ -1822,6 +1822,9 @@ func (h *resourceUpdatesHandler) Create(ctx context.Context, e event.CreateEvent
 	if lr, isLr := e.Object.(*corev1.LimitRange); isLr {
 		h.notifyForLimitRangeSchedulingChange(ctx, nil, lr)
 	}
+	if rc, isRc := e.Object.(*nodev1.RuntimeClass); isRc {
+		h.notifyForRuntimeClassSchedulingChange(ctx, nil, rc)
+	}
 }
 
 func (h *resourceUpdatesHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -1832,6 +1835,11 @@ func (h *resourceUpdatesHandler) Update(ctx context.Context, e event.UpdateEvent
 	if oldLr, isLr := e.ObjectOld.(*corev1.LimitRange); isLr {
 		if newLr, isNewLr := e.ObjectNew.(*corev1.LimitRange); isNewLr {
 			h.notifyForLimitRangeSchedulingChange(ctx, oldLr, newLr)
+		}
+	}
+	if oldRc, isRc := e.ObjectOld.(*nodev1.RuntimeClass); isRc {
+		if newRc, isNewRc := e.ObjectNew.(*nodev1.RuntimeClass); isNewRc {
+			h.notifyForRuntimeClassSchedulingChange(ctx, oldRc, newRc)
 		}
 	}
 }
@@ -1872,7 +1880,33 @@ func (h *resourceUpdatesHandler) notifyForLimitRangeSchedulingChange(ctx context
 	ctrl.LoggerFrom(ctx).V(3).Info("LimitRange scheduling fields changed",
 		"limitRange", klog.KObj(lr),
 		"oldLimits", oldLimits, "newLimits", newLimits)
-	h.retryInadmissibleForNamespace(ctx, lr.Namespace)
+	h.retryInadmissibleMatching(ctx, client.InNamespace(lr.Namespace),
+		client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionFalse)})
+}
+
+// notifyForRuntimeClassSchedulingChange requeues the inadmissible workloads
+// using the RuntimeClass when its scheduling constraints changed. Unlike the
+// overhead, the constraints do not alter the workloads' total requests, so a
+// change to them is invisible to the spec-diff based requeue in
+// queueReconcileForPending. A creation is passed as a nil oldRc.
+func (h *resourceUpdatesHandler) notifyForRuntimeClassSchedulingChange(ctx context.Context, oldRc, newRc *nodev1.RuntimeClass) {
+	if !features.Enabled(features.RuntimeClassScheduling) {
+		return
+	}
+	var oldScheduling *nodev1.Scheduling
+	if oldRc != nil {
+		oldScheduling = oldRc.Scheduling
+	}
+	if equality.Semantic.DeepEqual(oldScheduling, newRc.Scheduling) {
+		return
+	}
+	ctrl.LoggerFrom(ctx).V(3).Info("RuntimeClass scheduling constraints changed",
+		"runtimeClass", klog.KObj(newRc),
+		"oldScheduling", oldScheduling, "newScheduling", newRc.Scheduling)
+	h.retryInadmissibleMatching(ctx, client.MatchingFields{
+		indexer.WorkloadRuntimeClassKey:  newRc.Name,
+		indexer.WorkloadQuotaReservedKey: string(metav1.ConditionFalse),
+	})
 }
 
 // limitRangeSchedulingFieldsChanged reports whether any LimitRange field used
@@ -1902,15 +1936,15 @@ func limitRangeSchedulingFieldsChanged(oldLr, newLr *corev1.LimitRange) bool {
 	return false
 }
 
-// retryInadmissibleForNamespace requeues the inadmissible workloads of every
-// ClusterQueue that has pending workloads in the given namespace. A workload
-// rejected against the previous LimitRange constraints keeps a byte-identical
-// spec when only the constraints change, so it has to be retried explicitly.
-func (h *resourceUpdatesHandler) retryInadmissibleForNamespace(ctx context.Context, namespace string) {
+// retryInadmissibleMatching requeues the inadmissible workloads of every
+// ClusterQueue that has workloads matching the given options. A workload
+// rejected against the previous LimitRange or RuntimeClass constraints keeps a
+// byte-identical spec when only the constraints change, so it has to be
+// retried explicitly.
+func (h *resourceUpdatesHandler) retryInadmissibleMatching(ctx context.Context, opts ...client.ListOption) {
 	log := ctrl.LoggerFrom(ctx)
 	lst := kueue.WorkloadList{}
-	err := h.r.client.List(ctx, &lst, client.InNamespace(namespace),
-		client.MatchingFields{indexer.WorkloadQuotaReservedKey: string(metav1.ConditionFalse)})
+	err := h.r.client.List(ctx, &lst, opts...)
 	if err != nil {
 		log.Error(err, "Could not list pending workloads")
 		return
