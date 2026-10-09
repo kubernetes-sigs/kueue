@@ -59,8 +59,10 @@ var (
 )
 
 func TestDefault(t *testing.T) {
+	defaultWPC := utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
 	testCases := map[string]struct {
 		initObjs                   []client.Object
+		oldStatefulSet             *appsv1.StatefulSet
 		statefulset                *appsv1.StatefulSet
 		manageJobsWithoutQueueName bool
 		defaultLqExist             bool
@@ -149,6 +151,39 @@ func TestDefault(t *testing.T) {
 			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
 			want:           testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
 		},
+		"create sets the default WorkloadPriorityClass": {
+			initObjs:    []client.Object{defaultWPC},
+			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
+			want: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
+				Obj(),
+		},
+		"update of a not ready statefulset sets the default WorkloadPriorityClass": {
+			initObjs:       []client.Object{defaultWPC},
+			oldStatefulSet: testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
+			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
+			want: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
+				Obj(),
+		},
+		"update of a ready statefulset without the priority class label does not set the default WorkloadPriorityClass": {
+			initObjs:       []client.Object{defaultWPC},
+			oldStatefulSet: testingstatefulset.MakeStatefulSet("test-pod", "").ReadyReplicas(1).Obj(),
+			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "").ReadyReplicas(1).Obj(),
+			want:           testingstatefulset.MakeStatefulSet("test-pod", "").ReadyReplicas(1).Obj(),
+		},
+		"update of a ready statefulset that drops the priority class label sets the default WorkloadPriorityClass": {
+			initObjs: []client.Object{defaultWPC},
+			oldStatefulSet: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
+				ReadyReplicas(1).
+				Obj(),
+			statefulset: testingstatefulset.MakeStatefulSet("test-pod", "").ReadyReplicas(1).Obj(),
+			want: testingstatefulset.MakeStatefulSet("test-pod", "").
+				Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
+				ReadyReplicas(1).
+				Obj(),
+		},
 	}
 
 	for name, tc := range testCases {
@@ -156,6 +191,9 @@ func TestDefault(t *testing.T) {
 			integrationManager := newTestIntegrationManager(t)
 			t.Cleanup(integrationManager.EnableIntegrationsForTest(t, tc.enableIntegrations...))
 			ctx, _ := utiltesting.ContextWithLog(t)
+			if tc.oldStatefulSet != nil {
+				ctx = utiltesting.ContextWithUpdateRequest(ctx, t, tc.oldStatefulSet)
+			}
 
 			builder := utiltesting.NewClientBuilder().WithObjects(tc.initObjs...)
 			cli := builder.Build()
