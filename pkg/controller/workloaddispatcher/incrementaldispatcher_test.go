@@ -41,6 +41,7 @@ import (
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
@@ -51,11 +52,13 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 	baseWorkload := utiltestingapi.MakeWorkload(workloadName, metav1.NamespaceDefault)
 
 	tests := map[string]struct {
-		workload       *kueue.Workload
-		mkAcState      *kueue.AdmissionCheckState
-		wantErr        error
-		remoteClusters []string
-		clusters       []kueue.MultiKueueCluster
+		workload              *kueue.Workload
+		mkAcState             *kueue.AdmissionCheckState
+		featureGates          map[featuregate.Feature]bool
+		wantErr               error
+		wantNominatedClusters []string
+		remoteClusters        []string
+		clusters              []kueue.MultiKueueCluster
 	}{
 		"workload not found": {
 			workload: nil,
@@ -102,6 +105,30 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"elastic workload slice already assigned to a cluster": {
+			workload: baseWorkload.Clone().
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ClusterName("cluster1").
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				Obj(),
+			mkAcState: &kueue.AdmissionCheckState{
+				Name:  "ac1",
+				State: kueue.CheckStatePending,
+			},
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+		},
+		"elastic workload not assigned to a cluster": {
+			workload: baseWorkload.Clone().
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+				Obj(),
+			mkAcState: &kueue.AdmissionCheckState{
+				Name:  "ac1",
+				State: kueue.CheckStatePending,
+			},
+			featureGates:          map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			wantNominatedClusters: []string{"cluster1"},
+		},
 		"workload has quota reserved": {
 			workload: baseWorkload.DeepCopy(),
 			mkAcState: &kueue.AdmissionCheckState{
@@ -120,6 +147,7 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			objs := []client.Object{}
 			if tc.mkAcState != nil {
 				tc.workload.Status.AdmissionChecks = []kueue.AdmissionCheckState{*tc.mkAcState}
@@ -149,7 +177,11 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 					objs = append(objs, &cluster)
 				}
 			}
-			cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build()
+			builder := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...)
+			if tc.workload != nil {
+				builder = builder.WithStatusSubresource(tc.workload)
+			}
+			cl := builder.Build()
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(cl)
 			rec := &IncrementalDispatcherReconciler{
 				client:          cl,
@@ -163,6 +195,16 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 			_, gotErr := rec.Reconcile(ctx, req)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
+			}
+
+			if tc.workload != nil {
+				gotWl := &kueue.Workload{}
+				if err := cl.Get(ctx, req.NamespacedName, gotWl); err != nil {
+					t.Fatalf("Failed to get workload: %v", err)
+				}
+				if diff := cmp.Diff(tc.wantNominatedClusters, gotWl.Status.NominatedClusterNames); diff != "" {
+					t.Errorf("Unexpected nominated clusters (-want/+got)\n%s", diff)
+				}
 			}
 		})
 	}
