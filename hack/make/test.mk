@@ -111,6 +111,13 @@ test: gotestsum ## Run tests. Set UNIT_TOTAL_SHARDS and UNIT_SHARD_INDEX to run 
 # fails under -race without an attributed test failure (kueue issue 13290). The file is
 # written only when a race is actually detected, so green runs stay clean.
 	GORACE="log_path=$(ARTIFACTS)/race$(OPTIONAL_SHARD_SUFFIX)" TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) $(GOTESTSUM) --junitfile $(ARTIFACTS)/junit$(OPTIONAL_SHARD_SUFFIX).xml -- $(GOFLAGS) $(GO_TEST_FLAGS) $(UNIT_TEST_PACKAGES) -coverpkg=$(GO_TEST_TARGET)/... -coverprofile $(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out
+# Filter generated paths and write a text summary next to the cover profile.
+# This line runs only after the test command succeeds, so a test failure is
+# not hidden when no profile was written. A low percentage does not fail the
+# target; a report error does. There is no second test run.
+	if [ -f "$(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out" ]; then \
+		$(GO_CMD) run $(PROJECT_DIR)/hack/coverage/cmd -profile "$(ARTIFACTS)/cover$(OPTIONAL_SHARD_SUFFIX).out"; \
+	fi
 
 # Time budget for fuzzing each individual fuzz target.
 # TODO: Change back to 5s when golang/go#75804 is fixed in Go 1.27
