@@ -239,11 +239,9 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 		ginkgo.By("quota usage reflects the full 13 pods (1 head + 12 workers)")
 		expectPodsUsage(13)
 
-		// TODO(#12100): The multi-PodSet order-based scenarios A-D are not covered yet;
-		// they need the order-based reducer and its give-back phase.
 		// -------------------------------------------------------------------------------------
 		// KEP Step 4: a scale-down after the full scale-up was admitted updates the Workload
-		// requested count, but keeps the admitted count until the running pods actually shrink.
+		// requested count, but keeps the admitted count until the usage accounting catches up.
 		// -------------------------------------------------------------------------------------
 		ginkgo.By("scaling the worker group down to 8 replicas")
 		scaleFirstWorkerGroup(testRayCluster, 8)
@@ -265,8 +263,8 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			g.Expect(probe.Status.Admission.PodSetAssignments[assignmentIdx].Count).Should(gomega.Equal(new(int32(12))))
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-		ginkgo.By("quota usage still reflects the admitted 13 pods until the scale-down releases them")
-		expectPodsUsage(13)
+		ginkgo.By("quota usage drops to the scaled-down 9 pods (1 head + 8 workers)")
+		expectPodsUsage(9)
 	})
 
 	ginkgo.It("Should give the spare capacity to the earlier worker group rather than spread it", func() {
