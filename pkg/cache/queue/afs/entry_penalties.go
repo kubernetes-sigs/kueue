@@ -24,11 +24,17 @@ import (
 
 // PushPenalty records the entry penalty a Workload's reservation costs its
 // LocalQueue, replacing the Workload's previous record so a re-assumed Workload
-// cannot stack a second penalty. now stamps a newly created entry's LastUpdate so
-// the first decay elapses from the push rather than from the zero time; such an
-// entry carries StatusAccounted=false so the persisted status is still merged.
+// cannot stack a second penalty. A Workload that has already settled on this
+// LocalQueue is left unchanged, so admit → evict → re-admit cannot inflate
+// pending usage after the first charge. now stamps a newly created entry's
+// LastUpdate so the first decay elapses from the push rather than from the
+// zero time; such an entry carries StatusAccounted=false so the persisted
+// status is still merged.
 func (a *AfsUsageLedger) PushPenalty(lqKey utilqueue.LocalQueueReference, wlKey WorkloadReference, penalty corev1.ResourceList, now time.Time) {
 	a.entries.Update(lqKey, func(entry UsageLedgerEntry, found bool) UsageLedgerEntry {
+		if entry.HasSettledPenalty(wlKey) {
+			return entry
+		}
 		if !found {
 			entry.LastUpdate = now
 		}
@@ -75,4 +81,14 @@ func (a *AfsUsageLedger) HasPendingPenalty(lqKey utilqueue.LocalQueueReference) 
 		}
 	}
 	return false
+}
+
+// ForgetSettledPenalty drops the Workload's settled identity on this
+// LocalQueue so a replacement object (same namespace/name) or a later entry
+// after leaving the queue can be charged again. Without a record it is a
+// no-op and does not materialize an entry.
+func (a *AfsUsageLedger) ForgetSettledPenalty(lqKey utilqueue.LocalQueueReference, wlKey WorkloadReference) {
+	a.entries.UpdateIfPresent(lqKey, func(entry UsageLedgerEntry) UsageLedgerEntry {
+		return entry.withoutSettledPenalty(wlKey)
+	})
 }
