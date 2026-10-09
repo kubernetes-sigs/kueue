@@ -1064,10 +1064,12 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			return
 		}
 		if !workload.NeedsSecondPass(e.Obj) || apierrors.IsNotFound(err) {
-			// Ignore errors because the workload or clusterQueue could have been deleted
-			// by an event.
-			_ = s.cache.DeleteWorkload(log, workload.Key(cacheWl))
-			s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
+			// The write may have been committed even though the client observed an error.
+			// If so, its event may already have replaced the assumed entry with the
+			// admitted Workload, which must stay in the cache.
+			if s.cache.DeleteWorkloadIfUnchanged(log, cacheWl) {
+				s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
+			}
 		} else {
 			// The workload still holds its reservation, so put back the version this pass read; this is skipped if an event already replaced or removed the entry.
 			s.cache.UpdateWorkloadIfUnchanged(ctx, log, e.Obj.DeepCopy(), workload.WithEffectivePodSpecs(e.EffectivePodSpecs))
