@@ -38,8 +38,7 @@ import (
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
-// Manager holds the dependencies for managing workload slices and recording
-// successful replacements.
+// Manager holds the dependencies for managing workload slices.
 type Manager struct {
 	Client       client.Client
 	Clock        clock.Clock
