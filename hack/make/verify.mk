@@ -144,7 +144,7 @@ define _ci_lint_recipe
 			| grep -vE "/(client-go|internal/mocks)(/|$$)" \
 			| sed "s|^$$(pwd)/|./|"); \
 		[ -n "$$dirs" ] || exit 0; \
-		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) \
+		$(GOLANGCI_LINT) run -v $(GOLANGCI_LINT_FIX) \
 			--allow-parallel-runners \
 			--timeout 15m0s \
 			--config "$(PROJECT_DIR)/.golangci.yaml" \
