@@ -174,7 +174,13 @@ func (r *Manager) FinishReplacedWorkloadSlices(ctx context.Context, workloads []
 			continue
 		}
 		oldSlice := byName[types.NamespacedName{Namespace: newSlice.Namespace, Name: replaces.Name}]
-		if oldSlice == nil || workloadfinish.IsFinished(oldSlice) {
+		if oldSlice == nil {
+			// Only finish predecessors in the supplied slice workloads. Do not fetch a
+			// missing predecessor by name: it may have been deleted and an unrelated
+			// Workload may now have the same name.
+			continue
+		}
+		if workloadfinish.IsFinished(oldSlice) {
 			continue
 		}
 		message := fmt.Sprintf("Replaced to accommodate a workload (UID: %s, JobUID: %s) due to workload slice aggregation", newSlice.UID, newSlice.Labels[controllerconsts.JobUIDLabel])
