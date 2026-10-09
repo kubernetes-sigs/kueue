@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"go.uber.org/mock/gomock"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -513,6 +514,12 @@ func TestValidateJobOnCreate(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 		wantErr      field.ErrorList
 	}{
+		"prebuilt workload label on JAXJob is allowed": {
+			job: utiltestingjob.MakeJob("test-job", "ns1").
+				PrebuiltWorkloadLabel("workload-name").
+				Obj(),
+			gvk: kftraining.SchemeGroupVersion.WithKind(kftraining.JAXJobKind),
+		},
 		"elastic annotation on batch/v1.Job is allowed": {
 			job: utiltestingjob.MakeJob("test-job", "ns1").
 				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
