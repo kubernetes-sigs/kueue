@@ -51,6 +51,7 @@ var _ = ginkgo.Describe("MultiKueue worker resource formatting", ginkgo.Label("a
 })
 
 func workerResourceUsageStrings(c cluster, resources ...corev1.ResourceName) map[corev1.ResourceName]string {
+	ginkgo.GinkgoHelper()
 	const (
 		clusterQueueName = "formatter-isolation"
 		flavorName       = "formatter-isolation"

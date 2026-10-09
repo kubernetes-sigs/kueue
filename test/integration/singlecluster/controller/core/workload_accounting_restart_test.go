@@ -90,6 +90,7 @@ var _ = ginkgo.Describe("Workload accounting across a manager restart", func() {
 	})
 
 	expectReservation := func(cq *kueue.ClusterQueue, total string) {
+		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			updatedCQ := kueue.ClusterQueue{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCQ)).To(gomega.Succeed())

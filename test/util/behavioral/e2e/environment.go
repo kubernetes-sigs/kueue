@@ -51,6 +51,7 @@ func GetKueueNamespace() string {
 }
 
 func GetKueueConfiguration(ctx context.Context, k8sClient client.Client) *configapi.Configuration {
+	ginkgo.GinkgoHelper()
 	var kueueCfg configapi.Configuration
 	kueueNS := GetKueueNamespace()
 	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-manager-config"}
@@ -62,6 +63,7 @@ func GetKueueConfiguration(ctx context.Context, k8sClient client.Client) *config
 }
 
 func applyKueueConfiguration(ctx context.Context, k8sClient client.Client, kueueCfg *configapi.Configuration) {
+	ginkgo.GinkgoHelper()
 	configMap := &corev1.ConfigMap{}
 	kueueNS := GetKueueNamespace()
 	kcmKey := types.NamespacedName{Namespace: kueueNS, Name: "kueue-manager-config"}
@@ -106,6 +108,7 @@ func GetKubernetesVersion(cfg *rest.Config) string {
 }
 
 func exportKindLogs(ctx context.Context, kindClusterName string) {
+	ginkgo.GinkgoHelper()
 	// Path to the kind binary
 	kind := os.Getenv("KIND")
 	// Path to the artifacts

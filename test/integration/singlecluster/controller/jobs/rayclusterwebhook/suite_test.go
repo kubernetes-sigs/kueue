@@ -86,6 +86,7 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		// Production wiring: the RayCluster (defaulting/validating) webhooks need
 		// the full jobframework options (integration manager, queues, cache) to

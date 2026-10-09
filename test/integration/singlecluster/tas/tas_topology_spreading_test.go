@@ -51,6 +51,7 @@ var nodeBlocks = map[string]string{"b1-r1": "b1", "b1-r2": "b1", "b1-r3": "b1", 
 // the node hostname when the whole PodSet group fit on a single node - in
 // that case the block is recovered via nodeBlocks.
 func blockFromAssignment(g gomega.Gomega, ta *utiltas.TopologyAssignment) string {
+	ginkgo.GinkgoHelper()
 	g.Expect(ta.Domains).To(gomega.HaveLen(1))
 	if idx := slices.Index(ta.Levels, utiltesting.DefaultBlockTopologyLevel); idx >= 0 {
 		return ta.Domains[0].Values[idx]
@@ -212,6 +213,7 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 		}
 
 		createGroupWorkload := func(name, maxShare string, enforcementMode utiltas.TopologySpreadingEnforcementMode, pinToBlock string) *kueue.Workload {
+			ginkgo.GinkgoHelper()
 			wl := utiltestingapi.MakeWorkload(name, ns.Name).
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Label(groupSelectorLabel, groupSelectorValue).
@@ -222,12 +224,14 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 		}
 
 		admitGroupWorkload := func(name, maxShare string, enforcementMode utiltas.TopologySpreadingEnforcementMode, pinToBlock string) *kueue.Workload {
+			ginkgo.GinkgoHelper()
 			wl := createGroupWorkload(name, maxShare, enforcementMode, pinToBlock)
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			return wl
 		}
 
 		blockOf := func(wl *kueue.Workload) string {
+			ginkgo.GinkgoHelper()
 			var block string
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
@@ -243,6 +247,7 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 		// rack or the hostname below it, each fixture rack holds exactly one
 		// node, so two Workloads share a value only if they share a rack.
 		assignedDomainOf := func(wl *kueue.Workload) utiltas.TopologyDomainID {
+			ginkgo.GinkgoHelper()
 			var id utiltas.TopologyDomainID
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
@@ -317,6 +322,7 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 			}
 
 			admitGroup := func(name, pinToBlock string) *kueue.Workload {
+				ginkgo.GinkgoHelper()
 				wl := utiltestingapi.MakeWorkload(name, ns.Name).
 					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Label(groupSelectorLabel, groupSelectorValue).
@@ -328,6 +334,7 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 			}
 
 			groupBlock := func(wl *kueue.Workload) string {
+				ginkgo.GinkgoHelper()
 				var leaderBlock, workerBlock string
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
@@ -545,6 +552,7 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 
 		ginkgo.It("should apply two rules at two topology levels simultaneously", func() {
 			admitTwoLevelWorkload := func(name, pinToBlock, pinToRack string) *kueue.Workload {
+				ginkgo.GinkgoHelper()
 				// The topology request has to be at the rack level, the
 				// finest level any rule names: a rule below the requested
 				// level would make the flavor unusable, since a group placed
@@ -616,6 +624,7 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 			// Labelled with the job UID the way the job controllers label the
 			// Workloads they build, and carrying no selector of its own.
 			admitDefaultedWorkload := func(name, pinToBlock string) *kueue.Workload {
+				ginkgo.GinkgoHelper()
 				ps := utiltestingapi.MakePodSet("main", 1).
 					RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 					Annotations(map[string]string{
@@ -678,6 +687,7 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 			// points it at the real queue. Otherwise it could be admitted
 			// before the label lands, and where it went would say nothing.
 			unadoptedWorkload := func(name, pinToBlock string) *kueue.Workload {
+				ginkgo.GinkgoHelper()
 				ps := utiltestingapi.MakePodSet("main", 1).
 					RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
 					Annotations(map[string]string{
@@ -695,6 +705,7 @@ var _ = ginkgo.Describe("TAS topology spreading", ginkgo.Ordered, func() {
 				return wl
 			}
 			adoptWorkload := func(wl *kueue.Workload) {
+				ginkgo.GinkgoHelper()
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 					if wl.Labels == nil {

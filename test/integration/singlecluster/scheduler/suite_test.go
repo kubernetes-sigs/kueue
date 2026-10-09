@@ -105,6 +105,7 @@ var _ = ginkgo.BeforeEach(func() {
 })
 
 func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
@@ -153,6 +154,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 }
 
 func setupInterceptedClient() (context.Context, client.Client) {
+	ginkgo.GinkgoHelper()
 	ctx, baseClient := fwk.SetupClient(cfg)
 	funcs := interceptor.Funcs{
 		SubResourcePatch: fakeSubResourcePatchFrom(baseClient),

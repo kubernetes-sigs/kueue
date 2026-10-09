@@ -69,6 +69,7 @@ var _ = ginkgo.Describe("Effective resources in queued Info", ginkgo.Label("cont
 		behavioral.MustCreate(ctx, k8sClient, wl)
 		var initialHash workload.EquivalenceHash
 		expectCPU := func(cpu int64, changedHash bool) {
+			ginkgo.GinkgoHelper()
 			gomega.Eventually(func(g gomega.Gomega) {
 				infos := qManager.PendingWorkloadsInfo(kueue.ClusterQueueReference(cq.Name))
 				g.Expect(infos).To(gomega.HaveLen(1))

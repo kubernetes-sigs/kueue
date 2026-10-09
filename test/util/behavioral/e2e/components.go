@@ -61,6 +61,7 @@ func waitForDummyWorkloadToRunOnNode(ctx context.Context, c client.Client, node 
 	ginkgo.GinkgoHelper()
 
 	ginkgo.By(fmt.Sprintf("Waiting for a dummy workload to run on the recovered node %s", node.Name), func() {
+		ginkgo.GinkgoHelper()
 		dummyJob := testingjob.MakeJob(fmt.Sprintf("dummy-job-%s", node.Name), lq.Namespace).
 			Queue(kueue.LocalQueueName(lq.Name)).
 			NodeSelector(corev1.LabelHostname, node.Name).
@@ -153,36 +154,43 @@ func waitForDeploymentAvailability(ctx context.Context, k8sClient client.Client,
 }
 
 func WaitForAppWrapperAvailability(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
 	awmKey := types.NamespacedName{Namespace: "appwrapper-system", Name: "appwrapper-controller-manager"}
 	waitForDeploymentAvailability(ctx, k8sClient, awmKey, true)
 }
 
 func WaitForJobSetAvailability(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
 	jcmKey := types.NamespacedName{Namespace: "jobset-system", Name: "jobset-controller-manager"}
 	waitForDeploymentAvailability(ctx, k8sClient, jcmKey, true)
 }
 
 func WaitForLeaderWorkerSetAvailability(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
 	jcmKey := types.NamespacedName{Namespace: "lws-system", Name: "lws-controller-manager"}
 	waitForDeploymentAvailability(ctx, k8sClient, jcmKey, true)
 }
 
 func WaitForKubeFlowTrainingOperatorAvailability(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
 	kftoKey := types.NamespacedName{Namespace: "kubeflow", Name: "training-operator"}
 	waitForDeploymentAvailability(ctx, k8sClient, kftoKey, true)
 }
 
 func WaitForSparkOperatorAvailability(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
 	sparkctrKey := types.NamespacedName{Namespace: "spark-operator", Name: "spark-operator-controller"}
 	waitForDeploymentAvailability(ctx, k8sClient, sparkctrKey, true)
 }
 
 func WaitForKubeFlowMPIOperatorAvailability(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
 	kftoKey := types.NamespacedName{Namespace: "mpi-operator", Name: "mpi-operator"}
 	waitForDeploymentAvailability(ctx, k8sClient, kftoKey, true)
 }
 
 func WaitForKubeRayOperatorAvailability(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
 	// TODO: use ray-system namespace instead.
 	// See discussions https://github.com/kubernetes-sigs/kueue/pull/4568#discussion_r2001045775 and
 	// https://github.com/ray-project/kuberay/pull/2624/files#r2001143254 for context.
@@ -191,6 +199,7 @@ func WaitForKubeRayOperatorAvailability(ctx context.Context, k8sClient client.Cl
 }
 
 func WaitForKubeFlowTrainnerControllerManagerAvailability(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
 	kftoKey := types.NamespacedName{Namespace: "kubeflow-system", Name: "kubeflow-trainer-controller-manager"}
 	waitForDeploymentAvailability(ctx, k8sClient, kftoKey, true)
 }
@@ -315,12 +324,13 @@ func CreatePrometheusClient(cfg *rest.Config) prometheusv1.API {
 }
 
 func WaitForKubeSystemControllersAvailability(ctx context.Context, k8sClient client.Client, clusterName string) {
+	ginkgo.GinkgoHelper()
 	const ns = "kube-system"
 	deployKey := types.NamespacedName{Namespace: ns, Name: "coredns"}
 	ginkgo.By(fmt.Sprintf("Waiting for deployment %q to be available", deployKey.Name))
 	waitForDeploymentAvailability(ctx, k8sClient, deployKey, false)
 
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		// we wait for all the DaemonSets and Pods in kube-system to be available at the same time
 		for _, dsName := range []string{
 			"kindnet",

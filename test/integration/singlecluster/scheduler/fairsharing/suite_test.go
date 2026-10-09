@@ -81,6 +81,7 @@ func managerAndSchedulerSetup(
 	admissionFairSharing *config.AdmissionFairSharing,
 	mappings ...[]config.DeviceClassMapping,
 ) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		fairSharing := &config.FairSharing{}
 

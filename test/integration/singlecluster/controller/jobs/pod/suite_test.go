@@ -78,6 +78,7 @@ func managerSetup(
 	configuration *config.Configuration,
 	opts ...jobframework.Option,
 ) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	if configuration == nil {
 		configuration = &config.Configuration{}
 	}

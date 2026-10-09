@@ -188,6 +188,7 @@ func bindUserToClusterRole(user, clusterRole string, probe func(kueueclientset.I
 
 	clientset := e2e.CreateKueueClientset(user)
 	ginkgo.By("Wait for an already granted request to succeed to make sure the role binding is in effect", func() {
+		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(probe(clientset)).To(gomega.Succeed())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
@@ -217,11 +218,13 @@ func expectPreemptionConfigAccessForbidden(c kueueclientset.Interface, name stri
 	preemptionConfigs := c.KueueV1alpha1().PreemptionConfigs()
 
 	ginkgo.By("Returning a Forbidden error for a get request", func() {
+		ginkgo.GinkgoHelper()
 		_, err := preemptionConfigs.Get(ctx, name, metav1.GetOptions{})
 		gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 	})
 
 	ginkgo.By("Returning a Forbidden error for a list request", func() {
+		ginkgo.GinkgoHelper()
 		_, err := preemptionConfigs.List(ctx, metav1.ListOptions{})
 		gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 	})
@@ -242,16 +245,19 @@ func expectPreemptionConfigAccessForbiddenForWrites(c kueueclientset.Interface, 
 	})
 
 	ginkgo.By("Returning a Forbidden error for a create request", func() {
+		ginkgo.GinkgoHelper()
 		_, err := preemptionConfigs.Create(ctx, preemptionConfig, metav1.CreateOptions{})
 		gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 	})
 
 	ginkgo.By("Returning a Forbidden error for an update request", func() {
+		ginkgo.GinkgoHelper()
 		_, err := preemptionConfigs.Update(ctx, preemptionConfig, metav1.UpdateOptions{})
 		gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 	})
 
 	ginkgo.By("Returning a Forbidden error for a delete request", func() {
+		ginkgo.GinkgoHelper()
 		err := preemptionConfigs.Delete(ctx, preemptionConfig.Name, metav1.DeleteOptions{})
 		gomega.Expect(err).Should(utiltesting.BeForbiddenError())
 	})

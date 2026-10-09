@@ -76,10 +76,12 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return managerSetupWithConfiguration(nil, setupJobManager, opts...)
 }
 
 func managerSetupWithConfiguration(configuration *config.Configuration, setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		preemptionExpectations := preemptexpectations.New()
 		controllersSetup(ctx, mgr, setupJobManager, preemptionExpectations, configuration, opts...)
@@ -87,6 +89,7 @@ func managerSetupWithConfiguration(configuration *config.Configuration, setupJob
 }
 
 func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		preemptionExpectations := preemptexpectations.New()
 		cCache, queues, configuration := controllersSetup(ctx, mgr, true, preemptionExpectations, nil, opts...)
@@ -118,6 +121,7 @@ func controllersSetup(
 	configuration *config.Configuration,
 	opts ...jobframework.Option,
 ) (*schdcache.Cache, *qcache.Manager, *config.Configuration) {
+	ginkgo.GinkgoHelper()
 	if configuration == nil {
 		configuration = &config.Configuration{}
 	}

@@ -33,10 +33,12 @@ import (
 )
 
 func ExpectPendingAdmissionAttempts(want int, operation string) {
+	ginkgo.GinkgoHelper()
 	expectAdmissionAttempts(want, operation, metrics.AdmissionResultInadmissible)
 }
 
 func ExpectSuccessfulAdmissionAttempts(want int, operation string) {
+	ginkgo.GinkgoHelper()
 	expectAdmissionAttempts(want, operation, metrics.AdmissionResultSuccess)
 }
 
@@ -47,7 +49,7 @@ func expectAdmissionAttempts(want int, operation string, result metrics.Admissio
 		v, err := testutil.GetCounterMetricValue(metric)
 		g.Expect(err).ToNot(gomega.HaveOccurred())
 		g.Expect(int(v)).Should(gomega.BeNumerically(operation, want), "pending_workloads with status=%s", result)
-	}, Timeout, Interval).WithOffset(2).Should(gomega.Succeed())
+	}, Timeout, Interval).Should(gomega.Succeed())
 }
 
 var pendingStatuses = []string{metrics.PendingStatusActive, metrics.PendingStatusInadmissible}
