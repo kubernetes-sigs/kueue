@@ -1214,6 +1214,90 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Ordered, func() {
 			}
 		})
 
+		// Test: if one Tas workload is admitted, and bind to node1, holo one CPUs.
+		// TAS workload was deactivited or finished, kueue release reservation.
+		// pod not exit, and still hold node-a.
+		// The scheduler snapshot deducts it from neither the reservation nor the non-TAS pod usage.
+		// Subsequent TAS workloads might be erroneously admitted to the same physical capacity.
+		// run and check:
+		//  INTEGRATION_TARGET=./test/integration/singlecluster/tas \
+		//    GINKGO_ARGS='--focus="inactive workload pod"' \
+		//    make test-integration
+		ginkgo.It("TAS Pod does not admit a new TAS workload while an inactive workload pod still hold the node", func() {
+			var wl1, wl2 *kueue.Workload
+			var tasPod *corev1.Pod
+
+			ginkgo.By("creating and admitting a TAS workload which fills the node.", func() {
+				wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+					Queue("local-queue").
+					Request(corev1.ResourceCPU, "1").Obj()
+
+				util.MustCreate(ctx, k8sClient, wl1)
+				// workload is admitted, and bind to node1, holo 1 CPUs.
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+			})
+
+			ginkgo.By("creating its bound TAS Pod", func() {
+				tasPod = testingpod.MakePod("tas-pod", ns.Name).
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "1").
+					Annotation(kueue.WorkloadAnnotation, wl1.Name).
+					Annotation(kueue.WorkloadSliceNameAnnotation, wl1.Name).
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").Obj()
+
+				util.MustCreate(ctx, k8sClient, tasPod)
+			})
+
+			ginkgo.By("deactivating the workload and releasing its reservation while the pod is still bound", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+					wl1.Spec.Active = new(bool)
+					g.Expect(k8sClient.Update(ctx, wl1)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+				util.FinishEvictionForWorkloads(ctx, k8sClient, wl1)
+			})
+
+			// add wait times.
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasPod), tasPod)).To(gomega.Succeed())
+			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("create another TAS pod still blocks the seconds workload", func() {
+				wl2 = utiltestingapi.MakeWorkload("wl2", ns.Name).
+					Queue("local-queue").Request(corev1.ResourceCPU, "1").Obj()
+
+				util.MustCreate(ctx, k8sClient, wl2)
+			})
+
+			// verify wl2.
+			ginkgo.By("verifying another TAS workload that needs the same physical capacity", func() {
+				// comment, use gomega check. when old pod exist, wl2 pod must be pending, and not admitted.
+				// util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), wl2)).To(gomega.Succeed())
+
+					// verify it.
+					g.Expect(workload.IsAdmitted(wl2)).To(gomega.BeFalse())
+				}, util.ShortConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("terminating the residual TAS pod", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(tasPod), tasPod)).To(gomega.Succeed())
+					util.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, tasPod)
+
+					g.Expect(k8sClient.Update(ctx, tasPod)).To(gomega.Succeed())
+				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			})
+
+			// expected wl2 admitted.
+			ginkgo.By("expecting the second workload to admit after the pod release capacity", func() {
+				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+			})
+		})
+
 		ginkgo.It("non-TAS pod terminates, releasing capacity", func() {
 			var wl *kueue.Workload
 			var nonTasPod *corev1.Pod
