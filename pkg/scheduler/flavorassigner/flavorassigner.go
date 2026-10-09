@@ -488,10 +488,11 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 		result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(a.wl))
 		if failure := result.Failure(); failure != nil {
 			// There is at least one PodSet which does not fit
-			psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
-			psAssignment.reason(failure.Reason)
-			// update the mode for all flavors and the representative mode
-			assignment.updateMode(failure.PodSetName, Preempt)
+			assignment.ResolvePodSetFailure(
+				failure.PodSetName,
+				Preempt,
+				*NewStatus(failure.Reason),
+			)
 		} else {
 			// All PodSets fit, we just update the TopologyAssignments
 			assignment.UpdateForTASResult(log, a.cq, a.wl, result)
