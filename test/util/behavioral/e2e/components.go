@@ -32,6 +32,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/rest"
@@ -40,6 +42,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	visibility "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -357,5 +360,23 @@ func WaitForPodRunning(ctx context.Context, k8sClient client.Client, pod *corev1
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), createdPod)).To(gomega.Succeed())
 		g.Expect(createdPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
+// ExpectVisibilityAPIServiceToVerifyTLS checks that the API server reaches the visibility
+// server through a CA bundle instead of skipping TLS verification.
+func ExpectVisibilityAPIServiceToVerifyTLS(ctx context.Context, k8sClient client.Client) {
+	ginkgo.GinkgoHelper()
+	apiService := &unstructured.Unstructured{}
+	apiService.SetGroupVersionKind(schema.GroupVersionKind{Group: "apiregistration.k8s.io", Version: "v1", Kind: "APIService"})
+	key := client.ObjectKey{Name: visibility.SchemeGroupVersion.Version + "." + visibility.SchemeGroupVersion.Group}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, key, apiService)).To(gomega.Succeed())
+		g.Expect(apiService.Object).NotTo(gomega.HaveKeyWithValue("spec", gomega.HaveKey("insecureSkipTLSVerify")))
+		g.Expect(apiService.Object).To(gomega.HaveKeyWithValue("spec", gomega.HaveKeyWithValue("caBundle", gomega.Not(gomega.BeEmpty()))))
+		g.Expect(apiService.Object).To(gomega.HaveKeyWithValue("status", gomega.HaveKeyWithValue("conditions", gomega.ContainElement(gomega.And(
+			gomega.HaveKeyWithValue("type", "Available"),
+			gomega.HaveKeyWithValue("status", "True"),
+		)))))
 	}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 }

@@ -624,3 +624,9 @@ func mustCreateBatchUserRoleBinding(ns string) *rbacv1.RoleBinding {
 	behavioral.MustCreate(ctx, k8sClient, roleBinding)
 	return roleBinding
 }
+
+var _ = ginkgo.Describe("Kueue visibility APIService", ginkgo.Label("area:singlecluster", "feature:visibility"), func() {
+	ginkgo.It("Should verify the visibility server certificate", func() {
+		e2e.ExpectVisibilityAPIServiceToVerifyTLS(ctx, k8sClient)
+	})
+})

@@ -29,12 +29,18 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	visibilityv1beta2 "sigs.k8s.io/kueue/apis/visibility/v1beta2"
 )
 
 const (
-	caName               = "kueue-ca"
-	caOrganization       = "kueue"
-	webhookServiceSuffix = "-webhook-service"
+	caName                  = "kueue-ca"
+	caOrganization          = "kueue"
+	webhookServiceSuffix    = "-webhook-service"
+	visibilityServiceSuffix = "-visibility-server"
+	visibilitySecretSuffix  = "-visibility-server-cert"
+
+	// VisibilityCertDir is where the visibility server's serving certificate is mounted.
+	VisibilityCertDir = "/visibility"
 )
 
 // The webhook configuration resourceNames are deliberately unprefixed: each installer adds
@@ -49,6 +55,8 @@ const (
 // +kubebuilder:rbac:groups="admissionregistration.k8s.io",resources=validatingwebhookconfigurations,resourceNames=validating-webhook-configuration,verbs=get;update
 // +kubebuilder:rbac:groups="apiextensions.k8s.io",resources=customresourcedefinitions,verbs=list;watch
 // +kubebuilder:rbac:groups="apiextensions.k8s.io",resources=customresourcedefinitions,resourceNames=clusterqueues.kueue.x-k8s.io;cohorts.kueue.x-k8s.io;localqueues.kueue.x-k8s.io;multikueueclusters.kueue.x-k8s.io;workloads.kueue.x-k8s.io,verbs=get;update
+// +kubebuilder:rbac:groups="apiregistration.k8s.io",resources=apiservices,verbs=list;watch
+// +kubebuilder:rbac:groups="apiregistration.k8s.io",resources=apiservices,resourceNames=v1beta2.visibility.kueue.x-k8s.io,verbs=get;update
 
 // BootstrapCerts creates a minimal manager to generate certificates and inject CA bundles.
 // This function blocks until certificates are ready and CA bundles are injected into CRDs.
@@ -124,6 +132,19 @@ func ManageCerts(mgr ctrl.Manager, cfg config.Configuration, setupFinished chan 
 	return nil
 }
 
+// ManageVisibilityCerts adds a rotator that issues the visibility server's serving
+// certificate and injects its CA into the visibility APIService; ready is closed once
+// both are done. It runs outside BootstrapCerts so that a visibility failure cannot
+// block startup, and uses its own Secret instead of a SAN on the webhook certificate
+// because the rotator only revalidates the primary DNS name: webhook certificates
+// issued by earlier releases would never gain the visibility name.
+func ManageVisibilityCerts(mgr ctrl.Manager, cfg config.Configuration, ready chan struct{}) error {
+	if err := cert.AddRotator(mgr, buildVisibilityCertRotatorConfig(cfg, ready)); err != nil {
+		return fmt.Errorf("unable to add visibility cert rotator to manager: %w", err)
+	}
+	return nil
+}
+
 // deriveWebhookBaseName extracts the base name from a webhook service name
 func deriveWebhookBaseName(webhookServiceName string) string {
 	return strings.TrimSuffix(webhookServiceName, webhookServiceSuffix)
@@ -172,6 +193,28 @@ func buildCertRotatorConfig(cfg config.Configuration, controllerName string, cer
 		}, {
 			Type: cert.CRDConversion,
 			Name: "multikueueclusters.kueue.x-k8s.io",
+		}},
+		RequireLeaderElection: false,
+	}
+}
+
+func buildVisibilityCertRotatorConfig(cfg config.Configuration, certsReady chan struct{}) *cert.CertRotator {
+	baseName := deriveWebhookBaseName(*cfg.InternalCertManagement.WebhookServiceName)
+
+	return &cert.CertRotator{
+		SecretKey: types.NamespacedName{
+			Namespace: *cfg.Namespace,
+			Name:      baseName + visibilitySecretSuffix,
+		},
+		CertDir:        VisibilityCertDir,
+		CAName:         caName,
+		CAOrganization: caOrganization,
+		DNSName:        fmt.Sprintf("%s%s.%s.svc", baseName, visibilityServiceSuffix, *cfg.Namespace),
+		IsReady:        certsReady,
+		ControllerName: "visibility-cert-rotator",
+		Webhooks: []cert.WebhookInfo{{
+			Type: cert.APIService,
+			Name: visibilityv1beta2.SchemeGroupVersion.Version + "." + visibilityv1beta2.SchemeGroupVersion.Group,
 		}},
 		RequireLeaderElection: false,
 	}

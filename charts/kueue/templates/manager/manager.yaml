@@ -98,6 +98,7 @@ spec:
           readOnly: true
         - mountPath: /visibility
           name: visibility
+          readOnly: true
         - mountPath: /controller_manager_config.yaml
           name: manager-config
           subPath: controller_manager_config.yaml
@@ -163,5 +164,7 @@ spec:
             path: tls.key
       {{- else }}
       - name: visibility
-        emptyDir: {}
+        secret:
+          defaultMode: 420
+          secretName: {{ include "kueue.fullname" . }}-visibility-server-cert
       {{- end }}
