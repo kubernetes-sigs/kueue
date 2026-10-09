@@ -23,6 +23,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -270,13 +271,11 @@ func (f *Framework) StopManager(ctx context.Context) {
 }
 
 func verifyLogs(observedLogs *observer.ObservedLogs) {
-	errorOrMoreSevereLogs := observedLogs.Filter(func(le observer.LoggedEntry) bool {
-		return le.Level >= zapcore.ErrorLevel
+	errorOrMoreSevereLogs := slices.DeleteFunc(observedLogs.TakeAll(), func(le observer.LoggedEntry) bool {
+		return le.Level < zapcore.ErrorLevel || behavioral.IsLoggedEntryAConcurrentModification(le)
 	})
 
-	concurrentModificationErrorLogs := errorOrMoreSevereLogs.Filter(behavioral.IsLoggedEntryAConcurrentModification)
-
-	gomega.ExpectWithOffset(1, concurrentModificationErrorLogs.TakeAll()).To(gomega.BeEmpty())
+	gomega.ExpectWithOffset(1, errorOrMoreSevereLogs).To(gomega.BeEmpty())
 }
 
 func (f *Framework) Teardown() {
