@@ -23,6 +23,13 @@ VERIFY_NPROCS ?= 8
 # These limits apply to verify; standalone artifact builds retain their defaults.
 VERIFY_GOMAXPROCS ?= 2
 VERIFY_CLI_BUILD_NPROCS ?= 2
+# 默认保留 CLI 覆盖；仅在独立的必跑 CLI job 接管后设为 0。
+VERIFY_CLI_ARTIFACTS ?= 1
+ifneq ($(VERIFY_CLI_ARTIFACTS),0)
+ifneq ($(VERIFY_CLI_ARTIFACTS),1)
+$(error VERIFY_CLI_ARTIFACTS must be 0 or 1)
+endif
+endif
 # Share CPU capacity with platform builds and documentation generation; 0 is unlimited.
 CI_LINT_NPROCS ?= 2
 # Output sync mode for parallel verification. Set to empty to disable.
@@ -259,6 +266,12 @@ verify-artifacts: verify-go-prereqs verify-helm-prereqs gomod-verify verify-git-
 	$(_helm_chart_package_recipe)
 	$(_prepare_manifests_recipe)
 	$(_artifacts_recipe)
+	$(if $(filter 1,$(VERIFY_CLI_ARTIFACTS)),$(_cli_artifacts_recipe))
+
+.PHONY: verify-cli-artifacts
+# 等 Go 源码生成、模块检查和版本校验完成后，再调用共享构建配方。
+verify-cli-artifacts: verify-go-prereqs gomod-verify verify-git-tag ## 独立验证所有 CLI 平台的构建与打包。
+	$(_cli_artifacts_recipe)
 
 .PHONY: verify-ci-lint
 # Site and manifest generators do not rewrite the Go sources that lint reads.
