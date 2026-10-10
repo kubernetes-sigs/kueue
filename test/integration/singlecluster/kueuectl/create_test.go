@@ -249,6 +249,19 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 					gomega.Expect(out.String()).To(gomega.ContainSubstring(lqName))
 				})
 			})
+
+			ginkgo.By("Create a local queue with --dry-run=client and unknown cluster queue", func() {
+				streams, _, out, _ := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl.SetOut(out)
+				kueuectl.SetErr(out)
+
+				kueuectl.SetArgs([]string{"create", "localqueue", lqName, "--clusterqueue", "unknown-cq", "--namespace", ns.Name, "--dry-run=client"})
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, out)
+				gomega.Expect(out.String()).To(gomega.ContainSubstring(lqName))
+			})
 		})
 	})
 
