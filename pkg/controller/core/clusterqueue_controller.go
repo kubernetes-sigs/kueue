@@ -403,8 +403,12 @@ func (r *ClusterQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.ClusterQ
 
 	var labelsUpdated bool
 	if features.Enabled(features.CustomMetricLabels) {
-		labelsUpdated = r.customLabels.CQStore(
+		storeUpdated := r.customLabels.CQStore(
 			kueue.ClusterQueueReference(e.ObjectNew.GetName()),
+			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
+		)
+		labelsUpdated = storeUpdated || r.customLabels.CQValuesChanged(
+			e.ObjectOld.GetLabels(), e.ObjectOld.GetAnnotations(),
 			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
 		)
 	}
