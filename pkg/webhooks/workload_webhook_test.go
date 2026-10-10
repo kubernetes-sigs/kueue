@@ -1534,6 +1534,116 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 	}
 }
 
+func TestValidateWorkloadUpdateScaleDownMinCount(t *testing.T) {
+	testCases := map[string]struct {
+		oldMinCount        *int32
+		newCount           int32
+		newMinCount        *int32
+		disableElasticJobs bool
+		changeTemplate     bool
+		wantErr            bool
+	}{
+		"cap minimum at the new count": {
+			oldMinCount: new(int32(4)),
+			newCount:    1,
+			newMinCount: new(int32(1)),
+		},
+		"cap minimum at zero": {
+			oldMinCount: new(int32(4)),
+			newCount:    0,
+			newMinCount: new(int32(0)),
+		},
+		"preserve a minimum below the new count": {
+			oldMinCount: new(int32(2)),
+			newCount:    3,
+			newMinCount: new(int32(2)),
+		},
+		"preserve an unset minimum": {
+			newCount: 1,
+		},
+		"reject changing the minimum without scaling down": {
+			oldMinCount: new(int32(4)),
+			newCount:    4,
+			newMinCount: new(int32(1)),
+			wantErr:     true,
+		},
+		"reject changing the minimum while scaling up": {
+			oldMinCount: new(int32(4)),
+			newCount:    5,
+			newMinCount: new(int32(5)),
+			wantErr:     true,
+		},
+		"reject lowering the minimum below the new count": {
+			oldMinCount: new(int32(4)),
+			newCount:    2,
+			newMinCount: new(int32(1)),
+			wantErr:     true,
+		},
+		"reject lowering a minimum already below the new count": {
+			oldMinCount: new(int32(2)),
+			newCount:    3,
+			newMinCount: new(int32(1)),
+			wantErr:     true,
+		},
+		"reject increasing the minimum": {
+			oldMinCount: new(int32(1)),
+			newCount:    3,
+			newMinCount: new(int32(2)),
+			wantErr:     true,
+		},
+		"reject adding a minimum": {
+			newCount:    1,
+			newMinCount: new(int32(1)),
+			wantErr:     true,
+		},
+		"reject removing the minimum": {
+			oldMinCount: new(int32(4)),
+			newCount:    1,
+			wantErr:     true,
+		},
+		"reject changing the template during scale-down": {
+			oldMinCount:    new(int32(4)),
+			newCount:       1,
+			newMinCount:    new(int32(1)),
+			changeTemplate: true,
+			wantErr:        true,
+		},
+		"reject scale-down with elastic jobs disabled": {
+			oldMinCount:        new(int32(4)),
+			newCount:           1,
+			newMinCount:        new(int32(1)),
+			disableElasticJobs: true,
+			wantErr:            true,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                          !tc.disableElasticJobs,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: !tc.disableElasticJobs,
+			})
+			before := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				PodSets(*utiltestingapi.MakePodSet("workers", 4).Obj()).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("cluster-queue").
+					PodSets(kueue.PodSetAssignment{Name: "workers", Count: new(int32(4))}).Obj(), time.Now()).
+				Obj()
+			before.Spec.PodSets[0].MinCount = tc.oldMinCount
+			after := before.DeepCopy()
+			after.Spec.PodSets[0].Count = tc.newCount
+			after.Spec.PodSets[0].MinCount = tc.newMinCount
+			if tc.changeTemplate {
+				after.Spec.PodSets[0].Template.Annotations = map[string]string{"example.com/changed": "true"}
+			}
+
+			gotErr := ValidateWorkloadUpdate(after, before)
+			if (len(gotErr) > 0) != tc.wantErr {
+				t.Errorf("ValidateWorkloadUpdate() errors = %v, wantErr = %v", gotErr, tc.wantErr)
+			}
+		})
+	}
+}
+
 func TestWorkloadWebhookDefault(t *testing.T) {
 	elasticWorkload := func() *kueue.Workload {
 		return utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
