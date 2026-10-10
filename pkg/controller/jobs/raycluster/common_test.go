@@ -794,7 +794,9 @@ func TestUpdatePodSets(t *testing.T) {
 			rayClusterName:                       "nonexistent-child",
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
-				*utiltestingapi.MakePodSet("workers", 5).Obj(),
+				*utiltestingapi.MakePodSet("workers", 5).
+					PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+					SubGroupCount(new(int32(5))).Obj(),
 			},
 		},
 		"empty rayClusterName - no update": {
