@@ -32,7 +32,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 func runRayServiceAutoscalingTest(
@@ -62,9 +63,9 @@ app = HelloWorld.bind()`,
 		},
 	}
 	ginkgo.By("Creating the RayService application ConfigMap on all clusters", func() {
-		util.MustCreate(ctx, k8sManagerClient, configMap.DeepCopy())
+		behavioral.MustCreate(ctx, k8sManagerClient, configMap.DeepCopy())
 		for _, worker := range kubernetesClients {
-			util.MustCreate(ctx, worker.client, configMap.DeepCopy())
+			behavioral.MustCreate(ctx, worker.client, configMap.DeepCopy())
 		}
 	})
 
@@ -98,8 +99,8 @@ applications:
 		Limit(rayv1.HeadNode, corev1.ResourceCPU, "1").
 		Request(rayv1.WorkerNode, corev1.ResourceCPU, "250m").
 		Limit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
-		Image(rayv1.HeadNode, util.GetKuberayTestImage()).
-		Image(rayv1.WorkerNode, util.GetKuberayTestImage()).
+		Image(rayv1.HeadNode, e2e.GetKuberayTestImage()).
+		Image(rayv1.WorkerNode, e2e.GetKuberayTestImage()).
 		Env(rayv1.HeadNode, []corev1.EnvVar{pythonPath}).
 		Env(rayv1.WorkerNode, []corev1.EnvVar{pythonPath}).
 		Volumes(rayv1.HeadNode, []corev1.Volume{codeVolume}).
@@ -120,12 +121,12 @@ applications:
 	rayService.Spec.RayClusterSpec.WorkerGroupSpecs[0].MaxReplicas = ptr.To[int32](2)
 
 	ginkgo.By("Creating the elastic autoscaling RayService", func() {
-		util.MustCreate(ctx, k8sManagerClient, rayService)
+		behavioral.MustCreate(ctx, k8sManagerClient, rayService)
 	})
 
-	workloads := util.ExpectWorkloadsInNamespace(ctx, k8sManagerClient, managerNs.Name, 1)
+	workloads := behavioral.ExpectWorkloadsInNamespace(ctx, k8sManagerClient, managerNs.Name, 1)
 	wlLookupKey := client.ObjectKeyFromObject(&workloads[0])
-	admittedWorkerName := util.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
+	admittedWorkerName := e2e.ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx, k8sManagerClient, wlLookupKey, multiKueueAc.Name)
 	// The head and autoscaler containers request 1250m in total, which exceeds
 	// worker2's quota and deterministically places the service on worker1.
 	gomega.Expect(admittedWorkerName).To(gomega.HavePrefix("worker1-"))
@@ -142,20 +143,20 @@ applications:
 			g.Expect(workerClient.Get(ctx, client.ObjectKey{Name: childName, Namespace: workerService.Namespace}, workerCluster)).To(gomega.Succeed())
 			g.Expect(apimeta.IsStatusConditionTrue(workerCluster.Status.Conditions, string(rayv1.HeadPodReady))).To(gomega.BeTrue())
 			g.Expect(workerCluster.Status.DesiredWorkerReplicas).To(gomega.Equal(int32(0)))
-		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed(), util.AssertMsg("RayService did not create a ready active RayCluster", workerService))
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("RayService did not create a ready active RayCluster", workerService))
 	})
 	childKey := client.ObjectKeyFromObject(workerCluster)
 	initialSlice := liveRayWorkloadSlice(gomega.Default, k8sManagerClient, managerNs.Name, wlLookupKey.Name)
 
 	ginkgo.By("Creating two detached actors so the RayService autoscaler adds two workers", func() {
-		util.CreateDetachedRayActor(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorA, workerResource)
-		util.CreateDetachedRayActor(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorB, workerResource)
+		e2e.CreateDetachedRayActor(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorA, workerResource)
+		e2e.CreateDetachedRayActor(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorB, workerResource)
 	})
 
 	var upSliceName string
 	ginkgo.By("Checking the RayService scale-up is reflected on the manager", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
-			workerPods, err := util.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
+			workerPods, err := e2e.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 			g.Expect(workerPods).To(gomega.HaveLen(2))
 
@@ -168,16 +169,16 @@ applications:
 			upSliceName = upSlice.Name
 			g.Expect(upSlice.Name).NotTo(gomega.Equal(initialSlice.Name))
 			g.Expect(podset.FindPodSetByName(upSlice.Spec.PodSets, "workers-group-0").Count).To(gomega.Equal(int32(2)))
-		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.By("Terminating one actor so the RayService autoscaler removes one worker", func() {
-		util.TerminateDetachedRayActor(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorB)
+		e2e.TerminateDetachedRayActor(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorB)
 	})
 
 	ginkgo.By("Checking the RayService scale-down updates the admitted slice in place", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
-			workerPods, err := util.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
+			workerPods, err := e2e.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 			g.Expect(workerPods).To(gomega.HaveLen(1))
 
@@ -189,6 +190,6 @@ applications:
 			downSlice := liveRayWorkloadSlice(g, k8sManagerClient, managerNs.Name, wlLookupKey.Name)
 			g.Expect(downSlice.Name).To(gomega.Equal(upSliceName))
 			g.Expect(podset.FindPodSetByName(downSlice.Spec.PodSets, "workers-group-0").Count).To(gomega.Equal(int32(1)))
-		}, util.VeryLongTimeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 }
