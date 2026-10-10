@@ -37,6 +37,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
+	podcontroller "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
 	workloadraycluster "sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
@@ -691,6 +692,94 @@ print([ray.get(my_task.remote(i, 1)) for i in range(20)])`,
 				g.Expect(createdRayCluster.Status.ReadyWorkerReplicas).To(gomega.Equal(int32(1)))
 				g.Expect(createdRayCluster.Status.AvailableWorkerReplicas).To(gomega.Equal(int32(1)))
 			}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("RayCluster did not become ready", createdRayCluster))
+		})
+	})
+
+	ginkgo.It("Should release quota when a partial scale-up RayCluster shrinks below its minimum", ginkgo.Label("shard:kuberay-a"), func() {
+		ginkgo.By("Limiting the queue so another Pod cannot fit before scale-down", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+				behavioral.SetResourceNominalQuota(cq, corev1.ResourceCPU, "3")
+				g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		kuberayTestImage := e2e.GetKuberayTestImage()
+		rayCluster := testingraycluster.MakeCluster("raycluster-scale-down", ns.Name).
+			Suspend(true).
+			Queue(localQueueName).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+			FirstWorkerGroupReplicas(4, 1, 4).
+			RequestAndLimit(rayv1.HeadNode, corev1.ResourceCPU, "1").
+			RequestAndLimit(rayv1.WorkerNode, corev1.ResourceCPU, "400m").
+			RayStartParam(rayv1.HeadNode, "object-store-memory", objectStoreMemory).
+			RayStartParam(rayv1.WorkerNode, "object-store-memory", objectStoreMemory).
+			Image(rayv1.HeadNode, kuberayTestImage, []string{}).
+			Image(rayv1.WorkerNode, kuberayTestImage, []string{}).
+			TerminationGracePeriod(1).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, rayCluster)).To(gomega.Succeed())
+		initialSlice := &behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectPodSetAdmittedCount(ctx, k8sClient, initialSlice, "workers-group-0", 4)
+		gomega.Expect(initialSlice.Spec.PodSets[1].MinCount).To(gomega.Equal(new(int32(4))))
+		initialUID := initialSlice.UID
+
+		ginkgo.By("Waiting for all four workers to run", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				pods, err := e2e.GetRayClusterWorkerPods(ctx, k8sClient, client.ObjectKeyFromObject(rayCluster), corev1.PodRunning)
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+				g.Expect(pods).To(gomega.HaveLen(4))
+			}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Creating a Pod that must wait for one CPU of quota")
+		waitingPod := testingpod.MakePod("waiting", ns.Name).
+			Queue(localQueueName).
+			Request(corev1.ResourceCPU, "1").
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+			TerminationGracePeriod(1).
+			Obj()
+		gomega.Expect(k8sClient.Create(ctx, waitingPod)).To(gomega.Succeed())
+		waitingKey := client.ObjectKey{Namespace: ns.Name, Name: podcontroller.GetWorkloadNameForPod(waitingPod.Name, waitingPod.UID)}
+		behavioral.ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, waitingKey)
+
+		ginkgo.By("Patching the RayCluster from four workers to one")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), rayCluster)).To(gomega.Succeed())
+			before := rayCluster.DeepCopy()
+			rayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(int32(1))
+			g.Expect(k8sClient.Patch(ctx, rayCluster, client.MergeFrom(before))).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Updating the existing slice's count and minimum together")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(initialSlice), initialSlice)).To(gomega.Succeed())
+			g.Expect(initialSlice.UID).To(gomega.Equal(initialUID))
+			g.Expect(workload.IsAdmitted(initialSlice)).To(gomega.BeTrue())
+			g.Expect(initialSlice.Spec.PodSets[1].Count).To(gomega.Equal(int32(1)))
+			g.Expect(initialSlice.Spec.PodSets[1].MinCount).To(gomega.Equal(new(int32(1))))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Admitting and running the waiting Pod using the released quota")
+		behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, waitingKey)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(waitingPod), waitingPod)).To(gomega.Succeed())
+			g.Expect(waitingPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+			pods, err := e2e.GetRayClusterWorkerPods(ctx, k8sClient, client.ObjectKeyFromObject(rayCluster), corev1.PodRunning)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			g.Expect(pods).To(gomega.HaveLen(1))
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Accounting for one head, one worker, and the admitted waiting Pod", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+				g.Expect(cq.Status.FlavorsUsage).To(gomega.HaveLen(1))
+				g.Expect(cq.Status.FlavorsUsage[0].Resources).NotTo(gomega.BeEmpty())
+				cpuUsage := cq.Status.FlavorsUsage[0].Resources[0]
+				g.Expect(cpuUsage.Name).To(gomega.Equal(corev1.ResourceCPU))
+				g.Expect(cpuUsage.Total).To(gomega.Equal(resource.MustParse("2400m")))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 

@@ -105,7 +105,7 @@ func ExtractPodSetCountsFromWorkload(wl *kueue.Workload) PodSetsCounts {
 	return ExtractPodSetCounts(wl.Spec.PodSets)
 }
 
-// ApplyPodSetCounts updates the count values of a Workload's PodSets based on the provided counts.
+// ApplyPodSetCounts updates a Workload's PodSet counts and caps existing minimum counts at the new counts.
 //
 // This function only updates existing PodSets within the Workload. It ignores:
 //   - PodSet names present in the counts map but not found in the Workload.
@@ -115,8 +115,12 @@ func ExtractPodSetCountsFromWorkload(wl *kueue.Workload) PodSetsCounts {
 // and calling it with a nil Workload will result in a panic.
 func ApplyPodSetCounts(wl *kueue.Workload, counts PodSetsCounts) {
 	for i := range wl.Spec.PodSets {
-		if count, found := counts[wl.Spec.PodSets[i].Name]; found {
-			wl.Spec.PodSets[i].Count = count
+		ps := &wl.Spec.PodSets[i]
+		if count, found := counts[ps.Name]; found {
+			ps.Count = count
+			if ps.MinCount != nil && *ps.MinCount > count {
+				ps.MinCount = new(count)
+			}
 		}
 	}
 }
