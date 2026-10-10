@@ -1555,9 +1555,9 @@ func TestAssignFlavors(t *testing.T) {
 					},
 					Count: 1,
 				}},
-				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
-				}}},
+				}},
 			},
 		},
 		"same-queue preemption with no oracle candidates is no fit": {
@@ -1616,7 +1616,7 @@ func TestAssignFlavors(t *testing.T) {
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 4 more needed"),
 					Count:  1,
 				}},
-				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 		"same-queue preemption with no oracle candidates within nominal is preempt": {
@@ -1676,9 +1676,9 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: 1,
-				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
-				}}},
+				}},
 			},
 		},
 		"fair sharing with cohort reclaim keeps no oracle candidates as preempt": {
@@ -1740,9 +1740,9 @@ func TestAssignFlavors(t *testing.T) {
 					Count: 1,
 				}},
 				Borrowing: 1,
-				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{
 					{Flavor: "one", Resource: corev1.ResourceCPU}: resources.NewAmount(4_000),
-				}}},
+				}},
 			},
 		},
 		"fair sharing with only same-queue preemption treats no oracle candidates as no fit": {
@@ -1803,7 +1803,7 @@ func TestAssignFlavors(t *testing.T) {
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 4 more needed"),
 					Count:  1,
 				}},
-				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{}}},
+				Usage: workload.Usage{Quota: resources.FlavorResourceQuantities{}},
 			},
 		},
 		"past min, but can preempt in ClusterQueue": {
