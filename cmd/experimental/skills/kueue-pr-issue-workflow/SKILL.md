@@ -36,8 +36,10 @@ the body. Fill existing template sections only.
 #### Classify
 
 - Dependabot (`dependabot[bot]`, or the `dependencies` or `release-note-none`
-  label): leave the `release-note` fence as `NONE`. Skip test rows and the
-  feature-gate preflight.
+  label): leave the `release-note` fence as `NONE`. Skip Useful notes rows
+  and the five feature-gate preflight lines. That skip does not waive a
+  regression test, presubmit selection, a gate off-path test, or generated
+  feature-gate output.
 - Docs-only or typo-only: leave `NONE`. Add one line under
   `Useful notes for your reviewer`: `No behavior change (docs/typo).`
   A change to an error string, metric, event, log line, or CLI output is
@@ -105,6 +107,12 @@ unless this diff does not change the off-path result.
 #### Refuse to open
 
 Do not run `gh pr create` or `gh pr edit` on the body while any of these remain:
+
+For Dependabot, `dependencies`, or `release-note-none`, the exemption covers
+only the release-note fence, Useful notes rows, and the five feature-gate
+preflight lines. It does not waive a regression test, presubmit selection, a
+gate off-path test, generated feature-gate output, or any condition below
+that is not one of those three checks.
 
 - A user-visible change still has an empty fence, `NONE`, or a title
   restatement.
