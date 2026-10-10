@@ -66,5 +66,5 @@ func (cfg *LocalQueueMetricsConfig) IsEnabled() bool {
 // ShouldExposeLocalQueueMetrics determines if a specific LocalQueue should report metrics
 // based on the global configuration.
 func (cfg *LocalQueueMetricsConfig) ShouldExposeLocalQueueMetrics(lqLabels map[string]string) bool {
-	return cfg.IsEnabled() && (cfg == nil || cfg.QueueSelector.Matches(labels.Set(lqLabels)))
+	return cfg.IsEnabled() && (cfg == nil || cfg.QueueSelector == nil || cfg.QueueSelector.Matches(labels.Set(lqLabels)))
 }
