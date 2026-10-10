@@ -47,7 +47,10 @@ The job skips (and passes) when the PR does not modify `site/` or `netlify.toml`
 The job fails when:
 
 - Netlify reports a preview failure
-- no preview is available after the bounded wait
+- no preview is available after the bounded wait. The error then reports what
+  the Netlify deploy API shows for the commit: a deploy that is still queued or
+  building, a failed deploy, no deploy at all, or that the commit is too old to
+  find within `NETLIFY_MAX_PAGES` pages
 - the GitHub API or required tooling is unavailable
 - a resolved preview contains broken links
 
@@ -71,3 +74,5 @@ Prow job definitions live in [kubernetes/test-infra](https://github.com/kubernet
 | `GH_TOKEN` | `verify-preview.sh` | Optional GitHub API token (raises rate limits) |
 | `PREVIEW_WAIT_ATTEMPTS` | `verify-preview.sh` | Poll attempts for `deploy/netlify` (default: 20) |
 | `PREVIEW_WAIT_DELAY` | `verify-preview.sh` | Seconds between polls (default: 30) |
+| `NETLIFY_API` | `verify-preview.sh` | Netlify API base URL, queried after the bounded wait expires (default: `https://api.netlify.com/api/v1`) |
+| `NETLIFY_MAX_PAGES` | `verify-preview.sh` | Pages of 100 Netlify deploys to search for the commit (default: 3) |

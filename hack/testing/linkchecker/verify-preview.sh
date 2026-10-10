@@ -41,6 +41,10 @@ GH_API="${GH_API:-https://api.github.com}"
 STATUS_CONTEXT="deploy/netlify"
 # Netlify site slug for the PR's deploy-preview URL (built below).
 NETLIFY_SITE="${NETLIFY_SITE:-kubernetes-sigs-kueue}"
+# Public Netlify API, queried only after the bounded wait expires to explain why.
+NETLIFY_API="${NETLIFY_API:-https://api.netlify.com/api/v1}"
+# Safety cap for paging; page 1 normally reaches back past the commit time.
+NETLIFY_MAX_PAGES="${NETLIFY_MAX_PAGES:-3}"
 # Bounded wait for the preview build: 20 checks × 30s (~9.5 min), then fail.
 PREVIEW_WAIT_ATTEMPTS="${PREVIEW_WAIT_ATTEMPTS:-20}"
 PREVIEW_WAIT_DELAY="${PREVIEW_WAIT_DELAY:-30}"
@@ -48,6 +52,57 @@ PREVIEW_WAIT_DELAY="${PREVIEW_WAIT_DELAY:-30}"
 log()   { echo "[verify-website-links-preview] $*"; }
 skip()  { log "SKIP: $*"; exit 0; }
 fail()  { log "ERROR: $*"; exit 1; }
+
+# Explains a missing 'deploy/netlify' status. GitHub shows no status both for a
+# deploy that Netlify has queued but not finished and for one that was never
+# created, so ask Netlify directly. The deploys endpoint cannot filter by commit,
+# so page through the newest-first listing and match the commit client-side.
+# A deploy cannot predate its commit, so once a page reaches back past the
+# commit time (or the listing runs out), a missing deploy was never created.
+describe_netlify_deploy() {
+  local commit_time page deploys summary deploy="" count oldest="" oldest_epoch id state created
+  commit_time="$(git -C "${ROOT_DIR}" log -1 --format=%ct "${PULL_PULL_SHA}" 2>/dev/null || true)"
+  for (( page=1; page<=NETLIFY_MAX_PAGES; page++ )); do
+    if ! deploys="$(curl --connect-timeout 10 --max-time 20 -fsSL \
+        "${NETLIFY_API}/sites/${NETLIFY_SITE}.netlify.app/deploys?per_page=100&page=${page}" 2>/dev/null)"; then
+      echo "could not query the Netlify deploy API to tell a queued deploy from a missing one"
+      return
+    fi
+    if ! summary="$(jq -c --arg sha "${PULL_PULL_SHA}" '{
+        deploy: (first(.[] | select(.commit_ref==$sha and .context=="deploy-preview")) // null),
+        count: length,
+        oldest: .[-1].created_at }' <<<"${deploys}" 2>/dev/null)" || [[ -z "${summary}" ]]; then
+      echo "could not parse the Netlify deploy API response"
+      return
+    fi
+    deploy="$(jq -c '.deploy // empty' <<<"${summary}")"
+    [[ -z "${deploy}" ]] || break
+    count="$(jq -r '.count' <<<"${summary}")"
+    oldest="$(jq -r '.oldest // empty' <<<"${summary}")"
+    oldest_epoch="$(jq -r '.oldest // empty | sub("\\.[0-9]+"; "") | fromdateiso8601' \
+      <<<"${summary}" 2>/dev/null || true)"
+    if (( count == 0 )) || \
+       { [[ -n "${commit_time}" && -n "${oldest_epoch}" ]] && (( oldest_epoch <= commit_time )); }; then
+      echo "Netlify has no deploy preview for this commit; it was never created"
+      return
+    fi
+  done
+  if [[ -z "${deploy}" ]]; then
+    echo "Netlify lists no deploy preview for this commit among its deploys back to ${oldest}; older deploys were not checked"
+    return
+  fi
+  id="$(jq -r '.id // "unknown"' <<<"${deploy}")"
+  state="$(jq -r '.state // "unknown"' <<<"${deploy}")"
+  created="$(jq -r '.created_at // "unknown"' <<<"${deploy}")"
+  case "${state}" in
+    error|rejected)
+      echo "Netlify deploy ${id} (created ${created}) failed with state '${state}'" ;;
+    ready)
+      echo "Netlify deploy ${id} (created ${created}) is 'ready', but '${STATUS_CONTEXT}' success was not observed on GitHub" ;;
+    *)
+      echo "Netlify deploy ${id} (created ${created}) exists but is still '${state}'" ;;
+  esac
+}
 
 # Outside a Prow presubmit (e.g. a local run) there is no PR preview to resolve.
 if [[ -z "${PULL_NUMBER}" || -z "${PULL_PULL_SHA}" ]]; then
@@ -122,7 +177,7 @@ for (( attempt=1; attempt<=PREVIEW_WAIT_ATTEMPTS; attempt++ )); do
 done
 
 if [[ -z "${preview_url}" ]]; then
-  fail "no ready same-commit deploy preview for ${PULL_PULL_SHA} after bounded wait."
+  fail "no ready same-commit deploy preview for ${PULL_PULL_SHA} after bounded wait: $(describe_netlify_deploy)."
 fi
 
 log "checking fresh preview for commit ${PULL_PULL_SHA}: ${preview_url}"
