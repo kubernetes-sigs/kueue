@@ -23,6 +23,7 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -92,6 +93,7 @@ var _ jobframework.GenericJob = (*RayJob)(nil)
 var _ jobframework.JobWithManagedBy = (*RayJob)(nil)
 var _ jobframework.JobWithSkip = (*RayJob)(nil)
 var _ jobframework.JobWithCustomAnnotations = (*RayJob)(nil)
+var _ jobframework.JobWithPendingCleanup = (*RayJob)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayJob)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayJob)(nil)
 
@@ -235,6 +237,23 @@ func (j *RayJob) Finished(ctx context.Context) (message string, success, finishe
 	success = j.Status.JobStatus == rayv1.JobStatusSucceeded
 	finished = j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusFailed || j.Status.JobDeploymentStatus == rayv1.JobDeploymentStatusComplete
 	return message, success, finished
+}
+
+// CleanupPending reports whether the RayCluster of a finished RayJob still exists. With
+// shutdownAfterJobFinishes, KubeRay deletes the cluster only once ttlSecondsAfterFinished
+// has elapsed, and its Pods keep using the quota until then.
+func (j *RayJob) CleanupPending(ctx context.Context, c client.Client) (bool, error) {
+	if len(j.Spec.ClusterSelector) > 0 || j.Status.RayClusterName == "" {
+		return false, nil
+	}
+	err := c.Get(ctx, types.NamespacedName{Namespace: j.Namespace, Name: j.Status.RayClusterName}, &rayv1.RayCluster{})
+	if err == nil {
+		return true, nil
+	}
+	if apierrors.IsNotFound(err) {
+		return false, nil
+	}
+	return false, err
 }
 
 func (j *RayJob) PodsReady(ctx context.Context, _ client.Client, _ ...jobframework.PodsReadyOption) bool {
