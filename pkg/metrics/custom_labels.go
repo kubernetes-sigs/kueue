@@ -145,6 +145,21 @@ func (cl *CustomLabels) UpdateRequired(kind configapi.SourceKind, ref string, la
 	)
 }
 
+// ValuesChanged returns true if the extracted custom label values differ between old and new labels/annotations.
+func (cl *CustomLabels) ValuesChanged(kind configapi.SourceKind, oldLabels, oldAnnotations, newLabels, newAnnotations map[string]string) bool {
+	if !cl.enabled() {
+		return false
+	}
+	store, supported := cl.m[kind]
+	if !supported || store == nil {
+		return false
+	}
+	return !slices.Equal(
+		store.extractValues(oldLabels, oldAnnotations),
+		store.extractValues(newLabels, newAnnotations),
+	)
+}
+
 func (cl *CustomLabels) Store(kind configapi.SourceKind, ref string, labels, annotations map[string]string) bool {
 	if !cl.enabled() || cl.m[kind] == nil {
 		return false
@@ -290,6 +305,10 @@ func (cl *CustomLabels) CQDelete(key kueue.ClusterQueueReference) {
 	cl.Delete(configapi.SourceKindClusterQueue, string(key))
 }
 
+func (cl *CustomLabels) CQValuesChanged(oldLabels, oldAnnotations, newLabels, newAnnotations map[string]string) bool {
+	return cl.ValuesChanged(configapi.SourceKindClusterQueue, oldLabels, oldAnnotations, newLabels, newAnnotations)
+}
+
 func (cl *CustomLabels) LQStore(key utilqueue.LocalQueueReference, labels, annotations map[string]string) bool {
 	return cl.Store(configapi.SourceKindLocalQueue, string(key), labels, annotations)
 }
@@ -302,6 +321,10 @@ func (cl *CustomLabels) LQDelete(key utilqueue.LocalQueueReference) {
 	cl.Delete(configapi.SourceKindLocalQueue, string(key))
 }
 
+func (cl *CustomLabels) LQValuesChanged(oldLabels, oldAnnotations, newLabels, newAnnotations map[string]string) bool {
+	return cl.ValuesChanged(configapi.SourceKindLocalQueue, oldLabels, oldAnnotations, newLabels, newAnnotations)
+}
+
 func (cl *CustomLabels) CohortStore(key kueue.CohortReference, labels, annotations map[string]string) bool {
 	return cl.Store(configapi.SourceKindCohort, string(key), labels, annotations)
 }
@@ -312,6 +335,10 @@ func (cl *CustomLabels) CohortGet(key kueue.CohortReference) []string {
 
 func (cl *CustomLabels) CohortDelete(key kueue.CohortReference) {
 	cl.Delete(configapi.SourceKindCohort, string(key))
+}
+
+func (cl *CustomLabels) CohortValuesChanged(oldLabels, oldAnnotations, newLabels, newAnnotations map[string]string) bool {
+	return cl.ValuesChanged(configapi.SourceKindCohort, oldLabels, oldAnnotations, newLabels, newAnnotations)
 }
 
 type LabelValsTracker struct {

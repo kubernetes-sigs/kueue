@@ -33,9 +33,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -853,6 +856,106 @@ func TestClusterQueueDeleteCohortSubtreeMetrics(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantReservations, gotReservations, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected cohort subtree resource reservations (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+	clConfig := []configapi.ControllerMetricsCustomLabel{
+		utiltestingapi.MakeCustomLabel("team_cq").SourceLabelKey("team").SourceKind(configapi.SourceKindClusterQueue).Obj(),
+	}
+
+	testCases := map[string]struct {
+		reconcileBeforeUpdate bool
+	}{
+		"reconcile before update": {
+			reconcileBeforeUpdate: true,
+		},
+		"update before reconcile": {
+			reconcileBeforeUpdate: false,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cLabels := metrics.NewCustomLabels(clConfig)
+			t.Cleanup(func() {
+				metrics.InitMetricVectors(nil)
+			})
+
+			cq := utiltestingapi.MakeClusterQueue("cq").
+				Label("team", "alpha").
+				Obj()
+			updatedCQ := cq.DeepCopy()
+			updatedCQ.Labels["team"] = "beta"
+
+			cl := utiltesting.NewClientBuilder().
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				WithObjects(updatedCQ).WithStatusSubresource(updatedCQ).Build()
+			cqCache := schdcache.New(cl, schdcache.WithCustomLabels(cLabels))
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache,
+				qcache.WithCustomLabels(cLabels),
+				qcache.WithPreemptionExpectations(preemptexpectations.New()),
+			)
+			r := NewClusterQueueReconciler(cl, qManager, cqCache, WithClusterQueueCustomLabels(cLabels))
+
+			r.Create(event.TypedCreateEvent[*kueue.ClusterQueue]{Object: cq})
+			lq := utiltestingapi.MakeLocalQueue("lq", "default").ClusterQueue(cq.Name).Obj()
+			if err := qManager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Adding localQueue to manager: %v", err)
+			}
+			wl := utiltestingapi.MakeWorkload("wl", "default").Queue(kueue.LocalQueueName(lq.Name)).Obj()
+			if err := qManager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
+				t.Fatalf("Adding workload to manager: %v", err)
+			}
+
+			// Verify initial metric with custom_team_cq=alpha
+			initialAlpha := testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
+				"cluster_queue":  cq.Name,
+				"custom_team_cq": "alpha",
+			})
+			if len(initialAlpha) == 0 {
+				t.Fatal("Expected pending workload metric with custom_team_cq=alpha")
+			}
+
+			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: cq.Name}}
+			updateEvt := event.TypedUpdateEvent[*kueue.ClusterQueue]{ObjectOld: cq, ObjectNew: updatedCQ}
+
+			if tc.reconcileBeforeUpdate {
+				if _, err := r.Reconcile(ctx, req); err != nil {
+					t.Fatalf("Reconcile error: %v", err)
+				}
+				if !r.Update(updateEvt) {
+					t.Fatal("Update returned false")
+				}
+			} else {
+				if !r.Update(updateEvt) {
+					t.Fatal("Update returned false")
+				}
+				if _, err := r.Reconcile(ctx, req); err != nil {
+					t.Fatalf("Reconcile error: %v", err)
+				}
+			}
+
+			// Stale alpha series must be cleaned up
+			gotAlpha := testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
+				"cluster_queue":  cq.Name,
+				"custom_team_cq": "alpha",
+			})
+			if len(gotAlpha) != 0 {
+				t.Errorf("Expected stale custom_team_cq=alpha series to be cleaned up, got %v", gotAlpha)
+			}
+
+			// New beta series must be present
+			gotBeta := testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{
+				"cluster_queue":  cq.Name,
+				"custom_team_cq": "beta",
+			})
+			if len(gotBeta) == 0 {
+				t.Errorf("Expected custom_team_cq=beta series to be reported")
 			}
 		})
 	}

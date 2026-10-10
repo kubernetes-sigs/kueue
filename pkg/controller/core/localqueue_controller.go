@@ -287,8 +287,12 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 
 	var customLabelsChanged bool
 	if features.Enabled(features.CustomMetricLabels) {
-		customLabelsChanged = r.customLabels.LQStore(
+		storeUpdated := r.customLabels.LQStore(
 			utilqueue.Key(e.ObjectNew),
+			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
+		)
+		customLabelsChanged = storeUpdated || r.customLabels.LQValuesChanged(
+			e.ObjectOld.GetLabels(), e.ObjectOld.GetAnnotations(),
 			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
 		)
 	}
