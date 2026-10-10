@@ -111,6 +111,15 @@ type JobWithSkip interface {
 	Skip(ctx context.Context) bool
 }
 
+// JobWithStarted is an optional interface that should be implemented by generic jobs
+// whose Workload can be parked after an eviction (see SkipReassignmentForPodOwnedWorkloads)
+// and for which IsSuspended cannot tell a job that has not started yet from one that
+// already finished.
+type JobWithStarted interface {
+	// IsStarted returns whether the job has been released to the scheduler.
+	IsStarted() bool
+}
+
 // JobWithOnHold is an optional interface that should be implemented by generic jobs
 // when the job can request its Workload to be put on hold.
 type JobWithOnHold interface {
