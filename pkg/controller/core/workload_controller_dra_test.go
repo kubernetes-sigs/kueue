@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -698,6 +699,99 @@ func TestReconcileDRA(t *testing.T) {
 					Message:   `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
 				},
 			},
+		},
+		"reconcile DRA ResourceClaimTemplate with unmapped device class already inadmissible should not emit duplicate event": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:              true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			workload: func() *kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("wlUnmappedDRAAlreadyInadmissible", "ns").
+					Queue("lq").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
+						Message: `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+						Message: "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadDRAResourcesUnresolved,
+						Message: `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
+					}).
+					Obj()
+				return wl
+			}(),
+			beforeReconcile: func(ctx context.Context, cl client.Client, _ *qcache.Manager) {
+				if !features.Enabled(features.UnadmittedWorkloadsObservability) {
+					wl := &kueue.Workload{}
+					if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "wlUnmappedDRAAlreadyInadmissible"}, wl); err != nil {
+						panic(err)
+					}
+					wl.Status.Conditions = utiltesting.AdjustConditionsForDisabledObservabilityInWorkloadController(
+						wl.Status.Conditions,
+						false,
+					)
+					if err := cl.Status().Update(ctx, wl); err != nil {
+						panic(err)
+					}
+				}
+			},
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "unmapped.example.com", 1).
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpu", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: func() *kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("wlUnmappedDRAAlreadyInadmissible", "ns").
+					Queue("lq").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
+						Message: `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+						Message: "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadDRAResourcesUnresolved,
+						Message: `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
+					}).
+					Obj()
+				wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{
+					Name: "gpu", ResourceClaimTemplateName: new("gpu-template"),
+				}}
+				if len(wl.Spec.PodSets[0].Template.Spec.Containers) > 0 {
+					wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{{Name: "gpu"}}
+				}
+				return wl
+			}(),
+			wantEvents: nil,
 		},
 		"reconcile DRA validation fails with KueueDRAIntegrationExtendedResource enabled": {
 			featureGates: map[featuregate.Feature]bool{

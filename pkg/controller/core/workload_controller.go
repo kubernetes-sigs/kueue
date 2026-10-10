@@ -247,17 +247,19 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 	err := fieldErrs.ToAggregate()
 	log.Error(err, logMsg)
 	quotaReservedReason, requeuedReason := draConditionReasonsWithLegacyFallback()
+	var statusUpdated bool
 	updateErr := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 		updated := workload.UnsetQuotaReservationWithCondition(wl, quotaReservedReason, err.Error(), r.clock.Now())
 		if workload.SetRequeuedCondition(wl, requeuedReason, err.Error(), false) {
 			updated = true
 		}
+		statusUpdated = updated
 		return updated, nil
 	})
 	if updateErr != nil {
 		return true, ctrl.Result{}, fmt.Errorf("%s: %w", logMsg, updateErr)
 	}
-	if r.recorder != nil {
+	if statusUpdated && r.recorder != nil {
 		r.recorder.Eventf(
 			wl,
 			nil,
