@@ -149,6 +149,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:mu
 	})
 
 	ginkgo.It("Should run a job on worker if admitted (ManagedBy)", func() {
+		roundsMetricBefore := behavioral.GetMultiKueueDispatchRoundsTotal(managerCq)
 		job := testingjob.MakeJob("job", managerNs.Name).
 			ManagedBy(kueue.MultiKueueControllerName).
 			Queue(kueue.LocalQueueName(managerLq.Name)).
@@ -179,6 +180,8 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:mu
 				ginkgo.GinkgoLogr.Info(fmt.Sprintf("Workload status in manager: %s, %v", managerWl.Status.NominatedClusterNames, managerWl.Status.Conditions))
 				g.Expect(managerWl.Status.NominatedClusterNames).To(gomega.ContainElements(workerCluster1.Name, workerCluster2.Name))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			behavioral.ExpectMultiKueueDispatchRoundsTotalMetric(managerCq, roundsMetricBefore+1)
 		})
 
 		ginkgo.By("setting workload reservation in worker1, workload in worker2 is removed", func() {
@@ -197,6 +200,9 @@ var _ = ginkgo.Describe("MultiKueueDispatcherIncremental", ginkgo.Label("area:mu
 				g.Expect(createdWorkload.Status.ClusterName).To(gomega.HaveValue(gomega.Equal(workerCluster1.Name)))
 				g.Expect(createdWorkload.Status.NominatedClusterNames).To(gomega.BeEmpty())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			// Once a worker admits the workload, the dispatcher opens no further round.
+			behavioral.ExpectMultiKueueDispatchRoundsTotalMetric(managerCq, roundsMetricBefore+1)
 		})
 
 		ginkgo.By("setting the check conditions for eviction", func() {
@@ -649,6 +655,7 @@ var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Label("area:mult
 	})
 
 	ginkgo.It("Should run a job on worker if admitted after the upgrade to MultiKueue Dispatcher", func() {
+		roundsMetricBefore := behavioral.GetMultiKueueDispatchRoundsTotal(managerCq)
 		job := testingjob.MakeJob("job", managerNs.Name).
 			ManagedBy(kueue.MultiKueueControllerName).
 			Queue(kueue.LocalQueueName(managerLq.Name)).
@@ -679,6 +686,9 @@ var _ = ginkgo.Describe("MultiKueueDispatcherAllAtOnce", ginkgo.Label("area:mult
 				ginkgo.GinkgoLogr.Info(fmt.Sprintf("Workload status in manager: %s, %v", managerWl.Status.NominatedClusterNames, managerWl.Status.Conditions))
 				g.Expect(managerWl.Status.NominatedClusterNames).To(gomega.ContainElements(workerCluster1.Name, workerCluster2.Name))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			// The AllAtOnce dispatcher does not open nomination rounds.
+			behavioral.ExpectMultiKueueDispatchRoundsTotalMetric(managerCq, roundsMetricBefore)
 		})
 
 		ginkgo.By("setting workload reservation in worker1, workload in worker2 is removed", func() {
