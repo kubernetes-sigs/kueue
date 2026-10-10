@@ -216,6 +216,10 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 		draResources = ccResources
 	}
 
+	// ResourceSlice node-allocatable translations are allocation results. Keep the
+	// admission-time ClusterQueue charge on the existing DRA logical resources instead
+	// of merging a second CPU, memory, or other native-resource charge here.
+
 	// If the workload was held back due to inadmissible DRA resources (Requeued=False/Inadmissible),
 	// persist Requeued=True now that DRA processing succeeded so the scheduler can pick it up.
 	// Non-DRA reasons (e.g. PodsReadyTimeout) are left untouched for the backoff path to handle.
