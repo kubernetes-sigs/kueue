@@ -1,6 +1,6 @@
 ---
 name: kueue-pr-issue-workflow
-description: Open or update Kueue pull requests and issues following the required templates, labels, titles, and AI disclosure rules. Before a PR is opened or updated, the agent fills the release-note fence, the Useful notes test rows, and the feature-gate preflight.
+description: Open or update Kueue pull requests and issues following the required templates, labels, titles, and AI disclosure rules. Before a PR is opened or updated, the agent completes the applicable release-note, Useful notes, and feature-gate checks.
 license: Apache-2.0
 metadata:
   copyright: The Kubernetes Authors
@@ -67,12 +67,14 @@ behavior. Columns: behavior, level (`unit` / `integration` / `e2e`), command
 and result, not run and why. Use the lowest level that can prove the behavior
 ([Writing tests](../../../../site/content/en/community/contribution_guidelines/writing_tests.md)).
 A bug fix includes a case that fails without the fix. When a gate changes the
-result, add a gate-off row. Name a presubmit only when
-[tests-run-in-ci](../reviewer/tests-run-in-ci/SKILL.md) says the new or
-changed test is not selected. When the job name is not in this repo, write
-`not selected (tests-run-in-ci): <which check failed>`. Do not invent
-`pull-kueue-*` names. When an e2e covers the behavior only with an alpha gate
-enabled, say so. `make verify` is required by
+result, add a gate-off row. A new or changed test must be selected by a
+presubmit before the PR is opened
+([tests-run-in-ci](../reviewer/tests-run-in-ci/SKILL.md)). When it is not
+selected, add it to an existing target or update the filter. A row that only
+says `not selected` is not done. Do not invent `pull-kueue-*` names. When
+the job name is not in this repo, name the check that failed and still fix
+selection before opening. When an e2e covers the behavior only with an alpha
+gate enabled, say so. `make verify` is required by
 [kueue-verify](../kueue-verify/SKILL.md) and is not a row.
 
 #### Feature-gate preflight
@@ -111,9 +113,10 @@ Do not run `gh pr create` or `gh pr edit` on the body while any of these remain:
 - A changed behavior has no Useful notes row, or the only evidence is
   `make verify`.
 - A bug fix has no test that fails without the fix.
+- A new or changed test is not selected by a presubmit.
 - A gate changes the result and the off-path test is missing.
-- The five gate lines are missing, or `Default`, `PreRelease`, or `Version`
-  was not copied from the spec.
+- Feature-gate preflight applies, but its five lines are missing or
+  `Default`, `PreRelease`, or `Version` was not copied from the spec.
 - A spec literal changed and `make generate-featuregates` was not run, or its
   output is still uncommitted.
 - A commit message contains an auto-close keyword or a `#` mention. Put issue
