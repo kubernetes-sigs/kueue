@@ -233,8 +233,9 @@ type ConcurrentAdmissionMigration struct {
 	// - `TryPreferredFlavors` (default): a Workload will try to migrate to the preferred flavor after it's admitted and running.
 	// - `RetainFirstAdmission`: a Workload, once admitted to a flavor, will stick to a flavor and will not be migrated.
 	//
-	// +required
-	Mode ConcurrentAdmissionMigrationMode `json:"mode,omitempty"`
+	// +optional
+	// +kubebuilder:default=TryPreferredFlavors
+	Mode *ConcurrentAdmissionMigrationMode `json:"mode,omitempty"`
 
 	// constraints defines the constraints of Workload's migration.
 	//

@@ -1341,7 +1341,7 @@ Workload can migrate to any flavor that is more preferable than the one it was a
 <tbody>
     
   
-<tr><td><code>mode</code> <B>[Required]</B><br/>
+<tr><td><code>mode</code><br/>
 <a href="#kueue-x-k8s-io-v1beta2-ConcurrentAdmissionMigrationMode"><code>ConcurrentAdmissionMigrationMode</code></a>
 </td>
 <td>

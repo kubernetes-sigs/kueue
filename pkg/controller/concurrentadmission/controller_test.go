@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -2603,5 +2604,78 @@ func TestCreateVariantsAlreadyExists(t *testing.T) {
 
 	if err := cl.Get(t.Context(), client.ObjectKeyFromObject(existing), &kueue.Workload{}); err != nil {
 		t.Fatalf("pre-existing variant should still exist: %v", err)
+	}
+}
+
+func TestMigrationMode(t *testing.T) {
+	testCases := []struct {
+		name string
+		cq   *kueue.ClusterQueue
+		want kueue.ConcurrentAdmissionMigrationMode
+	}{
+		{
+			name: "nil ConcurrentAdmissionPolicy defaults to TryPreferredFlavors",
+			cq:   &kueue.ClusterQueue{},
+			want: kueue.ConcurrentAdmissionTryPreferredFlavors,
+		},
+		{
+			name: "nil Mode defaults to TryPreferredFlavors",
+			cq: &kueue.ClusterQueue{
+				Spec: kueue.ClusterQueueSpec{
+					ConcurrentAdmissionPolicy: &kueue.ConcurrentAdmissionPolicy{
+						Migration: kueue.ConcurrentAdmissionMigration{},
+					},
+				},
+			},
+			want: kueue.ConcurrentAdmissionTryPreferredFlavors,
+		},
+		{
+			name: "empty Mode defaults to TryPreferredFlavors",
+			cq: &kueue.ClusterQueue{
+				Spec: kueue.ClusterQueueSpec{
+					ConcurrentAdmissionPolicy: &kueue.ConcurrentAdmissionPolicy{
+						Migration: kueue.ConcurrentAdmissionMigration{
+							Mode: ptr.To(kueue.ConcurrentAdmissionMigrationMode("")),
+						},
+					},
+				},
+			},
+			want: kueue.ConcurrentAdmissionTryPreferredFlavors,
+		},
+		{
+			name: "explicit TryPreferredFlavors",
+			cq: &kueue.ClusterQueue{
+				Spec: kueue.ClusterQueueSpec{
+					ConcurrentAdmissionPolicy: &kueue.ConcurrentAdmissionPolicy{
+						Migration: kueue.ConcurrentAdmissionMigration{
+							Mode: ptr.To(kueue.ConcurrentAdmissionTryPreferredFlavors),
+						},
+					},
+				},
+			},
+			want: kueue.ConcurrentAdmissionTryPreferredFlavors,
+		},
+		{
+			name: "explicit RetainFirstAdmission",
+			cq: &kueue.ClusterQueue{
+				Spec: kueue.ClusterQueueSpec{
+					ConcurrentAdmissionPolicy: &kueue.ConcurrentAdmissionPolicy{
+						Migration: kueue.ConcurrentAdmissionMigration{
+							Mode: ptr.To(kueue.ConcurrentAdmissionRetainFirstAdmission),
+						},
+					},
+				},
+			},
+			want: kueue.ConcurrentAdmissionRetainFirstAdmission,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := migrationMode(tc.cq)
+			if got != tc.want {
+				t.Errorf("migrationMode() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

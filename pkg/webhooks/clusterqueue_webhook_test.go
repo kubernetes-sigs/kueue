@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -464,6 +465,22 @@ func TestValidateClusterQueue(t *testing.T) {
 				Obj(),
 		},
 		{
+			name: "ConcurrentAdmissionPolicy constraints with nil migration mode is allowed",
+			clusterQueue: func() *kueue.ClusterQueue {
+				cq := utiltestingapi.MakeClusterQueue("cluster-queue").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
+					Obj()
+				cq.Spec.ConcurrentAdmissionPolicy = &kueue.ConcurrentAdmissionPolicy{
+					Migration: kueue.ConcurrentAdmissionMigration{
+						Constraints: &kueue.ConcurrentAdmissionConstraints{
+							LastAcceptableFlavorName: ptr.To(kueue.ResourceFlavorReference("flavor1")),
+						},
+					},
+				}
+				return cq
+			}(),
+		},
+		{
 			name: "ConcurrentAdmissionPolicy with invalid LastAcceptableFlavorName",
 			clusterQueue: utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Resource("cpu", "1").Obj()).
@@ -641,7 +658,7 @@ func TestValidateClusterQueueUpdate(t *testing.T) {
 				field.Invalid(field.NewPath("spec", "concurrentAdmissionPolicy"),
 					&kueue.ConcurrentAdmissionPolicy{
 						Migration: kueue.ConcurrentAdmissionMigration{
-							Mode: kueue.ConcurrentAdmissionTryPreferredFlavors}},
+							Mode: ptr.To(kueue.ConcurrentAdmissionTryPreferredFlavors)}},
 					"field is immutable"),
 			},
 			featureGates: map[featuregate.Feature]bool{features.ConcurrentAdmission: true},

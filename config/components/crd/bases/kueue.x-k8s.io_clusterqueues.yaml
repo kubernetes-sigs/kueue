@@ -183,6 +183,7 @@ spec:
                             type: string
                         type: object
                       mode:
+                        default: TryPreferredFlavors
                         description: |-
                           mode defines the mode of Workload's migration.
                           The possible values are:
@@ -193,8 +194,6 @@ spec:
                         - RetainFirstAdmission
                         maxLength: 253
                         type: string
-                    required:
-                    - mode
                     type: object
                 required:
                 - migration

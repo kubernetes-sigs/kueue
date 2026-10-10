@@ -1023,7 +1023,7 @@ func (c *ClusterQueueWrapper) Cohort(cohort kueue.CohortReference) *ClusterQueue
 func (c *ClusterQueueWrapper) ConcurrentAdmissionPolicy(mode kueue.ConcurrentAdmissionMigrationMode) *ClusterQueueWrapper {
 	c.Spec.ConcurrentAdmissionPolicy = &kueue.ConcurrentAdmissionPolicy{
 		Migration: kueue.ConcurrentAdmissionMigration{
-			Mode: mode,
+			Mode: &mode,
 		},
 	}
 	return c
