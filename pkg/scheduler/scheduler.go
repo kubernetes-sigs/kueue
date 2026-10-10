@@ -1148,12 +1148,16 @@ func (s *Scheduler) prepareWorkload(log logr.Logger, wl *kueue.Workload, cq *sch
 func (s *Scheduler) assumeWorkload(ctx context.Context, log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) (*kueue.Workload, error) {
 	cacheWl := e.Obj.DeepCopy()
 	s.prepareWorkload(log, cacheWl, cq, admission)
+	opts := []workload.InfoOption{workload.WithEffectivePodSpecs(e.EffectivePodSpecs)}
+	if len(e.DRADeviceRequests()) > 0 {
+		opts = append(opts, workload.WithDRADeviceRequests(e.DRADeviceRequests()))
+	}
 	if workload.NeedsSecondPass(e.Obj) {
 		// A missing cache entry or another resourceVersion means the cache and this pass saw different versions, so retry the pass instead of overwriting the entry.
-		if !s.cache.UpdateWorkloadIfUnchanged(ctx, log, cacheWl, workload.WithEffectivePodSpecs(e.EffectivePodSpecs)) {
+		if !s.cache.UpdateWorkloadIfUnchanged(ctx, log, cacheWl, opts...) {
 			return nil, errors.New("the workload changed while it was being scheduled")
 		}
-	} else if added := s.cache.AddOrUpdateWorkload(ctx, log, cacheWl, workload.WithEffectivePodSpecs(e.EffectivePodSpecs)); !added {
+	} else if added := s.cache.AddOrUpdateWorkload(ctx, log, cacheWl, opts...); !added {
 		return nil, fmt.Errorf("workload %s/%s could not be added to the cache", cacheWl.Namespace, cacheWl.Name)
 	}
 
