@@ -599,7 +599,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("default").
 						Resource(corev1.ResourceCPU, "10").
-						Resource(corev1.ResourceMemory, "0").Obj(),
+						Resource(corev1.ResourceMemory, "10").Obj(),
 				).
 				Preemption(kueue.ClusterQueuePreemption{
 					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
