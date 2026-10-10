@@ -292,6 +292,7 @@ func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, k8sClient 
 func AssertMsgForMk(ctx context.Context, msg string, wlKey client.ObjectKey, k8sManagerClient client.Client, k8sWorker1Client client.Client, k8sWorker2Client client.Client) func() string {
 	return func() string {
 		return strings.Join([]string{
+			msg,
 			behavioral.AssertMsg("Manager", getWorkload(ctx, k8sManagerClient, wlKey))(),
 			behavioral.AssertMsg("Worker1", getWorkload(ctx, k8sWorker1Client, wlKey))(),
 			behavioral.AssertMsg("Worker2", getWorkload(ctx, k8sWorker2Client, wlKey))(),
