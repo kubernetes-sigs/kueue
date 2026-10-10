@@ -579,6 +579,20 @@ func TestFindTopologyAssignments(t *testing.T) {
 		draObjects []client.Object
 		podSets    []PodSetTestCase
 	}{
+		"hostname required; enough total capacity but no single host fits": {
+			nodes: []corev1.Node{
+				*defaultNodes[0].DeepCopy(),
+				*defaultNodes[1].DeepCopy(),
+			},
+			levels: defaultOneLevel,
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(corev1.LabelHostname)},
+				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:           2,
+				wantReason: `topology "default" allows to fit only 1 out of 2 pod(s)` +
+					`; all pods must fit in a single "kubernetes.io/hostname" topology domain`,
+			}},
+		},
 		"node replacement skipped for single-Pod-owned workload; gate on": {
 			featureGates: map[featuregate.Feature]bool{features.SkipReassignmentForPodOwnedWorkloads: true},
 			nodes: []corev1.Node{
@@ -706,7 +720,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(corev1.LabelHostname)},
 				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
 				count:           2,
-				wantReason:      `topology "default" allows to fit only 1 out of 2 pod(s)`,
+				wantReason: `topology "default" allows to fit only 1 out of 2 pod(s)` +
+					`; all pods must fit in a single "kubernetes.io/hostname" topology domain`,
 			}},
 		},
 		"node replaced for pod-group workload with two Pod owners; gate on": {
@@ -850,7 +865,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					nodeSelector:    map[string]string{"accelerator": "true"},
-					wantReason:      `topology "default" allows to fit only 10 out of 2 pod(s)`,
+					wantReason: `topology "default" allows to fit only 10 out of 2 pod(s)` +
+						`; all pods must fit in a single "cloud.com/topology-block" topology domain`,
 				},
 				{
 					podSetName: "workers",
@@ -861,7 +877,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
 					podSetGroupName: new("sameGroup"),
 					count:           2,
-					wantReason:      `topology "default" allows to fit only 10 out of 2 pod(s)`,
+					wantReason: `topology "default" allows to fit only 10 out of 2 pod(s)` +
+						`; all pods must fit in a single "cloud.com/topology-block" topology domain`,
 				},
 			},
 		},
@@ -900,7 +917,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 							}},
 						},
 					},
-					wantReason: `topology "default" allows to fit only 10 out of 2 pod(s)`,
+					wantReason: `topology "default" allows to fit only 10 out of 2 pod(s)` +
+						`; all pods must fit in a single "cloud.com/topology-block" topology domain`,
 				},
 				{
 					podSetName: "workers",
@@ -911,7 +929,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
 					podSetGroupName: new("sameGroup"),
 					count:           2,
-					wantReason:      `topology "default" allows to fit only 10 out of 2 pod(s)`,
+					wantReason: `topology "default" allows to fit only 10 out of 2 pod(s)` +
+						`; all pods must fit in a single "cloud.com/topology-block" topology domain`,
 				},
 			},
 		},
@@ -943,7 +962,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
 					podSetGroupName: new("sameGroup"),
 					count:           1,
-					wantReason:      `topology "default" allows to fit only 10 out of 2 pod(s)`,
+					wantReason: `topology "default" allows to fit only 10 out of 2 pod(s)` +
+						`; all pods must fit in a single "cloud.com/topology-block" topology domain`,
 				},
 				{
 					podSetName: "workers",
@@ -959,7 +979,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 						Operator: corev1.TolerationOpExists,
 						Effect:   corev1.TaintEffectNoSchedule,
 					}},
-					wantReason: `topology "default" allows to fit only 10 out of 2 pod(s)`,
+					wantReason: `topology "default" allows to fit only 10 out of 2 pod(s)` +
+						`; all pods must fit in a single "cloud.com/topology-block" topology domain`,
 				},
 			},
 		},
@@ -2506,8 +2527,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				requests: map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 1000,
 				},
-				count:      4,
-				wantReason: `topology "default" allows to fit only 3 out of 4 pod(s)`,
+				count: 4,
+				wantReason: `topology "default" allows to fit only 3 out of 4 pod(s)` +
+					`; all pods must fit in a single "cloud.com/topology-rack" topology domain`,
 			}},
 		},
 		"block required; single Pod fits in a block and a single rack; BestFit": {
@@ -2615,8 +2637,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				requests: map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 4000,
 				},
-				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 6; excluded: resource "cpu": 6`,
+				count: 1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+					`; all pods must fit in a single "cloud.com/topology-block" topology domain` +
+					`. Total nodes: 6; excluded: resource "cpu": 6`,
 			}},
 		},
 		"hostname required on a topology which does not declare it; per-node feasibility": {
@@ -2695,8 +2719,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				requests: map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 1000,
 				},
-				count:      2,
-				wantReason: `topology "default" allows to fit only 1 out of 2 pod(s). Total nodes: 2; excluded: taint "example.com/gpu=present:NoSchedule": 1`,
+				count: 2,
+				wantReason: `topology "default" allows to fit only 1 out of 2 pod(s)` +
+					`; all pods must fit in a single "cloud.com/topology-rack" topology domain` +
+					`. Total nodes: 2; excluded: taint "example.com/gpu=present:NoSchedule": 1`,
 			}},
 		},
 		"rack required; Pod fits in the rack's aggregated capacity but on no single node; feature gate off": {
@@ -2736,8 +2762,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				requests: map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 2500,
 				},
-				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 6; excluded: resource "cpu": 6`,
+				count: 1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+					`; all pods must fit in a single "cloud.com/topology-rack" topology domain` +
+					`. Total nodes: 6; excluded: resource "cpu": 6`,
 			}},
 		},
 		"unconstrained; all nodes needed; non-hostname lowest level; BestFit": {
@@ -2827,8 +2855,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				requests: map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 1000,
 				},
-				count:      5,
-				wantReason: `topology "default" allows to fit only 4 out of 5 pod(s)`,
+				count: 5,
+				wantReason: `topology "default" allows to fit only 4 out of 5 pod(s)` +
+					`; all pods must fit in a single "cloud.com/topology-block" topology domain`,
 			}},
 		},
 		"rack required; single Pod requiring memory; BestFit": {
@@ -3182,8 +3211,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				requests: map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 600,
 				},
-				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`,
+				count: 1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+					`; all pods must fit in a single "kubernetes.io/hostname" topology domain` +
+					`. Total nodes: 1; excluded: resource "cpu": 1`,
 			}},
 		},
 		"include usage from running non-TAS pods, blocked assignment; BestFit": {
@@ -3213,8 +3244,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				requests: map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 600,
 				},
-				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`,
+				count: 1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+					`; all pods must fit in a single "kubernetes.io/hostname" topology domain` +
+					`. Total nodes: 1; excluded: resource "cpu": 1`,
 			}},
 		},
 		"node allocatable capacity completely used by non-TAS pod; empty remainingCapacity": {
@@ -3241,8 +3274,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 				requests: map[corev1.ResourceName]int64{corev1.ResourceCPU: 100},
 
-				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`,
+				count: 1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+					`; all pods must fit in a single "kubernetes.io/hostname" topology domain` +
+					`. Total nodes: 1; excluded: resource "cpu": 1`,
 			}},
 		},
 
@@ -3274,8 +3309,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				requests: map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 0,
 				},
-				count:      9,
-				wantReason: `topology "default" allows to fit only 8 out of 9 pod(s)`,
+				count: 9,
+				wantReason: `topology "default" allows to fit only 8 out of 9 pod(s)` +
+					`; all pods must fit in a single "kubernetes.io/hostname" topology domain`,
 			}},
 		},
 		"include usage from running non-TAS pods, found free capacity on another node; BestFit": {
@@ -3418,8 +3454,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				requests: map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 1000,
 				},
-				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: taint "example.com/gpu=present:NoSchedule": 1`,
+				count: 1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+					`; all pods must fit in a single "kubernetes.io/hostname" topology domain` +
+					`. Total nodes: 1; excluded: taint "example.com/gpu=present:NoSchedule": 1`,
 			}},
 		},
 		"detailed failure message with exclusion stats": {
@@ -3476,8 +3514,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				nodeSelector: map[string]string{
 					"zone": "zone-a",
 				},
-				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 4; excluded: nodeSelector: 2, resource "cpu": 1, taint "key=value:NoSchedule": 1`,
+				count: 1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+					`; all pods must fit in a single "kubernetes.io/hostname" topology domain` +
+					`. Total nodes: 4; excluded: nodeSelector: 2, resource "cpu": 1, taint "key=value:NoSchedule": 1`,
 			}},
 		},
 		"resource exclusion picks most restrictive resource": {
@@ -3503,7 +3543,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 				count: 1,
 				// When both resources give count=0, alphabetical tie-breaking picks "cpu"
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "cpu": 1`,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+					`; all pods must fit in a single "kubernetes.io/hostname" topology domain` +
+					`. Total nodes: 1; excluded: resource "cpu": 1`,
 			}},
 		},
 		"allow to schedule on node with tolerated taint; BestFit": {
@@ -3586,8 +3628,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				requests: map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 300,
 				},
-				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "pods": 1`,
+				count: 1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+					`; all pods must fit in a single "kubernetes.io/hostname" topology domain` +
+					`. Total nodes: 1; excluded: resource "pods": 1`,
 			}},
 		},
 		"multiple PodSets account assumed pod usage against allocatable pods; BestFit": {
@@ -3630,8 +3674,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 					requests: map[corev1.ResourceName]int64{
 						corev1.ResourceCPU: 1000,
 					},
-					count:      1,
-					wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "pods": 1`,
+					count: 1,
+					wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+						`; all pods must fit in a single "kubernetes.io/hostname" topology domain` +
+						`. Total nodes: 1; excluded: resource "pods": 1`,
 				},
 			},
 		},
@@ -3660,8 +3706,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				requests: map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 300,
 				},
-				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: nodeSelector: 1`,
+				count: 1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+					`; all pods must fit in a single "kubernetes.io/hostname" topology domain` +
+					`. Total nodes: 1; excluded: nodeSelector: 1`,
 				nodeSelector: map[string]string{
 					"custom-label-1": "custom-value-1",
 				},
@@ -3692,8 +3740,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				requests: map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 300,
 				},
-				count:      1,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: nodeSelector: 1`,
+				count: 1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+					`; all pods must fit in a single "kubernetes.io/hostname" topology domain` +
+					`. Total nodes: 1; excluded: nodeSelector: 1`,
 				nodeSelector: map[string]string{
 					"custom-label-1": "value-2",
 				},
@@ -5977,8 +6027,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				requests: map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 1000,
 				},
-				count:      6,
-				wantReason: `topology "default" doesn't allow to fit any of 2 slice(s)`,
+				count: 6,
+				wantReason: `topology "default" doesn't allow to fit any of 2 slice(s)` +
+					`; all pods must fit in a single "cloud.com/topology-block" topology domain`,
 			}},
 		},
 		"block required for podset; rack required for slices; only 1 out of 2 slices fit the topology": {
@@ -6040,8 +6091,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				requests: map[corev1.ResourceName]int64{
 					corev1.ResourceCPU: 1000,
 				},
-				count:      6,
-				wantReason: `topology "default" allows to fit only 1 out of 2 slice(s)`,
+				count: 6,
+				wantReason: `topology "default" allows to fit only 1 out of 2 slice(s)` +
+					`; all pods must fit in a single "cloud.com/topology-block" topology domain`,
 			}},
 		},
 		"block required for podset; rack required for slices; podset fits in both blocks, but slices fit in only one block": {
@@ -7196,7 +7248,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					podSetGroupName: new("sameGroup"),
 					count:           1,
 					wantAssignment:  nil,
-					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s). Total nodes: 2; excluded: resource "example.com/gpu": 1`,
+					wantReason: `topology "default" allows to fit only 4 out of 4 pod(s)` +
+						`; all pods must fit in a single "cloud.com/topology-block" topology domain` +
+						`. Total nodes: 2; excluded: resource "example.com/gpu": 1`,
 				},
 				{
 					podSetName: "workers",
@@ -7210,7 +7264,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					podSetGroupName: new("sameGroup"),
 					count:           4,
 					wantAssignment:  nil,
-					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s). Total nodes: 2; excluded: resource "example.com/gpu": 1`,
+					wantReason: `topology "default" allows to fit only 4 out of 4 pod(s)` +
+						`; all pods must fit in a single "cloud.com/topology-block" topology domain` +
+						`. Total nodes: 2; excluded: resource "example.com/gpu": 1`,
 				},
 			},
 		},
@@ -7427,7 +7483,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 					podSetGroupName: new("sameGroup"),
 					count:           1,
-					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s)`,
+					wantReason: `topology "default" allows to fit only 4 out of 4 pod(s)` +
+						`; all pods must fit in a single "cloud.com/topology-block" topology domain`,
 				},
 				{
 					podSetName: "workers",
@@ -7440,7 +7497,8 @@ func TestFindTopologyAssignments(t *testing.T) {
 					},
 					podSetGroupName: new("sameGroup"),
 					count:           4,
-					wantReason:      `topology "default" allows to fit only 4 out of 4 pod(s)`,
+					wantReason: `topology "default" allows to fit only 4 out of 4 pod(s)` +
+						`; all pods must fit in a single "cloud.com/topology-block" topology domain`,
 				},
 			},
 		},
@@ -10096,9 +10154,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{
 					Required: new(tasRackLabel),
 				},
-				requests:   map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
-				count:      2,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 2; excluded: resource "cpu": 1, topologyDomain: 1`,
+				requests: map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:    2,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+					`; all pods must fit in a single "cloud.com/topology-rack" topology domain` +
+					`. Total nodes: 2; excluded: resource "cpu": 1, topologyDomain: 1`,
 			}},
 		},
 		"partial slice with a leader: the odd worker gets a second domain": {
@@ -11159,7 +11219,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 					topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
 					requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
 					count:           3,
-					wantReason:      `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 4; excluded: resource "cpu": 2, topologyDomain: 2`,
+					wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+						`; all pods must fit in a single "cloud.com/topology-rack" topology domain` +
+						`. Total nodes: 4; excluded: resource "cpu": 2, topologyDomain: 2`,
 				},
 			},
 		},
@@ -11302,7 +11364,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasRackLabel)},
 				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
 				count:           3,
-				wantReason:      `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 2; excluded: resource "cpu": 1, topologyDomain: 1`,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+					`; all pods must fit in a single "cloud.com/topology-rack" topology domain` +
+					`. Total nodes: 2; excluded: resource "cpu": 1, topologyDomain: 1`,
 			}},
 		},
 		"multi-node replacement: missing tail still fails the stale check when gate is disabled": {
@@ -11435,7 +11499,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				requests: map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
 				count:    4,
 				// x3 is NotReady, x4 has insufficient CPU (500m < 1000m request) → no node available in r2 for replacement.
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 3; excluded: resource "cpu": 1, topologyDomain: 2`,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+					`; all pods must fit in a single "cloud.com/topology-block" topology domain` +
+					`. Total nodes: 3; excluded: resource "cpu": 1, topologyDomain: 2`,
 			}},
 		},
 		"multi-layer replacement: 3-layer: innermost broken domain confines replacement to correct switch": {
@@ -11628,7 +11694,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				count:    8,
 				// With fix: sliceSize=2, no host in r2 can fit a pair → correctly fails.
 				// Without fix: sliceSize=1, scatters x4(1)+x5(1) → wrongly succeeds.
-				wantReason: `topology "default" doesn't allow to fit any of 1 slice(s). Total nodes: 4; excluded: topologyDomain: 2`,
+				wantReason: `topology "default" doesn't allow to fit any of 1 slice(s)` +
+					`; all pods must fit in a single "cloud.com/topology-block" topology domain` +
+					`. Total nodes: 4; excluded: topologyDomain: 2`,
 			}},
 		},
 		"multi-layer replacement: sibling-flavor aggregatedDomainUsages on replacement candidate blocks the replacement": {
@@ -11697,9 +11765,11 @@ func TestFindTopologyAssignments(t *testing.T) {
 						{Topology: tasRackLabel, Size: 2},
 					},
 				},
-				requests:   map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
-				count:      4,
-				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 3; excluded: resource "cpu": 1, topologyDomain: 2`,
+				requests: map[corev1.ResourceName]int64{corev1.ResourceCPU: 1000},
+				count:    4,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s)` +
+					`; all pods must fit in a single "cloud.com/topology-block" topology domain` +
+					`. Total nodes: 3; excluded: resource "cpu": 1, topologyDomain: 2`,
 			}},
 		},
 
@@ -11816,7 +11886,9 @@ func TestFindTopologyAssignments(t *testing.T) {
 				topologyRequest: &kueue.PodSetTopologyRequest{Required: new(tasBlockLabel)},
 				requests:        map[corev1.ResourceName]int64{corev1.ResourceCPU: 2000},
 				count:           2,
-				wantReason: `topology "default" doesn't allow to fit any of 2 pod(s). Total nodes: 6; excluded: resource "cpu": 4` +
+				wantReason: `topology "default" doesn't allow to fit any of 2 pod(s)` +
+					`; all pods must fit in a single "cloud.com/topology-block" topology domain` +
+					`. Total nodes: 6; excluded: resource "cpu": 4` +
 					`; topology spreading excluded 1 topology domain(s) at level: cloud.com/topology-block`,
 			}},
 		},
