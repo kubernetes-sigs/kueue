@@ -18,9 +18,11 @@ package core
 
 import (
 	"context"
+	"sync"
 
 	"github.com/go-logr/logr"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -44,6 +46,19 @@ type WorkloadPriorityClassReconciler struct {
 	logName     string
 	client      client.Client
 	roleTracker *roletracker.RoleTracker
+
+	// mu guards lastRun.
+	mu sync.Mutex
+	// lastRun is, per class name, the class first seen, then the one seen by each
+	// run that ended without error. Another object or generation means the cache
+	// may still lag that run's own writes. Entries stay until restart.
+	lastRun map[string]classRevision
+}
+
+// classRevision identifies a WorkloadPriorityClass object at one generation.
+type classRevision struct {
+	uid        types.UID
+	generation int64
 }
 
 var _ reconcile.Reconciler = (*WorkloadPriorityClassReconciler)(nil)
@@ -57,6 +72,7 @@ func NewWorkloadPriorityClassReconciler(
 		logName:     "workloadpriorityclass-reconciler",
 		client:      client,
 		roleTracker: roleTracker,
+		lastRun:     make(map[string]classRevision),
 	}
 }
 
@@ -84,8 +100,10 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 		log.Error(err, "Failed to list workloads for WorkloadPriorityClass")
 		return ctrl.Result{}, err
 	}
+	classChanged := r.observeClass(&wpc)
 	if len(workloads.Items) == 0 {
 		log.V(2).Info("No workloads using this WorkloadPriorityClass")
+		r.recordClass(&wpc)
 		return ctrl.Result{}, nil
 	}
 
@@ -100,8 +118,10 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 			return nil
 		}
 
-		// Skip if priority is already up to date
-		if wl.Spec.Priority != nil && *wl.Spec.Priority == wpc.Value {
+		// Skip if priority is already up to date. After a class change the cache
+		// can still show the value from before an earlier run's write, so write
+		// anyway: if the cache is behind, the update conflicts and is retried.
+		if wl.Spec.Priority != nil && *wl.Spec.Priority == wpc.Value && !classChanged {
 			wlLog.V(3).Info("Workload priority already up to date")
 			return nil
 		}
@@ -119,7 +139,32 @@ func (r *WorkloadPriorityClassReconciler) Reconcile(ctx context.Context, req ctr
 		wlLog.V(2).Info("Updated workload priority", "newPriority", wpc.Value)
 		return nil
 	})
+	if err == nil {
+		r.recordClass(&wpc)
+	}
 	return ctrl.Result{}, err
+}
+
+// observeClass reports whether the class differs from the one recorded for it.
+// A class seen for the first time is recorded at once, so that even when that
+// first run fails after writing, the next edit counts as a change.
+func (r *WorkloadPriorityClassReconciler) observeClass(wpc *kueue.WorkloadPriorityClass) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	current := classRevision{uid: wpc.UID, generation: wpc.Generation}
+	seen, found := r.lastRun[wpc.Name]
+	if !found {
+		r.lastRun[wpc.Name] = current
+	}
+	return found && seen != current
+}
+
+// recordClass marks a run that ended without error, so the next run at this
+// revision trusts the cache.
+func (r *WorkloadPriorityClassReconciler) recordClass(wpc *kueue.WorkloadPriorityClass) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.lastRun[wpc.Name] = classRevision{uid: wpc.UID, generation: wpc.Generation}
 }
 
 func (r *WorkloadPriorityClassReconciler) Create(e event.TypedCreateEvent[*kueue.WorkloadPriorityClass]) bool {
