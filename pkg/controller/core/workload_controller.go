@@ -160,7 +160,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			reason := workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadInadmissible)
 			updated := workload.UnsetQuotaReservationWithCondition(wl, reason, "KueueDRAIntegration feature does not support use of resource claims", r.clock.Now())
-			if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, "DRA resource claims not supported", false) {
+			if workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, "DRA resource claims not supported", false) {
 				updated = true
 			}
 			return updated, nil
@@ -246,16 +246,28 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 	log := ctrl.LoggerFrom(ctx)
 	err := fieldErrs.ToAggregate()
 	log.Error(err, logMsg)
+	quotaReservedReason, requeuedReason := draConditionReasonsWithLegacyFallback()
+	var statusUpdated bool
 	updateErr := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-		quotaReservedReason, requeuedReason := draConditionReasonsWithLegacyFallback()
 		updated := workload.UnsetQuotaReservationWithCondition(wl, quotaReservedReason, err.Error(), r.clock.Now())
-		if updated && workload.SetRequeuedCondition(wl, requeuedReason, err.Error(), false) {
+		if workload.SetRequeuedCondition(wl, requeuedReason, err.Error(), false) {
 			updated = true
 		}
+		statusUpdated = updated
 		return updated, nil
 	})
 	if updateErr != nil {
 		return true, ctrl.Result{}, fmt.Errorf("%s: %w", logMsg, updateErr)
+	}
+	if statusUpdated && r.recorder != nil {
+		r.recorder.Eventf(
+			wl,
+			nil,
+			corev1.EventTypeWarning,
+			requeuedReason,
+			requeuedReason,
+			api.TruncateEventMessage(err.Error()),
+		)
 	}
 	if workload.HasInternalError(fieldErrs) {
 		return true, ctrl.Result{}, err
