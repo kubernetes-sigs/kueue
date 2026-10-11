@@ -26,8 +26,10 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/heap"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
+	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -41,7 +43,7 @@ type PendingWorkloads struct {
 
 	// inadmissible are workloads that have been tried at least once and couldn't be admitted.
 	//
-	// Invariant: a pending workload is tracked in exactly one of active workloads heap,
+	// Invariant: a pending workload is tracked in at most one of active workloads heap,
 	// inadmissible workloads list, or inflight at any time, and contributes to
 	// pendingResourcesTotal exactly once while in active workloads heap or inadmissible workloads list.
 	// All transitions between these places must go through the helpers next to
@@ -52,9 +54,19 @@ type PendingWorkloads struct {
 	inadmissible        inadmissibleWorkloads
 	inadmissibleTracker *metrics.LabelValsTracker
 
-	// inflight is non-nil when a workload has been popped by the scheduler but
-	// not yet requeued or deleted.
-	inflight *workload.Info
+	// inflight is the queue's checkout record: the workloads the scheduler has
+	// taken from this ClusterQueue for the current cycle. While a workload is
+	// checked out the ClusterQueue refuses to put it back on its heap, so the
+	// scheduler's copy is the one that comes back; otherwise the heap and the
+	// scheduler would each hold a copy of the same workload. Updates still reach
+	// the LocalQueue copy, see Get below.
+	//
+	// Every checkout must end: requeued, deleted, abandoned (ForgetInflight), or
+	// released along with the rest when its LocalQueue is deleted. Nothing expires
+	// an entry, so a missed exit keeps the workload out of scheduling until it is
+	// deleted. We use a map because refill lets the scheduler check out several
+	// workloads per queue per cycle.
+	inflight map[workload.Reference]*workload.Info
 
 	// schedulingHashes tracks the scheduling equivalence hashes of pending
 	// workloads for the pending_scheduling_hashes metric.
@@ -65,7 +77,7 @@ type PendingWorkloads struct {
 	// pendingResources() is O(1) rather than O(N).
 	// Configured resources are seeded at 0 by Update() so they appear in metrics
 	// even when no workloads are pending; stale zero entries are pruned on Update().
-	pendingResourcesTotal map[corev1.ResourceName]int64
+	pendingResourcesTotal map[corev1.ResourceName]resources.Amount
 }
 
 // Get returns the workload.Info for the key, wherever it is held:
@@ -82,8 +94,8 @@ func (c *PendingWorkloads) Get(key workload.Reference) *workload.Info {
 	c.RLock()
 	defer c.RUnlock()
 
-	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
-		return c.inflight
+	if wInfo, ok := c.inflight[key]; ok {
+		return wInfo
 	}
 	if wInfo := c.active.GetByKey(key); wInfo != nil {
 		return wInfo
@@ -107,18 +119,19 @@ func (p *PendingWorkloads) PopActive() *workload.Info {
 	defer p.Unlock()
 
 	if p.active.Len() == 0 {
-		p.inflight = nil
-		p.schedulingHashes.clearInflight()
+		// An empty heap only means there is nothing left to hand out. Workloads
+		// checked out earlier in the cycle are still with the scheduler. Do not
+		// clear their inflight entries here. Each entry is removed when its own
+		// workload is requeued, deleted, or abandoned.
 		return nil
 	}
 
 	wl := p.active.Pop()
 	metrics.UntrackWorkload(p.customLabels, p.activeTracker, wl.Obj)
-	p.schedulingHashes.moveActiveToInflight(wl)
 	p.subtractPendingResources(wl)
-	p.inflight = wl
-	p.inflight.LastEvaluatedGeneration = p.inflight.Obj.Generation
-	return p.inflight
+	wl.LastEvaluatedGeneration = wl.Obj.Generation
+	p.setInflight(wl)
+	return wl
 }
 
 func (p *PendingWorkloads) activeIterator() iter.Seq[*workload.Info] {
@@ -133,8 +146,8 @@ func (p *PendingWorkloads) activeIterator() iter.Seq[*workload.Info] {
 
 // pushActiveIfNotPresent pushes wInfo onto the active workloads heap and accounts for its
 // pending resources, unless the workload is already tracked in the active workloads heap, in
-// the inadmissible workloads list, or as inflight. The inflight workload is skipped
-// because the scheduler owns its placement until requeue or deletion, and an
+// the inadmissible workloads list, or as inflight. Inflight workloads are skipped
+// because the scheduler owns their placement until requeue or deletion, and an
 // active workloads heap copy would double-count its resources next to the inflight one.
 // Returns true if the workload was pushed.
 func (p *PendingWorkloads) PushActiveIfNotPresent(wInfo *workload.Info) bool {
@@ -142,17 +155,16 @@ func (p *PendingWorkloads) PushActiveIfNotPresent(wInfo *workload.Info) bool {
 	defer p.Unlock()
 
 	key := workloadKey(wInfo)
-	if p.inflight != nil && workloadKey(p.inflight) == key {
+	if _, ok := p.inflight[key]; ok {
 		return false
 	}
 	if p.inadmissible.hasKey(key) {
 		return false
 	}
-	if !p.active.PushIfNotPresent(wInfo) {
+	if !p.addActive(wInfo) {
 		return false
 	}
 	p.addPendingResources(wInfo)
-	p.schedulingHashes.addActive(wInfo)
 	metrics.TrackWorkload(p.customLabels, p.activeTracker, wInfo.Obj)
 	return true
 }
@@ -169,9 +181,8 @@ func (p *PendingWorkloads) PushOrUpdateActive(wInfo *workload.Info) {
 		p.subtractPendingResources(old)
 		metrics.UntrackWorkload(p.customLabels, p.activeTracker, old.Obj)
 	}
-	p.active.PushOrUpdate(wInfo)
+	p.updateActive(old, wInfo)
 	p.addPendingResources(wInfo)
-	p.schedulingHashes.updateActive(old, wInfo)
 	metrics.TrackWorkload(p.customLabels, p.activeTracker, wInfo.Obj)
 }
 
@@ -182,29 +193,44 @@ func (p *PendingWorkloads) RemoveActive(key workload.Reference) {
 	defer p.Unlock()
 
 	if old := p.active.GetByKey(key); old != nil {
-		p.active.Delete(key)
+		p.deleteActive(key, old)
 		p.subtractPendingResources(old)
-		p.schedulingHashes.removeActive(old)
 		metrics.UntrackWorkload(p.customLabels, p.activeTracker, old.Obj)
 	}
 }
 
-// HasInflight checks if the provided reference mathces the current inflight workload (if any exists).
+// HasInflight checks if the provided reference matches an inflight workload.
 func (p *PendingWorkloads) HasInflight(ref workload.Reference) bool {
 	p.RLock()
 	defer p.RUnlock()
-	return p.inflight != nil && workloadKey(p.inflight) == ref
+	_, ok := p.inflight[ref]
+	return ok
 }
 
-// ForgetInflightByKey forgets the current inflight workload if it matches the provided reference.
+// ForgetInflightByKey forgets the inflight workload that matches the provided reference.
 func (p *PendingWorkloads) ForgetInflightByKey(ref workload.Reference) {
 	p.Lock()
 	defer p.Unlock()
+	p.clearInflight(ref)
+}
 
-	if p.inflight != nil && workloadKey(p.inflight) == ref {
-		p.inflight = nil
-		p.schedulingHashes.clearInflight()
+// ForgetInflightFromLocalQueue ends the checkouts of a LocalQueue that is being
+// deleted. A checked-out workload has already left the LocalQueue, so deleting
+// the LocalQueue's workloads does not reach it.
+func (p *PendingWorkloads) ForgetInflightFromLocalQueue(lqRef utilqueue.LocalQueueReference) {
+	p.Lock()
+	defer p.Unlock()
+	for key, wl := range p.inflight {
+		if utilqueue.KeyFromWorkload(wl.Obj) == lqRef {
+			p.clearInflight(key)
+		}
 	}
+}
+
+func (p *PendingWorkloads) hasActive() bool {
+	p.RLock()
+	defer p.RUnlock()
+	return p.active.Len() > 0
 }
 
 func (p *PendingWorkloads) GetInadmissible(key workload.Reference) *workload.Info {
@@ -216,8 +242,7 @@ func (p *PendingWorkloads) GetInadmissible(key workload.Reference) *workload.Inf
 func (p *PendingWorkloads) UpdateInadmissible(key workload.Reference, oldInfo, newInfo *workload.Info) {
 	p.Lock()
 	defer p.Unlock()
-	p.inadmissible.insert(key, newInfo)
-	p.schedulingHashes.updateInadmissible(oldInfo, newInfo)
+	p.updateInadmissible(key, oldInfo, newInfo)
 	metrics.UntrackWorkload(p.customLabels, p.inadmissibleTracker, oldInfo.Obj)
 	metrics.TrackWorkload(p.customLabels, p.inadmissibleTracker, newInfo.Obj)
 }
@@ -225,18 +250,16 @@ func (p *PendingWorkloads) UpdateInadmissible(key workload.Reference, oldInfo, n
 func (p *PendingWorkloads) InsertInadmissible(key workload.Reference, wInfo *workload.Info) {
 	p.Lock()
 	defer p.Unlock()
-	p.inadmissible.insert(key, wInfo)
+	p.addInadmissible(key, wInfo)
 	p.addPendingResources(wInfo)
-	p.schedulingHashes.addInadmissible(wInfo)
 	metrics.TrackWorkload(p.customLabels, p.inadmissibleTracker, wInfo.Obj)
 }
 
 func (p *PendingWorkloads) RemoveFromInadmissible(key workload.Reference, wInfo *workload.Info) {
 	p.Lock()
 	defer p.Unlock()
-	p.inadmissible.delete(key)
+	p.deleteInadmissible(key, wInfo)
 	p.subtractPendingResources(wInfo)
-	p.schedulingHashes.removeInadmissible(wInfo)
 	metrics.UntrackWorkload(p.customLabels, p.inadmissibleTracker, wInfo.Obj)
 }
 
@@ -250,8 +273,8 @@ func (p *PendingWorkloads) RebuildActiveHeap() {
 func (p *PendingWorkloads) addPendingResources(wInfo *workload.Info) {
 	for _, ps := range wInfo.TotalRequests {
 		if ps.Requests != nil {
-			ps.Requests.ForEach(func(name corev1.ResourceName, q int64) {
-				p.pendingResourcesTotal[name] += q
+			ps.Requests.ForEach(func(name corev1.ResourceName, q resources.Amount) {
+				p.pendingResourcesTotal[name] = p.pendingResourcesTotal[name].Add(q)
 			})
 		}
 	}
@@ -260,8 +283,8 @@ func (p *PendingWorkloads) addPendingResources(wInfo *workload.Info) {
 func (p *PendingWorkloads) subtractPendingResources(wInfo *workload.Info) {
 	for _, ps := range wInfo.TotalRequests {
 		if ps.Requests != nil {
-			ps.Requests.ForEach(func(name corev1.ResourceName, q int64) {
-				p.pendingResourcesTotal[name] -= q
+			ps.Requests.ForEach(func(name corev1.ResourceName, q resources.Amount) {
+				p.pendingResourcesTotal[name] = p.pendingResourcesTotal[name].Sub(q)
 			})
 		}
 	}
@@ -269,24 +292,24 @@ func (p *PendingWorkloads) subtractPendingResources(wInfo *workload.Info) {
 
 // UpdateConfiguredResources seeds pendingResourcesTotal with 0 for newly configured
 // resources so they appear in metrics even when no workloads are pending, and prunes
-// zero entries for resources removed from the spec.
+// zero entries for resources removed from the effective resource groups.
 func (p *PendingWorkloads) UpdateConfiguredResources(apiCQ *kueue.ClusterQueue) {
 	p.Lock()
 	defer p.Unlock()
 
 	newConfigured := sets.New[corev1.ResourceName]()
-	for _, rg := range apiCQ.Spec.ResourceGroups {
+	for _, rg := range resourcegroups.EffectiveResourceGroups(apiCQ) {
 		for _, fq := range rg.Flavors {
 			for _, r := range fq.Resources {
 				newConfigured.Insert(r.Name)
 				if _, exists := p.pendingResourcesTotal[r.Name]; !exists {
-					p.pendingResourcesTotal[r.Name] = 0
+					p.pendingResourcesTotal[r.Name] = resources.Amount{}
 				}
 			}
 		}
 	}
 	for r, v := range p.pendingResourcesTotal {
-		if v == 0 && !newConfigured.Has(r) {
+		if v.Sign() == 0 && !newConfigured.Has(r) {
 			delete(p.pendingResourcesTotal, r)
 		}
 	}
@@ -302,14 +325,10 @@ func (p *PendingWorkloads) MoveToActive(key workload.Reference, wInfo *workload.
 	p.Lock()
 	defer p.Unlock()
 
-	if !p.active.PushIfNotPresent(wInfo) {
+	if !p.moveInadmissibleToActive(key, wInfo) {
 		return false
 	}
 	metrics.TrackWorkload(p.customLabels, p.activeTracker, wInfo.Obj)
-
-	p.schedulingHashes.moveToActive(wInfo)
-
-	p.inadmissible.delete(key)
 	metrics.UntrackWorkload(p.customLabels, p.inadmissibleTracker, wInfo.Obj)
 	return true
 }
@@ -321,27 +340,23 @@ func (p *PendingWorkloads) MoveToInadmissible(key workload.Reference, wInfo *wor
 	p.Lock()
 	defer p.Unlock()
 
-	p.active.Delete(key)
+	p.moveActiveToInadmissible(key, wInfo)
 	metrics.UntrackWorkload(p.customLabels, p.activeTracker, wInfo.Obj)
-
-	p.schedulingHashes.moveToInadmissible(wInfo)
-
-	p.inadmissible.insert(key, wInfo)
 	metrics.TrackWorkload(p.customLabels, p.inadmissibleTracker, wInfo.Obj)
 }
 
 // PendingResources returns the total resources requested by all pending workloads,
 // aggregated by resource name. Pending workloads have not yet been assigned to flavors.
-func (p *PendingWorkloads) PendingResources() map[corev1.ResourceName]int64 {
+func (p *PendingWorkloads) PendingResources() map[corev1.ResourceName]resources.Amount {
 	p.RLock()
 	defer p.RUnlock()
 
 	result := maps.Clone(p.pendingResourcesTotal)
-	if p.inflight != nil {
-		for _, ps := range p.inflight.TotalRequests {
+	for _, wl := range p.inflight {
+		for _, ps := range wl.TotalRequests {
 			if ps.Requests != nil {
-				ps.Requests.ForEach(func(name corev1.ResourceName, q int64) {
-					result[name] += q
+				ps.Requests.ForEach(func(name corev1.ResourceName, q resources.Amount) {
+					result[name] = result[name].Add(q)
 				})
 			}
 		}
@@ -360,8 +375,8 @@ func (p *PendingWorkloads) PendingBreakdown() (*metrics.LabelValsTracker, *metri
 // workloads that are in the admission queue.
 func (p *PendingWorkloads) pendingActive() *metrics.LabelValsTracker {
 	result := metrics.Copy(p.activeTracker)
-	if p.inflight != nil {
-		metrics.TrackWorkload(p.customLabels, result, p.inflight.Obj)
+	for _, wl := range p.inflight {
+		metrics.TrackWorkload(p.customLabels, result, wl.Obj)
 	}
 	return result
 }
@@ -384,8 +399,10 @@ func (p *PendingWorkloads) PendingActiveInLocalQueue(lqRef utilqueue.LocalQueueR
 			active++
 		}
 	}
-	if p.inflight != nil && utilqueue.KeyFromWorkload(p.inflight.Obj) == lqRef {
-		active++
+	for _, wl := range p.inflight {
+		if utilqueue.KeyFromWorkload(wl.Obj) == lqRef {
+			active++
+		}
 	}
 	return
 }
@@ -403,6 +420,33 @@ func (p *PendingWorkloads) PendingInadmissibleInLocalQueue(lqRef utilqueue.Local
 		}
 	}
 	return
+}
+
+// PendingBreakdownInLocalQueue returns LabelValsTrackers for active and inadmissible
+// pending workloads in the given LocalQueue, keyed by workload custom label values.
+func (p *PendingWorkloads) PendingBreakdownInLocalQueue(lqRef utilqueue.LocalQueueReference) (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
+	p.RLock()
+	defer p.RUnlock()
+
+	active := metrics.NewLabelValsTracker()
+	for _, wl := range p.active.List() {
+		if utilqueue.KeyFromWorkload(wl.Obj) == lqRef {
+			metrics.TrackWorkload(p.customLabels, active, wl.Obj)
+		}
+	}
+	for _, wl := range p.inflight {
+		if utilqueue.KeyFromWorkload(wl.Obj) == lqRef {
+			metrics.TrackWorkload(p.customLabels, active, wl.Obj)
+		}
+	}
+
+	inadmissible := metrics.NewLabelValsTracker()
+	for _, wl := range p.inadmissible {
+		if utilqueue.KeyFromWorkload(wl.Obj) == lqRef {
+			metrics.TrackWorkload(p.customLabels, inadmissible, wl.Obj)
+		}
+	}
+	return active, inadmissible
 }
 
 // DumpActive produces a dump of the current active workloads of
@@ -436,20 +480,95 @@ func (p *PendingWorkloads) DumpInadmissible() ([]workload.Reference, bool) {
 	return elements, true
 }
 
+// DumpInflight produces a dump of the workloads checked out to the scheduler.
+func (p *PendingWorkloads) DumpInflight() ([]workload.Reference, bool) {
+	p.RLock()
+	defer p.RUnlock()
+
+	if len(p.inflight) == 0 {
+		return nil, false
+	}
+	elements := make([]workload.Reference, 0, len(p.inflight))
+	for key := range p.inflight {
+		elements = append(elements, key)
+	}
+	return elements, true
+}
+
 // DumpAll returns all pending workloads (active heap + inadmissible list + inflight).
 // The returned order is non-deterministic; callers should sort if needed.
 func (p *PendingWorkloads) DumpAll() []*workload.Info {
 	p.RLock()
 	defer p.RUnlock()
 
-	totalLen := p.active.Len() + p.inadmissible.len()
+	totalLen := p.active.Len() + p.inadmissible.len() + len(p.inflight)
 	elements := make([]*workload.Info, 0, totalLen)
 	elements = append(elements, p.active.List()...)
 	for _, e := range p.inadmissible {
 		elements = append(elements, e)
 	}
-	if p.inflight != nil {
-		elements = append(elements, p.inflight)
+	for _, wl := range p.inflight {
+		elements = append(elements, wl)
 	}
 	return elements
+}
+
+func (p *PendingWorkloads) clearInflight(ref workload.Reference) {
+	if wInfo, ok := p.inflight[ref]; ok {
+		delete(p.inflight, ref)
+		p.schedulingHashes.removeInflight(wInfo)
+	}
+}
+
+func (p *PendingWorkloads) setInflight(wl *workload.Info) {
+	p.inflight[workloadKey(wl)] = wl
+	p.schedulingHashes.moveActiveToInflight(wl)
+}
+
+func (p *PendingWorkloads) addActive(wInfo *workload.Info) bool {
+	if p.active.PushIfNotPresent(wInfo) {
+		p.schedulingHashes.addActive(wInfo)
+		return true
+	}
+	return false
+}
+
+func (p *PendingWorkloads) updateActive(old, wInfo *workload.Info) {
+	p.active.PushOrUpdate(wInfo)
+	p.schedulingHashes.updateActive(old, wInfo)
+}
+
+func (p *PendingWorkloads) deleteActive(key workload.Reference, wInfo *workload.Info) {
+	p.active.Delete(key)
+	p.schedulingHashes.removeActive(wInfo)
+}
+
+func (p *PendingWorkloads) addInadmissible(key workload.Reference, wInfo *workload.Info) {
+	p.inadmissible.insert(key, wInfo)
+	p.schedulingHashes.addInadmissible(wInfo)
+}
+
+func (p *PendingWorkloads) updateInadmissible(key workload.Reference, oldInfo, newInfo *workload.Info) {
+	p.inadmissible.insert(key, newInfo)
+	p.schedulingHashes.updateInadmissible(oldInfo, newInfo)
+}
+
+func (p *PendingWorkloads) deleteInadmissible(key workload.Reference, wInfo *workload.Info) {
+	p.inadmissible.delete(key)
+	p.schedulingHashes.removeInadmissible(wInfo)
+}
+
+func (p *PendingWorkloads) moveInadmissibleToActive(key workload.Reference, wInfo *workload.Info) bool {
+	if p.active.PushIfNotPresent(wInfo) {
+		p.schedulingHashes.moveToActive(wInfo)
+		p.inadmissible.delete(key)
+		return true
+	}
+	return false
+}
+
+func (p *PendingWorkloads) moveActiveToInadmissible(key workload.Reference, wInfo *workload.Info) {
+	p.active.Delete(key)
+	p.schedulingHashes.moveToInadmissible(wInfo)
+	p.inadmissible.insert(key, wInfo)
 }

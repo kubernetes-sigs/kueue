@@ -280,7 +280,14 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 		}
 
 		if role == sparkcommon.SparkRoleExecutor {
-			j.Spec.Executor.Instances = new(podSetInfo.Count)
+			// An unset spec.executor.instances is counted as 0 executors, while the
+			// CRD requires the field to be at least 1 when set. Restore 0 as unset,
+			// otherwise the API server rejects the patch that suspends the job.
+			if podSetInfo.Count == 0 {
+				j.Spec.Executor.Instances = nil
+			} else {
+				j.Spec.Executor.Instances = new(podSetInfo.Count)
+			}
 		}
 
 		return changed
@@ -300,11 +307,13 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 }
 
 func (j *SparkApplication) Finished(ctx context.Context) (message string, success, finished bool) {
+	// SUBMISSION_FAILED is not terminal: depending on the restartPolicy, the
+	// operator resubmits the application, and it moves the application to
+	// FAILED once no retries are left.
 	return j.Status.AppState.ErrorMessage,
 		j.Status.AppState.State == sparkv1beta2.ApplicationStateCompleted,
 		j.Status.AppState.State == sparkv1beta2.ApplicationStateCompleted ||
-			j.Status.AppState.State == sparkv1beta2.ApplicationStateFailed ||
-			j.Status.AppState.State == sparkv1beta2.ApplicationStateFailedSubmission
+			j.Status.AppState.State == sparkv1beta2.ApplicationStateFailed
 }
 
 func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client) bool {
@@ -317,6 +326,13 @@ func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client) bool 
 	// executors are stuck (e.g. unschedulable), which would let the
 	// waitForPodsReady timeout never fire on heterogeneous resource shortages.
 	expected := int(ptr.Deref(j.Spec.Executor.Instances, 0))
+	// When dynamic allocation is enabled, the actual number of executors can
+	// fluctuate between minExecutors and maxExecutors. Use minExecutors as the
+	// expected count since it's the guaranteed minimum. If neither the CRD
+	// field nor sparkConf is set, use Spec.Executor.Instances as default.
+	if j.Spec.DynamicAllocation != nil && j.Spec.DynamicAllocation.Enabled {
+		expected = int(ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, int32(expected)))
+	}
 	if expected == 0 {
 		return true
 	}

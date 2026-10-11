@@ -18,19 +18,19 @@ package core
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Cohort Webhook", func() {
@@ -45,7 +45,7 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 			err := k8sClient.Create(ctx, cohort)
 			if err == nil {
 				defer func() {
-					util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 				}()
 			}
 			gomega.Expect(err).Should(matcher)
@@ -229,9 +229,7 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should reject resources in a flavor in different order",
 				&kueue.Cohort{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cohort",
-					},
+					Name: "cohort",
 					Spec: kueue.CohortSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
@@ -253,9 +251,7 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should reject missing resources in a flavor",
 				&kueue.Cohort{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cohort",
-					},
+					Name: "cohort",
 					Spec: kueue.CohortSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
@@ -272,9 +268,7 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should reject resource not defined in resource group",
 				&kueue.Cohort{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cohort",
-					},
+					Name: "cohort",
 					Spec: kueue.CohortSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
@@ -357,30 +351,30 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 		)
 
 		ginkgo.AfterEach(func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 		})
 
 		ginkgo.It("Should update parent", func() {
 			cohort = utiltestingapi.MakeCohort("cohort").Obj()
-			util.MustCreate(ctx, k8sClient, cohort)
+			behavioral.MustCreate(ctx, k8sClient, cohort)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				createCohort := &kueue.Cohort{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), createCohort)).Should(gomega.Succeed())
 				createCohort.Spec.ParentName = "cohort2"
 				g.Expect(k8sClient.Update(ctx, createCohort)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 		ginkgo.It("Should reject invalid parent", func() {
 			cohort = utiltestingapi.MakeCohort("cohort").Obj()
-			util.MustCreate(ctx, k8sClient, cohort)
+			behavioral.MustCreate(ctx, k8sClient, cohort)
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				createCohort := &kueue.Cohort{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), createCohort)).Should(gomega.Succeed())
 				createCohort.Spec.ParentName = "@cohort2"
 				gomega.Expect(k8sClient.Update(ctx, createCohort)).ShouldNot(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 		ginkgo.It("Should reject negative borrowing limit", func() {
 			cohort = utiltestingapi.MakeCohort("cohort").
@@ -388,5 +382,102 @@ var _ = ginkgo.Describe("Cohort Webhook", func() {
 				Obj()
 			gomega.Expect(k8sClient.Create(ctx, cohort)).ShouldNot(gomega.Succeed())
 		})
+	})
+
+	ginkgo.When("Updating a Cohort status", func() {
+		var (
+			cohort *kueue.Cohort
+		)
+
+		ginkgo.BeforeEach(func() {
+			cohort = utiltestingapi.MakeCohort("cohort").Obj()
+			behavioral.MustCreate(ctx, k8sClient, cohort)
+		})
+
+		ginkgo.AfterEach(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+		})
+
+		maxResourceGroups := make([]kueue.ResourceGroup, resourceGroupsMaxItems)
+		for i := range maxResourceGroups {
+			maxResourceGroups[i] = utiltestingapi.ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(fmt.Sprintf("f%d", i)).
+					Resource(corev1.ResourceCPU, "1").
+					Obj(),
+			)
+		}
+		moreThanMaxResourceGroups := append(slices.Clone(maxResourceGroups), utiltestingapi.ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas(fmt.Sprintf("f%d", resourceGroupsMaxItems)).
+				Resource(corev1.ResourceCPU, "1").
+				Obj(),
+		))
+
+		ginkgo.DescribeTable("Validate status.effectiveQuotas on update",
+			func(eq *kueue.EffectiveQuotaStatus, matcher types.GomegaMatcher) {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updateCohort kueue.Cohort
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), &updateCohort)).Should(gomega.Succeed())
+					updateCohort.Status.EffectiveQuotas = eq
+					err := k8sClient.Status().Update(ctx, &updateCohort)
+					g.Expect(err).Should(matcher)
+					if err == nil {
+						var gotCohort kueue.Cohort
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), &gotCohort)).Should(gomega.Succeed())
+						g.Expect(gotCohort.Status.EffectiveQuotas).Should(gomega.BeComparableTo(eq))
+					}
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			},
+			ginkgo.Entry("Should allow valid effectiveQuotas with empty resourceGroups",
+				utiltestingapi.MakeEffectiveQuotaStatus().Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow valid effectiveQuotas with resourceGroups",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(
+						utiltestingapi.ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas("f0").
+								Resource(corev1.ResourceCPU, "1").
+								Obj(),
+						),
+					).
+					Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow effectiveQuotas with maximum number of resourceGroups",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(maxResourceGroups...).
+					Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef apiGroup pattern",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					APIGroup("Invalid_APIGroup").
+					Obj(),
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef kind pattern",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					Kind("123Invalid").
+					Obj(),
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef name pattern",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					Name("@invalid").
+					Obj(),
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject effectiveQuotas with more than 16 resourceGroups",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(moreThanMaxResourceGroups...).
+					Obj(),
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject flavor resource count mismatch with coveredResources",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(
+						kueue.ResourceGroup{
+							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
+							Flavors: []kueue.FlavorQuotas{
+								*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU).Obj(),
+							},
+						},
+					).
+					Obj(),
+				utiltesting.BeInvalidError()),
+		)
 	})
 })

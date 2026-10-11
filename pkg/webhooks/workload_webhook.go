@@ -66,8 +66,10 @@ func (w *WorkloadWebhook) Default(ctx context.Context, wl *kueue.Workload) error
 	log := ctrl.LoggerFrom(ctx).WithName("workload-webhook")
 	log.V(5).Info("Applying defaults")
 
-	// drop minCounts if PartialAdmission is not enabled
-	if !features.Enabled(features.PartialAdmission) {
+	// Drop minCounts unless a feature that honors them is enabled for this Workload: classic
+	// PartialAdmission, or elastic partial scale-up (KEP-12100) for elastic jobs. minCounts of a
+	// disabled feature must not reach the scheduler.
+	if !workload.MinCountsUsable(wl) {
 		for i := range wl.Spec.PodSets {
 			wl.Spec.PodSets[i].MinCount = nil
 		}
@@ -120,11 +122,18 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 		}
 	}
 
-	if variableCountPodSets > 1 {
+	allErrs = append(allErrs, validateTopologySpreading(obj, oldObj)...)
+
+	// KEP-12100: elastic partial scale-up allows elastic Workloads to use minCount podSets,
+	// so both checks below are skipped for them.
+	elasticPartialScaleUp := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
+		workloadslicing.Enabled(obj)
+
+	if variableCountPodSets > 1 && !elasticPartialScaleUp {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "at most one podSet can use minCount"))
 	}
 
-	if variableCountPodSets > 0 && workloadslicing.Enabled(obj) {
+	if variableCountPodSets > 0 && !elasticPartialScaleUp && workloadslicing.Enabled(obj) {
 		allErrs = append(allErrs, field.Invalid(specPath.Child("podSets"), variableCountPodSets, "partial admission and elastic job cannot be used together"))
 	}
 
@@ -185,6 +194,10 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 
 	if features.Enabled(features.TASValidateWorkloadSliceSize) {
 		allErrs = append(allErrs, validateTASSliceSize(ps.TopologyRequest, path.Child("topologyRequest"))...)
+	}
+	if features.Enabled(features.TASRejectFalseUnconstrainedTopology) &&
+		ps.TopologyRequest != nil && ps.TopologyRequest.Unconstrained != nil && !*ps.TopologyRequest.Unconstrained {
+		allErrs = append(allErrs, field.Invalid(path.Child("topologyRequest", "unconstrained"), false, "must be true"))
 	}
 
 	return allErrs
@@ -304,8 +317,8 @@ func validateAdmission(obj, oldObj *kueue.Workload, path *field.Path) field.Erro
 		}
 		if count := ptr.Deref(ps.Count, 0); count > 0 {
 			for k, v := range ps.ResourceUsage {
-				if (resources.ResourceValue(k, v) % int64(count)) != 0 {
-					allErrs = append(allErrs, field.Invalid(psaPath.Child("resourceUsage").Key(string(k)), v, fmt.Sprintf("is not a multiple of %d", ps.Count)))
+				if resources.AmountFromQuantity(k, v).RemInt64(int64(count)).Sign() != 0 {
+					allErrs = append(allErrs, field.Invalid(psaPath.Child("resourceUsage").Key(string(k)), v, fmt.Sprintf("is not a multiple of %d", count)))
 				}
 			}
 		}

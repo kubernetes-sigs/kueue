@@ -22,21 +22,65 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
-// NodeFeasibilityChecker determines which topology leaves can satisfy pod requirements.
-type NodeFeasibilityChecker interface {
-	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
+type simulatorOptions struct {
+	assumedWorkloads []*kueue.Workload
 }
 
-// SchedulingSimulator acts as a factory for the feasibility checker and
-// maintains any per-pod state that its plugins require (e.g. hostPort tracking).
-type SchedulingSimulator interface {
-	NewFeasibilityChecker(ctx context.Context, nodes []*corev1.Node) (NodeFeasibilityChecker, error)
+type Option func(*simulatorOptions)
+
+// WithAssumedWorkloads configures the assumed workloads for virtual pod generation and deduplication
+func WithAssumedWorkloads(wls []*kueue.Workload) Option {
+	return func(o *simulatorOptions) {
+		o.assumedWorkloads = wls
+	}
+}
+
+// AssumedWorkloads extracts the assumed workloads from the given snapshot options.
+func AssumedWorkloads(options ...Option) []*kueue.Workload {
+	opts := &simulatorOptions{}
+	for _, opt := range options {
+		if opt != nil {
+			opt(opts)
+		}
+	}
+	return opts.assumedWorkloads
+}
+
+// Factory allows building instances of SchedulerSimulator
+// based on a snapshot of its internal state.
+// It also tracks all existing Pods (even those not managed by Kueue),
+// to ensure they're included in the snapshots.
+// This interface is purposed to control Kueue-WAS integration.
+// The "default" (non-WAS) implementation may trivialize some methods.
+type Factory interface {
+	NewSimulator(ctx context.Context, nodes []*corev1.Node, options ...Option) (SchedulerSimulator, error)
 	// TrackPod notifies the simulator that a pod is running on a node.
-	TrackPod(pod *corev1.Pod)
+	TrackPod(ctx context.Context, pod *corev1.Pod)
 	// UntrackPod notifies the simulator that a pod has been removed.
-	UntrackPod(key client.ObjectKey)
+	UntrackPod(ctx context.Context, key client.ObjectKey)
+}
+
+// SchedulerSimulator allows running simulations on a snapshotted cluster state.
+// This interface is purposed to control Kueue-WAS integration.
+// The default (non-WAS) implementation may trivialize some methods.
+type SchedulerSimulator interface {
+	// Simulate executes the provided function.
+	// After the simulation ends, any changes made to the snapshot state
+	// via its built-in methods will be reverted.
+	// The default implementation runs the method directly, as it disallows mutations on the snapshot.
+	Simulate(ctx context.Context, fn func()) error
+	// FindFeasibleNodes returns all candidates that can be scheduled
+	// with the given requirements, based on the current state of the snapshot.
+	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
+	// PreemptWorkload preempts the given workload, returning a function that reverts the preemption.
+	// When run inside Simulate, any changes made by the method or the returned revert function
+	// will be reverted regardless of their outcome (error vs success).
+	// The default implementation does not perform any logic here.
+	PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (revert func() error, err error)
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {

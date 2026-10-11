@@ -214,8 +214,8 @@ func TestResourceFlavorOptions_createResourceFlavor(t *testing.T) {
 				NodeTaints: []corev1.Taint{{Key: "key1", Value: "value", Effect: corev1.TaintEffectNoSchedule}},
 			},
 			expected: &kueue.ResourceFlavor{
-				TypeMeta:   metav1.TypeMeta{APIVersion: "kueue.x-k8s.io/v1beta2", Kind: "ResourceFlavor"},
-				ObjectMeta: metav1.ObjectMeta{Name: "rf"},
+				APIVersion: "kueue.x-k8s.io/v1beta2", Kind: "ResourceFlavor",
+				Name: "rf",
 				Spec: kueue.ResourceFlavorSpec{
 					NodeLabels: map[string]string{"key1": "value"},
 					NodeTaints: []corev1.Taint{{Key: "key1", Value: "value", Effect: corev1.TaintEffectNoSchedule}},
@@ -256,9 +256,9 @@ func TestResourceFlavorCmd(t *testing.T) {
 		"should create resource flavor": {
 			rfName: "rf",
 			wantRf: &kueue.ResourceFlavor{
-				TypeMeta:   metav1.TypeMeta{APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ResourceFlavor"},
-				ObjectMeta: metav1.ObjectMeta{Name: "rf"},
-				Spec:       kueue.ResourceFlavorSpec{},
+				APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ResourceFlavor",
+				Name: "rf",
+				Spec: kueue.ResourceFlavorSpec{},
 			},
 			wantOut: "resourceflavor.kueue.x-k8s.io/rf created\n",
 		},
@@ -266,8 +266,8 @@ func TestResourceFlavorCmd(t *testing.T) {
 			rfName: "rf",
 			args:   []string{"--node-labels", "kubernetes.io/arch=arm64,kubernetes.io/os=linux"},
 			wantRf: &kueue.ResourceFlavor{
-				TypeMeta:   metav1.TypeMeta{APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ResourceFlavor"},
-				ObjectMeta: metav1.ObjectMeta{Name: "rf"},
+				APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ResourceFlavor",
+				Name: "rf",
 				Spec: kueue.ResourceFlavorSpec{
 					NodeLabels: map[string]string{
 						corev1.LabelArchStable: "arm64",
@@ -281,8 +281,8 @@ func TestResourceFlavorCmd(t *testing.T) {
 			rfName: "rf",
 			args:   []string{"--node-taints", "key1=value:NoSchedule,key1=value:PreferNoSchedule,key2=value:NoSchedule,key3=value:NoSchedule"},
 			wantRf: &kueue.ResourceFlavor{
-				TypeMeta:   metav1.TypeMeta{APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ResourceFlavor"},
-				ObjectMeta: metav1.ObjectMeta{Name: "rf"},
+				APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ResourceFlavor",
+				Name: "rf",
 				Spec: kueue.ResourceFlavorSpec{
 					NodeTaints: []corev1.Taint{
 						{Key: "key1", Value: "value", Effect: corev1.TaintEffectNoSchedule},
@@ -303,8 +303,8 @@ func TestResourceFlavorCmd(t *testing.T) {
 			rfName: "rf",
 			args:   []string{"--tolerations", "key1=value:NoSchedule,key2:NoSchedule"},
 			wantRf: &kueue.ResourceFlavor{
-				TypeMeta:   metav1.TypeMeta{APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ResourceFlavor"},
-				ObjectMeta: metav1.ObjectMeta{Name: "rf"},
+				APIVersion: kueue.SchemeGroupVersion.String(), Kind: "ResourceFlavor",
+				Name: "rf",
 				Spec: kueue.ResourceFlavorSpec{
 					Tolerations: []corev1.Toleration{
 						{Key: "key1", Value: "value", Effect: corev1.TaintEffectNoSchedule, Operator: corev1.TolerationOpEqual},

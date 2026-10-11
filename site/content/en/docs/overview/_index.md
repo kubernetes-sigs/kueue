@@ -35,6 +35,37 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 - **Mixing training and inference**: Simultaneous management of batch workloads along with serving workloads (such as [Deployments](/docs/tasks/run/deployment/) or [StatefulSets](/docs/tasks/run/statefulset/))
 - **Multi-cluster job dispatching:** called [MultiKueue](/docs/concepts/multikueue/), allows to search for capacity and off-load the main cluster.
 - **Topology-Aware Scheduling**: Allows to optimize the pod-pod communication throughput by [scheduling aware of the data-center topology](/docs/concepts/topology_aware_scheduling/).
+- **Topology Spreading**: Allows to improve availability of serving workloads by [spreading separate workloads across failure domains](/docs/concepts/topology_aware_scheduling/#topology-spreading), limiting how many of them may occupy a single zone or rack.
+- **Dynamic Resource Allocation (DRA):** Quota management for devices such as GPUs requested through [DRA](/docs/concepts/dynamic_resource_allocation/), either with ResourceClaimTemplates or extended resources, including partitionable devices. Consumable capacity is available as an alpha feature.
+
+## In-tree integrations
+
+Kueue provides the following in-tree integrations:
+
+| Name | Graduation level |
+|------|------------------|
+| [AppWrapper](/docs/tasks/run/appwrappers/) | Stable |
+| [Batch Job](/docs/tasks/run/jobs/) | Stable |
+| [Deployment](/docs/tasks/run/deployment/) | Stable |
+| [JobSet](/docs/tasks/run/jobsets/) | Stable |
+| [LeaderWorkerSet](/docs/tasks/run/leaderworkerset/) | Stable |
+| [MPIJob](/docs/tasks/run/kubeflow/mpijobs/) | Stable |
+| [Pod and Pod groups](/docs/tasks/run/plain_pods/) | Stable |
+| [RayCluster](/docs/tasks/run/rayclusters/) | Stable |
+| [RayJob](/docs/tasks/run/rayjobs/) | Stable |
+| [RayService](/docs/tasks/run/rayservices/) | Stable |
+| [SparkApplication](/docs/tasks/run/kubeflow/sparkapplications/) | Alpha |
+| [StatefulSet](/docs/tasks/run/statefulset/) | Stable |
+| [TrainJob (Kubeflow Trainer v2)](/docs/tasks/run/trainjobs/) | Alpha |
+| [JAXJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/jaxjobs/) | Deprecated |
+| [PaddleJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/paddlejobs/) | Deprecated |
+| [PyTorchJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/pytorchjobs/) | Deprecated |
+| [TFJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/tfjobs/) | Deprecated |
+| [XGBoostJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/xgboostjobs/) | Deprecated |
+
+For the deprecated Kubeflow Trainer v1 integrations, migrate to
+[TrainJob (Kubeflow Trainer v2)](/docs/tasks/run/trainjobs/) or
+[JobSet](/docs/tasks/run/jobsets/).
 
 ## Job-integrated features
 
@@ -52,6 +83,7 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 | [All-or-nothing with ready Pods](/docs/concepts/workload/#all-or-nothing-semantics-for-job-resource-assignment) | +              | +      | +         | +          | +     | +        | +          | +      |   +    | +   | +          | +      | +          | +          | +           | +               |
 | [Fair Sharing](/docs/concepts/preemption/#fair-sharing)                                                         | +              | +      | +         | +          | +     | +        | +          | +      |   +    | +   | +          | +      | +          | +          | +           | +               |
 | [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling)                                           | +              | +      | +         | +          | +     | +        | +          | +      |   +    | +   | +          | +      | +          | +          | +           | +               |
+| [Topology Spreading](/docs/concepts/topology_aware_scheduling/#topology-spreading)                              |                |        |           |            |       |          |            |        |        | +   |            |        |            | +          |             | +               |
 
 ## High-level Kueue operation
 

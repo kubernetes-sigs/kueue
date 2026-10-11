@@ -47,20 +47,27 @@ func reportPendingWorkloads(m *Manager, cqRef kueue.ClusterQueueReference) {
 
 func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 	active, inadmissible := cq.PendingBreakdown()
+	// The trackers keep label sets whose count dropped to zero, so the label sets of
+	// both trackers cover every series reported for this ClusterQueue, including
+	// series of a status the workloads moved out of when the ClusterQueue was
+	// stopped or resumed.
+	allLabelVals := metrics.MergedTracker(inadmissible, active)
 	cqActive := m.statusChecker == nil || m.statusChecker.ClusterQueueActive(cq.name)
 	if !cqActive {
-		inadmissible = metrics.MergedTracker(inadmissible, active)
+		inadmissible = metrics.Copy(allLabelVals)
 		active = metrics.NewLabelValsTracker()
 	}
 	cqCustomLabels := m.customLabels.CQGet(cq.name)
 
 	if features.Enabled(features.CustomMetricLabels) && m.customLabels.KindConfigured(config.SourceKindWorkload) {
-		// Clear zero count label sets.
-		clearZeroWorkloadCounts(m, cq.name, active, metrics.PendingStatusActive)
-		clearZeroWorkloadCounts(m, cq.name, inadmissible, metrics.PendingStatusInadmissible)
-		// Populate metrics for non-zero counts.
-		reportPendingWorkloadCounts(m, cq.name, active, metrics.PendingStatusActive)
-		reportPendingWorkloadCounts(m, cq.name, inadmissible, metrics.PendingStatusInadmissible)
+		for wlLabelVals := range allLabelVals.Iter() {
+			customLabels := m.customLabels.CombineLabelValues(map[config.SourceKind][]string{
+				config.SourceKindClusterQueue: cqCustomLabels,
+				config.SourceKindWorkload:     wlLabelVals.OrderedList(),
+			})
+			reportOrClearPendingWorkloads(m, cq.name, metrics.PendingStatusActive, active.Count(wlLabelVals), customLabels)
+			reportOrClearPendingWorkloads(m, cq.name, metrics.PendingStatusInadmissible, inadmissible.Count(wlLabelVals), customLabels)
+		}
 	} else {
 		metrics.ReportPendingWorkloads(cq.name, metrics.PendingStatusActive, active.Total(), cqCustomLabels, m.roleTracker)
 		metrics.ReportPendingWorkloads(cq.name, metrics.PendingStatusInadmissible, inadmissible.Total(), cqCustomLabels, m.roleTracker)
@@ -81,51 +88,65 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 		// Update), so iterating it once covers both the zero-series and actual pending.
 		pendingResources := cq.pendingResources()
 		for resourceName, v := range pendingResources {
-			q := m.resourceFormatter.ResourceQuantity(resourceName, v)
+			q := m.resourceFormatter.AmountQuantity(resourceName, v)
 			metrics.ReportClusterQueueResourcePending(string(cq.name), string(resourceName), utilresource.QuantityToFloat(&q), cqCustomLabels, m.roleTracker)
 		}
 	}
 }
 
-func clearZeroWorkloadCounts(m *Manager, cq kueue.ClusterQueueReference, tracker *metrics.LabelValsTracker, pendingStatus string) {
-	cqCustomLabels := m.customLabels.CQGet(cq)
-	for wlLabelVals := range tracker.PopZeroCounts() {
-		customLabels := m.customLabels.CombineLabelValues(map[config.SourceKind][]string{
-			config.SourceKindClusterQueue: cqCustomLabels,
-			config.SourceKindWorkload:     wlLabelVals.OrderedList(),
-		})
+func reportOrClearPendingWorkloads(m *Manager, cq kueue.ClusterQueueReference, pendingStatus string, count int, customLabels []string) {
+	if count == 0 {
 		metrics.ClearPendingWorkloads(cq, pendingStatus, customLabels, m.roleTracker)
+		return
 	}
-}
-
-func reportPendingWorkloadCounts(m *Manager, cq kueue.ClusterQueueReference, tracker *metrics.LabelValsTracker, pendingStatus string) {
-	cqCustomLabels := m.customLabels.CQGet(cq)
-	for wlLabelVals, count := range tracker.Iter() {
-		customLabels := m.customLabels.CombineLabelValues(map[config.SourceKind][]string{
-			config.SourceKindClusterQueue: cqCustomLabels,
-			config.SourceKindWorkload:     wlLabelVals.OrderedList(),
-		})
-		metrics.ReportPendingWorkloads(cq, pendingStatus, count, customLabels, m.roleTracker)
-	}
+	metrics.ReportPendingWorkloads(cq, pendingStatus, count, customLabels, m.roleTracker)
 }
 
 func reportLQPendingWorkloads(m *Manager, lq *LocalQueue) {
 	if !m.lqMetrics.ShouldExposeLocalQueueMetrics(lq.labels) {
 		return
 	}
-	var active, inadmissible int
-	if cq := m.getClusterQueueLockless(lq.ClusterQueue); cq != nil {
-		active, inadmissible = cq.PendingInLocalQueue(lq.Key)
-	}
-	if m.statusChecker != nil && !m.statusChecker.ClusterQueueActive(lq.ClusterQueue) {
-		inadmissible += active
-		active = 0
-	}
 	namespace, lqName := queue.MustParseLocalQueueReference(lq.Key)
-	metrics.ReportLocalQueuePendingWorkloads(metrics.LocalQueueReference{
-		Name:      lqName,
-		Namespace: namespace,
-	}, active, inadmissible, m.customLabels.LQGet(lq.Key), m.roleTracker)
+	lqRef := metrics.LocalQueueReference{Name: lqName, Namespace: namespace}
+	cqActive := m.statusChecker == nil || m.statusChecker.ClusterQueueActive(lq.ClusterQueue)
+
+	if features.Enabled(features.CustomMetricLabels) && m.customLabels.KindConfigured(config.SourceKindWorkload) {
+		var active, inadmissible *metrics.LabelValsTracker
+		if cq := m.getClusterQueueLockless(lq.ClusterQueue); cq != nil {
+			active, inadmissible = cq.PendingBreakdownInLocalQueue(lq.Key)
+		} else {
+			active, inadmissible = metrics.NewLabelValsTracker(), metrics.NewLabelValsTracker()
+		}
+		if !cqActive {
+			inadmissible = metrics.MergedTracker(inadmissible, active)
+			active = metrics.NewLabelValsTracker()
+		}
+		// Clear all existing series before re-reporting to remove stale label combinations.
+		metrics.ClearLocalQueuePendingWorkloadsSeries(lqRef)
+		lqCustomLabels := m.customLabels.LQGet(lq.Key)
+		reportLQPendingWorkloadCounts(m, lqRef, lqCustomLabels, active, metrics.PendingStatusActive)
+		reportLQPendingWorkloadCounts(m, lqRef, lqCustomLabels, inadmissible, metrics.PendingStatusInadmissible)
+	} else {
+		var active, inadmissible int
+		if cq := m.getClusterQueueLockless(lq.ClusterQueue); cq != nil {
+			active, inadmissible = cq.PendingInLocalQueue(lq.Key)
+		}
+		if !cqActive {
+			inadmissible += active
+			active = 0
+		}
+		metrics.ReportLocalQueuePendingWorkloads(lqRef, active, inadmissible, m.customLabels.LQGet(lq.Key), m.roleTracker)
+	}
+}
+
+func reportLQPendingWorkloadCounts(m *Manager, lqRef metrics.LocalQueueReference, lqCustomLabels []string, tracker *metrics.LabelValsTracker, status string) {
+	for wlLabelVals, count := range tracker.Iter() {
+		customLabels := m.customLabels.CombineLabelValues(map[config.SourceKind][]string{
+			config.SourceKindLocalQueue: lqCustomLabels,
+			config.SourceKindWorkload:   wlLabelVals.OrderedList(),
+		})
+		metrics.ReportLocalQueuePendingWorkloadsByWorkload(lqRef, status, count, customLabels, m.roleTracker)
+	}
 }
 
 func reportLQFinishedWorkloads(m *Manager, lq *LocalQueue) {

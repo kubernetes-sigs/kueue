@@ -50,7 +50,8 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 const (
@@ -68,6 +69,13 @@ func (c *cluster) kubeConfigBytes() ([]byte, error) {
 	return utiltesting.RestConfigToKubeConfig(c.cfg)
 }
 
+func (c *cluster) stopAndTeardown() {
+	ctx, cancel := context.WithTimeout(c.ctx, behavioral.LongTimeout)
+	defer cancel()
+	c.fwk.StopManager(ctx)
+	c.fwk.Teardown()
+}
+
 var (
 	managerK8sVersion       *versionutil.Version
 	managerTestCluster      cluster
@@ -82,15 +90,15 @@ var (
 )
 
 func TestMultiKueue(t *testing.T) {
-	util.RunSuite(t, "MultiKueue TAS Suite")
+	behavioral.RunSuite(t, "MultiKueue TAS Suite")
 }
 
 func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) cluster {
 	c := cluster{}
 	c.fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 		DepCRDPaths: []string{
-			util.AutoscalerCrds,
+			behavioral.AutoscalerCrds,
 		},
 		APIServerFeatureGates: apiFeatureGates,
 	}
@@ -119,7 +127,7 @@ func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.Integr
 	cCache := schdcache.New(mgr.GetClient())
 	preemptionExpectations := preemptexpectations.New()
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+	queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 	jobOptions := []jobframework.Option{
 		jobframework.WithIntegrationManager(integrationManager),
 		jobframework.WithCache(cCache),
@@ -237,11 +245,11 @@ var _ = ginkgo.BeforeSuite(func() {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	managersConfigNamespace = utiltesting.MakeNamespace("kueue-system")
-	util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managersConfigNamespace)
+	behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managersConfigNamespace)
 })
 
 var _ = ginkgo.AfterSuite(func() {
-	managerTestCluster.fwk.Teardown()
-	worker1TestCluster.fwk.Teardown()
-	worker2TestCluster.fwk.Teardown()
+	managerTestCluster.stopAndTeardown()
+	worker1TestCluster.stopAndTeardown()
+	worker2TestCluster.stopAndTeardown()
 })

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -29,6 +30,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	authorizationv1 "k8s.io/api/authorization/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	toolscache "k8s.io/client-go/tools/cache"
 	"kueueviz/middleware"
@@ -47,6 +49,9 @@ const (
 	// trigger the token re-validation ticker without waiting 30 seconds.
 	testTokenRevalidationInterval = 100 * time.Millisecond
 
+	// testHeartbeatInterval is a short interval used in tests to quickly
+	// trigger WebSocket heartbeat pings without waiting 30 seconds.
+	testHeartbeatInterval = 100 * time.Millisecond
 	// testPollInterval is the polling frequency used in waitUntil calls.
 	testPollInterval = 10 * time.Millisecond
 
@@ -245,7 +250,8 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 					return map[string]int64{"call": fetchCalls.Add(1)}, nil
 				}
 
-				conn, closeServer := newTestWebSocketConnection(t, &Handlers{client: client}, dataFetcher, gvkA, gvkB)
+				h := New(client, nil, nil)
+				conn, closeServer := newTestWebSocketConnection(t, h, dataFetcher, gvkA, gvkB)
 				defer closeServer()
 				defer conn.Close()
 
@@ -276,11 +282,8 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 					return map[string]int64{"call": fetchCalls.Add(1)}, nil
 				}
 
-				h := &Handlers{
-					client:                    client,
-					validator:                 validator,
-					tokenRevalidationInterval: testTokenRevalidationInterval,
-				}
+				h := New(client, validator, nil)
+				h.tokenRevalidationInterval = testTokenRevalidationInterval
 				conn, closeServer := newTestWebSocketConnectionWithToken(t, h, "test-token", dataFetcher, gvk)
 				defer closeServer()
 
@@ -307,8 +310,7 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 					if err == nil {
 						t.Fatalf("expected read error due to connection closure, but got none")
 					}
-					var closeErr *websocket.CloseError
-					if errors.As(err, &closeErr) {
+					if closeErr, ok := errors.AsType[*websocket.CloseError](err); ok {
 						if closeErr.Code != websocket.ClosePolicyViolation {
 							t.Fatalf("expected close code %d, got %d", websocket.ClosePolicyViolation, closeErr.Code)
 						}
@@ -336,7 +338,8 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 					return map[string]string{"status": "ok"}, nil
 				}
 
-				conn, closeServer := newTestWebSocketConnection(t, &Handlers{client: client}, dataFetcher, gvkA, gvkB)
+				h := New(client, nil, nil)
+				conn, closeServer := newTestWebSocketConnection(t, h, dataFetcher, gvkA, gvkB)
 				defer closeServer()
 
 				readMessage(t, conn)
@@ -366,7 +369,8 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 					return map[string]int64{"call": fetchCalls.Add(1)}, nil
 				}
 
-				conn, closeServer := newTestWebSocketConnection(t, &Handlers{client: client}, dataFetcher, gvk)
+				h := New(client, nil, nil)
+				conn, closeServer := newTestWebSocketConnection(t, h, dataFetcher, gvk)
 				defer closeServer()
 				defer conn.Close()
 
@@ -413,6 +417,65 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 				}
 			},
 		},
+		"sends websocket heartbeat ping": {
+			run: func(t *testing.T) {
+				gvk := schema.GroupVersionKind{
+					Group:   "group",
+					Version: "v1",
+					Kind:    "Kind",
+				}
+
+				informer := newMockInformer()
+				client := newMockClient(
+					map[schema.GroupVersionKind]*mockInformer{
+						gvk: informer,
+					},
+				)
+
+				dataFetcher := func(_ context.Context) (any, error) {
+					return map[string]string{"status": "ok"}, nil
+				}
+
+				h := New(client, nil, nil)
+				h.heartbeatInterval = testHeartbeatInterval
+				conn, closeServer := newTestWebSocketConnection(t, h, dataFetcher, gvk)
+				defer closeServer()
+				defer conn.Close()
+
+				// Consume the initial data snapshot.
+				readMessage(t, conn)
+
+				pingReceived := make(chan struct{}, 1)
+				defaultPingHandler := conn.PingHandler()
+
+				conn.SetPingHandler(func(appData string) error {
+					select {
+					case pingReceived <- struct{}{}:
+					default:
+					}
+
+					return defaultPingHandler(appData)
+				})
+
+				readErr := make(chan error, 1)
+				go func() {
+					for {
+						if _, _, err := conn.ReadMessage(); err != nil {
+							readErr <- err
+							return
+						}
+					}
+				}()
+
+				select {
+				case <-pingReceived:
+				case err := <-readErr:
+					t.Fatalf("read websocket message: %v", err)
+				case <-time.After(testTimeout):
+					t.Fatalf("timeout waiting for WebSocket heartbeat ping")
+				}
+			},
+		},
 		"enforces websocket read limit": {
 			run: func(t *testing.T) {
 				gvk := schema.GroupVersionKind{Group: "group", Version: "v1", Kind: "Kind"}
@@ -424,7 +487,8 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 					return map[string]string{"status": "ok"}, nil
 				}
 
-				conn, closeServer := newTestWebSocketConnection(t, &Handlers{client: client}, dataFetcher, gvk)
+				h := New(client, nil, nil)
+				conn, closeServer := newTestWebSocketConnection(t, h, dataFetcher, gvk)
 				defer closeServer()
 				defer conn.Close()
 
@@ -458,6 +522,43 @@ func TestWebSocketHandleInformerUpdates(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			gin.SetMode(gin.TestMode)
 			tc.run(t)
+		})
+	}
+}
+
+func TestAuthMiddlewareAuthorization(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := map[string]struct {
+		authorizer middleware.Authorizer
+		wantCode   int
+	}{
+		"denied caller is rejected before upgrade": {
+			authorizer: stubAuthorizer{allowed: false},
+			wantCode:   http.StatusForbidden,
+		},
+		"authorization backend error surfaces as 503": {
+			authorizer: stubAuthorizer{allowed: false, err: errors.New("sar failed")},
+			wantCode:   http.StatusServiceUnavailable,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			authMW := middleware.RequireAuthorization(tc.authorizer, func(c *gin.Context) []authorizationv1.ResourceAttributes {
+				return []authorizationv1.ResourceAttributes{middleware.ResourceAccess("list", WorkloadsGVR(), "", "")}
+			})
+			router := gin.New()
+			router.GET("/ws/test", authMW, func(c *gin.Context) {
+				c.Status(http.StatusOK)
+			})
+
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/ws/test", nil))
+
+			if w.Code != tc.wantCode {
+				t.Fatalf("status = %d, want %d; body=%s", w.Code, tc.wantCode, w.Body.String())
+			}
 		})
 	}
 }

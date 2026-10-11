@@ -21,17 +21,99 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
+// withResourceClaims sets PodSpec.ResourceClaims directly, bypassing the
+// PodSetWrapper.ResourceClaim helper which also links a matching container
+// claim reference.
+func withResourceClaims(ps *kueue.PodSet, claims ...corev1.PodResourceClaim) kueue.PodSet {
+	ps.Template.Spec.ResourceClaims = claims
+	return *ps
+}
+
+func TestComparePodTemplate(t *testing.T) {
+	base := corev1.PodSpec{
+		Containers: []corev1.Container{{
+			Name: "c",
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+			},
+		}},
+		NodeSelector: map[string]string{"f1l1": "v1"},
+	}
+
+	cases := map[string]struct {
+		a    corev1.PodSpec
+		b    corev1.PodSpec
+		want bool
+	}{
+		"identical": {
+			a:    *base.DeepCopy(),
+			b:    *base.DeepCopy(),
+			want: true,
+		},
+		"identical ignoring non-compared PodSpec fields": {
+			// Only containers/initContainers/tolerations are compared. nodeSelector
+			// and API-defaulted fields are ignored.
+			a: func() corev1.PodSpec {
+				ps := *base.DeepCopy()
+				ps.NodeSelector = map[string]string{"f2l1": "v2"}
+				ps.RestartPolicy = corev1.RestartPolicyAlways
+				ps.DNSPolicy = corev1.DNSClusterFirst
+				ps.SchedulerName = "default-scheduler"
+				ps.TerminationGracePeriodSeconds = ptr.To[int64](30)
+				ps.SecurityContext = &corev1.PodSecurityContext{}
+				return ps
+			}(),
+			b:    *base.DeepCopy(),
+			want: true,
+		},
+		"different container resources": {
+			a: func() corev1.PodSpec {
+				ps := *base.DeepCopy()
+				ps.Containers[0].Resources.Requests[corev1.ResourceCPU] = resource.MustParse("2")
+				return ps
+			}(),
+			b:    *base.DeepCopy(),
+			want: false,
+		},
+		"different tolerations": {
+			a: func() corev1.PodSpec {
+				ps := *base.DeepCopy()
+				ps.Tolerations = []corev1.Toleration{{
+					Key:      "k",
+					Value:    "v",
+					Operator: corev1.TolerationOpEqual,
+					Effect:   corev1.TaintEffectNoSchedule,
+				}}
+				return ps
+			}(),
+			b:    *base.DeepCopy(),
+			want: false,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := ComparePodTemplate(&tc.a, &tc.b); got != tc.want {
+				t.Errorf("ComparePodTemplate() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestComparePodSetSlices(t *testing.T) {
 	cases := map[string]struct {
-		a                 []kueue.PodSet
-		b                 []kueue.PodSet
-		ignoreTolerations bool
-		wantEquivalent    bool
+		a                         []kueue.PodSet
+		b                         []kueue.PodSet
+		ignoreTolerations         bool
+		ignoreTopologyRequest     bool
+		ignoreTopologyIndexLabels bool
+		wantEquivalent            bool
 	}{
 		"different name": {
 			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
@@ -46,6 +128,61 @@ func TestComparePodSetSlices(t *testing.T) {
 		"different node selector": {
 			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
 			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).NodeSelector(map[string]string{"key": "val"}).Obj()},
+			wantEquivalent: true,
+		},
+		"same required topology": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RequiredTopologyRequest(corev1.LabelHostname).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RequiredTopologyRequest(corev1.LabelHostname).Obj()},
+			wantEquivalent: true,
+		},
+		"different required topology": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RequiredTopologyRequest(corev1.LabelHostname).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RequiredTopologyRequest(corev1.LabelTopologyZone).Obj()},
+			wantEquivalent: false,
+		},
+		"different required topology ignored": {
+			a:                     []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RequiredTopologyRequest(corev1.LabelHostname).Obj()},
+			b:                     []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RequiredTopologyRequest(corev1.LabelTopologyZone).Obj()},
+			ignoreTopologyRequest: true,
+			wantEquivalent:        true,
+		},
+		"topology request present on one side": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RequiredTopologyRequest(corev1.LabelHostname).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).Obj()},
+			wantEquivalent: false,
+		},
+		"required and preferred topology": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).RequiredTopologyRequest(corev1.LabelHostname).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).PreferredTopologyRequest(corev1.LabelHostname).Obj()},
+			wantEquivalent: false,
+		},
+		"derived pod index without topology constraint": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).PodIndexLabel(new("index")).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).Obj()},
+			wantEquivalent: true,
+		},
+		"different pod index under topology constraint": {
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				PodIndexLabel(new("index-a")).
+				Obj()},
+			b: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				PodIndexLabel(new("index-b")).
+				Obj()},
+			wantEquivalent: false,
+		},
+		"legacy and unified slice topology constraints": {
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				SliceRequiredTopologyRequest(corev1.LabelHostname).
+				SliceSizeTopologyRequest(2).
+				Obj()},
+			b: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				SliceRequiredTopologyConstraints(kueue.PodsetSliceRequiredTopologyConstraint{
+					Topology: corev1.LabelHostname,
+					Size:     2,
+				}).
+				Obj()},
 			wantEquivalent: true,
 		},
 		"different requests": {
@@ -86,6 +223,43 @@ func TestComparePodSetSlices(t *testing.T) {
 				Effect:   corev1.TaintEffectNoSchedule,
 			}).Obj()},
 			wantEquivalent: false,
+		},
+		"different pod-level resources": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).PodLevelRequest("res", "1").Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).PodLevelRequest("res", "2").Obj()},
+			wantEquivalent: false,
+		},
+		"pod-level resources present vs omitted": {
+			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
+			b:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).PodLevelRequest("res", "1").Obj()},
+			wantEquivalent: false,
+		},
+		"resource claims present vs omitted": {
+			// Set PodSpec.ResourceClaims directly, without a matching container
+			// claim reference, so the case exercises only the PodSpec-level
+			// field and doesn't also trip the (already covered) Containers comparison.
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
+			b: []kueue.PodSet{withResourceClaims(
+				utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj(),
+				corev1.PodResourceClaim{Name: "claim", ResourceClaimName: new("rc")},
+			)},
+			wantEquivalent: false,
+		},
+		"resource claims in reversed order": {
+			// Order is not semantically significant for a +listType=map field, so
+			// two PodSets differing only in ResourceClaims order must still be
+			// treated as equivalent.
+			a: []kueue.PodSet{withResourceClaims(
+				utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj(),
+				corev1.PodResourceClaim{Name: "claim-a", ResourceClaimName: new("rc-a")},
+				corev1.PodResourceClaim{Name: "claim-b", ResourceClaimName: new("rc-b")},
+			)},
+			b: []kueue.PodSet{withResourceClaims(
+				utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj(),
+				corev1.PodResourceClaim{Name: "claim-b", ResourceClaimName: new("rc-b")},
+				corev1.PodResourceClaim{Name: "claim-a", ResourceClaimName: new("rc-a")},
+			)},
+			wantEquivalent: true,
 		},
 		"different count": {
 			a:              []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).SetMinimumCount(5).Obj()},
@@ -136,12 +310,68 @@ func TestComparePodSetSlices(t *testing.T) {
 			},
 			wantEquivalent: true,
 		},
+		"ignore topology index labels: missing pod index label, subgroup index label, and subgroup count": {
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				PodIndexLabel(new("index")).
+				SubGroupIndexLabel(new("subgroup")).
+				SubGroupCount(new(int32(2))).
+				Obj()},
+			b: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Obj()},
+			ignoreTopologyIndexLabels: true,
+			wantEquivalent:            true,
+		},
+		"ignore topology index labels disabled: different pod index label": {
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				PodIndexLabel(new("index")).
+				SubGroupCount(new(int32(2))).
+				Obj()},
+			b: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Obj()},
+			ignoreTopologyIndexLabels: false,
+			wantEquivalent:            false,
+		},
+		"ignore topology index labels: different constraints should still mismatch": {
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				PodIndexLabel(new("index")).
+				SubGroupCount(new(int32(2))).
+				Obj()},
+			b: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelTopologyZone).
+				Obj()},
+			ignoreTopologyIndexLabels: true,
+			wantEquivalent:            false,
+		},
+		"ignore topology index labels: symmetric comparison": {
+			a: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Obj()},
+			b: []kueue.PodSet{*utiltestingapi.MakePodSet("ps", 10).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				PodIndexLabel(new("index")).
+				SubGroupIndexLabel(new("subgroup")).
+				SubGroupCount(new(int32(2))).
+				Obj()},
+			ignoreTopologyIndexLabels: true,
+			wantEquivalent:            true,
+		},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			options := make([]ComparePodSetsOption, 0, 1)
 			if tc.ignoreTolerations {
 				options = append(options, WithIgnoreTolerations())
+			}
+			if tc.ignoreTopologyRequest {
+				options = append(options, WithIgnoreTopologyRequest())
+			}
+			if tc.ignoreTopologyIndexLabels {
+				options = append(options, WithIgnoreTopologyIndexLabels())
 			}
 			got := ComparePodSetSlices(tc.a, tc.b, options...)
 			if got != tc.wantEquivalent {

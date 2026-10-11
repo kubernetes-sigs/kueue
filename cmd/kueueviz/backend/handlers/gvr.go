@@ -99,6 +99,15 @@ func EventsGVK() schema.GroupVersionKind {
 	}
 }
 
+// CohortsGVK returns the GroupVersionKind for Cohorts
+func CohortsGVK() schema.GroupVersionKind {
+	return schema.GroupVersionKind{
+		Group:   "kueue.x-k8s.io",
+		Version: "v1beta2",
+		Kind:    "Cohort",
+	}
+}
+
 // NodesGVK returns the GroupVersionKind for Nodes
 func NodesGVK() schema.GroupVersionKind {
 	return schema.GroupVersionKind{

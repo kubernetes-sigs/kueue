@@ -32,15 +32,14 @@ type ServiceWrapper struct{ rayv1.RayService }
 // MakeService creates a wrapper for a suspended RayService
 func MakeService(name, ns string) *ServiceWrapper {
 	return &ServiceWrapper{rayv1.RayService{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: rayv1.RayServiceSpec{
+			Suspend: true,
 			RayClusterSpec: rayv1.RayClusterSpec{
 				RayVersion: utiltesting.TestRayVersion(),
-				Suspend:    new(true),
+				Suspend:    new(false),
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					RayStartParams: map[string]string{},
 					Template: corev1.PodTemplateSpec{
@@ -95,7 +94,7 @@ func (j *ServiceWrapper) Obj() *rayv1.RayService {
 
 // Suspend updates the suspend status of the RayService
 func (j *ServiceWrapper) Suspend(s bool) *ServiceWrapper {
-	j.Spec.RayClusterSpec.Suspend = new(s)
+	j.Spec.Suspend = s
 	return j
 }
 
@@ -276,6 +275,12 @@ func (j *ServiceWrapper) RayVersion(rv string) *ServiceWrapper {
 	return j
 }
 
+// UpgradeStrategy sets the RayService upgrade strategy.
+func (j *ServiceWrapper) UpgradeStrategy(upgradeType rayv1.RayServiceUpgradeType) *ServiceWrapper {
+	j.Spec.UpgradeStrategy = &rayv1.RayServiceUpgradeStrategy{Type: &upgradeType}
+	return j
+}
+
 // ManagedBy sets the ManagedBy field on the RayService spec.
 func (j *ServiceWrapper) ManagedBy(c string) *ServiceWrapper {
 	j.Spec.ManagedBy = &c
@@ -291,6 +296,11 @@ func (j *ServiceWrapper) EnableInTreeAutoscaling() *ServiceWrapper {
 		UpscalingMode:      &aggressive,
 		IdleTimeoutSeconds: &idleTimeoutSeconds,
 	}
+	return j
+}
+
+func (j *ServiceWrapper) WithHistoryServerOptions(value *rayv1.HistoryServerOptions) *ServiceWrapper {
+	j.Spec.RayClusterSpec.HistoryServerOptions = value
 	return j
 }
 

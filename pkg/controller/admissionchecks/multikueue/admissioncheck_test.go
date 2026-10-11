@@ -22,7 +22,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -236,6 +235,45 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
+		"updates observed generation after changing to an equally active config": {
+			reconcileFor: "ac1",
+			checks: []kueue.AdmissionCheck{
+				*utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config2").
+					Generation(2).
+					Condition(metav1.Condition{
+						Type:               kueue.AdmissionCheckActive,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Active",
+						Message:            "The admission check is active",
+						ObservedGeneration: 1,
+					}).
+					Obj(),
+			},
+			configs: []kueue.MultiKueueConfig{
+				*utiltestingapi.MakeMultiKueueConfig("config2").Clusters("worker1").Obj(),
+			},
+			clusters: []kueue.MultiKueueCluster{
+				*utiltestingapi.MakeMultiKueueCluster("worker1").
+					Active(metav1.ConditionTrue, "ByTest", "by test", 1).
+					Obj(),
+			},
+			wantChecks: []kueue.AdmissionCheck{
+				*utiltestingapi.MakeAdmissionCheck("ac1").
+					ControllerName(kueue.MultiKueueControllerName).
+					Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config2").
+					Generation(2).
+					Condition(metav1.Condition{
+						Type:               kueue.AdmissionCheckActive,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Active",
+						Message:            "The admission check is active",
+						ObservedGeneration: 2,
+					}).
+					Obj(),
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -258,7 +296,7 @@ func TestReconcile(t *testing.T) {
 			helper, _ := admissioncheck.NewMultiKueueStoreHelper(c)
 			reconciler := newACReconciler(c, helper, nil)
 
-			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: types.NamespacedName{Name: tc.reconcileFor}})
+			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{Name: tc.reconcileFor})
 			if diff := cmp.Diff(tc.wantError, gotErr); diff != "" {
 				t.Errorf("unexpected error (-want/+got):\n%s", diff)
 			}

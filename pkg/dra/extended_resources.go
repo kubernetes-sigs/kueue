@@ -19,12 +19,15 @@ package dra
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	resourceapi "k8s.io/api/resource/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	resourcehelpers "k8s.io/component-helpers/resource"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -37,7 +40,8 @@ import (
 // NeedsDRAReconcile returns true if the workload needs DRA processing in Reconcile.
 // For extended resources, checks the provided cache to confirm the resource
 // is backed by a DeviceClass before triggering DRA reconciliation.
-func NeedsDRAReconcile(wl *kueue.Workload, erCache *ExtendedResourceCache) bool {
+func NeedsDRAReconcile(wi *workload.Info, erCache *ExtendedResourceCache) bool {
+	wl := wi.Obj
 	if workload.IsOnHold(wl) {
 		return false
 	}
@@ -53,8 +57,8 @@ func NeedsDRAReconcile(wl *kueue.Workload, erCache *ExtendedResourceCache) bool 
 		return false
 	}
 	for i := range wl.Spec.PodSets {
-		ps := &wl.Spec.PodSets[i]
-		for _, containers := range [][]corev1.Container{ps.Template.Spec.InitContainers, ps.Template.Spec.Containers} {
+		spec := wi.PodSpec(i)
+		for _, containers := range [][]corev1.Container{spec.InitContainers, spec.Containers} {
 			for _, c := range containers {
 				for name, qty := range c.Resources.Requests {
 					if !qty.IsZero() && utilresource.IsExtendedResourceName(name) && erCache.Has(name) {
@@ -93,111 +97,175 @@ func selectedDeviceClass(items []resourceapi.DeviceClass) *resourceapi.DeviceCla
 	return selected
 }
 
-// resolveContainerExtendedResources converts DRA-backed extended resources in a
-// container's requests into logical quota keys. For each extended resource, it looks
-// up DeviceClasses by spec.extendedResourceName, selects the one the scheduler would
-// allocate from, and uses that class's deviceClassMappings entry as the quota key;
-// otherwise the extendedResourceName itself is used. Returns the converted resources
-// and the set of original resource names that were replaced (for double-count prevention).
-func resolveContainerExtendedResources(
+// extendedResourceRequests extracts a container's positive extended resource requests,
+// keyed by their original (unmapped) resource name. A zero or negative quantity is
+// dropped here rather than merged into a logical quota key later, since a negative
+// value could otherwise cancel out part of another resource's charge under the same
+// key (e.g. a ResourceClaimTemplate). Quantities are not validated here:
+// the integer-only rule only applies to resources that turn out to be DRA-backed, which
+// isn't known until a DeviceClass is resolved for the name later in
+// ResolveExtendedResourceQuota. Validating here would reject fractional requests for
+// extended resources that aren't DRA-backed at all, which the standard (non-DRA) quota
+// path accepts.
+func extendedResourceRequests(container corev1.Container) corev1.ResourceList {
+	result := corev1.ResourceList{}
+
+	for resourceName, quantity := range container.Resources.Requests {
+		if quantity.Sign() <= 0 || !utilresource.IsExtendedResourceName(resourceName) {
+			continue
+		}
+		result[resourceName] = quantity
+	}
+	return result
+}
+
+// ResolveDeviceClass returns the DeviceClass kube-scheduler would allocate resourceName
+// from, or nil when the name is an ordinary extended resource that no DeviceClass backs.
+//
+// A class answers to the extended resource name it declares and to an implicit name it
+// carries either way.
+func ResolveDeviceClass(ctx context.Context, cl client.Client, resourceName corev1.ResourceName) (*resourceapi.DeviceClass, error) {
+	if className, ok := strings.CutPrefix(string(resourceName), resourceapi.ResourceDeviceClassPrefix); ok {
+		deviceClass := &resourceapi.DeviceClass{}
+		if err := cl.Get(ctx, client.ObjectKey{Name: className}, deviceClass); err != nil {
+			if apierrors.IsNotFound(err) {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("getting DeviceClass %q for extended resource %q: %w", className, resourceName, err)
+		}
+		return deviceClass, nil
+	}
+
+	var dcList resourceapi.DeviceClassList
+	if err := cl.List(ctx, &dcList, client.MatchingFields{
+		"spec.extendedResourceName": string(resourceName),
+	}); err != nil {
+		return nil, fmt.Errorf("listing DeviceClasses for extended resource %q: %w", resourceName, err)
+	}
+	if len(dcList.Items) == 0 {
+		return nil, nil
+	}
+	return selectedDeviceClass(dcList.Items), nil
+}
+
+// resolveQuotaKey looks up the DeviceClasses backing resourceName by
+// spec.extendedResourceName, selects the one the scheduler would allocate from, and
+// returns that class's deviceClassMappings entry as the quota key; otherwise
+// resourceName itself is used. Returns "" if resourceName is not DRA-backed (no
+// matching DeviceClass).
+func resolveQuotaKey(
 	ctx context.Context,
 	cl client.Client,
 	mapper *ResourceMapper,
-	container corev1.Container,
-	containerPath *field.Path,
-) (corev1.ResourceList, sets.Set[corev1.ResourceName], field.ErrorList) {
+	resourceName corev1.ResourceName,
+	path *field.Path,
+) (corev1.ResourceName, field.ErrorList) {
 	log := ctrl.LoggerFrom(ctx)
-	result := corev1.ResourceList{}
-	replaced := sets.New[corev1.ResourceName]()
+	log.V(4).Info("Checking extended resource for DRA backing", "resource", resourceName)
+
+	selected, err := ResolveDeviceClass(ctx, cl, resourceName)
+	if err != nil {
+		return "", field.ErrorList{field.InternalError(
+			path.Child("resources", "requests", string(resourceName)), err,
+		)}
+	}
+	if selected == nil {
+		log.V(4).Info("No DeviceClass found, not a DRA-backed extended resource", "resource", resourceName)
+		return "", nil
+	}
+
+	// Determine the quota key. If the DeviceClass is also in deviceClassMappings,
+	// use the mapped logical name to unify quota with the ResourceClaimTemplate path.
+	// Otherwise, use the extendedResourceName directly.
+	quotaKey := resourceName
 	var errs field.ErrorList
-
-	for resourceName, quantity := range container.Resources.Requests {
-		if quantity.IsZero() || !utilresource.IsExtendedResourceName(resourceName) {
-			continue
-		}
-
-		log.V(4).Info("Checking extended resource for DRA backing", "resource", resourceName, "quantity", quantity.String())
-
-		var dcList resourceapi.DeviceClassList
-		if err := cl.List(ctx, &dcList, client.MatchingFields{
-			"spec.extendedResourceName": string(resourceName),
-		}); err != nil {
-			errs = append(errs, field.InternalError(
-				containerPath.Child("resources", "requests", string(resourceName)),
-				fmt.Errorf("failed to list DeviceClasses for extended resource %q: %w", resourceName, err),
-			))
-			continue
-		}
-
-		if len(dcList.Items) == 0 {
-			log.V(4).Info("No DeviceClass found, not a DRA-backed extended resource", "resource", resourceName)
-			continue
-		}
-
-		qty, ok := quantity.AsInt64()
-		if !ok {
+	if logicalName, found := mapper.Lookup(corev1.ResourceName(selected.Name)); found {
+		quotaKey = logicalName
+		if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && len(mapper.getCounterConfigs(corev1.ResourceName(selected.Name))) > 0 {
 			errs = append(errs, field.Invalid(
-				containerPath.Child("resources", "requests", string(resourceName)),
-				quantity.String(),
-				"extended resource quantity must be an integer",
+				path,
+				resourceName,
+				fmt.Sprintf(
+					"extended resource %s resolves to DeviceClass %s with counters configured;"+
+						" use ResourceClaimTemplates with CEL selectors for counter-based quota",
+					resourceName, selected.Name,
+				),
 			))
+		} else if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) && len(mapper.getCapacityConfigs(corev1.ResourceName(selected.Name))) > 0 {
+			errs = append(errs, field.Invalid(
+				path,
+				resourceName,
+				fmt.Sprintf(
+					"extended resource %s resolves to DeviceClass %s with capacity sources configured;"+
+						" use ResourceClaimTemplates with capacity.requests for capacity-based quota",
+					resourceName, selected.Name,
+				),
+			))
+		}
+	}
+	if len(errs) > 0 {
+		return "", errs
+	}
+
+	log.V(4).Info("Resolved extended resource to DRA quota key",
+		"resource", resourceName, "quotaKey", quotaKey, "deviceClass", selected.Name)
+	return quotaKey, nil
+}
+
+// containerExtendedResourceRequests pairs a container's positive extended resource
+// requests, keyed by original (unmapped) resource name, with the field path used to
+// report errors against that container.
+type containerExtendedResourceRequests struct {
+	path      *field.Path
+	resources corev1.ResourceList
+	// Carried so the total can be taken the way the Pod's own is: a restartable
+	// init container runs alongside the rest and adds to them.
+	restartPolicy *corev1.ContainerRestartPolicy
+}
+
+func collectContainerExtendedResourceRequests(containers []corev1.Container, containersPath *field.Path) []containerExtendedResourceRequests {
+	var entries []containerExtendedResourceRequests
+	for i, container := range containers {
+		res := extendedResourceRequests(container)
+		if len(res) == 0 {
 			continue
 		}
-
-		// The class the scheduler will allocate from, not whichever List returned first.
-		selected := selectedDeviceClass(dcList.Items)
-
-		// Determine the quota key. If the DeviceClass is also in deviceClassMappings,
-		// use the mapped logical name to unify quota with the ResourceClaimTemplate path.
-		// Otherwise, use the extendedResourceName directly.
-		quotaKey := resourceName
-		if logicalName, found := mapper.Lookup(corev1.ResourceName(selected.Name)); found {
-			quotaKey = logicalName
-			if features.Enabled(features.KueueDRAIntegrationPartitionableDevices) && len(mapper.getCounterConfigs(corev1.ResourceName(selected.Name))) > 0 {
-				errs = append(errs, field.Invalid(
-					containerPath,
-					resourceName,
-					fmt.Sprintf(
-						"extended resource %s resolves to DeviceClass %s with counters configured;"+
-							" use ResourceClaimTemplates with CEL selectors for counter-based quota",
-						resourceName, selected.Name,
-					),
-				))
-			} else if features.Enabled(features.KueueDRAIntegrationConsumableCapacity) && len(mapper.getCapacityConfigs(corev1.ResourceName(selected.Name))) > 0 {
-				errs = append(errs, field.Invalid(
-					containerPath,
-					resourceName,
-					fmt.Sprintf(
-						"extended resource %s resolves to DeviceClass %s with capacity sources configured;"+
-							" use ResourceClaimTemplates with capacity.requests for capacity-based quota",
-						resourceName, selected.Name,
-					),
-				))
-			}
-		}
-
-		chargeQuantity := *resource.NewQuantity(qty, resource.DecimalSI)
-
-		log.V(4).Info("Resolved extended resource to DRA quota key",
-			"resource", resourceName, "quotaKey", quotaKey, "quantity", chargeQuantity.String(),
-			"deviceClass", selected.Name)
-
-		replaced.Insert(resourceName)
-		result = utilresource.MergeResourceListKeepSum(result, corev1.ResourceList{
-			quotaKey: chargeQuantity,
+		entries = append(entries, containerExtendedResourceRequests{
+			path:          containersPath.Index(i),
+			resources:     res,
+			restartPolicy: container.RestartPolicy,
 		})
 	}
-	return result, replaced, errs
+	return entries
+}
+
+func containersForPodRequests(entries []containerExtendedResourceRequests, firstPath map[corev1.ResourceName]*field.Path) []corev1.Container {
+	containers := make([]corev1.Container, 0, len(entries))
+	for _, entry := range entries {
+		for name := range entry.resources {
+			if _, found := firstPath[name]; !found {
+				firstPath[name] = entry.path
+			}
+		}
+		containers = append(containers, corev1.Container{
+			RestartPolicy: entry.restartPolicy,
+			Resources:     corev1.ResourceRequirements{Requests: entry.resources},
+		})
+	}
+	return containers
 }
 
 // ResolveExtendedResourceQuota converts extended resource requests across all PodSets
-// into DRA logical quota resources. Per PodSet, init containers are aggregated with
-// max (sequential) and regular containers with sum (concurrent), then combined with max.
-func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper *ResourceMapper, wl *kueue.Workload) (
+// into DRA logical quota resources. Per PodSet each original name is aggregated with
+// `resourcehelpers.PodRequests` (overhead excluded; sidecars add to the app-container
+// total, they are not maxed as ordinary inits), and its quota key is resolved from that
+// name's own total, so two names sharing a key cannot collapse into each other.
+func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper *ResourceMapper, wi *workload.Info) (
 	map[kueue.PodSetReference]corev1.ResourceList,
 	map[kueue.PodSetReference]sets.Set[corev1.ResourceName],
 	field.ErrorList,
 ) {
+	wl := wi.Obj
 	if cl == nil {
 		return nil, nil, nil
 	}
@@ -209,26 +277,74 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 
 	for i := range wl.Spec.PodSets {
 		ps := &wl.Spec.PodSets[i]
-		replaced := sets.New[corev1.ResourceName]()
 		podSetPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec")
 
-		// Closure captures outer `replaced` set to accumulate across init and regular containers.
-		resolveContainers := func(containers []corev1.Container, pathSegment string, merge func(a, b corev1.ResourceList) corev1.ResourceList) corev1.ResourceList {
-			var result corev1.ResourceList
-			for j, container := range containers {
-				containerPath := podSetPath.Child(pathSegment).Index(j)
-				res, containerReplaced, errs := resolveContainerExtendedResources(ctx, cl, mapper, container, containerPath)
+		initEntries := collectContainerExtendedResourceRequests(wi.PodSpec(i).InitContainers, podSetPath.Child("initContainers"))
+		regularEntries := collectContainerExtendedResourceRequests(wi.PodSpec(i).Containers, podSetPath.Child("containers"))
+
+		// The field path of the first container an original resource name is seen in,
+		// for error reporting once that name is resolved below.
+		firstPath := map[corev1.ResourceName]*field.Path{}
+		initContainersForPodRequests := containersForPodRequests(initEntries, firstPath)
+		regularContainersForPodRequests := containersForPodRequests(regularEntries, firstPath)
+		// PodRequests adds a sidecar to the regular containers rather than maxing it against them.
+		podRequests := resourcehelpers.PodRequests(
+			&corev1.Pod{Spec: corev1.PodSpec{InitContainers: initContainersForPodRequests, Containers: regularContainersForPodRequests}},
+			resourcehelpers.PodResourcesOptions{ExcludeOverhead: true})
+
+		aggregated := corev1.ResourceList{}
+		replaced := sets.New[corev1.ResourceName]()
+		for resourceName, quantity := range podRequests {
+			quotaKey, errs := resolveQuotaKey(ctx, cl, mapper, resourceName, firstPath[resourceName])
+			if len(errs) > 0 {
 				allErrs = append(allErrs, errs...)
-				replaced = replaced.Union(containerReplaced)
-				result = merge(result, res)
+				continue
 			}
-			return result
+			if quotaKey == "" {
+				continue
+			}
+
+			// resourceName is confirmed DRA-backed: now hold it to the
+			// integer-only rule, checked per container rather than on the
+			// aggregate above, so two invalid fractional requests (e.g. two
+			// 500m requests summing to a valid 1) can't hide each other.
+			var resParseErrs field.ErrorList
+			for _, entries := range [][]containerExtendedResourceRequests{initEntries, regularEntries} {
+				for _, e := range entries {
+					qty, ok := e.resources[resourceName]
+					if !ok {
+						continue
+					}
+					if _, ok := qty.AsInt64(); !ok {
+						resParseErrs = append(resParseErrs, field.Invalid(
+							e.path.Child("resources", "requests", string(resourceName)),
+							qty.String(),
+							"extended resource quantity must be an integer",
+						))
+					}
+				}
+			}
+			if len(resParseErrs) > 0 {
+				allErrs = append(allErrs, resParseErrs...)
+				continue
+			}
+
+			// Each container's quantity passed the integer check above, but their
+			// sum can still overflow int64 (e.g. two containers requesting 9e18
+			// each), so the aggregate needs its own check rather than assuming ok.
+			resValue, ok := quantity.AsInt64()
+			if !ok {
+				allErrs = append(allErrs, field.Invalid(
+					firstPath[resourceName].Child("resources", "requests", string(resourceName)),
+					quantity.String(),
+					"total extended resource quantity overflows int64",
+				))
+				continue
+			}
+			replaced.Insert(resourceName)
+			aggregated = utilresource.MergeResourceListKeepSum(aggregated, corev1.ResourceList{quotaKey: *resource.NewQuantity(resValue, resource.DecimalSI)})
 		}
 
-		maxInitResources := resolveContainers(ps.Template.Spec.InitContainers, "initContainers", utilresource.MergeResourceListKeepMax)
-		sumRegularResources := resolveContainers(ps.Template.Spec.Containers, "containers", utilresource.MergeResourceListKeepSum)
-
-		aggregated := utilresource.MergeResourceListKeepMax(maxInitResources, sumRegularResources)
 		if len(aggregated) > 0 {
 			log.V(4).Info("Resolved extended resources for PodSet", "podSet", ps.Name, "resources", aggregated)
 			perPodSet[ps.Name] = aggregated

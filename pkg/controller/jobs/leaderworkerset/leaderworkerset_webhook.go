@@ -22,6 +22,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -48,6 +49,7 @@ type Webhook struct {
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	queues                       *qcache.Manager
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
@@ -58,6 +60,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &leaderworkersetv1.LeaderWorkerSet{}
 	if options.NoopWebhook {
@@ -82,7 +85,9 @@ func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWor
 	if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, obj, wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, obj)
+	if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, obj, wh.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
 	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(
 		ctx,
 		lws.Object(),
@@ -165,6 +170,7 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, obj *leaderworkersetv1.Le
 	if err != nil {
 		return nil, err
 	}
+	validationErrs = append(validationErrs, jobframework.ValidateWaitForPodsReadyAnnotation(lws.Object(), wh.maxTimeoutOnWorkload)...)
 
 	return nil, validationErrs.ToAggregate()
 }
@@ -180,6 +186,7 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 	if err != nil {
 		return nil, err
 	}
+	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotationOnUpdate(oldLeaderWorkerSet.Object(), newLeaderWorkerSet.Object(), wh.maxTimeoutOnWorkload)...)
 
 	oldQueueName := jobframework.QueueNameForObject(oldLeaderWorkerSet.Object())
 	newQueueName := jobframework.QueueNameForObject(newLeaderWorkerSet.Object())

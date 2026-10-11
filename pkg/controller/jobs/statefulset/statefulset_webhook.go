@@ -21,6 +21,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -29,7 +30,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -46,6 +46,7 @@ type Webhook struct {
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
 	queues                       *qcache.Manager
+	maxTimeoutOnWorkload         *metav1.Duration
 }
 
 func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
@@ -56,6 +57,7 @@ func SetupWebhook(mgr ctrl.Manager, opts ...jobframework.Option) error {
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		queues:                       options.Queues,
+		maxTimeoutOnWorkload:         options.MaxTimeoutOnWorkload,
 	}
 	obj := &appsv1.StatefulSet{}
 	if options.NoopWebhook {
@@ -87,7 +89,9 @@ func (wh *Webhook) Default(ctx context.Context, stsObj *appsv1.StatefulSet) erro
 	if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, ss.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, ss.Object())
+	if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, ss.Object(), wh.managedJobsNamespaceSelector); err != nil {
+		return err
+	}
 	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(
 		ctx,
 		ss.Object(),
@@ -131,6 +135,11 @@ func (wh *Webhook) ValidateCreate(ctx context.Context, stsObj *appsv1.StatefulSe
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnCreate(sts.Object())...)
 	}
+	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotation(sts.Object(), wh.maxTimeoutOnWorkload)...)
+
+	if features.Enabled(features.TopologyAwareScheduling) {
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(specTemplatePath.Child("metadata"), &sts.Spec.Template.ObjectMeta)...)
+	}
 
 	return nil, allErrs.ToAggregate()
 }
@@ -164,10 +173,16 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 	allErrs := jobframework.ValidateQueueName(newStatefulSet.Object())
 	allErrs = append(allErrs, jobframework.ValidateElasticJobAnnotation(newStatefulSet.Object(), newStatefulSet.GVK())...)
 
-	// Prevents updating the queue-name if at least one Pod is not suspended
-	// or if the queue-name has been deleted.
 	isSuspended := oldStatefulSet.Status.ReadyReplicas == 0
-	if !isSuspended || newQueueName == "" {
+	queueNameImmutable := !isSuspended || newQueueName == ""
+	if !queueNameImmutable && newQueueName != oldQueueName {
+		_, wl, err := findWorkload(ctx, wh.client, oldSTSObj)
+		if err != nil {
+			return nil, err
+		}
+		queueNameImmutable = wl != nil && workload.HasQuotaReservation(wl)
+	}
+	if queueNameImmutable {
 		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
 	}
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
@@ -178,6 +193,11 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldStatefulSet.Object(), newStatefulSet.Object())...)
+	}
+	allErrs = append(allErrs, jobframework.ValidateWaitForPodsReadyAnnotationOnUpdate(oldStatefulSet.Object(), newStatefulSet.Object(), wh.maxTimeoutOnWorkload)...)
+
+	if features.Enabled(features.TopologyAwareScheduling) {
+		allErrs = append(allErrs, jobframework.ValidateTASPodSetRequest(specTemplatePath.Child("metadata"), &newStatefulSet.Spec.Template.ObjectMeta)...)
 	}
 
 	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(
@@ -219,15 +239,10 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 				// Block if workload is still being deleted (exists without OnHold).
 				// If the workload is on hold, it is intentionally kept alive during
 				// scale-to-zero and will be re-admitted on scale-up.
-				wlName, err := findWorkloadName(ctx, wh.client, oldSTSObj)
+				_, wl, err := findWorkload(ctx, wh.client, (*appsv1.StatefulSet)(oldStatefulSet))
 				if err != nil {
 					return nil, err
-				}
-				var wl kueue.Workload
-				err = wh.client.Get(ctx, client.ObjectKey{Namespace: oldSTSObj.GetNamespace(), Name: wlName}, &wl)
-				if client.IgnoreNotFound(err) != nil {
-					return nil, err
-				} else if err == nil && !workload.IsOnHold(&wl) {
+				} else if wl != nil && !workload.IsOnHold(wl) {
 					allErrs = append(allErrs, field.Forbidden(replicasPath, "workload from previous scale-down is still being deleted"))
 				}
 			}

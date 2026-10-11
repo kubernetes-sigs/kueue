@@ -19,12 +19,15 @@ package scheduler
 import (
 	"cmp"
 	"math"
+	"slices"
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/resources"
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
 const (
@@ -58,10 +61,8 @@ func NegativeDRS() DRS {
 	return DRS{unweightedRatio: -1, dominantResource: "", fairWeight: defaultWeight}
 }
 
-// IsZero returns whether the DRS unweighted ratio is 0.
-// In the current implementation, DRS unweighted ratio is zero
-// if and only if it is not borrowing any resources.
-// This may change in the future if the DRS implementation changes.
+// IsZero returns whether the DRS unweighted ratio is 0, which is also the
+// case for a node borrowing only what its Cohort has nothing lendable for.
 func (d DRS) IsZero() bool {
 	return d.unweightedRatio == 0
 }
@@ -83,18 +84,31 @@ func (d DRS) IsBorrowingOn(requestedFRs resources.FlavorResourceQuantities) bool
 	return false
 }
 
+// IsBorrowingOnAny reports whether the node borrows on any
+// FlavorResource present in frs.
+func (d DRS) IsBorrowingOnAny(frs sets.Set[resources.FlavorResource]) bool {
+	return slices.ContainsFunc(d.borrowedFRs, frs.Has)
+}
+
 func (d DRS) isWeightZero() bool {
 	return d.fairWeight == 0
 }
 
 func (d DRS) PreciseWeightedShare() float64 {
+	if d.ZeroWeightBorrows() {
+		return math.Inf(1)
+	}
 	if d.IsZero() {
 		return 0.0
 	}
-	if d.isWeightZero() {
-		return math.Inf(1)
+	share := d.unweightedRatio / d.fairWeight
+	// A weight around 1e308, or one past the float64 range and so +Inf,
+	// divides a positive ratio down to zero, which is the share of a node
+	// within its quota.
+	if share == 0 && d.unweightedRatio > 0 {
+		return math.SmallestNonzeroFloat64
 	}
-	return d.unweightedRatio / d.fairWeight
+	return share
 }
 
 // PreciseWeightedShareSerialized returns the DRS value
@@ -111,39 +125,38 @@ func (d DRS) PreciseWeightedShareSerialized() string {
 // a higher value preferred for preemption.
 func CompareDRS(a, b DRS) int {
 	switch {
-	case a.zeroWeightBorrows() && b.zeroWeightBorrows():
+	case a.ZeroWeightBorrows() && b.ZeroWeightBorrows():
 		return cmp.Compare(a.unweightedRatio, b.unweightedRatio)
-	case a.zeroWeightBorrows():
+	case a.ZeroWeightBorrows():
 		return 1
-	case b.zeroWeightBorrows():
+	case b.ZeroWeightBorrows():
 		return -1
 	default:
 		return cmp.Compare(a.PreciseWeightedShare(), b.PreciseWeightedShare())
 	}
 }
 
-// roundedWeightedShare returns a value ranging from 0 to math.MaxInt,
+// roundedWeightedShare returns a value ranging from 0 to math.MaxInt64,
 // representing the maximum of the ratios of usage above nominal quota
 // to the lendable resources in the cohort, among all the resources
-// provided by the ClusterQueue, and divided by the weight.  If zero,
-// it means that the usage of the ClusterQueue is below the nominal
-// quota.  The function also returns the resource name that yielded
-// this value.  When the FairSharing weight is 0, and the ClusterQueue
-// or Cohort is borrowing, we return math.MaxInt.
+// provided by the ClusterQueue, and divided by the weight.  The function
+// also returns the resource name that yielded this value.  When the
+// FairSharing weight is 0, and the ClusterQueue or Cohort is borrowing,
+// or the share is above the int64 range, we return math.MaxInt64.
 func (d DRS) roundedWeightedShare() (int64, corev1.ResourceName) {
 	var weightedShare int64
-	if d.zeroWeightBorrows() {
+	if d.ZeroWeightBorrows() {
 		weightedShare = math.MaxInt64
 	} else {
-		weightedShare = int64(math.Ceil(d.PreciseWeightedShare()))
+		weightedShare = utilmath.SaturatingCeil(d.PreciseWeightedShare())
 	}
 	return weightedShare, d.dominantResource
 }
 
-// zeroWeightBorrows returns whether this DRS represents a
-// borrowing state for a ClusterQueue/Cohort with a zero weight.
-func (d DRS) zeroWeightBorrows() bool {
-	return d.isWeightZero() && !d.IsZero()
+// ZeroWeightBorrows returns whether a ClusterQueue/Cohort with a zero
+// weight borrows, which makes its PreciseWeightedShare +Inf.
+func (d DRS) ZeroWeightBorrows() bool {
+	return d.isWeightZero() && d.IsBorrowing()
 }
 
 func dominantResourceShare(node dominantResourceShareNode, wlReq resources.FlavorResourceQuantities) DRS {
@@ -167,10 +180,12 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	drs.borrowing = true
 	drs.borrowedFRs = borrowedFRs
 
-	lendable := calculateLendable(node.parentHRN())
+	// Maintained by updateCohortLendable alongside SubtreeQuota. The parent is
+	// always a Cohort, because of the early return above.
+	lendable := node.parentHRN().getResourceNode().Lendable
 	for rName, b := range borrowing {
 		if lr := lendable[rName]; lr.CmpInt64(0) > 0 {
-			ratio := float64(b.Int64()) * 1000.0 / float64(lr.Int64())
+			ratio := b.PerThousandOf(lr)
 			// Use alphabetical order to get a deterministic resource name.
 			if ratio > drs.unweightedRatio || (ratio == drs.unweightedRatio && rName < drs.dominantResource) {
 				drs.unweightedRatio = ratio
@@ -181,9 +196,10 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	return drs
 }
 
-// calculateLendable aggregates capacity for resources across all
-// FlavorResources.
-func calculateLendable(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
+// computeLendable derives lendable capacity from the Cohort tree. Callers in the
+// scheduling path read resourceNode.Lendable instead, which updateCohortLendable
+// keeps in step with SubtreeQuota.
+func computeLendable(node hierarchicalResourceNode) map[corev1.ResourceName]resources.Amount {
 	// walk to root
 	root := node
 	for root.HasParent() {

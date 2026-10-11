@@ -1,0 +1,16 @@
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+leaderElection:
+  leaderElect: true
+  leaseDuration: 60s
+  renewDeadline: 40s
+  retryPeriod: 5s
+integrations:
+  frameworks:
+  - "batch/job"
+  - "ray.io/raycluster"
+  - "ray.io/rayjob"
+featureGates:
+  ElasticJobsViaWorkloadSlices: true
+  MultiKueueRayInTreeAutoscaling: true
+  SkipChildJobSuspension: true

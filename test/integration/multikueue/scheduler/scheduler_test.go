@@ -41,7 +41,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var defaultEnabledIntegrations = sets.New(
@@ -90,9 +90,9 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 	})
 
 	ginkgo.BeforeEach(func() {
-		managerNs = util.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-")
-		worker1Ns = util.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, managerNs.Name)
-		worker2Ns = util.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, managerNs.Name)
+		managerNs = behavioral.CreateNamespaceFromPrefixWithLog(managerTestCluster.ctx, managerTestCluster.client, "multikueue-")
+		worker1Ns = behavioral.CreateNamespaceWithLog(worker1TestCluster.ctx, worker1TestCluster.client, managerNs.Name)
+		worker2Ns = behavioral.CreateNamespaceWithLog(worker2TestCluster.ctx, worker2TestCluster.client, managerNs.Name)
 
 		w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -101,50 +101,46 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		managerMultiKueueSecret1 = &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "multikueue1",
-				Namespace: managersConfigNamespace.Name,
-			},
+			Name:      "multikueue1",
+			Namespace: managersConfigNamespace.Name,
 			Data: map[string][]byte{
 				kueue.MultiKueueConfigSecretKey: w1Kubeconfig,
 			},
 		}
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret1)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret1)
 
 		managerMultiKueueSecret2 = &corev1.Secret{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:      "multikueue2",
-				Namespace: managersConfigNamespace.Name,
-			},
+			Name:      "multikueue2",
+			Namespace: managersConfigNamespace.Name,
 			Data: map[string][]byte{
 				kueue.MultiKueueConfigSecretKey: w2Kubeconfig,
 			},
 		}
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret2)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret2)
 
 		workerCluster1 = utiltestingapi.MakeMultiKueueCluster("worker1").KubeConfig(kueue.SecretLocationType, managerMultiKueueSecret1.Name).Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, workerCluster1)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, workerCluster1)
 
 		workerCluster2 = utiltestingapi.MakeMultiKueueCluster("worker2").KubeConfig(kueue.SecretLocationType, managerMultiKueueSecret2.Name).Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, workerCluster2)
 
 		managerMultiKueueConfig = utiltestingapi.MakeMultiKueueConfig("multikueueconfig").Clusters(workerCluster1.Name, workerCluster2.Name).Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig)
 
 		multiKueueAC = utiltestingapi.MakeAdmissionCheck("ac1").
 			ControllerName(kueue.MultiKueueControllerName).
 			Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", managerMultiKueueConfig.Name).
 			Obj()
-		util.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
+		behavioral.CreateAdmissionChecksAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC)
 
 		managerHighWPC = utiltestingapi.MakeWorkloadPriorityClass("high-workload").PriorityValue(300).Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerHighWPC)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerHighWPC)
 
 		managerLowWPC = utiltestingapi.MakeWorkloadPriorityClass("low-workload").PriorityValue(100).Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerLowWPC)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerLowWPC)
 
 		managerFlavor = utiltestingapi.MakeResourceFlavor("fl").Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerFlavor)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, managerFlavor)
 
 		managerCq = utiltestingapi.MakeClusterQueue("q1").
 			AdmissionChecks(kueue.AdmissionCheckReference(multiKueueAC.Name)).
@@ -159,13 +155,13 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
+		behavioral.CreateClusterQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerCq)
 
 		managerLq = utiltestingapi.MakeLocalQueue("lq", managerNs.Name).ClusterQueue(managerCq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerLq)
+		behavioral.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerLq)
 
 		worker1Flavor = utiltestingapi.MakeResourceFlavor("fl").Obj()
-		util.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Flavor)
+		behavioral.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, worker1Flavor)
 
 		worker1Cq = utiltestingapi.MakeClusterQueue("cq1").
 			ResourceGroup(
@@ -179,13 +175,13 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq)
 
 		worker1Lq = utiltestingapi.MakeLocalQueue("lq", worker1Ns.Name).ClusterQueue(worker1Cq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, worker1Lq)
 
 		worker2Flavor = utiltestingapi.MakeResourceFlavor("fl").Obj()
-		util.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Flavor)
+		behavioral.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, worker2Flavor)
 
 		worker2Cq = utiltestingapi.MakeClusterQueue("cq").
 			ResourceGroup(
@@ -199,30 +195,30 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
 			}).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq)
 
 		worker2Lq = utiltestingapi.MakeLocalQueue("lq", worker2Ns.Name).ClusterQueue(worker2Cq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(worker2TestCluster.ctx, worker2TestCluster.client, worker2Lq)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(managerTestCluster.ctx, managerTestCluster.client, managerNs)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(worker1TestCluster.ctx, worker1TestCluster.client, worker1Ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(worker2TestCluster.ctx, worker2TestCluster.client, worker2Ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerCq, true)
-		util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq, true)
-		util.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerFlavor, true)
-		util.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Flavor, true)
-		util.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, worker2Flavor, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerLowWPC, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerHighWPC, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster1, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster2, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret1, true)
-		util.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret2, true)
+		gomega.Expect(behavioral.DeleteNamespace(managerTestCluster.ctx, managerTestCluster.client, managerNs)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(worker1TestCluster.ctx, worker1TestCluster.client, worker1Ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(worker2TestCluster.ctx, worker2TestCluster.client, worker2Ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerCq, true)
+		behavioral.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Cq, true)
+		behavioral.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, worker2Cq, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, worker1Flavor, true)
+		behavioral.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, worker2Flavor, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerLowWPC, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerHighWPC, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, multiKueueAC, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueConfig, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster1, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, workerCluster2, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret1, true)
+		behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, managerMultiKueueSecret2, true)
 	})
 
 	ginkgo.It("should preempt a running low-priority workload when a high-priority workload is admitted (same worker)", func() {
@@ -232,7 +228,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			RequestAndLimit(corev1.ResourceCPU, "2").
 			RequestAndLimit(corev1.ResourceMemory, "1G").
 			Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, lowJob)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, lowJob)
 
 		lowWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowJob.Name, lowJob.UID), Namespace: managerNs.Name}
 
@@ -243,16 +239,16 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(managerLowWl)).To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking that the low-priority workload is created in worker1 and not in worker2, and that its spec matches the manager workload", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, lowWlKey, workerLowWorkload)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(workerLowWorkload)).To(gomega.BeTrue())
-				g.Expect(workerLowWorkload.Spec).To(gomega.BeComparableTo(managerLowWl.Spec))
+				behavioral.ExpectRemoteWorkloadSpec(g, workerLowWorkload, managerLowWl)
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lowWlKey, &kueue.Workload{})).To(testing.BeNotFoundError())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Updating the worker job status to active=1", func() {
@@ -264,14 +260,14 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				createdJob.Status.Active = 1
 				createdJob.Status.Ready = new(int32(1))
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
 				g.Expect(createdJob.Status.StartTime).To(gomega.Equal(&startTime))
 				g.Expect(createdJob.Status.Active).To(gomega.Equal(int32(1)))
 				g.Expect(ptr.Deref(createdJob.Status.Ready, 0)).To(gomega.Equal(int32(1)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		highJob := testingjob.MakeJob("high-job", managerNs.Name).
@@ -280,14 +276,14 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			RequestAndLimit(corev1.ResourceCPU, "2").
 			RequestAndLimit(corev1.ResourceMemory, "1G").
 			Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, highJob)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, highJob)
 
 		ginkgo.By("Checking that the manager job is suspended", func() {
 			createdJob := batchv1.Job{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
 				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(true)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking that the worker job is suspended", func() {
@@ -295,7 +291,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
 				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(true)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Updating the worker job status to active=0", func() {
@@ -305,20 +301,20 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				createdJob.Status.Active = 0
 				createdJob.Status.Ready = new(int32(0))
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
 				g.Expect(createdJob.Status.Active).To(gomega.Equal(int32(0)))
 				g.Expect(ptr.Deref(createdJob.Status.Ready, 0)).To(gomega.Equal(int32(0)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking that the low-priority workload has condition QuotaReserved=false in the manager clusters", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
 				g.Expect(managerLowWl.Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		highWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(highJob.Name, highJob.UID), Namespace: managerNs.Name}
@@ -330,16 +326,16 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, highWlKey, managerHighWl)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(managerHighWl)).To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking that the high-priority workload is created in worker1 and not in worker2, and that its spec matches the manager workload", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, highWlKey, workerHighWorkload)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(workerHighWorkload)).To(gomega.BeTrue())
-				g.Expect(workerHighWorkload.Spec).To(gomega.BeComparableTo(managerHighWl.Spec))
+				behavioral.ExpectRemoteWorkloadSpec(g, workerHighWorkload, managerHighWl)
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, highWlKey, &kueue.Workload{})).To(testing.BeNotFoundError())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking that the low-priority workload is preempted in the manager cluster", func() {
@@ -347,14 +343,14 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
 				g.Expect(workloadevict.IsEvicted(managerLowWl)).To(gomega.BeTrue())
 				g.Expect(managerLowWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadPreempted))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking that the low-priority workload is deleted from the worker clusters", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, lowWlKey, &kueue.Workload{})).To(testing.BeNotFoundError())
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lowWlKey, &kueue.Workload{})).To(testing.BeNotFoundError())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -365,7 +361,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			RequestAndLimit(corev1.ResourceCPU, "2").
 			RequestAndLimit(corev1.ResourceMemory, "1G").
 			Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, lowJob)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, lowJob)
 
 		lowWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowJob.Name, lowJob.UID), Namespace: managerNs.Name}
 
@@ -376,16 +372,16 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(managerLowWl)).To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking that the low-priority workload is created in worker1 and not in worker2, and that its spec matches the manager workload", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, lowWlKey, workerLowWorkload)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(workerLowWorkload)).To(gomega.BeTrue())
-				g.Expect(workerLowWorkload.Spec).To(gomega.BeComparableTo(managerLowWl.Spec))
+				behavioral.ExpectRemoteWorkloadSpec(g, workerLowWorkload, managerLowWl)
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lowWlKey, &kueue.Workload{})).To(testing.BeNotFoundError())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Updating the worker job status to active=1", func() {
@@ -397,14 +393,14 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				createdJob.Status.Active = 1
 				createdJob.Status.Ready = new(int32(1))
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
 				g.Expect(createdJob.Status.StartTime).To(gomega.Equal(&startTime))
 				g.Expect(createdJob.Status.Active).To(gomega.Equal(int32(1)))
 				g.Expect(ptr.Deref(createdJob.Status.Ready, 0)).To(gomega.Equal(int32(1)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		highJob := testingjob.MakeJob("high-job", managerNs.Name).
@@ -413,14 +409,14 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			RequestAndLimit(corev1.ResourceCPU, "1").
 			RequestAndLimit(corev1.ResourceMemory, "2G").
 			Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, highJob)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, highJob)
 
 		ginkgo.By("Checking that the manager job is suspended", func() {
 			createdJob := batchv1.Job{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
 				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(true)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking that the worker job is suspended", func() {
@@ -428,7 +424,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
 				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(true)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Updating the worker job status to active=0", func() {
@@ -438,20 +434,20 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				createdJob.Status.Active = 0
 				createdJob.Status.Ready = new(int32(0))
 				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, &createdJob)).To(gomega.Succeed())
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(lowJob), &createdJob)).To(gomega.Succeed())
 				g.Expect(createdJob.Status.Active).To(gomega.Equal(int32(0)))
 				g.Expect(ptr.Deref(createdJob.Status.Ready, 0)).To(gomega.Equal(int32(0)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking that the low-priority workload has condition QuotaReserved=false in the manager clusters", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
 				g.Expect(managerLowWl.Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		highWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(highJob.Name, highJob.UID), Namespace: managerNs.Name}
@@ -463,16 +459,16 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, highWlKey, managerHighWl)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(managerHighWl)).To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking that the high-priority workload is created in worker2 and not in worker1, and that its spec matches the manager workload", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, highWlKey, workerHighWorkload)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(workerHighWorkload)).To(gomega.BeTrue())
-				g.Expect(workerHighWorkload.Spec).To(gomega.BeComparableTo(managerHighWl.Spec))
+				behavioral.ExpectRemoteWorkloadSpec(g, workerHighWorkload, managerHighWl)
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, highWlKey, &kueue.Workload{})).To(testing.BeNotFoundError())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking that the low-priority workload is preempted in the manager cluster", func() {
@@ -480,14 +476,14 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, lowWlKey, managerLowWl)).To(gomega.Succeed())
 				g.Expect(workloadevict.IsEvicted(managerLowWl)).To(gomega.BeTrue())
 				g.Expect(managerLowWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadPreempted))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking that the low-priority workload is deleted from the worker clusters", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, lowWlKey, &kueue.Workload{})).To(testing.BeNotFoundError())
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lowWlKey, &kueue.Workload{})).To(testing.BeNotFoundError())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -498,7 +494,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			RequestAndLimit(corev1.ResourceCPU, "2").
 			RequestAndLimit(corev1.ResourceMemory, "1G").
 			Obj()
-		util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
 
 		wlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
 
@@ -509,16 +505,16 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlKey, managerWl)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(managerWl)).To(gomega.BeTrue())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking that the workload is created in worker1 and not in worker2, and that its spec matches the manager workload", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlKey, workerWl)).To(gomega.Succeed())
 				g.Expect(workload.IsAdmitted(workerWl)).To(gomega.BeTrue())
-				g.Expect(workerWl.Spec).To(gomega.BeComparableTo(managerWl.Spec))
+				behavioral.ExpectRemoteWorkloadSpec(g, workerWl, managerWl)
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlKey, &kueue.Workload{})).To(testing.BeNotFoundError())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Setting a low priority class on the job", func() {
@@ -527,11 +523,11 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
 				createdJob.Labels[constants.WorkloadPriorityClassLabel] = managerLowWPC.Name
 				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, createdJob)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Checking that the workload priority class updated in the worker", func() {
-			util.ExpectWorkloadsWithWorkloadPriority(worker1TestCluster.ctx, worker1TestCluster.client, managerLowWPC.Name, managerLowWPC.Value, wlKey)
+			behavioral.ExpectWorkloadsWithWorkloadPriority(worker1TestCluster.ctx, worker1TestCluster.client, managerLowWPC.Name, managerLowWPC.Value, wlKey)
 		})
 	})
 
@@ -546,11 +542,10 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				RequestAndLimit(corev1.ResourceCPU, "0.1").
 				RequestAndLimit(corev1.ResourceMemory, "0.1G").
 				TerminationGracePeriod(1).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
 				Obj()
 
 			ginkgo.By("Creating the job", func() {
-				util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+				behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
 			})
 
 			wlLookupKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID), Namespace: managerNs.Name}
@@ -559,7 +554,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 			ginkgo.By("Waiting for the workload to be created", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			dummyGateName := "dummy-gate"
@@ -568,17 +563,17 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
 					managerWl.Spec.PreemptionGates = []kueue.PreemptionGate{{Name: dummyGateName}}
 					g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, managerWl)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			workerWl := &kueue.Workload{}
 			ginkgo.By("Checking that the workload gets admitted", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
-					selectedWorker := util.GetClientForSelectedWorkerCluster(
+					selectedWorker := behavioral.GetClientForSelectedWorkerCluster(
 						g,
 						managerWl,
-						util.DefaultClusterInfosForTests(
+						behavioral.DefaultClusterInfosForTests(
 							worker1TestCluster.ctx,
 							worker1TestCluster.client,
 							worker2TestCluster.ctx,
@@ -591,7 +586,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 					// See: https://github.com/kubernetes-sigs/kueue/issues/12543
 					g.Expect(selectedWorker.Client.Get(selectedWorker.Ctx, wlLookupKey, workerWl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(workerWl)).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the remote workload does not contain the manager workload's dummy gate", func() {
@@ -608,7 +603,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				RequestAndLimit(corev1.ResourceMemory, "0.1G").
 				RequestAndLimit(corev1.ResourceEphemeralStorage, "15G").
 				Obj()
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, lowJob1)
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, lowJob1)
 
 			lowWlKey1 := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowJob1.Name, lowJob1.UID), Namespace: managerNs.Name}
 			managerLowWl1 := &kueue.Workload{}
@@ -618,7 +613,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, lowWlKey1, managerLowWl1)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(managerLowWl1)).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the first low-priority workload is created in worker1 and not in worker2", func() {
@@ -627,7 +622,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 					g.Expect(workload.IsAdmitted(workerLowWl1)).To(gomega.BeTrue())
 
 					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lowWlKey1, &kueue.Workload{})).To(testing.BeNotFoundError())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			// Fits only in worker2
@@ -638,7 +633,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				RequestAndLimit(corev1.ResourceMemory, "1.5G").
 				RequestAndLimit(corev1.ResourceEphemeralStorage, "5G").
 				Obj()
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, lowJob2)
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, lowJob2)
 
 			lowWlKey2 := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(lowJob2.Name, lowJob2.UID), Namespace: managerNs.Name}
 			managerLowWl2 := &kueue.Workload{}
@@ -648,7 +643,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, lowWlKey2, managerLowWl2)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(managerLowWl2)).To(gomega.BeTrue())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the second low-priority workload is created in worker2 and not in worker1", func() {
@@ -657,7 +652,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 					g.Expect(workload.IsAdmitted(workerLowWl1)).To(gomega.BeTrue())
 
 					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, lowWlKey2, &kueue.Workload{})).To(testing.BeNotFoundError())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 			// Can fit in both workers after preemptions
 			highJob := testingjob.MakeJob("high-job", managerNs.Name).
@@ -667,7 +662,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				RequestAndLimit(corev1.ResourceMemory, "0.1G").
 				RequestAndLimit(corev1.ResourceEphemeralStorage, "5G").
 				Obj()
-			util.MustCreate(managerTestCluster.ctx, managerTestCluster.client, highJob)
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, highJob)
 
 			highWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(highJob.Name, highJob.UID), Namespace: managerNs.Name}
 
@@ -677,7 +672,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, highWlKey, managerHighWl)).To(gomega.Succeed())
 					g.Expect(managerHighWl.Spec.QueueName).To(gomega.BeEquivalentTo(managerLq.Name))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			var evictedWlKey types.NamespacedName
@@ -705,7 +700,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 						unaffectedWlKey = lowWlKey1
 						unaffectedWorkerCluster = worker1TestCluster
 					}
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking that the non-evicted workload remains Admitted", func() {
@@ -719,7 +714,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 					g.Expect(unaffectedWorkerCluster.client.Get(unaffectedWorkerCluster.ctx, unaffectedWlKey, unaffectedWl)).To(gomega.Succeed())
 					g.Expect(unaffectedWl.Status.Conditions).To(testing.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
 					g.Expect(workloadevict.IsEvicted(unaffectedWl)).To(gomega.BeFalse())
-				}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("Checking the evicted workload was requeued successfully", func() {
@@ -738,7 +733,7 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 					// Evicted workload is requeued and pending on worker 2
 					g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, evictedWlKey, evictedWl)).To(gomega.Succeed())
 					g.Expect(evictedWl.Status.Conditions).To(testing.HaveConditionStatusFalse(kueue.WorkloadQuotaReserved))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

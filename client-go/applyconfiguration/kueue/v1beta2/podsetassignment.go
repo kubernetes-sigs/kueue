@@ -40,6 +40,7 @@ type PodSetAssignmentApplyConfiguration struct {
 	// This field will not change in case of quota reclaim.
 	// Value could be missing for Workloads created before this field was added,
 	// in that case spec.podSets[*].count value will be used.
+	//
 	Count *int32 `json:"count,omitempty"`
 	// topologyAssignment indicates the topology assignment divided into
 	// topology domains corresponding to the lowest level of the topology.
@@ -152,6 +153,7 @@ type PodSetAssignmentApplyConfiguration struct {
 	// roots: [1, 2]
 	// podCounts:
 	// universal: 1
+	//
 	TopologyAssignment *TopologyAssignmentApplyConfiguration `json:"topologyAssignment,omitempty"`
 	// delayedTopologyRequest indicates the topology assignment is delayed.
 	// Topology assignment might be delayed in case there is ProvisioningRequest
@@ -159,6 +161,7 @@ type PodSetAssignmentApplyConfiguration struct {
 	// Kueue schedules the second pass of scheduling for each workload with at
 	// least one PodSet which has delayedTopologyRequest=true and without
 	// topologyAssignment.
+	//
 	DelayedTopologyRequest *kueuev1beta2.DelayedTopologyRequestState `json:"delayedTopologyRequest,omitempty"`
 }
 

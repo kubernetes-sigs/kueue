@@ -137,7 +137,7 @@ ProvisioningRequestConfig 中的此代码片段指示 Kueue 在配置后更新�
 #### 参考 {#reference}
 
 有关更多详细信息，请查看
-[API 定义](https://github.com/kubernetes-sigs/kueue/blob/main/apis/kueue/v1beta1/provisioningrequestconfig_types.go)。
+[API 定义](https://github.com/kubernetes-sigs/kueue/blob/main/apis/kueue/v1beta2/provisioningrequestconfig_types.go)。
 
 ### Job 注解 {#job-annotations}
 

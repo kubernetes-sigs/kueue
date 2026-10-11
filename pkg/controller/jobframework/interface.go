@@ -30,6 +30,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 )
 
 // GenericJob is a required interface that must be implemented by all jobs
@@ -134,12 +135,24 @@ type JobWithCustomValidation interface {
 	ValidateOnUpdate(ctx context.Context, oldJob GenericJob) (field.ErrorList, error)
 }
 
+// LoadResult contains the result of loading a job.
+type LoadResult struct {
+	// ShouldFinalize indicates whether the Workload corresponding to the Job should be finalized,
+	// i.e. have "resource-in-use" removed.
+	ShouldFinalize bool
+	// Found indicates whether the Job exists, or at least one member of the composable job exists.
+	Found bool
+}
+
+func NewLoadResult(shouldFinalize bool, found bool) *LoadResult {
+	return &LoadResult{ShouldFinalize: shouldFinalize, Found: found}
+}
+
 // ComposableJob is an optional interface that should be implemented by generic jobs
 // composed of multiple API objects.
 type ComposableJob interface {
-	// Load loads all members of the composable job. If removeFinalizers is true,
-	// workload and job finalizers should be removed.
-	Load(ctx context.Context, c client.Client, key *types.NamespacedName) (removeFinalizers bool, err error)
+	// Load loads all members of the composable job.
+	Load(ctx context.Context, c client.Client, key *types.NamespacedName) (*LoadResult, error)
 
 	// Run unsuspends all members of the ComposableJob and injects node affinity
 	// with pod set counts extracted from the workload into all members of the job.
@@ -176,6 +189,13 @@ type ComposableJob interface {
 type JobWithCustomWorkloadConditions interface {
 	// CustomWorkloadConditions returns custom workload conditions and whether the status changed.
 	CustomWorkloadConditions(wl *kueue.Workload) ([]metav1.Condition, bool)
+}
+
+// JobWithCustomEquivalenceOptions is an optional interface that should be implemented
+// by generic jobs when custom ComparePodSetsOption need to be passed to EquivalentToWorkload.
+type JobWithCustomEquivalenceOptions interface {
+	// CustomEquivalenceOptions returns custom ComparePodSetsOption for checking job equivalency.
+	CustomEquivalenceOptions(ctx context.Context, c client.Client, wl *kueue.Workload) []equality.ComparePodSetsOption
 }
 
 // JobWithCustomWorkloadActivation is an optional interface that should be implemented

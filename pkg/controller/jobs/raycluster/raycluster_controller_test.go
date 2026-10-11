@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/featuregate"
@@ -76,6 +77,7 @@ func TestPodSets(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "group1",
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 						},
@@ -121,6 +123,7 @@ func TestPodSets(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "group1",
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -150,9 +153,12 @@ func TestPodSets(t *testing.T) {
 						PodSpec(*rayJob.Spec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
 						Annotations(rayJob.Spec.WorkerGroupSpecs[0].Template.Annotations).
 						RequiredTopologyRequest("cloud.com/block").
+						SubGroupCount(new(int32(1))).
 						Obj(),
 					*utiltestingapi.MakePodSet("group2", 3).
 						PodSpec(*rayJob.Spec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
+						PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+						SubGroupCount(new(int32(3))).
 						Obj(),
 				}
 			},
@@ -175,6 +181,7 @@ func TestPodSets(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "group1",
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 						},
@@ -202,11 +209,104 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 					*utiltestingapi.MakePodSet("group1", 1).
 						PodSpec(*rayJob.Spec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						SubGroupCount(new(int32(1))).
 						Obj(),
 					*utiltestingapi.MakePodSet("group2", 3).
 						PodSpec(*rayJob.Spec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
 						Annotations(rayJob.Spec.WorkerGroupSpecs[1].Template.Annotations).
 						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+						SubGroupCount(new(int32(3))).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"with multi-host and multi-replica worker group": {
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName:  "group1",
+						Replicas:   new(int32(2)),
+						NumOfHosts: 4,
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayCluster) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(*rayJob.Spec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Annotations(rayJob.Spec.HeadGroupSpec.Template.Annotations).
+						RequiredTopologyRequest("cloud.com/block").
+						Obj(),
+					*utiltestingapi.MakePodSet("group1", 8).
+						PodSpec(*rayJob.Spec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Annotations(rayJob.Spec.WorkerGroupSpecs[0].Template.Annotations).
+						RequiredTopologyRequest("cloud.com/block").
+						PodIndexLabel(new(rayutils.RayHostIndexKey)).
+						SubGroupIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+						SubGroupCount(new(int32(2))).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"with multi-host and single-replica worker group": {
+			rayCluster: (*RayCluster)(testingrayutil.MakeCluster("raycluster", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName:  "group1",
+						Replicas:   new(int32(1)),
+						NumOfHosts: 4,
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayCluster) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(*rayJob.Spec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltestingapi.MakePodSet("group1", 4).
+						PodSpec(*rayJob.Spec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Annotations(rayJob.Spec.WorkerGroupSpecs[0].Template.Annotations).
+						RequiredTopologyRequest("cloud.com/block").
+						PodIndexLabel(new(rayutils.RayHostIndexKey)).
+						SubGroupCount(new(int32(1))).
 						Obj(),
 				}
 			},
@@ -229,6 +329,7 @@ func TestPodSets(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "group1",
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -696,7 +797,9 @@ func TestReconciler(t *testing.T) {
 			t.Run(fmt.Sprintf("%s WorkloadRequestUseMergePatch enabled: %t", name, enabled), func(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, enabled)
 				ctx, _ := utiltesting.ContextWithLog(t)
-				clientBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{SubResourcePatch: utiltesting.TreatSSAAsStrategicMerge})
+				clientBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				})
 				indexer := utiltesting.AsIndexer(clientBuilder)
 
 				if err := SetupIndexes(ctx, indexer); err != nil {
@@ -760,5 +863,34 @@ func TestReconciler(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestCustomEquivalenceOptions(t *testing.T) {
+	cases := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		wantEmpty    bool
+	}{
+		"feature gate disabled (default): returns WithIgnoreTopologyIndexLabels": {
+			featureGates: map[featuregate.Feature]bool{features.KubeRayEvictOnInconsistentTopologyRequest: false},
+			wantEmpty:    false,
+		},
+		"feature gate enabled: returns nil": {
+			featureGates: map[featuregate.Feature]bool{features.KubeRayEvictOnInconsistentTopologyRequest: true},
+			wantEmpty:    true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
+			cluster := &RayCluster{}
+			opts := cluster.CustomEquivalenceOptions(t.Context(), nil, nil)
+			if tc.wantEmpty && len(opts) != 0 {
+				t.Errorf("CustomEquivalenceOptions() = %v, want nil", opts)
+			}
+			if !tc.wantEmpty && len(opts) == 0 {
+				t.Errorf("CustomEquivalenceOptions() = nil, want non-empty")
+			}
+		})
 	}
 }

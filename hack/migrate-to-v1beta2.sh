@@ -27,12 +27,21 @@ KUBECTL_GET_API_VERSION="v1beta1"
 PATCH_TYPE="annotate"
 KUBECTL_GET_API_VERSION_CHANGED=false
 MIGRATE_TO_API_VERSION="v1beta2"
+BATCH_SIZE=100
+REANNOTATE=false
 
 show_help() {
   cat << EOF
 Usage: $(basename "$0") [OPTIONS]
 
 Migrates Kueue resources to v1beta2.
+
+With the 'annotate' patch type, objects that already carry the annotation
+kueue.x-k8s.io/storage-version=<target version> are skipped, so reruns only patch what is left.
+Objects deleted while the script runs are reported as gone, not as failures.
+A kind whose CRD storage version is not the target version is skipped with an error.
+The script reads the Kueue CRDs to check their storage version, so it needs 'get' on
+customresourcedefinitions; without it every kind is skipped with an error.
 
 Options:
   --dry-run[=STRATEGY]                  Perform a dry run. STRATEGY can be 'client' (default) for client-side dry run
@@ -56,6 +65,12 @@ Options:
   --patch-type=[PATCH_TYPE]             Specify the patch type ('annotate' or 'apiVersion').
                                         Default: annotate
                                         Note: 'apiVersion' is not supported for downgrade.
+                                        Note: 'apiVersion' leaves no marker, so it patches every object on each run.
+  --reannotate                          Patch objects that are already annotated with the target version.
+                                        Use it if an earlier run happened before the CRD storage version changed.
+                                        Note: it has no effect with --patch-type=apiVersion.
+  --batch-size=N                        Number of objects patched by one kubectl call (a positive integer).
+                                        Default: 100
   -h, --help                            Show this help message and exit
 EOF
 }
@@ -97,6 +112,19 @@ while [[ $# -gt 0 ]]; do
       echo "Error: Invalid --patch-type value: '${1#--patch-type=}'" >&2
       echo "       Allowed values: annotate or apiVersion" >&2
       exit 1
+      ;;
+    --reannotate)
+      REANNOTATE=true
+      shift
+      ;;
+    --batch-size=*)
+      BATCH_SIZE="${1#--batch-size=}"
+      if [[ ! "${BATCH_SIZE}" =~ ^[1-9][0-9]*$ ]]; then
+        echo "Error: Invalid --batch-size value: '${BATCH_SIZE}'" >&2
+        echo "       Allowed values: a positive integer" >&2
+        exit 1
+      fi
+      shift
       ;;
     --downgrade)
       if [[ "${KUBECTL_GET_API_VERSION_CHANGED}" != "true" ]]; then
@@ -143,19 +171,23 @@ patch_payload='{"apiVersion":"kueue.x-k8s.io/v1beta2"}'
 
 exit_code=0
 
+# Holds the stderr of each patch call, so it can be shown and searched for NotFound errors.
+stderr_file=$(mktemp)
+trap 'rm -f "${stderr_file}"' EXIT
+
 function apply_patches() {
   local kind=$1
   local ns=$2
 
   printf "  → Fetching resources%s.\n" "${ns:+ in namespace $ns}"
 
-  local resources_cmd="kubectl get \"${kind}.${KUBECTL_GET_API_VERSION}.kueue.x-k8s.io\" -o jsonpath='{range .items[*]}{.metadata.name}{\"\n\"}{end}' ${ns:+-n \"$ns\"}"
+  local resources_cmd="kubectl get \"${kind}.${KUBECTL_GET_API_VERSION}.kueue.x-k8s.io\" -o jsonpath='{range .items[*]}{.metadata.name}{\"\t\"}{.metadata.annotations.kueue\.x-k8s\.io/storage-version}{\"\n\"}{end}' ${ns:+-n \"$ns\"}"
 
   if $VERBOSE; then
     echo "  → ${resources_cmd}"
   fi
 
-  # Get resources in namespace/name format
+  # Get resources as "name<TAB>storage-version annotation" lines
   # Skip "Warning: This version is deprecated. Use v1beta2 instead" from stderr.
   local resources
   resources=$(eval "${resources_cmd}" 2> >(grep -v -i -F "Warning: This version is deprecated. Use v1beta2 instead." >&2) | awk NF)
@@ -182,49 +214,92 @@ function apply_patches() {
 
   printf "  → Found: %s object(s)%s.\n" "$total" "${ns:+ in namespace $ns}"
 
-  patched=0
+  local names=()
+  local skipped=0
+  while IFS=$'\t' read -r name version; do
+    if [[ "${PATCH_TYPE}" == "annotate" && "${REANNOTATE}" != "true" && "${version}" == "${MIGRATE_TO_API_VERSION}" ]]; then
+      skipped=$((skipped + 1))
+    else
+      names+=("$name")
+    fi
+  done <<< "$filtered"
+
+  local todo=$((total - skipped))
+  local migrated=0
+  local gone=0
+  local failed=0
+  local start chunk_size chunk_migrated chunk_gone chunk_failed failed_names done_name line
+  local -A chunk_status
   percent=0
   last_percent=-1
 
-  while read -r name; do
+  for (( start = 0; start < todo; start += BATCH_SIZE )); do
+    chunk_size=$(( todo - start < BATCH_SIZE ? todo - start : BATCH_SIZE ))
     if [[ "${PATCH_TYPE}" == "annotate" ]]; then
       # shellcheck disable=SC2206
-      patch_cmd=(kubectl annotate "$kind.kueue.x-k8s.io" "$name" "kueue.x-k8s.io/storage-version=${MIGRATE_TO_API_VERSION}" --overwrite $DRY_RUN)
+      patch_cmd=(kubectl annotate "$kind.kueue.x-k8s.io" "${names[@]:start:chunk_size}" "kueue.x-k8s.io/storage-version=${MIGRATE_TO_API_VERSION}" --overwrite -o name $DRY_RUN)
       if [[ -n "$ns" ]]; then
         # Namespaced resource
         patch_cmd+=(-n "$ns")
       fi
     else
-      patch_cmd=(kubectl patch "$kind.${MIGRATE_TO_API_VERSION}.kueue.x-k8s.io" "$name")
+      patch_cmd=(kubectl patch "$kind.${MIGRATE_TO_API_VERSION}.kueue.x-k8s.io" "${names[@]:start:chunk_size}")
       if [[ -n "$ns" ]]; then
         # Namespaced resource
         patch_cmd+=(-n "$ns")
       fi
 
       # shellcheck disable=SC2206
-      patch_cmd+=(--type=merge -p "$patch_payload" $DRY_RUN)
+      patch_cmd+=(--type=merge -p "$patch_payload" -o name $DRY_RUN)
     fi
 
     if $VERBOSE; then
         echo "    └─ ${patch_cmd[*]}"
     fi
 
+    # kubectl patches every name even if some fail; stdout has one line per patched object.
+    output=$("${patch_cmd[@]}" 2> "${stderr_file}" | awk NF)
     # Skip "Warning: This version is deprecated. Use v1beta2 instead" from stderr.
-    output=$("${patch_cmd[@]}" 2> >(grep -v -i -F "Warning: This version is deprecated. Use v1beta2 instead." >&2) | awk NF)
-    # shellcheck disable=SC2181
-    if [ $? -eq 0 ]; then
-      patched=$((patched + 1))
-    else
+    grep -v -i -F "Warning: This version is deprecated. Use v1beta2 instead." "${stderr_file}" >&2
+
+    # Patched names are on stdout, deleted ones (gone, not a failure) in NotFound lines.
+    chunk_status=()
+    while read -r done_name; do
+      [[ -n "${done_name}" ]] && chunk_status["${done_name##*/}"]=migrated
+    done <<< "${output}"
+    while read -r done_name; do
+      [[ -n "${done_name}" && -z "${chunk_status[$done_name]:-}" ]] && chunk_status["${done_name}"]=gone
+    done < <(sed -n 's/.*(NotFound): .* "\(.*\)" not found$/\1/p' "${stderr_file}")
+
+    # Batched webhook errors don't name the object, so every other chunk name counts as failed.
+    failed_names=""
+    chunk_migrated=0
+    chunk_gone=0
+    chunk_failed=0
+    for name in "${names[@]:start:chunk_size}"; do
+      case "${chunk_status[$name]:-}" in
+        migrated) chunk_migrated=$((chunk_migrated + 1)) ;;
+        gone) chunk_gone=$((chunk_gone + 1)) ;;
+        *) failed_names+=" $name"; chunk_failed=$((chunk_failed + 1)) ;;
+      esac
+    done
+    if (( chunk_failed > 0 )); then
       exit_code=1
-      return
+      echo "  → Failed:${failed_names}"
     fi
+    migrated=$((migrated + chunk_migrated))
+    gone=$((gone + chunk_gone))
+    failed=$((failed + chunk_failed))
 
     if $VERBOSE; then
-      echo "       $output" >&1
+      while read -r line; do
+        echo "       $line"
+      done <<< "$output"
     fi
 
-    percent=$(( (patched * 100 + total / 2) / total ))
-    message=$(printf "  → Progress: %3d%% (%d/%d)" "$percent" "$patched" "$total")
+    patched=$((start + chunk_size))
+    percent=$(( (patched * 100 + todo / 2) / todo ))
+    message=$(printf "  → Progress: %3d%% (%d/%d)" "$percent" "$patched" "$todo")
 
     if [[ "${VERBOSE}" != "true" && -t 1 ]]; then
       printf "%s\r" "${message}"
@@ -234,20 +309,31 @@ function apply_patches() {
         last_percent=$percent
       fi
     fi
-  done <<< "$filtered"
+  done
 
-  if [[ "${VERBOSE}" != "true" && -t 1 ]]; then
-    printf "  → Progress: %3d%% (%d/%d)\n" "${percent}" "${patched}" "${total}"
+  if [[ "${VERBOSE}" != "true" && -t 1 ]] && (( todo > 0 )); then
+    printf "  → Progress: %3d%% (%d/%d)\n" "${percent}" "${todo}" "${todo}"
   fi
 
-  if [ "$patched" -ne "$total" ]; then
-    failures=$(( total - patched ))
-    echo "  → Error: only ${patched}/${total} object(s) patched successfully (${failures} failure(s))!"
+  printf "  → Summary%s: found %d, skipped %d (already migrated), migrated %d, gone %d, failed %d.\n" \
+    "${ns:+ for namespace $ns}" "$total" "$skipped" "$migrated" "$gone" "$failed"
+
+  if (( failed > 0 )); then
+    echo "  → Error: ${failed}/${todo} object(s) failed to patch${ns:+ in namespace $ns}!"
   fi
 }
 
 for kind in "${kinds[@]}"; do
   echo "Migrating $kind.kueue.x-k8s.io..."
+
+  # Annotating while the CRD stores another version would mark unmigrated objects as migrated.
+  storage_version=$(kubectl get crd "${kind}.kueue.x-k8s.io" -o jsonpath='{.spec.versions[?(@.storage==true)].name}')
+  if [[ "${storage_version}" != "${MIGRATE_TO_API_VERSION}" ]]; then
+    echo "  → Error: storage version of CRD ${kind}.kueue.x-k8s.io is '${storage_version:-unreadable}', not '${MIGRATE_TO_API_VERSION}'; skipping ${kind}." >&2
+    exit_code=1
+    echo ""
+    continue
+  fi
 
   namespaced=$(kubectl get --raw "/apis/kueue.x-k8s.io/${KUBECTL_GET_API_VERSION}" 2>/dev/null | \
     jq -r --arg kind_lowercase "${kind,,}" \

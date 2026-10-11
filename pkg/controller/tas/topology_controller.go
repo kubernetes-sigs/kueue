@@ -21,7 +21,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -62,7 +61,7 @@ var _ predicate.TypedPredicate[*kueue.Topology] = (*topologyReconciler)(nil)
 
 func newTopologyReconciler(c client.Client, queues *qcache.Manager, cache *schdcache.Cache, roleTracker *roletracker.RoleTracker) *topologyReconciler {
 	return &topologyReconciler{
-		logName:          TASTopologyController,
+		logName:          "tas-topology-reconciler",
 		client:           c,
 		queues:           queues,
 		cache:            cache,
@@ -88,7 +87,7 @@ func (r *topologyReconciler) setupWithManager(mgr ctrl.Manager, cfg *configapi.C
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Topology").GroupKind().String()],
 		}).
-		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, TASTopologyController)).
+		WithLogConstructor(roletracker.NewLogConstructor(r.roleTracker, "tas-topology-reconciler")).
 		Watches(&kueue.ResourceFlavor{}, &resourceFlavorHandler{}).
 		Complete(core.WithLeadingManager(mgr, r, &kueue.Topology{}, cfg))
 }
@@ -197,8 +196,6 @@ func (h *resourceFlavorHandler) Delete(_ context.Context, e event.DeleteEvent, q
 		return
 	}
 	q.AddAfter(reconcile.Request{
-		NamespacedName: types.NamespacedName{
-			Name: string(*resourceFlavor.Spec.TopologyName),
-		},
+		Name: string(*resourceFlavor.Spec.TopologyName),
 	}, constants.UpdatesBatchPeriod)
 }

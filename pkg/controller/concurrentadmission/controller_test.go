@@ -83,6 +83,19 @@ func evaluatedForAdmissionCondition(t time.Time) metav1.Condition {
 	}
 }
 
+// pendingEvaluationCondition returns a WorkloadQuotaReserved=False/PendingEvaluation
+// condition with the given signal time. The Workload controller stamps it during a
+// Variant's first reconciliation when UnadmittedWorkloadsExplicitStatus is enabled.
+func pendingEvaluationCondition(t time.Time) metav1.Condition {
+	return metav1.Condition{
+		Type:               kueue.WorkloadQuotaReserved,
+		Status:             metav1.ConditionFalse,
+		Reason:             kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+		Message:            "Workload is pending evaluation in the scheduling queue",
+		LastTransitionTime: metav1.NewTime(t),
+	}
+}
+
 func caGate() kueue.PreemptionGate {
 	return kueue.PreemptionGate{Name: constants.ConcurrentAdmissionPreemptionGate}
 }
@@ -211,6 +224,44 @@ func TestReconcile(t *testing.T) {
 					EventType: corev1.EventTypeNormal,
 					Reason:    ReasonCreatedVariant,
 					Message:   "Variant Workload \"default/wl-variant-on-demand-480a3\" created",
+				},
+			},
+		},
+		"parent workload whose name has no separator creates variants": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot-c405a", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand-cba55", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl", "").
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonCreatedVariant,
+					Message:   "Variant Workload \"default/wl-variant-spot-c405a\" created",
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonCreatedVariant,
+					Message:   "Variant Workload \"default/wl-variant-on-demand-cba55\" created",
 				},
 			},
 		},
@@ -619,6 +670,52 @@ func TestReconcile(t *testing.T) {
 					AllowedFlavors("on-demand").
 					Request(corev1.ResourceCPU, "1").
 					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					Condition(blockedOnPreemptionCondition(fakeNow)).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+		},
+		"waits for a more-preferred variant that is still pending evaluation": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					Condition(pendingEvaluationCondition(fakeNow)).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					Condition(blockedOnPreemptionCondition(fakeNow)).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					Condition(pendingEvaluationCondition(fakeNow)).
 					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
 					Obj(),
 				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
@@ -2205,7 +2302,7 @@ func TestReconcile(t *testing.T) {
 
 				for i := range tc.variantWorkloads {
 					if workload.IsAdmissible(&tc.variantWorkloads[i]) {
-						if err := qManager.AddOrUpdateWorkload(ctrl.Log, tc.variantWorkloads[i].DeepCopy()); err != nil {
+						if err := qManager.AddOrUpdateWorkload(t.Context(), ctrl.Log, tc.variantWorkloads[i].DeepCopy()); err != nil {
 							t.Fatalf("Failed to add workload to qManager: %v", err)
 						}
 					}
@@ -2223,10 +2320,8 @@ func TestReconcile(t *testing.T) {
 				req := tc.req
 				if req.Name == "" && tc.parentWorkload != nil {
 					req = reconcile.Request{
-						NamespacedName: types.NamespacedName{
-							Namespace: tc.parentWorkload.Namespace,
-							Name:      tc.parentWorkload.Name,
-						},
+						Namespace: tc.parentWorkload.Namespace,
+						Name:      tc.parentWorkload.Name,
 					}
 				}
 
@@ -2301,6 +2396,13 @@ func TestFirstCandidateVariant(t *testing.T) {
 			first: utiltestingapi.MakeWorkload("preferred", "default").
 				AllowedFlavors("on-demand").
 				PreemptionGates(caGate()).
+				Obj(),
+		},
+		"waits when the preferred variant is only marked pending evaluation": {
+			first: utiltestingapi.MakeWorkload("preferred", "default").
+				AllowedFlavors("on-demand").
+				PreemptionGates(caGate()).
+				Condition(pendingEvaluationCondition(now)).
 				Obj(),
 		},
 		"skips a preferred variant with an existing quota reservation condition": {
@@ -2399,7 +2501,7 @@ func TestParentsForClusterQueue(t *testing.T) {
 			Obj()
 	}
 	req := func(name, ns string) reconcile.Request {
-		return reconcile.Request{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}
+		return reconcile.Request{Namespace: ns, Name: name}
 	}
 
 	testCases := map[string]struct {

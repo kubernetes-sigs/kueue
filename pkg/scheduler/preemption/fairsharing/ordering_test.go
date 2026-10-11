@@ -28,6 +28,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -45,10 +46,12 @@ func TestMakeClusterQueueOrdering(t *testing.T) {
 		admitted    []kueue.Workload
 		preemptorCQ kueue.ClusterQueueReference
 		// candidateCQs restricts which admitted workloads become candidates (by CQ name).
-		candidateCQs []kueue.ClusterQueueReference
+		candidateCQs      []kueue.ClusterQueueReference
+		frsNeedPreemption sets.Set[resources.FlavorResource]
 		// actions controls per-iteration behavior: "drop" calls DropQueue, anything else calls PopWorkload.
-		actions   []string
-		wantOrder []kueue.ClusterQueueReference
+		actions       []string
+		wantOrder     []kueue.ClusterQueueReference
+		wantWorkloads []string
 	}{
 		"no cohort: preemptor CQ yielded for in-CQ preemption; repro for nil pointer panic issue": {
 			clusterQueues: []*kueue.ClusterQueue{
@@ -216,6 +219,68 @@ func TestMakeClusterQueueOrdering(t *testing.T) {
 			candidateCQs: []kueue.ClusterQueueReference{"left-cq", "right-cq"},
 			wantOrder:    []kueue.ClusterQueueReference{"left-cq", "right-cq"},
 		},
+		"CQ borrowing only on uncontested flavor is pruned": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("preemptor-cq").Cohort("root").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "4").Obj()).Obj(),
+				utiltestingapi.MakeClusterQueue("borrower-cq").Cohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("other").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+					).Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("w-def", "ns").Request(corev1.ResourceCPU, "2").
+					SimpleReserveQuota("borrower-cq", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("w-other", "ns").Request(corev1.ResourceCPU, "10").
+					SimpleReserveQuota("borrower-cq", "other", now).Obj(),
+			},
+			preemptorCQ:       "preemptor-cq",
+			candidateCQs:      []kueue.ClusterQueueReference{"borrower-cq"},
+			frsNeedPreemption: sets.New(resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU}),
+			wantOrder:         nil,
+		},
+		"CQ borrowing on one flavor skips candidate using non-borrowed flavor": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("preemptor-cq").Cohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "4").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("other").
+							Resource(corev1.ResourceCPU, "4").Obj(),
+					).Obj(),
+				utiltestingapi.MakeClusterQueue("borrower-cq").Cohort("root").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+						*utiltestingapi.MakeFlavorQuotas("other").
+							Resource(corev1.ResourceCPU, "2").Obj(),
+					).Obj(),
+			},
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("root").Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("w-def", "ns").Request(corev1.ResourceCPU, "2").
+					SimpleReserveQuota("borrower-cq", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("w-other", "ns").Request(corev1.ResourceCPU, "10").
+					SimpleReserveQuota("borrower-cq", "other", now).Obj(),
+			},
+			preemptorCQ:  "preemptor-cq",
+			candidateCQs: []kueue.ClusterQueueReference{"borrower-cq"},
+			frsNeedPreemption: sets.New(
+				resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU},
+				resources.FlavorResource{Flavor: "other", Resource: corev1.ResourceCPU},
+			),
+			wantOrder:     []kueue.ClusterQueueReference{"borrower-cq"},
+			wantWorkloads: []string{"w-other"},
+		},
 	}
 
 	for name, tc := range cases {
@@ -226,6 +291,7 @@ func TestMakeClusterQueueOrdering(t *testing.T) {
 				Build()
 			cqCache := schdcache.New(cl)
 			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+			cqCache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("other").Obj())
 
 			for _, cq := range tc.clusterQueues {
 				if err := cqCache.AddClusterQueue(ctx, cq); err != nil {
@@ -248,22 +314,25 @@ func TestMakeClusterQueueOrdering(t *testing.T) {
 			candidateCQSet := sets.New(tc.candidateCQs...)
 			var candidates []*workload.Info
 			for i := range tc.admitted {
-				info := workload.NewInfo(&tc.admitted[i])
+				info := workload.NewInfo(log, &tc.admitted[i])
 				if candidateCQSet.Has(info.ClusterQueue) {
 					candidates = append(candidates, info)
 				}
 			}
 
-			ordering := MakeClusterQueueOrdering(preemptorCQ, candidates, log, clk)
+			ordering := MakeClusterQueueOrdering(preemptorCQ, candidates, tc.frsNeedPreemption, log, clk)
 
 			var gotOrder []kueue.ClusterQueueReference
+			var gotWorkloads []string
 			actionIdx := 0
 			for target := range ordering.Iter() {
 				gotOrder = append(gotOrder, target.GetTargetCq().GetName())
 				if actionIdx < len(tc.actions) && tc.actions[actionIdx] == "drop" {
 					ordering.DropQueue(target)
 				} else {
-					target.PopWorkload()
+					if wl := target.PopWorkload(); wl != nil {
+						gotWorkloads = append(gotWorkloads, wl.Obj.GetName())
+					}
 				}
 				actionIdx++
 				if len(gotOrder) > 50 {
@@ -273,6 +342,11 @@ func TestMakeClusterQueueOrdering(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantOrder, gotOrder, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("ordering mismatch (-want,+got):\n%s", diff)
+			}
+			if tc.wantWorkloads != nil {
+				if diff := cmp.Diff(tc.wantWorkloads, gotWorkloads, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("workloads mismatch (-want,+got):\n%s", diff)
+				}
 			}
 		})
 	}

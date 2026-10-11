@@ -31,6 +31,7 @@ import (
 var (
 	errParseTopologyConstraints      = errors.New("failed to parse multi-layer topology constraints annotation")
 	errTopologyConstraintsLayerCount = errors.New("topology constraints must contain between 1 and 3 entries")
+	errUnconstrainedTopologyNotTrue  = errors.New("unconstrained topology annotation must be true")
 )
 
 type podSetTopologyRequestBuilder struct {
@@ -47,6 +48,16 @@ func (p *podSetTopologyRequestBuilder) PodIndexLabel(podIndexLabel *string) *pod
 
 func (p *podSetTopologyRequestBuilder) SubGroup(subGroupIndexLabel *string, subGroupCount *int32) *podSetTopologyRequestBuilder {
 	p.subGroupIndexLabel = subGroupIndexLabel
+	p.subGroupCount = subGroupCount
+	return p
+}
+
+func (p *podSetTopologyRequestBuilder) SubGroupIndexLabel(subGroupIndexLabel *string) *podSetTopologyRequestBuilder {
+	p.subGroupIndexLabel = subGroupIndexLabel
+	return p
+}
+
+func (p *podSetTopologyRequestBuilder) SubGroupCount(subGroupCount *int32) *podSetTopologyRequestBuilder {
 	p.subGroupCount = subGroupCount
 	return p
 }
@@ -78,6 +89,9 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 		unconstrained, err := strconv.ParseBool(unconstrained)
 		if err != nil {
 			return nil, err
+		}
+		if !unconstrained && features.Enabled(features.TASRejectFalseUnconstrainedTopology) {
+			return nil, errUnconstrainedTopologyNotTrue
 		}
 		psTopologyReq.Unconstrained = &unconstrained
 	default:

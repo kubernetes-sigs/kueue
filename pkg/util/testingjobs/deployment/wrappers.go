@@ -38,11 +38,9 @@ type DeploymentWrapper struct {
 // MakeDeployment creates a wrapper for a Deployment with a single container.
 func MakeDeployment(name, ns string) *DeploymentWrapper {
 	return &DeploymentWrapper{appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   ns,
-			Annotations: make(map[string]string, 1),
-		},
+		Name:        name,
+		Namespace:   ns,
+		Annotations: make(map[string]string, 1),
 		Spec: appsv1.DeploymentSpec{
 			Selector: &metav1.LabelSelector{
 				MatchLabels: map[string]string{

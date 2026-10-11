@@ -22,6 +22,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -56,6 +57,7 @@ func TestPodSets(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "group1",
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 						},
@@ -97,6 +99,7 @@ func TestPodSets(t *testing.T) {
 					WithWorkerGroups(
 						rayv1.WorkerGroupSpec{
 							GroupName: "group1",
+							Replicas:  new(int32(1)),
 							Template: corev1.PodTemplateSpec{
 								Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 							},
@@ -145,6 +148,7 @@ func TestPodSets(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "group1",
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -174,9 +178,12 @@ func TestPodSets(t *testing.T) {
 						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
 						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations).
 						RequiredTopologyRequest("cloud.com/block").
+						SubGroupCount(new(int32(1))).
 						Obj(),
 					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].GroupName), 3).
 						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
+						PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+						SubGroupCount(new(int32(3))).
 						Obj(),
 				}
 			},
@@ -199,6 +206,7 @@ func TestPodSets(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "group1",
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 						},
@@ -226,11 +234,104 @@ func TestPodSets(t *testing.T) {
 						Obj(),
 					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName), 1).
 						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						SubGroupCount(new(int32(1))).
 						Obj(),
 					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].GroupName), 3).
 						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Spec.DeepCopy()).
 						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[1].Template.Annotations).
 						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+						SubGroupCount(new(int32(3))).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"with multi-host and multi-replica worker group": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName:  "group1",
+						Replicas:   new(int32(2)),
+						NumOfHosts: 4,
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Annotations(rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Annotations).
+						RequiredTopologyRequest("cloud.com/block").
+						Obj(),
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName), 8).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations).
+						RequiredTopologyRequest("cloud.com/block").
+						PodIndexLabel(new(rayutils.RayHostIndexKey)).
+						SubGroupIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+						SubGroupCount(new(int32(2))).
+						Obj(),
+				}
+			},
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		"with multi-host and single-replica worker group": {
+			rayJob: (*RayJob)(testingrayutil.MakeJob("rayjob", "ns").
+				WithHeadGroupSpec(
+					rayv1.HeadGroupSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "head_c"}}},
+						},
+					},
+				).
+				WithWorkerGroups(
+					rayv1.WorkerGroupSpec{
+						GroupName:  "group1",
+						Replicas:   new(int32(1)),
+						NumOfHosts: 4,
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+								},
+							},
+							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
+						},
+					},
+				).
+				Obj()),
+			wantPodSets: func(rayJob *RayJob) []kueue.PodSet {
+				return []kueue.PodSet{
+					*utiltestingapi.MakePodSet(headGroupPodSetName, 1).
+						PodSpec(*rayJob.Spec.RayClusterSpec.HeadGroupSpec.Template.Spec.DeepCopy()).
+						Obj(),
+					*utiltestingapi.MakePodSet(kueue.NewPodSetReference(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].GroupName), 4).
+						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
+						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations).
+						RequiredTopologyRequest("cloud.com/block").
+						PodIndexLabel(new(rayutils.RayHostIndexKey)).
+						SubGroupCount(new(int32(1))).
 						Obj(),
 				}
 			},
@@ -253,6 +354,7 @@ func TestPodSets(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "group1",
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							ObjectMeta: metav1.ObjectMeta{
 								Annotations: map[string]string{
@@ -335,6 +437,8 @@ func TestPodSets(t *testing.T) {
 						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
 						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations).
 						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+						SubGroupCount(new(int32(3))).
 						Obj(),
 					*utiltestingapi.MakePodSet("submitter", 1).
 						PodSpec(*getSubmitterTemplate(rayJob).Spec.DeepCopy()).
@@ -381,10 +485,8 @@ func TestPodSets(t *testing.T) {
 						},
 						RestartPolicy: corev1.RestartPolicyNever,
 					},
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
-						},
+					Annotations: map[string]string{
+						kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
 					},
 				}).
 				Obj()),
@@ -399,6 +501,8 @@ func TestPodSets(t *testing.T) {
 						PodSpec(*rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Spec.DeepCopy()).
 						Annotations(rayJob.Spec.RayClusterSpec.WorkerGroupSpecs[0].Template.Annotations).
 						PreferredTopologyRequest("cloud.com/block").
+						PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+						SubGroupCount(new(int32(3))).
 						Obj(),
 					*utiltestingapi.MakePodSet("submitter", 1).
 						PodSpec(*rayJob.Spec.SubmitterPodTemplate.Spec.DeepCopy()).
@@ -421,6 +525,7 @@ func TestPodSets(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName:  "group1",
+						Replicas:   new(int32(1)),
 						NumOfHosts: 4,
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
@@ -464,6 +569,7 @@ func TestPodSets(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "group1",
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 						},
@@ -508,6 +614,7 @@ func TestPodSets(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "group1",
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 						},
@@ -577,6 +684,7 @@ func TestPodSets(t *testing.T) {
 				WithWorkerGroups(
 					rayv1.WorkerGroupSpec{
 						GroupName: "group1",
+						Replicas:  new(int32(1)),
 						Template: corev1.PodTemplateSpec{
 							Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 						},
@@ -926,10 +1034,13 @@ func TestRestorePodSetsInfo(t *testing.T) {
 		podSetsInfo []podset.PodSetInfo
 		wantChanged bool
 	}{
-		"fewer podSetsInfo than expected is a no-op": {
-			job:         baseJob.Clone().Obj(),
+		"fewer podSetsInfo than expected skips restore but clears runtime annotations": {
+			job: baseJob.Clone().
+				Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"group1","count":2}]`).
+				Annotation(raycluster.RayClusterGenerationAnnotation, "worker-2").
+				Obj(),
 			podSetsInfo: []podset.PodSetInfo{{}, {}},
-			wantChanged: false,
+			wantChanged: true,
 		},
 		"more podSetsInfo than expected is a no-op": {
 			job:         baseJob.Clone().Obj(),
@@ -967,6 +1078,11 @@ func TestRestorePodSetsInfo(t *testing.T) {
 			genJob := (*RayJob)(tc.job)
 			if gotChanged := genJob.RestorePodSetsInfo(t.Context(), tc.podSetsInfo); gotChanged != tc.wantChanged {
 				t.Errorf("RestorePodSetsInfo() = %v, want %v", gotChanged, tc.wantChanged)
+			}
+			for _, key := range []string{raycluster.RayClusterPodsetReplicaSizesAnnotation, raycluster.RayClusterGenerationAnnotation} {
+				if _, found := tc.job.Annotations[key]; found {
+					t.Errorf("RestorePodSetsInfo() did not clear annotation %q", key)
+				}
 			}
 		})
 	}

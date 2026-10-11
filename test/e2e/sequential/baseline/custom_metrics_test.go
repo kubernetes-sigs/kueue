@@ -31,10 +31,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	podtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "feature:pod"), func() {
+var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "feature:pod", e2e.Shard0), func() {
 	var (
 		ns             *corev1.Namespace
 		onDemandRF     *kueue.ResourceFlavor
@@ -42,20 +43,19 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-e2e-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "pod-e2e-")
 		flavorOnDemand = "on-demand-" + ns.Name
 		onDemandRF = utiltestingapi.MakeResourceFlavor(flavorOnDemand).NodeLabel("instance-type", "on-demand").Obj()
-		util.MustCreate(ctx, k8sClient, onDemandRF)
+		behavioral.MustCreate(ctx, k8sClient, onDemandRF)
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("Custom metric labels enabled", ginkgo.Ordered, func() {
 		var (
-			defaultKueueCfg  *config.Configuration
 			kindClusterName  = os.Getenv("KIND_CLUSTER_NAME")
 			cq               *kueue.ClusterQueue
 			lq               *kueue.LocalQueue
@@ -63,31 +63,20 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 		)
 
 		ginkgo.BeforeAll(func() {
-			defaultKueueCfg = util.GetKueueConfiguration(ctx, k8sClient)
-			util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
+			e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *config.Configuration) {
 				cfg.FeatureGates = map[string]bool{
 					string(features.CustomMetricLabels): true,
 				}
 				cfg.Integrations.LabelKeysToCopy = []string{"toCopyKeyIntegration"}
 				cfg.Metrics.CustomLabels = []config.ControllerMetricsCustomLabel{
-					{
-						Name:           "custom_label_key",
-						SourceLabelKey: "toCopyKeyCustom",
-						SourceKind:     new(config.SourceKindWorkload),
-						TrackedValues:  []string{"custom_value"},
-					},
-					{
-						Name:                "custom_annotation_key",
-						SourceAnnotationKey: "toCopyAnnotation",
-						SourceKind:          new(config.SourceKindWorkload),
-						TrackedValues:       []string{"annotation_value"},
-					},
+					utiltestingapi.MakeCustomLabel("custom_label_key").SourceLabelKey("toCopyKeyCustom").SourceKind(config.SourceKindWorkload).TrackedValues("custom_value").Obj(),
+					utiltestingapi.MakeCustomLabel("custom_annotation_key").SourceAnnotationKey("toCopyAnnotation").SourceKind(config.SourceKindWorkload).TrackedValues("annotation_value").Obj(),
 				}
 			})
 		})
 
 		ginkgo.AfterAll(func() {
-			util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
+			e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName)
 		})
 
 		ginkgo.BeforeEach(func() {
@@ -97,15 +86,15 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 					*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).Resource(corev1.ResourceCPU, "5").Obj(),
 				).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 			lq = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(cq.Name).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			gomega.Expect(behavioral.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 		})
 
 		ginkgo.It("should successfully copy labels and annotations for a single pod", func() {
@@ -117,7 +106,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				Annotation("toCopyAnnotation", "annotation_value").
 				Annotation("dontCopyAnnotation", "ignored").
 				Obj()
-			util.MustCreate(ctx, k8sClient, testPod)
+			behavioral.MustCreate(ctx, k8sClient, testPod)
 
 			wlLookupKey := types.NamespacedName{
 				Namespace: ns.Name,
@@ -126,7 +115,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			createdWorkload := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			gomega.Expect(createdWorkload.Labels["toCopyKeyIntegration"]).Should(gomega.Equal("integration_value"))
 			gomega.Expect(createdWorkload.Labels["toCopyKeyCustom"]).Should(gomega.Equal("custom_value"))
@@ -155,8 +144,8 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				Annotation("dontCopyAnnotation", "ignored2").
 				Obj()
 
-			util.MustCreate(ctx, k8sClient, pod1)
-			util.MustCreate(ctx, k8sClient, pod2)
+			behavioral.MustCreate(ctx, k8sClient, pod1)
+			behavioral.MustCreate(ctx, k8sClient, pod2)
 
 			wlLookupKey := types.NamespacedName{
 				Namespace: ns.Name,
@@ -165,7 +154,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			createdWorkload := &kueue.Workload{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			gomega.Expect(createdWorkload.Labels["toCopyKeyIntegration"]).Should(gomega.Equal("integration_value"))
 			gomega.Expect(createdWorkload.Labels["toCopyKeyCustom"]).Should(gomega.Equal("custom_value"))
@@ -188,8 +177,8 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 				Annotation("toCopyAnnotation", "mismatch_value").
 				Obj()
 
-			util.MustCreate(ctx, k8sClient, pod1)
-			util.MustCreate(ctx, k8sClient, pod2)
+			behavioral.MustCreate(ctx, k8sClient, pod1)
+			behavioral.MustCreate(ctx, k8sClient, pod2)
 
 			wlLookupKey := types.NamespacedName{
 				Namespace: ns.Name,
@@ -198,7 +187,7 @@ var _ = ginkgo.Describe("Pod groups", ginkgo.Label("area:singlecluster", "featur
 			createdWorkload := &kueue.Workload{}
 			gomega.Consistently(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Satisfy(apierrors.IsNotFound))
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })

@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
@@ -45,6 +46,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
@@ -54,6 +56,8 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -84,6 +88,7 @@ type topologyUngater struct {
 	clock             clock.Clock
 	expectationsStore *expectations.Store
 	roleTracker       *roletracker.RoleTracker
+	customLabels      *metrics.CustomLabels
 }
 
 type podWithUngateInfo struct {
@@ -103,7 +108,7 @@ var _ predicate.TypedPredicate[*kueue.Workload] = (*topologyUngater)(nil)
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get
 
-func newTopologyUngater(c client.Client, roleTracker *roletracker.RoleTracker, opts ...topologyUngaterOption) *topologyUngater {
+func newTopologyUngater(c client.Client, roleTracker *roletracker.RoleTracker, customLabels *metrics.CustomLabels, opts ...topologyUngaterOption) *topologyUngater {
 	options := defaultOptions
 	for _, opt := range opts {
 		opt(&options)
@@ -113,6 +118,7 @@ func newTopologyUngater(c client.Client, roleTracker *roletracker.RoleTracker, o
 		clock:             options.clock,
 		expectationsStore: expectations.NewStore(TASTopologyUngater),
 		roleTracker:       roleTracker,
+		customLabels:      customLabels,
 	}
 }
 
@@ -125,7 +131,11 @@ func (r *topologyUngater) setupWithManager(mgr ctrl.Manager, cfg *configapi.Conf
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
 			&kueue.Workload{},
-			&handler.TypedEnqueueRequestForObject[*kueue.Workload]{},
+			handler.TypedEnqueueRequestsFromMapFunc(func(_ context.Context, wl *kueue.Workload) []reconcile.Request {
+				return []reconcile.Request{{
+					Namespace: wl.Namespace,
+					Name:      workloadslicing.SliceName(wl)}}
+			}),
 			r,
 		)).
 		Watches(&corev1.Pod{}, &podHandler).
@@ -167,46 +177,37 @@ func (h *podHandler) queueReconcileForPod(ctx context.Context, object client.Obj
 		// skip non-TAS pods
 		return
 	}
-	if wlName, found := pod.Annotations[kueue.WorkloadAnnotation]; found {
-		key := types.NamespacedName{
-			Name:      wlName,
-			Namespace: pod.Namespace,
-		}
-		// it is possible that the pod is removed before the gate removal, so
-		// we also need to consider deleted pod as ungated.
-		if !utilpod.HasGate(pod, kueue.TopologySchedulingGate) || deleted {
-			log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workload", key.String())
-			h.expectationsStore.ObservedUID(log, key, pod.UID)
-		}
-		q.AddAfter(reconcile.Request{NamespacedName: key}, constants.UpdatesBatchPeriod)
+	key := workloadslicing.KeyForPod(pod)
+	if key == nil {
+		return
 	}
+	// Observe and enqueue by the stable chain identity, even after slice rollover.
+	if !utilpod.HasGate(pod, kueue.TopologySchedulingGate) || deleted {
+		log := ctrl.LoggerFrom(ctx).WithValues("pod", klog.KObj(pod), "workload", key.String())
+		h.expectationsStore.ObservedUID(log, *key, pod.UID)
+	}
+	q.AddAfter(reconcile.Request{NamespacedName: *key}, constants.UpdatesBatchPeriod)
 }
 
 func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
 	log.V(2).Info("Reconcile Topology Ungater")
 
-	wl := &kueue.Workload{}
-	if err := r.client.Get(ctx, req.NamespacedName, wl); err != nil {
-		if client.IgnoreNotFound(err) != nil {
-			return reconcile.Result{}, err
-		}
-		log.V(5).Info("workload not found")
+	// Pods may still reference the initial slice after a replacement is admitted.
+	// Resolve on every reconcile so late Pod events and retries use current capacity.
+	wl, err := workloadslicing.FindActiveWorkload(ctx, r.client, req.NamespacedName, true)
+	if err != nil || wl == nil {
+		return reconcile.Result{}, err
+	}
+	if workloadfinish.IsFinished(wl) || workloadevict.IsEvicted(wl) || !shouldReconcileWorkload(wl) {
 		return reconcile.Result{}, nil
 	}
-	if !r.expectationsStore.Satisfied(log, req.NamespacedName) {
+	workloadSliceName := workloadslicing.SliceName(wl)
+	sliceKey := types.NamespacedName{Namespace: wl.Namespace, Name: workloadSliceName}
+	if !r.expectationsStore.Satisfied(log, sliceKey) {
 		log.V(3).Info("There are pending ungate operations")
 		return reconcile.Result{}, errPendingUngateOps
 	}
-	if !workload.IsAdmittedByTAS(wl) {
-		// this is a safeguard. In particular, it helps to prevent the race
-		// condition if the workload is evicted before the reconcile is
-		// triggered.
-		log.V(5).Info("workload is not admitted by TAS")
-		return reconcile.Result{}, nil
-	}
-
-	workloadSliceName := workloadslicing.SliceName(wl)
 
 	psNameToTopologyRequest := workload.PodSetNameToTopologyRequest(wl)
 	allToUngate := make([]podWithUngateInfo, 0)
@@ -246,7 +247,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	}
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		if psa.TopologyAssignment != nil {
-			pods, err := r.podsForPodSet(ctx, wl.Namespace, workloadSliceName, psa.Name)
+			pods, err := r.podsForPodSet(ctx, wl.Namespace, workloadSliceName, &psa)
 			if err != nil {
 				log.Error(err, "failed to list Pods for PodSet", "podset", psa.Name, "count", psa.Count)
 				return reconcile.Result{}, err
@@ -300,9 +301,9 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	}
 	log.V(2).Info("identified pods to ungate", "count", len(allToUngate))
 	podsToUngateUIDs := utilslices.Map(allToUngate, func(p *podWithUngateInfo) types.UID { return p.pod.UID })
-	r.expectationsStore.ExpectUIDs(log, req.NamespacedName, podsToUngateUIDs)
+	r.expectationsStore.ExpectUIDs(log, sliceKey, podsToUngateUIDs)
 
-	err := parallelize.Until(ctx, len(allToUngate), func(i int) error {
+	err = parallelize.Until(ctx, len(allToUngate), func(i int) error {
 		podWithUngateInfo := &allToUngate[i]
 		var ungated bool
 		e := utilclient.Patch(ctx, r.client, podWithUngateInfo.pod, func() (bool, error) {
@@ -318,14 +319,14 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		})
 		if e != nil {
 			// We won't observe this cleanup in the event handler.
-			r.expectationsStore.ObservedUID(log, req.NamespacedName, podWithUngateInfo.pod.UID)
+			r.expectationsStore.ObservedUID(log, sliceKey, podWithUngateInfo.pod.UID)
 			log.Error(e, "failed ungating pod", "pod", klog.KObj(podWithUngateInfo.pod))
 		}
 		if !ungated {
 			// We don't expect an event in this case.
-			r.expectationsStore.ObservedUID(log, req.NamespacedName, podWithUngateInfo.pod.UID)
+			r.expectationsStore.ObservedUID(log, sliceKey, podWithUngateInfo.pod.UID)
 		} else {
-			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.TopologySchedulingGate, wl, utilpod.IsPodGroup(podWithUngateInfo.pod))
+			utilpod.RecordPodSchedulingGateRemovalSeconds(r.clock, kueue.TopologySchedulingGate, wl, utilpod.IsPodGroup(podWithUngateInfo.pod), r.customLabels, r.roleTracker)
 		}
 		return e
 	})
@@ -355,18 +356,31 @@ func shouldReconcileWorkload(wl *kueue.Workload) bool {
 	return workload.IsAdmittedByTAS(wl)
 }
 
-func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceName string, psName kueue.PodSetReference) ([]*corev1.Pod, error) {
-	pods, err := ListPodsForWorkloadSlice(ctx, r.client, ns, workloadSliceName,
-		client.MatchingLabels{constants.PodSetLabel: string(psName)})
+func (r *topologyUngater) podsForPodSet(ctx context.Context, ns, workloadSliceName string, psa *kueue.PodSetAssignment) ([]*corev1.Pod, error) {
+	log := ctrl.LoggerFrom(ctx)
+	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, ns, workloadSliceName,
+		client.MatchingLabels{constants.PodSetLabel: string(psa.Name)})
 	if err != nil {
 		return nil, err
 	}
+	assignedDomains := sets.New(slices.Collect(utiltas.DomainIDs(psa.TopologyAssignment))...)
 	result := make([]*corev1.Pod, 0, len(pods))
 	for _, pod := range pods {
 		if utilpod.IsTerminated(pod) {
 			// ignore failed or succeeded pods as they need to be replaced, and
 			// so we don't want to count them as already ungated Pods.
 			continue
+		}
+		if !utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
+			domainID := utiltas.DomainID(utiltas.LevelValues(psa.TopologyAssignment.Levels, pod.Spec.NodeSelector))
+			if !assignedDomains.Has(domainID) {
+				// ignore ungated pods assigned to domains outside the current
+				// TopologyAssignment (e.g. pods stuck terminating on a failed node
+				// after node replacement or workload re-admission).
+				log.V(3).Info("ignoring ungated pod assigned to a domain outside the current TopologyAssignment",
+					"pod", klog.KObj(pod), "domain", domainID)
+				continue
+			}
 		}
 		result = append(result, pod)
 	}

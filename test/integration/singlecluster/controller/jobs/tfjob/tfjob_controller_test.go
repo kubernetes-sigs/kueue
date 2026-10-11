@@ -17,6 +17,8 @@ limitations under the License.
 package tfjob
 
 import (
+	"time"
+
 	"github.com/google/go-cmp/cmp/cmpopts"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	"github.com/onsi/ginkgo/v2"
@@ -25,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -32,6 +35,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	workloadtfjob "sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/tfjob"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/kubeflowjob"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -39,7 +43,8 @@ import (
 	testingtfjob "sigs.k8s.io/kueue/pkg/util/testingjobs/tfjob"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	kftesting "sigs.k8s.io/kueue/test/integration/singlecluster/controller/jobs/kubeflow"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 const (
@@ -50,9 +55,9 @@ const (
 var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	ginkgo.BeforeAll(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithManageJobsWithoutQueueName(true),
-			jobframework.WithManagedJobsNamespaceSelector(util.NewNamespaceSelectorExcluding("unmanaged-ns"))))
+			jobframework.WithManagedJobsNamespaceSelector(behavioral.NewNamespaceSelectorExcluding("unmanaged-ns"))))
 		unmanagedNamespace := utiltesting.MakeNamespace("unmanaged-ns")
-		util.MustCreate(ctx, k8sClient, unmanagedNamespace)
+		behavioral.MustCreate(ctx, k8sClient, unmanagedNamespace)
 	})
 
 	ginkgo.AfterAll(func() {
@@ -63,10 +68,10 @@ var _ = ginkgo.Describe("Job controller", framework.RedundantSpec, ginkgo.Ordere
 		ns *corev1.Namespace
 	)
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.It("Should reconcile TFJobs", func() {
@@ -104,22 +109,29 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 	)
 
 	ginkgo.BeforeAll(func() {
-		fwk.StartManager(ctx, cfg, managerSetup(jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{}), jobframework.WithCache(schdcache.New(k8sClient))))
+		fwk.StartManager(
+			ctx,
+			cfg,
+			managerSetup(
+				jobframework.WithWaitForPodsReady(&configapi.WaitForPodsReady{UnscheduledTimeout: &metav1.Duration{Duration: time.Minute}}),
+				jobframework.WithCache(schdcache.New(k8sClient)),
+			),
+		)
 
 		ginkgo.By("Create a resource flavor")
-		util.MustCreate(ctx, k8sClient, defaultFlavor)
+		behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
 	})
 
 	ginkgo.AfterAll(func() {
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
 		fwk.StopManager(ctx)
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
@@ -142,6 +154,36 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", framewor
 				},
 			})
 		},
+		ginkgo.Entry("Unscheduled Pods", kftesting.PodsReadyTestSpec{
+			FeatureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: true,
+			},
+			PodsScheduled: &metav1.Condition{
+				Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForScheduling,
+			},
+			WantCondition: &metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForScheduling,
+				Message: "Not all pods are ready or succeeded",
+			},
+		}),
+		ginkgo.Entry("Scheduling observation ignored with feature disabled", kftesting.PodsReadyTestSpec{
+			FeatureGates: map[featuregate.Feature]bool{
+				features.WaitForPodsReadyUnscheduledTimeout: false,
+			},
+			PodsScheduled: &metav1.Condition{
+				Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForScheduling,
+			},
+			WantCondition: &metav1.Condition{
+				Type:    kueue.WorkloadPodsReady,
+				Status:  metav1.ConditionFalse,
+				Reason:  kueue.WorkloadWaitForStart,
+				Message: "Not all pods are ready or succeeded",
+			},
+		}),
 		ginkgo.Entry("No progress", kftesting.PodsReadyTestSpec{
 			WantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -244,32 +286,32 @@ var _ = ginkgo.Describe("Job controller interacting with scheduler", framework.R
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 
 		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand").NodeLabel(instanceKey, "on-demand").Obj()
-		util.MustCreate(ctx, k8sClient, onDemandFlavor)
+		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
 
 		spotUntaintedFlavor = utiltestingapi.MakeResourceFlavor("spot-untainted").NodeLabel(instanceKey, "spot-untainted").Obj()
-		util.MustCreate(ctx, k8sClient, spotUntaintedFlavor)
+		behavioral.MustCreate(ctx, k8sClient, spotUntaintedFlavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("dev-clusterqueue").
 			ResourceGroup(
 				*utiltestingapi.MakeFlavorQuotas("spot-untainted").Resource(corev1.ResourceCPU, "8").Obj(),
 				*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "5").Obj(),
 			).Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
-		gomega.Expect(util.DeleteObject(ctx, k8sClient, spotUntaintedFlavor)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, spotUntaintedFlavor)).To(gomega.Succeed())
 	})
 
 	ginkgo.It("Should schedule jobs as they fit in their ClusterQueue", func() {
 		ginkgo.By("creating localQueue")
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
 
 		kfJob := kubeflowjob.KubeflowJob{KFJobControl: (*workloadtfjob.JobControl)(
 			testingtfjob.MakeTFJob(jobName, ns.Name).Queue(localQueue.Name).
@@ -321,7 +363,7 @@ var _ = ginkgo.Describe("TFJob controller with TopologyAwareScheduling", framewo
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-tfjob-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-tfjob-")
 
 		nodes = []corev1.Node{
 			*testingnode.MakeNode("b1r1").
@@ -336,33 +378,33 @@ var _ = ginkgo.Describe("TFJob controller with TopologyAwareScheduling", framewo
 				Ready().
 				Obj(),
 		}
-		util.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = utiltestingapi.MakeDefaultTwoLevelTopology("default")
-		util.MustCreate(ctx, k8sClient, topology)
+		behavioral.MustCreate(ctx, k8sClient, topology)
 
 		tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
 			NodeLabel(nodeGroupLabel, "tas").
 			TopologyName("default").Obj()
-		util.MustCreate(ctx, k8sClient, tasFlavor)
+		behavioral.MustCreate(ctx, k8sClient, tasFlavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).Resource(corev1.ResourceCPU, "5").Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, clusterQueue)
-		util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+		behavioral.MustCreate(ctx, k8sClient, clusterQueue)
+		behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.MustCreate(ctx, k8sClient, localQueue)
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 		for _, node := range nodes {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
 		}
 	})
 
@@ -397,7 +439,7 @@ var _ = ginkgo.Describe("TFJob controller with TopologyAwareScheduling", framewo
 			Request(kftraining.TFJobReplicaTypeWorker, corev1.ResourceCPU, "100m").
 			Obj()
 		ginkgo.By("creating a TFJob", func() {
-			util.MustCreate(ctx, k8sClient, tfJob)
+			behavioral.MustCreate(ctx, k8sClient, tfJob)
 		})
 
 		wl := &kueue.Workload{}
@@ -432,12 +474,12 @@ var _ = ginkgo.Describe("TFJob controller with TopologyAwareScheduling", framewo
 						},
 					},
 				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verify the workload is admitted", func() {
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
-			util.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.ExpectAdmittedWorkloadsTotalMetric(clusterQueue, "", 1)
 		})
 
 		ginkgo.By("verify admission for the workload", func() {
@@ -463,7 +505,7 @@ var _ = ginkgo.Describe("TFJob controller with TopologyAwareScheduling", framewo
 						Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"b1", "r1"}}},
 					}),
 				))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })

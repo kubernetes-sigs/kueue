@@ -26,12 +26,14 @@ import (
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -40,12 +42,15 @@ import (
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 type subResourcePatchFn func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error
+type subResourceApplyFn func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error
 type fakeClientUsage int
 type fakeClientCallSpec func(obj client.Object) (fakeClientUsage, error)
 type fakeClientCallResponseHookSpec func(obj client.Object, err error) (fakeClientUsage, error)
@@ -78,12 +83,12 @@ func setFakeSubResourcePatchResponseHookSpec(g fakeClientCallResponseHookSpec) {
 }
 
 func TestScheduler(t *testing.T) {
-	util.RunSuite(t, "Scheduler Suite")
+	behavioral.RunSuite(t, "Scheduler Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = setupInterceptedClient()
@@ -112,7 +117,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	}
 	cCache := schdcache.New(mgr.GetClient())
 	preemptionExpectations := preemptexpectations.New()
-	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache,
+	queues := integration.NewManager(ctx, mgr.GetClient(), cCache,
 		qcache.WithResourceTransformations(transformations),
 		qcache.WithPreemptionExpectations(preemptionExpectations),
 		qcache.WithResourceMetrics(true),
@@ -151,6 +156,7 @@ func setupInterceptedClient() (context.Context, client.Client) {
 	ctx, baseClient := fwk.SetupClient(cfg)
 	funcs := interceptor.Funcs{
 		SubResourcePatch: fakeSubResourcePatchFrom(baseClient),
+		SubResourceApply: fakeSubResourceApplyFrom(baseClient),
 	}
 	client := interceptor.NewClient(baseClient, funcs)
 	return ctx, client
@@ -163,9 +169,46 @@ func newInterceptedClient(config *rest.Config, options client.Options) (client.C
 	}
 	funcs := interceptor.Funcs{
 		SubResourcePatch: fakeSubResourcePatchFrom(baseClient),
+		SubResourceApply: fakeSubResourceApplyFrom(baseClient),
 	}
 	client := interceptor.NewClient(baseClient, funcs)
 	return client, nil
+}
+
+// fakeSubResourceApplyFrom mirrors fakeSubResourcePatchFrom for the apply path, which is how
+// the scheduler writes workload status, so that injected failures keep firing.
+func fakeSubResourceApplyFrom(baseK8sClient client.Client) subResourceApplyFn {
+	return func(ctx context.Context, client client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+		fakeClientMutex.RLock()
+		fSpec := fakeSubResourcePatchSpec
+		gSpec := fakeSubResourcePatchResponseHookSpec
+		fakeClientMutex.RUnlock()
+
+		wl := &kueue.Workload{}
+		if err := utiltesting.DecodeApplyConfiguration(applyConf, wl); err != nil {
+			return err
+		}
+
+		if fSpec != nil {
+			fakeUsage, err := fSpec(wl)
+			if fakeUsage == emitResponse {
+				return err
+			}
+		}
+		switch subResourceName {
+		case "status":
+			response := baseK8sClient.Status().Apply(ctx, applyConf, opts...)
+			if gSpec != nil {
+				fakeUsage, err := gSpec(wl, response)
+				if fakeUsage == emitResponse {
+					return err
+				}
+			}
+			return response
+		default:
+			return fmt.Errorf("Unsupported subresource: %s", subResourceName)
+		}
+	}
 }
 
 func fakeSubResourcePatchFrom(baseK8sClient client.Client) subResourcePatchFn {

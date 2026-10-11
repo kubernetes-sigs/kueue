@@ -1,0 +1,445 @@
+# Copyright 2026 The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+##@ Verify
+
+GO_FMT ?= gofmt
+CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+SKILLSAW_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/skillsaw/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
+SKILLSAW_IMAGE := "ghcr.io/stbenjam/skillsaw:${SKILLSAW_VERSION}"
+VERIFY_NPROCS ?= 8
+# Bound each Go process as well as the number of concurrent build/lint processes.
+# These limits apply to verify; standalone artifact builds retain their defaults.
+VERIFY_GOMAXPROCS ?= 2
+VERIFY_CLI_BUILD_NPROCS ?= 2
+# Share CPU capacity with platform builds and documentation generation; 0 is unlimited.
+CI_LINT_NPROCS ?= 2
+# Output sync mode for parallel verification. Set to empty to disable.
+# Requires GNU Make 4.0+. Values: target, line, recurse, or empty.
+ifeq ($(shell uname),Darwin)
+    VERIFY_OUTPUT_SYNC ?=
+    # SELinux :Z relabeling and label confinement are Linux-only.
+    VOLUME_FLAGS ?=
+    CONTAINER_SECURITY_OPTS ?= --security-opt label=disable
+else
+    VERIFY_OUTPUT_SYNC ?= target
+    VOLUME_FLAGS ?= :Z
+    CONTAINER_SECURITY_OPTS ?=
+endif
+# Paths whose content is expected to be fully reproducible from sources.
+# The final step of `make verify` enforces that these paths have:
+# - no unstaged/staged diffs (`git diff --exit-code`)
+# - no untracked files (e.g. newly generated files not added to git)
+PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netlify.toml test/compatibility_lifecycle $(MOCKS_DIR)
+
+.PHONY: verify
+## Main target used by CI and local development.
+##
+## What it does:
+## - Phase 1: regenerate everything that is checked into git (Go code, docs site data, Helm docs/manifests)
+## - Phase 2: run checks once their required generated inputs are ready
+## - Phase 3: assert the repo is clean for $(PATHS_TO_VERIFY)
+##
+## Why it matters:
+## A PR may compile locally while still missing generated artifacts (CRDs, docs, mocks, etc.).
+## `make verify` is the "single command" that ensures you haven't forgotten to run generators and that
+## the checked-in output matches what CI will expect.
+##
+## Notes:
+## - The work is parallelized. Override parallelism with `VERIFY_NPROCS=<n> make verify`.
+## - `VERIFY_GOMAXPROCS` sets Go runtime concurrency and Go's default build -p.
+## - Verify builds `VERIFY_CLI_BUILD_NPROCS` CLI platforms and lints `CI_LINT_NPROCS` modules concurrently.
+## - These per-process limits reduce contention; they are not a global CPU semaphore.
+## - Output is grouped by target to make failures easier to find. Disable with `VERIFY_OUTPUT_SYNC= make verify`.
+##
+## How to extend `make verify`
+##
+## `make verify` tracks generation prerequisites for each check:
+## - `verify-tree-prereqs`: targets that *may write to the working tree* (codegen, docs generation, helm docs, etc.)
+## - `verify-checks`: checks that wait for the generators of their inputs; Go lint and artifact builds can overlap site generation
+##
+## To add a new step:
+## - If it GENERATES/UPDATES files checked into git: add it under one of the `verify-*-prereqs` targets.
+## - If it ONLY VALIDATES without writing files: add it to `verify-checks`.
+##
+## Implementation location:
+## - You can define the target in this file (`hack/make/verify.mk`) if it’s verify-specific,
+##   or in another included fragment (`hack/make/test.mk`, etc.) if it logically belongs there.
+## - Then, wire it into the appropriate aggregator target below.
+verify: ## Ensure repo is clean after generation/formatting.
+	$(MAKE) -j $(VERIFY_NPROCS) $(if $(VERIFY_OUTPUT_SYNC),--output-sync=$(VERIFY_OUTPUT_SYNC)) verify-checks
+	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
+	@if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then \
+		echo "ERROR: untracked files found under: $(PATHS_TO_VERIFY)" >&2; \
+		git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) >&2; \
+		exit 1; \
+	fi
+
+.PHONY: verify-go-prereqs
+verify-go-prereqs: ## Prerequisites for Go-only checks.
+verify-go-prereqs: generate-code generate-mocks
+
+.PHONY: verify-docs-prereqs
+verify-docs-prereqs: ## Prerequisites for docs/site checks.
+verify-docs-prereqs: generate-apiref generate-kueuectl-docs generate-metrics-tables generate-featuregates sync-hugo-version toc-update
+
+.PHONY: verify-helm-prereqs
+verify-helm-prereqs: ## Prerequisites for Helm checks.
+# Release preparation renders Helm docs after updating chart versions and values.
+verify-helm-prereqs: compile-crd-manifests update-helm prepare-release-branch
+
+.PHONY: verify-tree-prereqs
+verify-tree-prereqs: ## Prerequisites to ensure repo is fully regenerated.
+verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
+
+.PHONY: verify-checks
+# Propagate the budget to generators, tools, builds, and linter subprocesses.
+# The unit/race jobs and standalone build targets keep their existing settings.
+verify-checks: export GOMAXPROCS = $(VERIFY_GOMAXPROCS)
+## Read-only verification targets that should not mutate the repo.
+## Add new check-only targets here.
+verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
+
+# ---- Shared check recipes -------------------------------------------------
+# Each recipe is stored in a variable so that both the lightweight standalone
+# target (for local dev) and the verify-* wrapper (for `make verify`) share
+# the exact same commands.  Only the prerequisites differ:
+#
+#   standalone  →  tool binary only          (fast, for local use)
+#   verify-*    →  required generation prerequisites + …
+#
+# A recipe-less wrapper like
+#
+#     verify-ci-lint: verify-tree-prereqs ci-lint   # WRONG – races under -j!
+#
+# lets ci-lint start while generate-code is still deleting / rewriting
+# client-go/ files, because Make builds sibling prerequisites in parallel.
+# Giving the wrapper its own recipe body is the only way to enforce ordering
+# without recursive $(MAKE).
+
+# Lint each module in parallel; drop generated packages (client-go/, internal/mocks/)
+# from the target list — golangci-lint's path/generated exclusions only filter reported
+# issues, not the analysis work, so they must be excluded before the linter runs.
+# Label module totals and command timings so parallel workers remain distinguishable.
+define _ci_lint_recipe
+@echo "Module lint concurrency: processes=$(CI_LINT_NPROCS), GOMAXPROCS=$${GOMAXPROCS:-default}"
+@find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; \
+	| xargs -P $(CI_LINT_NPROCS) -n 1 sh -c ' \
+		MAKE_TIMING_LABEL="lint module=$$2" MAKE_TIMING_COMMANDS=1 \
+			exec "$(PROJECT_DIR)/hack/make-timed-shell.sh" -c "$$1" sh "$$2"' sh ' \
+		cd "$$1" || exit 1; \
+		dirs=$$($(GO_CMD) list -f "{{.Dir}}" ./... \
+			| grep -vE "/(client-go|internal/mocks)(/|$$)" \
+			| sed "s|^$$(pwd)/|./|"); \
+		[ -n "$$dirs" ] || exit 0; \
+		$(GOLANGCI_LINT) run -v $(GOLANGCI_LINT_FIX) \
+			--allow-parallel-runners \
+			--timeout 15m0s \
+			--config "$(PROJECT_DIR)/.golangci.yaml" \
+			$$dirs'
+endef
+
+define _lint_api_recipe
+$(GOLANGCI_LINT_KAL) run -v \
+	--config $(PROJECT_DIR)/.golangci-kal.yaml $(GOLANGCI_LINT_FIX) \
+	./apis/kueue/...
+endef
+
+define _fmt_verify_recipe
+@out=`$(GO_FMT) -l -d $$(find . \( -path ./vendor -o -path ./bin \) -prune -false -o -name '*.go' -print)`; \
+if [ -n "$$out" ]; then \
+    echo "$$out"; \
+    exit 1; \
+fi
+endef
+
+define _shell_lint_recipe
+$(PROJECT_DIR)/hack/testing/shellcheck/verify.sh
+endef
+
+define _e2e_common_test_recipe
+bash $(PROJECT_DIR)/hack/testing/e2e-common_test.sh
+endef
+
+define _release_utils_test_recipe
+@venv_dir=$$(mktemp -d); \
+trap 'rm -r "$$venv_dir"' EXIT; \
+python3 -m venv "$$venv_dir"; \
+"$$venv_dir/bin/python" -m pip install \
+	--disable-pip-version-check \
+	--no-deps \
+	--only-binary=:all: \
+	--require-hashes \
+	--requirement $(PROJECT_DIR)/hack/releasing/requirements.txt; \
+PYTHONPATH=$(PROJECT_DIR)/hack/releasing "$$venv_dir/bin/python" -m unittest discover \
+	-s $(PROJECT_DIR)/hack/releasing \
+	-p '*_test.py'
+endef
+
+define _milestone_pull_test_recipe
+bash $(PROJECT_DIR)/hack/testing/milestone_pull_test.sh
+endef
+
+define _helm_verify_recipe
+$(HELM) lint charts/kueue
+$(HELM) template charts/kueue > /dev/null
+$(HELM) template charts/kueue --set enableAlphaAPIs=true > /dev/null
+$(HELM) template charts/kueue --set enableKueueViz=true --set enableCertManager=true --set enablePrometheus=true > /dev/null
+$(HELM) template charts/kueue --set managerConfig.controllerManagerConfigYaml="managedJobsNamespaceSelector:\n  matchExpressions:\n    - key: kubernetes.io/metadata.name\n      operator: In\n      values: [ kube-system ]" > /dev/null
+$(HELM) template charts/kueue --set controllerManager.manager.priorityClassName="system-cluster-critical" > /dev/null
+$(HELM) template charts/kueue --set controllerManager.nodeSelector.nodetype=infra --set 'controllerManager.tolerations[0].key=node-role.kubernetes.io/master' --set 'controllerManager.tolerations[0].operator=Exists' --set 'controllerManager.tolerations[0].effect=NoSchedule' > /dev/null
+$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.nodeSelector.nodetype=infra --set 'kueueViz.backend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.backend.tolerations[0].operator=Exists' --set 'kueueViz.backend.tolerations[0].effect=NoSchedule' > /dev/null
+$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.nodeSelector.nodetype=infra --set 'kueueViz.frontend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.frontend.tolerations[0].operator=Exists' --set 'kueueViz.frontend.tolerations[0].effect=NoSchedule' > /dev/null
+$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
+$(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.priorityClassName="system-cluster-critical" > /dev/null
+endef
+
+define _helm_unit_test_recipe
+HELM_PLUGINS=$(BIN_DIR)/helm-plugins $(HELM) unittest charts/kueue --strict --debug
+endef
+
+define _npm_depcheck_recipe
+$(PROJECT_DIR)/hack/testing/depcheck/verify.sh $(PROJECT_DIR)/cmd/kueueviz/frontend
+$(PROJECT_DIR)/hack/testing/depcheck/verify.sh $(PROJECT_DIR)/test/e2e/kueueviz
+endef
+
+define _kustomize_build_verify_recipe
+$(KUSTOMIZE) build config/alpha-enabled > /dev/null
+$(KUSTOMIZE) build config/components/crd/alpha > /dev/null
+endef
+
+define _rbac_role_coverage_verify_recipe
+YQ=$(YQ) $(PROJECT_DIR)/hack/testing/rbac/verify.sh
+endef
+
+define _kustomization_resources_verify_recipe
+YQ=$(YQ) $(PROJECT_DIR)/hack/testing/kustomization/verify.sh
+endef
+
+define _rbac_verify_recipe
+$(PROJECT_DIR)/hack/testing/rbac/verify_manifests.sh
+endef
+
+# Validates skills against https://agentskills.io/specification
+define _skills_lint_recipe
+mkdir -p $(ARTIFACTS)
+$(CONTAINER_ENGINE) run --rm --user "$(shell id -u):$(shell id -g)" $(CONTAINER_SECURITY_OPTS) -v $(PROJECT_DIR):/workspace$(VOLUME_FLAGS) -v $(ARTIFACTS):/out$(VOLUME_FLAGS) $(SKILLSAW_IMAGE) --output /out/skillsaw-summary.html
+endef
+
+# ray-project-mini-image-build pip-installs ray==RAY_VERSION, but rayproject/ray also tags
+# X.Y.Z.<short-sha> release-branch builds, which Dependabot can propose and PyPI lacks.
+define _ray_version_verify_recipe
+@printf '%s\n' "$${RAY_VERSION}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$$' || { \
+	printf 'ERROR: RAY_VERSION=%s from hack/testing/ray/Dockerfile must be a plain X.Y.Z ray release published on PyPI\n' "$${RAY_VERSION}" >&2; \
+	exit 1; \
+}
+endef
+
+
+# ---- verify-* wrappers (generation prereqs + shared recipe) ---------------
+
+.PHONY: verify-artifacts
+verify-artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
+verify-artifacts: CLI_BUILD_NPROCS = $(VERIFY_CLI_BUILD_NPROCS)
+# Artifacts consume Go code and Helm manifests, but not generated site pages.
+verify-artifacts: verify-go-prereqs verify-helm-prereqs gomod-verify verify-git-tag clean-artifacts kustomize helm yq ## Build artifacts after their generated inputs are ready.
+	@echo "Artifact build concurrency: platforms=$(CLI_BUILD_NPROCS), GOMAXPROCS=$${GOMAXPROCS:-default}"
+	$(_helm_chart_package_recipe)
+	$(_prepare_manifests_recipe)
+	$(_artifacts_recipe)
+
+.PHONY: verify-ci-lint
+# Site and manifest generators do not rewrite the Go sources that lint reads.
+verify-ci-lint: verify-go-prereqs gomod-verify golangci-lint ## CI-style golangci-lint (includes generation + go.mod checks)
+	$(_ci_lint_recipe)
+
+.PHONY: verify-lint-api
+verify-lint-api: verify-tree-prereqs gomod-verify golangci-lint-kal ## CI-style API lint (includes generation + go.mod checks)
+	$(_lint_api_recipe)
+
+.PHONY: verify-fmt-verify
+verify-fmt-verify: verify-tree-prereqs ## Verify formatting after generation
+	$(_fmt_verify_recipe)
+
+.PHONY: verify-shell-lint
+verify-shell-lint: verify-tree-prereqs ## Shell lint after generation
+	$(_shell_lint_recipe)
+
+.PHONY: verify-e2e-common-test
+verify-e2e-common-test: verify-tree-prereqs ## e2e-common shell helper tests after generation
+	$(_e2e_common_test_recipe)
+
+.PHONY: verify-release-utils-test
+verify-release-utils-test: verify-tree-prereqs ## Release utility Python unit tests after generation
+	$(_release_utils_test_recipe)
+
+.PHONY: verify-milestone-pull-test
+verify-milestone-pull-test: verify-tree-prereqs ## milestone_pull shell tests after generation
+	$(_milestone_pull_test_recipe)
+
+.PHONY: verify-unit-test-selection
+verify-unit-test-selection: ## Validate unit-test selection and sharding without compiling Go.
+	bash $(PROJECT_DIR)/hack/testing/unit-test-selection_test.sh
+
+.PHONY: verify-generation-order
+verify-generation-order: ## Validate generation barriers and overlap without compiling Go.
+	bash $(PROJECT_DIR)/hack/testing/verify-generation-order_test.sh
+
+.PHONY: verify-helm-verify
+verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation
+	$(_helm_verify_recipe)
+
+.PHONY: verify-helm-unit-test
+verify-helm-unit-test: verify-tree-prereqs helm helm-unittest-plugin ## Helm unit tests after generation
+	$(_helm_unit_test_recipe)
+
+.PHONY: verify-npm-depcheck
+verify-npm-depcheck: verify-tree-prereqs prepare-release-branch ## Depcheck after generation
+	$(_npm_depcheck_recipe)
+
+.PHONY: verify-kustomize-build
+verify-kustomize-build: verify-tree-prereqs kustomize ## Verify alpha-enabled manifests render after generation
+	$(_kustomize_build_verify_recipe)
+
+.PHONY: verify-rbac-role-coverage
+verify-rbac-role-coverage: verify-tree-prereqs yq ## Verify every resource granted to the manager has editor and viewer ClusterRoles after generation
+	$(_rbac_role_coverage_verify_recipe)
+
+.PHONY: verify-kustomization-resources
+verify-kustomization-resources: verify-tree-prereqs yq ## Verify manifests shipped by the Helm chart are listed in kustomizations after generation
+	$(_kustomization_resources_verify_recipe)
+
+.PHONY: verify-rbac
+verify-rbac: verify-tree-prereqs ## Verify RBAC subject and roleRef relationships after generation
+	$(_rbac_verify_recipe)
+
+.PHONY: verify-skills-lint
+verify-skills-lint: ## Lint agent skills with skillsaw
+	$(_skills_lint_recipe)
+
+.PHONY: verify-ray-version
+verify-ray-version: export RAY_VERSION := $(RAY_VERSION)
+verify-ray-version: ## Verify the rayproject/ray tag is a plain X.Y.Z release
+	$(_ray_version_verify_recipe)
+
+# ---- Standalone targets (lightweight, for local use) ----------------------
+
+.PHONY: gomod-verify
+gomod-verify: ## Verify go.mod / go.sum are tidy and unchanged.
+gomod-verify: verify-go-prereqs
+	$(GO_CMD) mod tidy
+	git --no-pager diff --exit-code go.mod go.sum
+
+.PHONY: ci-lint
+ci-lint: ## Run golangci-lint across all Go modules.
+ci-lint: golangci-lint
+	$(_ci_lint_recipe)
+
+.PHONY: lint-fix
+lint-fix: ## Fix issues found by golangci-lint where possible.
+lint-fix: GOLANGCI_LINT_FIX=--fix
+lint-fix: ci-lint
+
+.PHONY: lint-api
+lint-api: golangci-lint-kal ## Run API-specific linting with custom config.
+	$(_lint_api_recipe)
+
+.PHONY: lint-api-fix
+lint-api-fix: GOLANGCI_LINT_FIX=--fix
+lint-api-fix: lint-api ## Fix API linting issues where possible.
+
+.PHONY: fmt-verify
+fmt-verify: ## Verify Go code formatting (no changes allowed).
+	$(_fmt_verify_recipe)
+
+.PHONY: shell-lint
+shell-lint: ## Run shell script linting (via shellcheck).
+	$(_shell_lint_recipe)
+
+.PHONY: e2e-common-test
+e2e-common-test: ## Run e2e-common shell helper tests.
+	$(_e2e_common_test_recipe)
+
+.PHONY: release-utils-test
+release-utils-test: ## Run release utility Python unit tests.
+	$(_release_utils_test_recipe)
+
+.PHONY: milestone-pull-test
+milestone-pull-test: ## Run milestone_pull shell tests.
+	$(_milestone_pull_test_recipe)
+
+.PHONY: helm-verify
+helm-verify: helm helm-lint ## Validate Helm chart rendering with various configuration combinations.
+	$(_helm_verify_recipe)
+
+.PHONY: helm-unit-test
+helm-unit-test: helm helm-unittest-plugin ## Run Helm unit tests for the kueue chart.
+	$(_helm_unit_test_recipe)
+
+.PHONY: npm-depcheck
+npm-depcheck: ## Verify frontend and e2e npm dependencies.
+	$(_npm_depcheck_recipe)
+
+.PHONY: kustomize-build-verify
+kustomize-build-verify: kustomize ## Validate alpha-enabled manifests render.
+	$(_kustomize_build_verify_recipe)
+
+.PHONY: rbac-role-coverage-verify
+rbac-role-coverage-verify: yq ## Validate every resource granted to the manager has editor and viewer ClusterRoles.
+	$(_rbac_role_coverage_verify_recipe)
+
+.PHONY: kustomization-resources-verify
+kustomization-resources-verify: yq ## Validate manifests shipped by the Helm chart are listed in kustomizations.
+	$(_kustomization_resources_verify_recipe)
+
+.PHONY: rbac-verify
+rbac-verify: ## Verify RBAC subject and roleRef relationships (standalone).
+	$(_rbac_verify_recipe)
+
+.PHONY: skills-lint
+skills-lint: ## Lint agent skills with skillsaw.
+	$(_skills_lint_recipe)
+
+.PHONY: ray-version-verify
+ray-version-verify: export RAY_VERSION := $(RAY_VERSION)
+ray-version-verify: ## Verify the rayproject/ray tag is a plain X.Y.Z release (standalone).
+	$(_ray_version_verify_recipe)
+
+.PHONY: verify-website-links
+verify-website-links: ## Check for broken internal links on the public website.
+	$(PROJECT_DIR)/hack/testing/linkchecker/verify.sh
+
+.PHONY: verify-website-links-preview
+verify-website-links-preview: ## Check links on a PR Netlify deploy preview.
+	$(PROJECT_DIR)/hack/testing/linkchecker/verify-preview.sh
+
+.PHONY: i18n-verify
+i18n-verify: ## Verify localized docs are in sync with English. Usage: make i18n-verify [TARGET_LANG=zh-CN]
+	@if [ -n "$(TARGET_LANG)" ]; then \
+		if [ ! -d "$(PROJECT_DIR)/site/content/$(TARGET_LANG)/docs" ]; then \
+			echo "Error: $(PROJECT_DIR)/site/content/$(TARGET_LANG)/docs does not exist"; \
+			exit 1; \
+		fi; \
+		echo "Checking $(TARGET_LANG) docs sync status..."; \
+		$(PROJECT_DIR)/site/scripts/lsync.sh "$(PROJECT_DIR)/site/content/$(TARGET_LANG)/docs/"; \
+	else \
+		for lang_dir in $(PROJECT_DIR)/site/content/*/; do \
+			lang_code=$$(basename "$$lang_dir"); \
+			if [ "$$lang_code" != "en" ] && [ -d "$$lang_dir/docs" ]; then \
+				echo "Checking $$lang_code docs sync status..."; \
+				$(PROJECT_DIR)/site/scripts/lsync.sh "$(PROJECT_DIR)/site/content/$$lang_code/docs/"; \
+			fi; \
+		done; \
+	fi

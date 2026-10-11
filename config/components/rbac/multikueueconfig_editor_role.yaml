@@ -1,0 +1,21 @@
+# permissions for end users to edit multikueueconfigs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: multikueueconfig-editor-role
+  labels:
+    rbac.kueue.x-k8s.io/role: "multikueueconfig-editor"
+    rbac.kueue.x-k8s.io/batch-admin: "true"
+rules:
+- apiGroups:
+  - kueue.x-k8s.io
+  resources:
+  - multikueueconfigs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch

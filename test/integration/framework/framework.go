@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -35,6 +36,7 @@ import (
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -54,10 +56,10 @@ import (
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
-	kueuev1beta1 "sigs.k8s.io/kueue/apis/kueue/v1beta1"
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/client-go/clientset/versioned/scheme"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 type ManagerSetup func(context.Context, manager.Manager)
@@ -77,13 +79,14 @@ func WithNewCache(c cache.NewCacheFunc) ManagerOption {
 }
 
 type Framework struct {
-	DepCRDPaths            []string
-	WebhookPath            string
-	APIServerFeatureGates  []string
-	APIServerRuntimeConfig []string
-	testEnv                *envtest.Environment
-	cancel                 context.CancelFunc
-	scheme                 *runtime.Scheme
+	DepCRDPaths               []string
+	WebhookPath               string
+	APIServerFeatureGates     []string
+	APIServerRuntimeConfig    []string
+	APIServerAdmissionPlugins []string
+	testEnv                   *envtest.Environment
+	cancel                    context.CancelFunc
+	scheme                    *runtime.Scheme
 
 	managerCancel context.CancelFunc
 	managerDone   <-chan struct{}
@@ -91,12 +94,18 @@ type Framework struct {
 	ObservedLogs *observer.ObservedLogs
 }
 
+var setupLoggerGetObservedLogs = sync.OnceValue(func() *observer.ObservedLogs {
+	logger, observedLogs := behavioral.NewTestingLoggerAndObservedLogs(ginkgo.GinkgoWriter)
+	ctrl.SetLogger(logger)
+	return observedLogs
+})
+
 func (f *Framework) Init() *rest.Config {
-	f.ObservedLogs = util.SetupLoggerGetObservedLogs()
+	f.ObservedLogs = setupLoggerGetObservedLogs()
 
 	var cfg *rest.Config
 	ginkgo.By("bootstrapping test environment", func() {
-		baseCrdPath := filepath.Join(util.ProjectBaseDir, "config", "components", "crd", "_output")
+		baseCrdPath := filepath.Join(behavioral.ProjectBaseDir, "config", "components", "crd", "_output")
 		f.testEnv = &envtest.Environment{
 			CRDDirectoryPaths:       append(f.DepCRDPaths, baseCrdPath),
 			ErrorIfCRDPathMissing:   true,
@@ -107,7 +116,7 @@ func (f *Framework) Init() *rest.Config {
 		err = kueue.AddToScheme(f.testEnv.Scheme)
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-		err = kueuev1beta1.AddToScheme(f.testEnv.Scheme)
+		err = kueuealpha.AddToScheme(f.testEnv.Scheme)
 		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 		if len(f.WebhookPath) > 0 {
@@ -120,6 +129,10 @@ func (f *Framework) Init() *rest.Config {
 
 		if len(f.APIServerRuntimeConfig) > 0 {
 			f.testEnv.ControlPlane.GetAPIServer().Configure().Append("runtime-config", strings.Join(f.APIServerRuntimeConfig, ","))
+		}
+
+		if len(f.APIServerAdmissionPlugins) > 0 {
+			f.testEnv.ControlPlane.GetAPIServer().Configure().Append("enable-admission-plugins", strings.Join(f.APIServerAdmissionPlugins, ","))
 		}
 
 		if level, err := strconv.Atoi(os.Getenv("API_LOG_LEVEL")); err == nil && level > 0 {
@@ -144,7 +157,7 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithW
 	err = kueue.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
-	err = kueuev1beta1.AddToScheme(f.scheme)
+	err = kueuealpha.AddToScheme(f.scheme)
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
 
 	err = awv1beta2.AddToScheme(f.scheme)
@@ -236,7 +249,7 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 			conn, err := tls.DialWithDialer(dialer, "tcp", addrPort, &tls.Config{InsecureSkipVerify: true})
 			g.Expect(err).NotTo(gomega.HaveOccurred())
 			conn.Close()
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 }
 
@@ -256,6 +269,16 @@ func (f *Framework) StopManager(ctx context.Context) {
 	})
 }
 
+func verifyLogs(observedLogs *observer.ObservedLogs) {
+	errorOrMoreSevereLogs := observedLogs.Filter(func(le observer.LoggedEntry) bool {
+		return le.Level >= zapcore.ErrorLevel
+	})
+
+	concurrentModificationErrorLogs := errorOrMoreSevereLogs.Filter(behavioral.IsLoggedEntryAConcurrentModification)
+
+	gomega.ExpectWithOffset(1, concurrentModificationErrorLogs.TakeAll()).To(gomega.BeEmpty())
+}
+
 func (f *Framework) Teardown() {
 	ginkgo.By("tearing down the test environment")
 	if f.cancel != nil {
@@ -263,7 +286,7 @@ func (f *Framework) Teardown() {
 	}
 	err := f.testEnv.Stop()
 	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
-	util.VerifyLogs(f.ObservedLogs)
+	verifyLogs(f.ObservedLogs)
 }
 
 var (

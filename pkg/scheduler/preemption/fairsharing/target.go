@@ -51,7 +51,7 @@ func (t *TargetClusterQueue) HasWorkload() bool {
 // do not depend on the removal of the workload being considered for
 // preemption.
 func (t *TargetClusterQueue) ComputeShares() (PreemptorNewShare, TargetOldShare) {
-	preemptorAlmostLCA, targetAlmostLCA := getAlmostLCAs(t)
+	preemptorAlmostLCA, targetAlmostLCA := AlmostLCAs(t.ordering.preemptorCq, t.targetCq)
 	return PreemptorNewShare(preemptorAlmostLCA.DominantResourceShare()), TargetOldShare(targetAlmostLCA.DominantResourceShare())
 }
 
@@ -68,7 +68,7 @@ func (t *TargetClusterQueue) ComputeTargetShareAfterRemoval(wl *workload.Info) T
 	revertSimulation := t.targetCq.SimulateUsageRemoval(wl.Usage())
 	defer revertSimulation()
 
-	_, almostLCA := getAlmostLCAs(t)
+	_, almostLCA := AlmostLCAs(t.ordering.preemptorCq, t.targetCq)
 	return TargetNewShare(almostLCA.DominantResourceShare())
 }
 

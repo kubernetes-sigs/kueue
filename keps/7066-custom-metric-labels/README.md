@@ -356,6 +356,10 @@ Similar to copied labels, component jobs of a ComposableJob
 (e.g. PodGroup) must match label and annotation values
 marked as sources for custom metric labels.
 
+Kueue's own internal labels and annotations are an exception: they are never
+copied, and component jobs need not match on them. A custom metric that names
+one reports only the value set on the Workload itself.
+
 ### Affected Metrics
 
 Custom labels are appended to every metric that is keyed by a specific
@@ -543,6 +547,7 @@ committing the changes necessary to implement this enhancement.
 
 - 2026-02-13: Initial KEP draft.
 - 2026-07-02: Added source kind specification parameter to label definition (incompatible with previous alpha feature proposal). Expanded support to include Workload labels.
+- 2026-08-14: Excluded Kueue's internal labels and annotations from copying.
 
 ## Drawbacks
 

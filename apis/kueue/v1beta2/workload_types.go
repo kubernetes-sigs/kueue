@@ -554,7 +554,7 @@ type TopologyAssignmentSlicePodCounts struct {
 	Individual []int32 `json:"individual,omitempty"`
 }
 
-// +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be positive and less or equal to count"
+// +kubebuilder:validation:XValidation:rule="has(self.minCount) ? self.minCount <= self.count : true", message="minCount should be less or equal to count"
 type PodSet struct {
 	// name is the PodSet name.
 	// +kubebuilder:default=main
@@ -594,7 +594,7 @@ type PodSet struct {
 	// This is an alpha field and requires enabling PartialAdmission feature gate.
 	//
 	// +optional
-	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Minimum=0
 	MinCount *int32 `json:"minCount,omitempty"`
 
 	// topologyRequest defines the topology request for the PodSet.
@@ -624,6 +624,8 @@ type WorkloadStatus struct {
 	// - Finished: the associated workload finished running (failed or succeeded).
 	// - PodsReady: at least `.spec.podSets[*].count` Pods are ready or have
 	// succeeded.
+	// - PodsScheduled: all the Pods required by the admission have been
+	// scheduled or have succeeded.
 	// conditions are limited to 16 items.
 	//
 	// +optional
@@ -967,6 +969,10 @@ const (
 	// misconfiguration, such as missing LocalQueue or ClusterQueue.
 	WorkloadQuotaReservedReasonMisconfigured = "Misconfigured"
 
+	// WorkloadQuotaReservedReasonAssignmentError indicates kueue failed to create an assignment
+	// due to an unexpected error propagated from downstream.
+	WorkloadQuotaReservedReasonAssignmentError = "AssignmentError"
+
 	// WorkloadQuotaReservedReasonSuspended indicates that the workload is inadmissible because
 	// the LocalQueue or ClusterQueue StopPolicy is active.
 	WorkloadQuotaReservedReasonSuspended = "Suspended"
@@ -977,6 +983,10 @@ const (
 	// WorkloadQuotaReservedReasonWaitingForPodsReady indicates that the workload is waiting
 	// for previously admitted workloads to reach PodsReady condition under waitForPodsReady configuration.
 	WorkloadQuotaReservedReasonWaitingForPodsReady = "WaitingForPodsReady"
+
+	// WorkloadQuotaReservedReasonDRAResourcesUnresolved indicates that quota reservation
+	// failed because the workload's DRA resources could not be resolved.
+	WorkloadQuotaReservedReasonDRAResourcesUnresolved = "DRAResourcesUnresolved"
 
 	// WorkloadAdmittedReasonNoReservation indicates that the workload has no reservation.
 	WorkloadAdmittedReasonNoReservation = "NoReservation"
@@ -994,6 +1004,17 @@ const (
 	// WorkloadPodsReady means that at least `.spec.podSets[*].count` Pods are
 	// ready or have succeeded.
 	WorkloadPodsReady = "PodsReady"
+
+	// WorkloadPodsScheduled means that all the Pods required by the admission
+	// (`.status.admission.podSetAssignments[*].count`) have been scheduled or have
+	// succeeded. Scheduling observations require a positive waitForPodsReady.unscheduledTimeout
+	// and the WaitForPodsReadyUnscheduledTimeout feature gate. The possible reasons
+	// are "WaitForScheduling" (status False), "AllRequiredPodsScheduled" (status True)
+	// and "WaitForStart" (status False) when the tracker resets scheduling history.
+	// Once True, it stays True for that admission. Finish, eviction and quota release
+	// do not directly reset it. With tracking enabled, the tracker resets only a True
+	// condition when it observes an unfinished, non-admitted Workload.
+	WorkloadPodsScheduled = "PodsScheduled"
 
 	// WorkloadEvicted means that the Workload was evicted. The possible reasons
 	// for this condition are:
@@ -1049,6 +1070,11 @@ const (
 	// InCohortReclaimWhileBorrowingReason indicates the Workload was preempted
 	// due to reclamation within the cohort while borrowing.
 	InCohortReclaimWhileBorrowingReason string = "InCohortReclaimWhileBorrowing"
+
+	// ConfigurablePreemptionReason indicates the Workload was preempted due to
+	// the configured PreemptionConfig rules (alpha, requires the
+	// ConfigurablePreemptions feature gate).
+	ConfigurablePreemptionReason string = "ConfigurablePreemption"
 )
 
 const (
@@ -1137,6 +1163,14 @@ const (
 	// local queue was restarted after being stopped.
 	WorkloadLocalQueueRestarted = "LocalQueueRestarted"
 
+	// WorkloadDRAResourcesUnresolved indicates that the workload was not requeued
+	// because its DRA resources could not be resolved.
+	WorkloadDRAResourcesUnresolved = "DRAResourcesUnresolved"
+
+	// WorkloadDRAResourcesResolved indicates that the workload was requeued because
+	// its DRA resources were resolved after a previous inadmissible marking.
+	WorkloadDRAResourcesResolved = "DRAResourcesResolved"
+
 	// WorkloadRequeuingLimitExceeded indicates that the workload exceeded max number
 	// of re-queuing retries.
 	WorkloadRequeuingLimitExceeded = "RequeuingLimitExceeded"
@@ -1145,14 +1179,23 @@ const (
 	// maximum execution time.
 	WorkloadMaximumExecutionTimeExceeded = "MaximumExecutionTimeExceeded"
 
-	// WorkloadWaitForStart indicates the reason for PodsReady=False condition
-	// when the pods have not been ready since admission, or the workload is not admitted.
+	// WorkloadWaitForStart indicates PodsReady=False before readiness when no current
+	// PodsScheduled=False observation applies, or when the Workload is not admitted.
 	WorkloadWaitForStart = "WaitForStart"
 
 	// WorkloadWaitForRecovery indicates the reason for the PodsReady=False condition
 	// when the Pods were ready since the workload admission, but some pod has failed,
 	// and workload waits for recovering.
 	WorkloadWaitForRecovery = "WaitForRecovery"
+
+	// WorkloadWaitForScheduling indicates the reason for the PodsScheduled=False
+	// condition when at least one required Pod is not scheduled yet, and for the
+	// PodsReady=False condition while such a Workload has not been ready since its admission.
+	WorkloadWaitForScheduling = "WaitForScheduling"
+
+	// WorkloadAllRequiredPodsScheduled indicates the reason for the PodsScheduled=True
+	// condition when all the required Pods are scheduled or have succeeded.
+	WorkloadAllRequiredPodsScheduled = "AllRequiredPodsScheduled"
 
 	// WorkloadStarted indicates that all Pods are ready and the Workload has successfully started
 	WorkloadStarted = "Started"
@@ -1195,7 +1238,7 @@ const (
 // +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(oldSelf.spec.priorityClassRef) && has(self.spec.priorityClassRef)) ? oldSelf.spec.priorityClassRef.kind == self.spec.priorityClassRef.kind : true",message="priorityClassRef.kind is immutable while workload quota reserved"
 // +kubebuilder:validation:XValidation:rule="(has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True') && has(oldSelf.spec.priorityClassRef) && has(self.spec.priorityClassRef) && self.spec.priorityClassRef.group == 'scheduling.k8s.io' && self.spec.priorityClassRef.kind == 'PriorityClass') ? oldSelf.spec.priorityClassRef.name == self.spec.priorityClassRef.name : true",message="priorityClassRef.name is immutable for scheduling.k8s.io/priorityclass while workload quota reserved"
 // +kubebuilder:validation:XValidation:rule="((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'QuotaReserved' && c.status == 'True'))) ? ((has(oldSelf.spec.queueName) == has(self.spec.queueName)) && (!has(oldSelf.spec.queueName) || oldSelf.spec.queueName == self.spec.queueName)) : true", message="queueName is immutable while workload quota reserved"
-// +kubebuilder:validation:XValidation:rule="((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')))?((has(oldSelf.spec.maximumExecutionTimeSeconds)?oldSelf.spec.maximumExecutionTimeSeconds:0) ==  (has(self.spec.maximumExecutionTimeSeconds)?self.spec.maximumExecutionTimeSeconds:0)):true", message="maximumExecutionTimeSeconds is immutable while workload quota reserved"
+// +kubebuilder:validation:XValidation:rule="((has(oldSelf.status) && has(oldSelf.status.conditions) && oldSelf.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')) && (has(self.status) && has(self.status.conditions) && self.status.conditions.exists(c, c.type == 'Admitted' && c.status == 'True')))?((has(oldSelf.spec.maximumExecutionTimeSeconds)?oldSelf.spec.maximumExecutionTimeSeconds:0) ==  (has(self.spec.maximumExecutionTimeSeconds)?self.spec.maximumExecutionTimeSeconds:0)):true", message="maximumExecutionTimeSeconds is immutable while the workload is admitted"
 type Workload struct {
 	metav1.TypeMeta `json:",inline"`
 	// metadata is the metadata of the Workload.

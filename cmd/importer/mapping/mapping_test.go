@@ -22,6 +22,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 const (
@@ -35,6 +37,9 @@ const (
     labels:
       project_id: alpha
       resource_type: gpu
+    resources:
+    - example.com/gpu
+    - example.com/tpu
   toLocalQueue: alpha-gpu
 - match:
     labels:
@@ -60,6 +65,7 @@ var testMappingRules = Rules{
 				"project_id":    "alpha",
 				"resource_type": "gpu",
 			},
+			Resources: []corev1.ResourceName{"example.com/gpu", "example.com/tpu"},
 		},
 		ToLocalQueue: "alpha-gpu",
 	},
@@ -96,6 +102,7 @@ func TestRulesQueueFor(t *testing.T) {
 	cases := map[string]struct {
 		className string
 		labels    map[string]string
+		requests  corev1.ResourceList
 		rules     Rules
 
 		wantMatch bool
@@ -109,10 +116,32 @@ func TestRulesQueueFor(t *testing.T) {
 		"priority class not checked if not part of the rule": {
 			className: "preemptible",
 			labels:    map[string]string{"project_id": "alpha", "resource_type": "gpu"},
-			rules:     testMappingRules,
+			requests: corev1.ResourceList{
+				"example.com/gpu": resource.MustParse("1"),
+				"example.com/tpu": resource.MustParse("4"),
+			},
+			rules: testMappingRules,
 
 			wantMatch: true,
 			wantQueue: "alpha-gpu",
+		},
+		"all the listed resources need to be requested": {
+			labels:   map[string]string{"project_id": "alpha", "resource_type": "gpu"},
+			requests: corev1.ResourceList{"example.com/tpu": resource.MustParse("4")},
+			rules:    testMappingRules,
+		},
+		"labels match but none of the resources is requested": {
+			labels:   map[string]string{"project_id": "alpha", "resource_type": "gpu"},
+			requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+			rules:    testMappingRules,
+		},
+		"a zero request does not match": {
+			labels: map[string]string{"project_id": "alpha", "resource_type": "gpu"},
+			requests: corev1.ResourceList{
+				"example.com/gpu": resource.MustParse("0"),
+				"example.com/tpu": resource.MustParse("4"),
+			},
+			rules: testMappingRules,
 		},
 		"skip": {
 			className: "preemptible",
@@ -139,7 +168,16 @@ func TestRulesQueueFor(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotQueue, gotSkip, gotMatch := tc.rules.QueueFor(tc.className, tc.labels)
+			pod := &corev1.Pod{
+				Labels: tc.labels,
+				Spec: corev1.PodSpec{
+					PriorityClassName: tc.className,
+					Containers: []corev1.Container{
+						{Resources: corev1.ResourceRequirements{Requests: tc.requests}},
+					},
+				},
+			}
+			gotQueue, gotSkip, gotMatch := tc.rules.QueueFor(pod)
 
 			if tc.wantMatch != gotMatch {
 				t.Errorf("unexpected match %v", gotMatch)

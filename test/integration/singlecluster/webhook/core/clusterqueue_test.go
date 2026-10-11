@@ -18,6 +18,7 @@ package core
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
@@ -31,12 +32,13 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
-	resourcesMaxItems = 64
-	flavorsMaxItems   = 64
+	resourcesMaxItems      = 64
+	flavorsMaxItems        = 64
+	resourceGroupsMaxItems = 16
 )
 
 // defaultFlavorFungibility matches ClusterQueue defaulting (see apis defaulting).
@@ -48,18 +50,18 @@ var defaultFlavorFungibility = &kueue.FlavorFungibility{
 var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup)
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-")
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
 	})
 
 	ginkgo.When("Creating a ClusterQueue", func() {
 		ginkgo.DescribeTable("Defaulting on creation", func(cq, wantCQ kueue.ClusterQueue) {
-			util.MustCreate(ctx, k8sClient, &cq)
+			behavioral.MustCreate(ctx, k8sClient, &cq)
 			defer func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, &cq, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &cq, true)
 			}()
 			gomega.Expect(cq).To(gomega.BeComparableTo(wantCQ,
 				cmpopts.IgnoreTypes(kueue.ClusterQueueStatus{}),
@@ -67,15 +69,11 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 		},
 			ginkgo.Entry("All defaults",
 				kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo",
-					},
+					Name: "foo",
 				},
 				kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:       "foo",
-						Finalizers: []string{kueue.ResourceInUseFinalizerName},
-					},
+					Name:       "foo",
+					Finalizers: []string{kueue.ResourceInUseFinalizerName},
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy:  kueue.BestEffortFIFO,
 						StopPolicy:        new(kueue.None),
@@ -92,9 +90,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 			),
 			ginkgo.Entry("Preemption overridden",
 				kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo",
-					},
+					Name: "foo",
 					Spec: kueue.ClusterQueueSpec{
 						FlavorFungibility: defaultFlavorFungibility,
 						Preemption: &kueue.ClusterQueuePreemption{
@@ -108,10 +104,8 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					},
 				},
 				kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:       "foo",
-						Finalizers: []string{kueue.ResourceInUseFinalizerName},
-					},
+					Name:       "foo",
+					Finalizers: []string{kueue.ResourceInUseFinalizerName},
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy:  kueue.BestEffortFIFO,
 						StopPolicy:        new(kueue.None),
@@ -129,18 +123,14 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 			),
 			ginkgo.Entry("Default fair sharing",
 				kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "foo",
-					},
+					Name: "foo",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{},
 					},
 				},
 				kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:       "foo",
-						Finalizers: []string{kueue.ResourceInUseFinalizerName},
-					},
+					Name:       "foo",
+					Finalizers: []string{kueue.ResourceInUseFinalizerName},
 					Spec: kueue.ClusterQueueSpec{
 						QueueingStrategy:  kueue.BestEffortFIFO,
 						StopPolicy:        new(kueue.None),
@@ -165,10 +155,10 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 			cq := utiltestingapi.MakeClusterQueue("cluster-queue").
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceMemory).Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, cq)
+			behavioral.MustCreate(ctx, k8sClient, cq)
 
 			defer func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			}()
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -176,7 +166,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updateCQ)).Should(gomega.Succeed())
 				updateCQ.Spec.ResourceGroups[0].Flavors[0].Name = "@x86"
 				g.Expect(k8sClient.Update(ctx, &updateCQ)).Should(utiltesting.BeInvalidError())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should allow to update queueingStrategy with different value", func() {
@@ -185,10 +175,10 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				QueueingStrategy(kueue.StrictFIFO).
 				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("x86").Resource(corev1.ResourceMemory).Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, cq)
+			behavioral.MustCreate(ctx, k8sClient, cq)
 
 			defer func() {
-				util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 			}()
 
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -196,14 +186,14 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updateCQ)).Should(gomega.Succeed())
 				updateCQ.Spec.QueueingStrategy = kueue.BestEffortFIFO
 				g.Expect(k8sClient.Update(ctx, &updateCQ)).Should(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.DescribeTable("Validate ClusterQueue on creation", func(cq *kueue.ClusterQueue, matcher types.GomegaMatcher) {
 			err := k8sClient.Create(ctx, cq)
 			if err == nil {
 				defer func() {
-					util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
 				}()
 			}
 			gomega.Expect(err).Should(matcher)
@@ -399,9 +389,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid to create clusterQueue with resources in a flavor in different order",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
@@ -423,9 +411,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should forbid to create clusterQueue missing resources in a flavor",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
@@ -442,9 +428,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should forbid to create clusterQueue missing resources in a flavor",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
@@ -462,9 +446,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should forbid to create clusterQueue missing resources in a flavor and mismatch",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						ResourceGroups: []kueue.ResourceGroup{
 							{
@@ -508,9 +490,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should forbid to create clusterQueue missing with invalid preemption due to reclaimWithinCohort=Never, while borrowWithinCohort!=nil",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						Preemption: &kueue.ClusterQueuePreemption{
 							ReclaimWithinCohort: kueue.PreemptionPolicyNever,
@@ -523,9 +503,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				utiltesting.BeInvalidError()),
 			ginkgo.Entry("Should allow to create clusterQueue with valid preemption with borrowWithinCohort",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						Preemption: &kueue.ClusterQueuePreemption{
 							ReclaimWithinCohort: kueue.PreemptionPolicyLowerPriority,
@@ -539,9 +517,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow to create clusterQueue with existing cluster queue created with older Kueue version that has a nil borrowWithinCohort field",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						Preemption: &kueue.ClusterQueuePreemption{
 							ReclaimWithinCohort: kueue.PreemptionPolicyNever,
@@ -551,9 +527,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow zero FairSharing weight",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							Weight: new(resource.MustParse("0")),
@@ -563,9 +537,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow fractional FairSharing weight",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							Weight: new(resource.MustParse("0.1")),
@@ -575,9 +547,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow small FairSharing weight",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							// 10^-3
@@ -588,9 +558,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow even smaller FairSharing weight",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							// 10^-6
@@ -601,9 +569,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should allow smallest FairSharing weight",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							// 2 * 10^-9
@@ -614,9 +580,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				gomega.Succeed()),
 			ginkgo.Entry("Should forbid threshold FairSharing weight",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							// 10^-9
@@ -627,9 +591,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should forbid collapsed FairSharing weight",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							// 10^-10
@@ -640,9 +602,7 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 				utiltesting.BeForbiddenError()),
 			ginkgo.Entry("Should forbid negative FairSharing weight",
 				&kueue.ClusterQueue{
-					ObjectMeta: metav1.ObjectMeta{
-						Name: "cluster-queue",
-					},
+					Name: "cluster-queue",
 					Spec: kueue.ClusterQueueSpec{
 						FairSharing: &kueue.FairSharing{
 							Weight: new(resource.MustParse("-1")),
@@ -650,6 +610,103 @@ var _ = ginkgo.Describe("ClusterQueue Webhook", func() {
 					},
 				},
 				utiltesting.BeForbiddenError()),
+		)
+	})
+
+	ginkgo.When("Updating a ClusterQueue status", func() {
+		var (
+			cq *kueue.ClusterQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq = utiltestingapi.MakeClusterQueue("cluster-queue").Obj()
+			behavioral.MustCreate(ctx, k8sClient, cq)
+		})
+
+		ginkgo.AfterEach(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		})
+
+		maxResourceGroups := make([]kueue.ResourceGroup, resourceGroupsMaxItems)
+		for i := range maxResourceGroups {
+			maxResourceGroups[i] = utiltestingapi.ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(fmt.Sprintf("f%d", i)).
+					Resource(corev1.ResourceCPU, "1").
+					Obj(),
+			)
+		}
+		moreThanMaxResourceGroups := append(slices.Clone(maxResourceGroups), utiltestingapi.ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas(fmt.Sprintf("f%d", resourceGroupsMaxItems)).
+				Resource(corev1.ResourceCPU, "1").
+				Obj(),
+		))
+
+		ginkgo.DescribeTable("Validate status.effectiveQuotas on update",
+			func(eq *kueue.EffectiveQuotaStatus, matcher types.GomegaMatcher) {
+				gomega.Eventually(func(g gomega.Gomega) {
+					var updateCQ kueue.ClusterQueue
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updateCQ)).Should(gomega.Succeed())
+					updateCQ.Status.EffectiveQuotas = eq
+					err := k8sClient.Status().Update(ctx, &updateCQ)
+					g.Expect(err).Should(matcher)
+					if err == nil {
+						var gotCQ kueue.ClusterQueue
+						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &gotCQ)).Should(gomega.Succeed())
+						g.Expect(gotCQ.Status.EffectiveQuotas).Should(gomega.BeComparableTo(eq))
+					}
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			},
+			ginkgo.Entry("Should allow valid effectiveQuotas with empty resourceGroups",
+				utiltestingapi.MakeEffectiveQuotaStatus().Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow valid effectiveQuotas with resourceGroups",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(
+						utiltestingapi.ResourceGroup(
+							*utiltestingapi.MakeFlavorQuotas("f0").
+								Resource(corev1.ResourceCPU, "1").
+								Obj(),
+						),
+					).
+					Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should allow effectiveQuotas with maximum number of resourceGroups",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(maxResourceGroups...).
+					Obj(),
+				gomega.Succeed()),
+			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef apiGroup pattern",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					APIGroup("Invalid_APIGroup").
+					Obj(),
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef kind pattern",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					Kind("123Invalid").
+					Obj(),
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject effectiveQuotas with invalid orchestratorRef name pattern",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					Name("@invalid").
+					Obj(),
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject effectiveQuotas with more than 16 resourceGroups",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(moreThanMaxResourceGroups...).
+					Obj(),
+				utiltesting.BeInvalidError()),
+			ginkgo.Entry("Should reject flavor resource count mismatch with coveredResources",
+				utiltestingapi.MakeEffectiveQuotaStatus().
+					ResourceGroups(
+						kueue.ResourceGroup{
+							CoveredResources: []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory},
+							Flavors: []kueue.FlavorQuotas{
+								*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU).Obj(),
+							},
+						},
+					).
+					Obj(),
+				utiltesting.BeInvalidError()),
 		)
 	})
 })
