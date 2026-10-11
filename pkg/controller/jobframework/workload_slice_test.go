@@ -46,6 +46,11 @@ func TestUpdateWorkloadSliceMaximumExecutionTime(t *testing.T) {
 		Status: metav1.ConditionTrue,
 	}
 
+	finished := metav1.Condition{
+		Type:   kueue.WorkloadFinished,
+		Status: metav1.ConditionTrue,
+	}
+
 	cases := map[string]struct {
 		job             client.Object
 		workloads       []*kueue.Workload
@@ -128,6 +133,47 @@ func TestUpdateWorkloadSliceMaximumExecutionTime(t *testing.T) {
 					Request(corev1.ResourceCPU, "1").
 					MaximumExecutionTimeSeconds(5).
 					Conditions(quotaReserved, admitted).
+					Obj(),
+			},
+		},
+		"keeps the timeout on a finished slice": {
+			job: testingjob.MakeJob("job", "ns").Label(controllerconsts.MaxExecTimeSecondsLabel, "10").Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("finished", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Conditions(notAdmitted, finished).
+					Obj(),
+			},
+			wantWorkloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("finished", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Conditions(notAdmitted, finished).
+					Obj(),
+			},
+		},
+		"refreshes stale finished status before keeping the timeout when the owner has no explicit value": {
+			job: testingjob.MakeJob("job", "ns").Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("finished", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Conditions(notAdmitted, finished).
+					Obj(),
+			},
+			workloadsToSync: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("finished", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Conditions(notAdmitted).
+					Obj(),
+			},
+			wantWorkloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("finished", "ns").
+					Request(corev1.ResourceCPU, "1").
+					MaximumExecutionTimeSeconds(5).
+					Conditions(notAdmitted, finished).
 					Obj(),
 			},
 		},
@@ -221,7 +267,7 @@ func TestUpdateWorkloadSliceMaximumExecutionTime(t *testing.T) {
 				}
 			}
 
-			if err := updateWorkloadSliceMaximumExecutionTime(ctx, k8sClient, tc.job, live...); err != nil {
+			if err := updateWorkloadSliceMaximumExecutionTime(ctx, k8sClient, tc.job, live); err != nil {
 				t.Fatalf("updateWorkloadSliceMaximumExecutionTime() error: %v", err)
 			}
 
