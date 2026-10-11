@@ -635,7 +635,7 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 				kueuectl.SetArgs([]string{"create", "resourceflavor", rfName,
 					"--node-labels", "kubernetes.io/arch=arm64,kubernetes.io/os=linux",
 					"--node-taints", "key1=value1:NoSchedule,key2=value2:NoSchedule",
-					"--tolerations", "key1=value1:NoSchedule,key2:NoSchedule",
+					"--tolerations", "key1=value1:NoSchedule,key2:NoSchedule,key3=:NoSchedule,key4=",
 				})
 				err := kueuectl.Execute()
 				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s %s", err, out, outErr)
@@ -677,6 +677,15 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 							Key:      "key2",
 							Operator: corev1.TolerationOpExists,
 							Effect:   corev1.TaintEffectNoSchedule,
+						},
+						corev1.Toleration{
+							Key:      "key3",
+							Operator: corev1.TolerationOpEqual,
+							Effect:   corev1.TaintEffectNoSchedule,
+						},
+						corev1.Toleration{
+							Key:      "key4",
+							Operator: corev1.TolerationOpEqual,
 						},
 					))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())

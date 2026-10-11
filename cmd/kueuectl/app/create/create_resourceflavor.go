@@ -357,7 +357,7 @@ func parseToleration(str string) (corev1.Toleration, error) {
 	}
 
 	toleration.Key = key
-	if len(key) == 0 || len(value) == 0 {
+	if len(key) == 0 || !strings.Contains(str, "=") {
 		toleration.Operator = corev1.TolerationOpExists
 	} else {
 		toleration.Operator = corev1.TolerationOpEqual
