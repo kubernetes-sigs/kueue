@@ -1083,36 +1083,6 @@ func (m *IntegrationManager) FindAncestorJobManagedByKueue(ctx context.Context, 
 	}
 }
 
-// syncWorkloadSlicePriority applies a priority-class label change to the slices
-// a compatible scale decision leaves live. Slice compatibility only considers
-// the pod set shape, so the label change arrives here with the old priority
-// still on the slice.
-//
-// While a scale-up waits for quota the admitted slice is kept alongside its
-// pending replacement and only the replacement is returned, but both are
-// ordered against other Workloads during preemption, so updating one alone
-// would split the Job's priority. wl is nil when a new slice is to be created.
-func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
-	log := ctrl.LoggerFrom(ctx)
-
-	// Quota-reserved rather than admitted: FindLatestActiveWorkload selects on
-	// the reservation, and the distinction is what makes the skip below matter.
-	retained, err := workloadslicing.FindLatestActiveWorkload(ctx, r.client, object, job.GVK())
-	if err != nil {
-		return err
-	}
-	live := []*kueue.Workload{wl}
-	if retained != nil && (wl == nil || retained.Name != wl.Name) {
-		log.V(4).Info("Workload slice priority applies to the replacement and to the quota-reserved slice it is waiting behind",
-			"replacement", klog.KObj(wl), "retained", klog.KObj(retained))
-		live = append(live, retained)
-	}
-	// The quota-reserved/no-priorityClassRef legality check lives in
-	// UpdateWorkloadPriority so the ordinary Job and LeaderWorkerSet paths, which
-	// reach the shared helper without this caller's filtering, get the same guard.
-	return UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), live...)
-}
-
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
 // If there are more than one workload, we should delete the excess ones.
 // The returned workload could be nil.
@@ -1200,7 +1170,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			}
 		}
 
-		// Workload slices allow modifications only to PodSet.Count.
+		// Workload slice compatibility is limited to the PodSet shape and counts.
 		// Any other changes will result in the slice being marked as incompatible,
 		// and the workload will fall back to being processed by the original ensureOneWorkload function.
 		wl, compatible, err := r.workloadSlices.EnsureWorkloadSlices(ctx, podSets, object, job.GVK())
@@ -1208,7 +1178,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, err
 		}
 		if compatible {
-			if err := r.syncWorkloadSlicePriority(ctx, job, object, wl); err != nil {
+			if err := r.syncWorkloadSliceFields(ctx, job, object, wl); err != nil {
 				return nil, err
 			}
 			if wl != nil {
