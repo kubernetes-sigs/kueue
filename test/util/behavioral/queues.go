@@ -45,6 +45,7 @@ func SetResourceNominalQuota(cq *kueue.ClusterQueue, resourceName corev1.Resourc
 }
 
 func UnholdClusterQueue(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue) {
+	ginkgo.GinkgoHelper()
 	var cqCopy kueue.ClusterQueue
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &cqCopy)).To(gomega.Succeed())
@@ -57,6 +58,7 @@ func UnholdClusterQueue(ctx context.Context, k8sClient client.Client, cq *kueue.
 }
 
 func UnholdLocalQueue(ctx context.Context, k8sClient client.Client, lq *kueue.LocalQueue) {
+	ginkgo.GinkgoHelper()
 	var lqCopy kueue.LocalQueue
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), &lqCopy)).To(gomega.Succeed())
@@ -69,6 +71,7 @@ func UnholdLocalQueue(ctx context.Context, k8sClient client.Client, lq *kueue.Lo
 }
 
 func ExpectClusterQueuesToBeActive(ctx context.Context, c client.Client, cqs ...*kueue.ClusterQueue) {
+	ginkgo.GinkgoHelper()
 	readCq := &kueue.ClusterQueue{}
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		for _, cq := range cqs {
@@ -79,6 +82,7 @@ func ExpectClusterQueuesToBeActive(ctx context.Context, c client.Client, cqs ...
 }
 
 func ExpectLocalQueuesToBeActive(ctx context.Context, c client.Client, lqs ...*kueue.LocalQueue) {
+	ginkgo.GinkgoHelper()
 	readLq := &kueue.LocalQueue{}
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
 		for _, lq := range lqs {
