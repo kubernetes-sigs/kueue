@@ -127,7 +127,7 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 		// This is safe as the local Job has already reached its final spec.
 		// We expect no validation errors from further spec changes.
 		log.V(3).Info("Performing the sync as the local Job is unsuspended")
-		return &remoteJob.Status, false
+		return mergeJobStatus(&localJob.Status, &remoteJob.Status), false
 	}
 	remoteJobInfo := fromObject(remoteJob)
 	if remoteJobInfo.IsSuspended() {
@@ -135,13 +135,13 @@ func determineStatusUpdate(ctx context.Context, log logr.Logger, localJob, remot
 		// This is needed to await for updating the status.active field
 		// when the remote Job is evicted; see: https://github.com/kubernetes-sigs/kueue/pull/8151
 		log.V(3).Info("Peforming the sync as the local and the remote Job are both suspended")
-		return &remoteJob.Status, false
+		return mergeJobStatus(&localJob.Status, &remoteJob.Status), false
 	}
 	if _, _, finished := remoteJobInfo.Finished(ctx); finished {
 		// Sync status if the remote Job is finished.
 		// Without this, the local Job could get stuck in the suspended state.
 		log.V(2).Info("Performing the sync as the remote Job is finished")
-		return &remoteJob.Status, false
+		return mergeJobStatus(&localJob.Status, &remoteJob.Status), false
 	}
 
 	// Remaining case: local Job is suspended, remote Job is unsuspended but not finished.
@@ -191,6 +191,29 @@ func isJobStatusConditionTrue(conditions []batchv1.JobCondition, condType batchv
 		}
 	}
 	return false
+}
+
+// mergeJobStatus returns a copy of the remote JobStatus suitable for writing
+// to the local (manager) Job when syncing from a re-dispatched worker Job.
+//
+// Kubernetes 1.35+ rejects any status patch that would decrease status.failed
+// or status.succeeded on a managedBy Job (RejectDecreasingFailedCounter).
+// After a re-dispatch the new worker Job starts fresh (failed=0, succeeded=0),
+// so a wholesale copy of the remote status would be rejected by the API server.
+//
+// Fix: copy remote status but clamp failed and succeeded to
+// max(local, remote) so the counters are monotonically non-decreasing
+// from the API server's perspective, while all other status fields (active,
+// ready, startTime, conditions, …) are still synced from the worker.
+func mergeJobStatus(local, remote *batchv1.JobStatus) *batchv1.JobStatus {
+	merged := remote.DeepCopy()
+	if local.Failed > merged.Failed {
+		merged.Failed = local.Failed
+	}
+	if local.Succeeded > merged.Succeeded {
+		merged.Succeeded = local.Succeeded
+	}
+	return merged
 }
 
 func (b *multiKueueAdapter) DeleteRemoteObject(ctx context.Context, _ client.Client, remoteClient client.Client, key types.NamespacedName) error {
