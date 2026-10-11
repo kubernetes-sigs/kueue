@@ -87,22 +87,22 @@ controllerManager:
     # -- ControllerManager's readinessProbe periodSeconds
     periodSeconds: 10
     # -- ControllerManager's readinessProbe timeoutSeconds
-    timeoutSeconds: 1
+    # timeoutSeconds: 1
     # -- ControllerManager's readinessProbe failureThreshold
-    failureThreshold: 3
+    # failureThreshold: 3
     # -- ControllerManager's readinessProbe successThreshold
-    successThreshold: 1
+    # successThreshold: 1
   livenessProbe:
     # -- ControllerManager's livenessProbe initialDelaySeconds
     initialDelaySeconds: 15
     # -- ControllerManager's livenessProbe periodSeconds
     periodSeconds: 20
     # -- ControllerManager's livenessProbe timeoutSeconds
-    timeoutSeconds: 1
+    # timeoutSeconds: 1
     # -- ControllerManager's livenessProbe failureThreshold
-    failureThreshold: 3
+    # failureThreshold: 3
     # -- ControllerManager's livenessProbe successThreshold
-    successThreshold: 1
+    # successThreshold: 1
   # -- ControllerManager's nodeSelector
   nodeSelector: {}
   # -- ControllerManager's tolerations
@@ -220,7 +220,7 @@ metricsService:
       protocol: TCP
       targetPort: 8443
   # -- metricsService's type
-  type: ClusterIP
+  type: # ClusterIP
   # -- metricsService's labels
   labels: {}
   # -- metricsService's annotations
@@ -239,10 +239,10 @@ webhookService:
       protocol: TCP
       targetPort: 9443
   # -- webhookService's type
-  type: ClusterIP
+  type: # ClusterIP
 mutatingWebhook:
   # -- MutatingWebhookConfiguration's reinvocationPolicy
-  reinvocationPolicy: Never
+  reinvocationPolicy: # Never
 kueueViz:
   ingress:
     # -- Enable a single path-routed ingress serving the KueueViz dashboard and its
