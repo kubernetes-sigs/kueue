@@ -27,7 +27,6 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -47,41 +46,42 @@ import (
 // yield any candidate at all. A nil PreemptionEvaluator holds no rule, and therefore
 // never yields any candidate.
 type PreemptionEvaluator struct {
-	ctx    context.Context
-	log    logr.Logger
-	clock  clock.Clock
-	config kueuealpha.PreemptionConfig
+	ctx       context.Context
+	log       logr.Logger
+	config    kueuealpha.PreemptionConfig
+	preemptor *workload.Info
 	// candidatesOrdering orders the candidates of a trigger from the most to the
 	// least preferred one.
 	candidatesOrdering func(a, b *workload.Info) int
 }
 
-// NewPreemptionEvaluator returns the PreemptionEvaluator for the given PreemptionConfig,
-// which yields the candidates of each trigger in the order defined by candidatesOrdering.
+// NewPreemptionEvaluator returns the PreemptionEvaluator of the given preemptor for the
+// given PreemptionConfig, which yields the candidates of each trigger in the order defined
+// by candidatesOrdering.
 func NewPreemptionEvaluator(
 	ctx context.Context,
 	log logr.Logger,
-	clock clock.Clock,
 	config kueuealpha.PreemptionConfig,
+	preemptor *workload.Info,
 	candidatesOrdering func(a, b *workload.Info) int,
 ) *PreemptionEvaluator {
 	return &PreemptionEvaluator{
 		ctx:                ctx,
 		log:                log,
-		clock:              clock,
 		config:             config,
+		preemptor:          preemptor,
 		candidatesOrdering: candidatesOrdering,
 	}
 }
 
-// NewEvaluatorForPreemptionConfig returns the PreemptionEvaluator for the PreemptionConfig
-// with the given name, or nil if it cannot be read.
+// NewEvaluatorForPreemptionConfig returns the PreemptionEvaluator of the given preemptor for
+// the PreemptionConfig with the given name, or nil if it cannot be read.
 func NewEvaluatorForPreemptionConfig(
 	ctx context.Context,
 	log logr.Logger,
-	clock clock.Clock,
 	cl client.Client,
 	preemptionConfigName string,
+	preemptor *workload.Info,
 	candidatesOrdering func(a, b *workload.Info) int,
 ) *PreemptionEvaluator {
 	preemptionConfig := &kueuealpha.PreemptionConfig{}
@@ -89,7 +89,7 @@ func NewEvaluatorForPreemptionConfig(
 		log.Error(err, "Failed to get PreemptionConfig", "preemptionConfigName", preemptionConfigName)
 		return nil
 	}
-	return NewPreemptionEvaluator(ctx, log, clock, *preemptionConfig, candidatesOrdering)
+	return NewPreemptionEvaluator(ctx, log, *preemptionConfig, preemptor, candidatesOrdering)
 }
 
 // HasRules returns whether the PreemptionConfig holds any rule at all. It only
@@ -120,7 +120,6 @@ func (p *PreemptionEvaluator) HasRules() bool {
 // candidates still admitted in the snapshot.
 func (p *PreemptionEvaluator) FindCandidates(
 	snapshot *schdcache.Snapshot,
-	preemptor *workload.Info,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
 	workloadQuotaFits func() bool,
 	yield func(*policy.Target) bool,
@@ -131,7 +130,7 @@ func (p *PreemptionEvaluator) FindCandidates(
 		return
 	}
 
-	candidates, err := p.orderedCandidates(snapshot, preemptor, frsNeedPreemption, kueuealpha.Always)
+	candidates, err := p.orderedCandidates(snapshot, frsNeedPreemption, kueuealpha.Always)
 	if err != nil {
 		return
 	}
@@ -146,7 +145,7 @@ func (p *PreemptionEvaluator) FindCandidates(
 	}
 
 	if !workloadQuotaFits() {
-		candidates, err = p.orderedCandidates(snapshot, preemptor, frsNeedPreemption, kueuealpha.InsufficientQuota)
+		candidates, err = p.orderedCandidates(snapshot, frsNeedPreemption, kueuealpha.InsufficientQuota)
 		if err != nil {
 			return
 		}
@@ -159,7 +158,7 @@ func (p *PreemptionEvaluator) FindCandidates(
 	// the quota fits while the workload still doesn't fit (meaning topology is
 	// what keeps the workload out).
 	if workloadQuotaFits() {
-		candidates, err = p.orderedCandidates(snapshot, preemptor, frsNeedPreemption, kueuealpha.QuotaFeasibleAndInsufficientTopology)
+		candidates, err = p.orderedCandidates(snapshot, frsNeedPreemption, kueuealpha.QuotaFeasibleAndInsufficientTopology)
 		if err != nil {
 			return
 		}
@@ -228,11 +227,10 @@ type configurableCandidate struct {
 // Returns an error if a matching rule cannot be evaluated.
 func (p *PreemptionEvaluator) orderedCandidates(
 	snapshot *schdcache.Snapshot,
-	preemptor *workload.Info,
 	frsNeedPreemption sets.Set[resources.FlavorResource],
 	trigger kueuealpha.PreemptionConfigActivationTrigger,
 ) ([]*configurableCandidate, error) {
-	candidates, err := p.candidatesFor(snapshot, preemptor, frsNeedPreemption, trigger)
+	candidates, err := p.candidatesFor(snapshot, frsNeedPreemption, trigger)
 	if err != nil {
 		p.log.Error(err, "Failed to get candidates for preemption", "trigger", trigger)
 		return nil, err
@@ -248,7 +246,6 @@ func (p *PreemptionEvaluator) orderedCandidates(
 // selectors of the trigger.
 func (p *PreemptionEvaluator) candidatesFor(
 	snapshot *schdcache.Snapshot,
-	preemptor *workload.Info,
 	flavorsNeedPreemption sets.Set[resources.FlavorResource],
 	trigger kueuealpha.PreemptionConfigActivationTrigger,
 ) ([]*configurableCandidate, error) {
@@ -269,7 +266,7 @@ func (p *PreemptionEvaluator) candidatesFor(
 		if rule.ActivationPolicy.Trigger != trigger {
 			continue
 		}
-		matches, err := workloadMatchesSelector(rule.PreemptorSelector, preemptor)
+		matches, err := workloadMatchesSelector(rule.PreemptorSelector, p.preemptor)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("preemptionConfig %q rule %q: %w", p.config.Name, rule.Name, err))
 			continue
@@ -279,7 +276,7 @@ func (p *PreemptionEvaluator) candidatesFor(
 		}
 
 		for selectorIndex, selector := range rule.CandidateSelectors {
-			filter, buildErrs := filters.NewCandidateFilters(p.log, &selector, preemptor, snapshot)
+			filter, buildErrs := filters.NewCandidateFilters(p.log, &selector, p.preemptor, snapshot)
 			if len(buildErrs) > 0 {
 				for _, bErr := range buildErrs {
 					errs = append(errs, fmt.Errorf("preemptionConfig %q rule %q candidateSelectors[%d]: %w", p.config.Name, rule.Name, selectorIndex, bErr))
