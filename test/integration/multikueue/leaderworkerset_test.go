@@ -23,6 +23,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -35,6 +36,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingleaderworkerset "sigs.k8s.io/kueue/pkg/util/testingjobs/leaderworkerset"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("MultiKueue LeaderWorkerSet", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -68,8 +70,8 @@ var _ = ginkgo.Describe("MultiKueue LeaderWorkerSet", ginkgo.Label("area:multiku
 			Obj()
 		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, lws)
 		lwsKey := client.ObjectKeyFromObject(lws)
-		group0Key := behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0")
-		group1Key := behavioral.WorkloadKeyForLeaderWorkerSet(lws, "1")
+		group0Key := types.NamespacedName{Name: workloadleaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"), Namespace: lws.Namespace}
+		group1Key := types.NamespacedName{Name: workloadleaderworkerset.GetWorkloadName(lws.UID, lws.Name, "1"), Namespace: lws.Namespace}
 
 		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).PodSets(
 			utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
@@ -78,11 +80,11 @@ var _ = ginkgo.Describe("MultiKueue LeaderWorkerSet", ginkgo.Label("area:multiku
 		admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, group0Key, admission)
 
 		ginkgo.By("admitting the second group on the worker of the first one", func() {
-			behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, group1Key, admission.Obj())
+			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, group1Key, admission.Obj())
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, group1Key, &kueue.Workload{})).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			behavioral.SetQuotaReservation(worker2TestCluster.ctx, worker2TestCluster.client, group1Key, admission.Obj())
+			integration.SetQuotaReservation(worker2TestCluster.ctx, worker2TestCluster.client, group1Key, admission.Obj())
 			behavioral.ExpectAdmissionCheckStateWithMessage(
 				managerTestCluster.ctx, managerTestCluster.client, group1Key,
 				f.multiKueueAC.Name,
