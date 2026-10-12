@@ -267,26 +267,57 @@ spec:
                             properties:
                               comparison:
                                 description: |-
-                                  comparison defines how the candidate's priority compares to the preemptor's priority.
-                                  For example, "LessThan" means that only workloads with lower
-                                  priority will be allowed as preemption candidates.
+                                  comparison is the relational operator comparing the candidate's priority
+                                  against the preemptor's priority (i.e., <candidate> <comparison> <preemptor>).
+                                  For example, LessThan means the candidate must have strictly lower priority than the preemptor.
+                                  Must be specified together with mode.
                                 enum:
                                 - LessThan
                                 - GreaterThan
                                 - LessThanOrEqual
                                 - GreaterThanOrEqual
                                 type: string
+                              matchNames:
+                                description: |-
+                                  matchNames is an allowlist of PriorityClass or WorkloadPriorityClass names.
+                                  If specified, a workload matches only if its spec.priorityClassRef.name equals
+                                  any name in this list (OR semantics); if specified workloads without a priorityClassRef do not match. If not specified does not impose any class names restrictions on workloads.
+                                items:
+                                  maxLength: 253
+                                  minLength: 1
+                                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                                  type: string
+                                maxItems: 32
+                                minItems: 1
+                                type: array
+                                x-kubernetes-list-type: set
                               mode:
-                                description: mode specifies whether priority comparison
-                                  uses base or boosted (effective) priority.
+                                description: |-
+                                  mode specifies whether priority comparison uses base or boosted (effective) priority.
+                                  Must be specified together with comparison.
                                 enum:
                                 - Base
                                 - Boosted
                                 type: string
-                            required:
-                            - comparison
-                            - mode
+                              notMatchNames:
+                                description: |-
+                                  notMatchNames is a denylist of PriorityClass or WorkloadPriorityClass names.
+                                  If specified, a workload matches only if its spec.priorityClassRef.name does not equal
+                                  any name in this list; workloads without a priorityClassRef always match. If not specified does not impose any class names restrictions on workloads.
+                                  If both matchNames and notMatchNames are specified, both conditions must be satisfied (AND semantics).
+                                items:
+                                  maxLength: 253
+                                  minLength: 1
+                                  pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                                  type: string
+                                maxItems: 32
+                                minItems: 1
+                                type: array
+                                x-kubernetes-list-type: set
                             type: object
+                            x-kubernetes-validations:
+                            - message: mode and comparison must be specified together
+                              rule: has(self.mode) == has(self.comparison)
                           scope:
                             description: scope specifies the queue or cohort relation
                               boundary of candidates to the preemptor workload.
@@ -309,6 +340,42 @@ spec:
                       minLength: 1
                       pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                       type: string
+                    preemptorPriorityClassSelector:
+                      description: |-
+                        preemptorPriorityClassSelector filters which preempting workloads can activate this rule
+                        based on their spec.priorityClassRef.name.
+                        If omitted or empty, workloads of any priority class can trigger this rule.
+                      properties:
+                        matchNames:
+                          description: |-
+                            matchNames is an allowlist of PriorityClass or WorkloadPriorityClass names.
+                            If specified, a workload matches only if its spec.priorityClassRef.name equals
+                            any name in this list (OR semantics); if specified workloads without a priorityClassRef do not match. If not specified does not impose any class names restrictions on workloads.
+                          items:
+                            maxLength: 253
+                            minLength: 1
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                            type: string
+                          maxItems: 32
+                          minItems: 1
+                          type: array
+                          x-kubernetes-list-type: set
+                        notMatchNames:
+                          description: |-
+                            notMatchNames is a denylist of PriorityClass or WorkloadPriorityClass names.
+                            If specified, a workload matches only if its spec.priorityClassRef.name does not equal
+                            any name in this list; workloads without a priorityClassRef always match. If not specified does not impose any class names restrictions on workloads.
+                            If both matchNames and notMatchNames are specified, both conditions must be satisfied (AND semantics).
+                          items:
+                            maxLength: 253
+                            minLength: 1
+                            pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
+                            type: string
+                          maxItems: 32
+                          minItems: 1
+                          type: array
+                          x-kubernetes-list-type: set
+                      type: object
                     preemptorSelector:
                       description: |-
                         preemptorSelector is a label selector indicating which workloads can trigger preemptions

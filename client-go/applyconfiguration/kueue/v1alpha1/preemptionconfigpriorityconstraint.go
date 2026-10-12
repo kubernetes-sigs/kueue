@@ -28,13 +28,17 @@ import (
 // PreemptionConfigPriorityConstraint defines the requirements for the priority of preemption candidates.
 type PreemptionConfigPriorityConstraintApplyConfiguration struct {
 	// mode specifies whether priority comparison uses base or boosted (effective) priority.
+	// Must be specified together with comparison.
 	//
 	Mode *kueuev1alpha1.PreemptionConfigPriorityMode `json:"mode,omitempty"`
-	// comparison defines how the candidate's priority compares to the preemptor's priority.
-	// For example, "LessThan" means that only workloads with lower
-	// priority will be allowed as preemption candidates.
+	// comparison is the relational operator comparing the candidate's priority
+	// against the preemptor's priority (i.e., <candidate> <comparison> <preemptor>).
+	// For example, LessThan means the candidate must have strictly lower priority than the preemptor.
+	// Must be specified together with mode.
 	//
 	Comparison *kueuev1alpha1.NumericComparison `json:"comparison,omitempty"`
+	// PreemptionConfigPriorityClassSelector filters candidate workloads by priority class name.
+	PreemptionConfigPriorityClassSelectorApplyConfiguration `json:""`
 }
 
 // PreemptionConfigPriorityConstraintApplyConfiguration constructs a declarative configuration of the PreemptionConfigPriorityConstraint type for use with
@@ -56,5 +60,25 @@ func (b *PreemptionConfigPriorityConstraintApplyConfiguration) WithMode(value ku
 // If called multiple times, the Comparison field is set to the value of the last call.
 func (b *PreemptionConfigPriorityConstraintApplyConfiguration) WithComparison(value kueuev1alpha1.NumericComparison) *PreemptionConfigPriorityConstraintApplyConfiguration {
 	b.Comparison = &value
+	return b
+}
+
+// WithMatchNames adds the given value to the MatchNames field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the MatchNames field.
+func (b *PreemptionConfigPriorityConstraintApplyConfiguration) WithMatchNames(values ...string) *PreemptionConfigPriorityConstraintApplyConfiguration {
+	for i := range values {
+		b.PreemptionConfigPriorityClassSelectorApplyConfiguration.MatchNames = append(b.PreemptionConfigPriorityClassSelectorApplyConfiguration.MatchNames, values[i])
+	}
+	return b
+}
+
+// WithNotMatchNames adds the given value to the NotMatchNames field in the declarative configuration
+// and returns the receiver, so that objects can be build by chaining "With" function invocations.
+// If called multiple times, values provided by each call will be appended to the NotMatchNames field.
+func (b *PreemptionConfigPriorityConstraintApplyConfiguration) WithNotMatchNames(values ...string) *PreemptionConfigPriorityConstraintApplyConfiguration {
+	for i := range values {
+		b.PreemptionConfigPriorityClassSelectorApplyConfiguration.NotMatchNames = append(b.PreemptionConfigPriorityClassSelectorApplyConfiguration.NotMatchNames, values[i])
+	}
 	return b
 }

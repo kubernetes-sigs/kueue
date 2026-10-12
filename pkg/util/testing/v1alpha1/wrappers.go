@@ -297,22 +297,7 @@ func (pc *PreemptionConfigWrapper) Rule(
 	trigger kueuealpha.PreemptionConfigActivationTrigger,
 	selectors ...kueuealpha.PreemptionConfigPreemptionCandidateSelector,
 ) *PreemptionConfigWrapper {
-	return pc.RuleWithPreemptorSelector(name, trigger, nil, selectors...)
-}
-
-// RuleWithPreemptorSelector appends a rule with a custom PreemptorSelector to the PreemptionConfig.
-func (pc *PreemptionConfigWrapper) RuleWithPreemptorSelector(
-	name string,
-	trigger kueuealpha.PreemptionConfigActivationTrigger,
-	preemptorSelector *metav1.LabelSelector,
-	selectors ...kueuealpha.PreemptionConfigPreemptionCandidateSelector,
-) *PreemptionConfigWrapper {
-	pc.Spec.Rules = append(pc.Spec.Rules, kueuealpha.PreemptionConfigPreemptionRule{
-		Name:               name,
-		ActivationPolicy:   kueuealpha.PreemptionConfigActivationPolicy{Trigger: trigger},
-		PreemptorSelector:  preemptorSelector,
-		CandidateSelectors: selectors,
-	})
+	pc.Spec.Rules = append(pc.Spec.Rules, MakePreemptionRule(name, trigger, selectors...).Obj())
 	return pc
 }
 
@@ -330,6 +315,53 @@ func (pc *PreemptionConfigWrapper) Clone() *PreemptionConfigWrapper {
 // Obj returns the inner PreemptionConfig.
 func (pc *PreemptionConfigWrapper) Obj() *kueuealpha.PreemptionConfig {
 	return &pc.PreemptionConfig
+}
+
+// PreemptionRuleWrapper wraps a PreemptionConfigPreemptionRule.
+type PreemptionRuleWrapper struct {
+	kueuealpha.PreemptionConfigPreemptionRule
+}
+
+// MakePreemptionRule creates a PreemptionRuleWrapper with the given name, trigger, and candidate selectors.
+func MakePreemptionRule(
+	name string,
+	trigger kueuealpha.PreemptionConfigActivationTrigger,
+	selectors ...kueuealpha.PreemptionConfigPreemptionCandidateSelector,
+) *PreemptionRuleWrapper {
+	return &PreemptionRuleWrapper{
+		Name:               name,
+		ActivationPolicy:   kueuealpha.PreemptionConfigActivationPolicy{Trigger: trigger},
+		CandidateSelectors: selectors,
+	}
+}
+
+// PreemptorSelector sets the PreemptorSelector on the rule.
+func (r *PreemptionRuleWrapper) PreemptorSelector(ls *metav1.LabelSelector) *PreemptionRuleWrapper {
+	r.PreemptionConfigPreemptionRule.PreemptorSelector = ls
+	return r
+}
+
+// PreemptorPriorityClassMatchNames sets MatchNames on the rule's PreemptorPriorityClassSelector.
+func (r *PreemptionRuleWrapper) PreemptorPriorityClassMatchNames(names ...string) *PreemptionRuleWrapper {
+	if r.PreemptorPriorityClassSelector == nil {
+		r.PreemptorPriorityClassSelector = &kueuealpha.PreemptionConfigPriorityClassSelector{}
+	}
+	r.PreemptorPriorityClassSelector.MatchNames = names
+	return r
+}
+
+// PreemptorPriorityClassNotMatchNames sets NotMatchNames on the rule's PreemptorPriorityClassSelector.
+func (r *PreemptionRuleWrapper) PreemptorPriorityClassNotMatchNames(names ...string) *PreemptionRuleWrapper {
+	if r.PreemptorPriorityClassSelector == nil {
+		r.PreemptorPriorityClassSelector = &kueuealpha.PreemptionConfigPriorityClassSelector{}
+	}
+	r.PreemptorPriorityClassSelector.NotMatchNames = names
+	return r
+}
+
+// Obj returns the inner PreemptionConfigPreemptionRule.
+func (r *PreemptionRuleWrapper) Obj() kueuealpha.PreemptionConfigPreemptionRule {
+	return r.PreemptionConfigPreemptionRule
 }
 
 // CandidateSelectorWrapper wraps a PreemptionConfigPreemptionCandidateSelector.
@@ -358,10 +390,29 @@ func (w *CandidateSelectorWrapper) ClusterQueueSelector(cqs *metav1.LabelSelecto
 
 // Priority sets the priority constraint for preemption candidates.
 func (w *CandidateSelectorWrapper) Priority(mode kueuealpha.PreemptionConfigPriorityMode, cmp kueuealpha.NumericComparison) *CandidateSelectorWrapper {
-	w.PreemptionConfigPreemptionCandidateSelector.Priority = &kueuealpha.PreemptionConfigPriorityConstraint{
-		Mode:       mode,
-		Comparison: cmp,
+	if w.PreemptionConfigPreemptionCandidateSelector.Priority == nil {
+		w.PreemptionConfigPreemptionCandidateSelector.Priority = &kueuealpha.PreemptionConfigPriorityConstraint{}
 	}
+	w.PreemptionConfigPreemptionCandidateSelector.Priority.Mode = new(mode)
+	w.PreemptionConfigPreemptionCandidateSelector.Priority.Comparison = new(cmp)
+	return w
+}
+
+// PriorityMatchNames sets matchNames on the candidate priority constraint.
+func (w *CandidateSelectorWrapper) PriorityMatchNames(names ...string) *CandidateSelectorWrapper {
+	if w.PreemptionConfigPreemptionCandidateSelector.Priority == nil {
+		w.PreemptionConfigPreemptionCandidateSelector.Priority = &kueuealpha.PreemptionConfigPriorityConstraint{}
+	}
+	w.PreemptionConfigPreemptionCandidateSelector.Priority.MatchNames = names
+	return w
+}
+
+// PriorityNotMatchNames sets notMatchNames on the candidate priority constraint.
+func (w *CandidateSelectorWrapper) PriorityNotMatchNames(names ...string) *CandidateSelectorWrapper {
+	if w.PreemptionConfigPreemptionCandidateSelector.Priority == nil {
+		w.PreemptionConfigPreemptionCandidateSelector.Priority = &kueuealpha.PreemptionConfigPriorityConstraint{}
+	}
+	w.PreemptionConfigPreemptionCandidateSelector.Priority.NotMatchNames = names
 	return w
 }
 

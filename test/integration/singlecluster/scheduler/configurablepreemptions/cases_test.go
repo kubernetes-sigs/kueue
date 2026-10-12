@@ -106,8 +106,8 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 					kueuealpha.QuotaFeasibleAndInsufficientTopology,
 					kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 						Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
-							Mode:       kueuealpha.Boosted,
-							Comparison: kueuealpha.LessThanOrEqual,
+							Mode:       new(kueuealpha.Boosted),
+							Comparison: new(kueuealpha.LessThanOrEqual),
 						},
 						Scope: kueuealpha.AnyClusterQueue,
 						NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
@@ -293,18 +293,20 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 		ginkgo.BeforeEach(func() {
 			preemptorSelector := &metav1.LabelSelector{MatchLabels: map[string]string{"preemptor": "true"}}
 			config = kueuetestalpha1.MakePreemptionConfig("invalid-always-selector").
-				RuleWithPreemptorSelector("select-a", kueuealpha.Always, preemptorSelector,
-					kueuetestalpha1.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
-						LabelSelector(&metav1.LabelSelector{
-							MatchExpressions: []metav1.LabelSelectorRequirement{
-								// This unsupported operator makes the candidate selector fail to build.
-								{Key: "preemptible", Operator: "invalid", Values: []string{"true"}},
-							},
-						}).Obj(),
-				).
-				RuleWithPreemptorSelector("select-b", kueuealpha.InsufficientQuota, preemptorSelector,
-					kueuetestalpha1.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
-						LabelSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"fallback": "true"}}).Obj(),
+				Rules(
+					kueuetestalpha1.MakePreemptionRule("select-a", kueuealpha.Always,
+						kueuetestalpha1.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+							LabelSelector(&metav1.LabelSelector{
+								MatchExpressions: []metav1.LabelSelectorRequirement{
+									// This unsupported operator makes the candidate selector fail to build.
+									{Key: "preemptible", Operator: "invalid", Values: []string{"true"}},
+								},
+							}).Obj(),
+					).PreemptorSelector(preemptorSelector).Obj(),
+					kueuetestalpha1.MakePreemptionRule("select-b", kueuealpha.InsufficientQuota,
+						kueuetestalpha1.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+							LabelSelector(&metav1.LabelSelector{MatchLabels: map[string]string{"fallback": "true"}}).Obj(),
+					).PreemptorSelector(preemptorSelector).Obj(),
 				).Obj()
 			behavioral.MustCreate(ctx, k8sClient, config)
 
@@ -378,6 +380,99 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlC)
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlB), wlB)).To(gomega.Succeed())
 			gomega.Expect(meta.IsStatusConditionTrue(wlB.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+		})
+	})
+
+	ginkgo.When("WithinClusterQueue preemption is restricted to low-priority classes", func() {
+		var (
+			flavor *kueue.ResourceFlavor
+			cq     *kueue.ClusterQueue
+			lq     *kueue.LocalQueue
+			config *kueuealpha.PreemptionConfig
+		)
+
+		ginkgo.BeforeEach(func() {
+			preemptLowPriorityConfig := "preempt-same-cq-low-priority"
+			config = kueuetestalpha1.MakePreemptionConfig(preemptLowPriorityConfig).
+				Rule("preempt-same-cq-low-priority",
+					kueuealpha.InsufficientQuota,
+					kueuetestalpha1.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
+						Priority(kueuealpha.Base, kueuealpha.LessThan).
+						PriorityMatchNames("low-priority").
+						Obj(),
+				).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, config)
+
+			flavor = utiltestingapi.MakeResourceFlavor("rf-same-cq-priority").Obj()
+			behavioral.MustCreate(ctx, k8sClient, flavor)
+
+			cq = utiltestingapi.MakeClusterQueue("cq-shared-priority").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).
+					Resource(corev1.ResourceCPU, "2").Obj()).
+				Annotation(kueuealpha.PreemptionConfigNameAnnotation, preemptLowPriorityConfig).
+				Obj()
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq = utiltestingapi.MakeLocalQueue("lq-shared-priority", ns.Name).ClusterQueue(cq.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, config, true)
+		})
+
+		ginkgo.It("Should preempt low-priority workloads for high-priority while protecting mid-priority workloads", func() {
+			wlMid := utiltestingapi.MakeWorkloadWithGeneratedName("wl-mid-", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				WorkloadPriorityClassRef("mid-priority").
+				Priority(500).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			wlLow := utiltestingapi.MakeWorkloadWithGeneratedName("wl-low-", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				WorkloadPriorityClassRef("low-priority").
+				Priority(100).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wlMid)
+			behavioral.MustCreate(ctx, k8sClient, wlLow)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wlMid, wlLow)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlMid, wlLow)
+
+			var wlHigh1 *kueue.Workload
+			ginkgo.By("Admitting first high-priority workload by preempting low-priority while sparing mid-priority", func() {
+				wlHigh1 = utiltestingapi.MakeWorkloadWithGeneratedName("wl-high-", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					WorkloadPriorityClassRef("high-priority").
+					Priority(1000).
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, wlHigh1)
+				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wlLow)
+				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wlHigh1)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlHigh1, wlMid)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlLow)
+			})
+
+			ginkgo.By("Keeping second high-priority workload pending because mid-priority is protected from preemption", func() {
+				wlHigh2 := utiltestingapi.MakeWorkloadWithGeneratedName("wl-high-", ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					WorkloadPriorityClassRef("high-priority").
+					Priority(1000).
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, wlHigh2)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlHigh2, wlLow)
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(behavioral.FilterEvictedWorkloads(ctx, k8sClient, wlMid, wlHigh1)).To(gomega.BeEmpty())
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlHigh1, wlMid)
+			})
 		})
 	})
 })
