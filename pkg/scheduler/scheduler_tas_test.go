@@ -3942,6 +3942,9 @@ func (s *recordingSimulatorFactory) NewSimulator(ctx context.Context, nodes []*c
 	s.recorder.releasedNow = sets.New[workload.Reference]()
 	return &s.recorder, nil
 }
+func (s *recordingSimulatorFactory) NewFeasibilitySimulator(ctx context.Context, nodes []*corev1.Node, options ...simulator.Option) (simulator.FeasibilitySimulator, error) {
+	return s.NewSimulator(ctx, nodes, options...)
+}
 func (s *recordingSimulatorFactory) TrackPod(ctx context.Context, pod *corev1.Pod) {
 	s.simulatorFactory.TrackPod(ctx, pod)
 }

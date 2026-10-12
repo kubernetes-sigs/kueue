@@ -185,6 +185,10 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 	return snapshot, nil
 }
 
+func (s *wasSimulatorFactory) NewFeasibilitySimulator(ctx context.Context, nodes []*corev1.Node, options ...simulator.Option) (simulator.FeasibilitySimulator, error) {
+	return s.NewSimulator(ctx, nodes, options...)
+}
+
 // podsNotManagedByKueue returns the Pods that belong to no Workload. Preemption
 // cannot remove them, so they keep occupying their node even when the caller assumes
 // every Workload is gone.

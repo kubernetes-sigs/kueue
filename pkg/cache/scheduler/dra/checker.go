@@ -31,7 +31,7 @@ import (
 // Checker drops candidate nodes that cannot supply a Pod's ResourceClaims. It
 // allocates with the engine kube-scheduler uses, so both reach the same answer.
 type Checker struct {
-	inner     simulator.SchedulerSimulator
+	inner     simulator.FeasibilitySimulator
 	cl        client.Client
 	celCache  *CELCache
 	allocator lazyAllocator
@@ -43,7 +43,7 @@ type Checker struct {
 
 // NewChecker wraps inner with the device check. Pass the scheduler cache's CELCache
 // rather than a fresh one: it only pays off by outliving the snapshot.
-func NewChecker(inner simulator.SchedulerSimulator, cl client.Client, celCache *CELCache, deviceTaintRules bool) *Checker {
+func NewChecker(inner simulator.FeasibilitySimulator, cl client.Client, celCache *CELCache, deviceTaintRules bool) *Checker {
 	c := &Checker{
 		inner:            inner,
 		cl:               cl,
@@ -52,19 +52,6 @@ func NewChecker(inner simulator.SchedulerSimulator, cl client.Client, celCache *
 	}
 	c.allocator.build = c.buildAllocator
 	return c
-}
-
-// Simulate needs no DRA handling: the device filtering holds no state.
-func (c *Checker) Simulate(ctx context.Context, fn func()) error {
-	return c.inner.Simulate(ctx, fn)
-}
-
-// PreemptWorkload frees the Workload's Pods but not the devices its claims hold: the
-// allocator is built once per snapshot from the ResourceClaims as they stand. So
-// preemption cannot make a Workload device-feasible, and the check stays restrictive
-// rather than over-admitting. Releasing them is Beta work in keps/2941-DRA.
-func (c *Checker) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (func() error, error) {
-	return c.inner.PreemptWorkload(ctx, wlKey)
 }
 
 func (c *Checker) FindFeasibleNodes(

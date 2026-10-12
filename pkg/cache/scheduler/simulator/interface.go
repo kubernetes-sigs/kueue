@@ -58,25 +58,29 @@ func AssumedWorkloads(options ...Option) []*kueue.Workload {
 // The "default" (non-WAS) implementation may trivialize some methods.
 type Factory interface {
 	NewSimulator(ctx context.Context, nodes []*corev1.Node, options ...Option) (SchedulerSimulator, error)
+	NewFeasibilitySimulator(ctx context.Context, nodes []*corev1.Node, options ...Option) (FeasibilitySimulator, error)
 	// TrackPod notifies the simulator that a pod is running on a node.
 	TrackPod(ctx context.Context, pod *corev1.Pod)
 	// UntrackPod notifies the simulator that a pod has been removed.
 	UntrackPod(ctx context.Context, key client.ObjectKey)
 }
 
+type FeasibilitySimulator interface {
+	// FindFeasibleNodes returns all candidates that can be scheduled
+	// with the given requirements, based on the current state of the snapshot.
+	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
+}
+
 // SchedulerSimulator allows running simulations on a snapshotted cluster state.
 // This interface is purposed to control Kueue-WAS integration.
 // The default (non-WAS) implementation may trivialize some methods.
 type SchedulerSimulator interface {
+	FeasibilitySimulator
 	// Simulate executes the provided function.
 	// After the simulation ends, any changes made to the snapshot state
 	// via its built-in methods will be reverted.
 	// The default implementation runs the method directly, as it disallows mutations on the snapshot.
-	Simulate(ctx context.Context, fn func()) error
-	// FindFeasibleNodes returns all candidates that can be scheduled
-	// with the given requirements, based on the current state of the snapshot.
-	FindFeasibleNodes(ctx context.Context, candidates iter.Seq[Candidate], requirements *PodRequirements, stats *NodeExclusionStats) ([]MatchedCandidate, error)
-	// PreemptWorkload preempts the given workload, returning a function that reverts the preemption.
+	Simulate(ctx context.Context, fn func()) error // PreemptWorkload preempts the given workload, returning a function that reverts the preemption.
 	// When run inside Simulate, any changes made by the method or the returned revert function
 	// will be reverted regardless of their outcome (error vs success).
 	// The default implementation does not perform any logic here.

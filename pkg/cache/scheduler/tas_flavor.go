@@ -185,7 +185,7 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 func (c *TASFlavorCache) snapshot(
 	ctx context.Context,
 	log logr.Logger,
-	schedulerSimulator simulator.SchedulerSimulator,
+	schedulerSimulator simulator.FeasibilitySimulator,
 	aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
 ) (*TASFlavorSnapshot, error) {
 	c.RLock()

@@ -143,7 +143,7 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 		// cache-hit-only benchmark and gives the update modes a tree to
 		// invalidate.
 		for _, flavorCache := range flavorCaches {
-			if _, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulator(), nil); err != nil {
+			if _, err := flavorCache.snapshot(b.Context(), log, newDefaultFeasibilitySimulator(), nil); err != nil {
 				b.Fatalf("initial TASFlavorSnapshot creation failed: %v", err)
 			}
 		}
@@ -171,7 +171,7 @@ func runBenchmarkTASFlavorSnapshot(b *testing.B, topo benchTopology, flavors int
 				tasCache.SyncNode(invalidatingNodes[update%len(invalidatingNodes)])
 			}
 			for _, flavorCache := range flavorCaches {
-				if _, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulator(), nil); err != nil {
+				if _, err := flavorCache.snapshot(b.Context(), log, newDefaultFeasibilitySimulator(), nil); err != nil {
 					b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 				}
 			}
@@ -226,7 +226,7 @@ func runBenchmarkTASFlavorAssignment(b *testing.B, tc assignmentBenchCase) {
 			topologyInformation{Levels: levels},
 			flavorInformation{TopologyName: "default"},
 		)
-		snapshot, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulator(), nil)
+		snapshot, err := flavorCache.snapshot(b.Context(), log, newDefaultFeasibilitySimulator(), nil)
 		if err != nil {
 			b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 		}
@@ -332,11 +332,11 @@ func BenchmarkTASFlavorSnapshotWithWorkloadUsage(b *testing.B) {
 						Count:             1,
 					}})
 				}
-				if _, err := fc.snapshot(b.Context(), log, newDefaultSimulator(), nil); err != nil {
+				if _, err := fc.snapshot(b.Context(), log, newDefaultFeasibilitySimulator(), nil); err != nil {
 					b.Fatalf("initial TASFlavorSnapshot creation failed: %v", err)
 				}
 				for b.Loop() {
-					if _, err := fc.snapshot(b.Context(), log, newDefaultSimulator(), nil); err != nil {
+					if _, err := fc.snapshot(b.Context(), log, newDefaultFeasibilitySimulator(), nil); err != nil {
 						b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 					}
 				}
@@ -382,7 +382,7 @@ func BenchmarkTASLeaderFeasibility(b *testing.B) {
 				topologyInformation{Levels: []string{benchBlockLabel, benchRackLabel, benchHostLabel}},
 				flavorInformation{TopologyName: "default"},
 			)
-			snapshot, err := flavorCache.snapshot(b.Context(), log, newDefaultSimulator(), nil)
+			snapshot, err := flavorCache.snapshot(b.Context(), log, newDefaultFeasibilitySimulator(), nil)
 			if err != nil {
 				b.Fatalf("TASFlavorSnapshot creation failed: %v", err)
 			}
