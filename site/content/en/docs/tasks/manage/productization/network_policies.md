@@ -115,9 +115,9 @@ you are running:
 kubectl apply -k config/networkpolicy
 ```
 
-The overlay applies the ingress policies only. To restrict egress as well, uncomment
-`manager-egress.yaml` in `config/components/networkpolicy/kustomization.yaml` first, and
-read [Restricting egress](#restricting-egress) before you do.
+The overlay applies the ingress policies only. To restrict egress as well, add
+`config/components/networkpolicy/egress` to your overlay, and read
+[Restricting egress](#restricting-egress) before you do.
 
 ## Allowing extra traffic
 
