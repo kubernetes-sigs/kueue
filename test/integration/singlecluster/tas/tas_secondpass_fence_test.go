@@ -121,7 +121,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling: stale second-pass admission wr
 	})
 
 	runStaleWriteScenario := func(useMergePatch bool) {
-		ginkgo.GinkgoHelper()
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadRequestUseMergePatch, useMergePatch)
 		fired.Store(false)
 		wlKey.Store(&types.NamespacedName{Namespace: ns.Name, Name: "wl"})

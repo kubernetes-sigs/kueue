@@ -61,7 +61,6 @@ import (
 )
 
 func createPodsForWorkload(wl *kueue.Workload, nsName string, withTopologyRequestAnnotation bool, running bool) {
-
 	ginkgo.GinkgoHelper()
 	gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).To(gomega.Succeed())
 	ginkgo.By(fmt.Sprintf("creating pods (running=%v)", running), func() {
@@ -101,7 +100,6 @@ func createPodsForWorkload(wl *kueue.Workload, nsName string, withTopologyReques
 }
 
 func forceDeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-
 	ginkgo.GinkgoHelper()
 	if ns == nil {
 		return nil
@@ -1075,7 +1073,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 			}
 
 			updateNodeLabels := func(flavor *kueue.ResourceFlavor, nodeLabels map[string]string) {
-
 				ginkgo.GinkgoHelper()
 				gomega.Eventually(func(g gomega.Gomega) {
 					var updatedFlavor kueue.ResourceFlavor
@@ -1086,7 +1083,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 			}
 
 			expectAdmittedOnNode := func(wl *kueue.Workload, hostname string) {
-
 				ginkgo.GinkgoHelper()
 				expected := utiltas.V1Beta2From(&utiltas.TopologyAssignment{
 					Levels:  []string{corev1.LabelHostname},
