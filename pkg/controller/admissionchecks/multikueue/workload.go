@@ -155,6 +155,13 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 	return bestMatchCond, bestMatchRemote
 }
 
+// jobHasMultipleWorkloads reports whether the job creates a workload per component,
+// e.g. one per LeaderWorkerSet group.
+func (g *wlGroup) jobHasMultipleWorkloads() bool {
+	_, ok := g.jobAdapter.(jobframework.MultiKueueMultiWorkloadAdapter)
+	return ok
+}
+
 // RemoveRemoteObjects deletes the remote controller object and workload for a cluster.
 // The controller object is deleted first to handle cases where GC has already removed
 // the remote workload.
@@ -165,7 +172,7 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 // that check, so among workloads removed concurrently, the last one to check deletes it.
 func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
 	rc := g.remoteClients[cluster]
-	if _, ok := g.jobAdapter.(jobframework.MultiKueueMultiWorkloadAdapter); ok {
+	if g.jobHasMultipleWorkloads() {
 		if err := g.removeRemoteWorkload(ctx, cluster); err != nil {
 			return err
 		}
@@ -908,7 +915,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		return reconcile.Result{}, nil
 	}
 
-	if _, ok := group.jobAdapter.(jobframework.MultiKueueMultiWorkloadAdapter); ok && componentWorkloads != nil {
+	if group.jobHasMultipleWorkloads() && componentWorkloads != nil {
 		allExist, err := w.allExpectedWorkloadsExist(ctx, group.local, group.jobAdapter, len(componentWorkloads.Items))
 		if err != nil {
 			return reconcile.Result{}, err
