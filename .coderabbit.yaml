@@ -6,6 +6,8 @@ knowledge_base:
     enabled: true
     filePatterns:
       - "AGENTS.md"
+      - files: "cmd/experimental/skills/kep-review/SKILL.md,cmd/experimental/skills/kep-writing/SKILL.md"
+        applyTo: "keps/**"
 
 tone_instructions: |
   Before opening an issue, read and follow the instructions in AGENTS.md.
@@ -98,6 +100,12 @@ reviews:
       instructions: |
         Verify Helm template correctness and that values.yaml defaults are
         consistent with the kustomize manifests in `config/`.
+
+    - path: "keps/**"
+      instructions: |
+        Review this KEP with cmd/experimental/skills/kep-review/SKILL.md.
+        It applies the rules in cmd/experimental/skills/kep-writing/SKILL.md.
+        Follow its Procedure and its Output limits.
 
     - path: "site/**/*.md"
       instructions: |

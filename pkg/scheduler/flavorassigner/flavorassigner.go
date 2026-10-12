@@ -319,7 +319,7 @@ func (a *FlavorAssigner) AssignFlavors(
 			},
 		},
 		FlavorScanState: workload.FlavorScanState{
-			LastTriedFlavorIndexes:        make([]map[corev1.ResourceName]int, 0, len(requests)),
+			TriedFlavors:                  make([]map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference], 0, len(requests)),
 			AllocatableResourceGeneration: a.cq.AllocatableResourceGeneration,
 			SchedulingCycle:               a.schedulingCycle,
 			SchedulingHash:                a.wl.SchedulingHash,
@@ -488,10 +488,11 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 		result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(a.wl))
 		if failure := result.Failure(); failure != nil {
 			// There is at least one PodSet which does not fit
-			psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
-			psAssignment.reason(failure.Reason)
-			// update the mode for all flavors and the representative mode
-			assignment.updateMode(failure.PodSetName, Preempt)
+			assignment.ResolvePodSetFailure(
+				failure.PodSetName,
+				Preempt,
+				*NewStatus(failure.Reason),
+			)
 		} else {
 			// All PodSets fit, we just update the TopologyAssignments
 			assignment.UpdateForTASResult(log, a.cq, a.wl, result)
@@ -659,16 +660,20 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	bestAssignmentMode := worstGranularMode()
 	consideredFlavors := newFlavorAssignmentAttempts(len(resourceGroup.Flavors))
 
+	triedFlavors := a.wl.FlavorScanState.TriedFlavorsForGroup(psIDs, resName, resourceGroup.Flavors)
+
 	// We will only check against the flavors' labels for the resource.
-	attemptedFlavorIdx := -1
-	idx := a.wl.FlavorScanState.NextFlavorToTryForPodSetResource(psIDs[0], resName)
-	for ; idx < len(resourceGroup.Flavors); idx++ {
-		attemptedFlavorIdx = idx
-		fName := resourceGroup.Flavors[idx]
+	for _, fName := range resourceGroup.Flavors {
+		if triedFlavors.Has(fName) {
+			continue
+		}
 		if a.shouldRespectNominationMapping() && a.shouldSkipBasedOnNominationMapping(log, fName, psIDs, resName) {
 			status.appendf("skipping flavor %s as it is not found in the nomination mapping for resource %s", fName, resName)
 			continue
 		}
+
+		triedFlavors.Insert(fName)
+
 		if features.Enabled(features.ConcurrentAdmission) && !concurrentadmission.IsFlavorAllowedForVariant(a.wl.Obj, fName) {
 			status.appendf("skipping flavor %s due to WorkloadAllowedResourceFlavorAnnotation annotation", fName)
 			continue
@@ -773,6 +778,10 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 			}
 		})
 
+		if representativeMode.preemptionMode > noPreemptionCandidates {
+			triedFlavors.Delete(fName)
+		}
+
 		consideredFlavors.AddRepresentativeModeFlavorAttempt(fName, representativeMode.preemptionMode, maxBorrow, flavorQuotaReasons, flavorNoFitReason)
 
 		if features.Enabled(features.FlavorFungibility) {
@@ -796,13 +805,17 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	}
 
 	if features.Enabled(features.FlavorFungibility) {
+		if bestAssignmentMode.preemptionMode > noPreemptionCandidates {
+			triedFlavors.Insert(bestAssignment[resName].Name)
+		}
+		// Check HasAll so a flavor removed from the ClusterQueue between cycles
+		// does not count toward exhaustion.
+		if bestAssignmentMode.preemptionMode <= noPreemptionCandidates || triedFlavors.HasAll(resourceGroup.Flavors...) {
+			// we have tried all flavors, try from the first flavor next time
+			triedFlavors = nil
+		}
 		for _, assignment := range bestAssignment {
-			if attemptedFlavorIdx == len(resourceGroup.Flavors)-1 {
-				// we have reach the last flavor, try from the first flavor next time
-				assignment.TriedFlavorIdx = -1
-			} else {
-				assignment.TriedFlavorIdx = attemptedFlavorIdx
-			}
+			assignment.TriedFlavors = triedFlavors
 		}
 		if bestAssignmentMode.preemptionMode == fit {
 			return bestAssignment, nil, consideredFlavors
@@ -988,7 +1001,21 @@ func (a *FlavorAssigner) fitsResourceQuota(
 		}
 		return mode, borrowAfterPreemptions, &status
 	}
+	// The Workload needs to borrow and cannot preempt in other ClusterQueues, but
+	// lower-priority Workloads in its own ClusterQueue may still make room. Without
+	// such candidates keep NoFit, so the Workload doesn't hold capacity in the cohort.
+	if a.canPreemptWithinClusterQueue() {
+		preemptionPossibility, borrowAfterPreemptions := a.oracle.SimulatePreemption(ctx, a.cq, *a.wl, fr, val)
+		if preemptionPossibility != policy.NoCandidates {
+			status.noFitReason = ""
+			return fromPreemptionPossibility(preemptionPossibility), borrowAfterPreemptions, &status
+		}
+	}
 	return noFit, borrow, &status
+}
+
+func (a *FlavorAssigner) canPreemptWithinClusterQueue() bool {
+	return a.cq.Preemption.WithinClusterQueue != "" && a.cq.Preemption.WithinClusterQueue != kueue.PreemptionPolicyNever
 }
 
 func (a *FlavorAssigner) canPreemptWhileBorrowing() bool {

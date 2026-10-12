@@ -969,6 +969,10 @@ const (
 	// misconfiguration, such as missing LocalQueue or ClusterQueue.
 	WorkloadQuotaReservedReasonMisconfigured = "Misconfigured"
 
+	// WorkloadQuotaReservedReasonAssignmentError indicates kueue failed to create an assignment
+	// due to an unexpected error propagated from downstream.
+	WorkloadQuotaReservedReasonAssignmentError = "AssignmentError"
+
 	// WorkloadQuotaReservedReasonSuspended indicates that the workload is inadmissible because
 	// the LocalQueue or ClusterQueue StopPolicy is active.
 	WorkloadQuotaReservedReasonSuspended = "Suspended"

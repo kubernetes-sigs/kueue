@@ -76,72 +76,72 @@ var _ = ginkgo.Describe("LocalQueue pending metrics", ginkgo.Label("controller:l
 
 	ginkgo.It("should refresh pending metrics when a LocalQueue is deleted", func() {
 		for i, lq := range queues {
-			ginkgo.By("deleting LocalQueue " + lq.Name)
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			ginkgo.By("deleting LocalQueue "+lq.Name, func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
+			})
 
-			ginkgo.By("checking the removed queue has no pending metric series")
-			gomega.Eventually(func() []testingmetrics.MetricDataPoint {
-				return testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads,
-					map[string]string{"name": lq.Name, "namespace": lq.Namespace})
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeEmpty())
-
-			ginkgo.By("checking the ClusterQueue count preserves only the remaining queue")
-			behavioral.ExpectPendingWorkloadsMetric(cq, len(queues)-i-1, 0)
-			if i == 0 {
-				behavioral.ExpectLQPendingWorkloadsMetric(queues[1], 1, 0)
-			}
+			ginkgo.By("checking pending metrics after deleting LocalQueue "+lq.Name, func() {
+				gomega.Eventually(func() []testingmetrics.MetricDataPoint {
+					return testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads,
+						map[string]string{"name": lq.Name, "namespace": lq.Namespace})
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeEmpty())
+				behavioral.ExpectPendingWorkloadsMetric(cq, len(queues)-i-1, 0)
+				if i == 0 {
+					behavioral.ExpectLQPendingWorkloadsMetric(queues[1], 1, 0)
+				}
+			})
 		}
 	})
 
 	ginkgo.It("should refresh pending metrics when a LocalQueue is stopped with Hold", func() {
 		for i, lq := range queues {
-			ginkgo.By("stopping LocalQueue " + lq.Name + " with Hold")
-			gomega.Eventually(func() error {
-				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq); err != nil {
-					return err
+			ginkgo.By("stopping LocalQueue "+lq.Name+" with Hold", func() {
+				gomega.Eventually(func() error {
+					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq); err != nil {
+						return err
+					}
+					before := lq.DeepCopy()
+					lq.Spec.StopPolicy = ptr.To(kueue.Hold)
+					return k8sClient.Patch(ctx, lq, client.MergeFrom(before))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking pending metrics after stopping LocalQueue "+lq.Name+" with Hold", func() {
+				gomega.Eventually(func() []testingmetrics.MetricDataPoint {
+					return testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads,
+						map[string]string{"name": lq.Name, "namespace": lq.Namespace})
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeEmpty())
+				behavioral.ExpectPendingWorkloadsMetric(cq, len(queues)-i-1, 0)
+				if i == 0 {
+					behavioral.ExpectLQPendingWorkloadsMetric(queues[1], 1, 0)
 				}
-				before := lq.DeepCopy()
-				lq.Spec.StopPolicy = ptr.To(kueue.Hold)
-				return k8sClient.Patch(ctx, lq, client.MergeFrom(before))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("checking the removed queue has no pending metric series")
-			gomega.Eventually(func() []testingmetrics.MetricDataPoint {
-				return testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads,
-					map[string]string{"name": lq.Name, "namespace": lq.Namespace})
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeEmpty())
-
-			ginkgo.By("checking the ClusterQueue count preserves only the remaining queue")
-			behavioral.ExpectPendingWorkloadsMetric(cq, len(queues)-i-1, 0)
-			if i == 0 {
-				behavioral.ExpectLQPendingWorkloadsMetric(queues[1], 1, 0)
-			}
+			})
 		}
 	})
 
 	ginkgo.It("should refresh pending metrics when a LocalQueue is stopped with HoldAndDrain", func() {
 		for i, lq := range queues {
-			ginkgo.By("stopping LocalQueue " + lq.Name + " with HoldAndDrain")
-			gomega.Eventually(func() error {
-				if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq); err != nil {
-					return err
+			ginkgo.By("stopping LocalQueue "+lq.Name+" with HoldAndDrain", func() {
+				gomega.Eventually(func() error {
+					if err := k8sClient.Get(ctx, client.ObjectKeyFromObject(lq), lq); err != nil {
+						return err
+					}
+					before := lq.DeepCopy()
+					lq.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
+					return k8sClient.Patch(ctx, lq, client.MergeFrom(before))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("checking pending metrics after stopping LocalQueue "+lq.Name+" with HoldAndDrain", func() {
+				gomega.Eventually(func() []testingmetrics.MetricDataPoint {
+					return testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads,
+						map[string]string{"name": lq.Name, "namespace": lq.Namespace})
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeEmpty())
+				behavioral.ExpectPendingWorkloadsMetric(cq, len(queues)-i-1, 0)
+				if i == 0 {
+					behavioral.ExpectLQPendingWorkloadsMetric(queues[1], 1, 0)
 				}
-				before := lq.DeepCopy()
-				lq.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
-				return k8sClient.Patch(ctx, lq, client.MergeFrom(before))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-
-			ginkgo.By("checking the removed queue has no pending metric series")
-			gomega.Eventually(func() []testingmetrics.MetricDataPoint {
-				return testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads,
-					map[string]string{"name": lq.Name, "namespace": lq.Namespace})
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeEmpty())
-
-			ginkgo.By("checking the ClusterQueue count preserves only the remaining queue")
-			behavioral.ExpectPendingWorkloadsMetric(cq, len(queues)-i-1, 0)
-			if i == 0 {
-				behavioral.ExpectLQPendingWorkloadsMetric(queues[1], 1, 0)
-			}
+			})
 		}
 	})
 })

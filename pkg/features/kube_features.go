@@ -703,7 +703,7 @@ const (
 	// owner: @varunsyal
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
 	//
-	// Keeps the flavor scan progress recorded in LastTriedFlavorIdx usable in the next
+	// Keeps the flavor scan progress recorded in FlavorScanState.TriedFlavors usable in the next
 	// scheduling cycle. Without this the progress is discarded whenever the ClusterQueue's
 	// AllocatableResourceGeneration advances, which happens on every admission or eviction
 	// in the Cohort, and whenever a Workload is skipped because another Workload processed

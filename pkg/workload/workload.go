@@ -54,6 +54,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	afs "sigs.k8s.io/kueue/pkg/util/admissionfairsharing"
 	"sigs.k8s.io/kueue/pkg/util/api"
+	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/priority"
@@ -113,11 +114,10 @@ func FromQuotaReservedOrAdmittedToPending(prevStatus, newStatus string) bool {
 }
 
 type FlavorScanState struct {
-	// LastTriedFlavorIndexes records the last examined flavor index for each PodSet
-	// and resource, within the corresponding resource group's flavor list.
-	// A value of -1 means that pair's scan reached the end; its next attempt starts
-	// at index zero. Missing entries also start at zero.
-	LastTriedFlavorIndexes []map[corev1.ResourceName]int
+	// TriedFlavors records the set of flavors already tried in the current scan pass
+	// for each PodSet and resource. An empty/nil set means that pair's scan reached
+	// the end (or has not started), so its next attempt considers all flavors.
+	TriedFlavors []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]
 
 	// AllocatableResourceGeneration records the ClusterQueue's allocatable resource
 	// generation at the time of the scan, used to check whether the scan progress is stale.
@@ -129,7 +129,7 @@ type FlavorScanState struct {
 	SchedulingCycle int64
 
 	// SchedulingHash is the scheduling equivalence hash of the Workload this assignment was
-	// computed for. LastTriedFlavorIdx is indexed by PodSet and holds flavor indices chosen
+	// computed for. TriedFlavors is indexed by PodSet and holds flavors tried
 	// for a particular set of requests, so it only carries meaning while the Workload keeps
 	// the shape it had then.
 	SchedulingHash EquivalenceHash
@@ -191,25 +191,27 @@ func WithPreprocessedDRAResources(
 
 func (s *FlavorScanState) Clone() *FlavorScanState {
 	c := FlavorScanState{
-		LastTriedFlavorIndexes:        make([]map[corev1.ResourceName]int, len(s.LastTriedFlavorIndexes)),
+		TriedFlavors:                  make([]map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference], len(s.TriedFlavors)),
 		AllocatableResourceGeneration: s.AllocatableResourceGeneration,
 		SchedulingCycle:               s.SchedulingCycle,
 		SchedulingHash:                s.SchedulingHash,
 	}
-	for ps, flavorIdx := range s.LastTriedFlavorIndexes {
-		c.LastTriedFlavorIndexes[ps] = maps.Clone(flavorIdx)
+	for ps, resFlavors := range s.TriedFlavors {
+		if resFlavors != nil {
+			c.TriedFlavors[ps] = utilmaps.DeepCopySets(resFlavors)
+		}
 	}
 	return &c
 }
 
 // MatchesSchedulingShape reports whether this assignment was computed for the scheduling
 // shape the Workload has now. A change to the PodSets or their requests makes the recorded
-// flavor indices describe a search that no longer applies: resuming from them could skip a
+// flavors describe a search that no longer applies: resuming from them could skip a
 // flavor the changed Workload would now fit.
 //
 // An unknown hash on either side means SchedulingEquivalenceHashing is disabled and there is
 // nothing to compare, so the shape is taken to be unchanged. That keeps the two features
-// independent, and NextFlavorToTryForPodSetResource still bounds-checks the PodSet index.
+// independent, and TriedFlavorsForPodSetResource still bounds-checks the PodSet index.
 func (s *FlavorScanState) MatchesSchedulingShape(current EquivalenceHash) bool {
 	if s.SchedulingHash == SchedulingHashUnknown || current == SchedulingHashUnknown {
 		return true
@@ -224,9 +226,9 @@ func (s *FlavorScanState) PendingFlavors() bool {
 		// This is only reached in unit tests.
 		return false
 	}
-	for _, podSetIdxs := range s.LastTriedFlavorIndexes {
-		for _, idx := range podSetIdxs {
-			if idx != -1 {
+	for _, podSetFlavors := range s.TriedFlavors {
+		for _, flavors := range podSetFlavors {
+			if len(flavors) > 0 {
 				return true
 			}
 		}
@@ -234,18 +236,56 @@ func (s *FlavorScanState) PendingFlavors() bool {
 	return false
 }
 
-func (s *FlavorScanState) NextFlavorToTryForPodSetResource(ps int, res corev1.ResourceName) int {
+func (s *FlavorScanState) TriedFlavorsForPodSetResource(
+	ps int,
+	res corev1.ResourceName,
+) sets.Set[kueue.ResourceFlavorReference] {
 	if !features.Enabled(features.FlavorFungibility) {
-		return 0
+		return nil
 	}
-	if s == nil || ps >= len(s.LastTriedFlavorIndexes) {
-		return 0
+	if s == nil || ps >= len(s.TriedFlavors) {
+		return nil
 	}
-	idx, ok := s.LastTriedFlavorIndexes[ps][res]
-	if !ok {
-		return 0
+	return s.TriedFlavors[ps][res]
+}
+
+func (s *FlavorScanState) TriedFlavorsForGroup(
+	psIDs []int,
+	resName corev1.ResourceName,
+	currentFlavors []kueue.ResourceFlavorReference,
+) sets.Set[kueue.ResourceFlavorReference] {
+	for _, psID := range psIDs {
+		tried := s.TriedFlavorsForPodSetResource(psID, resName)
+		if len(tried) == 0 {
+			continue
+		}
+		if !tried.HasAll(currentFlavors...) {
+			return tried.Clone()
+		}
+		break
 	}
-	return idx + 1
+	return sets.New[kueue.ResourceFlavorReference]()
+}
+
+func (s *FlavorScanState) RestoreAfterRecompute(previous FlavorScanState) {
+	for psID, recomputed := range s.TriedFlavors {
+		for resName, tried := range recomputed {
+			if len(tried) > 0 {
+				recomputed[resName] =
+					previous.TriedFlavorsForPodSetResource(psID, resName).Clone()
+			}
+		}
+	}
+}
+
+func (s *FlavorScanState) RecordPodSet(
+	psID int,
+	progress map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference],
+) {
+	if missing := psID + 1 - len(s.TriedFlavors); missing > 0 {
+		s.TriedFlavors = append(s.TriedFlavors, make([]map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference], missing)...)
+	}
+	s.TriedFlavors[psID] = progress
 }
 
 type ResourceToFlavor map[corev1.ResourceName]kueue.ResourceFlavorReference

@@ -43,11 +43,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
-// preserveProgressCycles is how many scheduling cycles each case drives. Anything above
-// two is enough: the behaviour under test is whether the flavor progress recorded in one
-// cycle is still usable in the next.
-const preserveProgressCycles = 4
-
 // equalTestPriority is shared by both Workloads so that a WithinClusterQueue:
 // LowerPriority policy finds no preemption victim.
 const equalTestPriority = 10
@@ -146,6 +141,31 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 			},
 			wantPendingFlavor: "tas-flavor-2",
 		},
+		"three flavors: first two fail TAS, reaches third flavor with gate enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FlavorFungibilityPreserveScanProgress: true,
+			},
+			flavors: []testFlavor{
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+					blocked: true,
+				},
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-2").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+					blocked: true,
+				},
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-3").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				},
+			},
+			wantPendingFlavor: "tas-flavor-3",
+		},
 		// Without churn the recorded flavor progress is never discarded, so the Workload
 		// escapes the first flavor on its own and the gate makes no difference. This is why
 		// an integration spec cannot discriminate between the two gate states: a settled
@@ -189,6 +209,92 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 				},
 			},
 			wantPendingFlavor: "tas-flavor-2",
+		},
+		"all flavors borrow (TryNextFlavor), gate enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FlavorFungibilityPreserveScanProgress: true,
+			},
+			flavors: []testFlavor{
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+					cohortQuota: "4",
+					blocked:     true,
+				},
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-2").
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+					cohortQuota: "4",
+				},
+			},
+			wantPendingFlavor: "tas-flavor-2",
+		},
+		"all flavors borrow (TryNextFlavor), no generation churn, gate disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FlavorFungibilityPreserveScanProgress: false,
+			},
+			noChurn: true,
+			flavors: []testFlavor{
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+					cohortQuota: "4",
+					blocked:     true,
+				},
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-2").
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+					cohortQuota: "4",
+				},
+			},
+			wantPendingFlavor: "tas-flavor-2",
+		},
+		"second flavor has nominal quota and fails TAS while first flavor borrows, gate enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FlavorFungibilityPreserveScanProgress: true,
+			},
+			flavors: []testFlavor{
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+					cohortQuota: "4",
+				},
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-2").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+					cohortQuota: "4",
+					blocked:     true,
+				},
+			},
+			wantPendingFlavor: "tas-flavor-1",
+		},
+		"second flavor has nominal quota and fails TAS while first flavor borrows, no generation churn, gate disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.FlavorFungibilityPreserveScanProgress: false,
+			},
+			noChurn: true,
+			flavors: []testFlavor{
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-1").
+						Resource(corev1.ResourceCPU, "0").
+						Obj(),
+					cohortQuota: "4",
+				},
+				{
+					quotas: *utiltestingapi.MakeFlavorQuotas("tas-flavor-2").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+					cohortQuota: "4",
+					blocked:     true,
+				},
+			},
+			wantPendingFlavor: "tas-flavor-1",
 		},
 	}
 
@@ -257,7 +363,6 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 					})
 			}
 			clusterQueue := *cqWrapper.Obj()
-
 			ctx, log := utiltesting.ContextWithLog(t)
 			testWls := append([]kueue.Workload{}, blockerWls...)
 			testWls = append(testWls, *pending.DeepCopy())
@@ -338,7 +443,10 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 			go qManager.CleanUpOnContext(ctx)
 			defer cancel()
 
-			for i := range preserveProgressCycles {
+			// Each blocker workload takes one cycle to be admitted, and "pending" needs
+			// one cycle per flavor to scan across the ResourceGroup.
+			cycles := len(blockerWls) + len(tc.flavors)
+			for i := range cycles {
 				scheduler.schedule(ctx)
 				wg.Wait()
 				// Reproduce a busy Cohort. AllocatableResourceGeneration only advances when
