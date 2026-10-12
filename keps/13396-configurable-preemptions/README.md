@@ -425,7 +425,7 @@ Requested functionalities from the community can be satisfied with the following
                comparison: "LessThan"
              priorityClassSelector:
                matchExpressions:
-                 - key: "name"
+                 - type: "Name"
                    operator: In
                    values:
                      - "batch-low"
@@ -446,7 +446,7 @@ Requested functionalities from the community can be satisfied with the following
              quota: "BorrowingCapacityFromPreemptor"
              priorityClassSelector:
                matchExpressions:
-                 - key: "name"
+                 - type: "Name"
                    operator: In
                    values:
                      - "batch-low"
@@ -872,26 +872,26 @@ type PreemptionConfigPriorityClassSelector struct {
   MatchExpressions []PriorityClassSelectorRequirement `json:"matchExpressions,omitempty"`
 }
 
-// PriorityClassSelectorRequirement is a selector that contains values, a key,
-// and an operator that relates the key and values.
+// PriorityClassSelectorRequirement is a selector that contains a type, an operator,
+// and values that the operator relates to the selected property.
 type PriorityClassSelectorRequirement struct {
-  // key is the property of the priority class reference that the selector applies to.
-  // Defaults to "name" (matching Workload.spec.priorityClassRef.name).
+  // type specifies what the selector requirement matches against (e.g., priority class name).
+  // Defaults to "Name" (matching Workload.spec.priorityClassRef.name).
   //
   // +optional
-  // +kubebuilder:default="name"
-  Key *PriorityClassSelectorKey `json:"key,omitempty"`
+  // +kubebuilder:default="Name"
+  Type *PriorityClassSelectorType `json:"type,omitempty"`
 
-  // operator represents a key's relationship to a set of values.
+  // operator represents the selected property's relationship to a set of values.
   // Valid operators are In and NotIn.
   //
   // +required
   Operator PriorityClassSelectorOperator `json:"operator,omitempty"`
 
-  // values is an array of values for the selected key.
-  // For In, a workload matches only if the selected priorityClassRef property equals any value in this list
+  // values is an array of values for the selected type.
+  // For In, a workload matches only if the selected priority class property equals any value in this list
   // (workloads without a priorityClassRef do not match).
-  // For NotIn, a workload matches only if the selected priorityClassRef property does not equal any value
+  // For NotIn, a workload matches only if the selected priority class property does not equal any value
   // in this list (workloads without a priorityClassRef always match).
   //
   // +required
@@ -904,16 +904,16 @@ type PriorityClassSelectorRequirement struct {
   Values []string `json:"values,omitempty"`
 }
 
-// PriorityClassSelectorKey defines the property key of a PriorityClassSelectorRequirement.
-// +kubebuilder:validation:Enum=name
-type PriorityClassSelectorKey string
+// PriorityClassSelectorType defines the match type of a PriorityClassSelectorRequirement.
+// +kubebuilder:validation:Enum=Name
+type PriorityClassSelectorType string
 
 const (
-  // PriorityClassSelectorKeyName matches the priority class name (Workload.spec.priorityClassRef.name).
+  // PriorityClassSelectorTypeName matches the priority class name (Workload.spec.priorityClassRef.name).
   // When WorkloadPriorityClassDefaulting is enabled and a "default" WorkloadPriorityClass exists,
   // or when a globalDefault Pod PriorityClass is configured, its name (e.g., "default") can be used
   // to match or exclude workloads that do not explicitly specify a priority class.
-  PriorityClassSelectorKeyName PriorityClassSelectorKey = "name"
+  PriorityClassSelectorTypeName PriorityClassSelectorType = "Name"
 )
 
 // PriorityClassSelectorOperator is the set of operators that can be used in a PriorityClassSelectorRequirement.
@@ -1160,7 +1160,7 @@ Why should this KEP _not_ be implemented?
 
 ### Priority Class Selectors
 
-Instead of matching `Workload.spec.priorityClassRef` directly via `PreemptionConfigPriorityClassSelector` (`matchExpressions` with `key`, `operator`, and `values`) as a sibling field to `priority`, the following alternatives were considered for filtering workloads by priority tier:
+Instead of matching `Workload.spec.priorityClassRef` directly via `PreemptionConfigPriorityClassSelector` (`matchExpressions` with `type`, `operator`, and `values`) as a sibling field to `priority`, the following alternatives were considered for filtering workloads by priority tier:
 
 1. **Workload `labelSelector` (Alpha Workaround)**:
    Filtering candidates via `labelSelector` matching `kueue.x-k8s.io/priority-class`.
@@ -1183,7 +1183,7 @@ Instead of matching `Workload.spec.priorityClassRef` directly via `PreemptionCon
 3. **Priority class `labelSelector`**:
    Filtering candidates by matching labels defined on `PriorityClass` or `WorkloadPriorityClass` resources via a `metav1.LabelSelector`.
    - _Drawbacks_:
-     - **Semantics spanning two different resource types**: Priority in Kueue can originate from either Kubernetes core `PriorityClass` (`scheduling.k8s.io/v1`) or Kueue's `WorkloadPriorityClass` (`kueue.x-k8s.io/v1beta1`). Evaluating label selectors across two distinct resource types introduces semantic ambiguity and operational inconsistency, as administrators would need to manage and align label schemes across separate kinds with different lifecycles and scopes.
+     - **Semantics spanning two different resource types**: Priority in Kueue can originate from either Kubernetes core `PriorityClass` (`scheduling.k8s.io/v1`) or Kueue's `WorkloadPriorityClass` (`kueue.x-k8s.io/v1beta2`). Evaluating label selectors across two distinct resource types introduces semantic ambiguity and operational inconsistency, as administrators would need to manage and align label schemes across separate kinds with different lifecycles and scopes.
      - **Increased API and configuration complexity**: Requires administrators to manage labels across priority class objects and configure full `LabelSelector` schemas rather than simply referencing priority class names. Directly matching `spec.priorityClassRef.name` via `matchExpressions` is significantly simpler, more intuitive, and covers almost all practical use cases without added indirection.
    - _Advantages_:
      - Can cover many priority classes at once through labels.
