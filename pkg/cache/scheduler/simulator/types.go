@@ -74,9 +74,6 @@ type PodRequirements struct {
 	SimulateEmpty bool
 }
 
-// Planned options (once schedlib.ClusterSnapshot::ScheduleWorkload supports preemptions):
-//   - PreemptedWorkloads: []wlKey,
-//   - PreemptionCandidates: iter.Seq[wlKey]
 type scheduleOptions struct{}
 
 type ScheduleOption func(*scheduleOptions)
@@ -89,9 +86,19 @@ type SchedulingResult struct {
 
 type PodPlacements map[client.ObjectKey]*PodPlacement
 
+// PodPlacement represents the assignment of a Pod to a specific node.
+// The placement is considered a success only if:
+//   - Node is not empty,
+//   - Error is not set, and
+//   - Reasons list is empty.
+//
+// If the pleacement is not successful, Node is expected to be empty.
 type PodPlacement struct {
-	Node    types.NodeName
-	Error   error
+	// Node is the assigned Node.
+	Node types.NodeName
+	// Error lists the error returned for a Pod assignment, if present.
+	Error error
+	// Reasons explain why the Simulator failed to assign the Pod.
 	Reasons []string
 }
 

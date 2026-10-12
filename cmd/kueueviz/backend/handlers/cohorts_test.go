@@ -55,7 +55,9 @@ func TestFetchCohorts(t *testing.T) {
 		// wantErr is set when listing cohorts fails.
 		wantErr bool
 	}{
-		"no cohorts returns nil": {},
+		"no cohorts returns empty list": {
+			want: []map[string]any{},
+		},
 		"cluster queues are grouped under their cohort": {
 			objs: objs,
 			want: []map[string]any{
