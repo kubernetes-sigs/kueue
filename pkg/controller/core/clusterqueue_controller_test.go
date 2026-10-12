@@ -921,7 +921,7 @@ func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 				t.Fatal("Expected pending workload metric with custom_team_cq=alpha")
 			}
 
-			req := ctrl.Request{NamespacedName: types.NamespacedName{Name: cq.Name}}
+			req := ctrl.Request{Name: cq.Name}
 			updateEvt := event.TypedUpdateEvent[*kueue.ClusterQueue]{ObjectOld: cq, ObjectNew: updatedCQ}
 
 			if tc.reconcileBeforeUpdate {

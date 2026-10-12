@@ -477,12 +477,13 @@ func TestValuesChanged(t *testing.T) {
 			if got != tc.want {
 				t.Errorf("ValuesChanged() = %v, want %v", got, tc.want)
 			}
-			if tc.kind == configapi.SourceKindClusterQueue {
+			switch tc.kind {
+			case configapi.SourceKindClusterQueue:
 				cqGot := cl.CQValuesChanged(tc.oldLabels, tc.oldAnnots, tc.newLabels, tc.newAnnots)
 				if cqGot != tc.want {
 					t.Errorf("CQValuesChanged() = %v, want %v", cqGot, tc.want)
 				}
-			} else if tc.kind == configapi.SourceKindLocalQueue {
+			case configapi.SourceKindLocalQueue:
 				lqGot := cl.LQValuesChanged(tc.oldLabels, tc.oldAnnots, tc.newLabels, tc.newAnnots)
 				if lqGot != tc.want {
 					t.Errorf("LQValuesChanged() = %v, want %v", lqGot, tc.want)
@@ -553,9 +554,6 @@ func TestCustomLabelsDisabled(t *testing.T) {
 		t.Errorf("expected nil CohortGet, got %v", got)
 	}
 	nilCl.CohortDelete(kueue.CohortReference("cohort"))
-	if got := nilCl.CohortValuesChanged(nil, nil, nil, nil); got {
-		t.Error("expected false for CohortValuesChanged")
-	}
 }
 
 func TestLabelValsTracker(t *testing.T) {

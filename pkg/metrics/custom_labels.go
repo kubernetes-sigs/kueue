@@ -337,10 +337,6 @@ func (cl *CustomLabels) CohortDelete(key kueue.CohortReference) {
 	cl.Delete(configapi.SourceKindCohort, string(key))
 }
 
-func (cl *CustomLabels) CohortValuesChanged(oldLabels, oldAnnotations, newLabels, newAnnotations map[string]string) bool {
-	return cl.ValuesChanged(configapi.SourceKindCohort, oldLabels, oldAnnotations, newLabels, newAnnotations)
-}
-
 type LabelValsTracker struct {
 	sync.RWMutex
 	counts map[labelValsSet]int
