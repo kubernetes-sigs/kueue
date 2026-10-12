@@ -51,6 +51,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/queue"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -154,6 +155,122 @@ func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 	// The workload event must have been delivered (guaranteed, not dropped).
 	if got := len(ch); got != 1 {
 		t.Fatalf("unexpected draReconcileChannel length: got %d, want 1", got)
+	}
+}
+
+// TestRequeueWorkloadDRAPairsObjectWithCharges verifies that a requeued
+// DRA-backed workload never carries quota charges preprocessed for a different
+// generation of the object it is requeued with. DRA charges live only in the
+// Info — they cannot be rebuilt from the spec — so requeue has to source them
+// from a computation made for the object it is about to queue.
+func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+
+	claimTmpl := "claim-tmpl"
+	// The pod spec carries a resourceClaim, so the workload is DRA-backed; the
+	// quota key it translates to ("gpu") only ever comes from preprocessing.
+	makeWorkload := func(generation int64) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("wl", defaultNamespace).Queue("lq").Generation(generation).PodSets(
+			*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PodSpec(corev1.PodSpec{
+				ResourceClaims: []corev1.PodResourceClaim{{Name: "rc", ResourceClaimTemplateName: &claimTmpl}},
+			}).Obj(),
+		).Obj()
+	}
+
+	cases := map[string]struct {
+		// clientGeneration is the newest object, the one requeue fetches.
+		clientGeneration int64
+		wantRequeued     bool
+	}{
+		"requeues with the charges it holds while the object has not changed": {
+			clientGeneration: 1,
+			wantRequeued:     true,
+		},
+		"hands the workload to the controller once the object has moved on": {
+			clientGeneration: 2,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			lq := utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()
+			// The client holds the newest object, which is what requeue fetches.
+			kClient := utiltesting.NewClientBuilder().
+				WithObjects(makeWorkload(tc.clientGeneration), lq).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				Build()
+			manager := NewManagerForUnitTests(kClient, nil, WithPreemptionExpectations(preemptexpectations.New()))
+			draCh := make(chan event.TypedGenericEvent[*kueue.Workload], 1)
+			manager.SetDRAReconcileChannel(draCh)
+			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("Failed adding ClusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed adding LocalQueue: %v", err)
+			}
+			// AddLocalQueue hands pre-existing DRA workloads to the controller
+			// rather than queueing them, so take that one off the channel.
+			<-draCh
+
+			// The workload controller preprocesses generation 1 and queues it.
+			charges := workload.WithPreprocessedDRAResources(
+				map[kueue.PodSetReference]corev1.ResourceList{
+					kueue.DefaultPodSetName: {"gpu": *resource.NewQuantity(1, resource.DecimalSI)},
+				},
+				nil,
+			)
+			if err := manager.AddOrUpdateWorkload(ctx, log, makeWorkload(1), charges); err != nil {
+				t.Fatalf("Failed adding workload: %v", err)
+			}
+			// Check the workload out the way the scheduler does, so the Info
+			// remembers which ClusterQueue it was borrowed from.
+			head := manager.PopFrom("cq")
+			if head == nil {
+				t.Fatal("expected to pop workload")
+			}
+			inflight := &head.Info
+
+			if got := manager.RequeueWorkload(ctx, inflight, RequeueReasonGeneric, ""); got != tc.wantRequeued {
+				t.Fatalf("RequeueWorkload() = %t, want %t", got, tc.wantRequeued)
+			}
+
+			requeued := manager.hm.ClusterQueue("cq").trackedInfo(workload.Key(inflight.Obj))
+			if !tc.wantRequeued {
+				if requeued != nil {
+					t.Error("workload was queued although its charges predate the current generation")
+				}
+				select {
+				case ev := <-draCh:
+					if ev.Object.Generation != tc.clientGeneration {
+						t.Errorf("sent generation = %d, want the newest object %d", ev.Object.Generation, tc.clientGeneration)
+					}
+				default:
+					t.Error("expected the workload to be sent to the reconcile channel")
+				}
+				return
+			}
+
+			if requeued == nil {
+				t.Fatal("expected the requeued workload to be tracked by the ClusterQueue")
+			}
+			wantRequests := []workload.PodSetResources{{
+				Name:           kueue.DefaultPodSetName,
+				Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 1}),
+				PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 1}),
+				Count:          1,
+			}}
+			if diff := gocmp.Diff(wantRequests, requeued.TotalRequests,
+				cmpopts.IgnoreFields(workload.PodSetResources{}, "Flavors"),
+				gocmp.Comparer(resources.Equal)); diff != "" {
+				t.Errorf("requeued TotalRequests (-want,+got):\n%s", diff)
+			}
+			select {
+			case <-draCh:
+				t.Error("workload was sent to the reconcile channel although it was requeued")
+			default:
+			}
+		})
 	}
 }
 
