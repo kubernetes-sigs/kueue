@@ -153,7 +153,7 @@ func TestFetchWorkloadsDashboardDataSkipsPodsWithoutControllerUID(t *testing.T) 
 		},
 		pods: []corev1.Pod{
 			makeDashboardPod("pod-1", "ns-1", "job-uid-1"),
-			// Pods not created by a batch Job have no controller UID label.
+			// Pods with neither a controller UID label nor a pod group name.
 			{Name: "pod-group-1-0", Namespace: "ns-1"},
 			{Name: "pod-group-2-0", Namespace: "ns-1"},
 		},
