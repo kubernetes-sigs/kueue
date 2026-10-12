@@ -54,6 +54,9 @@ var (
 	serverVersionFetcher *kubeversion.ServerVersionFetcher
 	ctx                  context.Context
 	fwk                  *framework.Framework
+	// managerClient reads the manager's cache, which is what effective-resource
+	// resolution reads.
+	managerClient client.Client
 )
 
 func TestAPIs(t *testing.T) {
@@ -109,6 +112,7 @@ func managerSetup(
 
 		cCache := schdcache.New(mgr.GetClient(), schdcache.WithCustomLabels(customLabels))
 		opts = append(opts, jobframework.WithCache(cCache))
+		managerClient = mgr.GetClient()
 
 		podReconciler, err := pod.NewReconciler(
 			ctx,
