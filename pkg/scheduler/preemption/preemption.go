@@ -612,7 +612,7 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 // this treats usage exactly equal to nominal as "within nominal."
 func queueWithinNominalInRequestedResources(preemptionCtx *preemptionCtx) bool {
 	for fr, request := range preemptionCtx.workloadUsage.Quota.Assigned {
-		if request.CmpInt64(0) == 0 {
+		if request.CmpInt64(0) <= 0 {
 			continue
 		}
 		if preemptionCtx.preemptorCQ.Borrowing(fr) {

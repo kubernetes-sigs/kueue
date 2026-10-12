@@ -779,7 +779,7 @@ func TestFairSharingPreemptionStrategy(t *testing.T) {
 				}},
 			},
 		},
-		// F6: A preemptor that is within nominal only for the contested resource
+		// F6a: A preemptor that is within nominal only for the contested resource
 		// must not take the nominal-first shortcut if another requested resource
 		// is still borrowing after admitting the workload. Otherwise preemption
 		// can evict a candidate that fair-sharing admission will immediately
