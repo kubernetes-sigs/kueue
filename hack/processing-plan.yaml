@@ -1028,7 +1028,7 @@ files:
         position: END
         value: |
           {{- end }}
-  - path: ./config/components/networkpolicy/manager-egress.yaml
+  - path: ./config/components/networkpolicy/egress/manager-egress.yaml
     outputDir: ./charts/kueue/templates/networkpolicy
     removeComments: true
     operations:
