@@ -323,12 +323,12 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 		Usage: workload.Usage{
 			Quota: make(resources.FlavorResourceQuantities),
 		},
-		FlavorScanState: workload.FlavorScanState{
-			TriedFlavors:                  make([]map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference], 0, len(requests)),
-			AllocatableResourceGeneration: a.cq.AllocatableResourceGeneration,
-			SchedulingCycle:               a.schedulingCycle,
-			SchedulingHash:                a.wl.SchedulingHash,
-		},
+		FlavorScanState: workload.NewFlavorScanState(
+			len(requests),
+			a.cq.AllocatableResourceGeneration,
+			a.schedulingCycle,
+			a.wl.SchedulingHash,
+		),
 		replaceWorkloadSlice: a.replaceWorkloadSlice,
 	}
 

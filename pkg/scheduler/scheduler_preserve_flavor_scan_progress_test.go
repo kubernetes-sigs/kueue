@@ -450,7 +450,7 @@ func TestScheduleForPreserveFlavorScanProgress(t *testing.T) {
 				// Reproduce a busy Cohort. AllocatableResourceGeneration only advances when
 				// the quotas actually change (see updateQuotasAndResourceGroups), so flip
 				// the last flavor's quota between two values to force a real bump every cycle. The
-				// bump is what discards FlavorScanState in flavorScanStateOutdated, and with
+				// bump is what discards FlavorScanState in FlavorScanState.IsOutdated, and with
 				// it the flavor progress recorded one cycle earlier. On a cluster with
 				// steady admissions and evictions that bump happens continuously, which is
 				// the condition this gate exists to survive.
