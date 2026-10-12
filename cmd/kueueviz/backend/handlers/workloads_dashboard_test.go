@@ -212,6 +212,28 @@ func TestFetchWorkloadsDashboardDataMatchesPodGroupPods(t *testing.T) {
 			},
 			wantPods: []string{"group-0"},
 		},
+		"pod group with a prebuilt Workload": {
+			workload: kueueapi.Workload{Name: "prebuilt", Namespace: "ns-1", UID: "wl-uid-1"},
+			pods: []corev1.Pod{
+				{Name: "group-0", Namespace: "ns-1", Labels: map[string]string{
+					"kueue.x-k8s.io/pod-group-name":         "group",
+					"kueue.x-k8s.io/prebuilt-workload-name": "prebuilt",
+				}},
+				unrelatedPod,
+			},
+			wantPods: []string{"group-0"},
+		},
+		"pod group named like the Workload but with another prebuilt Workload": {
+			workload: kueueapi.Workload{Name: "group", Namespace: "ns-1", UID: "wl-uid-1"},
+			pods: []corev1.Pod{
+				{Name: "group-0", Namespace: "ns-1", Annotations: map[string]string{
+					"kueue.x-k8s.io/pod-group-name":         "group",
+					"kueue.x-k8s.io/prebuilt-workload-name": "prebuilt",
+				}},
+				unrelatedPod,
+			},
+			wantPods: []string{},
+		},
 		"StatefulSet Workload with a job UID": {
 			workload: makeDashboardWorkload("sts-wl", "ns-1", "wl-uid-1", "sts-uid-1"),
 			pods: []corev1.Pod{
