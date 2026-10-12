@@ -696,6 +696,14 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 				).
 				Obj())
 
+			saturatedCQ := createQueue(utiltestingapi.MakeClusterQueue("saturated-cq-" + ns.Name).
+				Cohort(kueue.CohortReference(cohort.Name)).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "20").Obj(),
+				).
+				Obj())
+
 			ginkgo.By("Creating a workload that borrows CPU from the preemptor ClusterQueue")
 			borrowerWl := utiltestingapi.MakeWorkloadWithGeneratedName("wl-", ns.Name).
 				Queue(kueue.LocalQueueName(borrowerCQ.Name)).
@@ -704,6 +712,14 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			wls = append(wls, borrowerWl)
 			behavioral.MustCreate(ctx, k8sClient, borrowerWl)
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, borrowerWl)
+
+			ginkgo.By("Creating a workload in another ClusterQueue with a higher share")
+			saturatedWl := utiltestingapi.MakeWorkloadWithGeneratedName("wl-", ns.Name).
+				Queue(kueue.LocalQueueName(saturatedCQ.Name)).
+				Request(corev1.ResourceCPU, "20").Obj()
+			wls = append(wls, saturatedWl)
+			behavioral.MustCreate(ctx, k8sClient, saturatedWl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, saturatedWl)
 
 			ginkgo.By("Creating a preemptor that is within nominal CPU but borrows memory")
 			preemptorWl := utiltestingapi.MakeWorkloadWithGeneratedName("wl-", ns.Name).
@@ -714,7 +730,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			behavioral.MustCreate(ctx, k8sClient, preemptorWl)
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, preemptorWl)
 
-			ginkgo.By("Ensuring the CPU-borrowing workload is not preempted")
+			ginkgo.By("Ensuring fair-sharing preemption does not reclaim the CPU-borrowing workload")
 			behavioral.ExpectPreemptedWorkloadsTotalMetric(preemptorCQ.Name, kueue.InCohortReclamationReason, 0)
 			gomega.Consistently(func(g gomega.Gomega) {
 				createdBorrower := &kueue.Workload{}
@@ -725,6 +741,10 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 				if preemptedCond != nil && preemptedCond.Reason == kueue.WorkloadPreempted {
 					g.Expect(preemptedCond.Status).ToNot(gomega.Equal(metav1.ConditionTrue))
 				}
+
+				createdSaturated := &kueue.Workload{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(saturatedWl), createdSaturated)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(createdSaturated)).To(gomega.BeTrue())
 
 				createdPreemptor := &kueue.Workload{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(preemptorWl), createdPreemptor)).To(gomega.Succeed())
