@@ -8271,6 +8271,45 @@ func TestAssignFlavors_RecordsTriedFlavors(t *testing.T) {
 			wantAssignedFlavor:  "flavor-2",
 			wantTriedFlavors:    nil,
 		},
+		"first flavor requires preemption and second flavor fits quota with WhenCanPreempt=TryNextFlavor: selects second flavor and records it as tried": {
+			nominalPerFlavor: "2",
+			cohortSpare:      "0",
+			request:          "2",
+			clusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+			},
+			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {policy.Preempt, 0},
+			},
+			fungibility: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     new(kueue.PreemptionOverBorrowing),
+			},
+			wantMode:           Fit,
+			wantAssignedFlavor: "flavor-2",
+			wantTriedFlavors:   sets.New[kueue.ResourceFlavorReference]("flavor-2"),
+		},
+		"first flavor requires preemption and second flavor with ghost quota was already tried with WhenCanPreempt=TryNextFlavor: falls back to first flavor with preemption": {
+			nominalPerFlavor: "2",
+			cohortSpare:      "0",
+			request:          "2",
+			clusterQueueUsage: resources.FlavorResourceQuantities{
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+			},
+			simulationResult: map[resources.FlavorResource]simulationResultForFlavor{
+				{Flavor: "flavor-1", Resource: corev1.ResourceCPU}: {policy.Preempt, 0},
+			},
+			fungibility: kueue.FlavorFungibility{
+				WhenCanBorrow:  kueue.TryNextFlavor,
+				WhenCanPreempt: kueue.TryNextFlavor,
+				Preference:     new(kueue.PreemptionOverBorrowing),
+			},
+			initialTriedFlavors: sets.New[kueue.ResourceFlavorReference]("flavor-2"),
+			wantMode:            Preempt,
+			wantAssignedFlavor:  "flavor-1",
+			wantTriedFlavors:    nil,
+		},
 		"remaining untried flavor was removed from ClusterQueue: scan starts over from the first flavor": {
 			nominalPerFlavor: "10",
 			cohortSpare:      "0",
