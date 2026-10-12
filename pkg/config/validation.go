@@ -451,8 +451,10 @@ func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
 	return allErrs
 }
 
-// reservedResourceNameMsg repeats the Workload webhook's wording for the same refusal; the two are not linked.
-const reservedResourceNameMsg = "the key is reserved for internal kueue use"
+// reservedResourceNameError mirrors the Workload webhook's error for a pods key.
+func reservedResourceNameError(path *field.Path) *field.Error {
+	return field.Invalid(path, corev1.ResourcePods, "the key is reserved for internal kueue use")
+}
 
 func validateResourceTransformations(c *configapi.Configuration) field.ErrorList {
 	res := c.Resources
@@ -478,19 +480,13 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 		// behind the gate here, since a release before it accepted all three.
 		if refuseReserved {
 			if transform.Input == corev1.ResourcePods {
-				allErrs = append(allErrs, field.Invalid(
-					resourceTransformationPath.Index(idx).Child("input"),
-					transform.Input, reservedResourceNameMsg))
+				allErrs = append(allErrs, reservedResourceNameError(resourceTransformationPath.Index(idx).Child("input")))
 			}
 			if _, ok := transform.Outputs[corev1.ResourcePods]; ok {
-				allErrs = append(allErrs, field.Invalid(
-					resourceTransformationPath.Index(idx).Child("outputs").Key(string(corev1.ResourcePods)),
-					corev1.ResourcePods, reservedResourceNameMsg))
+				allErrs = append(allErrs, reservedResourceNameError(resourceTransformationPath.Index(idx).Child("outputs").Key(string(corev1.ResourcePods))))
 			}
 			if transform.MultiplyBy == corev1.ResourcePods {
-				allErrs = append(allErrs, field.Invalid(
-					resourceTransformationPath.Index(idx).Child("multiplyBy"),
-					transform.MultiplyBy, reservedResourceNameMsg))
+				allErrs = append(allErrs, reservedResourceNameError(resourceTransformationPath.Index(idx).Child("multiplyBy")))
 			}
 		}
 	}
@@ -529,7 +525,7 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 		// Only behind the gate: the mapper is built there, so until then the name
 		// is dormant and refusing it would fail an unrelated upgrade.
 		if refuseReserved && features.Enabled(features.KueueDRAIntegration) && mapping.Name == corev1.ResourcePods {
-			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, reservedResourceNameMsg))
+			allErrs = append(allErrs, reservedResourceNameError(mappingPath.Child("name")))
 		}
 
 		if seenResourceNames.Has(mapping.Name) {
