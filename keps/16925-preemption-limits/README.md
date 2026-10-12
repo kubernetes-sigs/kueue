@@ -147,11 +147,13 @@ spec:
 
 ### Caveats
 
-As ClusterQueues right now do not have a constrained resource name to 63 characters and Kueue currently does not auto add labels to the Cluster Scope CRDs (K8 does this for Namespaces), this is up to the users to label cluster queues and appropriate preemption configurations themselves. This might be changed in the future to make the user experience better, but remains out of the scope of this KEP.
+1. **User-managed resource labeling**: As ClusterQueues right now do not have a constrained resource name to 63 characters and Kueue currently does not auto add labels to the Cluster Scope CRDs (K8s does this for Namespaces), this is up to the users to label cluster queues and appropriate preemption configurations themselves. This might be changed in the future to make the user experience better, but remains out of the scope of this KEP.
+2. **Reset on controller restarts**: Preemption events are tracked strictly in-memory within the controller cache and are not persisted in etcd. Consequently, if the Kueue controller restarts (e.g. due to pod restart, failover, or upgrade), preemption limits will be reset, temporarily allowing preemption events up to the configured limit immediately following the restart.
+3. **Increasing time window**: Because expired preemption timestamps are dynamically trimmed from the in-memory map based on the active sliding window, if a user updates a `PreemptionLimit` to increase `limitWindowSeconds`, events that occurred prior to the previously configured window will have already been pruned and will not be retroactively taken into account.
 
 ### Risks and Mitigations
 
-As this feature is targeted to derisk Configurable Preemptions usage which is currently in Alpha it will be at first introduced only for the Configurable Preemptions. Thereby, as it will not in any way interfere with well matured preemption algorithms, the risks have small blast radius, and can be always mitigated by disabling Configurable Preemptions or Preemption Limits.
+As this feature is targeted to derisk Configurable Preemptions usage which is currently in Alpha it will be at first introduced only for the Configurable Preemptions. Thereby, as it will not in any way interfere with well matured preemption algorithms, the risks have small blast radius, and can be always mitigated by disabling Configurable Preemptions or Configurable Preemption Limits (via the `ConfigurablePreemptions` and `ConfigurablePreemptionLimits` feature gates).
 
 #### Performance degradation
 
@@ -159,8 +161,8 @@ Since this will increase complexity of configurable preemptions algorithm by che
 
 The risk will be mitigated by:
 
-- PreemptionLimits are completely optional and can be disabled by removing them,
-- performance testing before PreemptionLimits are graduated to Beta,
+- `PreemptionLimit`s are completely optional and can be disabled by removing them or disabling the `ConfigurablePreemptionLimits` feature gate,
+- performance testing before `ConfigurablePreemptionLimits` is graduated to Beta,
 - short circuts in the implementation (e.g. if Global preemption limit is already reached for the particular PreemptionConfig, we do not need to check candidates for it at all),
 - efficient implamentation of in memory tracking of past preemptions.
 
@@ -270,6 +272,10 @@ To track this, a list of preemption rule names responsible for selecting each ca
 
 To manage this data, Kueue will store a comprehensive preemption map in memory, isolated per PreemptionLimit. This map tracks all preemption event timestamps under a specific CQ/workload key, capturing events that occurred within the designated `LimitWindowSeconds`. Moreover, it tracks only events that are in the scope of the specific limit; if a preemption does not match the defined config or rules selector, it will not be tracked in that particular instance of the preemption map. This list is dynamically trimmed upon each retrieval to filter out expired timestamps.
 
+Because tracking is strictly maintained in-memory and dynamically trimmed:
+- **Reset on controller restarts**: Events are not persisted in etcd; restarting the Kueue controller resets the in-memory map, so preemption limit counters start fresh from zero.
+- **Increasing time window**: If `LimitWindowSeconds` is increased, previous preemption events that occurred before the previously active window have already been discarded and will not be taken into account.
+
 Furthermore, the status of the PreemptionLimit is refreshed periodically — approximately every minute — to write the aggregated totals into the count map (restricted to the top 1000 counts to fit within CRD size limits).
 
 ### Observability When Reaching Preemption Limits
@@ -322,11 +328,24 @@ in the form of:
 This can inform certain test coverage improvements that we want to do before
 extending the production code to implement this enhancement.
 -->
+Majority of the new code will be added as a separate subpackage in preemptions called limits.
+And in the new controller handling the preemption limits periodical updates.
+These two components will have all of the public methods covered with unit tests.
 
-- `<package>`: `<date>` - `<test coverage>`
+Appart from the new subpackage the following existing components will receive additional unit tests for new behavior only if the FG is enabled:
+1. Preemption Evaluator:
+	- Selects only candidates that do not violate any of the limits.
+	- Returns information which limits where consumed by the selected candidates.
+2. `Preemptor.IssuePreemptions`:
+	- Records the configurable preemption events for tracking preemption limits in memory.
+	- Records preemption events only once if preemption is issued succesfully.
+3. Scheduler:
+  - Recomputes preemption candidates in case of conflicting limits from many workloads (same as for overlapping preemption targets).
+
 
 #### Integration tests
 
+1. New preemption limits are respected by configurable preemptions candidate selection if FG is enabled. TODO
 <!--
 Describe what tests will be added to ensure proper quality of the enhancement.
 
@@ -335,31 +354,23 @@ After the implementation PR is merged, add the names of the tests here.
 
 #### e2e tests
 
-<!--
-This question should be filled when targeting a release.
-For Alpha, describe what tests will be added to ensure proper quality of the enhancement.
-
-For Beta and GA, document that tests have been written,
-have been executed regularly, and have been stable.
-This can be done with:
-- permalinks to the GitHub source code
-- links to the periodic job (typically a job owned by the SIG responsible for the feature), filtered by the test name
-
-If e2e tests are not necessary or useful, explain why.
--->
+1. Cluster admin can create/update/get/delete a `PreemptionLimit` CRD.
+2. Cluster admin can view the status of the `PreemptionLimit` CRDs.
+3. Batch users cannot manage `PreemptionLimit` CRDs out of the box.
 
 ### Graduation Criteria
 
 #### Alpha
 
 - `PreemptionLimit` CRD is implemented allowing to specify the desired limits for configurable preemptions.
-- `PreemptionLimit` allows narrowing down limits to specific `PremptionConfig`s.
+- `PreemptionLimit` allows narrowing down limits to specific `PreemptionConfig`s.
 - Existing behavior of not limiting classic and fairs sharing preemptions is maintained.
 - Candidates from configurable preemptions are not selected if this would violate `PreemptionLimit`s in the cluster.
+- The feature is guarded by the `ConfigurablePreemptionLimits` feature gate (Alpha, disabled by default).
 
 #### Beta
 
-- Performance of enabling `PreemptionLimit`s is evaluated and does not lead to significant degradation of of preemption cadidates selection speed for up to 10 `PreemptionLimit`s in the cluster.
+- Performance of enabling `ConfigurablePreemptionLimits` is evaluated and does not lead to significant degradation of preemption candidates selection speed for up to 10 `PreemptionLimit`s in the cluster.
 - Public documentation explains Preemption Limits, how can they be configured, and how they can be used to decrease risk of new `PreemptionConfig` rollouts.
 - `PreemptionLimit`s support limiting only a subset of rules in the `PreemptionConfig`.
 - Any bugs discovered during Alpha are fixed.
@@ -398,6 +409,21 @@ Additional CRD to manage by the cluster administrator.
 2. Specifing limits in the `PreemptionConfig` CRD.
 
    Rejected as this will make global limits either impossible or really unintuitive.
+
+3. "Bucket"-based tracking for in-memory events similar to how QPS works.
+
+   Track preemption allowances using a bucket counter periodically incremented up to the maximum limit, instead of tracking individual timestamps across a sliding window.
+   - **Advantages**: Smaller in-memory footprint and simpler implementation.
+   - **Drawbacks**: Can lead to scenarios where up to $2 \times N - 1$ preemptions occur within the defined preemption window (consuming a full bucket of $N$ allowances, followed by additional preemptions as the counter is periodically incremented over that window).
+
+   Rejected because allowing the number of preemptions to reach up to $2\times$ the configured limit within the defined preemption window would be confusing for users and is not expected.
+
+4. Using `limitWindowDuration` (`metav1.Duration`) instead of `limitWindowSeconds`.
+
+   - **Advantages**: Better UX for manual configuration and manipulation in YAML manifests (e.g., writing `"1h"` or `"5m"` instead of `3600` or `300`).
+   - **Drawbacks**: Discouraged by KAL (Kubernetes API Review guidelines) because of ambiguous values and lack of support for Go duration formats in client libraries across other programming languages.
+
+   Rejected to comply with standard Kubernetes API conventions favoring explicit integer unit fields (such as `*Seconds`).
 
 ## Future Work Ideas
 
