@@ -106,26 +106,38 @@ func IgnoreLabelNotFoundError(err error) error {
 	return err
 }
 
+// ValidateUIntLabel returns the error reading labelKey as an unsigned integer would produce.
+func ValidateUIntLabel(obj client.Object, labelKey string) error {
+	// The value is deliberately not returned: without a bound it can exceed what an
+	// int holds, and no caller needs it.
+	_, err := readUIntFromLabel(obj, labelKey, nil)
+	return err
+}
+
 func ReadUIntFromLabelBelowBound(obj client.Object, labelKey string, bound int) (*int, error) {
+	return readUIntFromLabel(obj, labelKey, &bound)
+}
+
+func readUIntFromLabel(obj client.Object, labelKey string, bound *int) (*int, error) {
 	value, found := obj.GetLabels()[labelKey]
 	kind := obj.GetObjectKind().GroupVersionKind().Kind
 	if !found {
 		return nil, fmt.Errorf("%w: no label %q for %s %q", ErrLabelNotFound, labelKey, kind, klog.KObj(obj))
 	}
-	intValue, err := readUIntFromStringBelowBound(value, bound)
+	intValue, err := readUIntFromString(value, bound)
 	if err != nil {
 		return nil, fmt.Errorf("incorrect label value %q for %s %q: %w", value, kind, klog.KObj(obj), err)
 	}
 	return intValue, nil
 }
 
-func readUIntFromStringBelowBound(value string, bound int) (*int, error) {
+func readUIntFromString(value string, bound *int) (*int, error) {
 	uintValue, err := strconv.ParseUint(value, 10, 0)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrInvalidUInt, err.Error())
 	}
-	if uintValue >= uint64(bound) {
-		return nil, fmt.Errorf("%w: value should be less than %d", ErrValidation, bound)
+	if bound != nil && uintValue >= uint64(*bound) {
+		return nil, fmt.Errorf("%w: value should be less than %d", ErrValidation, *bound)
 	}
 	return new(int(uintValue)), nil
 }
