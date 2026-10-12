@@ -23,11 +23,9 @@
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design details](#design-details)
   - [API surface](#api-surface)
-    - [Alpha1 version (deprecated)](#alpha1-version-deprecated)
-    - [Alpha2 version (Integration with Dynamic Quota Orchestration)](#alpha2-version-integration-with-dynamic-quota-orchestration)
-    - [Migration from Alpha1 to Alpha2](#migration-from-alpha1-to-alpha2)
-  - [MultiKueue CapacityProvider Reconciler](#multikueue-capacityprovider-reconciler)
-  - [MultiKueue ClusterQueue Reconciler (Alpha1)](#multikueue-clusterqueue-reconciler-alpha1)
+    - [Alpha1 version](#alpha1-version)
+    - [Planned changes in Alpha2 version](#planned-changes-in-alpha2-version)
+  - [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler)
   - [MultiKueue Cluster Reconciler](#multikueue-cluster-reconciler)
   - [A note on client usage](#a-note-on-client-usage)
   - [Test Plan](#test-plan)
@@ -44,8 +42,6 @@
   - [Graduation Criteria](#graduation-criteria)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
-  - [Direct mutation of <code>ClusterQueue.status.effectiveQuotas</code> by MultiKueue (bypassing DQO)](#direct-mutation-of-clusterqueuestatuseffectivequotas-by-multikueue-bypassing-dqo)
-  - [Referencing <code>ClusterQueue</code> or a dedicated CRD in <code>CapacityProvider.spec.parameters</code>](#referencing-clusterqueue-or-a-dedicated-crd-in-capacityproviderspecparameters)
   - [Support quota automation for multiple manager-side ResourceFlavors](#support-quota-automation-for-multiple-manager-side-resourceflavors)
   - [Support quota automation for no manager-side ResourceFlavors (auto-create one)](#support-quota-automation-for-no-manager-side-resourceflavors-auto-create-one)
   - [Different handling of many-to-many relationships between manager-side and worker-side ClusterQueues](#different-handling-of-many-to-many-relationships-between-manager-side-and-worker-side-clusterqueues)
@@ -56,7 +52,7 @@
 
 ## Summary
 
-This KEP outlines the design for automatic management of ClusterQueue quotas on the manager cluster in a MultiKueue setup, based on aggregation of quotas of worker ClusterQueues. Starting in Alpha2, MultiKueue quota automation integrates with [Dynamic Quota Orchestration (KEP-12382)](../12382-dynamic-quota-orchestration/README.md) as a built-in `CapacityProvider` (`controllerName: kueue.x-k8s.io/multikueue`), allowing `DynamicQuotaOrchestrator` to scale and distribute the discovered worker capacity into `status.effectiveQuotas` on manager ClusterQueues and Cohorts without mutating `.spec.resourceGroups`.
+This KEP outlines the design for automatic management of ClusterQueue quotas on the manager cluster in a MultiKueue setup, based on aggregation of quotas of worker ClusterQueues.
 
 ## Motivation
 
@@ -109,18 +105,15 @@ While this approach offers simplicity and network savings, it also leads to prob
 
 We will add an **optional** feature of **auto-aggregating quotas** from the workers to the manager.
 
-In **Alpha2**, this feature is built on top of [Dynamic Quota Orchestration (KEP-12382)](../12382-dynamic-quota-orchestration/README.md) using its two-phase Discovery and Distribution pipeline:
+**When enabled** for a manager ClusterQueue `Q`, this feature will set its quota for a resource `R` according to the following recipe:
 
-1. **Phase 1 — Capacity Discovery (`CapacityProvider` with `controllerName: kueue.x-k8s.io/multikueue`)**:
-   - Determine the set of [related worker ClusterQueues](#defining-related-worker-clusterqueues) for the referenced `MultiKueueConfig`.
-   - For each resource `R`, compute the **sum** of effective nominal quotas (`status.effectiveQuotas.resourceGroups` when present on the worker ClusterQueue, or falling back to `spec.resourceGroups`) across **all** _related_ worker ClusterQueues and **all** worker-side ResourceFlavors.
-   - Publish the aggregated capacities into `CapacityProvider.status.capacity.flavors` under the single manager-side ResourceFlavor specified in `CapacityProvider.spec.orchestratedFlavors`.
-2. **Phase 2 — Quota Distribution (`DynamicQuotaOrchestrator`)**:
-   - A `DynamicQuotaOrchestrator` references the MultiKueue `CapacityProvider` (optionally applying `effectiveCapacityMultiplier` for candidate overbooking or conservative buffering) and distributes the resulting capacity into `status.effectiveQuotas` on the target manager `ClusterQueue` (or proportionally across a manager `Cohort` subtree), leaving administrator-owned `.spec.resourceGroups` untouched.
+1. Determine the set of [related worker ClusterQueues](#defining-related-worker-clusterqueues), i.e. those which can serve the dispatched remotes of the workloads submitted to `Q`.
 
-Enabling this feature is opt-in via creating the `CapacityProvider` and `DynamicQuotaOrchestrator` resources (retaining a permanent way to opt out; see [User Story 3](#story-3)).
+1. Compute the **sum** of quotas for `R` in **all** _related_ worker ClusterQueues, across **all** ResourceFlavors.
 
-In Alpha2, the MultiKueue `CapacityProvider` **requires** that `CapacityProvider.spec.orchestratedFlavors` specifies **exactly one ResourceFlavor**, into which all worker-side flavors are aggregated. (See [Treatment of ResourceFlavors](#treatment-of-resourceflavors) for rationale).
+Enabling this feature will be controlled by an API field (not just by a feature gate), as we want to permanently retain a way to opt out (see [User Story 3](#story-3)).
+
+Enabling this feature will **require** that the manager ClusterQueue `Q` has **exactly one ResourceFlavor**. (See [Treatment of ResourceFlavors](#treatment-of-resourceflavors) for rationale).
 
 ### Example
 
@@ -211,77 +204,26 @@ On `worker2`, the related ClusterQueue `cq` handles both `lq1` and `lq2`, and is
           nominalQuota: 7
     ```
 
-To automate quota on the manager cluster in Alpha2 using Dynamic Quota Orchestration (DQO), the administrator configures a `CapacityProvider` referencing the `MultiKueueConfig` and a `DynamicQuotaOrchestrator` targeting the manager `ClusterQueue` `cq`:
+When quota aggregation is enabled on the manager-side ClusterQueue `cq`, the aggregated limits combine all resources from the related worker ClusterQueues (`cq1` and `cq2` on `worker1`, and `cq` on `worker2`), summing their limits across all worker-side flavors:
 
 ```yaml
-apiVersion: kueue.x-k8s.io/v1alpha1
-kind: CapacityProvider
-metadata:
-  name: multikueue-worker-capacity
-spec:
-  controllerName: kueue.x-k8s.io/multikueue
-  orchestratedFlavors:
-  - name: default-flavor
-  parameters:
-    apiGroup: kueue.x-k8s.io
-    kind: MultiKueueConfig
-    name: multikueue-config
-status:
-  capacity:
-    flavors:
-    - name: default-flavor
-      resources:
-        cpu: "21"             # 6 + 7 + 8
-        memory: 84Gi          # 24Gi + 28Gi + 32Gi
-        nvidia.com/gpu: "12"  # 5 + 7
-  conditions:
-  - type: CapacitySynchronized
-    status: "True"
-    reason: Synchronized
-    message: "Aggregated capacity from 2 active worker clusters"
----
-apiVersion: kueue.x-k8s.io/v1alpha1
-kind: DynamicQuotaOrchestrator
-metadata:
-  name: multikueue-dqo
-spec:
-  capacityDiscovery:
-    providers:
-    - name: multikueue-worker-capacity
-      effectiveCapacityMultiplier: "1"
-  capacityDistribution:
-    subtreeRootQuotaRef:
-      apiGroup: kueue.x-k8s.io
-      kind: ClusterQueue
-      name: cq
+resourceGroups:
+- coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
+  flavors:
+  - name: "default-flavor"
+    resources:
+    - name: "cpu"
+      nominalQuota: 21  // 6 + 7 + 8
+    - name: "memory"
+      nominalQuota: 84Gi  // 24 + 28 + 32
+    - name: "nvidia.com/gpu"
+      nominalQuota: 12  // 5 + 7
 ```
 
-The `DynamicQuotaOrchestrator` then writes the effective quotas into `status.effectiveQuotas` on the manager-side ClusterQueue `cq` (without mutating `cq.spec.resourceGroups`):
+This will work only if:
 
-```yaml
-status:
-  effectiveQuotas:
-    orchestratorRef:
-      apiGroup: kueue.x-k8s.io
-      kind: DynamicQuotaOrchestrator
-      name: multikueue-dqo
-    resourceGroups:
-    - coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
-      flavors:
-      - name: "default-flavor"
-        resources:
-        - name: "cpu"
-          nominalQuota: 21    # 6 + 7 + 8
-        - name: "memory"
-          nominalQuota: 84Gi  # 24Gi + 28Gi + 32Gi
-        - name: "nvidia.com/gpu"
-          nominalQuota: 12    # 5 + 7
-```
-
-This requires that:
-
-* The `CapacityProvider` specifies a single orchestrated flavor (`default-flavor`) in `spec.orchestratedFlavors`, and
-* The manager-side ClusterQueue `cq` defines `default-flavor` and the involved resources (`cpu`, `memory`, `nvidia.com/gpu`) in `cq.spec.resourceGroups` (where `spec.resourceGroups` provides the quota structure and relative distribution weights for DQO).
+* `cq` on the manager is configured with a single flavor, and
+* The `coveredResources` for this flavor contains all involved resources (CPU, memory and GPU).
 
 ### User stories
 
@@ -356,15 +298,13 @@ While the "baseline approach" (keep manager quota **equal** to total worker quot
 
 MultiKueue dispatching connects **LocalQueues** by **their names**: for a workload submitted to a LocalQueue `lq1` on the manager, its remotes will be submitted to LocalQueues named `lq1` on the workers. The **ClusterQueue names** on either side are **irrelevant** for this connection.
 
-Therefore, for a given manager ClusterQueue `Q` (or set of manager ClusterQueues `Q_set` associated with a `MultiKueueConfig` via MultiKueue `AdmissionCheck`s), the set of **related worker ClusterQueues** is the set `R` defined by the following recipe:
+Therefore, for a given manager ClusterQueue `Q`, the set of **related worker ClusterQueues** is the set `R` defined by the following recipe:
 
-1. Let `N` = the set of `(namespace, name)` keys of all manager LocalQueues pointing to `Q` (or to any ClusterQueue in `Q_set`).
+1. Let `N` = the set of names of all manager LocalQueues pointing to `Q`.
 
-2. Let `L` = the set of LocalQueues on all active worker clusters in the `MultiKueueConfig` whose `(namespace, name)` belongs to `N`.
+2. Let `L` = the set of LocalQueues on all workers whose name belongs to `N`.
 
-3. Let `R` = the set of all ClusterQueues on those workers to which at least one LocalQueue from `L` points.
-
-For each worker ClusterQueue `rcq` in `R`, its effective resource groups are read from `rcq.status.effectiveQuotas.resourceGroups` when non-nil (for workers that themselves use Dynamic Quota Orchestration), or from `rcq.spec.resourceGroups` otherwise.
+3. Let `R` = the set of all ClusterQueues on all workers to which at least one LocalQueue from `L` points.
 
 (For simplicity, we've ignored resource borrowing between ClusterQueues, on either manager or worker side).
 
@@ -379,7 +319,7 @@ As a result, multiple flavors on the manager side _should not be needed for most
 * Using a flavor-aware custom MultiKueue dispatcher.
 * Using TAS on the workers, with incompatible names of topology levels on different workers.
 
-Our proposal for now is to leave these cases unsupported by requiring the MultiKueue `CapacityProvider` to specify a single orchestrated flavor in `spec.orchestratedFlavors`. (Some other ideas are discussed below, see [here](#change-the-treatment-of-resourceflavors), [here](#support-quota-automation-for-multiple-manager-side-resourceflavors) and [here](#support-quota-automation-for-no-manager-side-resourceflavors-auto-create-one)).
+Our proposal for now is to leave these cases unsupported. (Some other ideas are discussed below, see [here](#change-the-treatment-of-resourceflavors), [here](#support-quota-automation-for-multiple-manager-side-resourceflavors) and [here](#support-quota-automation-for-no-manager-side-resourceflavors-auto-create-one)).
 
 ### Risks and Mitigations
 
@@ -391,26 +331,26 @@ The main risks of this proposal are the following:
 
 3. Slowing down MultiKueue by adding more reconcilers and computations.
 
-4. In Alpha1, by updating ClusterQueueSpec (cf. [Drawback 1](#drawbacks)), we risked GitOps drift and an infinite loop of reconciles in case when the reconcile logic failed to be idempotent.
+4. By updating ClusterQueueSpec (cf. [Drawback 1](#drawbacks)), we risk an infinite loop of reconciles in case when the reconcile logic fails to be idempotent.
 
 For these, we propose the following mitigations:
 
-* Risk 1 is mitigated in Alpha2 by recording `status.effectiveQuotas.orchestratorRef` on the managed ClusterQueue/Cohort and exposing `CapacitySynchronized`, `EffectiveCapacityComputed`, and `Distributed` status conditions on `CapacityProvider` and `DynamicQuotaOrchestrator`.
+* Risk 1 is mitigated by a dedicated ClusterQueue condition, explaining the automation process.
 
-* Risks 1 and 2 are mitigated by introducing feature gates (`MultiKueueManagerQuotaAutomation` and `DynamicQuotaOrchestration`) and the explicit opt-in `CapacityProvider` / `DynamicQuotaOrchestrator` APIs. \
-  This also mitigates Risk 3, as computations only run for configured `CapacityProvider` objects.
+* Risks 1 and 2 are mitigated by introducing a feature gate and the opt-in/opt-out API. \
+  This also mitigates Risk 3, as long as we pay attention to skip computations which are not necessary per the ClusterQueue configuration.
 
-* Risk 3 is considered low and is further mitigated by `SelectivelyCachingClient`, which caches `LocalQueue` and `ClusterQueue` objects from remote worker clusters.
+* Risk 3 is considered low. If needed, it can be substantially mitigated by caching the relevant information.
 
-* Risk 4 existed only in the Alpha1 phase and is **eliminated in Alpha2** by publishing discovered worker capacity into `CapacityProvider.status.capacity` and writing effective quotas to `ClusterQueue.status.effectiveQuotas` via `DynamicQuotaOrchestrator` rather than mutating `ClusterQueue.spec.resourceGroups`.
+* Risk 4 exists only in the Alpha1 phase, where the main mitigation is hiding the feature behind a feature gate. For Alpha2, we plan redesigning the feature to eliminate this risk; see [here](#move-the-aggregated-quota-out-of-clusterqueuespec).
 
 ## Design details
 
 ### API surface
 
-#### Alpha1 version (deprecated)
+#### Alpha1 version
 
-In Alpha1, the configuration for this feature was added to the `MultiKueueConfig` struct (`MultiKueueConfig.spec.quotaManagement`), and the controller mutated `ClusterQueue.spec.resourceGroups[0].flavors[0].resources` directly while reporting a `MultiKueueManagerQuotaAutomation` status condition on `ClusterQueueStatus`:
+The configuration for this feature will be added to the existing `MultiKueueConfig` struct. (For context, `MultiKueueConfig` objects are referenced from `AdmissionCheckSpec` as [`Parameters`](https://github.com/kubernetes-sigs/kueue/blob/24209c461b72fd6519581aca2234fb8f05dd1ce7/apis/kueue/v1beta2/admissioncheck_types.go#L60); this will allow controlling the feature independently for each ClusterQueue in the manager cluster).
 
 ```go
 type MultiKueueConfigSpec struct {
@@ -422,101 +362,94 @@ type MultiKueueConfigSpec struct {
    // - `Manual`: Quota automation is manual.
    // - `Automated`: Quota automation is enabled (provided that the MultiKueueManagerQuotaAutomation feature gate is enabled).
    // If unspecified, defaults to `Manual`.
-   //
-   // Deprecated: In Alpha2, use CapacityProvider (controllerName: kueue.x-k8s.io/multikueue)
-   // and DynamicQuotaOrchestrator instead.
    QuotaManagement *MultiKueueConfigQuotaManagementMode
 }
+
+type MultiKueueConfigQuotaManagementMode string
+
+const (
+   QuotaManagementManual MultiKueueConfigQuotaManagementMode = "Manual"
+   QuotaManagementAutomated  MultiKueueConfigQuotaManagementMode = "Automated"
+)
 ```
 
-#### Alpha2 version (Integration with Dynamic Quota Orchestration)
+The status of the feature will be communicated by a new Condition added to ClusterQueueStatus. The Condition will be present in all ClusterQueues enrolled in MultiKueue.
 
-In Alpha2, MultiKueue Manager Quota Automation integrates with [Dynamic Quota Orchestration (KEP-12382)](../12382-dynamic-quota-orchestration/README.md) by implementing a built-in `CapacityProvider` controller instead of mutating `ClusterQueue.spec.resourceGroups`.
+When quota automation is requested and supported, the condition will look like this:
 
-1. **MultiKueue `CapacityProvider` Contract (`kueue.x-k8s.io/v1alpha1`)**:
-   - **`spec.controllerName`**: Must be set to `"kueue.x-k8s.io/multikueue"` (`kueue.MultiKueueControllerName`).
-   - **`spec.orchestratedFlavors`**: Must contain **exactly one** `CapacityProviderOrchestratedFlavor` entry (`len(spec.orchestratedFlavors) == 1`). All resources across all flavors of the related worker ClusterQueues are summed and reported under this single orchestrated flavor in `status.capacity.flavors`.
-   - **`spec.parameters`**: Must reference a `MultiKueueConfig` object in group `kueue.x-k8s.io`:
-     ```yaml
-     parameters:
-       apiGroup: kueue.x-k8s.io
-       kind: MultiKueueConfig
-       name: <multikueue-config-name>
-     ```
-   - **`status.capacity.flavors`**: Contains a single `CapacityProviderNormalizedCapacityFlavor` entry matching `spec.orchestratedFlavors[0].name`, whose `resources` map holds the summed `corev1.ResourceList` across all related worker ClusterQueues on active worker clusters.
-   - **`status.conditions[CapacitySynchronized]`**: Reported using the standard `CapacityProvider` condition types and reasons defined in KEP-12382:
+```yaml
+type: MultiKueueManagerQuotaAutomation
+status: True
+reason: QuotaAutomated
+message: ClusterQueue quota is automatically managed based on MultiKueue workers.
+lastTransitionTime: 2026-01-01T00:00:00Z
+```
 
-     | Status | Reason | When it is set |
-     |---|---|---|
-     | `True` | `Synchronized` | At least one worker cluster in the referenced `MultiKueueConfig` is connected (`Active=True`) and its related worker ClusterQueue capacities were successfully aggregated and written to `status.capacity`. |
-     | `False` | `Misconfigured` | `spec.parameters` is nil, does not reference `apiGroup: kueue.x-k8s.io, kind: MultiKueueConfig`, the referenced `MultiKueueConfig` does not exist, or `len(spec.orchestratedFlavors) != 1`. |
-     | `False` | `SourceUnavailable` | None of the worker `MultiKueueCluster`s listed in the referenced `MultiKueueConfig` are currently connected (`Active=True`). |
+where `lastTransitionTime` only tracks changes affecting the Condition `status` and `message` (i.e. feature enablement, potential errors) but **not** subsequent quota updates. (See [this section](#make-the-multikueuemanagerquotaautomation-condition-message-more-informative) in Alternatives).
 
-2. **Scaling & Quota Distribution via `DynamicQuotaOrchestrator`**:
-   - Administrators create a `DynamicQuotaOrchestrator` referencing the MultiKueue `CapacityProvider` in `spec.capacityDiscovery.providers`.
-   - **Multiplier adjustments**: Administrators can set `effectiveCapacityMultiplier` on the provider entry in `DynamicQuotaOrchestrator` (e.g., `"2.0"` or `"3.0"` for MultiKueue candidate overbooking, or `"0.9"` to leave worker headroom for stray local workloads).
-   - **Single ClusterQueue or Cohort distribution**: `DynamicQuotaOrchestrator.spec.capacityDistribution.subtreeRootQuotaRef` can target either a single manager `ClusterQueue` or a manager `Cohort` (distributing the aggregated worker capacity proportionally across per-team manager `ClusterQueue`s according to the relative weights in their `spec.resourceGroups`).
-   - **Effective Quotas**: The DQO controller writes the resulting quotas into `status.effectiveQuotas` (`orchestratorRef` + `resourceGroups`) on the target manager `ClusterQueue`(s) and `Cohort`(s).
+When quota automation is not requested, the condition will look like this:
 
-#### Migration from Alpha1 to Alpha2
+```yaml
+type: MultiKueueManagerQuotaAutomation
+status: False
+reason: NotRequested
+message: MultiKueue manager quota automation has not been requested.
+lastTransitionTime: 2026-01-01T00:00:00Z
+```
 
-Because `MultiKueueManagerQuotaAutomation` in Alpha1 was an opt-in Alpha feature gated by an off-by-default feature gate, Alpha2 replaces the Alpha1 `.spec`-mutating mechanism as follows:
+Enabling quota automation will be subject to a **constraint** that:
 
-1. **API & Feature Gate Transition**:
-   - The Alpha1 `MultiKueue ClusterQueue Reconciler` that mutated `ClusterQueue.spec.resourceGroups` and wrote the `MultiKueueManagerQuotaAutomation` condition on `ClusterQueueStatus` is decommissioned and replaced by the `MultiKueue CapacityProvider Reconciler`.
-   - `MultiKueueConfig.spec.quotaManagement` (`QuotaManagementManual` / `QuotaManagementAutomated`) and `ClusterQueue` condition `MultiKueueManagerQuotaAutomation` are deprecated and removed.
-   - Running the MultiKueue `CapacityProvider` controller requires both `MultiKueue` (and `MultiKueueManagerQuotaAutomation`) and `DynamicQuotaOrchestration` feature gates to be enabled.
+* The manager ClusterQueue has exactly one ResourceFlavor.
+* Also, the `coveredResources` of the ResourceGroup containing that flavor must contain all resources which appear in the quotas of any related worker ClusterQueue.
 
-2. **Administrator Migration Steps**:
-   To migrate a manager `ClusterQueue` `cq` from Alpha1 (`MultiKueueConfig.spec.quotaManagement: Automated`) to Alpha2:
-   - Remove `spec.quotaManagement` from the `MultiKueueConfig`.
-   - Ensure `cq.spec.resourceGroups` on the manager `ClusterQueue` declares the target `ResourceFlavor` and `coveredResources` with non-zero baseline/weight `nominalQuota` values (used as proportional weights by DQO and as fallback static quotas if DQO is removed).
-   - Create a `CapacityProvider` with `controllerName: kueue.x-k8s.io/multikueue`, `orchestratedFlavors: [{name: <flavor-name>}]`, and `parameters` referencing the `MultiKueueConfig`.
-   - Create a `DynamicQuotaOrchestrator` referencing the `CapacityProvider` under `spec.capacityDiscovery.providers` and targeting `cq` (or its parent `Cohort`) under `spec.capacityDistribution.subtreeRootQuotaRef`.
+This constraint will **not** be enforced via validation (e.g. a webhook) but by Kueue controllers code (similarly to [analogous existing AdmissionCheck-related constraints](https://github.com/kubernetes-sigs/kueue/blob/6163e91e5a62befbdd421097fe0ec38b37d406e0/pkg/cache/scheduler/clusterqueue.go#L284-L307), evaluated in the core ClusterQueue controller). A violation of this new constraint will **not** make the ClusterQueue Inactive (as is the case for the existing analogous constraints). In this case of a violation, the queue itself will be still operational, just not supportable by the quota automation feature. This will be communicated as an error of that feature, by its status Condition, for example:
 
-### MultiKueue CapacityProvider Reconciler
+```yaml
+type: MultiKueueManagerQuotaAutomation
+status: False
+reason: UnsupportedConfiguration
+message: MultiKueue manager quota automation does not support ClusterQueues with multiple ResourceFlavors.
+lastTransitionTime: 2026-01-01T00:00:00Z
+```
 
-In Alpha2, we introduce a reconciler for `CapacityProvider` objects whose `spec.controllerName` equals `"kueue.x-k8s.io/multikueue"`. Reconciling a MultiKueue `CapacityProvider` `cp` proceeds as follows:
+#### Planned changes in Alpha2 version
 
-1. **Validate configuration (`spec.orchestratedFlavors` & `spec.parameters`)**:
-   - Verify `len(cp.Spec.OrchestratedFlavors) == 1`.
-   - Verify `cp.Spec.Parameters != nil`, `APIGroup == "kueue.x-k8s.io"`, and `Kind == "MultiKueueConfig"`, and fetch the referenced `MultiKueueConfig` `cfg`.
-   - If validation fails or `cfg` is not found, set condition `CapacitySynchronized=False` with reason `Misconfigured` and return.
+Starting from Alpha2 version, we plan to introduce a **new field** in ClusterQueueStatus (provisionally named `effectiveResourceGroups`), which would act as the **new source of truth** about a ClusterQueue capacity (taking over that role from `.spec.resourceGroups`). This is discussed in more detail in [this future work idea](#move-the-aggregated-quota-out-of-clusterqueuespec).
 
-2. **Check worker cluster availability**:
-   - Inspect the remote clients in `clustersReconciler` for each cluster name in `cfg.Spec.Clusters`.
-   - If **zero** configured worker clusters have an active/connected remote client (`!rc.connState.isConnected()`), set condition `CapacitySynchronized=False` with reason `SourceUnavailable` (without overwriting `cp.Status.Capacity`). Per KEP-12382, when `CapacitySynchronized=False`, `DynamicQuotaOrchestrator` sets `EffectiveCapacityComputed=False` and preserves the last known good `status.effectiveCapacity` and `status.effectiveQuotas`, preventing a complete control-plane network partition from zeroing out manager quotas.
-   - If a subset of worker clusters in `cfg.Spec.Clusters` is connected and others are disconnected, proceed with aggregating quotas from the connected worker clusters and report the active/total cluster count in the `CapacitySynchronized=True` condition message.
+While this move is mostly independent from the [API for Alpha1](#alpha1-version), it may lead to some slight changes in that API:
 
-3. **Resolve related worker ClusterQueues and aggregate effective quotas**:
-   - Find all manager `AdmissionCheck`s referencing `cfg`, all manager `ClusterQueue`s referencing those `AdmissionCheck`s, and all manager `LocalQueue`s pointing to those manager `ClusterQueue`s (set `N` of `(namespace, name)` pairs).
-   - On each connected worker cluster in `cfg.Spec.Clusters`, list cached `LocalQueue`s in `N` to identify the set `R` of related worker `ClusterQueue`s.
-   - For each related worker `ClusterQueue` `rcq` in `R`, extract its effective resource groups:
-     - If `rcq.Status.EffectiveQuotas != nil`, read `rcq.Status.EffectiveQuotas.ResourceGroups` (so worker clusters that themselves use DQO—such as node capacity discovery or temporary quota overrides—propagate their effective quotas to the manager).
-     - Otherwise (`rcq.Status.EffectiveQuotas == nil`), read `rcq.Spec.ResourceGroups`.
-   - Sum `nominalQuota` for each resource across all flavors of the extracted resource groups, and write the resulting `corev1.ResourceList` into `cp.Status.Capacity.Flavors[0]` (for `cp.Spec.OrchestratedFlavors[0].Name`) along with condition `CapacitySynchronized=True` (`Reason: Synchronized`).
+* We may decide to move the `.quotaAutomation` field from MultiKueueConfig to ClusterQueueSpec.
+* We may make the `MultiKueueManagerQuotaAutomation` Condition more informative, or at least let its `lastTransitionTime` track the time of the most recent quota adjustment.
 
-   > **Note on worker-side feature gate disablement**: Because KEP-12382 uses a sparse status model (`rcq.Status.EffectiveQuotas` is `nil` unless a `DynamicQuotaOrchestrator` actively manages `rcq`), static worker ClusterQueues immediately fall back to `rcq.Spec.ResourceGroups` with no initialization race. If an administrator disables the `DynamicQuotaOrchestration` feature gate on a worker cluster that previously used DQO, they should delete the worker's `DynamicQuotaOrchestrator` beforehand so that `rcq.Status.EffectiveQuotas` is cleared.
+### MultiKueue ClusterQueue Reconciler
 
-The reconciler is triggered by:
-* **Manager events:** Creation, deletion, or relevant updates to `CapacityProvider` (filtered by `controllerName == "kueue.x-k8s.io/multikueue"`), `MultiKueueConfig`, `MultiKueueCluster` (`Active` condition changes), `AdmissionCheck`, `ClusterQueue`, and `LocalQueue`.
-* **Remote events:** Propagated from the [MultiKueue Cluster Reconciler](#multikueue-cluster-reconciler) when remote `LocalQueue`s or `ClusterQueue`s (either `.spec.resourceGroups` or `.status.effectiveQuotas`) change.
+We will introduce a new reconciler for manager-side ClusterQueue objects. Reconciling a manager ClusterQueue `Q` will proceed as follows:
 
-### MultiKueue ClusterQueue Reconciler (Alpha1)
+1. **Verify enablement:** Fetch `Q`, its associated MultiKueue AdmissionCheck, and MultiKueueConfig. Verify that quota automation is requested and supported (e.g., `Q` must have exactly one ResourceFlavor).
 
-*(Historical Alpha1 note: In Alpha1, `cqReconciler` reconciled manager-side `ClusterQueue` objects directly, verified `MultiKueueConfig.spec.quotaManagement == Automated`, summed `rcq.Spec.ResourceGroups`, and mutated `cq.Spec.ResourceGroups[0].Flavors[0].Resources` in place. In Alpha2, quota mutation is replaced by the [MultiKueue CapacityProvider Reconciler](#multikueue-capacityprovider-reconciler), while worker cluster status metric reporting for MultiKueue ClusterQueues remains intact.)*
+2. **Update the Condition:** If needed, update the `MultiKueueManagerQuotaAutomation` status Condition.
+
+3. **Aggregate quotas:** Find all [related worker ClusterQueues](#defining-related-worker-clusterqueues). Sum their quotas and update `Q`'s quotas accordingly.
+
+The reconciler will be triggered by:
+* **Manager events:** Creation, deletion, or relevant updates to ClusterQueues, LocalQueues, AdmissionChecks, MultiKueueConfigs and MultiKueueClusters.
+* **Remote events:** Propagated from the [MultiKueue Cluster Reconciler](#multikueue-cluster-reconciler) when remote LocalQueues or ClusterQueues change.
 
 ### MultiKueue Cluster Reconciler
 
-In `multikueuecluster.go`, when quota automation is enabled, `startQueueWatchers` registers watches on remote worker clusters for **LocalQueue** and **ClusterQueue** events using `SelectivelyCachingClient`.
-In Alpha2, the remote `ClusterQueue` update predicate checks for changes in both `Spec.ResourceGroups` and `Status.EffectiveQuotas` (via `resourcegroups.EffectiveResourceGroups`). When a remote `LocalQueue` or `ClusterQueue` changes, an event is pushed to trigger reconciliation of the affected MultiKueue `CapacityProvider`(s).
+In `multikueuecluster.go`, we will add watches on remote clusters for **LocalQueue** and **ClusterQueue** events. When any of those change, we will find all [related manager ClusterQueues](#defining-related-worker-clusterqueues), and trigger the [MultiKueue ClusterQueue Reconciler](#multikueue-clusterqueue-reconciler) for each of them.
 
 ### A note on client usage
 
-In the above reconcilers, local and remote `LocalQueue` and `ClusterQueue` calls are served from cache:
+In the above reconcilers, we generally intend to happily tolerate K8s client calls, without introducing any custom caching.
 
-1. Local clients are already cached by controller-runtime.
-2. Remote calls for `LocalQueue`, `ClusterQueue`, and `Workload` are cached by `SelectivelyCachingClient` (`pkg/controller/admissionchecks/multikueue/remote_client.go`), while bypassing cache for high-volume job kinds.
+This is because:
+
+1. Local clients are already cached.
+2. Remote calls will be made only for "memory-light" resource kinds (LocalQueues and ClusterQueues), which typically do not exist in large numbers.
+3. The reconcilers involved are not expected to run frequently.
+
+Item 3 may not hold if worker clusters use any tooling (external to Kueue) for automated management of their queue quotas. If this is ever observed, we may need to optimize, e.g. by [caching our remote calls](#use-cached-remote-clients-for-low-volume-resource-kinds).
 
 ### Test Plan
 
@@ -526,62 +459,90 @@ to implement this enhancement.
 
 #### Unit Tests
 
-* Test the MultiKueue `CapacityProvider` reconcile logic across all exit paths:
-  * Valid aggregation across multiple worker clusters and multiple worker flavors into `CapacityProvider.status.capacity.flavors[0]`.
-  * Precedence of worker `rcq.Status.EffectiveQuotas.ResourceGroups` over `rcq.Spec.ResourceGroups` when non-nil, and fallback to `rcq.Spec.ResourceGroups` when nil.
-  * `CapacitySynchronized=False` (`Reason: Misconfigured`) when `spec.parameters` is missing/invalid, references a non-existent `MultiKueueConfig`, or `len(spec.orchestratedFlavors) != 1`.
-  * `CapacitySynchronized=False` (`Reason: SourceUnavailable`) when zero worker clusters in `MultiKueueConfig.spec.clusters` are active/connected, and partial aggregation (`CapacitySynchronized=True`) when a subset of worker clusters is active.
-* Test all local and remote watch event handlers enqueueing affected `CapacityProvider` objects.
+* Test the reconcile logic with all exit paths.
+* Test all additional triggering paths from local watchers.
 
 #### Integration Tests
 
-* Test end-to-end pipeline: remote worker `LocalQueue` and `ClusterQueue` (both `.spec.resourceGroups` and `.status.effectiveQuotas`) updates triggering the MultiKueue `CapacityProvider` reconciler, updating `DynamicQuotaOrchestrator.status.effectiveCapacity` (with and without `effectiveCapacityMultiplier`), and distributing effective quotas into manager `ClusterQueue.status.effectiveQuotas` and `Cohort.status.effectiveQuotas`.
-* Verify that when all worker clusters disconnect (`CapacitySynchronized=False`), `DynamicQuotaOrchestrator` preserves the last known `status.effectiveQuotas` on the manager `ClusterQueue`.
+* Test triggering the MultiKueue ClusterQueue reconciler by changes in remote LocalQueues and ClusterQueues.
 
 #### E2e Tests
 
-* Test automating a manager `ClusterQueue` quota via `CapacityProvider` (`controllerName: kueue.x-k8s.io/multikueue`) and `DynamicQuotaOrchestrator`, verifying that changes to worker `ClusterQueue` quotas propagate to manager `ClusterQueue.status.effectiveQuotas` without mutating `ClusterQueue.spec.resourceGroups`.
-* Verify that manager `status.effectiveQuotas` updates promptly trigger workload admission and re-evaluation of inadmissible workloads.
+* Test the scenario of a ClusterQueue having quota automation disabled -> then enabled (and reacting to some change) -> then disabled.
+* Verify that manager quota auto-adjustments promptly trigger the expected re-assignments of Workloads.
 
 ### Future work ideas
 
 #### Move the aggregated quota out of ClusterQueueSpec
 
-*(Resolved in Alpha2 via [Dynamic Quota Orchestration (KEP-12382)](../12382-dynamic-quota-orchestration/README.md))*
+While the goal of this feature is to automatically control manager-side quotas, which are specified in ClusterQueueSpec per the current Kueue behavior, it may be considered a design smell, as explained in [Drawback 1](#drawbacks).
 
-In Alpha1, mutating `ClusterQueue.spec.resourceGroups` was a known drawback (see [Drawback 1](#drawbacks)). In Alpha2, this is resolved by integrating with KEP-12382: the MultiKueue `CapacityProvider` controller publishes aggregated worker capacities into `CapacityProvider.status.capacity`, and `DynamicQuotaOrchestrator` writes effective quotas to `ClusterQueue.status.effectiveQuotas` (and `Cohort.status.effectiveQuotas`), which the Kueue scheduler consumes in place of `.spec.resourceGroups` while keeping `.spec.resourceGroups` as administrator-owned configuration and proportional distribution weights.
+For the Alpha2 phase, we intend to eliminate this drawback by redesigning the general Kueue contracts of handling ClusterQueue quotas. The general idea is as follows:
+
+1. Introduce a new field in ClusterQueueStatus, named e.g. `effectiveResourceGroups`. \
+   This field will be the **source of truth** about the quotas, replacing `.spec.resourceGroups` throughout the existing logic.
+2. When quota automation is **disabled**, the Kueue core ClusterQueue controller will just copy `.spec.resourceGroups` to `.status.effectiveResourceGroups`.
+   * Later on, this syncing may become non-trivial, e.g. to implement [KEP-8826](https://github.com/kubernetes-sigs/kueue/pull/8864).
+3. When quota automation is **enabled**, the Kueue core ClusterQueue controller will hand over managing `.status.effectiveResourceGroups` to the MultiKueue ClusterQueue controller, which will aggregate quotas as outlined in this KEP.
+4. To avoid confusion, we'll **require** that CQs with quota automation enabled must have the `.spec.resourceGroups` field cleared (by the user).
+   * *Why* do this? Otherwise, we'd need to ignore `.spec.resourceGroups`, breaking the current Kueue contracts.
+   * *How* do this? There are 2 feasible strategies:
+     * Move `QuotaManagement` to ClusterQueueSpec and introduce a strict (kubebuilder) validation rule
+     * Keep `QuotaManagement` in MultiKueueConfig and make a ClusterQueue `Inactive` when the constraint is violated.
+
+We **postpone** this to Alpha2 in order to earn more time for carefully planning the API changes, and considering risks related to cross-version compatibility.
+
+Yet, we plan to deliver an Alpha1 version even before that happens - because the core functionality (managing quotas and workloads in MultiKueue) is going to be unaffected.
+
+More specifically, the KEP will be adjusted to use the [Dynamic Quota Orchestration (KEP-14104)](https://github.com/kubernetes-sigs/kueue/pull/14104) mechanism.
 
 #### Use cached remote clients for low-volume resource kinds
 
-*(Implemented via `SelectivelyCachingClient`)*
+Currently, the MultiKueue controllers use cached K8s clients for local (manager-side) resources but uncached clients for remote resources. Just enabling cache for remote clients does feel risky, as it could use much memory for Workloads and supported job kinds (which can exist in large numbers).
 
-Remote `MultiKueueCluster` clients now use `SelectivelyCachingClient` (`pkg/controller/admissionchecks/multikueue/remote_client.go`), which caches `LocalQueue`, `ClusterQueue`, and `Workload` objects on remote worker clusters while using uncached clients for job kinds.
+However, the remote API calls introduced in this KEP involve only "memory-light" resource kinds (LocalQueues and ClusterQueues), for which caching would pose no risk, while avoiding duplication in some cases. \
+(In case of a [many-to-many relation](#defining-related-worker-clusterqueues) between manager-side and worker-side ClusterQueues, a change of worker-side `Q'` would trigger reconciles of multiple manager-side ClusterQueues, each of which would make the same remote API `.List()` calls, almost simultaneously).
+
+Then, it seems a promising optimization to cache remote clients _only for selected resource kinds_. \
+This could be implemented by equipping the internal [`remoteClient` structure](https://github.com/kubernetes-sigs/kueue/blob/76676f599fc87883156c81516ea91b9b65cc70fd/pkg/controller/admissionchecks/multikueue/multikueuecluster.go#L91-L109) with **two** API clients, the old uncached one (to be used for Workloads etc.), and a new cached one (to be used for LocalQueues etc.). To ensure proper choices among them, both could be wrapped with tiny facades throwing on calls for resource kinds outside an allowlist.
+
+We postpone this as doing it right may still involve some complexity. For example, it's not clear how to avoid duplicating API watches (see item 3 in the description of [#10629](http://github.com/kubernetes-sigs/kueue/issues/10629)).
 
 #### Add a way to adjust the manager-side quota
 
-*(Resolved in Alpha2 via [Dynamic Quota Orchestration (KEP-12382)](../12382-dynamic-quota-orchestration/README.md))*
+As explained in [Factors influencing desired manager quota](#factors-influencing-desired-manager-quota), some users may want to keep their manager-side quota higher or lower than the sum of worker quotas. A configurable **quota multiplier** seems robust enough to address most use cases.
 
-As explained in [Factors influencing desired manager quota](#factors-influencing-desired-manager-quota), users may want to keep their manager-side quota higher (e.g., candidate overbooking) or lower (e.g., reserving worker capacity for stray local workloads) than 100% of the sum of worker quotas, or split total worker capacity proportionally across per-team manager `ClusterQueue`s in a `Cohort`.
+Our initial idea was to let it affect the manager-side `nominalQuota`; however, that was considered confusing by most reviewers. 
 
-By integrating MultiKueue as a `CapacityProvider` in Alpha2, both capabilities are provided natively by `DynamicQuotaOrchestrator`:
-* `spec.capacityDiscovery.providers[].effectiveCapacityMultiplier` scales the discovered MultiKueue capacity before distribution.
-* `spec.capacityDistribution.subtreeRootQuotaRef` can target a manager `Cohort` (or `ClusterQueue`), proportionally splitting the scaled capacity across child `ClusterQueue`s according to their `spec.resourceGroups` weights.
+Another option is to re-use the concept of "effective quota", or "accessible quota" in terms of [KEP-8826](https://github.com/kubernetes-sigs/kueue/pull/8864); that is, leave `nominalQuota` unchanged but apply the mulitplier on the level of "accessible quota" which would be the one actually enforced. This would allow to keep `nominalQuota` serving [User Story 4](#story-4) while letting the multiplier affect the actual dispatching behavior.
+
+This may combine well with the idea of [moving aggregated quotas out of ClusterQueueSpec](#move-the-aggregated-quota-out-of-clusterqueuespec).
 
 #### Change the treatment of ResourceFlavors
 
-While the proposed treatment of flavors (require a single orchestrated flavor in `CapacityProvider.spec.orchestratedFlavors`; aggregate all worker quotas into it) is the simplest one which avoids the [issue of manager/worker flavor skew](#treatment-of-resourceflavors), it may be too simplistic for some use cases involving _mutually exclusive_ flavors on the workers (e.g. CPU-only vs. GPU-only, or TAS flavors based on mutually incompatible topologies). In those cases, the flavor skew can't occur; on the other hand, a single manager-side flavor combining all the worker flavors could be misleading, or even impossible to define.
+While the proposed treatment of flavors (require a single flavor on the manager; aggregate all worker quotas into it) is the simplest one which avoids the [issue of manager/worker flavor skew](#treatment-of-resourceflavors), it may be too simplistic for some use cases involving _mutually exclusive_ flavors on the workers (e.g. CPU-only vs. GPU-only, or TAS flavors based on mutually incompatible topologies). In those cases, the flavor skew can't occur; on the other hand, a single manager-side flavor combining all the worker flavors could be misleading, or even impossible to define.
 
-To handle such cases well in a future iteration, we could extend the MultiKueue `CapacityProvider` when `len(spec.orchestratedFlavors) > 1` to support:
-* **1:1 flavor matching**: When `spec.orchestratedFlavors` lists multiple flavors matching worker-side `ResourceFlavor` names, aggregate worker quotas separately per matching `(ResourceFlavor, ResourceName)` pair.
-* **Explicit flavor equivalence mapping**: Allow mapping equivalence classes of worker flavors onto manager flavors via provider parameters.
+To handle such cases well, without introducing confusion in the other cases, we'd need roughly to:
 
-This is postponed to a future iteration as we gather user feedback on Alpha2.
+- capture the "mutually exclusive" relationship among ResourceFlavors with a strict definition;
+- replace the constraint guarding quota automation with a more complex one, in the spirit of "there is exactly one manager-side flavor _per equivalence class of non-mutually-exclusive flavors_".
+
+Then, on top of that, we could consider auto-creating missing manager flavors, per such "equivalence classes".
+
+This seems promising but needs more discussion and research of use cases to hammer out the details.
+
+This may combine well with the idea of [moving aggregated quotas out of ClusterQueueSpec](#move-the-aggregated-quota-out-of-clusterqueuespec): for example, we could do the following:
+
+* Let `.status.effectiveResourceGroups` contain quotas aggregated **separately** per each worker-side flavor. \
+  (Possibly breaking some flavor-related constraints that currently exist for `.spec.resourceGroups` - but we could relax those constraints on the `.status` side).
+* Internally (for the purpose of manager-side flavor assignment), treat `.status.effectiveResourceGroups` **as if** it was aggregated into a single flavor.
+  (Thus eliminating the risk of manager/worker flavor skew, and removing the need for the flavor-related constraints).
 
 #### Account for temporarily unavailable workers
 
-When a single worker cluster (out of $N > 1$ worker clusters) becomes unreachable (e.g. due to network issues), its admitted workloads are still considered admitted on the manager side until `workerLostTimeout` expires, while its quota is excluded from the MultiKueue `CapacityProvider` sum. (Note: when *all* worker clusters in a `MultiKueueConfig` become unreachable, the MultiKueue `CapacityProvider` sets `CapacitySynchronized=False` with reason `SourceUnavailable`, which causes `DynamicQuotaOrchestrator` to preserve the last known good `status.effectiveQuotas`).
+When a worker cluster becomes unreachable (e.g. due to network issues), its admitted workloads are still considered admitted on the manager side, until `workerLostTimeout` expires. On the other hand, our proposed approach for determining total worker-side quotas (relying on fetching `nominalQuota` from all workers) will not include quotas of any disconnected worker clusters. 
 
-For partial worker disconnections ($1$ of $N$ workers unreachable), this discrepancy may lead to temporary under-utilization of the remaining healthy fleet resources. For example, if there are 3 workers, each with 10 CPU capacity, and we're running a single workload, consuming 7 CPU, on `worker1` which gets disconnected, then the manager ClusterQueue will have its effective `nominalQuota` set to 20, with 7 of that already used, leaving just 13 CPU for new workloads on `worker2` and `worker3` which are both empty.
+This discrepancy may lead to temporary under-utilization of the fleet resources. For example, if there are 3 workers, each with 10 CPU capacity, and we're running a single workload, consuming 7 CPU, on `worker1` which gets disconnected, then the manager ClusterQueue will have its `nominalQuota` set to 20, with 7 of that already used, leaving just 13 CPU for new workloads on `worker2` and `worker3` which are both empty.
 
 To cover for that, we could increase the manager-side quota by the sum of requests of all workloads which are admitted on the manager but their assigned worker clusters have remote clients which are currently `.connecting`. (Notably, all this info is available on the manager side, without querying the workers).
 
@@ -597,60 +558,41 @@ Issue [#5704](https://github.com/kubernetes-sigs/kueue/issues/5704) aims at allo
 
 ### Graduation Criteria
 
-* **Alpha1 (v0.18):**
+* **Alpha1:**
   * The feature implemented behind the `MultiKueueManagerQuotaAutomation` feature gate, disabled by default.
   * Execution of the newly introduced API calls (local & remote) is guarded by feature gates.
   * Tests are implemented.
 
-* **Alpha2 (v0.21):**
-  * Integrate MultiKueue Manager Quota Automation with [Dynamic Quota Orchestration (KEP-12382)](../12382-dynamic-quota-orchestration/README.md) by implementing the built-in MultiKueue `CapacityProvider` controller (`controllerName: kueue.x-k8s.io/multikueue`).
-  * Decommission the Alpha1 `ClusterQueue.spec.resourceGroups` mutating reconciler and deprecate/remove `MultiKueueConfig.spec.quotaManagement` and the `MultiKueueManagerQuotaAutomation` `ClusterQueue` condition.
-  * Support reading remote worker `ClusterQueue.status.effectiveQuotas.resourceGroups` when present (falling back to `spec.resourceGroups`).
-  * Unit, integration, and e2e tests updated for the `CapacityProvider` + `DynamicQuotaOrchestrator` workflow.
+* **Alpha2:**
+  * The API has been updated to avoid auto-updating ClusterQueueSpec. (See [Drawback 1](#drawbacks) and [this improvement idea](#move-the-aggregated-quota-out-of-clusterqueuespec)).
 
 * **Beta:**
-  * The feature gates (`MultiKueueManagerQuotaAutomation` and `DynamicQuotaOrchestration`) are enabled by default.
-  * User documentation is published on the website (including `CapacityProvider` and `DynamicQuotaOrchestrator` configuration examples for MultiKueue).
-  * The feature is mentioned in the release notes, in particular mentioning how to opt in/out and migrate from static quotas.
+  * The feature gate is enabled by default.
+  * User documentation is published on the website.
+  * The feature is mentioned in the release notes, in particular mentioning how to opt out.
   * The feature has been successfully used in a production environment.
   * [Future work ideas](#future-work-ideas) have been reconsidered, based on any newly gathered feedback.
   * No warning signs on performance were seen (in particular, no news of any external automation of worker ClusterQueue quotas) - or, if any were, they have been addressed.
 
 * **Stable:**
   * The feature (offered functionality, API surface and implementation) has stabilized, without raising concerns.
-  * The feature gates are locked to `true` (and then cleaned up in a later release).
+  * The feature gate is locked to `true` (and then cleaned up in a later release).
 
 ## Drawbacks
 
-Besides introducing some risks (see [Risks and Mitigations](#risks-and-mitigations)), the proposed solution has the following trade-offs:
+Besides introducing some risks (see [Risks and Mitigations](#risks-and-mitigations)), the proposed solution feels suboptimal mostly in the following ways:
 
-1. *(Eliminated in Alpha2)* In Alpha1, Kueue modified `.spec.resourceGroups` of `ClusterQueue` objects it reconciled, blurring the line between user-managed configuration and controller-managed state and risking GitOps drift. In Alpha2, this drawback is eliminated by publishing discovered capacity to `CapacityProvider.status.capacity` and writing effective quotas to `ClusterQueue.status.effectiveQuotas` via `DynamicQuotaOrchestrator`, at the cost of requiring administrators to create `CapacityProvider` and `DynamicQuotaOrchestrator` resources when opting into quota automation.
+1. We allow Kueue to modify `spec` of objects it's supposed to reconcile (specifically, ClusterQueues).
+   This may be perceived as a design smell because:
 
-2. While manager-side `Cohort` proportional quota distribution is supported in Alpha2 via `DynamicQuotaOrchestrator`, we have still ignored worker-side `Cohort` shared quota and borrowing when calculating discovered worker capacity. This is deliberate to retain reasonable simplicity in the Alpha stage. (See [Take Cohorts into account](#take-cohorts-into-account) in the Alternatives section).
+   * It blurs the line between configuration (managed by users) and state (managed by controllers).
+   * It brings a risk of an infinite reconciling loop (see [Risk 4](#risks-and-mitigations)).
+
+   While we propose accepting this drawback for Alpha1, our plan for Alpha2 is to eliminate this drawback by [this follow-up idea](#move-the-aggregated-quota-out-of-clusterqueuespec).
+
+2. We have fully ignored the topic of Cohorts, shared quota and quota borrowing. This is deliberate, and intended to retain any reasonable simplicity of the feature, at least in the Alpha stage. (See [Take Cohorts into account](#take-cohorts-into-account) in the Alternatives section).
 
 ## Alternatives
-
-### Direct mutation of `ClusterQueue.status.effectiveQuotas` by MultiKueue (bypassing DQO)
-
-Instead of implementing a `CapacityProvider` controller that feeds into `DynamicQuotaOrchestrator`, the Alpha1 `cqReconciler` could have been updated to write aggregated worker quotas directly into `ClusterQueue.status.effectiveQuotas` (setting `orchestratorRef` to the `MultiKueueConfig`) while keeping `MultiKueueConfig.spec.quotaManagement: Automated`.
-
-**Reasons for discarding**
-
-* It duplicates or bypasses the capabilities already implemented in `DynamicQuotaOrchestrator` (KEP-12382), such as `effectiveCapacityMultiplier` (for candidate overbooking or headroom buffering) and proportional quota distribution across a manager `Cohort` subtree.
-* It prevents composing MultiKueue capacity with other capacity providers (e.g., local node capacity or DRA) within a unified orchestration pipeline, and would trigger `EffectiveQuotasConflict` if a user also attached a `DynamicQuotaOrchestrator` to a parent `Cohort`.
-* It couples workload dispatch configuration (`MultiKueueConfig`, which is an `AdmissionCheck` parameters resource) with quota orchestration configuration.
-
-### Referencing `ClusterQueue` or a dedicated CRD in `CapacityProvider.spec.parameters`
-
-Instead of referencing `MultiKueueConfig` in `CapacityProvider.spec.parameters`, we considered:
-1. Referencing a manager `ClusterQueue` directly (`kind: ClusterQueue`), or
-2. Introducing a dedicated `MultiKueueCapacityProviderConfig` CRD in `kueue.x-k8s.io/v1alpha1`.
-
-**Reasons for discarding/deferring**
-
-* Referencing `MultiKueueConfig` (`apiGroup: kueue.x-k8s.io, kind: MultiKueueConfig`) mirrors how MultiKueue `AdmissionCheck`s reference `MultiKueueConfig` in `spec.parametersRef` and avoids introducing an extra CRD in Alpha2 when no additional configuration fields are required.
-* Unlike referencing a single manager `ClusterQueue`, referencing `MultiKueueConfig` naturally supports setups where a `DynamicQuotaOrchestrator` distributes quota across a manager `Cohort` containing multiple team `ClusterQueue`s that share the same `MultiKueueConfig`.
-* If future iterations require MultiKueue-specific capacity provider knobs (such as explicit worker `ClusterQueue` selectors or custom flavor-equivalence mappings), `CapacityProvider.spec.parameters` (`APIGroup`, `Kind`, `Name`) can accept a dedicated parameters CRD without breaking the `CapacityProvider` API.
 
 ### Support quota automation for multiple manager-side ResourceFlavors
 
