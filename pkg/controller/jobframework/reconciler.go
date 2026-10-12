@@ -1834,9 +1834,13 @@ func deferAdmissionCheckNodeSelectorsToPods(ctx context.Context, c client.Client
 	for i := range info {
 		infoByName[info[i].Name] = &info[i]
 	}
-	baseByName := make(map[kueue.PodSetReference]podset.PodSetInfo, len(wl.Status.Admission.PodSetAssignments))
-	for i := range wl.Status.Admission.PodSetAssignments {
-		base, err := podset.FromAssignment(ctx, c, &wl.Status.Admission.PodSetAssignments[i], &wl.Spec.PodSets[i])
+	assignments, err := podSetAssignmentsInSpecOrder(wl)
+	if err != nil {
+		return err
+	}
+	baseByName := make(map[kueue.PodSetReference]podset.PodSetInfo, len(assignments))
+	for i := range assignments {
+		base, err := podset.FromAssignment(ctx, c, &assignments[i], &wl.Spec.PodSets[i])
 		if err != nil {
 			return err
 		}
@@ -2162,9 +2166,13 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		return nil, nil
 	}
 
-	podSetsInfo := make([]podset.PodSetInfo, len(w.Status.Admission.PodSetAssignments))
+	assignments, err := podSetAssignmentsInSpecOrder(w)
+	if err != nil {
+		return nil, err
+	}
+	podSetsInfo := make([]podset.PodSetInfo, len(assignments))
 
-	for i, psAssignment := range w.Status.Admission.PodSetAssignments {
+	for i, psAssignment := range assignments {
 		info, err := podset.FromAssignment(ctx, c, &psAssignment, &w.Spec.PodSets[i])
 		if err != nil {
 			return nil, err
@@ -2200,6 +2208,22 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		podSetsInfo[i] = info
 	}
 	return podSetsInfo, nil
+}
+
+// podSetAssignmentsInSpecOrder reorders the admission, which lists the members
+// of a PodSet group together, into the spec order in which integrations apply
+// PodSet info.
+func podSetAssignmentsInSpecOrder(wl *kueue.Workload) ([]kueue.PodSetAssignment, error) {
+	byName := slices.ToRefMap(wl.Status.Admission.PodSetAssignments, func(psa *kueue.PodSetAssignment) kueue.PodSetReference { return psa.Name })
+	ordered := make([]kueue.PodSetAssignment, len(wl.Spec.PodSets))
+	for i := range wl.Spec.PodSets {
+		psa, found := byName[wl.Spec.PodSets[i].Name]
+		if !found {
+			return nil, fmt.Errorf("%w: admission has no assignment for PodSet %q", podset.ErrInvalidPodsetInfo, wl.Spec.PodSets[i].Name)
+		}
+		ordered[i] = *psa
+	}
+	return ordered, nil
 }
 
 func assignQueueLabels(ctx context.Context, labels map[string]string, wl *kueue.Workload) {
