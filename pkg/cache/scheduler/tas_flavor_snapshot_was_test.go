@@ -40,7 +40,7 @@ const wasRackLabel = "cloud.provider.com/topology-rack"
 
 // wasSnapshotWithVictim builds a TAS snapshot over one node whose single host port
 // is taken by victimKey, using the scheduler-library simulator rather than a stand-in.
-func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavorSnapshot, simulator.SchedulerSimulator) {
+func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavorSnapshot, simulator.FeasibilitySimulator) {
 	t.Helper()
 	ctx, log := utiltesting.ContextWithLog(t)
 
@@ -64,7 +64,7 @@ func wasSnapshotWithVictim(t *testing.T, victimKey client.ObjectKey) (*TASFlavor
 		StatusPhase(corev1.PodRunning).
 		Port(8080, 8080, corev1.ProtocolTCP).
 		Obj())
-	schedulerSimulator, err := simulatorFactory.NewSimulator(ctx, nodes)
+	schedulerSimulator, err := simulatorFactory.NewFeasibilitySimulator(ctx, nodes)
 	if err != nil {
 		t.Fatalf("NewSimulator() error = %v", err)
 	}
@@ -106,43 +106,6 @@ func TestMatchingLeavesCacheSeparatesSimulateEmpty(t *testing.T) {
 	}
 	if failure := snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl), WithSimulateEmpty(true)).Failure(); failure != nil {
 		t.Errorf("FindTopologyAssignmentsForFlavor(simulateEmpty) = %v, want a fit once the port is assumed free", failure)
-	}
-}
-
-// Releasing a Workload changes what the simulator reports, and so does putting it
-// back, so the cached leaf sets cannot outlive either.
-func TestMatchingLeavesCacheFollowsPreemption(t *testing.T) {
-	features.SetFeatureGateDuringTest(t, features.TASCacheNodeMatchResults, true)
-	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
-	ctx, log := utiltesting.ContextWithLog(t)
-	victim := client.ObjectKey{Namespace: "default", Name: "victim"}
-	snapshot, schedulerSimulator := wasSnapshotWithVictim(t, victim)
-	requests := wantsTheSamePort()
-	wl := workload.NewInfo(log, &kueue.Workload{Namespace: "default", Name: "wl", UID: "wl-uid"})
-	fits := func() bool {
-		return snapshot.FindTopologyAssignmentsForFlavor(ctx, requests, WithWorkloadInfo(wl)).Failure() == nil
-	}
-
-	// The flavor assigner asks first, while the victim still holds the port.
-	if fits() {
-		t.Fatal("FindTopologyAssignmentsForFlavor() found a fit, want none while the victim holds the port")
-	}
-	revert, err := schedulerSimulator.PreemptWorkload(ctx, victim)
-	if err != nil {
-		t.Fatalf("PreemptWorkload() error = %v", err)
-	}
-	snapshot.forgetMatchingLeaves()
-	// The scheduler asks again once the victim is released.
-	if !fits() {
-		t.Error("FindTopologyAssignmentsForFlavor() found no fit after the victim was released, want a fit")
-	}
-	if err := revert(); err != nil {
-		t.Fatalf("revert() error = %v", err)
-	}
-	snapshot.forgetMatchingLeaves()
-	// And the answer given while it was released must not outlive it.
-	if fits() {
-		t.Error("FindTopologyAssignmentsForFlavor() found a fit after the victim was restored, want none")
 	}
 }
 

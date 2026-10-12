@@ -153,6 +153,14 @@ func NewWASSimulatorFactory(ctx context.Context, restConfig *rest.Config) (*wasS
 }
 
 func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
+	return s.newSimulator(ctx, nodes, options...)
+}
+
+func (s *wasSimulatorFactory) NewFeasibilitySimulator(ctx context.Context, nodes []*corev1.Node, options ...simulator.Option) (simulator.FeasibilitySimulator, error) {
+	return s.newSimulator(ctx, nodes, options...)
+}
+
+func (s *wasSimulatorFactory) newSimulator(ctx context.Context, nodes []*corev1.Node, options ...simulator.Option) (*wasSimulator, error) {
 	tracker := s.pods.copy()
 
 	for _, wl := range simulator.AssumedWorkloads(options...) {
@@ -183,10 +191,6 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 	}
 
 	return snapshot, nil
-}
-
-func (s *wasSimulatorFactory) NewFeasibilitySimulator(ctx context.Context, nodes []*corev1.Node, options ...simulator.Option) (simulator.FeasibilitySimulator, error) {
-	return s.NewSimulator(ctx, nodes, options...)
 }
 
 // podsNotManagedByKueue returns the Pods that belong to no Workload. Preemption

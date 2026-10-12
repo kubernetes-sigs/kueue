@@ -43,10 +43,10 @@ type tasCache struct {
 
 	nonTasUsageCache *nonTasUsageCache
 	nodesCache       *nodesCache
-	simulatorFactory simulator.Factory
+	podObserver      simulator.PodObserver
 }
 
-func NewTASCache(client client.Client, simulatorFactory simulator.Factory, resourceFormatter *resources.ResourceFormatter) tasCache {
+func NewTASCache(client client.Client, podObserver simulator.PodObserver, resourceFormatter *resources.ResourceFormatter) tasCache {
 	return tasCache{
 		client:            client,
 		flavors:           make(map[kueue.ResourceFlavorReference]flavorInformation),
@@ -58,8 +58,8 @@ func NewTASCache(client client.Client, simulatorFactory simulator.Factory, resou
 			nodeUsage: make(map[string]resources.Requests),
 			lock:      sync.RWMutex{},
 		},
-		nodesCache:       newNodesCache(),
-		simulatorFactory: simulatorFactory,
+		nodesCache:  newNodesCache(),
+		podObserver: podObserver,
 	}
 }
 
@@ -157,12 +157,12 @@ func (t *tasCache) DeleteNonTASUsageByKey(key client.ObjectKey, log logr.Logger)
 
 // TrackPod notifies the scheduling simulator that a pod is running on a node.
 func (t *tasCache) TrackPod(ctx context.Context, pod *corev1.Pod) {
-	t.simulatorFactory.TrackPod(ctx, pod)
+	t.podObserver.TrackPod(ctx, pod)
 }
 
 // UntrackPod notifies the scheduling simulator that a pod has been removed.
 func (t *tasCache) UntrackPod(ctx context.Context, key client.ObjectKey) {
-	t.simulatorFactory.UntrackPod(ctx, key)
+	t.podObserver.UntrackPod(ctx, key)
 }
 
 func (t *tasCache) SyncNode(node *corev1.Node) {

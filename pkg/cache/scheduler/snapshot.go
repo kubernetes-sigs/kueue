@@ -294,21 +294,19 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		var err error
-		var errs []error
-		snap.SchedulerSimulator, err = c.simulatorFactory.NewSimulator(
+		var schedSimErr error
+		snap.SchedulerSimulator, schedSimErr = c.simulatorFactory.NewSimulator(
 			ctx,
 			c.tasCache.nodesCache.getAllNodes(),
 			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
 		)
-		errs = append(errs, err)
-		snap.FeasibilitySimulator, err = c.simulatorFactory.NewFeasibilitySimulator(
+		var feasSimErr error
+		snap.FeasibilitySimulator, feasSimErr = c.simulatorFactory.NewFeasibilitySimulator(
 			ctx,
 			c.tasCache.nodesCache.getAllNodes(),
 			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
 		)
-		errs = append(errs, err)
-		if err = errors.Join(errs...); err != nil {
+		if err := errors.Join(schedSimErr, feasSimErr); err != nil {
 			return nil, err
 		}
 		// Wrapping here rather than inside a simulator keeps the device check on
@@ -362,7 +360,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			tasSnapshots[flavor], err = cache.snapshot(
 				ctx,
 				log,
-				snap.SchedulerSimulator,
+				snap.FeasibilitySimulator,
 				aggregatedDomainUsagesForFlavor,
 			)
 			if err != nil {
