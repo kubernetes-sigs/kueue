@@ -146,7 +146,7 @@ func (s *wasSimulator) Simulate(ctx context.Context, fn func()) error {
 }
 
 func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
-	workloadPods = copyPodsForSimulation(workloadPods...)
+	workloadPods = copyWithDefaultScheduler(workloadPods...)
 	wasResults, err := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, schedlib.ScheduleWorkloadOptions{DryRun: true})
 	if err != nil {
 		return simulator.SchedulingResult{Error: err}
@@ -179,7 +179,7 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 	return simulator.SchedulingResult{PodPlacements: placements}
 }
 
-func copyPodsForSimulation(pods ...*corev1.Pod) []*corev1.Pod {
+func copyWithDefaultScheduler(pods ...*corev1.Pod) []*corev1.Pod {
 	copiedPods := make([]*corev1.Pod, len(pods))
 	for i, pod := range pods {
 		copiedPods[i] = pod.DeepCopy()
