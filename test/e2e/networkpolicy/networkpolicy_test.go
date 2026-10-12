@@ -32,7 +32,8 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 const (
@@ -55,9 +56,9 @@ var _ = ginkgo.Describe("NetworkPolicies", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-netpol-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-netpol-")
 		defaultRF = utiltestingapi.MakeResourceFlavor(defaultFlavor).Obj()
-		util.MustCreate(ctx, k8sClient, defaultRF)
+		behavioral.MustCreate(ctx, k8sClient, defaultRF)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(
@@ -66,18 +67,18 @@ var _ = ginkgo.Describe("NetworkPolicies", func() {
 					Obj(),
 			).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultRF, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultRF, true)
 	})
 
 	ginkgo.It("should have the ControllerManager policy applied", func() {
@@ -105,7 +106,7 @@ var _ = ginkgo.Describe("NetworkPolicies", func() {
 			Obj()
 
 		ginkgo.By("Creating the job, which the mutating webhook has to admit", func() {
-			util.MustCreate(ctx, k8sClient, job)
+			behavioral.MustCreate(ctx, k8sClient, job)
 		})
 
 		ginkgo.By("Waiting for the workload to be admitted", func() {
@@ -113,7 +114,7 @@ var _ = ginkgo.Describe("NetworkPolicies", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
 				g.Expect(createdJob.Spec.Suspend).To(gomega.Equal(new(false)))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			wlKey := client.ObjectKey{
 				Namespace: ns.Name,
@@ -121,7 +122,7 @@ var _ = ginkgo.Describe("NetworkPolicies", func() {
 			}
 			wl := &kueue.Workload{}
 			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 		})
 	})
 
@@ -130,63 +131,70 @@ var _ = ginkgo.Describe("NetworkPolicies", func() {
 			_, err := visibilityClient.ClusterQueues().GetPendingWorkloadsSummary(
 				ctx, clusterQueue.Name, metav1.GetOptions{})
 			g.Expect(err).NotTo(gomega.HaveOccurred())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("should keep a listed port reachable from another pod", func() {
 		managerIP := managerPodIP()
 
 		probe := testingpod.MakePod("netpol-probe", ns.Name).
-			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			Obj()
-		util.MustCreate(ctx, k8sClient, probe)
-		util.WaitForPodRunning(ctx, k8sClient, probe)
+		behavioral.MustCreate(ctx, k8sClient, probe)
+		e2e.WaitForPodRunning(ctx, k8sClient, probe)
 
 		container := probe.Spec.Containers[0].Name
 
 		ginkgo.By("Connecting to the metrics port, which the policy allows", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				_, _, err := util.KExecute(ctx, cfg, restClient, ns.Name, probe.Name, container,
+				_, _, err := e2e.KExecute(ctx, cfg, restClient, ns.Name, probe.Name, container,
 					connectCmd(managerIP, metricsPort))
 				g.Expect(err).NotTo(gomega.HaveOccurred())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
 	ginkgo.It("should deny a port the policy does not list", func() {
 		listener := newPolicyCoveredListener()
-		util.MustCreate(ctx, k8sClient, listener)
+		behavioral.MustCreate(ctx, k8sClient, listener)
 		ginkgo.DeferCleanup(func() {
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, listener)).To(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, listener)).To(gomega.Succeed())
 		})
-		util.WaitForPodRunning(ctx, k8sClient, listener)
+		e2e.WaitForPodRunning(ctx, k8sClient, listener)
 
 		listenerIP := podIP(listener)
+		ginkgo.By("Confirming the unlisted port is listening inside the pod", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				_, _, err := e2e.KExecute(ctx, cfg, restClient, kueueNS, listener.Name,
+					listener.Spec.Containers[0].Name, connectCmd("127.0.0.1", unlistedPort))
+				g.Expect(err).NotTo(gomega.HaveOccurred())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
 
 		probe := testingpod.MakePod("netpol-probe", ns.Name).
-			Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 			TerminationGracePeriod(1).
 			Obj()
-		util.MustCreate(ctx, k8sClient, probe)
-		util.WaitForPodRunning(ctx, k8sClient, probe)
+		behavioral.MustCreate(ctx, k8sClient, probe)
+		e2e.WaitForPodRunning(ctx, k8sClient, probe)
 
 		container := probe.Spec.Containers[0].Name
 
 		ginkgo.By("Reaching the listed port, which shows the listener is up", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
-				_, _, err := util.KExecute(ctx, cfg, restClient, ns.Name, probe.Name, container,
+				_, _, err := e2e.KExecute(ctx, cfg, restClient, ns.Name, probe.Name, container,
 					connectCmd(listenerIP, metricsPort))
 				g.Expect(err).NotTo(gomega.HaveOccurred())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("Failing to reach the unlisted port on the same pod", func() {
 			gomega.Consistently(func(g gomega.Gomega) {
-				_, _, err := util.KExecute(ctx, cfg, restClient, ns.Name, probe.Name, container,
+				_, _, err := e2e.KExecute(ctx, cfg, restClient, ns.Name, probe.Name, container,
 					connectCmd(listenerIP, unlistedPort))
 				g.Expect(err).To(gomega.HaveOccurred())
-			}, util.ConsistentDuration, util.ShortInterval).Should(gomega.Succeed())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })
@@ -197,7 +205,7 @@ var _ = ginkgo.Describe("NetworkPolicies", func() {
 // of the Kueue Services, which select on that same label.
 func newPolicyCoveredListener() *corev1.Pod {
 	listener := testingpod.MakePod("netpol-listener", kueueNS).
-		Image(util.GetAgnHostImage(), []string{"netexec", fmt.Sprintf("--http-port=%d", metricsPort)}).
+		Image(e2e.GetAgnHostImage(), []string{"netexec", fmt.Sprintf("--http-port=%d", metricsPort), "--udp-port=-1"}).
 		Label("control-plane", managerSelector["control-plane"]).
 		TerminationGracePeriod(1).
 		Obj()
@@ -206,8 +214,8 @@ func newPolicyCoveredListener() *corev1.Pod {
 	}
 	listener.Spec.Containers = append(listener.Spec.Containers, corev1.Container{
 		Name:  "unlisted",
-		Image: util.GetAgnHostImage(),
-		Args:  []string{"netexec", fmt.Sprintf("--http-port=%d", unlistedPort)},
+		Image: e2e.GetAgnHostImage(),
+		Args:  []string{"netexec", fmt.Sprintf("--http-port=%d", unlistedPort), "--udp-port=-1"},
 	})
 	return listener
 }
@@ -230,7 +238,7 @@ func podIP(pod *corev1.Pod) string {
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), created)).To(gomega.Succeed())
 		g.Expect(created.Status.PodIP).NotTo(gomega.BeEmpty())
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	return created.Status.PodIP
 }
 

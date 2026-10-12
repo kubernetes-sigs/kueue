@@ -244,11 +244,10 @@ mutatingWebhook:
   # -- MutatingWebhookConfiguration's reinvocationPolicy
   reinvocationPolicy: Never
 networkPolicy:
-  # -- Enable NetworkPolicies restricting traffic to the Kueue components. Requires a CNI
-  # plugin that enforces NetworkPolicy, and cannot be combined with
-  # controllerManager.hostNetwork, because most CNI plugins do not apply NetworkPolicy to
-  # host-network pods.
-  enabled: false
+  # -- Enable ingress NetworkPolicies for the Kueue components. Requires NetworkPolicy
+  # enforcement. ControllerManager policies are skipped when controllerManager.hostNetwork
+  # is enabled because enforcement for host-network pods depends on the CNI plugin.
+  enabled: true
   # -- Additional ingress rules appended to the ControllerManager's NetworkPolicy. Ingress
   # rules are additive, so these permit extra traffic and cannot narrow the built-in rules.
   extraIngress: []

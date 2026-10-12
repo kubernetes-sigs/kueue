@@ -27,7 +27,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	visibility "sigs.k8s.io/kueue/client-go/clientset/versioned/typed/visibility/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var (
@@ -35,26 +36,26 @@ var (
 	ctx              context.Context
 	cfg              *rest.Config
 	restClient       *rest.RESTClient
-	kueueNS          = util.GetKueueNamespace()
+	kueueNS          = e2e.GetKueueNamespace()
 	visibilityClient visibility.VisibilityV1beta2Interface
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunE2ESuite(t, "End To End NetworkPolicy Suite")
+	e2e.RunE2ESuite(t, "End To End NetworkPolicy Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
-	util.SetupLogger()
+	behavioral.SetupLogger()
 
 	var err error
-	k8sClient, cfg, err = util.CreateClientUsingCluster("")
+	k8sClient, cfg, err = e2e.CreateClientUsingCluster("")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	restClient = util.CreateRestClient(cfg)
-	visibilityClient = util.CreateVisibilityClient("")
+	restClient = e2e.CreateRestClient(cfg)
+	visibilityClient = e2e.CreateVisibilityClient("")
 	ctx = ginkgo.GinkgoT().Context()
 
 	waitForAvailableStart := time.Now()
-	util.WaitForKueueAvailability(ctx, k8sClient)
+	e2e.WaitForKueueAvailability(ctx, k8sClient)
 	ginkgo.GinkgoLogr.Info(
 		"Kueue is available in the cluster with the network policies applied",
 		"waitingTime", time.Since(waitForAvailableStart),

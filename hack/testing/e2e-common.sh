@@ -996,14 +996,7 @@ function cluster_kueue_deploy {
             build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/whole-device"
         fi
     elif [ "$E2E_USE_HELM" == 'true' ]; then
-        # Suites that need chart values beyond the defaults ship their own values.yaml,
-        # layered on top rather than replacing them.
-        local extra_values="${ROOT_DIR}/test/e2e/config/${E2E_CONFIG_FOLDER:-default}/values.yaml"
-        if [[ "${E2E_CONFIG_FOLDER:-default}" != "default" && -f "${extra_values}" ]]; then
-            helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml" "${ROOT_DIR}/test/e2e/config/${E2E_CONFIG_FOLDER}" "${extra_values}"
-        else
-            helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml" "${ROOT_DIR}/test/e2e/config/${E2E_CONFIG_FOLDER:-default}"
-        fi
+        helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml" "${ROOT_DIR}/test/e2e/config/${E2E_CONFIG_FOLDER:-default}"
     else
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/${E2E_CONFIG_FOLDER:-default}"
     fi
@@ -1015,18 +1008,9 @@ function cluster_kueue_deploy {
 # $2 values file
 # $3 kustomization config whose kueue-manager-config and controller-manager
 #    replicas are used, so that Helm and kustomize installs share them
-# $4.. optional additional values files, applied after $2
 function helm_install {
-    local kubeconfig=$1
-    local values_file=$2
-    local config_folder=$3
-    shift 3
-    local values_args=(-f "$values_file")
-    for values_file in "$@"; do
-        values_args+=(-f "$values_file")
-    done
     local manifests manager_config replicas
-    manifests=$($KUSTOMIZE build "$config_folder")
+    manifests=$($KUSTOMIZE build "$3")
     manager_config=$(mktemp)
     # shellcheck disable=SC2064 # Intentionally expand now to capture the temp file path
     trap "rm -f '$manager_config'" RETURN
@@ -1035,14 +1019,14 @@ function helm_install {
     replicas=$($YQ -e 'select(.kind == "Deployment" and .metadata.name == "kueue-controller-manager") | .spec.replicas' <<<"$manifests")
 
     $HELM install \
-      "${values_args[@]}" \
+      -f "$2" \
       --set-file "managerConfig.controllerManagerConfigYaml=${manager_config}" \
       --set "controllerManager.replicas=${replicas}" \
       --set "controllerManager.manager.image.repository=${IMAGE_TAG%:*}" \
       --set "controllerManager.manager.image.tag=${IMAGE_TAG##*:}" \
       --create-namespace \
       --namespace kueue-system \
-      --kubeconfig "${kubeconfig}" \
+      --kubeconfig "$1" \
       kueue "${ROOT_DIR}/charts/kueue"
 }
 
