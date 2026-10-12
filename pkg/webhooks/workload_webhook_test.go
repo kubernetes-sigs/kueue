@@ -316,6 +316,51 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(firstPodSetSpecPath.Child("resources", "limits").Key(string(corev1.ResourceMemory)), nil, ""),
 			}.ToAggregate(),
 		},
+		"should reject negative pod overhead": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						Containers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+							"example.com/gpu": "1",
+						})...).
+						PodOverHead(corev1.ResourceList{
+							"example.com/gpu": resource.MustParse("-1"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(firstPodSetSpecPath.Child("overhead").Key("example.com/gpu"), nil, ""),
+			}.ToAggregate(),
+		},
+		"should accept non-negative pod overhead": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ok", 1).
+						PodOverHead(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("0"),
+							corev1.ResourceMemory: resource.MustParse("100Mi"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"should accept negative pod overhead when WorkloadValidateResourcesAreNonNegative is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadValidateResourcesAreNonNegative: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ok", 1).
+						PodOverHead(corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("-1"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: nil,
+		},
 		"should accept negative container resource request when WorkloadValidateResourcesAreNonNegative is disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WorkloadValidateResourcesAreNonNegative: false,

@@ -180,6 +180,13 @@ func validatePodSet(ps *kueue.PodSet, path *field.Path) field.ErrorList {
 		allErrs = append(allErrs, apivalidation.ValidateAnnotations(ps.Template.Annotations, path.Child("template", "metadata", "annotations"))...)
 	}
 
+	if features.Enabled(features.WorkloadValidateResourcesAreNonNegative) {
+		overheadPath := path.Child("template", "spec", "overhead")
+		for name, quantity := range ps.Template.Spec.Overhead {
+			allErrs = append(allErrs, validateResourceQuantity(quantity, overheadPath.Key(string(name)))...)
+		}
+	}
+
 	// validate initContainers
 	icPath := path.Child("template", "spec", "initContainers")
 	for ci := range ps.Template.Spec.InitContainers {
