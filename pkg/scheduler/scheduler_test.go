@@ -32,6 +32,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/component-base/featuregate"
@@ -9622,15 +9623,11 @@ func TestEntryMarkSkipped(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.FlavorFungibilityPreserveScanProgress, tc.preserveProgress)
 
-			e := entry{
-				Head: qcache.Head{
-					Info: workload.Info{
-						FlavorScanState: &workload.FlavorScanState{
-							LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
-								{corev1.ResourceCPU: 0},
-							},
-						},
-					},
+			e := entry{}
+
+			e.FlavorScanState = &workload.FlavorScanState{
+				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+					{corev1.ResourceCPU: sets.New[kueue.ResourceFlavorReference]("flavor-0")},
 				},
 			}
 
@@ -9647,9 +9644,10 @@ func TestEntryMarkSkipped(t *testing.T) {
 			}
 			if !tc.wantFlavorScanStateNil {
 				// The retained progress must still name the flavor that was tried, since
-				// that is what NextFlavorToTryForPodSetResource reads.
-				if got := e.FlavorScanState.LastTriedFlavorIndexes[0][corev1.ResourceCPU]; got != 0 {
-					t.Errorf("retained LastTriedFlavorIdx = %d, want 0", got)
+				// that is what TriedFlavorsForPodSetResource reads.
+				want := sets.New[kueue.ResourceFlavorReference]("flavor-0")
+				if got := e.FlavorScanState.TriedFlavors[0][corev1.ResourceCPU]; !got.Equal(want) {
+					t.Errorf("retained TriedFlavors = %v, want %v", got, want)
 				}
 			}
 		})
