@@ -31,6 +31,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.Label(e2e.Shard1, "area:tas", "feature:tas-basic-fit"), func() {
@@ -136,11 +137,17 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.La
 		})
 
 		ginkgo.By(fmt.Sprintf("verify workload %q is not admitted due to node fit failure", wlLookupKey), func() {
-			gomega.Consistently(func(g gomega.Gomega) {
+			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 				g.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
 				g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeFalse())
-			}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+				g.Expect(createdWorkload.Status.Conditions).To(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
+					gomega.HaveField("Status", metav1.ConditionFalse),
+					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
+					gomega.HaveField("Message", gomega.ContainSubstring("doesn't allow to fit")),
+				)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
