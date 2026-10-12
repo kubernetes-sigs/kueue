@@ -56,6 +56,8 @@ func fetchActiveRayClusterWorkerState(ctx context.Context, remoteClient client.C
 	if ptr.Deref(remoteService.Spec.RayClusterSpec.Suspend, false) {
 		return nil, nil
 	}
+	// TODO: Support RayService upgrades, including pending RayCluster autoscaling,
+	// after https://github.com/kubernetes-sigs/kueue/pull/11264 is merged.
 	childName := remoteService.Status.ActiveServiceStatus.RayClusterName
 	if childName == "" {
 		return nil, nil
