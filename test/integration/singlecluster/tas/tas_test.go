@@ -2864,17 +2864,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 					// An Indexed Job with completions above parallelism creates the pod at
 					// completion index 2 once the pod at index 0 succeeds.
 					var wl *kueue.Workload
-					createGatedPod := func(index string) *corev1.Pod {
-						pod := testingpod.MakePod("worker-"+index, ns.Name).
-							Annotation(kueue.WorkloadAnnotation, wl.Name).
-							Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
-							Label(batchv1.JobCompletionIndexAnnotation, index).
-							Label(constants.PodSetLabel, "worker").
-							TopologySchedulingGate().
-							Obj()
-						behavioral.MustCreate(ctx, k8sClient, pod)
-						return pod
-					}
 					expectUngated := func(pod *corev1.Pod) {
 						gomega.Eventually(func(g gomega.Gomega) {
 							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
@@ -2894,10 +2883,17 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 					})
 
+					gatedPod := testingpod.MakePod("", ns.Name).
+						Annotation(kueue.WorkloadAnnotation, wl.Name).
+						Annotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+						Label(constants.PodSetLabel, "worker").
+						TopologySchedulingGate()
 					var pod0 *corev1.Pod
 					ginkgo.By("ungating the pods at completion index 0 and 1", func() {
-						pod0 = createGatedPod("0")
-						pod1 := createGatedPod("1")
+						pod0 = gatedPod.Clone().Name("worker-0").Label(batchv1.JobCompletionIndexAnnotation, "0").Obj()
+						behavioral.MustCreate(ctx, k8sClient, pod0)
+						pod1 := gatedPod.Clone().Name("worker-1").Label(batchv1.JobCompletionIndexAnnotation, "1").Obj()
+						behavioral.MustCreate(ctx, k8sClient, pod1)
 						expectUngated(pod0)
 						expectUngated(pod1)
 						gomega.Expect(pod1.Spec.NodeSelector).NotTo(gomega.Equal(pod0.Spec.NodeSelector))
@@ -2908,7 +2904,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 					})
 
 					ginkgo.By("verifying the pod at completion index 2 is ungated into the freed domain", func() {
-						pod2 := createGatedPod("2")
+						pod2 := gatedPod.Clone().Name("worker-2").Label(batchv1.JobCompletionIndexAnnotation, "2").Obj()
+						behavioral.MustCreate(ctx, k8sClient, pod2)
 						expectUngated(pod2)
 						gomega.Expect(pod2.Spec.NodeSelector).To(gomega.Equal(pod0.Spec.NodeSelector))
 					})
@@ -8547,20 +8544,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 				// the Pods above the new count still exist until the Job controller
 				// deletes them.
 				var wl1, wl2 *kueue.Workload
-				createGatedPods := func(podIndexes map[string]string) {
-					for name, index := range podIndexes {
-						pod := testingpod.MakePod(name, ns.Name).
-							Annotation(kueue.WorkloadAnnotation, wl2.Name).
-							Annotation(kueue.WorkloadSliceNameAnnotation, wl1.Name).
-							Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
-							Label(batchv1.JobCompletionIndexAnnotation, index).
-							Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
-							Request(corev1.ResourceCPU, "1").
-							TopologySchedulingGate().
-							Obj()
-						behavioral.MustCreate(ctx, k8sClient, pod)
-					}
-				}
 				listPods := func(g gomega.Gomega) []corev1.Pod {
 					var pods corev1.PodList
 					g.Expect(k8sClient.List(ctx, &pods, client.InNamespace(ns.Name),
@@ -8616,8 +8599,16 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 
+				gatedPod := testingpod.MakePod("", ns.Name).
+					Annotation(kueue.WorkloadAnnotation, wl2.Name).
+					Annotation(kueue.WorkloadSliceNameAnnotation, wl1.Name).
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					Request(corev1.ResourceCPU, "1").
+					TopologySchedulingGate()
 				ginkgo.By("creating the 2 gated pods at completion index 0 and 1", func() {
-					createGatedPods(map[string]string{"pod-c": "0", "pod-d": "1"})
+					behavioral.MustCreate(ctx, k8sClient, gatedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "0").Obj())
+					behavioral.MustCreate(ctx, k8sClient, gatedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "1").Obj())
 				})
 
 				nodeSelectors := make(map[string]map[string]string)
@@ -8633,7 +8624,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 				})
 
 				ginkgo.By("creating the 2 gated pods awaiting deletion", func() {
-					createGatedPods(map[string]string{"pod-a": "2", "pod-b": "3"})
+					behavioral.MustCreate(ctx, k8sClient, gatedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "2").Obj())
+					behavioral.MustCreate(ctx, k8sClient, gatedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "3").Obj())
 				})
 
 				ginkgo.By("verifying the pods awaiting deletion stay gated and the pods at completion index 0 and 1 keep their domains", func() {
@@ -8655,18 +8647,6 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 				// completion index 2 once the pod at index 0 succeeds.
 				// Each pod fills a node, so the two pods are placed in different domains.
 				var wl *kueue.Workload
-				createGatedPod := func(index string) *corev1.Pod {
-					pod := testingpod.MakePod("worker-"+index, ns.Name).
-						Annotation(kueue.WorkloadAnnotation, wl.Name).
-						Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
-						Label(batchv1.JobCompletionIndexAnnotation, index).
-						Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
-						Request(corev1.ResourceCPU, "5").
-						TopologySchedulingGate().
-						Obj()
-					behavioral.MustCreate(ctx, k8sClient, pod)
-					return pod
-				}
 				expectUngated := func(pod *corev1.Pod) {
 					gomega.Eventually(func(g gomega.Gomega) {
 						g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
@@ -8689,10 +8669,18 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 					behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 				})
 
+				gatedPod := testingpod.MakePod("", ns.Name).
+					Annotation(kueue.WorkloadAnnotation, wl.Name).
+					Annotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					Request(corev1.ResourceCPU, "5").
+					TopologySchedulingGate()
 				var pod0 *corev1.Pod
 				ginkgo.By("ungating the pods at completion index 0 and 1", func() {
-					pod0 = createGatedPod("0")
-					pod1 := createGatedPod("1")
+					pod0 = gatedPod.Clone().Name("worker-0").Label(batchv1.JobCompletionIndexAnnotation, "0").Obj()
+					behavioral.MustCreate(ctx, k8sClient, pod0)
+					pod1 := gatedPod.Clone().Name("worker-1").Label(batchv1.JobCompletionIndexAnnotation, "1").Obj()
+					behavioral.MustCreate(ctx, k8sClient, pod1)
 					expectUngated(pod0)
 					expectUngated(pod1)
 					gomega.Expect(pod1.Spec.NodeSelector).NotTo(gomega.Equal(pod0.Spec.NodeSelector))
@@ -8703,7 +8691,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 				})
 
 				ginkgo.By("verifying the pod at completion index 2 is ungated into the freed domain", func() {
-					pod2 := createGatedPod("2")
+					pod2 := gatedPod.Clone().Name("worker-2").Label(batchv1.JobCompletionIndexAnnotation, "2").Obj()
+					behavioral.MustCreate(ctx, k8sClient, pod2)
 					expectUngated(pod2)
 					gomega.Expect(pod2.Spec.NodeSelector).To(gomega.Equal(pod0.Spec.NodeSelector))
 				})
