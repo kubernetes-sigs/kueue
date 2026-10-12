@@ -43,7 +43,7 @@ func elasticRuntimeSync() *ray.ElasticReplicaSync[*rayv1.RayService, rayv1.RaySe
 			return ptr.Deref(s.Spec.RayClusterSpec.EnableInTreeAutoscaling, false)
 		},
 		IsSuspended: func(s *rayv1.RayService) bool {
-			return ptr.Deref(s.Spec.RayClusterSpec.Suspend, false)
+			return (*RayService)(s).IsSuspended()
 		},
 		Runtime: &ray.RuntimeReplicaSync[*rayv1.RayService]{
 			Fetch: fetchActiveRayClusterWorkerState,
@@ -53,10 +53,10 @@ func elasticRuntimeSync() *ray.ElasticReplicaSync[*rayv1.RayService, rayv1.RaySe
 }
 
 func fetchActiveRayClusterWorkerState(ctx context.Context, remoteClient client.Client, remoteService *rayv1.RayService) (*ray.FetchResult, error) {
-	if ptr.Deref(remoteService.Spec.RayClusterSpec.Suspend, false) {
+	if (*RayService)(remoteService).IsSuspended() {
 		return nil, nil
 	}
-	// TODO: Support RayService upgrades, including pending RayCluster autoscaling,
+	// TODO(kevin85421): Support RayService upgrades, including pending RayCluster autoscaling,
 	// after https://github.com/kubernetes-sigs/kueue/pull/11264 is merged.
 	childName := remoteService.Status.ActiveServiceStatus.RayClusterName
 	if childName == "" {
