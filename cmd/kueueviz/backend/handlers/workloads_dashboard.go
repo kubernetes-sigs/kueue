@@ -29,6 +29,8 @@ import (
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueueapi "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 )
 
 // WorkloadsDashboardWebSocketHandler streams workloads along with attached pod details
@@ -214,15 +216,20 @@ func (h *Handlers) buildWorkloadPodsIndex(ctx context.Context, identity middlewa
 			byGroupName:     make(map[string][]map[string]any),
 		}
 		for _, pod := range pl.Items {
+			controllerUID := pod.GetLabels()["controller-uid"]
+			groupName := podGroupName(&pod)
+			if controllerUID == "" && groupName == "" {
+				continue
+			}
 			podDetails := map[string]any{
 				"name":   pod.GetName(),
 				"status": pod.Status,
 			}
 			// Empty keys are skipped: they would match every Workload without a job UID.
-			if controllerUID := pod.GetLabels()["controller-uid"]; controllerUID != "" {
+			if controllerUID != "" {
 				pods.byControllerUID[controllerUID] = append(pods.byControllerUID[controllerUID], podDetails)
 			}
-			if groupName := podGroupName(&pod); groupName != "" {
+			if groupName != "" {
 				pods.byGroupName[groupName] = append(pods.byGroupName[groupName], podDetails)
 			}
 		}
@@ -237,7 +244,7 @@ func (h *Handlers) buildWorkloadPodsIndex(ctx context.Context, identity middlewa
 // name, which is the workload name.
 func (i workloadPodsIndex) podsFor(wl *kueueapi.Workload) []map[string]any {
 	pods := i.podsByNamespace[wl.Namespace]
-	if jobPods := pods.byControllerUID[wl.Labels["kueue.x-k8s.io/job-uid"]]; len(jobPods) != 0 {
+	if jobPods := pods.byControllerUID[wl.Labels[controllerconstants.JobUIDLabel]]; len(jobPods) != 0 {
 		return jobPods
 	}
 	return pods.byGroupName[wl.Name]
@@ -247,8 +254,8 @@ func (i workloadPodsIndex) podsFor(wl *kueueapi.Workload) []map[string]any {
 // annotation by default and to the label when the WorkloadIdentifierAnnotations
 // feature gate is disabled.
 func podGroupName(pod *corev1.Pod) string {
-	if name := pod.GetAnnotations()["kueue.x-k8s.io/pod-group-name"]; name != "" {
+	if name := pod.GetAnnotations()[podconstants.GroupNameAnnotation]; name != "" {
 		return name
 	}
-	return pod.GetLabels()["kueue.x-k8s.io/pod-group-name"]
+	return pod.GetLabels()[podconstants.GroupNameLabel]
 }
