@@ -779,7 +779,7 @@ func TestUpdatePodSets(t *testing.T) {
 				*utiltestingapi.MakePodSet("workers", 3).Obj(),
 			},
 		},
-		"RayService child raycluster absent - counts fall back to the MultiKueue runtime annotation": {
+		"RayService child RayCluster absent on the manager - counts fall back to the MultiKueue runtime annotation": {
 			podSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
 				*utiltestingapi.MakePodSet("workers", 3).Obj(),
