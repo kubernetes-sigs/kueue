@@ -69,8 +69,7 @@ app = HelloWorld.bind()`,
 		}
 	})
 
-	serveConfig := `proxy_location: EveryNode
-applications:
+	serveConfig := `applications:
   - name: hello_app
     import_path: hello_serve:app
     route_prefix: /
@@ -88,6 +87,13 @@ applications:
 	codeMount := corev1.VolumeMount{Name: codeVolume.Name, MountPath: "/home/ray/samples"}
 	pythonPath := corev1.EnvVar{Name: "PYTHONPATH", Value: "/home/ray/samples:$PYTHONPATH"}
 
+	// The head requests 750m CPU plus the autoscaler's default 500m, excluding
+	// worker2 (1200m quota). Two workers add 250m each, keeping the total at 1750m
+	// within the manager and worker1 quotas of 2000m. Limits do not determine quota usage.
+	// Each worker provides one worker-unit, and each detached actor requests one
+	// with zero logical Ray CPUs. The head provides none, so two actors require
+	// two workers. The zero-CPU Serve deployment allows startup without workers;
+	// detached actors, not Serve requests, trigger autoscaling in this test.
 	rayService := testingrayservice.MakeService("rayservice-autoscale", managerNs.Name).
 		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 		Queue(managerLq.Name).
@@ -102,11 +108,8 @@ applications:
 		Image(rayv1.HeadNode, e2e.GetKuberayTestImage()).
 		Image(rayv1.WorkerNode, e2e.GetKuberayTestImage()).
 		Env(rayv1.HeadNode, []corev1.EnvVar{pythonPath}).
-		Env(rayv1.WorkerNode, []corev1.EnvVar{pythonPath}).
 		Volumes(rayv1.HeadNode, []corev1.Volume{codeVolume}).
-		Volumes(rayv1.WorkerNode, []corev1.Volume{codeVolume}).
 		VolumeMounts(rayv1.HeadNode, []corev1.VolumeMount{codeMount}).
-		VolumeMounts(rayv1.WorkerNode, []corev1.VolumeMount{codeMount}).
 		TerminationGracePeriod(1).
 		Obj()
 	rayService.Spec.RayClusterSpec.AutoscalerOptions = &rayv1.AutoscalerOptions{
