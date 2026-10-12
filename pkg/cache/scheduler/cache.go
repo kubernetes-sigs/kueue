@@ -229,6 +229,7 @@ func (c *Cache) newClusterQueue(log logr.Logger, cq *kueue.ClusterQueue) (*clust
 		roleTracker:         c.roleTracker,
 		lqMetrics:           c.lqMetrics,
 		customLabels:        c.customLabels,
+		draUsage:            make(map[workload.DRADeviceFlavorKey]int64),
 	}
 	c.hm.AddClusterQueue(cqImpl)
 	c.hm.UpdateClusterQueueEdge(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName)

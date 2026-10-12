@@ -305,6 +305,14 @@ var (
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
 	ClusterQueueResourcePending *prometheus.GaugeVec
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",device_class="the DRA device class name",flavor="the resource flavor name",replica_role="one of `leader`, `follower`, or `standalone`"
+	ClusterQueueDRADevicesReserved *prometheus.GaugeVec
+
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",device_class="the DRA device class name",replica_role="one of `leader`, `follower`, or `standalone`"
+	ClusterQueueDRADevicesPending *prometheus.GaugeVec
+
 	// +metricsdoc:group=localqueue
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",flavor="the resource flavor name",resource="the resource name",replica_role="one of `leader`, `follower`, or `standalone`"
 	LocalQueueResourceReservations *prometheus.GaugeVec
@@ -958,6 +966,24 @@ For a LocalQueue, the metric only reports a value of 1 for one of the statuses.`
 	)
 	trackGaugeVec(ClusterQueueResourcePending, gaugeCleanupScopeClusterQueue, gaugeCleanupScopeClusterQueueResource)
 
+	ClusterQueueDRADevicesReserved = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cluster_queue_dra_devices_reserved",
+			Help:      `Reports the number of DRA devices currently reserved by admitted workloads within all the flavors`,
+		}, append([]string{"cluster_queue", "device_class", "flavor", "replica_role"}, clusterQueueMetricsLabels...),
+	)
+	trackGaugeVec(ClusterQueueDRADevicesReserved, gaugeCleanupScopeClusterQueue, gaugeCleanupScopeClusterQueueResource)
+
+	ClusterQueueDRADevicesPending = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: constants.KueueName,
+			Name:      "cluster_queue_dra_devices_pending",
+			Help:      `Reports the number of DRA devices requested by pending workloads in the queue`,
+		}, append([]string{"cluster_queue", "device_class", "replica_role"}, clusterQueueMetricsLabels...),
+	)
+	trackGaugeVec(ClusterQueueDRADevicesPending, gaugeCleanupScopeClusterQueue)
+
 	ClusterQueueResourceUsage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: constants.KueueName,
@@ -1558,6 +1584,37 @@ func ClearClusterQueueResourcePendingMetrics(cqName string) {
 	ClusterQueueResourcePending.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 }
 
+func ReportClusterQueueDRADevicesReserved(queue, deviceClass, flavor string, count float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{queue, deviceClass, flavor, roletracker.GetRole(tracker)}, customLabelValues...)
+	ClusterQueueDRADevicesReserved.WithLabelValues(labels...).Set(count)
+}
+
+func ClearClusterQueueDRADevicesReserved(cqName, deviceClass, flavor string) {
+	lbls := prometheus.Labels{
+		"cluster_queue": cqName,
+	}
+	if len(deviceClass) > 0 {
+		lbls["device_class"] = deviceClass
+	}
+	if len(flavor) > 0 {
+		lbls["flavor"] = flavor
+	}
+	ClusterQueueDRADevicesReserved.DeletePartialMatch(lbls)
+}
+
+func ClearClusterQueueDRADevicesReservedMetrics(cqName string) {
+	ClearClusterQueueDRADevicesReserved(cqName, "", "")
+}
+
+func ReportClusterQueueDRADevicesPending(queue, deviceClass string, pending float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{queue, deviceClass, roletracker.GetRole(tracker)}, customLabelValues...)
+	ClusterQueueDRADevicesPending.WithLabelValues(labels...).Set(pending)
+}
+
+func ClearClusterQueueDRADevicesPendingMetrics(cqName string) {
+	ClusterQueueDRADevicesPending.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+}
+
 func ReportLocalQueueResourceReservations(lq LocalQueueReference, flavor, resource string, usage float64, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(lq.Name), lq.Namespace, flavor, resource, roletracker.GetRole(tracker)}, customLabelValues...)
 	LocalQueueResourceReservations.WithLabelValues(labels...).Set(usage)
@@ -1735,6 +1792,8 @@ func Register() {
 		ClusterQueueByStatus,
 		ClusterQueueResourceReservations,
 		ClusterQueueResourcePending,
+		ClusterQueueDRADevicesReserved,
+		ClusterQueueDRADevicesPending,
 		ClusterQueueResourceUsage,
 		ClusterQueueResourceNominalQuota,
 		ClusterQueueResourceBorrowingLimit,

@@ -25,6 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/heap"
@@ -77,7 +78,8 @@ type PendingWorkloads struct {
 	// pendingResources() is O(1) rather than O(N).
 	// Configured resources are seeded at 0 by Update() so they appear in metrics
 	// even when no workloads are pending; stale zero entries are pruned on Update().
-	pendingResourcesTotal map[corev1.ResourceName]resources.Amount
+	pendingResourcesTotal  map[corev1.ResourceName]resources.Amount
+	pendingDRADevicesTotal map[string]int64
 }
 
 // Get returns the workload.Info for the key, wherever it is held:
@@ -278,6 +280,14 @@ func (p *PendingWorkloads) addPendingResources(wInfo *workload.Info) {
 			})
 		}
 	}
+	if features.Enabled(features.KueueDRAIntegration) {
+		if p.pendingDRADevicesTotal == nil {
+			p.pendingDRADevicesTotal = make(map[string]int64)
+		}
+		for dc, count := range wInfo.DRADevicePendingCounts() {
+			p.pendingDRADevicesTotal[dc] += count
+		}
+	}
 }
 
 func (p *PendingWorkloads) subtractPendingResources(wInfo *workload.Info) {
@@ -286,6 +296,14 @@ func (p *PendingWorkloads) subtractPendingResources(wInfo *workload.Info) {
 			ps.Requests.ForEach(func(name corev1.ResourceName, q resources.Amount) {
 				p.pendingResourcesTotal[name] = p.pendingResourcesTotal[name].Sub(q)
 			})
+		}
+	}
+	if features.Enabled(features.KueueDRAIntegration) && p.pendingDRADevicesTotal != nil {
+		for dc, count := range wInfo.DRADevicePendingCounts() {
+			p.pendingDRADevicesTotal[dc] -= count
+			if p.pendingDRADevicesTotal[dc] < 0 {
+				p.pendingDRADevicesTotal[dc] = 0
+			}
 		}
 	}
 }
@@ -359,6 +377,29 @@ func (p *PendingWorkloads) PendingResources() map[corev1.ResourceName]resources.
 					result[name] = result[name].Add(q)
 				})
 			}
+		}
+	}
+	return result
+}
+
+// PendingDRADevices returns the total DRA devices requested by all pending workloads,
+// aggregated by device class name.
+func (p *PendingWorkloads) PendingDRADevices() map[string]int64 {
+	p.RLock()
+	defer p.RUnlock()
+
+	result := maps.Clone(p.pendingDRADevicesTotal)
+	if result == nil {
+		result = make(map[string]int64)
+	}
+	for _, wl := range p.inflight {
+		for dc, count := range wl.DRADevicePendingCounts() {
+			result[dc] += count
+		}
+	}
+	for dc, count := range result {
+		if count < 0 {
+			result[dc] = 0
 		}
 	}
 	return result
