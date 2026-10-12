@@ -267,9 +267,10 @@ Note, that PodsReady() for Ray jobs rely on RayCluster.Status.State value, so th
 
 ### Job integration
 
-Similarly to RayJob/RayService/RayCluster, `batch/v1 Job` supports partial scale up, with a few Job-specific details. `NonIndexed` and `Indexed` Jobs trigger scale-up differently — a `NonIndexed` Job's `.spec.parallelism` can be raised on its own, while an `Indexed` Job's `.spec.completions` can only be changed in lockstep with `.spec.parallelism`.
+Similarly to RayJob/RayService/RayCluster, `batch/v1 Job` supports partial scale up, with a few Job-specific details. On a running Job, Kubernetes allows changing `.spec.parallelism` on its own, but `.spec.completions` only together with `.spec.parallelism`, kept equal, and only for `Indexed` Jobs ("Elastic Indexed Jobs").
 
-For `Indexed` Jobs, the Job webhook additionally requires `.spec.completions == .spec.parallelism` whenever `kueue.x-k8s.io/elastic-job-scale-up-strategy: "partial"` is set, since only that strategy (not the default `atomic`) performs scale up. `NonIndexed` Jobs take the simpler path: `.spec.parallelism` alone is already freely mutable upstream, so the webhook imposes no extra requirement there.
+Therefore, for `Indexed` Jobs with `kueue.x-k8s.io/elastic-job-scale-up-strategy: "partial"`, the Job webhook requires `.spec.completions == .spec.parallelism`.
+`NonIndexed` Jobs scale up by changing `.spec.parallelism` alone and leave `.spec.completions` untouched, so the check does not apply to them.
 
 For `Indexed` `batch/v1 Job`s, the shared `ElasticJobUngater` ungates the lowest `batch.kubernetes.io/job-completion-index` first, since the built-in Job controller counts gated Pods against `.spec.parallelism`. Ungating out of order could leave a low index gated forever behind a higher one, stalling `.spec.completions`. `NonIndexed` Job Pods have no completion index, so the ungater keeps the same name-based order it already uses for RayCluster/RayJob/RayService Pods.
 
