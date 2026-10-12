@@ -1027,6 +1027,10 @@ func TestScheduleWorkload(t *testing.T) {
 	// returns for the "errors" Pod.
 	const injectedErr = `running PreFilter plugin "TestPreFilterError": injected PreFilter error for pod errors`
 
+	// podGroupUnschedulable is the library's status for a Pod that fits but
+	// belongs to a PodGroup that does not.
+	const podGroupUnschedulable = "pod group is unschedulable"
+
 	// otherSchedulerPod is a workload Pod naming a scheduler the simulator does not build.
 	otherSchedulerPod := workloadPod("p", "pg").Obj()
 	otherSchedulerPod.Spec.SchedulerName = "secondary-scheduler"
@@ -1059,7 +1063,7 @@ func TestScheduleWorkload(t *testing.T) {
 			podGroups:    []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
 			pods:         []*corev1.Pod{workloadPod("p", "pg").Obj()},
 			wantPlacements: simulator.PodPlacements{
-				key("p"): simulator.NewSuccessfulPlacement("node2"),
+				key("p"): {Node: "node2"},
 			},
 		},
 		// The simulator builds one profile, so a workload naming a profile it does
@@ -1069,7 +1073,7 @@ func TestScheduleWorkload(t *testing.T) {
 			podGroups:    []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
 			pods:         []*corev1.Pod{otherSchedulerPod},
 			wantPlacements: simulator.PodPlacements{
-				key("p"): simulator.NewSuccessfulPlacement("node2"),
+				key("p"): {Node: "node2"},
 			},
 		},
 		"pod with no feasible node fails with reasons": {
@@ -1077,7 +1081,7 @@ func TestScheduleWorkload(t *testing.T) {
 			podGroups:    []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
 			pods:         []*corev1.Pod{workloadPod("p", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj()},
 			wantPlacements: simulator.PodPlacements{
-				key("p"): simulator.NewFailedPlacement(noFeasibleNode),
+				key("p"): {Error: errors.New(noFeasibleNode), Reasons: []string{noFeasibleNode}},
 			},
 		},
 		"pods of the workload are each placed on their feasible node": {
@@ -1087,8 +1091,8 @@ func TestScheduleWorkload(t *testing.T) {
 				workloadPod("p2", "pg").NodeSelector(corev1.LabelHostname, "node2").Obj(),
 			},
 			wantPlacements: simulator.PodPlacements{
-				key("p1"): simulator.NewSuccessfulPlacement("node1"),
-				key("p2"): simulator.NewSuccessfulPlacement("node2"),
+				key("p1"): {Node: "node1"},
+				key("p2"): {Node: "node2"},
 			},
 		},
 		// Both Pods want host port 8080 on node1, so only one of them could go
@@ -1101,8 +1105,8 @@ func TestScheduleWorkload(t *testing.T) {
 				workloadPod("p2", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj(),
 			},
 			wantPlacements: simulator.PodPlacements{
-				key("p1"): simulator.NewFailedPlacement("pod group is unschedulable"),
-				key("p2"): simulator.NewFailedPlacement(noFeasibleNode),
+				key("p1"): {Error: errors.New(podGroupUnschedulable), Reasons: []string{podGroupUnschedulable}},
+				key("p2"): {Error: errors.New(noFeasibleNode), Reasons: []string{noFeasibleNode}},
 			},
 		},
 		// The library tries the Pods in order and stops at the first one that
@@ -1120,10 +1124,10 @@ func TestScheduleWorkload(t *testing.T) {
 				workloadPod("skipped2", "pg").Obj(),
 			},
 			wantPlacements: simulator.PodPlacements{
-				key("fits"):     simulator.NewFailedPlacement("pod group is unschedulable"),
-				key("errors"):   simulator.NewPlacementError(errors.New(injectedErr), injectedErr),
-				key("skipped1"): simulator.NewFailedPlacement(FailedReasonSkipped),
-				key("skipped2"): simulator.NewFailedPlacement(FailedReasonSkipped),
+				key("fits"):     {Error: errors.New(podGroupUnschedulable), Reasons: []string{podGroupUnschedulable}},
+				key("errors"):   {Error: errors.New(injectedErr), Reasons: []string{injectedErr}},
+				key("skipped1"): {Reasons: []string{FailedReasonSkipped}},
+				key("skipped2"): {Reasons: []string{FailedReasonSkipped}},
 			},
 		},
 	}
@@ -1148,7 +1152,6 @@ func TestScheduleWorkload(t *testing.T) {
 					tc.wantPlacements,
 					got.PodPlacements,
 					cmpErrorMessage,
-					cmp.AllowUnexported(*simulator.NewSuccessfulPlacement("")),
 				); diff != "" {
 					t.Errorf("attempt %d: unexpected placements (-want,+got):\n%s", attempt, diff)
 				}

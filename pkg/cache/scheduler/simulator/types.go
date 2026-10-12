@@ -19,6 +19,7 @@ package simulator
 import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -86,7 +87,13 @@ type SchedulingResult struct {
 	Error         error
 }
 
-type PodPlacements map[client.ObjectKey]*podPlacement
+type PodPlacements map[client.ObjectKey]*PodPlacement
+
+type PodPlacement struct {
+	Node    types.NodeName
+	Error   error
+	Reasons []string
+}
 
 type NodeExclusionType int
 

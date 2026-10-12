@@ -156,15 +156,11 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 	placements := make(simulator.PodPlacements, len(workloadPods))
 	for _, podResult := range wasResults {
 		podKey := client.ObjectKeyFromObject(podResult.Pod)
+		placements[podKey] = &simulator.PodPlacement{Node: types.NodeName(podResult.SelectedNodeName)}
 		status := podResult.Status
-		switch {
-		case status.IsError():
-			placements[podKey] = simulator.NewPlacementError(status.AsError(), status.Reasons()...)
-		case !status.IsSuccess():
-			placements[podKey] = simulator.NewFailedPlacement(status.Reasons()...)
-		default:
-			nodeName := types.NodeName(podResult.SelectedNodeName)
-			placements[podKey] = simulator.NewSuccessfulPlacement(nodeName)
+		if !status.IsSuccess() {
+			placements[podKey].Error = status.AsError()
+			placements[podKey].Reasons = status.Reasons()
 		}
 	}
 
@@ -172,7 +168,7 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 	for _, wlPod := range workloadPods {
 		podKey := client.ObjectKeyFromObject(wlPod)
 		if _, placed := placements[podKey]; !placed {
-			placements[podKey] = simulator.NewFailedPlacement(FailedReasonSkipped)
+			placements[podKey] = &simulator.PodPlacement{Reasons: []string{FailedReasonSkipped}}
 		}
 	}
 
