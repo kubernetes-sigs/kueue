@@ -1,4 +1,4 @@
-# KEP-16029: Loopback metrics authentication opt-out
+# KEP-16029: Metrics access control
 
 <!-- toc -->
 - [Summary](#summary)
@@ -14,7 +14,7 @@
 - [Design Details](#design-details)
   - [API](#api)
   - [Validation](#validation)
-  - [AccessControl handling](#accesscontrol-handling)
+  - [AccessControlMode handling](#accesscontrolmode-handling)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit tests](#unit-tests)
@@ -55,7 +55,8 @@ metrics requests.
 
 ### Why existing authentication cannot simply be configured
 
-Some platforms do not provision a bearer token for the sidecar that TokenReview
+Some platforms authenticate the controller to the API server with a client
+certificate and do not provision a bearer token for the sidecar that TokenReview
 accepts. Client-certificate metrics authentication is not supported today (see
 [Alternatives](#alternatives)).
 
@@ -94,7 +95,9 @@ Authenticated HTTPS remains the default, and HTTPS is retained when opting out.
 An administrator adds a metrics scraper sidecar to the Kueue controller manager
 Pod and trusts all processes sharing its network namespace. They want the scraper
 to collect metrics over verified HTTPS without provisioning a bearer token, while
-keeping the metrics listener bound to loopback.
+keeping the metrics listener bound to loopback. The deployment supplies external
+serving certificates, and the scraper trusts their CA and verifies a
+certificate-matching server name.
 
 ### Risks and Mitigations
 
@@ -121,34 +124,42 @@ Administrators must assess who can reach or forward the listener and whether
 sharing those metrics is acceptable. Deployments requiring a narrower audience
 should retain authentication; the warning itself does not enforce isolation.
 
+Add a task page under Observability covering the setup, the external certificate
+requirement, and the trust boundary: other containers in the pod, `hostNetwork`,
+and `kubectl port-forward`. Document service-mesh forwarding behavior as it is
+verified.
+
 ## Design Details
 
 ### API
 
-Add `AccessControl` to `ControllerMetrics` in the
+Add `AccessControlMode` to `ControllerMetrics` in the
 `config.kueue.x-k8s.io/v1beta2` Configuration API. Other existing fields are
 omitted from this excerpt:
 
 ```go
-// MetricsAccessControl specifies how access to the metrics listener is controlled.
-// +kubebuilder:validation:Enum=Delegated;None
-type MetricsAccessControl string
+// MetricsAccessControlMode specifies how access to the metrics listener is controlled.
+type MetricsAccessControlMode string
 
 const (
-	// MetricsAccessControlDelegated delegates authentication and authorization
+	// MetricsAccessControlModeDelegated delegates authentication and authorization
 	// to Kubernetes through controller-runtime.
-	MetricsAccessControlDelegated MetricsAccessControl = "Delegated"
+	MetricsAccessControlModeDelegated MetricsAccessControlMode = "Delegated"
 
-	// MetricsAccessControlNone disables authentication and authorization
+	// MetricsAccessControlModeNone disables authentication and authorization
 	// for the metrics listener.
-	MetricsAccessControlNone MetricsAccessControl = "None"
+	MetricsAccessControlModeNone MetricsAccessControlMode = "None"
 )
 
 type ControllerMetrics struct {
-	// AccessControl selects the authentication and authorization mode for
-	// the metrics listener. Defaults to Delegated.
+	// AccessControlMode selects how the metrics listener authenticates and authorizes requests.
+	// Possible values are:
+	// - Delegated: each request needs a bearer token that passes TokenReview and SubjectAccessReview.
+	// - None: no authentication or authorization. For enabled metrics, requires the
+	//   MetricsAccessControl feature gate and a loopback IP and port in bindAddress.
+	// Defaults to Delegated.
 	// +optional
-	AccessControl *MetricsAccessControl `json:"accessControl,omitempty"`
+	AccessControlMode *MetricsAccessControlMode `json:"accessControlMode,omitempty"`
 }
 ```
 
@@ -157,19 +168,20 @@ type ControllerMetrics struct {
 Validate after configuration defaulting and feature-gate loading, before
 initializing certificates or starting listeners:
 
-- `metrics.accessControl` must be `Delegated` or `None`. An omitted or null field
-  defaults to `Delegated`; explicit empty strings and unknown values are invalid.
-- When metrics are enabled, `accessControl: None` requires the
-  `MetricsAuthenticationOptOut` feature gate to be enabled.
-- When metrics are enabled, `accessControl: None` requires a literal loopback IP
-  and numeric port in `metrics.bindAddress`. Accept IPv4, IPv6, and IPv4-mapped
+- `metrics.accessControlMode` must be `Delegated` or `None`. An omitted or null
+  field defaults to `Delegated`; explicit empty strings and unknown values are
+  invalid.
+- When metrics are enabled, `accessControlMode: None` requires the
+  `MetricsAccessControl` feature gate to be enabled.
+- When metrics are enabled, `accessControlMode: None` requires a literal loopback
+  IP and numeric port in `metrics.bindAddress`. Accept IPv4, IPv6, and IPv4-mapped
   loopback addresses, such as `127.0.0.1:8443`, `[::1]:8443`, and
   `[::ffff:127.0.0.1]:8443`. Ports must be in the range 1–65535; reject port zero
   because the sidecar has no mechanism to discover an operating-system-assigned
   port. Reject wildcard and non-loopback addresses, hostnames (including
   `localhost`), URLs, missing ports, and malformed values.
 - Kueue defaults an omitted or empty bind address to `:8443`; reject that wildcard
-  address when `accessControl: None` is used for enabled metrics.
+  address when `accessControlMode: None` is used for enabled metrics.
 - `metrics.bindAddress: "0"` disables metrics. No listener is created, and the
   opt-out gate and loopback checks are skipped. The access-control value must
   still be valid.
@@ -177,9 +189,10 @@ initializing certificates or starting listeners:
 Invalid configurations fail startup with an error naming the relevant field and
 explaining how to correct it.
 
-### AccessControl handling
+### AccessControlMode handling
 
-Configure the controller-runtime metrics server according to `metrics.accessControl`:
+Configure the controller-runtime metrics server according to
+`metrics.accessControlMode`:
 
 - `Delegated`: use `FilterProvider: filters.WithAuthenticationAndAuthorization`.
 - `None`: use `FilterProvider: nil`; metrics requests require no bearer token and
@@ -188,9 +201,10 @@ Configure the controller-runtime metrics server according to `metrics.accessCont
 
 Both modes retain `SecureServing: true` and existing certificate loading and
 rotation. Defaults, webhook behavior, and upstream RBAC remain unchanged.
-For an enabled listener using `None`, emit a startup warning with the bind
-address stating that authentication and authorization are disabled and metrics
-may expose tenant information to other processes sharing the network namespace.
+For an enabled listener using `None`, the metrics options helper logs a startup
+warning with the bind address stating that authentication and authorization are
+disabled and metrics may expose tenant information to other processes sharing
+the network namespace.
 
 ### Test Plan
 
@@ -216,12 +230,15 @@ resulting metrics server options:
   the disabled-metrics sentinel.
 - IPv4/IPv6/mapped loopback with ports 1–65535 accepted; wildcard and non-loopback
   addresses, hostnames, missing/out-of-range ports, port zero, and malformed
-  addresses rejected when `accessControl: None` is used for enabled metrics.
+  addresses rejected when `accessControlMode: None` is used for enabled metrics.
 - Omitted/empty bind addresses defaulting to `:8443` and being rejected when
-  `accessControl: None` is used.
+  `accessControlMode: None` is used.
 - The default and explicit `Delegated` authentication filter, gate-enabled `None`
   with no authentication filter, and HTTPS in every enabled mode.
 - Actionable errors for unsafe addresses and a gate-disabled opt-out.
+- The helper emits the startup warning, including the bind address and tenant
+  information risk, for an enabled listener using `None`. It emits no opt-out
+  warning for `Delegated` or disabled metrics.
 
 #### Integration tests
 
@@ -231,11 +248,17 @@ behavior.
 
 #### e2e tests
 
-Add one test to the cert-manager e2e suite with the alpha gate enabled,
-`metrics.accessControl: None`, an explicit loopback address, and
-`internalCertManagement.enable: false`. Supply external serving certificates and
-add a sidecar configured with the trusted CA and a matching TLS server name.
-Assert that the sidecar can scrape metrics over verified HTTPS without a bearer
+Add one test to the cert-manager e2e suite, run in a separate sequential phase
+after the existing metrics tests so no other test observes the temporary shared
+configuration. Before modifying shared resources, register cleanup to restore
+the original configuration and Deployment even if the test fails. Wait for the
+restored manager to become available and confirm authenticated HTTPS scraping
+through the Service works again.
+
+The test uses the alpha gate, `metrics.accessControlMode: None`, an explicit
+loopback address, and `internalCertManagement.enable: false`. Supply external
+serving certificates and add a sidecar configured with the trusted CA and a
+matching TLS server name. Assert that the sidecar can scrape metrics over verified HTTPS without a bearer
 token and that a direct connection to the metrics port on the manager pod IP is
 refused. Keep existing authenticated HTTPS and certificate coverage unchanged.
 
@@ -243,22 +266,21 @@ refused. Keep existing authenticated HTTPS and certificate coverage unchanged.
 
 #### Alpha
 
-- `metrics.accessControl` with the `Delegated` default and the `None` opt-out.
-- `MetricsAuthenticationOptOut` feature gate disabled by default.
+- `metrics.accessControlMode` with the `Delegated` default and the `None` opt-out.
+- `MetricsAccessControl` feature gate disabled by default.
 - Unit tests for validation and the metrics server options, and an e2e test in
   the cert-manager suite where a sidecar scrapes over verified HTTPS without a
   token and the pod IP is refused.
-- A task page under Observability covering the setup, the external certificate
-  requirement, and the trust boundary: other containers in the pod,
-  `hostNetwork`, and `kubectl port-forward`.
 
 #### Beta
 
 - Feature gate enabled by default.
 - Positive feedback from users, and no open security issues against the opt-out.
 - Behavior with a service mesh sidecar that forwards inbound traffic to
-  localhost is verified and documented.
+  localhost is verified.
 - Re-evaluate client-certificate authentication (Alternative 1).
+- Re-evaluate an Event or a metric for the access-control mode based on user
+  feedback.
 
 #### GA
 

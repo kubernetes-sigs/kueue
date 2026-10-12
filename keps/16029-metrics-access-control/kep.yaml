@@ -1,4 +1,4 @@
-title: Loopback metrics authentication opt-out
+title: Metrics access control
 kep-number: 16029
 authors:
   - "@ankushbbbr"
@@ -7,9 +7,11 @@ creation-date: 2026-10-01
 reviewers:
   - "@mimowo"
   - "@sohankunkerkar"
+  - "@tenzen-y"
 approvers:
   - "@mimowo"
   - "@sohankunkerkar"
+  - "@tenzen-y"
 see-also:
   - "/keps/4377-metrics-tls"
   - "/keps/8190-tls-security-profiles"
@@ -19,6 +21,6 @@ latest-milestone: "v0.21"
 milestone:
   alpha: "v0.21"
 feature-gates:
-  - name: MetricsAuthenticationOptOut
+  - name: MetricsAccessControl
 disable-supported: true
 metrics: []
