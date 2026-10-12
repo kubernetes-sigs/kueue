@@ -398,7 +398,6 @@ func runElasticRayClusterCleanupAfterPreemptionTest(
 	multiKueueAc *kueue.AdmissionCheck,
 	kubernetesClients kubernetesClientsMap,
 ) {
-	ginkgo.GinkgoHelper()
 	rayCluster := testingraycluster.MakeCluster("raycluster-elastic-preemption", managerNs.Name).
 		Suspend(true).
 		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
