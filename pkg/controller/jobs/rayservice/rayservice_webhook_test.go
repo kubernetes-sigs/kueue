@@ -199,7 +199,7 @@ func TestValidateCreate(t *testing.T) {
 			manageAll: false,
 			wantErr:   true,
 		},
-		"unsupported MultiKueue autoscaling with its feature gate disabled": {
+		"MultiKueue autoscaling with its feature gate disabled": {
 			service: testingrayservice.MakeService("rayservice", "ns").
 				Queue("queue").
 				ManagedBy(kueue.MultiKueueControllerName).
@@ -212,7 +212,7 @@ func TestValidateCreate(t *testing.T) {
 			},
 			wantErr: true,
 		},
-		"unsupported MultiKueue autoscaling with its feature gate enabled": {
+		"MultiKueue autoscaling with its feature gate enabled": {
 			service: testingrayservice.MakeService("rayservice", "ns").
 				Queue("queue").
 				ManagedBy(kueue.MultiKueueControllerName).
@@ -223,7 +223,7 @@ func TestValidateCreate(t *testing.T) {
 				features.ElasticJobsViaWorkloadSlices:   true,
 				features.MultiKueueRayInTreeAutoscaling: true,
 			},
-			wantErr: true,
+			wantErr: false,
 		},
 	}
 
