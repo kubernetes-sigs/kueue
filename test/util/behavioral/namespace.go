@@ -43,6 +43,7 @@ func CreateNamespaceFromPrefixWithLog(ctx context.Context, k8sClient client.Clie
 }
 
 func CreateNamespaceFromObjectWithLog(ctx context.Context, k8sClient client.Client, ns *corev1.Namespace) *corev1.Namespace {
+	ginkgo.GinkgoHelper()
 	MustCreate(ctx, k8sClient, ns)
 	ginkgo.GinkgoLogr.Info("Created namespace", "namespace", ns.Name)
 	return ns
@@ -50,6 +51,7 @@ func CreateNamespaceFromObjectWithLog(ctx context.Context, k8sClient client.Clie
 
 // DeleteNamespace deletes all objects the tests typically create in the namespace.
 func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	ginkgo.GinkgoHelper()
 	if ns == nil {
 		return nil
 	}
@@ -80,10 +82,10 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := c.DeleteAllOf(ctx, &corev1.ConfigMap{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
-	if err := deleteAllPodsInNamespace(ctx, c, ns, 2); err != nil {
+	if err := deleteAllPodsInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
-	if err := deleteWorkloadsInNamespace(ctx, c, ns, 2); err != nil {
+	if err := deleteWorkloadsInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
 	if err := DeleteAllEventsInNamespace(ctx, c, ns); err != nil {
@@ -100,6 +102,7 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 }
 
 func NewNamespaceSelectorExcluding(unmanaged ...string) labels.Selector {
+	ginkgo.GinkgoHelper()
 	unmanaged = append(unmanaged, "kube-system", "kueue-system")
 	ls := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
@@ -111,6 +114,6 @@ func NewNamespaceSelectorExcluding(unmanaged ...string) labels.Selector {
 		},
 	}
 	sel, err := metav1.LabelSelectorAsSelector(ls)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	return sel
 }

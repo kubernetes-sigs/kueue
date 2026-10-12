@@ -75,6 +75,7 @@ func rayServeCurlCmd(rayServiceName, query string) []string {
 }
 
 func waitForRayServiceReadyToServe(rayService *rayv1.RayService) *rayv1.RayService {
+	ginkgo.GinkgoHelper()
 	createdRayService := &rayv1.RayService{}
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
@@ -85,6 +86,7 @@ func waitForRayServiceReadyToServe(rayService *rayv1.RayService) *rayv1.RayServi
 }
 
 func startServeClientPod(ns string) *corev1.Pod {
+	ginkgo.GinkgoHelper()
 	pod := testingpod.MakePod("serve-client", ns).
 		Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 		TerminationGracePeriod(1).
@@ -962,6 +964,7 @@ app = HelloWorld.bind()`,
 		// redisDBSize returns the number of keys in the Redis backing store by running
 		// redis-cli in the Redis pod.
 		redisDBSize := func(g gomega.Gomega) int {
+			ginkgo.GinkgoHelper()
 			pods := &corev1.PodList{}
 			g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{"app": "redis-gcs-ft"})).To(gomega.Succeed())
 			g.Expect(pods.Items).To(gomega.HaveLen(1))

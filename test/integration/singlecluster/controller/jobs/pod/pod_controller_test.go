@@ -382,6 +382,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 
 				// admitWorkloadForPod waits for the pod's Workload and admits it.
 				admitWorkloadForPod := func() *kueue.Workload {
+					ginkgo.GinkgoHelper()
 					localQueue := utiltestingapi.MakeLocalQueue("test-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
 					behavioral.MustCreate(ctx, k8sClient, localQueue)
 
@@ -4932,6 +4933,7 @@ var _ = ginkgo.Describe("Pod controller finalizer consistency on eviction", gink
 	})
 
 	admitGroup := func(wlKey types.NamespacedName) *kueue.Workload {
+		ginkgo.GinkgoHelper()
 		createdWorkload := &kueue.Workload{}
 		ginkgo.By("waiting for the group workload to be created")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -4952,6 +4954,7 @@ var _ = ginkgo.Describe("Pod controller finalizer consistency on eviction", gink
 	}
 
 	evictGroup := func(wlKey types.NamespacedName) {
+		ginkgo.GinkgoHelper()
 		ginkgo.By("forcing eviction of the workload (simulating a recoveryTimeout eviction, not a deletion)")
 		gomega.Eventually(func(g gomega.Gomega) {
 			wl := &kueue.Workload{}

@@ -54,6 +54,7 @@ func GetRedisTestImage() string {
 }
 
 func GetKuberayTestImage() string {
+	ginkgo.GinkgoHelper()
 	kuberayTestImage, found := os.LookupEnv("KUBERAY_RAY_IMAGE")
 	gomega.Expect(found).To(gomega.BeTrue())
 	return kuberayTestImage

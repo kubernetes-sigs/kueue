@@ -1711,6 +1711,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 		// end-to-end and gives later specs a genuinely admitted predecessor to
 		// subtract from.
 		admitOriginSlice := func(name string, count int) *kueue.Workload {
+			ginkgo.GinkgoHelper()
 			origin := utiltestingapi.MakeWorkload(name, ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				Annotations(map[string]string{
@@ -1757,6 +1758,7 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 		}
 
 		makeReplacement := func(origin *kueue.Workload, count int) *kueue.Workload {
+			ginkgo.GinkgoHelper()
 			replacement := utiltestingapi.MakeWorkload("replacement", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
 				Annotations(map[string]string{

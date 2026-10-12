@@ -268,10 +268,12 @@ func getKueueMetricsSecure(curlPodName, curlContainerName string) ([]byte, error
 }
 
 func expectMetricsToBeAvailable(curlPodName, curlContainerName string, metrics [][]string) {
+	ginkgo.GinkgoHelper()
 	expectMetricsToBeAvailableWithTimeout(curlPodName, curlContainerName, metrics, behavioral.Timeout)
 }
 
 func expectMetricsToBeAvailableWithTimeout(curlPodName, curlContainerName string, metrics [][]string, timeout time.Duration) {
+	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		metricsOutput, err := getKueueMetricsSecure(curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred())
