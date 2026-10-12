@@ -45,6 +45,7 @@ import (
 
 // expectWorkloadAdmitted waits until the given Workload holds a quota reservation and is admitted.
 func expectWorkloadAdmitted(obj client.Object) {
+	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		var wl kueue.Workload
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(obj), &wl)).Should(gomega.Succeed())

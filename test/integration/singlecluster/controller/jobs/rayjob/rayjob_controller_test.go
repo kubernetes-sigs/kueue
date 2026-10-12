@@ -57,9 +57,10 @@ const (
 )
 
 func setInitStatus(name, namespace string) {
+	ginkgo.GinkgoHelper()
 	createdJob := &rayv1.RayJob{}
 	nsName := types.NamespacedName{Name: name, Namespace: namespace}
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, nsName, createdJob)).Should(gomega.Succeed())
 		createdJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusSuspended
 		g.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())

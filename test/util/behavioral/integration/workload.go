@@ -51,11 +51,12 @@ func SetPodsScheduledCondition(ctx context.Context, k8sClient client.Client, wlK
 }
 
 func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, admission *kueue.Admission) {
+	ginkgo.GinkgoHelper()
 	clk := testingclock.NewFakeClock(time.Now())
 	updatedWl := &kueue.Workload{}
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-		g.ExpectWithOffset(1, k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
-		g.ExpectWithOffset(1, workloadpatching.PatchAdmissionStatus(ctx, k8sClient, updatedWl, clk, func(wl *kueue.Workload) (bool, error) {
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlKey, updatedWl)).To(gomega.Succeed())
+		g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, updatedWl, clk, func(wl *kueue.Workload) (bool, error) {
 			var updated bool
 			if admission == nil {
 				updated = workload.UnsetQuotaReservationWithCondition(wl, "EvictedByTest", "Evicted By Test", clk.Now())
@@ -68,9 +69,10 @@ func SetQuotaReservation(ctx context.Context, k8sClient client.Client, wlKey cli
 }
 
 func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...*kueue.Workload) {
+	ginkgo.GinkgoHelper()
 	for _, w := range workloads {
 		var newWL kueue.Workload
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
 			newWL.Status.Conditions = append(w.Status.Conditions, metav1.Condition{
 				Type:               kueue.WorkloadFinished,
@@ -88,11 +90,12 @@ func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...
 // the state of quota reservation and admission checks. It should be used in tests that are not running
 // the workload controller.
 func SyncAdmittedConditionForWorkloads(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
+	ginkgo.GinkgoHelper()
 	var updatedWorkload kueue.Workload
 	for _, wl := range wls {
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
-			g.ExpectWithOffset(1, k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
-			g.ExpectWithOffset(1, workloadpatching.PatchAdmissionStatus(ctx, k8sClient, &updatedWorkload, behavioral.RealClock, func(wl *kueue.Workload) (bool, error) {
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
+			g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, &updatedWorkload, behavioral.RealClock, func(wl *kueue.Workload) (bool, error) {
 				return workload.SyncAdmittedCondition(wl, time.Now()), nil
 			})).To(gomega.Succeed())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("Failed to sync admitted condition for workload", &updatedWorkload))
@@ -109,8 +112,9 @@ func UpdateReclaimablePods(ctx context.Context, c client.Client, wl *kueue.Workl
 }
 
 func SetRequeuedConditionWithPodsReadyTimeout(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
+	ginkgo.GinkgoHelper()
 	var wl kueue.Workload
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
 		g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, &wl, behavioral.RealClock, func(wl *kueue.Workload) (bool, error) {
 			return workload.SetRequeuedCondition(wl, kueue.WorkloadEvictedByPodsReadyTimeout, fmt.Sprintf("Exceeded the PodsReady timeout %s", klog.KObj(wl).String()), false), nil
