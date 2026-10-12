@@ -179,10 +179,10 @@ type workloadPodsIndex struct {
 }
 
 // namespacePods stores the pod details of one namespace by controller UID and
-// by pod group name.
+// by the name of the Workload that a pod group Pod belongs to.
 type namespacePods struct {
 	byControllerUID map[string][]map[string]any
-	byGroupName     map[string][]map[string]any
+	byWorkloadName  map[string][]map[string]any
 }
 
 // buildWorkloadPodsIndex lists pods once per workload namespace and indexes them
@@ -213,12 +213,12 @@ func (h *Handlers) buildWorkloadPodsIndex(ctx context.Context, identity middlewa
 
 		pods := namespacePods{
 			byControllerUID: make(map[string][]map[string]any),
-			byGroupName:     make(map[string][]map[string]any),
+			byWorkloadName:  make(map[string][]map[string]any),
 		}
 		for _, pod := range pl.Items {
 			controllerUID := pod.GetLabels()["controller-uid"]
-			groupName := podGroupName(&pod)
-			if controllerUID == "" && groupName == "" {
+			workloadName := podWorkloadName(&pod)
+			if controllerUID == "" && workloadName == "" {
 				continue
 			}
 			podDetails := map[string]any{
@@ -229,8 +229,8 @@ func (h *Handlers) buildWorkloadPodsIndex(ctx context.Context, identity middlewa
 			if controllerUID != "" {
 				pods.byControllerUID[controllerUID] = append(pods.byControllerUID[controllerUID], podDetails)
 			}
-			if groupName != "" {
-				pods.byGroupName[groupName] = append(pods.byGroupName[groupName], podDetails)
+			if workloadName != "" {
+				pods.byWorkloadName[workloadName] = append(pods.byWorkloadName[workloadName], podDetails)
 			}
 		}
 		index.podsByNamespace[namespace] = pods
@@ -240,14 +240,27 @@ func (h *Handlers) buildWorkloadPodsIndex(ctx context.Context, identity middlewa
 
 // podsFor returns the pod details of the workload. Pods created by a batch Job
 // match the workload's job UID. Pod group Pods, including those of StatefulSets
-// and LeaderWorkerSets, have no controller UID, so they are matched by the group
-// name, which is the workload name.
+// and LeaderWorkerSets, have no controller UID, so they are matched by the
+// workload name.
 func (i workloadPodsIndex) podsFor(wl *kueueapi.Workload) []map[string]any {
 	pods := i.podsByNamespace[wl.Namespace]
 	if jobPods := pods.byControllerUID[wl.Labels[controllerconstants.JobUIDLabel]]; len(jobPods) != 0 {
 		return jobPods
 	}
-	return pods.byGroupName[wl.Name]
+	return pods.byWorkloadName[wl.Name]
+}
+
+// podWorkloadName returns the name of the Workload that the pod belongs to. Like
+// the Kueue pod controller, it prefers the prebuilt Workload name to the pod
+// group name. StatefulSet and LeaderWorkerSet Pods set both to the same name.
+func podWorkloadName(pod *corev1.Pod) string {
+	if name := pod.GetAnnotations()[controllerconstants.PrebuiltWorkloadAnnotation]; name != "" {
+		return name
+	}
+	if name := pod.GetLabels()[controllerconstants.PrebuiltWorkloadLabel]; name != "" {
+		return name
+	}
+	return podGroupName(pod)
 }
 
 // podGroupName returns the pod group name of the pod. Kueue writes it to the
