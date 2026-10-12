@@ -376,6 +376,11 @@ test-e2e-was-tas-extended-helm: test-tas-e2e-extended-helm
 test-e2e-was-deep-tas-baseline: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
 test-e2e-was-deep-tas-baseline: test-tas-e2e-baseline
 
+.PHONY: test-e2e-was-deep-tas-baseline-basic-fit
+test-e2e-was-deep-tas-baseline-basic-fit: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
+test-e2e-was-deep-tas-baseline-basic-fit: GINKGO_ARGS=--label-filter="feature:tas-basic-fit"
+test-e2e-was-deep-tas-baseline-basic-fit: test-tas-e2e-baseline
+
 .PHONY: test-e2e-was-deep-tas-extended
 test-e2e-was-deep-tas-extended: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
 test-e2e-was-deep-tas-extended: test-tas-e2e-extended
