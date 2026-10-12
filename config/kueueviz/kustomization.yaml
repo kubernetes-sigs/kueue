@@ -11,6 +11,7 @@ labels:
 
 resources:
   - ../components/kueueviz/
+  - ../components/networkpolicy/kueueviz/
 
 patches:
 # Drop the path-routed Ingress; this overlay exposes each component on its own host.

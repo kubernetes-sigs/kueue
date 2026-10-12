@@ -65,64 +65,51 @@ either way.
 
 Apart from those, Kueue serves no port that these policies block.
 
-## When to enable these policies
+## Default ingress policies
 
-Enable them when your cluster runs a CNI plugin that enforces NetworkPolicy and you want
-to reduce what a compromised or untrusted workload can reach. Kueue is a privileged
+Ingress policies are enabled by default in Helm and included in the default Kustomize
+build. They take effect when your cluster enforces NetworkPolicy. Kueue is a privileged
 controller with broad watch permissions that also sits in the admission path, so limiting
 its reachable surface is worthwhile on shared or multi-tenant clusters.
 
-There are cases where turning them on needs more thought:
+Check these settings when customizing an installation:
 
-- **You run the ControllerManager with `hostNetwork: true`.** The policies cannot help
-  here at all; see [Limitations](#limitations).
+- **You run the ControllerManager with `hostNetwork: true`.** Helm skips its policies
+  because enforcement depends on the CNI plugin; see [Limitations](#limitations).
 - **You use MultiKueue and want egress restriction too.** Egress is a separate opt-in for
   this reason; see [Restricting egress](#restricting-egress).
 - **You have changed Kueue's ports** through `managerConfig`, for example by setting a
-  different `metrics.bindAddress`. The policies allow the default ports, so adjust them
-  with `networkPolicy.extraIngress` to match your configuration.
+  different `metrics.bindAddress`. Helm derives allowed ports from that configuration.
+  With Kustomize, update the policy ports alongside your configuration.
 - **Your CNI plugin does not enforce NetworkPolicy.** The objects will be created and
   accepted by the API server but have no effect, which can give a false sense of
   protection.
 
-### Why they are not enabled by default
-
-The ControllerManager's admission webhook is reached by the kube-apiserver, which on most
-distributions runs on the host network. Its traffic therefore arrives with a node IP and
-matches no pod or namespace selector, and the correct `ipBlock` differs from cluster to
-cluster, so the chart cannot know it.
-
-If that rule were wrong on your cluster, the webhook would become unreachable and every
-Job creation in the cluster would start failing. Making the policies opt-in means an
-upgrade never changes the behaviour of an existing installation: you turn them on
-deliberately, and you know to look at them if something stops working.
-
-This is also why the rules above are scoped by port rather than by peer.
-
-## Enabling the policies
+## Configuring the policies
 
 ### Helm
 
-The policies are disabled by default. Enable them with:
+Ingress policies are enabled by default. To disable them, set:
 
 ```bash
 helm upgrade --install kueue oci://registry.k8s.io/kueue/charts/kueue \
   --namespace kueue-system \
   --create-namespace \
-  --set networkPolicy.enabled=true
+  --set networkPolicy.enabled=false
 ```
 
 Or set the same value in your own values file:
 
 ```yaml
 networkPolicy:
-  enabled: true
+  enabled: false
 ```
 
 ### Kustomize
 
-Apply the `networkpolicy` overlay alongside your existing installation, from a checkout
-of the Kueue release you are running:
+The default build includes ingress policies. For an installation using a different
+build, apply the standalone `networkpolicy` overlay from a checkout of the Kueue release
+you are running:
 
 ```bash
 kubectl apply -k config/networkpolicy
@@ -239,9 +226,10 @@ dropped and its `MultiKueueCluster` becomes inactive. Add the port to
 
 ## Limitations
 
-- **hostNetwork is not supported.** Kubernetes leaves the behaviour of NetworkPolicy for
+- **hostNetwork enforcement depends on the CNI plugin.** Kubernetes leaves the behaviour of NetworkPolicy for
   pods on the host network undefined, and most CNI plugins do not apply policies to them,
-  so the policy would likely have no effect. Setting both `networkPolicy.enabled` and
-  `controllerManager.hostNetwork` fails the Helm render rather than giving a false sense
-  of protection. Restrict a host-network deployment at the node firewall instead.
+  so the policy would likely have no effect. Helm skips the ControllerManager ingress
+  and egress policies when `controllerManager.hostNetwork` is enabled. Kustomize users
+  should remove those policies when enabling host networking. Use node firewall rules
+  where your CNI does not enforce policies for host-network pods.
 - The KueueViz policies are inert unless the KueueViz components are also deployed.

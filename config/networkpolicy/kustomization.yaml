@@ -11,3 +11,4 @@ labels:
 
 resources:
   - ../components/networkpolicy/
+  - ../components/networkpolicy/kueueviz/

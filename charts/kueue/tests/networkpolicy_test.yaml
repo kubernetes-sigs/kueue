@@ -5,7 +5,15 @@ templates:
   - networkpolicy/kueueviz-backend.yaml
   - networkpolicy/kueueviz-frontend.yaml
 tests:
-  - it: should not render any network policy by default
+  - it: should render the ControllerManager ingress policy by default
+    template: networkpolicy/manager-ingress.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+
+  - it: should not render any network policy when disabled
+    set:
+      networkPolicy.enabled: false
     asserts:
       - hasDocuments:
           count: 0
@@ -84,7 +92,7 @@ tests:
           value:
             kubernetes.io/metadata.name: monitoring
 
-  - it: should fail when combined with hostNetwork, where policies are not enforced
+  - it: should skip the ControllerManager ingress policy with hostNetwork
     template: networkpolicy/manager-ingress.yaml
     set:
       networkPolicy:
@@ -92,8 +100,72 @@ tests:
       controllerManager:
         hostNetwork: true
     asserts:
-      - failedTemplate:
-          errorMessage: "networkPolicy.enabled cannot be used with controllerManager.hostNetwork: most CNI plugins do not apply NetworkPolicy to host-network pods, so the policy would silently have no effect."
+      - hasDocuments:
+          count: 0
+
+  - it: should skip the ControllerManager egress policy with hostNetwork
+    template: networkpolicy/manager-egress.yaml
+    set:
+      controllerManager.hostNetwork: true
+      networkPolicy.egress.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should follow custom ControllerManager ports
+    template: networkpolicy/manager-ingress.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: |
+        webhook:
+          port: 9444
+        visibilityServer:
+          bindPort: 8084
+        metrics:
+          bindAddress: "[::]:8444"
+        health:
+          healthProbeBindAddress: "0.0.0.0:8085"
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 9444
+      - equal:
+          path: spec.ingress[0].ports[1].port
+          value: 8084
+      - equal:
+          path: spec.ingress[1].ports[0].port
+          value: 8444
+      - equal:
+          path: spec.ingress[2].ports[0].port
+          value: 8085
+
+  - it: should use default ports for empty bind addresses
+    template: networkpolicy/manager-ingress.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: |
+        metrics:
+          bindAddress: ""
+        health:
+          healthProbeBindAddress: ""
+    asserts:
+      - equal:
+          path: spec.ingress[1].ports[0].port
+          value: 8443
+      - equal:
+          path: spec.ingress[2].ports[0].port
+          value: 8081
+
+  - it: should omit disabled metrics and health listeners
+    template: networkpolicy/manager-ingress.yaml
+    set:
+      managerConfig.controllerManagerConfigYaml: |
+        metrics:
+          bindAddress: "0"
+        health:
+          healthProbeBindAddress: "0"
+    asserts:
+      - lengthEqual:
+          path: spec.ingress
+          count: 1
 
   - it: should not render the egress policy when only networkPolicy is enabled
     template: networkpolicy/manager-egress.yaml

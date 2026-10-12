@@ -22,6 +22,7 @@ resources:
 - ../components/manager
 - ../components/internalcert
 - ../components/visibility
+- ../components/networkpolicy
 # [WEBHOOK] To enable webhook, uncomment all the sections with [WEBHOOK] prefix including the one in ../components/crd/kustomization.yaml
 - ../components/webhook
 # [CERTMANAGER] To enable cert-manager, uncomment all sections with 'CERTMANAGER'. 'WEBHOOK' components are required.
