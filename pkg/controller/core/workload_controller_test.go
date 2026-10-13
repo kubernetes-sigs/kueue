@@ -1951,7 +1951,7 @@ func TestReconcile(t *testing.T) {
 			},
 			wantError: nil,
 		},
-		"should synchronize the status of preemption gates": {
+		"should remove states of preemption gates that are not in the spec": {
 			featureGates: map[featuregate.Feature]bool{
 				features.KueueDRAIntegration:              false,
 				features.MultiKueueOrchestratedPreemption: true,
@@ -1995,11 +1995,6 @@ func TestReconcile(t *testing.T) {
 						Position:           kueue.PreemptionGatePositionClosed,
 						LastTransitionTime: metav1.NewTime(now),
 					},
-					kueue.PreemptionGateState{
-						Name:               "desynchronized-status",
-						Position:           kueue.PreemptionGatePositionClosed,
-						LastTransitionTime: metav1.NewTime(now),
-					},
 				).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
@@ -2029,12 +2024,36 @@ func TestReconcile(t *testing.T) {
 						Position:           kueue.PreemptionGatePositionClosed,
 						LastTransitionTime: metav1.NewTime(now),
 					},
-					kueue.PreemptionGateState{
-						Name:               "desynchronized-status",
-						Position:           kueue.PreemptionGatePositionClosed,
-						LastTransitionTime: metav1.NewTime(now),
-					},
 				).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonSuspended,
+					Message: "ClusterQueue cq is inactive",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+			wantResult: reconcile.Result{},
+		},
+		"should not add states for preemption gates without one": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:              false,
+				features.MultiKueueOrchestratedPreemption: true,
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				PreemptionGates(kueue.PreemptionGate{Name: "gate"}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				PreemptionGates(kueue.PreemptionGate{Name: "gate"}).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadQuotaReserved,
 					Status:  metav1.ConditionFalse,

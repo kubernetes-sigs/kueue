@@ -263,7 +263,8 @@ This is done in anticipation of a new opt-in API in beta, in order to avoid lock
 When a workload is submitted to MultiKueue, its remote replicas in the nominated clusters (irrespective of the nomination algorithm)
 will automatically be assigned the `kueue.x-k8s.io/multikueue` preemption gate via its `spec`.
 This will prevent any of the replicas from triggering a preemption until allowed by the manager controller.
-The `status` of the remote workloads will be updated with the `PreemptionGateState` by a workload controller running on the worker clusters.
+The `status` of the remote workloads gets a `PreemptionGateState` when the gate is opened; until then, the gate is closed by default.
+A workload controller running on the worker clusters removes states of gates that are no longer in the `spec`.
 
 A manager-level preemption orchestration controller will be responsible for ungating the replicated workloads.
 This controller will watch for workloads to change their `PreemptionGated` condition and idempotently react to such changes:
