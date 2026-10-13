@@ -463,9 +463,10 @@ func TestPerThousandOf(t *testing.T) {
 		a, b Amount
 		want float64
 	}{
-		"a small ratio":        {a: NewAmount(1_000), b: NewAmount(1_000_000), want: 1},
-		"a negative numerator": {a: NewAmount(-1_000), b: NewAmount(1_000), want: -1000},
-		"a zero denominator":   {a: NewAmount(5), b: Amount{}, want: 0},
+		"a small ratio":                              {a: NewAmount(1_000), b: NewAmount(1_000_000), want: 1},
+		"a negative numerator":                       {a: NewAmount(-1_000), b: NewAmount(1_000), want: -1000},
+		"a zero denominator with positive numerator": {a: NewAmount(5), b: Amount{}, want: math.Inf(1)},
+		"a zero denominator with negative numerator": {a: NewAmount(-5), b: Amount{}, want: math.Inf(-1)},
 		// The int64 division applies while both operands stay exact in a float64.
 		"the numerator bound of the int64 division":   {a: NewAmount(maxExactFloat64Int / 1000), b: NewAmount(1), want: 9007199254740000},
 		"one past the numerator bound":                {a: NewAmount(maxExactFloat64Int/1000 + 1), b: NewAmount(1), want: 9007199254741000},
