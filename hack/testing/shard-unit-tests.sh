@@ -15,7 +15,7 @@
 # limitations under the License.
 
 # Wrapper around shard_test_packages.sh for unit tests.
-# Excludes packages under ./test/ which are integration/e2e tests.
+# Include MultiKueue performance-tool unit tests while excluding other ./test/ suites.
 #
 # Usage: shard-unit-tests.sh <shard_index> <total_shards> [go_test_target]
 
@@ -29,4 +29,4 @@ bash "$SCRIPT_DIR/shard_test_packages.sh" \
     "$UNIT_SHARD_INDEX" \
     "$UNIT_TOTAL_SHARDS" \
     "${GO_TEST_TARGET}/..." \
-    | grep -v '/test/'
+    | "$SCRIPT_DIR/filter-unit-test-packages.sh"

@@ -2144,68 +2144,7 @@ func TestLimitReclaimablePodsToPodSetSizes(t *testing.T) {
 	}
 }
 
-func TestAssignmentClusterQueueState(t *testing.T) {
-	cases := map[string]struct {
-		state              *FlavorScanState
-		wantPendingFlavors bool
-	}{
-		"no info": {
-			wantPendingFlavors: false,
-		},
-		"all done": {
-			state: &FlavorScanState{
-				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
-					{
-						corev1.ResourceCPU:    -1,
-						corev1.ResourceMemory: -1,
-					},
-					{
-						corev1.ResourceMemory: -1,
-					},
-				},
-			},
-			wantPendingFlavors: false,
-		},
-		"some pending": {
-			state: &FlavorScanState{
-				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
-					{
-						corev1.ResourceCPU:    0,
-						corev1.ResourceMemory: -1,
-					},
-					{
-						corev1.ResourceMemory: 1,
-					},
-				},
-			},
-			wantPendingFlavors: true,
-		},
-		"all pending": {
-			state: &FlavorScanState{
-				LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
-					{
-						corev1.ResourceCPU:    1,
-						corev1.ResourceMemory: 0,
-					},
-					{
-						corev1.ResourceMemory: 1,
-					},
-				},
-			},
-			wantPendingFlavors: true,
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			got := tc.state.PendingFlavors()
-			if got != tc.wantPendingFlavors {
-				t.Errorf("state.PendingFlavors() = %t, want %t", got, tc.wantPendingFlavors)
-			}
-		})
-	}
-}
-
-func TestFlavorResourceUsage(t *testing.T) {
+func TestResourceUsage(t *testing.T) {
 	cases := map[string]struct {
 		info *Info
 		want resources.FlavorResourceQuantities

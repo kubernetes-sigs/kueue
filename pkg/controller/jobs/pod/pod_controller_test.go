@@ -4351,7 +4351,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment("4ebdd4a6").Obj(), utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadWaitingForReplacementPods,
@@ -4373,7 +4373,7 @@ func TestReconciler(t *testing.T) {
 							Obj(),
 					).
 					Queue(localUserQueueName).
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment("4ebdd4a6").Obj(), utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
@@ -5184,7 +5184,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadWaitingForReplacementPods,
@@ -5205,7 +5205,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement-for-pod1", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadWaitingForReplacementPods,
@@ -5590,7 +5590,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "deleted", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadWaitingForReplacementPods,
@@ -5614,7 +5614,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error2", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement1", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement2", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadWaitingForReplacementPods,
@@ -5826,7 +5826,7 @@ func TestReconciler(t *testing.T) {
 					Queue(localUserQueueName).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error-no-finalizer", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadWaitingForReplacementPods,
@@ -5847,7 +5847,7 @@ func TestReconciler(t *testing.T) {
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "finished-with-error-no-finalizer", "test-uid").
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "replacement", "test-uid").
-					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).Obj()).Obj(), now).
 					AdmittedAt(true, now).
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadWaitingForReplacementPods,
@@ -8474,7 +8474,7 @@ func TestPod_IsActive(t *testing.T) {
 						{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:                       "deleted-within-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-time.Minute))),
+								DeletionTimestamp:          new(metav1.NewTime(now.Add(30 * time.Second))),
 								DeletionGracePeriodSeconds: new(int64(90)),
 							},
 							Status: corev1.PodStatus{Phase: corev1.PodRunning},
@@ -8492,7 +8492,7 @@ func TestPod_IsActive(t *testing.T) {
 						{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:                       "terminating-within-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+								DeletionTimestamp:          new(metav1.NewTime(now.Add(30 * time.Second))),
 								DeletionGracePeriodSeconds: new(int64(90)),
 							},
 							Status: corev1.PodStatus{Phase: corev1.PodRunning},
@@ -8510,12 +8510,41 @@ func TestPod_IsActive(t *testing.T) {
 						{
 							ObjectMeta: metav1.ObjectMeta{
 								Name:                       "terminating-within-grace",
-								DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+								DeletionTimestamp:          new(metav1.NewTime(now.Add(30 * time.Second))),
 								DeletionGracePeriodSeconds: new(int64(90)),
 							},
 							Status: corev1.PodStatus{Phase: corev1.PodRunning},
 						},
 					},
+				},
+			},
+			want: true,
+		},
+		"FastQuotaRelease_Disabled_PodPastDeletionTimestamp_Inactive": {
+			fields: fields{
+				list: corev1.PodList{
+					Items: []corev1.Pod{{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:                       "terminating-past-deadline",
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionGracePeriodSeconds: new(int64(90)),
+						},
+						Status: corev1.PodStatus{Phase: corev1.PodRunning},
+					}},
+				},
+			},
+		},
+		"FastQuotaRelease_Disabled_PodAtDeletionTimestamp_Active": {
+			fields: fields{
+				list: corev1.PodList{
+					Items: []corev1.Pod{{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:                       "terminating-at-deadline",
+							DeletionTimestamp:          new(metav1.NewTime(now)),
+							DeletionGracePeriodSeconds: new(int64(90)),
+						},
+						Status: corev1.PodStatus{Phase: corev1.PodRunning},
+					}},
 				},
 			},
 			want: true,

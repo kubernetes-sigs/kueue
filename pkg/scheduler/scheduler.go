@@ -780,18 +780,21 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		return schdcache.FitsCheckOk == fitsCheck
 	}
 	// Clear the flavor scan state so that we can start from the first flavor again and
-	// reach all flavors from the nomination.
+	// reach all flavors from the nomination. Preserve the nomination's scan state across
+	// this in-cycle recompute when quota still accepts the nominated flavor, so that a
+	// workload whose TAS placement is invalidated mid-cycle resumes the next cycle with
+	// its nomination scan state intact.
+	nominationScanState := e.assignment.FlavorScanState
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
 	newAssignment, newTargets := s.getAssignments(ctx, &e.Info, snapshot)
+	if revertRemoval != nil {
+		revertRemoval()
+	}
 	e.recordAssignment(newAssignment, newTargets)
-	if needsOverlapRecompute {
-		if revertRemoval != nil {
-			revertRemoval()
-		}
-		if e.assignment.RepresentativeMode() == flavorassigner.Fit {
-			e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
-		}
+	e.assignment.FlavorScanState.RestoreAfterRecompute(nominationScanState)
+	if needsOverlapRecompute && e.assignment.RepresentativeMode() == flavorassigner.Fit {
+		e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
 	}
 	fitsCheck = e.checkFits(log, snapshot, cq, preemptedWorkloads)
 	log.V(3).Info("Re-computed assignment", "newMode", newAssignment.RepresentativeMode(), "fitsCheck", fitsCheck)
@@ -857,7 +860,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	// dropped once it no longer describes the current state. Deciding that here rather than
 	// inside the assigner keeps it to one place per Workload per cycle: the assigner runs
 	// again for each reduced pod count when partial admission is in play.
-	if wl.FlavorScanState != nil && flavorScanStateOutdated(wl.FlavorScanState, cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
+	if wl.FlavorScanState != nil && wl.FlavorScanState.IsOutdated(cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
 		log.FromContext(ctx).V(6).Info("Clearing Workload's flavor scan state because it was outdated",
 			"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
 			"wl.FlavorScanState.AllocatableResourceGeneration", wl.FlavorScanState.AllocatableResourceGeneration)
@@ -866,26 +869,6 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	assignment, targets := s.getInitialAssignments(ctx, wl, snap)
 	updateAssignmentForTAS(ctx, snap, cq, wl, &assignment, targets)
 	return assignment, targets
-}
-
-// flavorScanStateOutdated reports whether the recorded flavor assignment no longer describes
-// the current state, in which case the flavor scan has to start over.
-func flavorScanStateOutdated(last *workload.FlavorScanState, currentCQGeneration, currentSchedulingCycle int64, currentSchedulingHash workload.EquivalenceHash) bool {
-	if features.Enabled(features.FlavorFungibilityPreserveScanProgress) {
-		// Checked before the cycle age, so that a Workload whose shape changed starts over
-		// even when it was assigned in the preceding cycle.
-		if !last.MatchesSchedulingShape(currentSchedulingHash) {
-			return true
-		}
-		// An assignment computed in the current or the immediately preceding cycle is not
-		// treated as outdated. The ClusterQueue generation advances on every admission or
-		// eviction in the Cohort, which on a busy cluster discards the flavor progress
-		// recorded one cycle earlier before it can be used.
-		if currentSchedulingCycle-last.SchedulingCycle <= 1 {
-			return false
-		}
-	}
-	return currentCQGeneration > last.AllocatableResourceGeneration
 }
 
 // getInitialAssignments computes the initial resource flavor assignment and any required preemption targets
