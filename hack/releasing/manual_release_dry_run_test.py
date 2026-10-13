@@ -27,7 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class ManualReleaseDryRunTest(unittest.TestCase):
-    def test_dry_run_does_not_edit_existing_release_issue(self):
+    def test_dry_run_does_not_submit_or_edit_existing_release_issue(self):
         scripts = {
             "prepare all": ("prepare_pull.sh", 'if [[ "$TARGET" == "all"', "all", 2),
             "prepare release": ("prepare_pull.sh", 'if [[ "$TARGET" == "all"', "release", 1),
@@ -39,6 +39,8 @@ class ManualReleaseDryRunTest(unittest.TestCase):
             source = (REPO_ROOT / "hack/releasing" / script_name).read_text()
             push = re.search(r"^function push_and_create_pr\(\) \{.*?^\}",
                              source, re.MULTILINE | re.DOTALL).group()
+            # Record entry even if the helper's existing dry-run guard returns early.
+            push = push.replace("{\n", '{\n  echo "submit" >> "$CALLS"\n', 1)
             script = push + "\n" + source[source.index(start):]
             for dry_run in ("", "1"):
                 with self.subTest(script=name, dry_run=dry_run), tempfile.TemporaryDirectory() as directory:
@@ -63,7 +65,7 @@ class ManualReleaseDryRunTest(unittest.TestCase):
 set -o errexit
 set -o nounset
 set -o pipefail
-function prepare_local_branch() { :; }
+function prepare_local_branch() { echo "prepare" >> "$CALLS"; }
 function git() { echo "git push" >> "$CALLS"; }
 function make_pr() { gh pr create; }
 function gh() {
@@ -74,10 +76,12 @@ function gh() {
 }
 '''
                     result = subprocess.run(["bash", "-c", harness + script], env=env, cwd=directory,
-                                            input="y\ny\n", capture_output=True, text=True, check=False)
+                                            input="" if dry_run else "y\ny\n",
+                                            capture_output=True, text=True, check=False)
                     self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                     recorded = calls.read_text().splitlines() if calls.exists() else []
-                    expected = [] if dry_run else ["git push", "pr create", "pr list", "issue edit"] * phases
+                    expected = (["prepare"] if dry_run else
+                                ["prepare", "submit", "git push", "pr create", "pr list", "issue edit"]) * phases
                     self.assertEqual(recorded, expected)
 
 
