@@ -40,7 +40,11 @@ func main() {
 	defer cancel()
 
 	// Initialize server configuration
-	serverConfig := config.NewServerConfig()
+	serverConfig, err := config.NewServerConfig()
+	if err != nil {
+		slog.Error("Error loading server configuration", "error", err)
+		os.Exit(1)
+	}
 
 	// Setup pprof for development
 	config.SetupPprof()
@@ -86,7 +90,7 @@ func main() {
 	handlers.InitializeUnauthenticatedRoutes(publicRoutes, serverConfig.AuthMode)
 
 	protectedRoutes := r.Group("/")
-	if serverConfig.AuthMode == "TokenReview" {
+	if serverConfig.AuthMode == config.AuthModeTokenReview {
 		// Apply a two-level rate limiter to all protected routes to prevent
 		// TokenReview amplification:
 		// 1. Per-IP: 100 rps sustained, burst of 100
