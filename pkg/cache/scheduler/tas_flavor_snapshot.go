@@ -657,17 +657,21 @@ func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
 		if dom == nil {
 			return false
 		}
+		// Count one Pod slot per Pod, as the assignment does. SinglePodRequests
+		// is shared with the workload's stored usage, so it is cloned, not modified.
+		requests := domainUsage.SinglePodRequests.Clone()
+		requests.Add(resources.OnePodRequest)
 		var fitCount int32
 		for leaf := range s.leavesOf(dom) {
 			remainingCapacity := s.remainingCapacityForLeaf(leaf, false, cachingEnabled)
-			fitCount += domainUsage.SinglePodRequests.CountIn(remainingCapacity.Get())
+			fitCount += requests.CountIn(remainingCapacity.Get())
 			if fitCount >= domainUsage.Count {
 				break
 			}
 		}
 		if s.virtualHostname {
 			remaining := s.domainRemainingCapacity(dom, nil, false)
-			fitCount = min(fitCount, domainUsage.SinglePodRequests.CountIn(remaining.Get()))
+			fitCount = min(fitCount, requests.CountIn(remaining.Get()))
 		}
 		if fitCount < domainUsage.Count {
 			return false

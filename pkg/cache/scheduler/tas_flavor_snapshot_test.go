@@ -1596,6 +1596,7 @@ func TestTASCachingRemainingResourcesFeatureGate(t *testing.T) {
 				StatusAllocatable(corev1.ResourceList{
 					corev1.ResourceCPU:    resource.MustParse("8"),
 					corev1.ResourceMemory: resource.MustParse("10Gi"),
+					corev1.ResourcePods:   resource.MustParse("110"),
 				}).
 				Ready().
 				Obj()
@@ -1652,7 +1653,8 @@ func TestFitsNonHostnameLowestLevel(t *testing.T) {
 		Label(blockLabel, "b1").
 		Label(rackLabel, "r1").
 		StatusAllocatable(corev1.ResourceList{
-			corev1.ResourceCPU: resource.MustParse("8"),
+			corev1.ResourceCPU:  resource.MustParse("8"),
+			corev1.ResourcePods: resource.MustParse("110"),
 		}).
 		Ready()
 
@@ -1689,6 +1691,68 @@ func TestFitsNonHostnameLowestLevel(t *testing.T) {
 				t.Errorf("Fits() = %t, want %t", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestFitsCountsPodSlot(t *testing.T) {
+	cases := map[string]struct {
+		requests map[corev1.ResourceName]int64
+		count    int32
+		want     bool
+	}{
+		// A Pod with only DRA claims has no ordinary requests.
+		"pod without requests fits in a free pod slot": {
+			count: 1,
+			want:  true,
+		},
+		"pods without requests exceed the pod slots": {
+			count: 2,
+			want:  false,
+		},
+		"pods with zero requests exceed the pod slots": {
+			requests: map[corev1.ResourceName]int64{
+				corev1.ResourceCPU:    0,
+				corev1.ResourceMemory: 0,
+			},
+			count: 2,
+			want:  false,
+		},
+		"pods fit by cpu but exceed the pod slots": {
+			requests: map[corev1.ResourceName]int64{
+				corev1.ResourceCPU: 1000,
+			},
+			count: 2,
+			want:  false,
+		},
+	}
+
+	for name, tc := range cases {
+		for _, enableVectorizedRequests := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s, VectorizedResourceRequests=%t", name, enableVectorizedRequests), func(t *testing.T) {
+				features.SetFeatureGateDuringTest(t, features.VectorizedResourceRequests, enableVectorizedRequests)
+
+				_, log := utiltesting.ContextWithLog(t)
+				nodeObj := node.MakeNode("node-a").
+					Label(corev1.LabelHostname, "node-a").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("8"),
+						corev1.ResourcePods: resource.MustParse("1"),
+					}).
+					Ready().
+					Obj()
+				tree := newTopologyTree([]string{corev1.LabelHostname}, []*corev1.Node{nodeObj}, 0)
+				snapshot := newTASFlavorSnapshot(log, flavorInformation{TopologyName: "tas-topology"}, tree, newDefaultSimulator())
+
+				flavorUsage := workload.TASFlavorUsage{{
+					Values:            []string{"node-a"},
+					SinglePodRequests: resources.NewRequestsFromMap(tc.requests),
+					Count:             tc.count,
+				}}
+				if got := snapshot.Fits(flavorUsage); got != tc.want {
+					t.Errorf("Fits() = %t, want %t", got, tc.want)
+				}
+			})
+		}
 	}
 }
 
@@ -2220,7 +2284,10 @@ func TestFitsAfterPerWorkloadRemoval(t *testing.T) {
 	rackNode := node.MakeNode("").
 		Label(blockLabel, "b1").
 		Label(rackLabel, "r1").
-		StatusAllocatable(corev1.ResourceList{dev: resource.MustParse("1")}).
+		StatusAllocatable(corev1.ResourceList{
+			dev:                 resource.MustParse("1"),
+			corev1.ResourcePods: resource.MustParse("110"),
+		}).
 		Ready()
 	for _, name := range []string{"n1", "n2"} {
 		tasCache.SyncNode(rackNode.Clone().Name(name).Label(corev1.LabelHostname, name).Obj())
