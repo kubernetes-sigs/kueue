@@ -43,6 +43,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
+	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -4045,6 +4046,32 @@ func TestSchedulingHash(t *testing.T) {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing: true,
 				features.ConcurrentAdmission:          true,
+			},
+		},
+		"same spec, replacing different workload slices produces different hash": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-1").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-2").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wantSame: false,
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing: true,
+				features.ElasticJobsViaWorkloadSlices: true,
+			},
+		},
+		"same spec, replacing different workload slices, elastic jobs disabled produces same hash": {
+			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
+				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-1").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
+				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-2").
+				Request(corev1.ResourceCPU, "1").Obj(),
+			wantSame: true,
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulingEquivalenceHashing: true,
+				features.ElasticJobsViaWorkloadSlices: false,
 			},
 		},
 		"same spec, different topology spreading annotation produces different hash": {
