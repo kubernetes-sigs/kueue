@@ -944,14 +944,15 @@ func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []cor
 	if !slices.ContainsFunc(pods, func(pod corev1.Pod) bool { return isGated(&pod) }) {
 		return nil, nil
 	}
-	in, errs := workload.ResolveAdjustmentInputs(ctx, c, wl)
-	for _, err := range errs {
-		ctrl.LoggerFrom(ctx).Error(err, "Could not resolve workload resource defaults", "workload", klog.KObj(wl))
-	}
-	effectiveSpecs := workload.EffectivePodSpecs(wl, in)
-	podSpecs := make(map[kueue.PodSetReference]*corev1.PodSpec, len(wl.Spec.PodSets))
-	for i := range wl.Spec.PodSets {
-		podSpecs[wl.Spec.PodSets[i].Name] = &effectiveSpecs[i]
+	// AdjustResources mutates its Workload. Apply RuntimeClass overhead, copy
+	// limits into missing requests, then LimitRange defaults on a copy so the
+	// caller's object stays unchanged. This is the 0.19 stand-in for
+	// EffectivePodSpecs.
+	adjusted := wl.DeepCopy()
+	workload.AdjustResources(ctx, c, adjusted)
+	podSpecs := make(map[kueue.PodSetReference]*corev1.PodSpec, len(adjusted.Spec.PodSets))
+	for i := range adjusted.Spec.PodSets {
+		podSpecs[adjusted.Spec.PodSets[i].Name] = &adjusted.Spec.PodSets[i].Template.Spec
 	}
 	oversized := sets.New[string]()
 	for i := range pods {
