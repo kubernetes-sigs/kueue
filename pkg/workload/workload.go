@@ -448,6 +448,12 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 			shape["allowedFlavors"] = val
 		}
 	}
+	// The replaced slice key is unique per job, so each replacement gets its own class.
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if val, ok := wl.GetAnnotations()[constants.WorkloadSliceReplacementForAnnotation]; ok {
+			shape["replacementFor"] = val
+		}
+	}
 	shapeJSON, err := json.Marshal(shape)
 	if err != nil {
 		log.Error(err, "Failed to compute scheduling hash", "workload", klog.KObj(wl))
