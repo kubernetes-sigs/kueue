@@ -61,22 +61,25 @@ func deleteAllObjectsInNamespace(ctx context.Context, c client.Client, ns *corev
 }
 
 func ExpectObjectToBeDeleted[PtrT ObjAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool) {
+	ginkgo.GinkgoHelper()
 	expectObjectToBeDeletedWithTimeout(ctx, k8sClient, o, deleteNow, MediumTimeout)
 }
 
 func ExpectObjectToBeDeletedWithTimeout[PtrT ObjAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool, timeout time.Duration) {
+	ginkgo.GinkgoHelper()
 	expectObjectToBeDeletedWithTimeout(ctx, k8sClient, o, deleteNow, timeout)
 }
 
 func expectObjectToBeDeletedWithTimeout[PtrT ObjAsPtr[T], T any](ctx context.Context, k8sClient client.Client, o PtrT, deleteNow bool, timeout time.Duration) {
+	ginkgo.GinkgoHelper()
 	if o == nil {
 		return
 	}
 	if deleteNow {
-		gomega.ExpectWithOffset(2, client.IgnoreNotFound(DeleteObject(ctx, k8sClient, o))).To(gomega.Succeed())
+		gomega.Expect(client.IgnoreNotFound(DeleteObject(ctx, k8sClient, o))).To(gomega.Succeed())
 	}
 	newObj := PtrT(new(T))
-	gomega.EventuallyWithOffset(2, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(o), newObj)).Should(utiltesting.BeNotFoundError())
 	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("Object still exists", newObj))
 }
@@ -101,6 +104,7 @@ func MustCreateWithRetry(ctx context.Context, c client.Client, obj client.Object
 }
 
 func MustHaveOwnerReference(g gomega.Gomega, ownerRefs []metav1.OwnerReference, obj client.Object, scheme *runtime.Scheme) {
+	ginkgo.GinkgoHelper()
 	hasOwnerRef, err := controllerutil.HasOwnerReference(ownerRefs, obj, scheme)
 	g.Expect(err).ToNot(gomega.HaveOccurred())
 	g.Expect(hasOwnerRef).To(gomega.BeTrue())
@@ -129,8 +133,9 @@ func ResourceQtyToFloat64(quantityStr string) float64 {
 }
 
 func SetNodeCondition(ctx context.Context, k8sClient client.Client, node *corev1.Node, newCondition *corev1.NodeCondition) {
+	ginkgo.GinkgoHelper()
 	var updatedNode corev1.Node
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(node), &updatedNode)).To(gomega.Succeed())
 		condition := utiltas.GetNodeCondition(&updatedNode, newCondition.Type)
 		changed := false

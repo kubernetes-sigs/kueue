@@ -172,6 +172,7 @@ var podGroupListGVK = schema.GroupVersionKind{
 // use inside a gomega.Eventually poll, since the Job's UID (needed to derive
 // the Workload name) and the Workload itself may not be available yet.
 func workloadForJob(g gomega.Gomega, jobKey types.NamespacedName) *kueue.Workload {
+	ginkgo.GinkgoHelper()
 	createdJob := &batchv1.Job{}
 	g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
 

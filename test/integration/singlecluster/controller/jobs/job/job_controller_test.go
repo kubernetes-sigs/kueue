@@ -1601,14 +1601,17 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	)
 
 	startManager := func() {
+		ginkgo.GinkgoHelper()
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil))
 	}
 
 	stopManager := func() {
+		ginkgo.GinkgoHelper()
 		fwk.StopManager(ctx)
 	}
 
 	restartManager := func() {
+		ginkgo.GinkgoHelper()
 		stopManager()
 		startManager()
 	}
@@ -4711,6 +4714,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 })
 
 func ungatedPodNames(g gomega.Gomega, nsName, gateName string) sets.Set[string] {
+	ginkgo.GinkgoHelper()
 	pods := &corev1.PodList{}
 	g.Expect(k8sClient.List(ctx, pods, client.InNamespace(nsName))).Should(gomega.Succeed())
 	ungated := sets.New[string]()
@@ -4946,6 +4950,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		})
 
 		mintGatedPod := func(name string) {
+			ginkgo.GinkgoHelper()
 			pod := testingpod.MakePod(name, ns.Name).
 				Annotation(kueue.WorkloadAnnotation, slice.Name).
 				Annotation(kueue.WorkloadSliceNameAnnotation, slice.Name).

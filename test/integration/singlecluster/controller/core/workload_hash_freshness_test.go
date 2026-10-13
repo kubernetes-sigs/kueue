@@ -102,6 +102,7 @@ var _ = ginkgo.Describe("Scheduling hash freshness across LimitRange changes", f
 	})
 
 	expectAdmittedOnFlavor := func(wl *kueue.Workload, flavorName string) {
+		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			read := kueue.Workload{}
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &read)).To(gomega.Succeed())

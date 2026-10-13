@@ -92,10 +92,12 @@ func withRoleTracker(rt *roletracker.RoleTracker) managerSetupOption {
 }
 
 func managerSetup(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	managerAndControllerSetup(nil)(ctx, mgr)
 }
 
 func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	managerAndControllerSetup(nil, runScheduler)(ctx, mgr)
 }
 
@@ -103,6 +105,7 @@ func managerAndControllerSetup(
 	controllersCfg *config.Configuration,
 	options ...managerSetupOption,
 ) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		var opts managerSetupOpts
 		for _, opt := range options {

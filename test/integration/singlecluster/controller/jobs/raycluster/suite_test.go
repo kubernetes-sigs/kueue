@@ -72,6 +72,7 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		reconciler, err := raycluster.NewReconciler(
 			ctx,
@@ -97,18 +98,22 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 }
 
 func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return managerAndSchedulerSetupWithConfig(&config.Configuration{}, opts...)
 }
 
 func managerAndSchedulerWithTASSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return managerAndSchedulerSetupInternal(&config.Configuration{}, true, opts...)
 }
 
 func managerAndSchedulerSetupWithConfig(configuration *config.Configuration, opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return managerAndSchedulerSetupInternal(configuration, false, opts...)
 }
 
 func managerAndSchedulerSetupInternal(configuration *config.Configuration, setupTASControllers bool, opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

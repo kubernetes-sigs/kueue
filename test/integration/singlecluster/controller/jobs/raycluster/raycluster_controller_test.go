@@ -1050,6 +1050,7 @@ var _ = ginkgo.Describe("RayCluster controller with TopologyAwareScheduling", gi
 	)
 
 	startManager := func() {
+		ginkgo.GinkgoHelper()
 		if !managerRunning {
 			fwk.StartManager(ctx, cfg, managerAndSchedulerWithTASSetup())
 			managerRunning = true
@@ -1057,6 +1058,7 @@ var _ = ginkgo.Describe("RayCluster controller with TopologyAwareScheduling", gi
 	}
 
 	stopManager := func() {
+		ginkgo.GinkgoHelper()
 		if managerRunning {
 			fwk.StopManager(ctx)
 			managerRunning = false

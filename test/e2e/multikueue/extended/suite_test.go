@@ -138,6 +138,7 @@ var _ = ginkgo.SynchronizedAfterSuite(
 )
 
 func initClusterClients() {
+	ginkgo.GinkgoHelper()
 	managerClusterName = cmp.Or(os.Getenv("MANAGER_KIND_CLUSTER_NAME"), "kind-manager")
 	worker1ClusterName = cmp.Or(os.Getenv("WORKER1_KIND_CLUSTER_NAME"), "kind-worker1")
 	worker2ClusterName = cmp.Or(os.Getenv("WORKER2_KIND_CLUSTER_NAME"), "kind-worker2")
@@ -156,6 +157,7 @@ func initClusterClients() {
 }
 
 func createSharedMultiKueueSecrets(ctx context.Context) {
+	ginkgo.GinkgoHelper()
 	var err error
 	worker1KConfig, err = e2e.KubeconfigForMultiKueueSA(ctx, k8sWorker1Client, worker1Cfg, kueueNS, "mksa", worker1ClusterName, e2e.MultiKueueRulesForManager(ctx, k8sManagerClient))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -168,6 +170,7 @@ func createSharedMultiKueueSecrets(ctx context.Context) {
 }
 
 func cleanupSharedMultiKueueSecrets(ctx context.Context) {
+	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(e2e.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue1")).To(gomega.Succeed())
 		g.Expect(e2e.CleanMultiKueueSecret(ctx, k8sManagerClient, kueueNS, "multikueue2")).To(gomega.Succeed())
