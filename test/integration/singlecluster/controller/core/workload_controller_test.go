@@ -1160,14 +1160,17 @@ var _ = ginkgo.Describe("Workload controller interaction with scheduler", func()
 	)
 
 	startManager := func() {
+		ginkgo.GinkgoHelper()
 		fwk.StartManager(ctx, cfg, managerAndSchedulerSetup)
 	}
 
 	stopManager := func() {
+		ginkgo.GinkgoHelper()
 		fwk.StopManager(ctx)
 	}
 
 	restartManager := func() {
+		ginkgo.GinkgoHelper()
 		stopManager()
 		startManager()
 	}
@@ -1694,6 +1697,7 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 		)
 
 		startManager := func() {
+			ginkgo.GinkgoHelper()
 			fwk.StartManager(
 				ctx, cfg,
 				managerAndControllerSetup(
@@ -1711,10 +1715,12 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 		}
 
 		stopManager := func() {
+			ginkgo.GinkgoHelper()
 			fwk.StopManager(ctx)
 		}
 
 		restartManager := func() {
+			ginkgo.GinkgoHelper()
 			stopManager()
 			startManager()
 		}
@@ -1830,10 +1836,12 @@ var _ = ginkgo.Describe("Workload controller with resource retention", func() {
 		)
 
 		startManager := func() {
+			ginkgo.GinkgoHelper()
 			fwk.StartManager(ctx, cfg, managerSetup)
 		}
 
 		stopManager := func() {
+			ginkgo.GinkgoHelper()
 			fwk.StopManager(ctx)
 		}
 

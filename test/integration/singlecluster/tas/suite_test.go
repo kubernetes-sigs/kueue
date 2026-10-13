@@ -80,6 +80,7 @@ func managerSetupWithConfig(
 	controllersCfg *config.Configuration,
 	resourceTransformations ...config.ResourceTransformation,
 ) func(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	return managerSetupWithClientTransform(controllersCfg, nil, resourceTransformations...)
 }
 
@@ -89,6 +90,7 @@ func managerSetupWithClientTransform(
 	transform func(client.Client) client.Client,
 	resourceTransformations ...config.ResourceTransformation,
 ) func(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		schedClient := mgr.GetClient()
 		if transform != nil {
@@ -164,5 +166,6 @@ func managerSetupWithClientTransform(
 func managerSetup(
 	resourceTransformations ...config.ResourceTransformation,
 ) func(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	return managerSetupWithConfig(&config.Configuration{}, resourceTransformations...)
 }
