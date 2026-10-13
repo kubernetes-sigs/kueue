@@ -813,18 +813,15 @@ func (r *JobReconciler) clearAdmissionAfterEviction(ctx context.Context, job Gen
 		// The requeued condition status is true only for preemption or node failures.
 		setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
 		// A pod-owned Workload dies with its pod; requeuing it would recompute an assignment nothing can consume
-		// (placement drift). That only holds once the pod was released: a pod that never started has nothing placed
-		// and is left in place by Stop, so parking its Workload would strand both forever. The pod comes from the
-		// informer cache, and a stale read can only show a gate that is already gone; that errs toward requeueing,
-		// which heals when Stop deletes the pod on the next reconcile, while parking a pod that is still gated
-		// would never heal.
-		if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wl) && isStarted(job) {
+		// (placement drift). A pod that is still suspended (gated) has nothing placed and Stop leaves it in place.
+		// Its Workload must be requeued or both stay stuck.
+		if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wl) && !job.IsSuspended() {
 			setRequeued = false
 		}
 		if !workload.HasQuotaReservation(wl) {
-			// The quota is already released. Only repair a Workload that an earlier version parked while its pod was
-			// still gated; nothing else flips Requeued back for these eviction reasons.
-			// TODO(#16901): remove once releases that parked gated pods (v0.19 and v0.20 before the fix) are out of support.
+			// Quota already released. Repair Workloads that an earlier version parked while the pod was still
+			// gated. Nothing else flips Requeued back for these eviction reasons.
+			// TODO(#16901): remove once v0.19 and v0.20 are out of support.
 			reqCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
 			if setRequeued && reqCond != nil && reqCond.Status == metav1.ConditionFalse && reqCond.Reason == evCond.Reason {
 				return workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, true), nil
@@ -846,17 +843,6 @@ func (r *JobReconciler) clearAdmissionAfterEviction(ctx context.Context, job Gen
 		}
 		return updated, nil
 	})
-}
-
-// isStarted returns whether the job has been released to run. Jobs that do not
-// implement JobWithStarted are assumed to have started: the only caller consults
-// it for Workloads owned by a single Pod, which only the Pod integration creates,
-// and that integration's compliance with the interface is checked at compile time.
-func isStarted(job GenericJob) bool {
-	if js, implements := job.(JobWithStarted); implements {
-		return js.IsStarted()
-	}
-	return true
 }
 
 func (r *JobReconciler) handleQueueNameChange(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
