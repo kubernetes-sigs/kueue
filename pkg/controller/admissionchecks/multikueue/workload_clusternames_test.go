@@ -20,10 +20,10 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestIntersectAuthorizedClusters(t *testing.T) {
@@ -60,9 +60,6 @@ func TestIntersectAuthorizedClusters(t *testing.T) {
 }
 
 func TestUserNominatedClusters(t *testing.T) {
-	wlWith := func(ann map[string]string) *kueue.Workload {
-		return &kueue.Workload{ObjectMeta: metav1.ObjectMeta{Annotations: ann}}
-	}
 	cases := map[string]struct {
 		featureEnabled bool
 		wl             *kueue.Workload
@@ -71,30 +68,35 @@ func TestUserNominatedClusters(t *testing.T) {
 	}{
 		"feature disabled -> not requested": {
 			featureEnabled: false,
-			wl:             wlWith(map[string]string{kueue.MultiKueueClusterNamesAnnotation: "worker1"}),
-			wantOK:         false,
+			wl: utiltestingapi.MakeWorkload("wl", "default").
+				Annotations(map[string]string{kueue.MultiKueueClusterNamesAnnotation: "worker1"}).Obj(),
+			wantOK: false,
 		},
 		"no annotation -> not requested": {
 			featureEnabled: true,
-			wl:             wlWith(nil),
-			wantOK:         false,
+			wl: utiltestingapi.MakeWorkload("wl", "default").
+				Annotations(nil).Obj(),
+			wantOK: false,
 		},
 		"empty annotation -> not requested": {
 			featureEnabled: true,
-			wl:             wlWith(map[string]string{kueue.MultiKueueClusterNamesAnnotation: ""}),
-			wantOK:         false,
+			wl: utiltestingapi.MakeWorkload("wl", "default").
+				Annotations(map[string]string{kueue.MultiKueueClusterNamesAnnotation: ""}).Obj(),
+			wantOK: false,
 		},
 		"single cluster": {
 			featureEnabled: true,
-			wl:             wlWith(map[string]string{kueue.MultiKueueClusterNamesAnnotation: "worker1"}),
-			want:           []string{"worker1"},
-			wantOK:         true,
+			wl: utiltestingapi.MakeWorkload("wl", "default").
+				Annotations(map[string]string{kueue.MultiKueueClusterNamesAnnotation: "worker1"}).Obj(),
+			want:   []string{"worker1"},
+			wantOK: true,
 		},
 		"multiple clusters": {
 			featureEnabled: true,
-			wl:             wlWith(map[string]string{kueue.MultiKueueClusterNamesAnnotation: "worker1,worker2,worker3"}),
-			want:           []string{"worker1", "worker2", "worker3"},
-			wantOK:         true,
+			wl: utiltestingapi.MakeWorkload("wl", "default").
+				Annotations(map[string]string{kueue.MultiKueueClusterNamesAnnotation: "worker1,worker2,worker3"}).Obj(),
+			want:   []string{"worker1", "worker2", "worker3"},
+			wantOK: true,
 		},
 	}
 	for name, tc := range cases {
