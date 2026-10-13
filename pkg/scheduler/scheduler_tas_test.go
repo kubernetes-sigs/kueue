@@ -3930,17 +3930,31 @@ type tasScheduleTestCase struct {
 // stand-in.
 type recordingSimulatorFactory struct {
 	simulatorFactory simulator.Factory
-	recorder         recordingSchedulerSimulator
+	recorder         *recordingSchedulerSimulator
 }
 
-func (s *recordingSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
-	schedulerSimulator, err := s.simulatorFactory.NewSimulator(ctx, nodes, options...)
-	if err != nil {
-		return nil, err
+func (s *recordingSimulatorFactory) newSimulator(ctx context.Context, nodes []*corev1.Node, options ...simulator.Option) (*recordingSchedulerSimulator, error) {
+	if s.recorder == nil {
+		s.recorder = &recordingSchedulerSimulator{}
+		schedulerSimulator, err := s.simulatorFactory.NewSimulator(ctx, nodes, options...)
+		if err != nil {
+			return nil, err
+		}
+		s.recorder.schedulerSimulator = schedulerSimulator
+		feasibilitySimulator, err := s.simulatorFactory.NewFeasibilitySimulator(ctx, nodes, options...)
+		if err != nil {
+			return nil, err
+		}
+		s.recorder.feasibilitySimulator = feasibilitySimulator
+		s.recorder.releasedNow = sets.New[workload.Reference]()
 	}
-	s.recorder.schedulerSimulator = schedulerSimulator
-	s.recorder.releasedNow = sets.New[workload.Reference]()
-	return &s.recorder, nil
+	return s.recorder, nil
+}
+func (s *recordingSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.Node, options ...simulator.Option) (simulator.SchedulerSimulator, error) {
+	return s.newSimulator(ctx, nodes, options...)
+}
+func (s *recordingSimulatorFactory) NewFeasibilitySimulator(ctx context.Context, nodes []*corev1.Node, options ...simulator.Option) (simulator.FeasibilitySimulator, error) {
+	return s.newSimulator(ctx, nodes, options...)
 }
 func (s *recordingSimulatorFactory) TrackPod(ctx context.Context, pod *corev1.Pod) {
 	s.simulatorFactory.TrackPod(ctx, pod)
@@ -3954,12 +3968,13 @@ type recordingSchedulerSimulator struct {
 	failPreempt bool
 	// asked holds every Workload the scheduler tried to release, released holds the
 	// ones it managed to. They differ when failPreempt is set.
-	asked              []workload.Reference
-	released           int
-	reverted           int
-	releasedNow        sets.Set[workload.Reference]
-	releasedTogether   sets.Set[workload.Reference]
-	schedulerSimulator simulator.SchedulerSimulator
+	asked                []workload.Reference
+	released             int
+	reverted             int
+	releasedNow          sets.Set[workload.Reference]
+	releasedTogether     sets.Set[workload.Reference]
+	schedulerSimulator   simulator.SchedulerSimulator
+	feasibilitySimulator simulator.FeasibilitySimulator
 }
 
 func (s *recordingSchedulerSimulator) Simulate(ctx context.Context, fn func()) error {
@@ -3996,7 +4011,7 @@ func (s *recordingSchedulerSimulator) FindFeasibleNodes(
 	if s.releasedNow.Len() > s.releasedTogether.Len() {
 		s.releasedTogether = s.releasedNow.Clone()
 	}
-	return s.schedulerSimulator.FindFeasibleNodes(ctx, candidates, requirements, stats)
+	return s.feasibilitySimulator.FindFeasibleNodes(ctx, candidates, requirements, stats)
 }
 
 type tasScheduleTestConfig struct {

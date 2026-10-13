@@ -12256,14 +12256,14 @@ func TestFindTopologyAssignments(t *testing.T) {
 				if features.Enabled(features.TASHandleOverlappingFlavors) && tas.IsLowestLevelHostname(tasFlavorCache.topology.Levels) {
 					aggregatedDomainUsage = tc.aggregatedDomainUsages
 				}
-				simulatorSnapshot := newDefaultSimulator()
+				feasibilitySim := newDefaultFeasibilitySimulator()
 				if len(tc.draObjects) > 0 {
-					simulatorSnapshot = schddra.NewChecker(simulatorSnapshot, client, &schddra.CELCache{}, true)
+					feasibilitySim = schddra.NewChecker(feasibilitySim, client, &schddra.CELCache{}, true)
 				}
 				snapshot, err := tasFlavorCache.snapshot(
 					ctx,
 					log,
-					simulatorSnapshot,
+					feasibilitySim,
 					aggregatedDomainUsage,
 				)
 				if err != nil {

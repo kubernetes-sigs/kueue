@@ -2481,7 +2481,7 @@ func TestSnapshotWrapsTheDeviceCheckOnEitherSimulator(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Snapshot() returned error: %v", err)
 			}
-			if _, got := snap.SchedulerSimulator.(*schddra.Checker); got != tc.wantChecker {
+			if _, got := snap.FeasibilitySimulator.(*schddra.Checker); got != tc.wantChecker {
 				t.Errorf("snapshot holds a *schddra.Checker = %v, want %v", got, tc.wantChecker)
 			}
 		})

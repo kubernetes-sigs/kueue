@@ -23,7 +23,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -39,21 +38,25 @@ func newDefaultSimulatorFactory() simulator.Factory {
 	return &defaultSimulatorFactory{}
 }
 
-func newDefaultSimulator() simulator.SchedulerSimulator {
-	return &defaultSimulator{}
+func newDefaultFeasibilitySimulator() simulator.FeasibilitySimulator {
+	return &defaultFeasibilitySimulator{}
 }
 
-type defaultSimulator struct{}
+type defaultFeasibilitySimulator struct{}
 
 func (s *defaultSimulatorFactory) NewSimulator(_ context.Context, _ []*corev1.Node, _ ...simulator.Option) (simulator.SchedulerSimulator, error) {
-	return &defaultSimulator{}, nil
+	return nil, nil
+}
+
+func (s *defaultSimulatorFactory) NewFeasibilitySimulator(_ context.Context, _ []*corev1.Node, _ ...simulator.Option) (simulator.FeasibilitySimulator, error) {
+	return &defaultFeasibilitySimulator{}, nil
 }
 
 func (s *defaultSimulatorFactory) TrackPod(_ context.Context, _ *corev1.Pod) {}
 
 func (s *defaultSimulatorFactory) UntrackPod(_ context.Context, _ client.ObjectKey) {}
 
-func (s *defaultSimulator) FindFeasibleNodes(
+func (s *defaultFeasibilitySimulator) FindFeasibleNodes(
 	ctx context.Context,
 	candidates iter.Seq[simulator.Candidate],
 	requirements *simulator.PodRequirements,
@@ -117,15 +120,4 @@ func (s *defaultSimulator) FindFeasibleNodes(
 		feasibleCandidates = append(feasibleCandidates, matchedCandidate)
 	}
 	return feasibleCandidates, nil
-}
-
-func (s *defaultSimulator) PreemptWorkload(context.Context, types.NamespacedName) (func() error, error) {
-	return func() error { return nil }, nil
-}
-
-func (s *defaultSimulator) Simulate(_ context.Context, fn func()) error {
-	// Since default simulator does not hold any state,
-	// we can safely run the function immediately.
-	fn()
-	return nil
 }

@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -56,6 +57,7 @@ type Snapshot struct {
 	ResourceFlavors          map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor
 	InactiveClusterQueueSets sets.Set[kueue.ClusterQueueReference]
 	SchedulerSimulator       simulator.SchedulerSimulator
+	FeasibilitySimulator     simulator.FeasibilitySimulator
 
 	// hostnameLeafTASFlavors holds the flavor snapshots sharing topology
 	// capacity, fixed once the snapshot is built.
@@ -292,19 +294,25 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 	}
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		var err error
-		snap.SchedulerSimulator, err = c.simulatorFactory.NewSimulator(
+		var schedSimErr error
+		snap.SchedulerSimulator, schedSimErr = c.simulatorFactory.NewSimulator(
 			ctx,
 			c.tasCache.nodesCache.getAllNodes(),
 			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
 		)
-		if err != nil {
+		var feasSimErr error
+		snap.FeasibilitySimulator, feasSimErr = c.simulatorFactory.NewFeasibilitySimulator(
+			ctx,
+			c.tasCache.nodesCache.getAllNodes(),
+			simulator.WithAssumedWorkloads(c.assumedWorkloads()),
+		)
+		if err := errors.Join(schedSimErr, feasSimErr); err != nil {
 			return nil, err
 		}
 		// Wrapping here rather than inside a simulator keeps the device check on
 		// whichever one is configured, so it does not depend on the scheduler library.
 		if features.Enabled(features.KueueDRADeviceFeasibility) {
-			snap.SchedulerSimulator = schddra.NewChecker(snap.SchedulerSimulator, c.client, &c.draSelectorsCache, c.deviceTaintRulesServed)
+			snap.FeasibilitySimulator = schddra.NewChecker(snap.FeasibilitySimulator, c.client, &c.draSelectorsCache, c.deviceTaintRulesServed)
 		}
 	}
 
@@ -352,7 +360,7 @@ func (c *Cache) Snapshot(ctx context.Context, options ...SnapshotOption) (*Snaps
 			tasSnapshots[flavor], err = cache.snapshot(
 				ctx,
 				log,
-				snap.SchedulerSimulator,
+				snap.FeasibilitySimulator,
 				aggregatedDomainUsagesForFlavor,
 			)
 			if err != nil {

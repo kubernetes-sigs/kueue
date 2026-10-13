@@ -93,9 +93,9 @@ type TASFlavorCache struct {
 	// e.g. static Pods or DaemonSet pods.
 	nonTasUsageCache *nonTasUsageCache
 
-	// simulatorFactory performs the node feasibility check
+	// podObserver performs the node feasibility check
 	// based on topology requirements.
-	simulatorFactory simulator.Factory
+	podObserver simulator.PodObserver
 
 	resourceFormatter *resources.ResourceFormatter
 
@@ -122,7 +122,7 @@ func (t *tasCache) NewTASFlavorCache(topologyInfo topologyInformation,
 		usage:             make(map[utiltas.TopologyDomainID]resources.Requests),
 		wlUsage:           make(map[workload.Reference][]workload.TopologyDomainRequests),
 		nonTasUsageCache:  t.nonTasUsageCache,
-		simulatorFactory:  t.simulatorFactory,
+		podObserver:  t.podObserver,
 		resourceFormatter: t.resourceFormatter,
 		nodesCache:        t.nodesCache,
 	}
@@ -185,7 +185,7 @@ func (c *TASFlavorCache) TopologyLevels() []string {
 func (c *TASFlavorCache) snapshot(
 	ctx context.Context,
 	log logr.Logger,
-	schedulerSimulator simulator.SchedulerSimulator,
+	schedulerSimulator simulator.FeasibilitySimulator,
 	aggregatedDomainUsages map[utiltas.TopologyDomainID]resources.Requests,
 ) (*TASFlavorSnapshot, error) {
 	c.RLock()

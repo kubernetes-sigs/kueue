@@ -245,7 +245,7 @@ type TASFlavorSnapshot struct {
 	domainFreeCapacities map[utiltas.TopologyDomainID]resources.Requests
 
 	// schedulerSimulator stores enough data to run a WAS scheduling simulation.
-	schedulerSimulator simulator.SchedulerSimulator
+	schedulerSimulator simulator.FeasibilitySimulator
 
 	resourceFormatter *resources.ResourceFormatter
 }
@@ -321,7 +321,7 @@ func newTASFlavorSnapshot(
 	log logr.Logger,
 	flavor flavorInformation,
 	tree *topologyTree,
-	schedulerSimulator simulator.SchedulerSimulator,
+	schedulerSimulator simulator.FeasibilitySimulator,
 	opts ...tasFlavorSnapshotOption,
 ) *TASFlavorSnapshot {
 	options := &tasFlavorSnapshotOptions{}
