@@ -900,7 +900,7 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 		ctrl.LoggerFrom(ctx).Error(err, "failed to set kubeConfig in the remote client")
 		return retryAfter, err
 	} else if retryAfter != nil {
-		ctrl.LoggerFrom(ctx).V(2).Info("reconnect deferred, backoff not elapsed", "retryAfter", retryAfter, "failedAttempts", client.getFailedConnAttempts())
+		ctrl.LoggerFrom(ctx).V(2).Info("reconnect deferred, backoff not elapsed", "retryAfter", *retryAfter, "failedAttempts", client.getFailedConnAttempts())
 		return retryAfter, nil
 	}
 	return nil, nil
@@ -955,7 +955,7 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	}
 
 	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, clientConfig, c.origin); err != nil {
-		log.Error(err, "setting client config", "retryAfter", retryAfter)
+		log.Error(err, "setting client config", "retryAfter", ptr.Deref(retryAfter, 0))
 		c.disconnectCluster(req.Name)
 		if err := c.updateStatus(ctx, cluster, false, "ClientConnectionFailed", err.Error()); err != nil {
 			return reconcile.Result{}, err

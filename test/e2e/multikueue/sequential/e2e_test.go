@@ -56,13 +56,11 @@ import (
 // back to the calling Ginkgo node.
 func updateAndRestartConcurrently(fns ...func()) {
 	var wg sync.WaitGroup
-	wg.Add(len(fns))
 	for _, fn := range fns {
-		go func() {
+		wg.Go(func() {
 			defer ginkgo.GinkgoRecover()
-			defer wg.Done()
 			fn()
-		}()
+		})
 	}
 	wg.Wait()
 }
