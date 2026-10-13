@@ -165,34 +165,30 @@ func (g *wlGroup) jobHasMultipleWorkloads() bool {
 // RemoveRemoteObjects deletes the remote controller object and workload for a cluster.
 // The controller object is deleted first to handle cases where GC has already removed
 // the remote workload.
-//
-// A job with several workloads (e.g. a LeaderWorkerSet with a workload per group) has a
-// single remote controller object shared by all of them, so it is deleted only once no
-// other workload of the job is left on the cluster. The remote workload is deleted before
-// that check, so among workloads removed concurrently, the last one to check deletes it.
 func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
-	rc := g.remoteClients[cluster]
-	if g.jobHasMultipleWorkloads() {
-		if err := g.removeRemoteWorkload(ctx, cluster); err != nil {
-			return err
-		}
-		if shared, err := g.hasOtherRemoteWorkloads(ctx, rc); err != nil || shared {
-			return err
-		}
-		return g.removeRemoteControllerObject(ctx, rc)
-	}
-
-	if err := g.removeRemoteControllerObject(ctx, rc); err != nil {
-		return err
+	remoteClient := g.remoteClients[cluster].getClient()
+	origin := g.remoteClients[cluster].origin
+	if err := jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, remoteClient, g.jobAdapter, g.controllerKey, origin); err != nil {
+		return fmt.Errorf("deleting remote controller object: %w", err)
 	}
 	return g.removeRemoteWorkload(ctx, cluster)
 }
 
-func (g *wlGroup) removeRemoteControllerObject(ctx context.Context, rc *remoteClient) error {
-	if err := jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, rc.getClient(), g.jobAdapter, g.controllerKey, rc.origin); err != nil {
-		return fmt.Errorf("deleting remote controller object: %w", err)
+// removeUnsharedRemoteObjects deletes the remote workload for a cluster, and the remote
+// controller object unless another workload of the job still uses it. A job with several
+// workloads (e.g. a LeaderWorkerSet with a workload per group) has a single remote controller
+// object shared by all of them. The remote workload is deleted before the check, so among
+// workloads removed concurrently, the last one to check deletes the controller object.
+func (g *wlGroup) removeUnsharedRemoteObjects(ctx context.Context, cluster string) error {
+	if g.jobHasMultipleWorkloads() {
+		if err := g.removeRemoteWorkload(ctx, cluster); err != nil {
+			return err
+		}
+		if shared, err := g.hasOtherRemoteWorkloads(ctx, g.remoteClients[cluster]); err != nil || shared {
+			return err
+		}
 	}
-	return nil
+	return g.RemoveRemoteObjects(ctx, cluster)
 }
 
 func (g *wlGroup) removeRemoteWorkload(ctx context.Context, cluster string) error {
@@ -308,7 +304,7 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 	if isDeleted {
 		for cluster := range grp.remotes {
-			err := grp.RemoveRemoteObjects(ctx, cluster)
+			err := grp.removeUnsharedRemoteObjects(ctx, cluster)
 			if err != nil {
 				return reconcile.Result{}, err
 			}
@@ -438,7 +434,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	if group.IsFinished() || !workload.HasQuotaReservation(group.local) {
 		var errs []error
 		for rem := range group.remotes {
-			if err := group.RemoveRemoteObjects(ctx, rem); err != nil {
+			if err := group.removeUnsharedRemoteObjects(ctx, rem); err != nil {
 				errs = append(errs, err)
 				log.V(2).Error(err, "Deleting remote workload", "workerCluster", rem)
 			}
