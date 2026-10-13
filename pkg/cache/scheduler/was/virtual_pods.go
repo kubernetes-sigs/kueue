@@ -81,6 +81,11 @@ func newVirtualPod(wl *kueue.Workload, psName string, replicaIdx int, labels, an
 	}
 	pod.Annotations[kueue.WorkloadAnnotation] = wl.Name
 
+	// Link Pod to its workload's virtual PodGroup
+	pod.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{
+		PodGroupName: new(VirtualPodGroupName(wl.Name)),
+	}
+
 	return pod
 }
 
