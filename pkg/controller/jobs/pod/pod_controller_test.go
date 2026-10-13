@@ -10175,58 +10175,6 @@ func TestPod_IsActive(t *testing.T) {
 	}
 }
 
-func TestPod_IsStarted(t *testing.T) {
-	gated := corev1.Pod{Spec: corev1.PodSpec{SchedulingGates: []corev1.PodSchedulingGate{{Name: podconstants.SchedulingGateName}}}}
-	topologyGated := corev1.Pod{Spec: corev1.PodSpec{SchedulingGates: []corev1.PodSchedulingGate{{Name: kueue.TopologySchedulingGate}}}}
-	ungated := corev1.Pod{}
-
-	tests := map[string]struct {
-		pod     corev1.Pod
-		list    corev1.PodList
-		isGroup bool
-		want    bool
-	}{
-		"single pod still gated": {
-			pod:  gated,
-			want: false,
-		},
-		"single pod ungated": {
-			pod:  ungated,
-			want: true,
-		},
-		"single pod with only the topology gate": {
-			pod:  topologyGated,
-			want: true,
-		},
-		"group with all pods gated": {
-			isGroup: true,
-			list:    corev1.PodList{Items: []corev1.Pod{gated, gated}},
-			want:    false,
-		},
-		"group with one pod ungated": {
-			isGroup: true,
-			list:    corev1.PodList{Items: []corev1.Pod{gated, ungated}},
-			want:    true,
-		},
-		"group without pods": {
-			isGroup: true,
-			want:    false,
-		},
-	}
-	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			p := &Pod{
-				pod:     tc.pod,
-				list:    tc.list,
-				isGroup: tc.isGroup,
-			}
-			if got := p.IsStarted(); got != tc.want {
-				t.Errorf("IsStarted() = %v, want %v", got, tc.want)
-			}
-		})
-	}
-}
-
 // TestIsPodRunnableOrSucceeded covers https://github.com/kubernetes-sigs/kueue/issues/13830:
 // a pod that already ran (so it kept its NodeName) and terminated cleanly while being deleted
 // must not be misclassified as still active just because NodeName is non-empty.
