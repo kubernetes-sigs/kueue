@@ -10,6 +10,7 @@ integrations:
   - "batch/job"
   - "ray.io/raycluster"
   - "ray.io/rayjob"
+  - "ray.io/rayservice"
 featureGates:
   ElasticJobsViaWorkloadSlices: true
   MultiKueueRayInTreeAutoscaling: true
