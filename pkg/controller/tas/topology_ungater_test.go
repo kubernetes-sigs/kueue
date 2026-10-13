@@ -2874,6 +2874,44 @@ func TestReconcile(t *testing.T) {
 			},
 			wantCounts: []counts{countsR1},
 		},
+		"ranks: elastic Job with backoffLimitPerIndex lends the free domain to the recreated Pod whose rank's domain is full": {
+			// Index 0 failed, and index 1 succeeded during index 0's per-index backoff.
+			// The Job controller created index 2 first, which was lent r1, so the
+			// recreated index 0 finds r1 full while r2 is free.
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "0").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "2").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodFailed).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "0").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "2").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodFailed).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2},
+		},
+		"ranks: elastic Job with backoffLimitPerIndex falls back to greedy assignment while ElasticJobsViaWorkloadSlicesWithTAS is disabled": {
+			workloads: []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "0").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "2").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodFailed).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "0").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "2").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodFailed).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2},
+		},
 		"ranks: support rank-based ordering for kubeflow with invalid offset annotation - for all Pods": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").
