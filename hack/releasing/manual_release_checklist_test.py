@@ -50,17 +50,41 @@ class ManualReleaseChecklistTest(unittest.TestCase):
             source = (REPO_ROOT / "hack/releasing" / script_name).read_text()
             push_function = re.search(r"^function push_and_create_pr\(\) \{.*?^\}",
                                       source, re.MULTILINE | re.DOTALL).group()
-            phase = source[source.index(start):]
-            snapshot = ""
+            script = push_function + "\n" + source[source.index(start):]
+            script_cases = dict(cases)
             if script_name == "prepare_pull.sh":
-                snapshot = source[source.index('cp "${REPO_ROOT}/hack/releasing/log_to_issue.py"'):]
-                snapshot = snapshot.splitlines()[0] + "\n"
-            for name, (env, answers, want_success, want_edit) in cases.items():
+                # Keep the real initialization, cleanup and main phases in source order.
+                # Only branch preparation is mocked, since it changes tracked files.
+                script = source[source.index("clean_branches=()"):]
+                prepare_function = '''function prepare_local_branch() {
+  test -f "$RELEASE_CHECKLIST_SCRIPT"
+  case "$RELEASE_CHECKLIST_SCRIPT" in "$TMPDIR"/*) ;; *) return 1 ;; esac
+  cmp "$RELEASE_CHECKLIST_SCRIPT" "$EXPECTED_HELPER"
+  printf '%s\\n' "$RELEASE_CHECKLIST_SCRIPT" >> "$SNAPSHOT_SEEN"
+  cp "$OLD_HELPER" "$REPO_ROOT/hack/releasing/log_to_issue.py"
+}'''
+                script = re.sub(r"^function prepare_local_branch\(\) \{.*?^\}", lambda _: prepare_function,
+                                script, count=1, flags=re.MULTILINE | re.DOTALL)
+                script_cases.update({
+                    "release target": ({"TARGET": "release"}, "y\n", True, True),
+                    "main target": ({"TARGET": "main"}, "y\n", True, True),
+                    "snapshot copy failed": ({"MISSING_HELPER": "1"}, "", False, False),
+                    "mktemp failed": ({"MISSING_TMPDIR": "1"}, "", False, False),
+                })
+            for name, (env, answers, want_success, want_edit) in script_cases.items():
                 with self.subTest(script=script_name, case=name), tempfile.TemporaryDirectory() as directory:
                     root = Path(directory)
                     helper = root / "hack/releasing/log_to_issue.py"
                     helper.parent.mkdir(parents=True)
                     helper.write_text((REPO_ROOT / "hack/releasing/log_to_issue.py").read_text())
+                    expected_helper = root / "expected_helper.py"
+                    expected_helper.write_text(helper.read_text())
+                    if env.get("MISSING_HELPER"):
+                        helper.unlink()
+                    tmpdir = root / "tmp"
+                    if not env.get("MISSING_TMPDIR"):
+                        tmpdir.mkdir()
+                    snapshot_seen = root / "snapshot_seen"
                     old_helper = root / "old_helper.py"
                     old_helper.write_text('raise SystemExit("old release helper has no checklist CLI")\n')
                     calls = root / "calls.jsonl"
@@ -112,29 +136,42 @@ if args[:2] == ["pr", "list"] and not os.environ.get("NO_PR"):
                         "GH_STUB": str(gh),
                         "TEST_PYTHON": sys.executable,
                         "OLD_HELPER": str(old_helper),
-                        "RELEASE_CHECKLIST_SCRIPT": str(root / "checklist.py"),
+                        "EXPECTED_HELPER": str(expected_helper),
+                        "SNAPSHOT_SEEN": str(snapshot_seen),
+                        "STARTING_BRANCH": "main",
+                        "TMPDIR": str(tmpdir),
                         **env,
                     }
+                    test_env.pop("RELEASE_CHECKLIST_SCRIPT", None)
                     harness = '''
 set -o errexit
 set -o nounset
 set -o pipefail
 function prepare_local_branch() { cp "$OLD_HELPER" "$REPO_ROOT/hack/releasing/log_to_issue.py"; }
-function git() { return "$PUSH_STATUS"; }
+function git() { if [[ "$1" == "push" ]]; then return "$PUSH_STATUS"; fi; }
 function gh() { "$TEST_PYTHON" "$GH_STUB" "$@"; }
 function make_pr() { gh pr create; }
 '''
-                    result = subprocess.run(["bash", "-c", harness + snapshot + push_function + "\n" + phase],
+                    result = subprocess.run(["bash", "-c", harness + script],
                                             env=test_env, cwd=root, input=answers,
                                             capture_output=True, text=True, check=False)
                     self.assertEqual(result.returncode == 0, want_success, result.stdout + result.stderr)
                     recorded = [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+                    if script_name == "prepare_pull.sh":
+                        self.assertEqual(list(tmpdir.iterdir()) if tmpdir.exists() else [], [])
+                        initialization_failed = bool(env.get("MISSING_HELPER") or env.get("MISSING_TMPDIR"))
+                        self.assertEqual(snapshot_seen.exists(), not initialization_failed, result.stderr)
+                        if initialization_failed:
+                            self.assertEqual(recorded, [])
                     edits = [args for args in recorded if args[:2] == ["issue", "edit"]]
                     self.assertEqual(bool(edits), want_edit, recorded)
                     if want_edit:
                         body = edits[-1][edits[-1].index("--body") + 1]
                         checked = set(re.findall(r"- \[x\][^\n]*<!-- step:([a-z-]+) -->", body))
-                        self.assertEqual(checked, want_steps)
+                        expected_steps = want_steps
+                        if script_name == "prepare_pull.sh" and test_env["TARGET"] != "all":
+                            expected_steps = {"prepare-pull-" + test_env["TARGET"]}
+                        self.assertEqual(checked, expected_steps)
                         self.assertNotIn("- [x] Wait for", body)
 
     def test_existing_milestone_pr_retries_issue_update(self):
