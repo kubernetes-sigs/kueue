@@ -438,8 +438,9 @@ func assignGatedPodsToDomainsByRanks(
 // lowest ranks while the pods above the new count still exist, and an Indexed Job
 // with completions above parallelism creates pods at higher completion indexes.
 // A gated pod goes to its rank's domain only while that domain has free capacity,
-// because a pod without a domain may still occupy it. The capacity left after
-// that is lent to the gated pods without a domain, in ascending rank order.
+// because a pod without a domain may still occupy it.
+// The capacity left after that is lent in ascending rank order, first to the gated
+// pods whose rank's domain is full, then to the gated pods without a domain.
 func assignGatedPodsToDomainsByRanksLendingFreeCapacity(
 	log logr.Logger,
 	psa *kueue.PodSetAssignment,
@@ -457,8 +458,7 @@ func assignGatedPodsToDomainsByRanksLendingFreeCapacity(
 		}
 	}
 	toUngate := make([]podWithDomain, 0)
-	var podsWithoutDomain []*corev1.Pod
-	noCapacityPodCount := 0
+	var podsWithoutDomain, podsWithoutCapacity []*corev1.Pod
 	for _, rank := range slices.Sorted(maps.Keys(rankToPod)) {
 		pod := rankToPod[rank]
 		if !utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
@@ -470,27 +470,29 @@ func assignGatedPodsToDomainsByRanksLendingFreeCapacity(
 		}
 		domainID := rankToDomainID[rank]
 		if freeCapacity[domainID] <= 0 {
-			noCapacityPodCount++
+			podsWithoutCapacity = append(podsWithoutCapacity, pod)
 			continue
 		}
 		freeCapacity[domainID]--
 		toUngate = append(toUngate, podWithDomain{pod: pod, domainID: domainID})
 	}
-	if len(podsWithoutDomain) == 0 && noCapacityPodCount == 0 {
+	if len(podsWithoutDomain) == 0 && len(podsWithoutCapacity) == 0 {
 		return toUngate
 	}
+	// Ranks without a domain are above every rank with one, so this keeps rank order.
+	podsToLend := slices.Concat(podsWithoutCapacity, podsWithoutDomain)
 	lentPodCount := 0
 	// Assignment order is also the order of each domain's lowest rank.
 	for psaDomain := range utiltas.InternalSeqFrom(psa.TopologyAssignment) {
 		domainID := utiltas.DomainID(psaDomain.Values)
-		for ; freeCapacity[domainID] > 0 && lentPodCount < len(podsWithoutDomain); lentPodCount++ {
+		for ; freeCapacity[domainID] > 0 && lentPodCount < len(podsToLend); lentPodCount++ {
 			freeCapacity[domainID]--
-			toUngate = append(toUngate, podWithDomain{pod: podsWithoutDomain[lentPodCount], domainID: domainID})
+			toUngate = append(toUngate, podWithDomain{pod: podsToLend[lentPodCount], domainID: domainID})
 		}
 	}
 	log.V(3).Info("rank-based ordering left some pods without a domain or free capacity",
 		"podsWithoutDomainCount", len(podsWithoutDomain), "lentPodCount", lentPodCount,
-		"noCapacityPodCount", noCapacityPodCount, "assignedPodCount", len(rankToDomainID))
+		"podsWithoutCapacityCount", len(podsWithoutCapacity), "assignedPodCount", len(rankToDomainID))
 	return toUngate
 }
 
