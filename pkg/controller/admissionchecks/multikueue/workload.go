@@ -177,15 +177,15 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 // removeUnsharedRemoteObjects deletes the remote workload for a cluster, and the remote
 // controller object unless another workload of the job still uses it. A job with several
 // workloads (e.g. a LeaderWorkerSet with a workload per group) has a single remote controller
-// object shared by all of them. The remote workload is deleted before the check, so among
-// workloads removed concurrently, the last one to check deletes the controller object.
+// object shared by all of them.
 func (g *wlGroup) removeUnsharedRemoteObjects(ctx context.Context, cluster string) error {
 	if g.jobHasMultipleWorkloads() {
-		if err := g.removeRemoteWorkload(ctx, cluster); err != nil {
+		shared, err := g.hasOtherWorkloadsOnCluster(ctx, cluster)
+		if err != nil {
 			return err
 		}
-		if shared, err := g.hasOtherRemoteWorkloads(ctx, g.remoteClients[cluster]); err != nil || shared {
-			return err
+		if shared {
+			return g.removeRemoteWorkload(ctx, cluster)
 		}
 	}
 	return g.RemoveRemoteObjects(ctx, cluster)
@@ -212,19 +212,21 @@ func (g *wlGroup) removeRemoteWorkload(ctx context.Context, cluster string) erro
 	return nil
 }
 
-// hasOtherRemoteWorkloads reports whether the cluster has a remote workload, not being
-// deleted, of another component of the same job.
-func (g *wlGroup) hasOtherRemoteWorkloads(ctx context.Context, rc *remoteClient) (bool, error) {
-	remoteWls := &kueue.WorkloadList{}
-	if err := rc.getClient().List(ctx, remoteWls, client.InNamespace(g.local.Namespace), client.MatchingLabels{kueue.MultiKueueOriginLabel: rc.origin}); err != nil {
-		return false, fmt.Errorf("listing remote workloads: %w", err)
+// hasOtherWorkloadsOnCluster reports whether another workload of the same job, not being
+// deleted, finished, or evicted, is admitted on or nominated to the cluster. It reads the
+// local workloads only, so that no remote cluster is listed.
+func (g *wlGroup) hasOtherWorkloadsOnCluster(ctx context.Context, cluster string) (bool, error) {
+	componentWorkloads, err := listComponentWorkloads(ctx, g.localClient, g.local)
+	if err != nil || componentWorkloads == nil {
+		return false, err
 	}
-	ownerGVK := g.jobAdapter.GVK().String()
-	for i := range remoteWls.Items {
-		remWl := &remoteWls.Items[i]
-		if remWl.Name != g.local.Name && remWl.DeletionTimestamp.IsZero() &&
-			remWl.Annotations[constants.JobOwnerGVKAnnotation] == ownerGVK &&
-			remWl.Annotations[constants.JobOwnerNameAnnotation] == g.controllerKey.Name {
+	for i := range componentWorkloads.Items {
+		member := &componentWorkloads.Items[i]
+		if member.Name == g.local.Name || !member.DeletionTimestamp.IsZero() ||
+			workloadfinish.IsFinished(member) || !workload.HasQuotaReservation(member) {
+			continue
+		}
+		if workload.ClusterName(member) == cluster || slices.Contains(member.Status.NominatedClusterNames, cluster) {
 			return true, nil
 		}
 	}
@@ -730,7 +732,7 @@ func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
 	return !equality.Semantic.DeepEqual(local, remote)
 }
 
-func (w *wlReconciler) listComponentWorkloads(ctx context.Context, wl *kueue.Workload) (*kueue.WorkloadList, error) {
+func listComponentWorkloads(ctx context.Context, c client.Client, wl *kueue.Workload) (*kueue.WorkloadList, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	ownerGVK, hasGVK := wl.Annotations[constants.JobOwnerGVKAnnotation]
@@ -753,7 +755,7 @@ func (w *wlReconciler) listComponentWorkloads(ctx context.Context, wl *kueue.Wor
 	}
 
 	componentWorkloads := &kueue.WorkloadList{}
-	if err := w.client.List(ctx, componentWorkloads,
+	if err := c.List(ctx, componentWorkloads,
 		client.InNamespace(wl.Namespace),
 		client.MatchingFields{indexer.OwnerReferenceUID: ownerUID},
 	); err != nil {
@@ -845,7 +847,7 @@ func (w *wlReconciler) allExpectedWorkloadsExist(ctx context.Context, wl *kueue.
 func (w *wlReconciler) enqueueComponentWorkloads(ctx context.Context, wl *kueue.Workload) {
 	log := ctrl.LoggerFrom(ctx)
 
-	componentWorkloads, err := w.listComponentWorkloads(ctx, wl)
+	componentWorkloads, err := listComponentWorkloads(ctx, w.client, wl)
 	if err != nil || componentWorkloads == nil {
 		return
 	}
@@ -900,7 +902,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "nominateAndSynchronizeWorkers")
 	log.V(3).Info("Nominate and Synchronize Worker Clusters")
 
-	componentWorkloads, err := w.listComponentWorkloads(ctx, group.local)
+	componentWorkloads, err := listComponentWorkloads(ctx, w.client, group.local)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
