@@ -45,6 +45,18 @@ class ParseReleaseNoteTest(unittest.TestCase):
                 "/set-release-note   \nA useful change",
                 "A useful change",
             ),
+            "trailing commands are excluded": (
+                "/set-release-note\nCLI: Example release note.\n/remove-kind cleanup\n/kind bug",
+                "CLI: Example release note.",
+            ),
+            "trailing commands after a multiline note": (
+                "/set-release-note\nFirst line\nSecond line\n\n/lgtm\n/approve\n",
+                "First line\nSecond line",
+            ),
+            "line starting with a slash inside the note is kept": (
+                "/set-release-note\n/healthz now returns 503 while starting.\nNo action needed.",
+                "/healthz now returns 503 while starting.\nNo action needed.",
+            ),
         }
 
         for name, (comment, want) in test_cases.items():
@@ -71,6 +83,10 @@ class ParseReleaseNoteTest(unittest.TestCase):
             ),
             "whitespace-only note": (
                 "/set-release-note\n \t\n",
+                "/set-release-note must be followed by a non-empty release note.",
+            ),
+            "only commands after the command": (
+                "/set-release-note\n/kind bug\n/lgtm",
                 "/set-release-note must be followed by a non-empty release note.",
             ),
             "fenced block in note": (

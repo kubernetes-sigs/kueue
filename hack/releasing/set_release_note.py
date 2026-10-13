@@ -21,6 +21,8 @@ from pathlib import Path
 
 COMMAND = "/set-release-note"
 MAX_PR_BODY_LENGTH = 65_536
+# A line holding a single Prow-style command, such as "/kind bug" or "/lgtm".
+COMMAND_LINE_RE = re.compile(r"^/[a-z][a-z0-9-]*(?:[ \t]+\S.*)?$")
 FENCE_RE = re.compile(
     r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>[^\r\n]*?)[ \t]*(?:\r?\n)?$"
 )
@@ -38,13 +40,29 @@ def _match_fence(line: str) -> re.Match[str] | None:
     return match
 
 
+def _strip_trailing_commands(lines: list[str]) -> list[str]:
+    """Drop the trailing block of command lines that follows the note.
+
+    Other commands in the same comment, such as "/kind bug", are handled by
+    Prow and must not end up in the release note. Only a trailing block of
+    command and blank lines is removed, so a note line that happens to start
+    with "/" followed by more note text is kept.
+    """
+    end = len(lines)
+    while end > 0 and (
+        not lines[end - 1].strip() or COMMAND_LINE_RE.match(lines[end - 1].strip())
+    ):
+        end -= 1
+    return lines[:end]
+
+
 def parse_release_note(comment: str) -> str:
     """Parse and validate the release note from a ChatOps comment."""
     lines = comment.replace("\r\n", "\n").splitlines()
     if not lines or lines[0].rstrip() != COMMAND:
         raise ValueError(f"{COMMAND} must be the first line of the comment.")
 
-    release_note = "\n".join(lines[1:]).strip()
+    release_note = "\n".join(_strip_trailing_commands(lines[1:])).strip()
     if not release_note:
         raise ValueError(f"{COMMAND} must be followed by a non-empty release note.")
     if any(_match_fence(line) for line in release_note.splitlines()):
