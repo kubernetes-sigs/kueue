@@ -87,13 +87,6 @@ app = HelloWorld.bind()`,
 	codeMount := corev1.VolumeMount{Name: codeVolume.Name, MountPath: "/home/ray/samples"}
 	pythonPath := corev1.EnvVar{Name: "PYTHONPATH", Value: "/home/ray/samples:$PYTHONPATH"}
 
-	// The head requests 750m CPU plus the autoscaler's default 500m, excluding
-	// worker2 (1200m quota). Two workers add 250m each, keeping the total at 1750m
-	// within the manager and worker1 quotas of 2000m. Limits do not determine quota usage.
-	// Each worker provides one worker-unit, and each detached actor requests one
-	// with zero logical Ray CPUs. The head provides none, so two actors require
-	// two workers. The zero-CPU Serve deployment allows startup without workers;
-	// detached actors, not Serve requests, trigger autoscaling in this test.
 	rayService := testingrayservice.MakeService("rayservice-autoscale", managerNs.Name).
 		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 		Queue(managerLq.Name).
