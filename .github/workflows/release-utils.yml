@@ -234,7 +234,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           DOWNLOAD_DIR=$(mktemp -d)
-          gh release download v0.20.1 \
+          gh release download v0.22.0 \
             --repo kubernetes/release \
             --pattern 'release-notes-amd64-linux' \
             --pattern 'checksums.txt' \

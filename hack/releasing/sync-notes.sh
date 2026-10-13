@@ -212,7 +212,6 @@ echo "              --branch \"${HEAD_BRANCH}\" \\"
 echo "              --start-sha \"${START_SHA}\" \\"
 echo "              --end-sha \"${END_SHA}\" \\"
 echo "              --dependencies=false \\"
-echo "              --required-author=\"\" "
 echo "              --output=\"${CHANGELOG_FILE}\" "
 
 GITHUB_TOKEN=${GITHUB_TOKEN:-$(gh auth status --show-token | awk '/Token:/ {print $3}')}
@@ -224,7 +223,6 @@ GITHUB_TOKEN=${GITHUB_TOKEN} release-notes --org "${MAIN_REPO_ORG}" \
               --start-sha "${START_SHA}" \
               --end-sha "${END_SHA}" \
               --dependencies=false \
-              --required-author="" \
               --output="${CHANGELOG_FILE}"
 
 MINOR_UPGRADE_RELEASE_LINKS=$(minor_upgrade_release_links "${RELEASE_VERSION}")
