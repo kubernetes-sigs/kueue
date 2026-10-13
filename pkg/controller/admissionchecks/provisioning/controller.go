@@ -148,7 +148,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	}
 
 	if isFinished || (isEvicted && features.Enabled(features.CleanupProvisioningRequestsOnEviction)) {
-		err = c.deleteUnusedProvisioningRequests(ctx, provReqs.Items, nil)
+		err = c.deleteUnusedProvisioningRequests(ctx, provReqs.Items, determineProvisioningRequestsToKeep(wl, provReqs.Items))
 		if err != nil {
 			log.V(2).Error(err, "failed to delete stale provisioning requests")
 			return reconcile.Result{}, err
@@ -187,7 +187,7 @@ func (c *Controller) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, err
 	}
 
-	err = c.deleteUnusedProvisioningRequests(ctx, provReqs.Items, activeOrLastPRForChecks)
+	err = c.deleteUnusedProvisioningRequests(ctx, provReqs.Items, requestNames(activeOrLastPRForChecks))
 	if err != nil {
 		log.V(2).Error(err, "syncOwnedProvisionRequest failed to delete unused provisioning requests")
 		return reconcile.Result{}, err
@@ -235,26 +235,65 @@ func (c *Controller) activeOrLastPRForChecks(
 	return activeOrLastPRForChecks, nil
 }
 
+// deleteUnusedProvisioningRequests deletes every owned request whose name is not in keep.
 func (c *Controller) deleteUnusedProvisioningRequests(
 	ctx context.Context,
 	ownedPRs []autoscaling.ProvisioningRequest,
-	activeOrLastPRForChecks map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest,
+	keep sets.Set[string],
 ) error {
 	log := ctrl.LoggerFrom(ctx)
-	prNames := sets.New[string]()
-	for _, pr := range activeOrLastPRForChecks {
-		prNames.Insert(pr.Name)
-	}
-	for _, pr := range ownedPRs {
-		req := &pr
-		if !prNames.Has(req.Name) {
-			if err := c.client.Delete(ctx, req); client.IgnoreNotFound(err) != nil {
-				log.V(5).Error(err, "deleting the request", "req", klog.KObj(req))
-				return err
-			}
+	for i := range ownedPRs {
+		req := &ownedPRs[i]
+		if keep.Has(req.Name) {
+			continue
+		}
+		if err := c.client.Delete(ctx, req); client.IgnoreNotFound(err) != nil {
+			log.V(5).Error(err, "deleting the request", "req", klog.KObj(req))
+			return err
 		}
 	}
 	return nil
+}
+
+func requestNames(prs map[kueue.AdmissionCheckReference]*autoscaling.ProvisioningRequest) sets.Set[string] {
+	names := sets.New[string]()
+	for _, pr := range prs {
+		names.Insert(pr.Name)
+	}
+	return names
+}
+
+// requestNamesForLiveRequests returns the names of the requests whose booking
+// the autoscaler still honours (see hasLiveBooking).
+func requestNamesForLiveRequests(prs []autoscaling.ProvisioningRequest) sets.Set[string] {
+	live := sets.New[string]()
+	for i := range prs {
+		if hasLiveBooking(&prs[i]) {
+			live.Insert(prs[i].Name)
+		}
+	}
+	return live
+}
+
+// determineProvisioningRequestsToKeep returns the names of the requests of a
+// finished or evicted workload that must survive cleanup. Only a replaced,
+// admitted, elastic slice keeps any: pods ungated by it stay bound to its
+// requests (see refreshPodAdmission in the elastic job ungater) and the
+// autoscaler only schedules them onto capacity booked by those requests, so a
+// request stays alive while its booking is still honoured and nodes it already
+// triggered can come up and be used. The autoscaler ends the booking on its
+// own and the resulting status update brings the workload back through
+// Reconcile to delete it.
+//
+// Only an admitted slice has pods bound to its requests. A slice replaced
+// before admission (quota reserved, another check still pending) is not the
+// base the next slice's increment is computed from, so keeping its request
+// would book that capacity twice.
+func determineProvisioningRequestsToKeep(wl *kueue.Workload, prs []autoscaling.ProvisioningRequest) sets.Set[string] {
+	if !workloadslicing.IsReplaced(wl.Status) || !workload.IsAdmitted(wl) || !workloadslicing.IsEnabledForProvisioningRequests(wl) {
+		return nil
+	}
+	return requestNamesForLiveRequests(prs)
 }
 
 func (c *Controller) syncOwnedProvisionRequest(
