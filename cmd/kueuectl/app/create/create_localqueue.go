@@ -163,7 +163,7 @@ func (o *LocalQueueOptions) Validate(ctx context.Context) error {
 	if len(o.Namespace) == 0 {
 		return errors.New("namespace must be specified")
 	}
-	if !o.IgnoreUnknownCq {
+	if o.DryRunStrategy != dryrun.Client && !o.IgnoreUnknownCq {
 		_, err := o.Client.ClusterQueues().Get(ctx, o.UserSpecifiedClusterQueue, metav1.GetOptions{})
 		if err != nil {
 			return err
