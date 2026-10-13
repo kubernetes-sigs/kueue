@@ -49,6 +49,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
+// cqReconciler reconciles manager-side ClusterQueues that reference a MultiKueue AdmissionCheck.
+// It reports worker cluster status metrics and, when QuotaManagement is Automated,
+// the manager ClusterQueue has one ResourceGroup with one ResourceFlavor, and all worker
+// resources are covered, synchronizes the manager ClusterQueue's nominal quotas with its
+// related worker ClusterQueues.
 type cqReconciler struct {
 	client            client.Client
 	helper            *admissioncheck.MultiKueueStoreHelper
@@ -183,6 +188,11 @@ func (r *cqReconciler) getMultiKueueAdmissionCheck(ctx context.Context, cq *kueu
 	return nil, false, nil
 }
 
+// aggregateWorkerQuotas sums the nominal quotas of all related worker ClusterQueues
+// across connected clusters in the MultiKueueConfig.
+//
+// Quotas are summed across all worker ResourceFlavors because manager flavor
+// assignment is not propagated to workers.
 func (r *cqReconciler) aggregateWorkerQuotas(ctx context.Context, cq *kueue.ClusterQueue, cfg *kueue.MultiKueueConfig) (map[corev1.ResourceName]resource.Quantity, error) {
 	localLQs := &kueue.LocalQueueList{}
 	if err := r.client.List(ctx, localLQs, client.MatchingFields{indexer.QueueClusterQueueKey: cq.Name}); err != nil {
