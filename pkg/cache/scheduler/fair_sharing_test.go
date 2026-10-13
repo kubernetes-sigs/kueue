@@ -392,8 +392,8 @@ func TestDominantResourceShare(t *testing.T) {
 				{
 					Name:      "cq",
 					NodeType:  nodeTypeCq,
-					DrName:    corev1.ResourceCPU,
-					DrValue:   300, // (1+4-2)*1000/10
+					DrName:    "example.com/gpu",
+					DrValue:   math.MaxInt64,
 					Borrowing: true,
 				},
 				{
@@ -809,7 +809,7 @@ func TestDominantResourceShare(t *testing.T) {
 						Obj(),
 				).Obj(),
 			want: []fairSharingResult{
-				{Name: "cq", NodeType: nodeTypeCq, DrValue: math.MaxInt64, Borrowing: true},
+				{Name: "cq", NodeType: nodeTypeCq, DrValue: math.MaxInt64, DrName: "example.com/gpu", Borrowing: true},
 				{Name: "lending-cq", NodeType: nodeTypeCq},
 				{Name: "test-cohort", NodeType: nodeTypeCohort},
 			},
@@ -835,7 +835,7 @@ func TestDominantResourceShare(t *testing.T) {
 						Obj(),
 				).Obj(),
 			want: []fairSharingResult{
-				{Name: "cq", NodeType: nodeTypeCq, Borrowing: true},
+				{Name: "cq", NodeType: nodeTypeCq, DrValue: math.MaxInt64, DrName: "example.com/gpu", Borrowing: true},
 				{Name: "lending-cq", NodeType: nodeTypeCq},
 				{Name: "test-cohort", NodeType: nodeTypeCohort},
 			},
@@ -861,8 +861,8 @@ func TestDominantResourceShare(t *testing.T) {
 				).Obj(),
 			},
 			want: []fairSharingResult{
-				{Name: "cq", NodeType: nodeTypeCq, Borrowing: true},
-				{Name: "child-cohort", NodeType: nodeTypeCohort, DrValue: math.MaxInt64, Borrowing: true},
+				{Name: "cq", NodeType: nodeTypeCq, DrValue: math.MaxInt64, DrName: "example.com/gpu", Borrowing: true},
+				{Name: "child-cohort", NodeType: nodeTypeCohort, DrValue: math.MaxInt64, DrName: "example.com/gpu", Borrowing: true},
 				{Name: "root", NodeType: nodeTypeCohort},
 			},
 		},
