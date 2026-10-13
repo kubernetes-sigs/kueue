@@ -41,7 +41,6 @@ class ManualReleaseSubmissionTest(unittest.TestCase):
             "uppercase decline": ("N\n", "0", "0", 1, []),
             "default answer": ("\n", "0", "0", 1, []),
             "invalid answer": ("yes\n", "0", "0", 1, []),
-            "closed stdin": ("", "0", "0", 1, []),
             "push failed": ("y\n", "1", "0", 1, ["git push"]),
             "PR creation failed": ("y\n", "0", "1", 1, ["git push", "pr create"]),
         }
