@@ -2426,23 +2426,43 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 		wantRemoteLeaderWorkerSet bool
 	}{
 		"a finished group keeps the remote LeaderWorkerSet of a running group": {
-			managerWorkloads:          []kueue.Workload{*admittedGroupWorkload("wl1", "1").Finished().Obj()},
+			managerWorkloads: []kueue.Workload{
+				*admittedGroupWorkload("wl0", "0").Obj(),
+				*admittedGroupWorkload("wl1", "1").Finished().Obj(),
+			},
+			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
+			reconcile:                 []string{"wl1"},
+			wantWorker1Workloads:      []string{"wl0"},
+			wantRemoteLeaderWorkerSet: true,
+		},
+		"a finished group keeps the remote LeaderWorkerSet of a group nominated to the worker": {
+			managerWorkloads: []kueue.Workload{
+				*groupWorkload("wl0", "0").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+					NominatedClusterNames("worker1").
+					Obj(),
+				*admittedGroupWorkload("wl1", "1").Finished().Obj(),
+			},
 			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
 			reconcile:                 []string{"wl1"},
 			wantWorker1Workloads:      []string{"wl0"},
 			wantRemoteLeaderWorkerSet: true,
 		},
 		"a preempted group keeps the remote LeaderWorkerSet of a running group": {
-			managerWorkloads: []kueue.Workload{*groupWorkload("wl1", "1").
-				AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
-				EvictedAt(now).
-				Obj()},
+			managerWorkloads: []kueue.Workload{
+				*admittedGroupWorkload("wl0", "0").Obj(),
+				*groupWorkload("wl1", "1").
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+					EvictedAt(now).
+					Obj(),
+			},
 			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
 			reconcile:                 []string{"wl1"},
 			wantWorker1Workloads:      []string{"wl0"},
 			wantRemoteLeaderWorkerSet: true,
 		},
 		"a group removed by a scale down keeps the remote LeaderWorkerSet of a running group": {
+			managerWorkloads:          []kueue.Workload{*admittedGroupWorkload("wl0", "0").Obj()},
 			deletedWorkloads:          []kueue.Workload{*admittedGroupWorkload("wl1", "1").Obj()},
 			worker1Workloads:          []kueue.Workload{remoteGroupWorkload("wl0", "0"), remoteGroupWorkload("wl1", "1")},
 			reconcile:                 []string{"wl1"},
