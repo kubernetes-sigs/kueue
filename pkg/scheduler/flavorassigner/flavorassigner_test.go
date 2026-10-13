@@ -5320,6 +5320,30 @@ func TestWorkloadsTopologyRequests_ErrorBranches(t *testing.T) {
 					},
 				},
 			}),
+			wantErr: ErrNoRequestsForTASFlavor,
+		},
+		"workload with requests requires Topology, but there is no TAS flavor assigned": {
+			cq: schdcache.ClusterQueueSnapshot{
+				TASFlavors: map[kueue.ResourceFlavorReference]*schdcache.TASFlavorSnapshot{"tas": nil},
+			},
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name:     kueue.DefaultPodSetName,
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+					Count:    1,
+					Status:   *NewStatus(),
+				}},
+			},
+			workload: *workload.NewInfo(log, &kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					PodSets: []kueue.PodSet{
+						*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+							Request(corev1.ResourceCPU, "1").
+							RequiredTopologyRequest(corev1.LabelHostname).
+							Obj(),
+					},
+				},
+			}),
 			wantErr: ErrNoTASFlavorAssigned,
 		},
 		"more than one TAS flavor assigned (onlyTASFlavor fails); RepresentativeMode must be NoFit": {
@@ -8252,6 +8276,13 @@ func TestAssignTopology(t *testing.T) {
 			wantMode: Fit,
 			wantPlan: true,
 		},
+		"an explicit zero request still receives a topology assignment": {
+			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
+				return newFixture(ctx, t, log, Fit, "0", "")
+			},
+			wantMode: Fit,
+			wantPlan: true,
+		},
 		// node-1 has 4 cpu with 3 already taken, so a 2 cpu pod cannot be placed now but
 		// would fit on an empty node. The Fit branch demotes to Preempt and the Preempt
 		// branch then succeeds, leaving it there.
@@ -8386,6 +8417,17 @@ func TestAssignTopology(t *testing.T) {
 			wantMode:         NoFit,
 			wantPlan:         false,
 			wantStatusErrMsg: ErrNoTASFlavorAssigned.Error(),
+		},
+		"a pod set with no requests receives actionable guidance": {
+			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
+				f := newFixture(ctx, t, log, Fit, "1", "")
+				f.assignment.PodSets[0].Requests = nil
+				f.assignment.PodSets[0].Flavors = ResourceAssignment{}
+				return f
+			},
+			wantMode:         NoFit,
+			wantPlan:         false,
+			wantStatusErrMsg: ErrNoRequestsForTASFlavor.Error(),
 		},
 		"a pod set is rejected when the ClusterQueue has no TAS flavors": {
 			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {

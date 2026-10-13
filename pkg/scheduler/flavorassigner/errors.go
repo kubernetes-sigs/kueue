@@ -32,6 +32,7 @@ var (
 	ErrElasticPreferredTopologyNotSupported = errors.New("preferred topology is not supported with ElasticJobsViaWorkloadSlices")
 	ErrNoTASCacheInformation                = errors.New("workload requires Topology, but there is no TAS cache information")
 	ErrNoTASFlavorAssigned                  = errors.New("no TAS flavor assigned")
+	ErrNoRequestsForTASFlavor               = errors.New("no effective resource requests; specify requests, limits, or namespace LimitRange defaults")
 )
 
 // MultipleTASFlavorsAssignedError indicates that a PodSet ended up with more

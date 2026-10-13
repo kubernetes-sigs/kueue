@@ -17,6 +17,7 @@ limitations under the License.
 package flavorassigner
 
 import (
+	"errors"
 	"fmt"
 	"slices"
 
@@ -99,6 +100,9 @@ func podSetTopologyRequest(psAssignment *PodSetAssignment,
 	}
 	podCount := psAssignment.Count
 	tasFlvr, err := onlyTASFlavor(psAssignment.Flavors, cq.TASFlavors)
+	if errors.Is(err, ErrNoTASFlavorAssigned) && len(psAssignment.Requests) == 0 {
+		return nil, ErrNoRequestsForTASFlavor
+	}
 	if err != nil {
 		return nil, err
 	}

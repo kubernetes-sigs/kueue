@@ -33,6 +33,9 @@ Make sure the following conditions are met:
   [configured TAS](/docs/tasks/manage/setup_topology_aware_scheduling/)
   by creating a `Topology` object, a `ResourceFlavor` that references it via
   `spec.topologyName`, and a `ClusterQueue` that uses that flavor.
+- Every PodSet has effective resource requests so Kueue can select a
+  topology-aware flavor. Specify requests or limits in the Pod template, or
+  configure namespace `LimitRange` defaults.
 
 If you do not already have a running cluster with TAS enabled, see [Setup Topology-Aware Scheduling](/docs/tasks/manage/setup_topology_aware_scheduling/) for a step-by-step administrator guide on setting up a local `kind` cluster and configuring TAS queues.
 
