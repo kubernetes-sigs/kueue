@@ -563,7 +563,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	// 4. update reclaimable counts if implemented by the job
-	if jobRecl, implementsReclaimable := job.(JobWithReclaimablePods); implementsReclaimable && features.Enabled(features.ReclaimablePods) {
+	jobRecl, implementsReclaimable := job.(JobWithReclaimablePods)
+	// The webhook rejects lowering reclaimablePods while the workload holds quota,
+	// which would block the eviction handling below, so skip it for an evicted workload.
+	evictedAndHoldingQuota := apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) && workload.HasQuotaReservation(wl)
+	if implementsReclaimable && features.Enabled(features.ReclaimablePods) && !evictedAndHoldingQuota {
 		reclPods, err := jobRecl.ReclaimablePods(ctx, r.client)
 		if err != nil {
 			log.Error(err, "Getting reclaimable pods")
