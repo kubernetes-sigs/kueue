@@ -359,12 +359,14 @@ if [[ "$TARGET" == "all" || "$TARGET" == "release" ]]; then
   prepare_local_branch "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH_UNIQUE}" "${PREPARE_RELEASE_PR_NAME}"
   push_and_create_pr "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH_UNIQUE}" "${PREPARE_RELEASE_PR_NAME}"
 
-  PREPARE_RELEASE_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${PREPARE_RELEASE_PR_NAME}" | awk '{print $1}' || true)
-  if [ -n "$PREPARE_RELEASE_PR_NUMBER" ]; then
-    RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL_RELEASE -->/#${PREPARE_RELEASE_PR_NUMBER}}
-    gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
-      echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
-    }
+  if [[ -z "${DRY_RUN}" ]]; then
+    PREPARE_RELEASE_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${PREPARE_RELEASE_PR_NAME}" | awk '{print $1}' || true)
+    if [ -n "$PREPARE_RELEASE_PR_NUMBER" ]; then
+      RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL_RELEASE -->/#${PREPARE_RELEASE_PR_NUMBER}}
+      gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
+        echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
+      }
+    fi
   fi
 fi
 
@@ -379,11 +381,13 @@ if [[ "$TARGET" == "all" || "$TARGET" == "main" ]]; then
   prepare_local_branch main "${UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE}" "${UPDATE_MAIN_WITH_LATEST_PR_NAME}"
   push_and_create_pr main "${UPDATE_MAIN_WITH_LATEST_BRANCH}" "${UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE}" "${UPDATE_MAIN_WITH_LATEST_PR_NAME}"
 
-  PREPARE_MAIN_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${UPDATE_MAIN_WITH_LATEST_PR_NAME}" | awk '{print $1}' || true)
-  if [ -n "$PREPARE_MAIN_PR_NUMBER" ]; then
-    RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL_MAIN -->/#${PREPARE_MAIN_PR_NUMBER}}
-    gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
-      echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
-    }
+  if [[ -z "${DRY_RUN}" ]]; then
+    PREPARE_MAIN_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${UPDATE_MAIN_WITH_LATEST_PR_NAME}" | awk '{print $1}' || true)
+    if [ -n "$PREPARE_MAIN_PR_NUMBER" ]; then
+      RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL_MAIN -->/#${PREPARE_MAIN_PR_NUMBER}}
+      gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
+        echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
+      }
+    fi
   fi
 fi

@@ -398,11 +398,13 @@ declare -r K8S_IO_PR_NAME
 prepare_local_branch main "${K8S_IO_BRANCH_UNIQUE}" "${K8S_IO_PR_NAME}"
 push_and_create_pr main "${K8S_IO_BRANCH}" "${K8S_IO_BRANCH_UNIQUE}" "${K8S_IO_PR_NAME}"
 
-K8S_IO_PR_NUMBER=$(gh pr list --repo="${KUBERNETES_K8S_IO_MAIN_REPO}" | grep "${K8S_IO_PR_NAME}" | awk '{print $1}' || true)
-if [ -n "$K8S_IO_PR_NUMBER" ]; then
-  NEW_RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- K8S_IO_PULL -->/${KUBERNETES_K8S_IO_MAIN_REPO}#${K8S_IO_PR_NUMBER}}
-  echo "+++ Editing release issue ${RELEASE_ISSUE_NUMBER} on GitHub repo ${KUBERNETES_SIGS_KUEUE_MAIN_REPO}"
-  gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO}" || {
-    echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
-  }
+if [[ -z "${DRY_RUN}" ]]; then
+  K8S_IO_PR_NUMBER=$(gh pr list --repo="${KUBERNETES_K8S_IO_MAIN_REPO}" | grep "${K8S_IO_PR_NAME}" | awk '{print $1}' || true)
+  if [ -n "$K8S_IO_PR_NUMBER" ]; then
+    NEW_RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- K8S_IO_PULL -->/${KUBERNETES_K8S_IO_MAIN_REPO}#${K8S_IO_PR_NUMBER}}
+    echo "+++ Editing release issue ${RELEASE_ISSUE_NUMBER} on GitHub repo ${KUBERNETES_SIGS_KUEUE_MAIN_REPO}"
+    gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO}" || {
+      echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
+    }
+  fi
 fi
