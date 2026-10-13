@@ -46,6 +46,7 @@ func runRayServiceAutoscalingTest(
 		workerResource = "worker-unit"
 		actorA         = "rayservice-autoscaling-actor-a"
 		actorB         = "rayservice-autoscaling-actor-b"
+		actorC         = "rayservice-autoscaling-actor-c"
 	)
 
 	configMap := &corev1.ConfigMap{
@@ -168,11 +169,33 @@ app = HelloWorld.bind()`,
 		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.By("Terminating one actor so the RayService autoscaler removes one worker", func() {
+	ginkgo.By("Terminating both actors so the RayService autoscaler scales back down to zero workers", func() {
+		e2e.TerminateDetachedRayActor(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorA)
 		e2e.TerminateDetachedRayActor(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorB)
 	})
 
 	ginkgo.By("Checking the RayService scale-down updates the admitted slice in place", func() {
+		gomega.Eventually(func(g gomega.Gomega) {
+			workerPods, err := e2e.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
+			g.Expect(err).NotTo(gomega.HaveOccurred())
+			g.Expect(workerPods).To(gomega.BeEmpty())
+
+			managerService := &rayv1.RayService{}
+			g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayService), managerService)).To(gomega.Succeed())
+			g.Expect(managerService.Annotations).To(gomega.HaveKeyWithValue(
+				workloadraycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":0}]`))
+
+			downSlice := liveRayWorkloadSlice(g, k8sManagerClient, managerNs.Name, wlLookupKey.Name)
+			g.Expect(downSlice.Name).To(gomega.Equal(upSliceName))
+			g.Expect(podset.FindPodSetByName(downSlice.Spec.PodSets, "workers-group-0").Count).To(gomega.Equal(int32(0)))
+		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.By("Creating one detached actor so the RayService autoscaler scales back up to one worker", func() {
+		e2e.CreateDetachedRayActor(ctx, workerClient, admittedWorker.cfg, admittedWorker.restClient, childKey, actorC, workerResource)
+	})
+
+	ginkgo.By("Checking the RayService second scale-up is reflected on the manager", func() {
 		gomega.Eventually(func(g gomega.Gomega) {
 			workerPods, err := e2e.GetRayClusterWorkerPods(ctx, workerClient, childKey, corev1.PodRunning)
 			g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -183,9 +206,9 @@ app = HelloWorld.bind()`,
 			g.Expect(managerService.Annotations).To(gomega.HaveKeyWithValue(
 				workloadraycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":1}]`))
 
-			downSlice := liveRayWorkloadSlice(g, k8sManagerClient, managerNs.Name, wlLookupKey.Name)
-			g.Expect(downSlice.Name).To(gomega.Equal(upSliceName))
-			g.Expect(podset.FindPodSetByName(downSlice.Spec.PodSets, "workers-group-0").Count).To(gomega.Equal(int32(1)))
+			newUpSlice := liveRayWorkloadSlice(g, k8sManagerClient, managerNs.Name, wlLookupKey.Name)
+			g.Expect(newUpSlice.Name).NotTo(gomega.Equal(upSliceName))
+			g.Expect(podset.FindPodSetByName(newUpSlice.Spec.PodSets, "workers-group-0").Count).To(gomega.Equal(int32(1)))
 		}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 }
