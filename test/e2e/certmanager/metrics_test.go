@@ -188,7 +188,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 
 			ginkgo.By("Verifying admission metric is available via PromQL")
 			gomega.Eventually(func(g gomega.Gomega) {
-				result, _, err := prometheusClient.Query(ctx,
+				result, _, _, err := prometheusClient.Query(ctx,
 					fmt.Sprintf(`kueue_admitted_workloads_total{cluster_queue="%s"}`, clusterQueue.Name),
 					time.Now())
 				g.Expect(err).NotTo(gomega.HaveOccurred())
