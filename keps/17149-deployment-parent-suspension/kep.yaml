@@ -1,0 +1,26 @@
+title: Deployment Parent Suspension
+kep-number: 17149
+authors:
+  - "@mblls"
+status: implementable
+creation-date: 2026-10-01
+reviewers:
+  - TBD
+approvers:
+  - TBD
+
+see-also:
+  - "/keps/369-job-interface"
+
+stage: alpha
+
+latest-milestone: "v0.20"
+
+milestone:
+  alpha: "v0.20"
+
+feature-gates:
+  - name: DeploymentParentSuspension
+disable-supported: true
+
+metrics: []
