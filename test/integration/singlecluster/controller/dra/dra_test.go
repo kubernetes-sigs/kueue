@@ -1060,6 +1060,27 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.It("Should use deviceClassMappings logical name as quota key for the implicit DeviceClass name", func() {
+			ginkgo.By("Creating a workload requesting the DeviceClass by its implicit extended resource name")
+			wl := utiltestingapi.MakeWorkload("implicit-wl", ns.Name).
+				Queue("unified-lq").
+				Request(corev1.ResourceName(resourcev1.ResourceDeviceClassPrefix+deviceClass.Name), "1").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl)).To(gomega.Succeed())
+
+			ginkgo.By("Verifying the workload is admitted with the logical name as quota key")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				g.Expect(updatedWl.Status.Admission).NotTo(gomega.BeNil())
+				g.Expect(updatedWl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))
+
+				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName(logicalName)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
 		ginkgo.It("Should leave pod overhead under the original extended resource name", func() {
 			ginkgo.By("Creating a workload whose overhead names the DRA-backed resource")
 			wl := utiltestingapi.MakeWorkload("overhead-wl", ns.Name).
