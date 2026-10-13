@@ -517,7 +517,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 			if wl.Status.RequeueState == nil {
 				wl.Status.RequeueState = &kueue.RequeueState{}
 			}
-			log.V(2).Info("At least one admission check set a retry time", "requeueAt", requeueAt, "current", wl.Status.RequeueState.RequeueAt)
+			log.V(2).Info("At least one admission check set a retry time", "requeueAt", *requeueAt, "current", ptr.Deref(wl.Status.RequeueState.RequeueAt, metav1.Time{}))
 			workload.SetRequeueState(wl, *requeueAt, false)
 			return true, nil
 		})
