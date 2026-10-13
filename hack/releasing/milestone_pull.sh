@@ -56,6 +56,9 @@ function usage() {
   echo "  Without a flag, set CREATE_MILESTONE to also create the milestone, or SKIP_PR to skip the PR."
   echo "  With a flag, CREATE_MILESTONE without --create-milestone, or SKIP_PR with --create-pr, is rejected."
   echo
+  echo "  Creating the milestone and pushing the PR branch each ask for confirmation; declining stops the run."
+  echo "  For a non-interactive run, pipe 'yes y' into the script."
+  echo
   echo "  Set KUBERNETES_TEST_INFRA_UPSTREAM_REMOTE (default: upstream) and KUBERNETES_TEST_INFRA_FORK_REMOTE (default: origin)"
   echo "  to override the default remote names to what you have locally."
   echo
@@ -226,6 +229,13 @@ function ensure_milestone() {
     return 0
   fi
 
+  local confirm_rc=0
+  confirm "create the next minor's milestone" "gh api --method POST repos/${repo}/milestones -f title=${title}" || confirm_rc=$?
+  if [[ "${confirm_rc}" -ne 0 ]]; then
+    MILESTONE_RESULT=$(unconfirmed_result "${confirm_rc}")
+    exit 1
+  fi
+
   echo "+++ Creating milestone ${title} in ${repo}"
   gh api --method POST "repos/${repo}/milestones" -f title="${title}" > /dev/null
   MILESTONE_RESULT="created"
@@ -251,19 +261,33 @@ function update_release_issue() {
   }
 }
 
-# confirm_push shows the push about to happen and asks before doing it, like the sibling release
-# scripts. Returns 0 to push, 1 when declined, 2 when no answer arrived (stdin closed, as in a
+# confirm shows the command about to run and asks before running it, like the sibling release
+# scripts. Returns 0 to proceed, 1 when declined, 2 when no answer arrived (stdin closed, as in a
 # non-interactive run without `yes y` piped in).
-# $1 - fork remote, $2 - local branch, $3 - remote branch
-function confirm_push() {
+# $1 - what the command does, $2 - the command
+function confirm() {
   local reply=""
   echo
-  echo "+++ I'm about to do the following to push to GitHub (and I'm assuming $1 is your personal fork):"
+  echo "+++ I'm about to do the following to $1:"
   echo
-  echo "  git push $1 -f $2:$3"
+  echo "  $2"
   echo
   read -r -p "+++ Proceed (anything other than 'y' aborts it)? [y/N] " reply || [[ -n "${reply}" ]] || return 2
   [[ "${reply}" =~ ^[yY]$ ]] || return 1
+}
+
+# unconfirmed_result prints the summary result for a prompt that confirm did not get a 'y' for. The
+# caller then exits 1, like the sibling scripts: a closed stdin must not let a misconfigured job
+# finish green, and nothing may run after a declined prompt.
+# $1 - confirm's return code
+function unconfirmed_result() {
+  if [[ "$1" -eq 2 ]]; then
+    echo "!!! No answer at the prompt. For a non-interactive run, pipe 'yes y' into the script." >&2
+    echo "FAILED (no answer at the prompt)"
+    return 0
+  fi
+  echo "Aborting." >&2
+  echo "aborted (declined)"
 }
 
 # submit_mapping_pr runs the whole pull request phase against the local test-infra clone.
@@ -385,15 +409,10 @@ function submit_mapping_pr() {
   git --no-pager show --format= HEAD
 
   local confirm_rc=0
-  confirm_push "${fork_remote}" "${TEST_INFRA_WORK_BRANCH}" "${PR_BRANCH}" || confirm_rc=$?
-  if [[ "${confirm_rc}" -eq 1 ]]; then
-    PR_RESULT="aborted before push"
-    echo "Aborting." >&2
-    return 0
-  fi
-  if [[ "${confirm_rc}" -eq 2 ]]; then
-    PR_RESULT="FAILED (no answer at the push prompt)"
-    echo "!!! No answer at the push prompt. For a non-interactive run, pipe 'yes y' into the script."
+  confirm "push to GitHub (and I'm assuming ${fork_remote} is your personal fork)" \
+    "git push ${fork_remote} -f ${TEST_INFRA_WORK_BRANCH}:${PR_BRANCH}" || confirm_rc=$?
+  if [[ "${confirm_rc}" -ne 0 ]]; then
+    PR_RESULT=$(unconfirmed_result "${confirm_rc}")
     exit 1
   fi
 

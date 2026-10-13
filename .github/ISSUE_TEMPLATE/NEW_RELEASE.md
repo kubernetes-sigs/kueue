@@ -58,7 +58,6 @@ Please do not remove items from the checklist
         (`v$MAJ.$(($MIN+1)).0-devel`) on `main`, so that development builds
         from the `main` branch have a meaningful version number.
   - [ ] Create a milestone for the next minor release and update prow to set it automatically for new PRs:
-    - [ ] Run the ChatOps command `/create-milestone` on this issue to create the `v$MAJ.$(($MIN+1))` milestone. <!-- step:create-milestone -->
     - [ ] Run the ChatOps command `/create-milestone` on this issue to create the `v$MAJ.$(($MIN+1))` milestone, or with write access to the Kueue repository, run `./hack/releasing/milestone_pull.sh --create-milestone $VERSION` locally. <!-- step:create-milestone -->
     - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/milestone_pull.sh --create-pr $VERSION` locally to submit the `milestone_applier` PR.
     - [ ] Wait for this PR to merge <!-- MILESTONE_PULL --> <!-- example https://github.com/kubernetes/test-infra/pull/30222 -->

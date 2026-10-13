@@ -63,6 +63,7 @@ jobs:
             "hack/releasing/authorize_release_actor.py"
             "hack/releasing/authorize_release_actor_test.py"
             "hack/releasing/log_to_issue.py"
+            "hack/releasing/milestone_pull.sh"
             "hack/releasing/requirements.txt"
           )
           MISSING=()

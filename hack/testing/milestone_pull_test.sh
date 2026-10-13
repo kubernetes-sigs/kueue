@@ -331,7 +331,7 @@ function reset_gh_stub() {
 
 start_case "ensure_milestone creates an absent milestone"
 reset_gh_stub '[{"title":"v0.20","state":"closed"}]'
-ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null
+ensure_milestone "kubernetes-sigs/kueue" "v0.21" <<<"y" >/dev/null
 assert_eq "created" "${MILESTONE_RESULT}" "result"
 assert_contains "$(cat "${GH_FAKE_LOG}")" "--method POST repos/kubernetes-sigs/kueue/milestones -f title=v0.21" "create call"
 
@@ -353,7 +353,7 @@ fi
 
 start_case "ensure_milestone matches titles exactly, not by prefix"
 reset_gh_stub '[{"title":"v0.2","state":"open"},{"title":"v0.21-rc","state":"open"}]'
-ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null
+ensure_milestone "kubernetes-sigs/kueue" "v0.21" <<<"y" >/dev/null
 assert_eq "created" "${MILESTONE_RESULT}" "result when only a prefix match exists"
 
 start_case "ensure_milestone honours DRY_RUN"
@@ -374,36 +374,41 @@ ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null || rc=$?
 assert_eq "0" "${rc}" "exit code on a large listing"
 assert_eq "already present" "${MILESTONE_RESULT}" "result on a large listing"
 
-# --- confirm_push ----------------------------------------------------------
+# --- confirm ---------------------------------------------------------------
 
 function confirm_rc() {
   local rc=0
-  printf '%b' "$1" | confirm_push origin local-branch remote-branch >/dev/null || rc=$?
+  printf '%b' "$1" | confirm "push" "git push origin -f local-branch:remote-branch" >/dev/null || rc=$?
   echo "${rc}"
 }
 
-start_case "confirm_push proceeds on y or Y"
+start_case "confirm proceeds on y or Y"
 assert_eq "0" "$(confirm_rc 'y\n')" "exit code on y"
 assert_eq "0" "$(confirm_rc 'Y\n')" "exit code on Y"
 
-start_case "confirm_push aborts on anything else"
+start_case "confirm aborts on anything else"
 assert_eq "1" "$(confirm_rc 'n\n')" "exit code on n"
 assert_eq "1" "$(confirm_rc '\n')" "exit code on a bare Enter"
 assert_eq "1" "$(confirm_rc 'yes\n')" "exit code on yes, which the sibling scripts also reject"
 
 # A closed stdin has to be told apart from a no: in a non-interactive run it means nobody
-# answered, and treating it as a decline would let a misconfigured job finish green with no PR.
-start_case "confirm_push reports no answer when stdin is closed"
+# answered, and treating it as a decline would hide a misconfigured job.
+start_case "confirm reports no answer when stdin is closed"
 rc=0
-confirm_push origin local-branch remote-branch </dev/null >/dev/null || rc=$?
+confirm "push" "git push origin -f local-branch:remote-branch" </dev/null >/dev/null || rc=$?
 assert_eq "2" "${rc}" "exit code on a closed stdin"
 
-start_case "confirm_push accepts an answer without a trailing newline"
+start_case "confirm accepts an answer without a trailing newline"
 assert_eq "0" "$(confirm_rc 'y')" "exit code on an unterminated y"
 
-start_case "confirm_push shows the exact push it is about to run"
-assert_contains "$(printf 'n\n' | confirm_push origin local-branch remote-branch 2>&1 || true)" \
+start_case "confirm shows the exact command it is about to run"
+assert_contains "$(printf 'n\n' | confirm "push" "git push origin -f local-branch:remote-branch" 2>&1 || true)" \
   "  git push origin -f local-branch:remote-branch" "announced push command"
+
+start_case "unconfirmed_result tells a decline apart from no answer"
+assert_eq "aborted (declined)" "$(unconfirmed_result 1 2>/dev/null)" "result when declined"
+assert_eq "FAILED (no answer at the prompt)" "$(unconfirmed_result 2 2>/dev/null)" "result without an answer"
+assert_contains "$(unconfirmed_result 2 2>&1 >/dev/null)" "pipe 'yes y'" "hint without an answer"
 
 # --- main ------------------------------------------------------------------
 
@@ -412,12 +417,13 @@ export KUBERNETES_SIGS_KUEUE_MAIN_REPO_NAME="kueue"
 release_issue="16900	OPEN	Release v0.21.0"
 
 # run_main runs main in its own bash process, because main exits and relies on errexit, which a
-# command substitution would switch off. submit_mapping_pr is replaced by a marker in the gh log so
-# the pull request phase needs no test-infra checkout.
+# command substitution would switch off. MAIN_INPUT is what the prompts read; it is empty unless a
+# case sets it. submit_mapping_pr is replaced by a marker in the gh log so the pull request phase
+# needs no test-infra checkout.
 function run_main() {
   : >"${GH_FAKE_LOG}"
   MAIN_RC=0
-  MAIN_OUTPUT=$(bash -c '
+  MAIN_OUTPUT=$(printf '%b' "${MAIN_INPUT:-}" | bash -c '
     source "${ROOT_DIR}/hack/releasing/milestone_pull.sh"
     function submit_mapping_pr() {
       echo "submit_mapping_pr" >>"${GH_FAKE_LOG}"
@@ -429,7 +435,7 @@ function run_main() {
 
 start_case "main --create-milestone needs no test-infra checkout, GITHUB_USER or release issue"
 reset_gh_stub '[]'
-KUBERNETES_TEST_INFRA_PATH="${test_dir}/missing" run_main --create-milestone v0.21.0
+MAIN_INPUT='y\n' KUBERNETES_TEST_INFRA_PATH="${test_dir}/missing" run_main --create-milestone v0.21.0
 assert_eq "0" "${MAIN_RC}" "exit code"
 assert_contains "$(cat "${GH_FAKE_LOG}")" "--method POST repos/kubernetes-sigs/kueue/milestones -f title=v0.22" "create call"
 assert_not_contains "$(cat "${GH_FAKE_LOG}")" "branches/" "release branch lookup"
@@ -448,9 +454,33 @@ assert_contains "${MAIN_OUTPUT}" "milestone v0.22 ......... skipped (DRY_RUN)" "
 
 start_case "main reports a failed milestone creation as FAILED"
 reset_gh_stub '[]'
-GH_FAKE_FAIL="--method POST" run_main --create-milestone v0.21.0
+MAIN_INPUT='y\n' GH_FAKE_FAIL="--method POST" run_main --create-milestone v0.21.0
 assert_eq "1" "${MAIN_RC}" "exit code"
 assert_contains "${MAIN_OUTPUT}" "milestone v0.22 ......... FAILED" "milestone summary"
+
+start_case "main stops without creating the milestone when the prompt is declined"
+reset_gh_stub '[]'
+MAIN_INPUT='n\n' GH_FAKE_ISSUES="${release_issue}" run_main --create-milestone --create-pr v0.21.0
+assert_eq "1" "${MAIN_RC}" "exit code"
+assert_contains "${MAIN_OUTPUT}" "gh api --method POST repos/kubernetes-sigs/kueue/milestones -f title=v0.22" "announced create call"
+assert_not_contains "$(cat "${GH_FAKE_LOG}")" "POST" "create call"
+assert_not_contains "$(cat "${GH_FAKE_LOG}")" "submit_mapping_pr" "pull request phase"
+assert_contains "${MAIN_OUTPUT}" "milestone v0.22 ......... aborted (declined)" "milestone summary"
+assert_contains "${MAIN_OUTPUT}" "mapping pull request .... not run" "pull request summary"
+
+start_case "main fails when nobody answers the milestone prompt"
+reset_gh_stub '[]'
+run_main --create-milestone v0.21.0
+assert_eq "1" "${MAIN_RC}" "exit code"
+assert_not_contains "$(cat "${GH_FAKE_LOG}")" "POST" "create call"
+assert_contains "${MAIN_OUTPUT}" "milestone v0.22 ......... FAILED (no answer at the prompt)" "milestone summary"
+
+start_case "main does not ask when the milestone already exists"
+reset_gh_stub '[{"title":"v0.22","state":"closed"}]'
+run_main --create-milestone v0.21.0
+assert_eq "0" "${MAIN_RC}" "exit code"
+assert_not_contains "${MAIN_OUTPUT}" "Proceed" "prompt"
+assert_contains "${MAIN_OUTPUT}" "milestone v0.22 ......... already present (closed, left as-is)" "milestone summary"
 
 start_case "main --create-pr makes no milestones call"
 reset_gh_stub '[]'
@@ -471,11 +501,11 @@ assert_contains "${MAIN_OUTPUT}" "milestone v0.22 ......... skipped (use /create
 
 start_case "main runs the milestone phase before the pull request phase"
 reset_gh_stub '[]'
-GH_FAKE_ISSUES="${release_issue}" run_main --create-milestone --create-pr v0.21.0
+MAIN_INPUT='y\n' GH_FAKE_ISSUES="${release_issue}" run_main --create-milestone --create-pr v0.21.0
 assert_eq "0" "${MAIN_RC}" "exit code with both flags"
 assert_eq "POST submit_mapping_pr" "$(grep -oE 'POST|submit_mapping_pr' "${GH_FAKE_LOG}" | paste -sd ' ' -)" "phase order with both flags"
 reset_gh_stub '[]'
-CREATE_MILESTONE=1 GH_FAKE_ISSUES="${release_issue}" run_main v0.21.0
+MAIN_INPUT='y\n' CREATE_MILESTONE=1 GH_FAKE_ISSUES="${release_issue}" run_main v0.21.0
 assert_eq "0" "${MAIN_RC}" "exit code with CREATE_MILESTONE"
 assert_eq "POST submit_mapping_pr" "$(grep -oE 'POST|submit_mapping_pr' "${GH_FAKE_LOG}" | paste -sd ' ' -)" "phase order with CREATE_MILESTONE"
 
