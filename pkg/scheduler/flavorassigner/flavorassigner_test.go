@@ -1547,7 +1547,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
+						corev1.ResourceCPU: {Name: "one", Mode: Preempt},
 					},
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 4 more needed"),
 					Requests: corev1.ResourceList{
@@ -1658,7 +1658,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
+						corev1.ResourceCPU: {Name: "one", Mode: Preempt},
 					},
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 2 more needed"),
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
@@ -1722,7 +1722,7 @@ func TestAssignFlavors(t *testing.T) {
 				PodSets: []PodSetAssignment{{
 					Name: kueue.DefaultPodSetName,
 					Flavors: ResourceAssignment{
-						corev1.ResourceCPU: {Name: "one", Mode: Preempt, TriedFlavorIdx: -1},
+						corev1.ResourceCPU: {Name: "one", Mode: Preempt},
 					},
 					Status: *NewStatus("insufficient unused quota for cpu in flavor one, 4 more needed"),
 					FlavorAssignmentAttempts: []FlavorAssignmentAttempt{
