@@ -88,14 +88,17 @@ Kueue controller ClusterRole.
 
 ### Risks and Mitigations
 
-**Workload deletion while paused:** When a Workload is deleted while its Deployment is
-paused, the Pod integration stops the Pod, which deletes the gated Pod. Deleting the Pod
-triggers finalization, which removes the pause. The unpaused Deployment then creates a
-replacement Pod, which Kueue gates again; a new Workload is constructed for it and the
-Deployment is re-paused. The pause is therefore never orphaned. The Deployment is briefly
-unpaused while the replacement Pod is created — a window of seconds, negligible against the
-default 10-minute progress deadline. If removing the pause during finalization fails, the
-Pod's finalizer is not removed and the resume is retried on subsequent reconciliations.
+**Workload deletion while paused:** Each Pod has its own Workload. When a Workload is
+deleted while its Deployment is paused, the Pod integration stops the Pod, which deletes
+the gated Pod. The Deployment is unpaused only when no Pods matching its selector remain
+gated — sibling Pods still waiting for quota keep the pause in place. Every Pod's
+reconciliation attempts the resume when its Workload is admitted or when the Pod is
+deleted, so the last Pod to leave the gated state is the one that removes the pause. A
+replacement Pod created after an unpause is gated by Kueue again, gets a new Workload,
+and re-pauses the Deployment. The pause is therefore never orphaned; the transient
+unpause window lasts seconds, negligible against the default 10-minute progress deadline.
+If removing the pause during finalization fails, the Pod's finalizer is not removed and
+the resume is retried on subsequent reconciliations.
 
 **Template drift while paused:** The Deployment controller cannot create a new ReplicaSet
 while paused. Mitigated by the Deployment reconciler, which detects template drift and
@@ -120,7 +123,8 @@ to implement this enhancement.
 - `test/integration/singlecluster/controller/jobs/pod/deployment_parent_suspension_test.go`:
   pause on gate, unpause on admission, unpause on template drift, unpause on pod deletion,
   no-op when gate is off, and workload deletion recovery: the gated Pod is deleted, the
-  pause is removed, and a replacement gated Pod re-pauses the Deployment.
+  pause is removed only when no sibling Pods remain gated, and a replacement gated Pod
+  re-pauses the Deployment.
 
 #### e2e tests
 
@@ -139,8 +143,9 @@ scenarios are added in Beta.
 - Cleanup of Kueue-managed pauses when the feature gate is disabled, including on Pod
 deletion. A failure to resume during finalization blocks removal of the finalizer, so
 the resume is retried on subsequent reconciliations.
-- Automatic recovery when a Workload is deleted while the Deployment is paused (see
-Risks and Mitigations), covered by integration tests.
+- Automatic recovery when a Workload is deleted while the Deployment is paused: the pause
+  is removed only once no sibling Pods remain gated (see Risks and Mitigations), covered
+  by integration tests.
 - Template drift detection scoped to ReplicaSets owned by the paused Deployment.
 - Unit and integration tests.
 - e2e coverage of the core pause/unpause scenario, delivered as a follow-up PR before
