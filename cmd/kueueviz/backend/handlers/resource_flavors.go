@@ -65,7 +65,7 @@ func (h *Handlers) fetchResourceFlavors(ctx context.Context) (any, error) {
 		Details any    `json:"details"`
 	}
 
-	var flavors []rfResult
+	flavors := make([]rfResult, 0)
 	for _, item := range rfl.Items {
 		flavors = append(flavors, rfResult{
 			ResourceFlavor: item,
