@@ -8,4 +8,4 @@ metadata:
 
 # Skill: MultiKueue Review
 
-Minimize reads from remote worker clusters in MultiKueue as much as possible.
+- Minimize reads from remote worker clusters in MultiKueue as much as possible.
