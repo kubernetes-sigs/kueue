@@ -840,6 +840,11 @@ type clustersReconciler struct {
 
 	clusterProfileAccessProvider clusterProfileAccessProvider
 
+	// clusterProfileCRDPresent indicates the ClusterProfile CRD is installed.
+	// The ClusterProfile watch is only registered when both the feature gate is
+	// enabled and the CRD exists.
+	clusterProfileCRDPresent bool
+
 	logName     string
 	roleTracker *roletracker.RoleTracker
 
@@ -1282,6 +1287,7 @@ type clustersReconcilerOptions struct {
 	fsWatcher                    *KubeConfigFSWatcher
 	adapters                     map[string]jobframework.MultiKueueAdapter
 	clusterProfileAccessProvider clusterProfileAccessProvider
+	clusterProfileCRDPresent     bool
 	roleTracker                  *roletracker.RoleTracker
 	recorder                     events.EventRecorder
 	clientConnection             *configapi.ClientConnection
@@ -1316,6 +1322,12 @@ func withAdapters(adapters map[string]jobframework.MultiKueueAdapter) clustersRe
 func withClusterProfileAccessProvider(cpAccessProvider clusterProfileAccessProvider) clustersReconcilerOption {
 	return func(o *clustersReconcilerOptions) {
 		o.clusterProfileAccessProvider = cpAccessProvider
+	}
+}
+
+func withClusterProfileCRDPresent(present bool) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.clusterProfileCRDPresent = present
 	}
 }
 
@@ -1365,6 +1377,7 @@ func newClustersReconciler(
 		fsWatcher:                    options.fsWatcher,
 		adapters:                     options.adapters,
 		clusterProfileAccessProvider: options.clusterProfileAccessProvider,
+		clusterProfileCRDPresent:     options.clusterProfileCRDPresent,
 		logName:                      "multikueue-multikueuecluster-reconciler",
 		roleTracker:                  options.roleTracker,
 		clientConnection:             options.clientConnection,
@@ -1406,7 +1419,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "multikueue-multikueuecluster-reconciler"),
 		})
-	if features.Enabled(features.MultiKueueClusterProfile) {
+	if c.shouldWatchClusterProfiles() {
 		systemNamespacePredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
 			return obj.GetNamespace() == c.configNamespace
 		})
@@ -1416,6 +1429,15 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return controllerBuilder.Complete(c)
+}
+
+// shouldWatchClusterProfiles reports whether the ClusterProfile watch should be
+// registered. Registering the watch without the CRD installed (and therefore
+// without a configured cache entry) makes cache sync fail and the manager exit,
+// which would break kubeconfig-based MultiKueue on clusters lacking the
+// optional CRD.
+func (c *clustersReconciler) shouldWatchClusterProfiles() bool {
+	return features.Enabled(features.MultiKueueClusterProfile) && c.clusterProfileCRDPresent
 }
 
 func (c *clustersReconciler) Generic(e event.GenericEvent) bool {
