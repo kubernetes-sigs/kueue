@@ -128,15 +128,15 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 					sts.Status.Replicas = 1
 					sts.Status.ReadyReplicas = 1
 					g.Expect(k8sClient.Status().Update(ctx, sts)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			}
 
 			createDefaultWPC := func() {
 				ginkgo.By("Creating the default WorkloadPriorityClass")
 				defaultWPC := utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
-				util.MustCreate(ctx, k8sClient, defaultWPC)
+				behavioral.MustCreate(ctx, k8sClient, defaultWPC)
 				ginkgo.DeferCleanup(func() {
-					util.ExpectObjectToBeDeleted(ctx, k8sClient, defaultWPC, true)
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultWPC, true)
 				})
 			}
 
@@ -147,12 +147,12 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 					delete(sts.Labels, constants.WorkloadPriorityClassLabel)
 					metav1.SetMetaDataAnnotation(&sts.ObjectMeta, "example.com/touched", "true")
 					g.Expect(k8sClient.Update(ctx, sts)).To(gomega.Succeed())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			}
 
 			ginkgo.It("Should not add the label to a ready StatefulSet that does not have it", func() {
 				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Obj()
-				util.MustCreate(ctx, k8sClient, sts)
+				behavioral.MustCreate(ctx, k8sClient, sts)
 				markReady(sts)
 				createDefaultWPC()
 
@@ -162,7 +162,7 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 
 			ginkgo.It("Should add the label to a not ready StatefulSet that does not have it", func() {
 				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Obj()
-				util.MustCreate(ctx, k8sClient, sts)
+				behavioral.MustCreate(ctx, k8sClient, sts)
 				createDefaultWPC()
 
 				updateWithoutPriorityClassLabel(sts)
@@ -173,7 +173,7 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).
 					Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
 					Obj()
-				util.MustCreate(ctx, k8sClient, sts)
+				behavioral.MustCreate(ctx, k8sClient, sts)
 				markReady(sts)
 				createDefaultWPC()
 
