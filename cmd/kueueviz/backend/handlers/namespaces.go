@@ -18,8 +18,10 @@ package handlers
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"kueueviz/middleware"
 
@@ -28,12 +30,24 @@ import (
 
 // NamespacesWebSocketHandler streams namespaces that are related to Kueue
 func (h *Handlers) NamespacesWebSocketHandler() gin.HandlerFunc {
-	// Use LocalQueue informer since namespaces are derived from LocalQueues
 	return func(c *gin.Context) {
 		identity, _ := middleware.IdentityFromContext(c)
+
+		gvks := []schema.GroupVersionKind(nil)
+		if h.authorizer == nil {
+			gvks = append(gvks, LocalQueuesGVK())
+		} else {
+			allowed, err := h.authorizer.Authorize(c.Request.Context(), identity, middleware.ResourceAccess("watch", LocalQueuesGVR(), "", ""))
+			if err != nil {
+				middleware.AbortWithWebSocketAwareStatus(c, http.StatusServiceUnavailable, "authorization service unavailable", middleware.WSCloseServiceUnavailable)
+			} else if allowed {
+				gvks = append(gvks, LocalQueuesGVK())
+			}
+		}
+
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 			return h.fetchNamespaces(ctx, identity)
-		}, LocalQueuesGVK())(c)
+		}, gvks...)(c)
 	}
 }
 
