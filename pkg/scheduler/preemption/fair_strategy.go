@@ -132,7 +132,6 @@ func fairPreemptionStrategy(
 		if cont && features.Enabled(features.ConfigurablePreemptions) {
 			interrupted := preemptionCtx.configurableEvaluator.FindCandidates(
 				preemptionCtx.snapshot,
-				&preemptionCtx.preemptor,
 				preemptionCtx.frsNeedPreemption,
 				func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing) },
 				yieldAndRecord,

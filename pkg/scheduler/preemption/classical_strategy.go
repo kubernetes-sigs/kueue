@@ -90,7 +90,6 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 				if cont && features.Enabled(features.ConfigurablePreemptions) {
 					preemptionCtx.configurableEvaluator.FindCandidates(
 						preemptionCtx.snapshot,
-						&preemptionCtx.preemptor,
 						preemptionCtx.frsNeedPreemption,
 						func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing) },
 						yieldCandidate,
