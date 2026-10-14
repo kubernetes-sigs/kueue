@@ -62,7 +62,10 @@ def parse_release_note(comment: str) -> str:
     if not lines or lines[0].rstrip() != COMMAND:
         raise ValueError(f"{COMMAND} must be the first line of the comment.")
 
-    release_note = "\n".join(_strip_trailing_commands(lines[1:])).strip()
+    # When the command is repeated in one comment, the last one wins.
+    last_command = max(i for i, line in enumerate(lines) if line.rstrip() == COMMAND)
+    note_lines = _strip_trailing_commands(lines[last_command + 1 :])
+    release_note = "\n".join(note_lines).strip()
     if not release_note:
         raise ValueError(f"{COMMAND} must be followed by a non-empty release note.")
     if any(_match_fence(line) for line in release_note.splitlines()):

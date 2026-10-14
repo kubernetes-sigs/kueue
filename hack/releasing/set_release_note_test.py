@@ -53,6 +53,10 @@ class ParseReleaseNoteTest(unittest.TestCase):
                 "/set-release-note\nFirst line\nSecond line\n\n/lgtm\n/approve\n",
                 "First line\nSecond line",
             ),
+            "repeated command uses the last note": (
+                "/set-release-note\nFirst note\n/set-release-note\nSecond note\n/kind bug",
+                "Second note",
+            ),
             "line starting with a slash inside the note is kept": (
                 "/set-release-note\n/healthz now returns 503 while starting.\nNo action needed.",
                 "/healthz now returns 503 while starting.\nNo action needed.",
@@ -83,6 +87,10 @@ class ParseReleaseNoteTest(unittest.TestCase):
             ),
             "whitespace-only note": (
                 "/set-release-note\n \t\n",
+                "/set-release-note must be followed by a non-empty release note.",
+            ),
+            "repeated command with an empty last note": (
+                "/set-release-note\nFirst note\n/set-release-note\n",
                 "/set-release-note must be followed by a non-empty release note.",
             ),
             "only commands after the command": (
