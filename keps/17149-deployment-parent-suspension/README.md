@@ -1,5 +1,32 @@
 # KEP-17149: Deployment Parent Suspension
 
+<!-- toc -->
+- [Summary](#summary)
+- [Motivation](#motivation)
+  - [Goals](#goals)
+  - [Non-Goals](#non-goals)
+- [Proposal](#proposal)
+  - [User Stories](#user-stories)
+    - [Story 1: LLM serving on GPU clusters](#story-1-llm-serving-on-gpu-clusters)
+    - [Story 2: GitOps health reporting](#story-2-gitops-health-reporting)
+  - [Design](#design)
+  - [Risks and Mitigations](#risks-and-mitigations)
+- [Design Details](#design-details)
+  - [Feature Gate](#feature-gate)
+  - [Test Plan](#test-plan)
+    - [Unit tests](#unit-tests)
+    - [Integration tests](#integration-tests)
+    - [e2e tests](#e2e-tests)
+  - [Graduation Criteria](#graduation-criteria)
+    - [Alpha](#alpha)
+    - [Beta](#beta)
+    - [Stable](#stable)
+- [Implementation History](#implementation-history)
+- [Alternatives](#alternatives)
+  - [Pause in the Deployment webhook instead of the controller](#pause-in-the-deployment-webhook-instead-of-the-controller)
+  - [Increase progressDeadlineSeconds](#increase-progressdeadlineseconds)
+<!-- /toc -->
+
 ## Summary
 
 When Kueue manages Deployment-owned pods via the pod integration, it uses the
