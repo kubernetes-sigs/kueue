@@ -121,6 +121,7 @@ var pendingQuotaReservedReasons = sets.New(
 	kueue.WorkloadQuotaReservedReasonPendingEvaluation,
 	kueue.WorkloadQuotaReservedReasonWaitingForQuota,
 	kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+	kueue.WorkloadQuotaReservedReasonUnrecordableResourceUsage,
 	kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 	kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
 	kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
