@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -27,6 +28,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -625,7 +627,14 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
 				}).
 				Obj(),
-			wantEvents: nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlWithUnequalFirstAvailable"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
+				},
+			},
 		},
 		"reconcile DRA ResourceClaimTemplate with unmapped device class": {
 			featureGates: map[featuregate.Feature]bool{
@@ -682,6 +691,106 @@ func TestReconcileDRA(t *testing.T) {
 				}
 				return wl
 			}(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlUnmappedDRA"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
+				},
+			},
+		},
+		"reconcile DRA ResourceClaimTemplate with unmapped device class already inadmissible should not emit duplicate event": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:              true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			workload: func() *kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("wlUnmappedDRAAlreadyInadmissible", "ns").
+					Queue("lq").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
+						Message: `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+						Message: "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadDRAResourcesUnresolved,
+						Message: `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
+					}).
+					Obj()
+				return wl
+			}(),
+			beforeReconcile: func(ctx context.Context, cl client.Client, _ *qcache.Manager) {
+				if !features.Enabled(features.UnadmittedWorkloadsObservability) {
+					wl := &kueue.Workload{}
+					if err := cl.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "wlUnmappedDRAAlreadyInadmissible"}, wl); err != nil {
+						panic(err)
+					}
+					wl.Status.Conditions = utiltesting.AdjustConditionsForDisabledObservabilityInWorkloadController(
+						wl.Status.Conditions,
+						false,
+					)
+					if err := cl.Status().Update(ctx, wl); err != nil {
+						panic(err)
+					}
+				}
+			},
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "unmapped.example.com", 1).
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpu", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: func() *kueue.Workload {
+				wl := utiltestingapi.MakeWorkload("wlUnmappedDRAAlreadyInadmissible", "ns").
+					Queue("lq").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+						ResourceClaimTemplate("gpu", "gpu-template").
+						Obj()).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadQuotaReserved,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
+						Message: `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadAdmitted,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+						Message: "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:    kueue.WorkloadRequeued,
+						Status:  metav1.ConditionFalse,
+						Reason:  kueue.WorkloadDRAResourcesUnresolved,
+						Message: `spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: "DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main"`,
+					}).
+					Obj()
+				wl.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{{
+					Name: "gpu", ResourceClaimTemplateName: new("gpu-template"),
+				}}
+				if len(wl.Spec.PodSets[0].Template.Spec.Containers) > 0 {
+					wl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Claims = []corev1.ResourceClaim{{Name: "gpu"}}
+				}
+				return wl
+			}(),
 			wantEvents: nil,
 		},
 		"reconcile DRA validation fails with KueueDRAIntegrationExtendedResource enabled": {
@@ -726,6 +835,14 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: \"1500m\": extended resource quantity must be an integer",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl-invalid-extended-resource"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   `spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: "1500m": extended resource quantity must be an integer`,
+				},
+			},
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
 			featureGates: map[featuregate.Feature]bool{
@@ -769,7 +886,14 @@ func TestReconcileDRA(t *testing.T) {
 				}).
 				Obj(),
 			wantErrorMsg: "failed to get claim spec",
-			wantEvents:   nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlMissingTemplate"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   `spec.podSets[0].template.spec.resourceClaims[0]: Internal error: failed to get claim spec for ResourceClaimTemplate missing-template in podset main: resourceclaimtemplates.resource.k8s.io "missing-template" not found`,
+				},
+			},
 		},
 		"reconcile DRA transient ResourceSlice list failure should back off": {
 			featureGates: map[featuregate.Feature]bool{
@@ -796,7 +920,14 @@ func TestReconcileDRA(t *testing.T) {
 				).Obj(),
 			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
 			wantErrorMsg: "failed to list ResourceSlices",
-			wantEvents:   nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlListErrDRA"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadDRAResourcesUnresolved,
+					Message:   `spec.podSets[0].template.spec.resourceClaims[0]: Internal error: ResourceClaimTemplate gpu-template: failed to list ResourceSlices: test error`,
+				},
+			},
 		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)

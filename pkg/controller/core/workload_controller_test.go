@@ -2912,7 +2912,15 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 						t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 					}
 				}
-				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				wantEvents := slices.Clone(tc.wantEvents)
+				if !features.Enabled(features.UnadmittedWorkloadsObservability) {
+					for i := range wantEvents {
+						if wantEvents[i].Reason == kueue.WorkloadDRAResourcesUnresolved {
+							wantEvents[i].Reason = kueue.WorkloadInadmissible
+						}
+					}
+				}
+				if diff := cmp.Diff(wantEvents, recorder.RecordedEvents); diff != "" {
 					t.Errorf("unexpected events (-want/+got):\n%s", diff)
 				}
 
