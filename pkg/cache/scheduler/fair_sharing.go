@@ -61,8 +61,7 @@ func NegativeDRS() DRS {
 	return DRS{unweightedRatio: -1, dominantResource: "", fairWeight: defaultWeight}
 }
 
-// IsZero returns whether the DRS unweighted ratio is 0, which is also the
-// case for a node borrowing only what its Cohort has nothing lendable for.
+// IsZero returns whether the DRS unweighted ratio is 0.
 func (d DRS) IsZero() bool {
 	return d.unweightedRatio == 0
 }
