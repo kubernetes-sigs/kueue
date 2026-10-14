@@ -909,7 +909,8 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			wRec := WorkloadReconciler{waitForPodsReady: tc.waitForPodsReady, clock: fakeClock}
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			underlyingCause, recheckAfter := wRec.admittedNotReadyWorkload(&tc.workload)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			underlyingCause, recheckAfter := wRec.admittedNotReadyWorkload(ctx, &tc.workload)
 
 			if tc.wantRecheckAfter != recheckAfter {
 				t.Errorf("Unexpected recheckAfter, want=%v, got=%v", tc.wantRecheckAfter, recheckAfter)
@@ -2864,20 +2865,15 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 
 				gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(testWl)})
 
-				switch {
-				case tc.wantError != nil:
-					if gotError == nil {
-						t.Errorf("expected error %v, got nil", tc.wantError)
-					} else if !stderrors.Is(gotError, tc.wantError) {
-						t.Errorf("unexpected error type: want %v, got %v", tc.wantError, gotError)
-					}
-				case tc.wantErrorMsg != "":
-					if gotError == nil {
-						t.Errorf("expected error containing %q, got nil", tc.wantErrorMsg)
-					} else if !strings.Contains(gotError.Error(), tc.wantErrorMsg) {
-						t.Errorf("expected error containing %q, got %v", tc.wantErrorMsg, gotError)
-					}
-				case gotError != nil:
+				// wantError and wantErrorMsg are checked independently, so a case can
+				// assert both causes of a joined error.
+				if tc.wantError != nil && !stderrors.Is(gotError, tc.wantError) {
+					t.Errorf("unexpected error: want %v, got %v", tc.wantError, gotError)
+				}
+				if tc.wantErrorMsg != "" && (gotError == nil || !strings.Contains(gotError.Error(), tc.wantErrorMsg)) {
+					t.Errorf("expected error containing %q, got %v", tc.wantErrorMsg, gotError)
+				}
+				if tc.wantError == nil && tc.wantErrorMsg == "" && gotError != nil {
 					t.Errorf("unexpected error: %v", gotError)
 				}
 
@@ -2912,7 +2908,11 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 						t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 					}
 				}
-				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				wantEvents := tc.wantEvents
+				if !features.Enabled(features.UnadmittedWorkloadsObservability) {
+					wantEvents = utiltesting.AdjustEventsForDisabledObservabilityInWorkloadController(wantEvents)
+				}
+				if diff := cmp.Diff(wantEvents, recorder.RecordedEvents); diff != "" {
 					t.Errorf("unexpected events (-want/+got):\n%s", diff)
 				}
 
