@@ -23,12 +23,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/go-logr/zapr"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
-
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
 // custom debug levels used by logr to better align with usage
@@ -145,88 +142,4 @@ func sortFieldsByKeys(fields []zap.Field) []zap.Field {
 	return slices.SortedFunc(slices.Values(fields), func(a, b zap.Field) int {
 		return cmp.Compare(a.Key, b.Key)
 	})
-}
-
-func TestWaitingForPreemptedWorkloadsEventLogLevel(t *testing.T) {
-	cases := map[string]struct {
-		verbosity   int
-		message     string
-		reason      string
-		withContext bool
-		wantLogs    int
-		wantLevel   zapcore.Level
-	}{
-		"waiting event is hidden at V(1)": {
-			verbosity: 1, reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-		},
-		"waiting event is hidden at default V(2)": {
-			verbosity: 2, reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-		},
-		"waiting event is visible at V(3)": {
-			verbosity: 3, reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-			wantLogs: 1, wantLevel: klogV3Level,
-		},
-		"waiting event is visible at V(4)": {
-			verbosity: 4, reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-			wantLogs: 1, wantLevel: klogV3Level,
-		},
-		"child logger hides waiting event at V(2)": {
-			verbosity: 2, reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-			withContext: true,
-		},
-		"child logger retains context at V(3)": {
-			verbosity: 3, reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-			withContext: true, wantLogs: 1, wantLevel: klogV3Level,
-		},
-		"preemption event remains visible at V(1)": {
-			verbosity: 1, reason: "Preempted", wantLogs: 1, wantLevel: zapcore.DebugLevel,
-		},
-		"admission event remains visible at V(2)": {
-			verbosity: 2, reason: "Admitted", wantLogs: 1, wantLevel: zapcore.DebugLevel,
-		},
-		"event without reason remains visible": {
-			verbosity: 2, wantLogs: 1, wantLevel: zapcore.DebugLevel,
-		},
-		"non-event log with same reason remains visible": {
-			verbosity: 2, message: "Waiting for preemption", reason: kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
-			wantLogs: 1, wantLevel: zapcore.DebugLevel,
-		},
-	}
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			core, observedLogs := observer.New(zapcore.Level(-tc.verbosity))
-			logger := zapr.NewLogger(zap.New(NewCustomLogProcessor(core))).WithName("events")
-			if tc.withContext {
-				logger = logger.WithValues("component", "scheduler")
-			}
-			message := tc.message
-			if message == "" {
-				message = "Event occurred"
-			}
-			fields := []any{"note", "Pending the preemption of 1 workload(s)"}
-			if tc.reason != "" {
-				fields = append(fields, "reason", tc.reason)
-			}
-			logger.V(1).Info(message, fields...)
-
-			logs := observedLogs.All()
-			if len(logs) != tc.wantLogs {
-				t.Fatalf("Unexpected number of log entries: got %d, want %d", len(logs), tc.wantLogs)
-			}
-			if tc.wantLogs == 0 {
-				return
-			}
-			got := logs[0]
-			if got.Level != tc.wantLevel || got.Message != message {
-				t.Errorf("Unexpected log entry: got level %v and message %q, want level %v and message %q", got.Level, got.Message, tc.wantLevel, message)
-			}
-			context := got.ContextMap()
-			if context["note"] != fields[1] || (tc.reason != "" && context["reason"] != tc.reason) {
-				t.Errorf("Event fields were changed: %v", context)
-			}
-			if tc.withContext && context["component"] != "scheduler" {
-				t.Errorf("Child logger context was lost: %v", context)
-			}
-		})
-	}
 }

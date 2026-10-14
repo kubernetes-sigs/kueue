@@ -25,7 +25,6 @@ import (
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 )
 
@@ -53,8 +52,6 @@ const klogV3Level = zapcore.Level(-3)
 // expected errors connected to concurrent resources modification and
 // omits their stack trace.
 // Those errors are emitted with klog V3 level.
-// WaitingForPreemptedWorkloads event logs are also emitted at V(3),
-// without changing Kubernetes Event recording.
 // Other logs are left intact, and written using original core.
 type CustomLogProcessor struct {
 	zapcore.Core
@@ -68,29 +65,11 @@ func (c CustomLogProcessor) Check(entry zapcore.Entry, checkedEntry *zapcore.Che
 }
 
 func (c CustomLogProcessor) Write(entry zapcore.Entry, fields []zapcore.Field) error {
-	if isWaitingForPreemptedWorkloadsEvent(entry, fields) {
-		entry.Level = klogV3Level
-		// Check ran at the broadcaster's original V(1) level, before fields
-		// were available. Apply the configured verbosity to the new level.
-		if !c.Enabled(entry.Level) {
-			return nil
-		}
-	}
 	if isEntryAConcurrentModificationError(entry, fields) {
 		entry.Level = klogV3Level
 		entry.Stack = ""
 	}
 	return c.Core.Write(entry, fields)
-}
-
-func isWaitingForPreemptedWorkloadsEvent(entry zapcore.Entry, fields []zapcore.Field) bool {
-	if entry.Level != zapcore.DebugLevel || entry.Message != "Event occurred" {
-		return false
-	}
-	return arrayslices.ContainsFunc(fields, func(field zapcore.Field) bool {
-		return field.Key == "reason" && field.Type == zapcore.StringType &&
-			field.String == kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
-	})
 }
 
 const concurrentModificationErrorPrefix = "Operation cannot be fulfilled on"
