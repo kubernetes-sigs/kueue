@@ -138,6 +138,13 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 				ginkgo.DeferCleanup(func() {
 					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultWPC, true)
 				})
+
+				ginkgo.By("Waiting for the webhook to see the default WorkloadPriorityClass")
+				gomega.Eventually(func(g gomega.Gomega) {
+					probe := testingstatefulset.MakeStatefulSet("sts-probe", ns.Name).Obj()
+					g.Expect(k8sClient.Create(ctx, probe, client.DryRunAll)).To(gomega.Succeed())
+					g.Expect(probe.Labels).To(gomega.HaveKeyWithValue(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			}
 
 			updateWithoutPriorityClassLabel := func(sts *appsv1.StatefulSet) {

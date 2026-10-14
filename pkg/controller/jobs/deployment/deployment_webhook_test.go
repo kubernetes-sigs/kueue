@@ -136,6 +136,12 @@ func TestDefault(t *testing.T) {
 			deployment:      testingdeployment.MakeDeployment("test-pod", "").ReadyReplicas(1).Obj(),
 			want:            testingdeployment.MakeDeployment("test-pod", "").ReadyReplicas(1).Obj(),
 		},
+		"update that marks a ready deployment as not ready does not set the default WorkloadPriorityClass": {
+			defaultWPCExist: true,
+			oldDeployment:   testingdeployment.MakeDeployment("test-pod", "").ReadyReplicas(1).Obj(),
+			deployment:      testingdeployment.MakeDeployment("test-pod", "").Obj(),
+			want:            testingdeployment.MakeDeployment("test-pod", "").Obj(),
+		},
 		"update of a ready deployment that drops the priority class label sets the default WorkloadPriorityClass": {
 			defaultWPCExist: true,
 			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").

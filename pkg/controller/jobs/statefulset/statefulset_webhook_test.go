@@ -172,6 +172,12 @@ func TestDefault(t *testing.T) {
 			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "").ReadyReplicas(1).Obj(),
 			want:           testingstatefulset.MakeStatefulSet("test-pod", "").ReadyReplicas(1).Obj(),
 		},
+		"update that marks a ready statefulset as not ready does not set the default WorkloadPriorityClass": {
+			initObjs:       []client.Object{defaultWPC},
+			oldStatefulSet: testingstatefulset.MakeStatefulSet("test-pod", "").ReadyReplicas(1).Obj(),
+			statefulset:    testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
+			want:           testingstatefulset.MakeStatefulSet("test-pod", "").Obj(),
+		},
 		"update of a ready statefulset that drops the priority class label sets the default WorkloadPriorityClass": {
 			initObjs: []client.Object{defaultWPC},
 			oldStatefulSet: testingstatefulset.MakeStatefulSet("test-pod", "").

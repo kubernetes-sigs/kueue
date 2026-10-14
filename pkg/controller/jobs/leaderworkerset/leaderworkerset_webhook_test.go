@@ -146,6 +146,12 @@ func TestDefault(t *testing.T) {
 			lws:             testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").ReadyReplicas(1).Obj(),
 			want:            testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").ReadyReplicas(1).Obj(),
 		},
+		"update that marks a ready LeaderWorkerSet as not ready does not set the default WorkloadPriorityClass": {
+			defaultWPCExist: true,
+			oldLWS:          testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").ReadyReplicas(1).Obj(),
+			lws:             testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").Obj(),
+			want:            testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").Obj(),
+		},
 		"update of a ready LeaderWorkerSet that drops the priority class label sets the default WorkloadPriorityClass": {
 			defaultWPCExist: true,
 			oldLWS: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
