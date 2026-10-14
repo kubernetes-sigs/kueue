@@ -1648,8 +1648,9 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			// The workload only fits under the updated request, so pairing the new
 			// generation with the charge preprocessed for the old one would leave it
 			// pending forever. Whether the update lands while the scheduler holds the
-			// workload inflight (consumed from the capture at requeue) or while it is
-			// back in the queue, the admitted charge has to describe the current spec.
+			// workload inflight (handed back to the workload controller at requeue) or
+			// while it is back in the queue, the admitted charge has to describe the
+			// current spec.
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &updatedWl)).To(gomega.Succeed())

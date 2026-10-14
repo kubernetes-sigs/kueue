@@ -763,7 +763,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	requeued, draWorkload := m.requeueWorkloadLocked(ctx, info, reason, quotaReservedReason)
 	if draWorkload != nil {
 		m.draReconcileChannel <- event.TypedGenericEvent[*kueue.Workload]{Object: draWorkload}
-		ctrl.LoggerFrom(ctx).V(4).Info("Sent DRA workload to reconcile channel, its quota charges predate the current generation",
+		ctrl.LoggerFrom(ctx).V(4).Info("Sent DRA workload to reconcile channel due to a generation change while inflight",
 			"workload", klog.KObj(draWorkload), "generation", draWorkload.Generation)
 	}
 	return requeued
