@@ -316,6 +316,51 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(firstPodSetSpecPath.Child("resources", "limits").Key(string(corev1.ResourceMemory)), nil, ""),
 			}.ToAggregate(),
 		},
+		"should reject negative pod overhead": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("bad", 1).
+						Containers(utiltesting.SingleContainerForRequest(map[corev1.ResourceName]string{
+							"example.com/gpu": "1",
+						})...).
+						PodOverHead(corev1.ResourceList{
+							"example.com/gpu": resource.MustParse("-1"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(firstPodSetSpecPath.Child("overhead").Key("example.com/gpu"), nil, ""),
+			}.ToAggregate(),
+		},
+		"should accept non-negative pod overhead": {
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ok", 1).
+						PodOverHead(corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("0"),
+							corev1.ResourceMemory: resource.MustParse("100Mi"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: nil,
+		},
+		"should accept negative pod overhead when WorkloadValidateResourcesAreNonNegative is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadValidateResourcesAreNonNegative: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("ok", 1).
+						PodOverHead(corev1.ResourceList{
+							corev1.ResourceCPU: resource.MustParse("-1"),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantErr: nil,
+		},
 		"should accept negative container resource request when WorkloadValidateResourcesAreNonNegative is disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WorkloadValidateResourcesAreNonNegative: false,
@@ -1497,6 +1542,136 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			}(),
 			after:   quotaReservedWithoutAdmission(now),
 			wantErr: nil,
+		},
+		"unchanged negative pod overhead is allowed on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Label("foo", "bar").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+		},
+		"finalizer can be removed from a workload with an unchanged negative pod overhead": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+		},
+		"changed negative pod overhead is rejected on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-2")}).
+					Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "overhead").Key("example.com/gpu"), nil, ""),
+			}.ToAggregate(),
+		},
+		"newly added negative pod overhead is rejected on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "overhead").Key("example.com/gpu"), nil, ""),
+			}.ToAggregate(),
+		},
+		"negative pod overhead is not inherited by a PodSet with a different name": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("old", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("new", 1).
+					PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+					Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(podSetsPath.Index(0).Child("template", "spec", "overhead").Key("example.com/gpu"), nil, ""),
+			}.ToAggregate(),
+		},
+		"unchanged negative pod overhead is matched by PodSet name after reordering": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("a", 1).
+						PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+						Obj(),
+					*utiltestingapi.MakePodSet("b", 1).Obj(),
+				).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("b", 1).Obj(),
+					*utiltestingapi.MakePodSet("a", 1).
+						PodOverHead(corev1.ResourceList{"example.com/gpu": resource.MustParse("-1")}).
+						Obj(),
+				).
+				Obj(),
+		},
+		"new negative pod overhead entry beside an unchanged one is rejected on update": {
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{
+						"example.com/gpu": resource.MustParse("-1"),
+					}).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{
+						"example.com/gpu":  resource.MustParse("-1"),
+						"example.com/fpga": resource.MustParse("-1"),
+					}).
+					Obj()).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(
+					podSetsPath.Index(0).Child("template", "spec", "overhead").Key("example.com/fpga"),
+					nil,
+					"",
+				),
+			}.ToAggregate(),
+		},
+		"changed negative pod overhead is allowed on update when WorkloadValidateResourcesAreNonNegative is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadValidateResourcesAreNonNegative: false,
+			},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{
+						"example.com/gpu": resource.MustParse("-1"),
+					}).
+					Obj()).
+				Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PodOverHead(corev1.ResourceList{
+						"example.com/gpu": resource.MustParse("-2"),
+					}).
+					Obj()).
+				Obj(),
 		},
 	}
 	for name, tc := range testCases {
