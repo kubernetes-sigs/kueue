@@ -2311,6 +2311,381 @@ func TestReconciler(t *testing.T) {
 				},
 			},
 		},
+		"workload of a still gated pod is requeued when evicted by preemption before admission": {
+			featureGates: map[featuregate.Feature]bool{features.SkipReassignmentForPodOwnedWorkloads: true},
+			pods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				KueueFinalizer().
+				KueueSchedulingGate().
+				Obj()},
+			wantPods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				KueueFinalizer().
+				KueueSchedulingGate().
+				Obj()},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localUserQueueName).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, LastTransitionTime: metav1.NewTime(now)}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localUserQueueName).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, LastTransitionTime: metav1.NewTime(now)}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             "NoReservation",
+						Message:            "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadRequeued,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"workload of an ungated pod is parked when evicted by preemption": {
+			featureGates: map[featuregate.Feature]bool{features.SkipReassignmentForPodOwnedWorkloads: true},
+			pods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				KueueFinalizer().
+				Obj()},
+			wantPods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				KueueFinalizer().
+				StatusConditions(corev1.PodCondition{
+					Type:    "TerminationTarget",
+					Status:  corev1.ConditionTrue,
+					Reason:  "WorkloadEvictedDueToPreempted",
+					Message: "Preempted to accommodate a higher priority Workload",
+				}).
+				Obj()},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localUserQueueName).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					AdmittedAt(true, now.Add(-time.Second)).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localUserQueueName).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					PastAdmittedTime(1).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             "NoReservation",
+						Message:            "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadRequeued,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Preempted to accommodate a higher priority Workload",
+				},
+			},
+		},
+		"workload of a still gated pod is requeued when evicted due to node failures": {
+			featureGates: map[featuregate.Feature]bool{features.SkipReassignmentForPodOwnedWorkloads: true},
+			pods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				KueueFinalizer().
+				KueueSchedulingGate().
+				Obj()},
+			wantPods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				KueueFinalizer().
+				KueueSchedulingGate().
+				Obj()},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localUserQueueName).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, LastTransitionTime: metav1.NewTime(now)}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedDueToNodeFailures,
+						Message:            "Node failure",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localUserQueueName).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
+					AdmissionCheck(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, LastTransitionTime: metav1.NewTime(now)}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             "NoReservation",
+						Message:            "The workload has no reservation",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedDueToNodeFailures,
+						Message:            "Node failure",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonPendingEvaluation, kueue.WorkloadPending), //nolint:staticcheck // SA1019: fallback
+						Message:            "Node failure",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadRequeued,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedDueToNodeFailures,
+						Message:            "Node failure",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"parked workload of a still gated pod is requeued": {
+			featureGates: map[featuregate.Feature]bool{features.SkipReassignmentForPodOwnedWorkloads: true},
+			pods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				KueueFinalizer().
+				KueueSchedulingGate().
+				Obj()},
+			wantPods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				KueueFinalizer().
+				KueueSchedulingGate().
+				Obj()},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localUserQueueName).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadRequeued,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localUserQueueName).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadRequeued,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+		},
+		"parked workload of an ungated pod stays parked": {
+			featureGates: map[featuregate.Feature]bool{features.SkipReassignmentForPodOwnedWorkloads: true},
+			pods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				KueueFinalizer().
+				Obj()},
+			wantPods: []corev1.Pod{*basePodWrapper.
+				Clone().
+				ManagedByKueueLabel().
+				KueueFinalizer().
+				StatusConditions(corev1.PodCondition{
+					Type:    "TerminationTarget",
+					Status:  corev1.ConditionTrue,
+					Reason:  "WorkloadEvictedDueToPreempted",
+					Message: "Preempted to accommodate a higher priority Workload",
+				}).
+				Obj()},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localUserQueueName).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadRequeued,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localUserQueueName).
+					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadQuotaReservedReasonPendingEvaluation,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadRequeued,
+						Status:             metav1.ConditionFalse,
+						LastTransitionTime: metav1.NewTime(now),
+						Reason:             kueue.WorkloadEvictedByPreemption,
+						Message:            "Preempted to accommodate a higher priority Workload",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Stopped",
+					Message:   "Preempted to accommodate a higher priority Workload",
+				},
+			},
+		},
 		"pod is finalized when it's succeeded": {
 			pods: []corev1.Pod{*basePodWrapper.
 				Clone().
