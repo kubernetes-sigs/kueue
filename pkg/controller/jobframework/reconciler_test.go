@@ -3051,10 +3051,13 @@ func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
 		if diff := cmp.Diff(before.Spec.PodSets, got.Spec.PodSets, cmpopts.EquateEmpty()); diff != "" {
 			t.Errorf("PodSets changed: %s", diff)
 		}
-		if got.Name == "new" && !metav1.IsControlledBy(got, obj) {
+		if before.Name == replacement.Name && !metav1.IsControlledBy(got, obj) {
 			t.Error("prebuilt workload was not adopted by the worker job")
 		}
-		wantFinished := before.Name == "old"
+		if before.Name == old.Name && !metav1.IsControlledBy(got, obj) {
+			t.Error("predecessor workload lost its controller reference")
+		}
+		wantFinished := before.Name == old.Name
 		if workloadfinish.IsFinished(got) != wantFinished {
 			t.Errorf("%s Finished = %v, want %v", got.Name, workloadfinish.IsFinished(got), wantFinished)
 		}
