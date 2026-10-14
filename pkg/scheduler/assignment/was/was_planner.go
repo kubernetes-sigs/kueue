@@ -89,7 +89,7 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 	}
 	// If any failures occurred, we can already confirm the assignment to be a no-fit.
 	if len(failures) > 0 {
-		setNoFit(plan.Assignment)
+		setNoFit(plan.Assignment, kueue.WorkloadQuotaReservedReasonSimulationFailed)
 		return
 	}
 
@@ -99,16 +99,16 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 	tasAssignment := p.calculateTopologyAssignment(ctx, tasRequests, placementBreakdown)
 
 	// Record topology assignments failures.
-	for failure := range tasAssignment.Failures() {
+	tasFails := tasAssignment.Failures()
+	for _, failure := range tasFails {
 		plan.Assignment.ResolvePodSetFailure(
 			failure.PodSetName,
 			flavorassigner.NoFit,
 			*flavorassigner.NewStatus(failure.Reason),
 		)
 	}
-
-	if tasAssignment.Failure() != nil {
-		setNoFit(plan.Assignment)
+	if len(tasFails) > 0 {
+		setNoFit(plan.Assignment, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
 		return
 	}
 
@@ -117,9 +117,9 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 	return
 }
 
-func setNoFit(a *flavorassigner.Assignment) {
+func setNoFit(a *flavorassigner.Assignment, reason string) {
 	a.SetRepresentativeMode(flavorassigner.NoFit)
-	a.NoFitReason = kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed
+	a.NoFitReason = reason
 }
 
 // groupByPodSet groups the PodPlacements by PodSet

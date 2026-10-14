@@ -412,9 +412,7 @@ func (a *Assignment) ResolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
 
 		overallReason = mostSevereReason(overallReason, podSetReason)
 	}
-	if overallReason != "" {
-		a.NoFitReason = overallReason
-	}
+	a.NoFitReason = overallReason
 }
 
 type Status struct {

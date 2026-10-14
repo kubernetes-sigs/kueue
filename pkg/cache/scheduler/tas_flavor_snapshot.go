@@ -641,20 +641,17 @@ func (r TASAssignmentsResult) Failure() *FailureInfo {
 	return nil
 }
 
-func (r TASAssignmentsResult) Failures() iter.Seq[*FailureInfo] {
-	return func(yield func(*FailureInfo) bool) {
-		for psName, psAssignment := range r {
-			if psAssignment.FailureReason != "" {
-				if !yield(&FailureInfo{
-					PodSetName: psName,
-					Reason:     psAssignment.FailureReason,
-					Flavor:     psAssignment.Flavor,
-				}) {
-					return
-				}
-			}
+func (r TASAssignmentsResult) Failures() (failures []*FailureInfo) {
+	for psName, psAssignment := range r {
+		if psAssignment.FailureReason != "" {
+			failures = append(failures, &FailureInfo{
+				PodSetName: psName,
+				Reason:     psAssignment.FailureReason,
+				Flavor:     psAssignment.Flavor,
+			})
 		}
 	}
+	return
 }
 
 type tasPodSetAssignmentResult struct {
