@@ -66,8 +66,8 @@ func (d DRS) IsZero() bool {
 	return d.unweightedRatio == 0
 }
 
-// IsPosInf returns whether the DRS unweighted ratio is positive infinity.
-func (d DRS) IsPosInf() bool {
+// isPosInf returns whether the DRS unweighted ratio is positive infinity.
+func (d DRS) isPosInf() bool {
 	return math.IsInf(d.unweightedRatio, 1)
 }
 
@@ -99,7 +99,7 @@ func (d DRS) isWeightZero() bool {
 }
 
 func (d DRS) PreciseWeightedShare() float64 {
-	if d.ZeroWeightBorrows() || d.IsPosInf() {
+	if d.ZeroWeightBorrows() || d.isPosInf() {
 		return math.Inf(1)
 	}
 	if d.IsZero() {

@@ -756,6 +756,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cqA), createdCqA)).Should(gomega.Succeed())
 				g.Expect(createdCqA.Status.FairSharing).Should(gomega.BeComparableTo(&kueue.FairSharingStatus{WeightedShare: math.MaxInt64}))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueueWeightedShareMetric(cqA, math.Inf(1))
 
 			ginkgo.By("Recovering the nominal quota of cqA")
 			gomega.Eventually(func(g gomega.Gomega) {
