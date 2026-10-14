@@ -343,7 +343,7 @@ func TestValidateWorkload(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
-		"should reject non-positive podSetSliceSize when TASValidateWorkloadSliceSize is enabled": {
+		"should reject non-positive podSetSliceSize": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("bad", 1).
@@ -356,7 +356,7 @@ func TestValidateWorkload(t *testing.T) {
 				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "podSetSliceSize"), nil, ""),
 			}.ToAggregate(),
 		},
-		"should reject podSetSliceSize without podSetSliceRequiredTopology when TASValidateWorkloadSliceSize is enabled": {
+		"should reject podSetSliceSize without podSetSliceRequiredTopology": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("bad", 1).
@@ -368,7 +368,7 @@ func TestValidateWorkload(t *testing.T) {
 				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "podSetSliceSize"), ""),
 			}.ToAggregate(),
 		},
-		"should reject non-positive podsetSliceRequiredTopologyConstraints size when TASValidateWorkloadSliceSize is enabled": {
+		"should reject non-positive podsetSliceRequiredTopologyConstraints size": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(
 					*utiltestingapi.MakePodSet("bad", 1).
@@ -379,20 +379,6 @@ func TestValidateWorkload(t *testing.T) {
 			wantErr: field.ErrorList{
 				field.Invalid(podSetsPath.Index(0).Child("topologyRequest", "podsetSliceRequiredTopologyConstraints").Index(0).Child("size"), nil, ""),
 			}.ToAggregate(),
-		},
-		"should accept non-positive podSetSliceSize when TASValidateWorkloadSliceSize is disabled": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TASValidateWorkloadSliceSize: false,
-			},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(
-					*utiltestingapi.MakePodSet("ok", 1).
-						SliceRequiredTopologyRequest("kubernetes.io/hostname").
-						SliceSizeTopologyRequest(0).
-						Obj(),
-				).
-				Obj(),
-			wantErr: nil,
 		},
 		"should reject false unconstrained topology when TASRejectFalseUnconstrainedTopology is enabled": {
 			featureGates: map[featuregate.Feature]bool{
