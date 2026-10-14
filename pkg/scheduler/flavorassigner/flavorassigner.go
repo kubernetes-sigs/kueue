@@ -61,6 +61,7 @@ const (
 	reasonSeverityTopologyPlacementFailed
 	reasonSeverityWaitingForQuota
 	reasonSeverityExceedsMaxQuota
+	reasonSeverityUnrecordableResourceUsage
 	reasonSeverityNoMatchingFlavor
 )
 
@@ -70,6 +71,8 @@ func reasonSeverity(reason string) int {
 		return reasonSeverityNoMatchingFlavor
 	case kueue.WorkloadQuotaReservedReasonExceedsMaxQuota:
 		return reasonSeverityExceedsMaxQuota
+	case kueue.WorkloadQuotaReservedReasonUnrecordableResourceUsage:
+		return reasonSeverityUnrecordableResourceUsage
 	case kueue.WorkloadQuotaReservedReasonWaitingForQuota:
 		return reasonSeverityWaitingForQuota
 	case kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed:
@@ -439,6 +442,15 @@ func (a *FlavorAssigner) AssignFlavors(
 			}
 		}
 
+		// The quota check kept this total exactly. resourceUsage is a Quantity,
+		// which cannot hold it, so writing the cap would make the cache account
+		// for less than was admitted. An even Pod count then fails the workload
+		// webhook, and the scheduler would retry the same admission.
+		if status := unrecordableUsage(podSets, groupFlavors, a.resourceFormatter); status != nil {
+			groupFlavors = nil
+			groupStatus = *status
+		}
+
 		finalConsidered := finalizeFlavorAssignmentAttempts(consideredFlavors)
 		atLeastOnePodsAssignmentFailed := false
 		for _, podSet := range podSets {
@@ -608,6 +620,32 @@ func (a *FlavorAssigner) probeRequestsFor(podSets []indexedPodSet) resources.Req
 		probeRequests.Set(corev1.ResourcePods, resources.NewAmount(int64(len(podSets))))
 	}
 	return probeRequests
+}
+
+// unrecordableUsage reports a NoFit status when a total that would be copied into
+// resourceUsage does not survive a Quantity. Only resources that received a
+// flavor are written there; a total the quota check rejected never reaches this.
+func unrecordableUsage(podSets []indexedPodSet, groupFlavors ResourceAssignment, formatter *resources.ResourceFormatter) *Status {
+	if len(groupFlavors) == 0 {
+		return nil
+	}
+	var status *Status
+	for _, ps := range podSets {
+		if ps.podSet.Requests == nil {
+			continue
+		}
+		ps.podSet.Requests.ForEach(func(name corev1.ResourceName, val resources.Amount) {
+			if _, assigned := groupFlavors[name]; !assigned || formatter.HoldsAmount(name, val) {
+				return
+			}
+			if status == nil {
+				status = NewStatus()
+				status.noFitReason = kueue.WorkloadQuotaReservedReasonUnrecordableResourceUsage
+			}
+			status.appendf("resourceUsage cannot store the admitted total for %s (%s)", name, formatter.ExactAmountString(name, val))
+		})
+	}
+	return status
 }
 
 func (a *FlavorAssigner) zeroCountFallbackMessage(podSets []indexedPodSet, flavors ResourceAssignment, resName corev1.ResourceName, probeReason string) string {

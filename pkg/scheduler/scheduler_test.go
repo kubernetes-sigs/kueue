@@ -8682,6 +8682,195 @@ func TestSchedule(t *testing.T) {
 				utiltesting.MakeEventRecord("default", "exact-wl", "Admitted", corev1.EventTypeNormal).Obj(),
 			},
 		},
+		// 2 x 4E is 8E. Each ClusterQueue holds 5E, and borrowing the rest of the
+		// cohort still fits in a Quantity, so resourceUsage is that total.
+		"a borrowed podset total that fits in a Quantity is recorded exactly": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("borrow-a").
+					Cohort("gpu-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource("example.com/gpu", "5000000000000000000").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("borrow-b").
+					Cohort("gpu-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource("example.com/gpu", "5000000000000000000").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("borrow-queue", "default").ClusterQueue("borrow-a").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("borrow-wl", "default").
+					Queue("borrow-queue").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request("example.com/gpu", "4000000000000000000").Obj()).
+					Obj(),
+			},
+			wantAssignments: map[workload.Reference]kueue.Admission{
+				"default/borrow-wl": {
+					ClusterQueue: "borrow-a",
+					PodSetAssignments: []kueue.PodSetAssignment{
+						utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment("example.com/gpu", "default", "8000000000000000000").
+							Count(2).
+							Obj(),
+					},
+				},
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("borrow-wl", "default").
+					Queue("borrow-queue").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request("example.com/gpu", "4000000000000000000").Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionTrue,
+						Reason:             "QuotaReserved",
+						Message:            "Quota reserved in ClusterQueue borrow-a",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Admitted",
+						Message:            "The workload is admitted",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Admission(utiltestingapi.MakeAdmission("borrow-a").
+						PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+							Assignment("example.com/gpu", "default", "8000000000000000000").
+							Count(2).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "borrow-wl", "QuotaReserved", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "borrow-wl", "Admitted", corev1.EventTypeNormal).Obj(),
+			},
+		},
+		// 7 x 1.4E is 9.8E. The cohort can lend it, and a Quantity cannot hold it.
+		// Recording MaxInt64 would under-count the cache.
+		"a borrowed podset total past MaxInt64 is not admitted": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("borrow-a").
+					Cohort("gpu-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource("example.com/gpu", "5000000000000000000").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("borrow-b").
+					Cohort("gpu-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource("example.com/gpu", "5000000000000000000").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("borrow-queue", "default").ClusterQueue("borrow-a").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("borrow-wl", "default").
+					Queue("borrow-queue").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 7).
+						Request("example.com/gpu", "1400000000000000000").Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("borrow-wl", "default").
+					Queue("borrow-queue").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 7).
+						Request("example.com/gpu", "1400000000000000000").Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonUnrecordableResourceUsage,
+						Message:            "couldn't assign flavors to pod set main: resourceUsage cannot store the admitted total for example.com/gpu (9800000000000000000)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: kueue.DefaultPodSetName,
+						Resources: corev1.ResourceList{
+							"example.com/gpu": resource.MustParse("9223372036854775807"),
+						},
+					}).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"borrow-a": {"default/borrow-wl"},
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "borrow-wl", kueue.WorkloadQuotaReservedReasonUnrecordableResourceUsage, corev1.EventTypeWarning).Obj(),
+			},
+		},
+		// 2 x 5E is 10E. MaxInt64 is odd, so the capped resourceUsage is not a
+		// multiple of 2 and the workload webhook would reject every retry.
+		"an even pod count past MaxInt64 fails once instead of retrying": {
+			additionalClusterQueues: []kueue.ClusterQueue{
+				*utiltestingapi.MakeClusterQueue("borrow-a").
+					Cohort("gpu-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource("example.com/gpu", "5000000000000000000").Obj()).
+					Obj(),
+				*utiltestingapi.MakeClusterQueue("borrow-b").
+					Cohort("gpu-cohort").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource("example.com/gpu", "5000000000000000000").Obj()).
+					Obj(),
+			},
+			additionalLocalQueues: []kueue.LocalQueue{
+				*utiltestingapi.MakeLocalQueue("borrow-queue", "default").ClusterQueue("borrow-a").Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("borrow-wl", "default").
+					Queue("borrow-queue").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request("example.com/gpu", "5000000000000000000").Obj()).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("borrow-wl", "default").
+					Queue("borrow-queue").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request("example.com/gpu", "5000000000000000000").Obj()).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadQuotaReserved,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonUnrecordableResourceUsage,
+						Message:            "couldn't assign flavors to pod set main: resourceUsage cannot store the admitted total for example.com/gpu (10000000000000000000)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadAdmitted,
+						Status:             metav1.ConditionFalse,
+						Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+						Message:            "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{
+						Name: kueue.DefaultPodSetName,
+						Resources: corev1.ResourceList{
+							"example.com/gpu": resource.MustParse("9223372036854775807"),
+						},
+					}).
+					Obj(),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"borrow-a": {"default/borrow-wl"},
+			},
+			eventCmpOpts: ignoreEventMessageCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "borrow-wl", kueue.WorkloadQuotaReservedReasonUnrecordableResourceUsage, corev1.EventTypeWarning).Obj(),
+			},
+		},
 		// The scheduler pops one head per ClusterQueue per cycle, so only wl-head is
 		// evaluated. It fails with NoFit, so the siblings sharing its hash are bulk-moved
 		// to inadmissible and carry no condition.
