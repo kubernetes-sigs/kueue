@@ -31,4 +31,6 @@ latest-milestone: "v0.20.0"
 milestone:
   alpha: "v0.20.0"
 
-disable-supported: true  # opt-in via resourceWeights; unset => default 1.0 (no behavior change)
+feature-gates:
+  - name: FlavorAwareFairSharing
+disable-supported: true

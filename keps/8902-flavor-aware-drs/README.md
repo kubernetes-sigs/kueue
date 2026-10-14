@@ -14,9 +14,11 @@
   - [API change](#api-change)
     - [Why not choose a single cost/weight per flavor instead of having different weights per resource?](#why-not-choose-a-single-costweight-per-flavor-instead-of-having-different-weights-per-resource)
     - [Relationship with AdmissionFairSharing.ResourceWeights](#relationship-with-admissionfairsharingresourceweights)
+  - [Feature gate](#feature-gate)
   - [Weighted borrowing and lendable](#weighted-borrowing-and-lendable)
     - [Effect on dominant resource selection](#effect-on-dominant-resource-selection)
   - [Validation and defaults](#validation-and-defaults)
+  - [Handling](#handling)
   - [Interaction with Topology-Aware Scheduling (TAS)](#interaction-with-topology-aware-scheduling-tas)
   - [Backward compatibility](#backward-compatibility)
   - [Test Plan](#test-plan)
@@ -59,7 +61,7 @@ Today, DRS aggregates borrowing by resource type across flavors, so borrowing 50
 ### Overview
 
 - **API**: Add `ResourceFlavor.spec.fairSharing.resourceWeights`, a map from resource name (for example `nvidia.com/gpu`) to a **scalar multiplier**. This lets admins express that some flavors are more valuable than others for a given resource type (for example `h100-reserved` vs `a10-spot` GPUs).
-- **Behavior**: When computing DRS, apply the configured multiplier for each $(ResourceFlavor, resource)$ pair so that borrowing on more valuable flavors contributes more to the computed share than borrowing on cheaper flavors. This affects behavior **wherever DRS is used**, including **admission ordering** and **Fair Sharing preemption**.
+- **Behavior**: When the feature is enabled, apply the configured multiplier for each $(ResourceFlavor, resource)$ pair when computing DRS so that borrowing on more valuable flavors contributes more to the computed share than borrowing on cheaper flavors. This affects behavior **wherever DRS is used**, including **admission ordering** and **Fair Sharing preemption**.
 - **Backward compatibility**: When weights are unset, the default multiplier is $1.0$, preserving existing behavior.
 - **Details**: Full API spec change, DRS definitions and formulas are described in **Design Details**.
 
@@ -80,7 +82,7 @@ As a cluster admin managing heterogeneous GPUs, I want borrowing of cheap/opport
 | --- | ---: | ---: | --- |
 | Team-A | 10 | 0 | Has `a10-spot` flavor; can borrow all available |
 | Team-B | 90 | 0 | No `a10-spot` flavor |
-- Assumptions: Fair Sharing is enabled, and cohort preemption is configured to allow reclaiming nominal quota as described below.
+- Assumptions: Fair Sharing is enabled, `FlavorAwareFairSharing=true`, and cohort preemption is configured to allow reclaiming nominal quota as described below.
 
 **Problem I see with today’s flavor-agnostic DRS**
 
@@ -98,7 +100,7 @@ Borrowing cheap/spot GPU capacity should contribute less to DRS than borrowing p
 - **Risk**: Misconfiguration (extreme weights) can lead to surprising dominant-resource choices and more aggressive preemption for specific resources.
   - **Mitigation**: Validate weights are > 0 and expand documentation with configuration guidelines, dominant-resource examples, and recommended starting points.
 - **Risk**: Changing DRS semantics changes preemption ordering when weights are configured.
-  - **Mitigation**: The change is opt-in via `fairSharing.resourceWeights` and defaults to no-op.
+  - **Mitigation**: Administrators can use the feature gate to disable flavor weighting, as described in [Handling](#handling).
 
 ## Design Details
 
@@ -111,7 +113,7 @@ Extend `ResourceFlavorSpec` with a new optional `fairSharing` field, consistent 
   - Values are treated as **scalar multipliers** (not resource amounts).
 - A missing `fairSharing` field, missing map, or missing entry implies a multiplier of **1.0** for that (flavor, resource) pair.
 
-Example:
+Example with the feature gate enabled:
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -153,9 +155,15 @@ For example, a cluster may want to treat *GPUs* as premium/scarce while treating
 
 Similarly, `ClusterQueue.spec.fairSharing.weight` is independent of flavor resource weights. The CQ weight divides the DRS ratio to produce the final weighted share used for comparisons, while flavor weights affect how the DRS ratio itself is computed. They operate at different layers and compose without interaction.
 
+### Feature gate
+
+`FlavorAwareFairSharing` controls flavor-weighted DRS in `kueue-controller-manager`.
+The feature is Alpha and the gate is disabled by default.
+The gate applies to both DRS-based admission ordering and Fair Sharing preemption at every level of the cohort hierarchy.
+
 ### Weighted borrowing and lendable
 
-Let:
+When the feature gate is enabled, let:
 
 - $f$ be a ResourceFlavor
 - $r$ be a resource type (for example `nvidia.com/gpu`)
@@ -260,6 +268,17 @@ Guidelines:
 
 - Default multiplier is 1.0 (per (flavor, resource) pair).
 - Values must be strictly greater than 0 (reject 0 / negative).
+- When the feature gate is disabled, reject creating a ResourceFlavor with non-empty `fairSharing.resourceWeights`, or adding or changing resource-weight entries on an existing ResourceFlavor.
+  Existing entries may be retained unchanged or removed, so disabling the gate does not prevent unrelated updates or cleanup.
+
+### Handling
+
+When the feature gate is enabled, DRS uses the configured flavor weights in the borrowing and lendable calculations above.
+When disabled, DRS uses a multiplier of 1.0 for every flavor-resource pair, including pairs with stored weights.
+Stored weights are preserved and become effective again when the gate is re-enabled.
+
+Administrators apply a gate change by restarting `kueue-controller-manager` with the updated feature gate configuration.
+Disabling the gate does not itself evict admitted Workloads; subsequent admission and preemption decisions use flavor-agnostic DRS.
 
 ### Interaction with Topology-Aware Scheduling (TAS)
 
@@ -269,7 +288,7 @@ Since `fairSharing.resourceWeights` is orthogonal to topology and node placement
 
 ### Backward compatibility
 
-- Existing clusters with no `fairSharing.resourceWeights` configured observe identical behavior.
+- Existing clusters with the feature gate disabled or with no `fairSharing.resourceWeights` configured observe identical behavior.
 - The field is optional; upgrades do not require changes to existing manifests.
 
 ### Test Plan
@@ -286,17 +305,20 @@ Since `fairSharing.resourceWeights` is orthogonal to topology and node placement
   - setting the same weight across all flavors for a resource type produces the same ratio as no weights (weights cancel in the ratio)
   - weights shift the dominant resource (e.g. from `cpu` to `nvidia.com/gpu`, as in Example A)
   - flavor weights compose correctly with `ClusterQueue.spec.fairSharing.weight`
+  - gate-disabled DRS matches the existing calculation even when flavor weights are stored
 - Validation tests:
   - reject zero and negative weight values
   - accept missing `fairSharing` / missing map entries (default 1.0)
+  - gate-disabled create and update validation, including retaining unchanged entries and removing entries
 
 #### Integration tests
 
-- Add an integration/e2e scenario where two ClusterQueues (CQs) borrow the same number of GPUs from different flavors and verify:
+- With the feature gate enabled, add an integration/e2e scenario where two ClusterQueues (CQs) borrow the same number of GPUs from different flavors and verify:
   - admission ordering within the cohort prefers the CQ with lower *weighted* DRS
   - Fair Sharing preemption ordering matches the configured weights
 - User Story 1 scenario: a CQ borrowing many cheap-flavor GPUs has a lower weighted DRS than a CQ borrowing the same amount on a premium flavor
-
+- Through the API server, verify that the disabled gate rejects creating non-empty weights and adding or changing entries, while accepting unrelated updates that preserve existing entries and updates that remove entries. Read back accepted updates to verify stored weights are retained or removed as requested.
+- Cover gate rollback with configured weights: restart `kueue-controller-manager` with the gate disabled and then re-enabled, verifying subsequent admission and Fair Sharing preemption decisions use flavor-agnostic and weighted ordering respectively, without rewriting ResourceFlavors.
 ### Graduation Criteria
 
 #### Alpha
@@ -304,10 +326,11 @@ Since `fairSharing.resourceWeights` is orthogonal to topology and node placement
 - API field available, documented, and defaulted to no-op (1.0).
 - DRS implementation weighted as described; unit tests added.
 - Integration/e2e coverage for at least one representative heterogeneous-flavor scenario.
-- This change is opt-in via ResourceFlavor.spec.fairSharing.resourceWeights; when unset, behavior is unchanged. So, no feature gate is required.
+- Feature gate handling and validation are implemented, with coverage for enabling, disabling, and re-enabling the feature with stored weights.
 
 #### Beta
 
+- Enable the feature gate by default after all reported bugs in weighted DRS and rollback handling are fixed.
 - Documentation includes configuration guidance and examples.
 - Additional integration tests:
   - multi-level hierarchical cohort where weighted DRS is compared at each level
