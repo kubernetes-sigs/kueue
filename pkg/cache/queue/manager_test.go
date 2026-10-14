@@ -358,7 +358,6 @@ func TestResyncClusterQueueGaugeMetrics(t *testing.T) {
 
 	customLabels.CQStore("cq1", map[string]string{"team": "beta"}, nil)
 	metrics.ClearClusterQueueMetrics("cq1")
-	metrics.ClearClusterQueueMetricsOnLabelChange("cq1")
 	manager.ResyncClusterQueueGaugeMetrics("cq1")
 
 	expectPending("alpha", 0)
