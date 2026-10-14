@@ -23,6 +23,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -237,6 +238,57 @@ func TestBuildVirtualPodGroups(t *testing.T) {
 			wantPodGroups: 3,
 			wantCPGs:      2,
 		},
+		"admitted with partial count": {
+			workload: utiltesting.MakeWorkload("wl-partial", "default").
+				PodSets(*utiltesting.MakePodSet("main", 10).Obj()).
+				Admission(
+					utiltesting.MakeAdmission("cq").
+						PodSets(kueue.PodSetAssignment{
+							Name:  "main",
+							Count: ptr.To[int32](4),
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantPodGroups: 1,
+			wantCPGs:      0,
+			checkFn: func(t *testing.T, res *WorkloadVirtualPodGroups) {
+				pg := res.PodGroups[0]
+				if pg.Spec.SchedulingPolicy.Gang == nil || pg.Spec.SchedulingPolicy.Gang.MinCount != 4 {
+					t.Errorf("unexpected gang policy: %+v", pg.Spec.SchedulingPolicy.Gang)
+				}
+				for i := range 4 {
+					if got := res.LeafPGForPod("main", i); got != pg.Name {
+						t.Errorf("expected leaf PG for replica %d to be %q, got %q", i, pg.Name, got)
+					}
+				}
+			},
+		},
+		"admitted without count falls back to podset count": {
+			workload: utiltesting.MakeWorkload("wl-fallback", "default").
+				PodSets(*utiltesting.MakePodSet("main", 6).Obj()).
+				Admission(
+					utiltesting.MakeAdmission("cq").
+						PodSets(kueue.PodSetAssignment{
+							Name: "main",
+						}).
+						Obj(),
+				).
+				Obj(),
+			wantPodGroups: 1,
+			wantCPGs:      0,
+			checkFn: func(t *testing.T, res *WorkloadVirtualPodGroups) {
+				pg := res.PodGroups[0]
+				if pg.Spec.SchedulingPolicy.Gang == nil || pg.Spec.SchedulingPolicy.Gang.MinCount != 6 {
+					t.Errorf("unexpected gang policy: %+v", pg.Spec.SchedulingPolicy.Gang)
+				}
+				for i := range 6 {
+					if got := res.LeafPGForPod("main", i); got != pg.Name {
+						t.Errorf("expected leaf PG for replica %d to be %q, got %q", i, pg.Name, got)
+					}
+				}
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -297,5 +349,45 @@ func TestVirtualGroupName_LongNamePreservesHashSuffix(t *testing.T) {
 	}
 	if name1 == name2 {
 		t.Errorf("expected distinct names for distinct group IDs, got identical %q", name1)
+	}
+}
+
+func TestVirtualPodGroupName(t *testing.T) {
+	tests := map[string]struct {
+		wlName         string
+		wantPrefix     string
+		checkLen       bool
+		forbidContains []string
+	}{
+		"short name": {
+			wlName:     "wl-1",
+			wantPrefix: "virtual-pg-wl-1-",
+		},
+		"long name capped to maxPodNameLength": {
+			wlName:   strings.Repeat("a", 300),
+			checkLen: true,
+		},
+		"long name with dot and hyphen at truncation boundary stripped": {
+			wlName:         strings.Repeat("a", 235) + ".-" + strings.Repeat("b", 50),
+			checkLen:       true,
+			forbidContains: []string{".-", "--"},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := VirtualPodGroupName(tc.wlName)
+			if tc.wantPrefix != "" && !strings.HasPrefix(got, tc.wantPrefix) {
+				t.Errorf("VirtualPodGroupName() = %q, want prefix %q", got, tc.wantPrefix)
+			}
+			if tc.checkLen && len(got) > maxPodNameLength {
+				t.Errorf("VirtualPodGroupName() length = %d, exceeds max %d", len(got), maxPodNameLength)
+			}
+			for _, forbidden := range tc.forbidContains {
+				if strings.Contains(got, forbidden) {
+					t.Errorf("VirtualPodGroupName() = %q contains forbidden substring %q", got, forbidden)
+				}
+			}
+		})
 	}
 }

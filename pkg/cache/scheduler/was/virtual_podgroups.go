@@ -69,6 +69,22 @@ type WorkloadVirtualPodGroups struct {
 	LeafPGForPod       func(podSetName string, replicaIdx int) string
 }
 
+// VirtualPodGroupName returns a collision-free name for a virtual pod group
+// representing the workload.
+func VirtualPodGroupName(wlName string) string {
+	h := sha1.New()
+	h.Write([]byte(wlName))
+	hash := hex.EncodeToString(h.Sum(nil))[:hashLength]
+	suffix := fmt.Sprintf("-%s", hash)
+	prefix := fmt.Sprintf("virtual-pg-%s", wlName)
+	maxPrefix := maxPodNameLength - len(suffix)
+	if len(prefix) > maxPrefix {
+		prefix = strings.TrimRight(prefix[:maxPrefix], ".-")
+	}
+
+	return prefix + suffix
+}
+
 // virtualGroupName generates a unique deterministic name
 func virtualGroupName(prefix, wlName, groupID string) string {
 	h := sha1.New()
@@ -122,6 +138,20 @@ func newVirtualCPG(name, namespace, topology string, groupCount int32, parent *s
 	return cpg
 }
 
+func podSetCount(wl *kueue.Workload, ps *kueue.PodSet) int32 {
+	if wl.Status.Admission != nil {
+		for _, psa := range wl.Status.Admission.PodSetAssignments {
+			if psa.Name == ps.Name {
+				if psa.Count != nil {
+					return *psa.Count
+				}
+				return ps.Count
+			}
+		}
+	}
+	return ps.Count
+}
+
 // BuildVirtualPodGroups constructs the virtual PodGroup and CompositePodGroup hierarchy
 // for a candidate Workload following WAS limitations and TAS requirements.
 func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error) {
@@ -131,7 +161,7 @@ func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error
 
 	var totalPods int64
 	for _, ps := range wl.Spec.PodSets {
-		totalPods += int64(ps.Count)
+		totalPods += int64(podSetCount(wl, &ps))
 	}
 	if totalPods <= 0 {
 		return nil, fmt.Errorf("workload %q has non-positive total pods count %d", wl.Name, totalPods)
@@ -139,7 +169,7 @@ func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error
 
 	// 1. Reject unsupported preferred topology
 	for _, ps := range wl.Spec.PodSets {
-		if ps.Count == 0 {
+		if podSetCount(wl, &ps) == 0 {
 			continue
 		}
 		tr := ps.TopologyRequest
@@ -179,7 +209,7 @@ func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error
 	groupMap := make(map[string]int)
 
 	for _, ps := range wl.Spec.PodSets {
-		if ps.Count == 0 {
+		if podSetCount(wl, &ps) == 0 {
 			continue
 		}
 		gName := string(ps.Name)
@@ -201,6 +231,7 @@ func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error
 		var groupChildNames []string
 
 		for _, ps := range psGroup.podSets {
+			count := podSetCount(wl, &ps)
 			podSetName := string(ps.Name)
 			podToLeafPG[podSetName] = make(map[int]string)
 			sliceConstraints := utiltas.PodSetSliceRequiredTopologyConstraints(ps.TopologyRequest)
@@ -217,7 +248,7 @@ func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error
 				}
 
 				leafSize := int64(sliceConstraints[len(sliceConstraints)-1].Size)
-				leafGroups := (int64(ps.Count) + leafSize - 1) / leafSize
+				leafGroups := (int64(count) + leafSize - 1) / leafSize
 				if leafGroups > maxSupportedWASLeafGroups() {
 					return nil, &ErrUnsupportableWorkload{
 						WorkloadName: wl.Name,
@@ -230,14 +261,14 @@ func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error
 				// Multi-level slices: innermost leaf PGs, intermediate CPGs
 				for lvl, constraint := range slices.Backward(sliceConstraints) {
 					sliceSize := max(1, constraint.Size)
-					numSlices := (int64(ps.Count) + int64(sliceSize) - 1) / int64(sliceSize)
+					numSlices := (int64(count) + int64(sliceSize) - 1) / int64(sliceSize)
 
 					if lvl == len(sliceConstraints)-1 {
 						// Innermost level: leaf PodGroups
 						for s := range numSlices {
 							pgName := virtualGroupName("pg", wl.Name, fmt.Sprintf("s.%s-l%d-s%d", podSetName, lvl, s))
 							start := s * int64(sliceSize)
-							end := min((s+1)*int64(sliceSize), int64(ps.Count))
+							end := min((s+1)*int64(sliceSize), int64(count))
 							for p := start; p < end; p++ {
 								podToLeafPG[podSetName][int(p)] = pgName
 							}
@@ -276,19 +307,19 @@ func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error
 			case ps.TopologyRequest != nil && ps.TopologyRequest.Required != nil:
 				// Single-level required: leaf PodGroup with topology constraint
 				pgName := virtualGroupName("pg", wl.Name, "p."+podSetName)
-				for p := range int(ps.Count) {
+				for p := range int(count) {
 					podToLeafPG[podSetName][p] = pgName
 				}
-				addPG(newVirtualPG(pgName, wl.Namespace, *ps.TopologyRequest.Required, ps.Count, nil))
+				addPG(newVirtualPG(pgName, wl.Namespace, *ps.TopologyRequest.Required, count, nil))
 				groupChildNames = append(groupChildNames, pgName)
 
 			default:
 				// Plain PodSet: leaf PodGroup without topology constraint
 				pgName := virtualGroupName("pg", wl.Name, "p."+podSetName)
-				for p := range int(ps.Count) {
+				for p := range int(count) {
 					podToLeafPG[podSetName][p] = pgName
 				}
-				addPG(newVirtualPG(pgName, wl.Namespace, "", ps.Count, nil))
+				addPG(newVirtualPG(pgName, wl.Namespace, "", count, nil))
 				groupChildNames = append(groupChildNames, pgName)
 			}
 		}
