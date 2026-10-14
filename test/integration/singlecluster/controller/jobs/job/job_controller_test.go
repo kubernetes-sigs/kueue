@@ -8449,3 +8449,114 @@ var _ = ginkgo.Describe("Job controller with waitForPodsReady unscheduledTimeout
 		})
 	})
 })
+
+var _ = ginkgo.Describe("Job controller with Concurrent Admission", ginkgo.Label("job:batch", "area:jobs"), func() {
+	var (
+		ns                *corev1.Namespace
+		admissionCheck    *kueue.AdmissionCheck
+		reservedFlavor    *kueue.ResourceFlavor
+		provisioningFlvr  *kueue.ResourceFlavor
+		clusterQueue      *kueue.ClusterQueue
+		localQueue        *kueue.LocalQueue
+		provisioningCheck = kueue.AdmissionCheckReference("provisioning")
+	)
+
+	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConcurrentAdmission, true)
+		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil))
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "concurrent-")
+
+		admissionCheck = utiltestingapi.MakeAdmissionCheck(string(provisioningCheck)).ControllerName("ac-controller").Obj()
+		behavioral.MustCreate(ctx, k8sClient, admissionCheck)
+		behavioral.SetAdmissionCheckActive(ctx, k8sClient, admissionCheck, metav1.ConditionTrue)
+
+		reservedFlavor = utiltestingapi.MakeResourceFlavor("reserved").Obj()
+		behavioral.MustCreate(ctx, k8sClient, reservedFlavor)
+		provisioningFlvr = utiltestingapi.MakeResourceFlavor("provisioning").NodeLabel(instanceKey, "provisioning").Obj()
+		behavioral.MustCreate(ctx, k8sClient, provisioningFlvr)
+
+		// Only the provisioning flavor has quota and requires the admission check, so
+		// the admitted Variant is the one carrying the check state.
+		clusterQueue = utiltestingapi.MakeClusterQueue("concurrent-cq").
+			ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(reservedFlavor.Name).Resource(corev1.ResourceCPU, "0").Obj(),
+				*utiltestingapi.MakeFlavorQuotas(provisioningFlvr.Name).Resource(corev1.ResourceCPU, "5").Obj(),
+			).
+			AdmissionCheckStrategy(
+				*utiltestingapi.MakeAdmissionCheckStrategyRule(provisioningCheck, kueue.ResourceFlavorReference(provisioningFlvr.Name)).Obj(),
+			).Obj()
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		localQueue = utiltestingapi.MakeLocalQueue("queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, provisioningFlvr, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, reservedFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, admissionCheck, true)
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.It("Should start the job with the pod set updates of the admitted Variant's admission checks", func() {
+		job := testingjob.MakeJob(jobName, ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+		ginkgo.By("creating the job", func() {
+			behavioral.MustCreate(ctx, k8sClient, job)
+		})
+
+		var variant *kueue.Workload
+		ginkgo.By("waiting for the Variant to reserve quota on the provisioning flavor", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).To(gomega.Succeed())
+				for _, wl := range behavioral.FindConcurrentAdmissionVariants(workloads.Items) {
+					if workload.HasQuotaReservation(&wl) {
+						variant = &wl
+					}
+				}
+				g.Expect(variant).NotTo(gomega.BeNil())
+				g.Expect(workload.IsAdmitted(variant)).To(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("keeping the job suspended until the admission check is ready", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				g.Expect(ptr.Deref(job.Spec.Suspend, false)).To(gomega.BeTrue())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("setting the admission check ready with pod set updates on the Variant", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(variant), variant)).To(gomega.Succeed())
+				workloadpatching.SetAdmissionCheckState(&variant.Status.AdmissionChecks, kueue.AdmissionCheckState{
+					Name:  provisioningCheck,
+					State: kueue.CheckStateReady,
+					PodSetUpdates: []kueue.PodSetUpdate{{
+						Name:         kueue.DefaultPodSetName,
+						Labels:       map[string]string{"label1": "label-value1"},
+						Annotations:  map[string]string{"ann1": "ann-value1"},
+						NodeSelector: map[string]string{"selector1": "selector-value1"},
+					}},
+				}, behavioral.RealClock)
+				g.Expect(k8sClient.Status().Update(ctx, variant)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verifying the job is started with the Variant's pod set updates", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+				g.Expect(ptr.Deref(job.Spec.Suspend, false)).To(gomega.BeFalse())
+				g.Expect(job.Spec.Template.Annotations).To(gomega.HaveKeyWithValue("ann1", "ann-value1"))
+				g.Expect(job.Spec.Template.Labels).To(gomega.HaveKeyWithValue("label1", "label-value1"))
+				g.Expect(job.Spec.Template.Spec.NodeSelector).To(gomega.HaveKeyWithValue("selector1", "selector-value1"))
+				g.Expect(job.Spec.Template.Spec.NodeSelector).To(gomega.HaveKeyWithValue(instanceKey, "provisioning"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+})
