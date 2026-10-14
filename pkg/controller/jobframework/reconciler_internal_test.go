@@ -280,10 +280,10 @@ func TestGetPodSetsInfoFromStatusAdmissionCheckPodSetUpdates(t *testing.T) {
 			wl:                  baseWl.Clone().AdmissionCheck(provisioningCheckState("wl-pr")).Obj(),
 			want:                podSetInfo(provisioningAnnotations("wl-pr")),
 		},
-		"uses the Parent admission checks when the Parent has no Variants": {
+		"fails when the Parent has no Variants": {
 			concurrentAdmission: true,
-			wl:                  parentWl.Clone().AdmissionCheck(provisioningCheckState("wl-pr")).Obj(),
-			want:                podSetInfo(provisioningAnnotations("wl-pr")),
+			wl:                  parentWl.Clone().Obj(),
+			wantErr:             true,
 		},
 		"uses the admission checks of the admitted Variant matching the Parent admission": {
 			concurrentAdmission: true,

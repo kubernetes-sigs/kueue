@@ -2228,10 +2228,6 @@ func admissionChecksForPodSetUpdates(ctx context.Context, c client.Client, w *ku
 	if err := c.List(ctx, variants, client.InNamespace(w.Namespace), client.MatchingFields{indexer.OwnerReferenceUID: string(w.UID)}); err != nil {
 		return nil, fmt.Errorf("listing variants of Workload %s: %w", klog.KObj(w), err)
 	}
-	if len(variants.Items) == 0 {
-		// The Parent was admitted directly, for example after ConcurrentAdmission was disabled for its ClusterQueue.
-		return w.Status.AdmissionChecks, nil
-	}
 	for i := range variants.Items {
 		variant := &variants.Items[i]
 		if workload.IsAdmitted(variant) && apiequality.Semantic.DeepEqual(variant.Status.Admission, w.Status.Admission) {
