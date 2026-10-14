@@ -244,6 +244,11 @@ type TASFlavorSnapshot struct {
 	// snapshot() calls it before the snapshot is used.
 	domainFreeCapacities map[utiltas.TopologyDomainID]resources.Requests
 
+	// advertised caches the resources published by at least one node of the
+	// topology. It is computed on first use and never invalidated, as it reads
+	// the static capacity of the shared topology tree.
+	advertised sets.Set[corev1.ResourceName]
+
 	// schedulerSimulator stores enough data to run a WAS scheduling simulation.
 	schedulerSimulator simulator.SchedulerSimulator
 
@@ -649,6 +654,85 @@ type tasPodSetAssignmentResult struct {
 
 type FlavorTASRequests []TASPodSetRequests
 
+// advertisedResources returns the resources published by at least one node of
+// the topology. It reads the static capacity, so a node publishing a resource
+// counts as publishing it even while the resource is fully in use.
+func (s *TASFlavorSnapshot) advertisedResources() sets.Set[corev1.ResourceName] {
+	if s.advertised == nil {
+		advertised := sets.New[corev1.ResourceName]()
+		if s.topologyTree != nil {
+			for _, leaf := range s.leaves {
+				if leaf.capacity == nil {
+					continue
+				}
+				leaf.capacity.ForEach(func(name corev1.ResourceName, value resources.Amount) {
+					if value.Sign() > 0 {
+						advertised.Insert(name)
+					}
+				})
+			}
+		}
+		s.advertised = advertised
+	}
+	return s.advertised
+}
+
+// requestsWithoutUnadvertised returns requests with the amounts of the resources
+// that no node of the topology publishes zeroed, together with their names.
+//
+// Placing a Pod is done by the scheduler, which may know about resources Kueue
+// cannot see: a device managed by a scheduler extender, such as the memory of a
+// virtual GPU, is requested by the Pod but is not in any node's allocatable.
+// Counting such a request against the topology would rule out every node and
+// leave the Workload pending with an "excluded: resource" message, even though
+// the Pod would have been placed. Zeroing the amount keeps the request's type,
+// and a zero request is treated as unbounded, so the resource is left to the
+// scheduler. Resources that some node publishes are still counted per node, so
+// a Pod asking for them is not placed on a node which does not have them.
+func (s *TASFlavorSnapshot) requestsWithoutUnadvertised(requests resources.Requests) (resources.Requests, []corev1.ResourceName) {
+	if requests == nil || s.topologyTree == nil {
+		return requests, nil
+	}
+	advertised := s.advertisedResources()
+	var dropped []corev1.ResourceName
+	requests.ForEach(func(name corev1.ResourceName, value resources.Amount) {
+		if value.Sign() != 0 && !advertised.Has(name) {
+			dropped = append(dropped, name)
+		}
+	})
+	if len(dropped) == 0 {
+		return requests, nil
+	}
+	filtered := requests.Clone()
+	for _, name := range dropped {
+		filtered.Set(name, resources.Amount{})
+	}
+	return filtered, dropped
+}
+
+// withoutUnadvertisedResources returns trs with the resources that no node of
+// the topology publishes dropped from every PodSet's request.
+func (s *TASFlavorSnapshot) withoutUnadvertisedResources(log logr.Logger, trs FlavorTASRequests) FlavorTASRequests {
+	var dropped []corev1.ResourceName
+	result := make(FlavorTASRequests, len(trs))
+	changed := false
+	for i, tr := range trs {
+		requests, psDropped := s.requestsWithoutUnadvertised(tr.SinglePodRequests)
+		if len(psDropped) > 0 {
+			tr.SinglePodRequests = requests
+			dropped = append(dropped, psDropped...)
+			changed = true
+		}
+		result[i] = tr
+	}
+	if !changed {
+		return trs
+	}
+	slices.Sort(dropped)
+	log.V(3).Info("Ignoring requests for resources no node of the topology publishes", "topology", s.topologyName, "resources", dropped)
+	return result
+}
+
 // Fits checks if the snapshot has enough capacity to accommodate the workload
 func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
 	cachingEnabled := features.Enabled(features.TASCachingRemainingResources)
@@ -657,17 +741,18 @@ func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
 		if dom == nil {
 			return false
 		}
+		singlePodRequests, _ := s.requestsWithoutUnadvertised(domainUsage.SinglePodRequests)
 		var fitCount int32
 		for leaf := range s.leavesOf(dom) {
 			remainingCapacity := s.remainingCapacityForLeaf(leaf, false, cachingEnabled)
-			fitCount += domainUsage.SinglePodRequests.CountIn(remainingCapacity.Get())
+			fitCount += singlePodRequests.CountIn(remainingCapacity.Get())
 			if fitCount >= domainUsage.Count {
 				break
 			}
 		}
 		if s.virtualHostname {
 			remaining := s.domainRemainingCapacity(dom, nil, false)
-			fitCount = min(fitCount, domainUsage.SinglePodRequests.CountIn(remaining.Get()))
+			fitCount = min(fitCount, singlePodRequests.CountIn(remaining.Get()))
 		}
 		if fitCount < domainUsage.Count {
 			return false
@@ -897,6 +982,8 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 	if opts.workload != nil {
 		wlObj = opts.workload.Obj
 	}
+
+	flavorTASRequests = s.withoutUnadvertisedResources(log, flavorTASRequests)
 
 	groupedTASRequests := make(map[utiltas.PodSetGroupKey]FlavorTASRequests)
 	groupsOrder := make([]utiltas.PodSetGroupKey, 0)

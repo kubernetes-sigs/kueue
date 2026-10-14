@@ -1886,6 +1886,66 @@ func TestFindTopologyAssignments(t *testing.T) {
 				},
 			},
 		},
+		"a Pod asking for a resource no node publishes is placed by what it asks for otherwise": {
+			// A device a scheduler extender manages, such as the memory of a virtual
+			// GPU, is requested by the Pod but published by no node, so Kueue has no
+			// capacity to count it against. Counting it anyway would rule out every
+			// node, so the request is left to the scheduler which places the Pod.
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"nvidia.com/gpu":    resource.MustParse("20"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels:   defaultOneLevel,
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU:  1000,
+					"nvidia.com/gpu":    1,
+					"nvidia.com/gpumem": 7168,
+				},
+				count: 1,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels:  defaultOneLevel,
+					Domains: []tas.TopologyDomainAssignment{{Count: 1, Values: []string{"x1"}}},
+				},
+			}},
+		},
+		"a Pod asking for more of a published resource than a node has still does not fit": {
+			nodes: []corev1.Node{
+				*testingnode.MakeNode("x1").
+					Label(corev1.LabelHostname, "x1").
+					StatusAllocatable(corev1.ResourceList{
+						corev1.ResourceCPU:  resource.MustParse("4"),
+						corev1.ResourcePods: resource.MustParse("10"),
+						"nvidia.com/gpumem": resource.MustParse("1024"),
+					}).
+					Ready().
+					Obj(),
+			},
+			levels:   defaultOneLevel,
+			workload: utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			podSets: []PodSetTestCase{{
+				topologyRequest: &kueue.PodSetTopologyRequest{
+					Unconstrained: new(true),
+				},
+				requests: map[corev1.ResourceName]int64{
+					corev1.ResourceCPU:  1000,
+					"nvidia.com/gpumem": 7168,
+				},
+				count:      1,
+				wantReason: `topology "default" doesn't allow to fit any of 1 pod(s). Total nodes: 1; excluded: resource "nvidia.com/gpumem": 1`,
+			}},
+		},
 		"a second PodSet sees the device the first one took on a node advertising it, with a rack as the lowest level": {
 			// The topology stops at the rack, so the node a Pod lands on is only known
 			// within the cycle. Each rack has one node publishing one device and r1 sorts
