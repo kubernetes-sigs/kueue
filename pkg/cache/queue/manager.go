@@ -761,6 +761,18 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 // computed by the scheduler during this cycle. It must be passed explicitly because info.Obj
 // has not yet been patched with the updated condition when RequeueWorkload is called.
 func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
+	requeued, draWorkload := m.requeueWorkloadLocked(ctx, info, reason, quotaReservedReason)
+	if draWorkload != nil {
+		m.draReconcileChannel <- event.TypedGenericEvent[*kueue.Workload]{Object: draWorkload}
+		ctrl.LoggerFrom(ctx).V(4).Info("Sent DRA workload to reconcile channel due to a generation change while inflight",
+			"workload", klog.KObj(draWorkload), "generation", draWorkload.Generation)
+	}
+	return requeued
+}
+
+// requeueWorkloadLocked requeues the workload, or returns it for the workload
+// controller when its quota charges can no longer describe it.
+func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info, reason RequeueReason, quotaReservedReason QuotaReservedReason) (bool, *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -777,18 +789,29 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	// Since the client is cached, the only possible error is NotFound.
 	// We should not requeue a workload that is not admissible.
 	if apierrors.IsNotFound(err) || !workload.IsAdmissible(&w) {
-		return false
+		return false, nil
 	}
 
 	qKey := queue.KeyFromWorkload(&w)
 
 	q := m.localQueues[qKey]
 	if q == nil {
-		return false
+		return false, nil
 	}
 	log := ctrl.LoggerFrom(ctx)
 	workload.AdjustResources(ctx, m.client, &w)
 	if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
+		// DRA quota charges are resolved by the workload controller and cannot be
+		// rebuilt here, because the spec carries resourceClaims rather than the quota
+		// keys they translate to. Charges preprocessed for an older generation would
+		// admit the workload against a shape nobody asked for, so hand it back and let
+		// the controller recompute them. A matching generation is weaker than it looks
+		// for extended resources, where a DeviceClass change moves the charge with
+		// metadata.generation untouched; the reconcile that follows such a change
+		// re-pushes the workload with the current charges.
+		if features.Enabled(features.KueueDRAIntegration) && info.Obj.Generation != w.Generation {
+			return false, w.DeepCopy()
+		}
 		info.Update(log, &w, workload.WithPreserveTotalRequests())
 	} else {
 		info.Update(log, &w, m.workloadInfoOptions...)
@@ -797,7 +820,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
-		return false
+		return false, nil
 	}
 
 	added := cq.RequeueIfNotPresent(ctx, info, reason, quotaReservedReason)
@@ -806,7 +829,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	if added {
 		m.Broadcast()
 	}
-	return added
+	return added, nil
 }
 
 // forgetInflight releases the claim that Pop took on a workload in the given
