@@ -23,6 +23,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/component-base/featuregate"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
@@ -201,6 +202,136 @@ func TestClearUnusableMinCounts(t *testing.T) {
 				if cleared := ps.MinCount == nil; cleared != tc.wantMinCountsCleared {
 					t.Errorf("podSet %q: minCount cleared = %v, want %v", ps.Name, cleared, tc.wantMinCountsCleared)
 				}
+			}
+		})
+	}
+}
+
+func TestGetPodSetsInfoFromStatusAdmissionCheckPodSetUpdates(t *testing.T) {
+	const (
+		podSetName        = kueue.PodSetReference("main")
+		onDemandFlavor    = kueue.ResourceFlavorReference("on-demand")
+		provisioningCheck = kueue.AdmissionCheckReference("provisioning")
+	)
+	now := time.Now().Truncate(time.Second)
+	workloadGVK := kueue.SchemeGroupVersion.WithKind("Workload")
+	admission := func(flavor kueue.ResourceFlavorReference) *kueue.Admission {
+		return utiltestingapi.MakeAdmission("cq").
+			PodSets(utiltestingapi.MakePodSetAssignment(podSetName).
+				Assignment(corev1.ResourceCPU, flavor, "1").
+				Obj()).
+			Obj()
+	}
+	provisioningAnnotations := func(provisioningRequest string) map[string]string {
+		return map[string]string{
+			"autoscaling.x-k8s.io/consume-provisioning-request": provisioningRequest,
+			"autoscaling.x-k8s.io/provisioning-class-name":      "queued-provisioning.gke.io",
+		}
+	}
+	provisioningCheckState := func(provisioningRequest string) kueue.AdmissionCheckState {
+		return kueue.AdmissionCheckState{
+			Name:  provisioningCheck,
+			State: kueue.CheckStateReady,
+			PodSetUpdates: []kueue.PodSetUpdate{{
+				Name:        podSetName,
+				Annotations: provisioningAnnotations(provisioningRequest),
+			}},
+		}
+	}
+	baseWl := utiltestingapi.MakeWorkload("wl", "default").
+		UID("wl-uid").
+		PodSets(*utiltestingapi.MakePodSet(podSetName, 1).Obj()).
+		ReserveQuotaAt(admission(onDemandFlavor), now).
+		AdmittedAt(true, now)
+	parentWl := baseWl.Clone().ParentVariant()
+	variant := func(name string, flavor kueue.ResourceFlavorReference) *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(name, "default").
+			ControllerReference(workloadGVK, "wl", "wl-uid").
+			PodSets(*utiltestingapi.MakePodSet(podSetName, 1).Obj()).
+			ReserveQuotaAt(admission(flavor), now)
+	}
+	podSetInfo := func(annotations map[string]string) []podset.PodSetInfo {
+		return []podset.PodSetInfo{{
+			Name:        podSetName,
+			Count:       1,
+			Annotations: annotations,
+			Labels: map[string]string{
+				constants.ClusterQueueLabel: "cq",
+				constants.LocalQueueLabel:   "",
+				constants.PodSetLabel:       string(podSetName),
+			},
+			NodeSelector: map[string]string{},
+		}}
+	}
+
+	cases := map[string]struct {
+		concurrentAdmission bool
+		wl                  *kueue.Workload
+		objs                []client.Object
+		want                []podset.PodSetInfo
+		wantErr             bool
+	}{
+		"uses the Workload admission checks when ConcurrentAdmission is disabled": {
+			wl:   baseWl.Clone().AdmissionCheck(provisioningCheckState("wl-pr")).Obj(),
+			want: podSetInfo(provisioningAnnotations("wl-pr")),
+		},
+		"uses the Workload admission checks for a Workload which is not a Parent": {
+			concurrentAdmission: true,
+			wl:                  baseWl.Clone().AdmissionCheck(provisioningCheckState("wl-pr")).Obj(),
+			want:                podSetInfo(provisioningAnnotations("wl-pr")),
+		},
+		"uses the Parent admission checks when the Parent has no Variants": {
+			concurrentAdmission: true,
+			wl:                  parentWl.Clone().AdmissionCheck(provisioningCheckState("wl-pr")).Obj(),
+			want:                podSetInfo(provisioningAnnotations("wl-pr")),
+		},
+		"uses the admission checks of the admitted Variant matching the Parent admission": {
+			concurrentAdmission: true,
+			wl:                  parentWl.Clone().Obj(),
+			objs: []client.Object{
+				variant("wl-dws", "dws").
+					AdmissionCheck(provisioningCheckState("wl-dws-pr")).
+					Obj(),
+				variant("wl-on-demand", onDemandFlavor).
+					AdmittedAt(true, now).
+					AdmissionCheck(provisioningCheckState("wl-on-demand-pr")).
+					Obj(),
+			},
+			want: podSetInfo(provisioningAnnotations("wl-on-demand-pr")),
+		},
+		"fails when no admitted Variant matches the Parent admission": {
+			concurrentAdmission: true,
+			wl:                  parentWl.Clone().Obj(),
+			objs: []client.Object{
+				variant("wl-dws", "dws").
+					AdmittedAt(true, now).
+					AdmissionCheck(provisioningCheckState("wl-dws-pr")).
+					Obj(),
+				variant("wl-on-demand", onDemandFlavor).
+					AdmissionCheck(provisioningCheckState("wl-on-demand-pr")).
+					Obj(),
+			},
+			wantErr: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.ConcurrentAdmission:         tc.concurrentAdmission,
+				features.TopologyAwareScheduling:     false,
+				features.SchedulerLibraryIntegration: false,
+			})
+			cl := utiltesting.NewClientBuilder(kueue.AddToScheme).
+				WithObjects(utiltestingapi.MakeResourceFlavor(string(onDemandFlavor)).Obj()).
+				WithObjects(tc.objs...).
+				Build()
+
+			got, err := getPodSetsInfoFromStatus(t.Context(), cl, tc.wl, false)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("getPodSetsInfoFromStatus() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("PodSetsInfo mismatch (-want,+got):\n%s", diff)
 			}
 		})
 	}

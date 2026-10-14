@@ -131,6 +131,37 @@ func TestReconcileGenericJob(t *testing.T) {
 		AdmittedAt(true, reservedAt).
 		Obj()
 
+	concurrentAdmissionAdmission := &kueue.Admission{
+		ClusterQueue:      "default-cq",
+		PodSetAssignments: []kueue.PodSetAssignment{{Name: "main", Count: new(int32(1))}},
+	}
+	concurrentAdmissionParentWl := baseWl.Clone().Name("job-test-job-1").
+		UID("job-test-job-1").
+		ParentVariant().
+		ReserveQuotaAt(concurrentAdmissionAdmission, reservedAt).
+		AdmittedAt(true, reservedAt).
+		Obj()
+	concurrentAdmissionVariantWl := utiltestingapi.MakeWorkload("job-test-job-1-dws", metav1.NamespaceDefault).
+		ResourceVersion("1").
+		ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "job-test-job-1", "job-test-job-1").
+		Queue(testLocalQueueName).
+		PodSets(basePodSets...).
+		ReserveQuotaAt(concurrentAdmissionAdmission, reservedAt).
+		AdmittedAt(true, reservedAt).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:               "dws-provisioning",
+			State:              kueue.CheckStateReady,
+			LastTransitionTime: metav1.NewTime(reservedAt),
+			PodSetUpdates: []kueue.PodSetUpdate{{
+				Name: "main",
+				Annotations: map[string]string{
+					"autoscaling.x-k8s.io/consume-provisioning-request": "job-test-job-1-dws-provisioning-1",
+					"autoscaling.x-k8s.io/provisioning-class-name":      "queued-provisioning.gke.io",
+				},
+			}},
+		}).
+		Obj()
+
 	testCases := map[string]struct {
 		featureGates      map[featuregate.Feature]bool
 		reconcilerOptions []Option
@@ -964,6 +995,40 @@ func TestReconcileGenericJob(t *testing.T) {
 					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 					Priority(0).
 					Obj(),
+			},
+		},
+		"start job with the pod set updates of the admitted Concurrent Admission Variant": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ConcurrentAdmission:         true,
+				features.TopologyAwareScheduling:     false,
+				features.SchedulerLibraryIntegration: false,
+			},
+			req:     baseReq,
+			job:     baseJob.Clone().Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				concurrentAdmissionParentWl.DeepCopy(),
+				concurrentAdmissionVariantWl.DeepCopy(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*concurrentAdmissionParentWl.DeepCopy(),
+				*concurrentAdmissionVariantWl.DeepCopy(),
+			},
+			wantPodSets: []podset.PodSetInfo{
+				{
+					Name:  "main",
+					Count: 1,
+					Annotations: map[string]string{
+						"autoscaling.x-k8s.io/consume-provisioning-request": "job-test-job-1-dws-provisioning-1",
+						"autoscaling.x-k8s.io/provisioning-class-name":      "queued-provisioning.gke.io",
+					},
+					Labels: map[string]string{
+						kueueconstants.ClusterQueueLabel: "default-cq",
+						kueueconstants.LocalQueueLabel:   "test-lq",
+						kueueconstants.PodSetLabel:       "main",
+					},
+					NodeSelector: map[string]string{},
+				},
 			},
 		},
 		// Same group and kind, so the rename is legal while reserved.

@@ -56,6 +56,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -71,6 +72,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
@@ -2170,6 +2172,10 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 	if err != nil {
 		return nil, err
 	}
+	admissionChecks, err := admissionChecksForPodSetUpdates(ctx, c, w)
+	if err != nil {
+		return nil, err
+	}
 	podSetsInfo := make([]podset.PodSetInfo, len(assignments))
 
 	for i, psAssignment := range assignments {
@@ -2195,7 +2201,7 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 			assignQueueLabels(ctx, info.Labels, w)
 		}
 
-		for _, admissionCheck := range w.Status.AdmissionChecks {
+		for _, admissionCheck := range admissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
 				if podSetUpdate.Name == info.Name {
 					if err := info.Merge(podset.FromUpdate(&podSetUpdate)); err != nil {
@@ -2208,6 +2214,31 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		podSetsInfo[i] = info
 	}
 	return podSetsInfo, nil
+}
+
+// admissionChecksForPodSetUpdates returns the admission checks whose PodSetUpdates
+// apply to the Workload's pods. With ConcurrentAdmission, admission checks run on
+// the Variants, so for a Parent Workload the checks of the admitted Variant whose
+// admission the Parent mirrors are used.
+func admissionChecksForPodSetUpdates(ctx context.Context, c client.Client, w *kueue.Workload) ([]kueue.AdmissionCheckState, error) {
+	if !features.Enabled(features.ConcurrentAdmission) || !concurrentadmission.IsParent(w) {
+		return w.Status.AdmissionChecks, nil
+	}
+	variants := &kueue.WorkloadList{}
+	if err := c.List(ctx, variants, client.InNamespace(w.Namespace), client.MatchingFields{indexer.OwnerReferenceUID: string(w.UID)}); err != nil {
+		return nil, fmt.Errorf("listing variants of Workload %s: %w", klog.KObj(w), err)
+	}
+	if len(variants.Items) == 0 {
+		// The Parent was admitted directly, for example after ConcurrentAdmission was disabled for its ClusterQueue.
+		return w.Status.AdmissionChecks, nil
+	}
+	for i := range variants.Items {
+		variant := &variants.Items[i]
+		if workload.IsAdmitted(variant) && apiequality.Semantic.DeepEqual(variant.Status.Admission, w.Status.Admission) {
+			return variant.Status.AdmissionChecks, nil
+		}
+	}
+	return nil, fmt.Errorf("no admitted variant matches the admission of Workload %s", klog.KObj(w))
 }
 
 // podSetAssignmentsInSpecOrder reorders the admission, which lists the members
