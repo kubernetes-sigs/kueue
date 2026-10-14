@@ -173,13 +173,11 @@ func TestVirtualPodsForWorkload(t *testing.T) {
 			}
 			for i, wantNode := range tc.wantNodes {
 				want := &corev1.Pod{
-					ObjectMeta: metav1.ObjectMeta{
-						Name:        virtualPodName(tc.wl.Name, "main", i),
-						Namespace:   tc.wl.Namespace,
-						UID:         types.UID(fmt.Sprintf("virtual-%s-main-%d", tc.wl.UID, i)),
-						Labels:      map[string]string{constants.PodSetLabel: "main"},
-						Annotations: map[string]string{kueue.WorkloadAnnotation: tc.wl.Name},
-					},
+					Name:        virtualPodName(tc.wl.Name, "main", i),
+					Namespace:   tc.wl.Namespace,
+					UID:         types.UID(fmt.Sprintf("virtual-%s-main-%d", tc.wl.UID, i)),
+					Labels:      map[string]string{constants.PodSetLabel: "main"},
+					Annotations: map[string]string{kueue.WorkloadAnnotation: tc.wl.Name},
 					Spec: corev1.PodSpec{
 						NodeName:        wantNode,
 						Containers:      podTemplate.Spec.Containers,
