@@ -28,6 +28,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -1122,6 +1123,15 @@ func TestReconcileRequeue(t *testing.T) {
 					},
 				},
 			},
+		},
+		"requeue after backoff returns the queue error when the LocalQueue is missing from the queue manager": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Active(true).
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(-time.Minute)))).
+				Obj(),
+			wantError:    qcache.ErrLocalQueueDoesNotExistOrInactive,
+			wantErrorMsg: "failed to requeue workload after backoff",
 		},
 		"should use the biggest total time not the biggest RequeueAfterSeconds": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
