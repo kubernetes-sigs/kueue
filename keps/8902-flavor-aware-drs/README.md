@@ -282,9 +282,13 @@ Disabling the gate does not itself evict admitted Workloads; subsequent admissio
 
 ### Interaction with Topology-Aware Scheduling (TAS)
 
-`ResourceFlavorSpec` has a CEL validation rule `!has(oldSelf.topologyName) || self == oldSelf` that makes the entire spec immutable when `topologyName` is set. This rule was introduced to protect topology-sensitive fields (`nodeLabels`, `nodeTaints`, `tolerations`, `topologyName`) whose mutation could invalidate the TAS topology tree. Since the rule applies to the whole spec via `self == oldSelf`, adding `fairSharing.resourceWeights` to the spec means weights also cannot be updated in-place on TAS-enabled flavors without deleting and recreating the ResourceFlavor.
+The whole-spec immutability restriction for TAS-enabled ResourceFlavors was removed in [PR #9427](https://github.com/kubernetes-sigs/kueue/pull/9427), as noted in [Mukund's review comment](https://github.com/kubernetes-sigs/kueue/pull/9251#discussion_r2858927454).
+Currently, `spec.topologyName` cannot be changed or removed once set.
+When `topologyName` is set, `spec.nodeLabels` must contain at least one entry.
 
-Since `fairSharing.resourceWeights` is orthogonal to topology and node placement, we propose relaxing the CEL rule to check immutability of the topology-sensitive fields individually, while allowing `fairSharing` to remain mutable. We would appreciate guidance from TAS maintainers on whether this approach is acceptable or if an alternative is preferred.
+The proposed `spec.fairSharing.resourceWeights` can be updated in place on TAS-enabled ResourceFlavors, subject to [Validation and defaults](#validation-and-defaults).
+Weight updates affect DRS-based ordering while retaining the flavor's topology reference and node-selection settings.
+This proposal requires no further relaxation of TAS validation.
 
 ### Backward compatibility
 
@@ -317,8 +321,10 @@ Since `fairSharing.resourceWeights` is orthogonal to topology and node placement
   - admission ordering within the cohort prefers the CQ with lower *weighted* DRS
   - Fair Sharing preemption ordering matches the configured weights
 - User Story 1 scenario: a CQ borrowing many cheap-flavor GPUs has a lower weighted DRS than a CQ borrowing the same amount on a premium flavor
+- With the feature gate enabled, verify that the API server accepts in-place weight updates on TAS-enabled ResourceFlavors while continuing to reject changing or removing an existing `topologyName`.
 - Through the API server, verify that the disabled gate rejects creating non-empty weights and adding or changing entries, while accepting unrelated updates that preserve existing entries and updates that remove entries. Read back accepted updates to verify stored weights are retained or removed as requested.
 - Cover gate rollback with configured weights: restart `kueue-controller-manager` with the gate disabled and then re-enabled, verifying subsequent admission and Fair Sharing preemption decisions use flavor-agnostic and weighted ordering respectively, without rewriting ResourceFlavors.
+
 ### Graduation Criteria
 
 #### Alpha
