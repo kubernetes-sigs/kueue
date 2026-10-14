@@ -53,7 +53,7 @@ func (h *Handlers) fetchLocalQueues(ctx context.Context) (any, error) {
 		return nil, fmt.Errorf("error fetching local queues: %v", err)
 	}
 
-	var queues []map[string]any
+	queues := make([]map[string]any, 0)
 	for _, item := range lql.Items {
 		queues = append(queues, map[string]any{
 			"namespace": item.GetNamespace(),
