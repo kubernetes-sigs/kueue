@@ -529,7 +529,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 			return reconcile.Result{}, client.IgnoreNotFound(err)
 		}
 		if changed {
-			log.V(3).Info("Updated admission-check retry time", "requeueAt", requeueAt)
+			log.V(3).Info("Updated admission-check retry time", "requeueAt", *requeueAt)
 		}
 		return reconcile.Result{}, nil
 	}
@@ -544,12 +544,9 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		message := "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled"
 		var changed bool
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			updated := workload.UnsetQuotaReservationWithCondition(wl, quotaReservedReason, message, r.clock.Now())
-			if workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, message, false) {
-				updated = true
-			}
-			changed = updated
-			return updated, nil
+			changed = workload.UnsetQuotaReservationWithCondition(wl, quotaReservedReason, message, r.clock.Now())
+			requeuedChanged := workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, message, false)
+			return changed || requeuedChanged, nil
 		})
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA rejection: %w", err)
@@ -774,62 +771,61 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 	// If the workload is admitted, updating the status here would set the Admitted condition to
 	// false before the workloads eviction.
 	if !workload.IsAdmitted(&wl) {
-		var updated bool
-		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			if !workload.HasQuotaReservation(wl) {
-				if changed, err := r.syncQuotaReservedFalseCondition(ctx, wl, lqExists, lqActive, cq); err != nil {
-					return false, err
-				} else if changed {
-					updated = true
+		if !workload.HasQuotaReservation(&wl) {
+			reason, message, err := r.resolveUnadmittedQuotaReservedCondition(ctx, &wl, lqExists, lqActive, cq)
+			if err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
+			}
+			if reason != "" {
+				if err := r.markUnadmitted(ctx, &wl, reason, message); err != nil {
+					return ctrl.Result{}, client.IgnoreNotFound(err)
 				}
 			}
-			if workload.SyncAdmittedCondition(wl, r.clock.Now()) {
-				updated = true
+		} else {
+			if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+				return workload.SyncAdmittedCondition(wl, r.clock.Now()), nil
+			}); err != nil {
+				return ctrl.Result{}, client.IgnoreNotFound(err)
 			}
-			return updated, nil
-		})
-		if err != nil {
-			return ctrl.Result{}, client.IgnoreNotFound(err)
-		}
-		isAdmitted := workload.IsAdmitted(&wl)
-		if isAdmitted {
-			queuedWaitTime := workload.QueuedWaitTime(&wl, r.clock)
-			quotaReservedWaitTime := workload.QuotaReservedWaitTime(&wl, r.clock)
-			r.recorder.Eventf(
-				&wl,
-				nil,
-				corev1.EventTypeNormal,
-				"Admitted",
-				"Admitted",
-				"Admitted by ClusterQueue %v, wait time since reservation was %.0fs",
-				wl.Status.Admission.ClusterQueue,
-				quotaReservedWaitTime.Seconds(),
-			)
-			priorityClassName := workloadpatching.PriorityClassName(&wl)
-			r.cache.ReportCohortSubtreeAdmittedWorkload(log, &wl)
-			metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
-			metrics.ReportAdmissionChecksWaitTime(cqName, priorityClassName, quotaReservedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
-			if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, &wl) {
-				lqRef := metrics.LQRefFromWorkload(&wl)
-				lqKey := qutil.KeyFromWorkload(&wl)
+			if workload.IsAdmitted(&wl) {
+				queuedWaitTime := workload.QueuedWaitTime(&wl, r.clock)
+				quotaReservedWaitTime := workload.QuotaReservedWaitTime(&wl, r.clock)
+				r.recorder.Eventf(
+					&wl,
+					nil,
+					corev1.EventTypeNormal,
+					"Admitted",
+					"Admitted",
+					"Admitted by ClusterQueue %v, wait time since reservation was %.0fs",
+					wl.Status.Admission.ClusterQueue,
+					quotaReservedWaitTime.Seconds(),
+				)
+				priorityClassName := workloadpatching.PriorityClassName(&wl)
+				r.cache.ReportCohortSubtreeAdmittedWorkload(log, &wl)
+				metrics.AdmittedWorkload(cqName, priorityClassName, queuedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
+				metrics.ReportAdmissionChecksWaitTime(cqName, priorityClassName, quotaReservedWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
+				if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, &wl) {
+					lqRef := metrics.LQRefFromWorkload(&wl)
+					lqKey := qutil.KeyFromWorkload(&wl)
 
-				metrics.LocalQueueAdmittedWorkload(
-					lqRef,
-					priorityClassName,
-					queuedWaitTime,
-					r.customLabels.GetFor(map[config.SourceKind]string{
-						config.SourceKindLocalQueue: string(lqKey),
-						config.SourceKindWorkload:   string(workload.Key(&wl)),
-					}),
-					r.roleTracker,
-				)
-				metrics.ReportLocalQueueAdmissionChecksWaitTime(
-					lqRef,
-					priorityClassName,
-					quotaReservedWaitTime,
-					r.customLabels.LQGet(lqKey),
-					r.roleTracker,
-				)
+					metrics.LocalQueueAdmittedWorkload(
+						lqRef,
+						priorityClassName,
+						queuedWaitTime,
+						r.customLabels.GetFor(map[config.SourceKind]string{
+							config.SourceKindLocalQueue: string(lqKey),
+							config.SourceKindWorkload:   string(workload.Key(&wl)),
+						}),
+						r.roleTracker,
+					)
+					metrics.ReportLocalQueueAdmissionChecksWaitTime(
+						lqRef,
+						priorityClassName,
+						quotaReservedWaitTime,
+						r.customLabels.LQGet(lqKey),
+						r.roleTracker,
+					)
+				}
 			}
 		}
 	}
@@ -1151,15 +1147,23 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 }
 
 // markUnadmitted saves QuotaReserved=False with the given reason and message, and
-// emits a Warning Event when the write changed the Workload status.
+// emits a Warning Event when the write changed the QuotaReserved condition to an
+// inadmissible, misconfigured, or suspended state.
 func (r *WorkloadReconciler) markUnadmitted(ctx context.Context, wl *kueue.Workload, reason, message string) error {
-	var changed bool
+	var quotaReservedChanged bool
 	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-		changed = workload.UnsetQuotaReservationWithCondition(wl, reason, message, r.clock.Now())
-		return changed, nil
+		prevCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+		quotaReservedChanged = prevCond == nil ||
+			prevCond.Status != metav1.ConditionFalse ||
+			prevCond.Reason != reason ||
+			prevCond.Message != api.TruncateConditionMessage(message)
+		return workload.UnsetQuotaReservationWithCondition(wl, reason, message, r.clock.Now()), nil
 	})
-	if err == nil && changed {
-		r.recorder.Eventf(wl, nil, corev1.EventTypeWarning, reason, reason, "%s", api.TruncateEventMessage(message))
+	if err == nil && quotaReservedChanged {
+		switch reason {
+		case kueue.WorkloadInadmissible, kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadQuotaReservedReasonSuspended:
+			r.recorder.Eventf(wl, nil, corev1.EventTypeWarning, reason, reason, "%s", api.TruncateEventMessage(message))
+		}
 	}
 	return err
 }
@@ -2194,29 +2198,19 @@ func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue
 	}
 }
 
-func (r *WorkloadReconciler) syncQuotaReservedFalseCondition(
+func (r *WorkloadReconciler) resolveUnadmittedQuotaReservedCondition(
 	ctx context.Context,
 	wl *kueue.Workload,
 	lqExists, lqActive bool,
 	cq *kueue.ClusterQueue,
-) (bool, error) {
-	var cond *metav1.Condition
+) (string, string, error) {
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		reason, message, err := r.resolveGranularUnadmittedQuotaReservedCondition(ctx, wl, lqExists, lqActive, cq)
-		if err != nil {
-			return false, err
-		}
-		if reason != "" {
-			cond = r.newQuotaReservedCondition(wl, reason, message)
-		}
-	} else {
-		cond = r.resolveLegacyUnadmittedQuotaReservedCondition(wl, lqExists, lqActive, cq)
+		return r.resolveGranularUnadmittedQuotaReservedCondition(ctx, wl, lqExists, lqActive, cq)
 	}
-
-	if cond != nil {
-		return apimeta.SetStatusCondition(&wl.Status.Conditions, *cond), nil
+	if _, message := r.getQueueBlocker(wl, lqExists, lqActive, cq); message != "" {
+		return kueue.WorkloadInadmissible, message, nil
 	}
-	return false, nil
+	return "", "", nil
 }
 
 func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
@@ -2277,24 +2271,6 @@ func (r *WorkloadReconciler) resolveGranularUnadmittedQuotaReservedCondition(
 			return "", "", nil
 		}
 		return kueue.WorkloadQuotaReservedReasonPendingEvaluation, "Workload is pending evaluation in the scheduling queue", nil
-	}
-}
-
-func (r *WorkloadReconciler) resolveLegacyUnadmittedQuotaReservedCondition(wl *kueue.Workload, lqExists, lqActive bool, cq *kueue.ClusterQueue) *metav1.Condition {
-	if _, message := r.getQueueBlocker(wl, lqExists, lqActive, cq); message != "" {
-		return r.newQuotaReservedCondition(wl, kueue.WorkloadInadmissible, message)
-	}
-	return nil
-}
-
-func (r *WorkloadReconciler) newQuotaReservedCondition(wl *kueue.Workload, reason, message string) *metav1.Condition {
-	return &metav1.Condition{
-		Type:               kueue.WorkloadQuotaReserved,
-		Status:             metav1.ConditionFalse,
-		Reason:             reason,
-		Message:            api.TruncateConditionMessage(message),
-		LastTransitionTime: metav1.NewTime(r.clock.Now()),
-		ObservedGeneration: wl.Generation,
 	}
 }
 
