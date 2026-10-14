@@ -618,7 +618,7 @@ func (c *clusterQueue) reportWeightedShare(cohort kueue.CohortReference) {
 	}
 	drs := dominantResourceShare(c, nil)
 	weightedShare := drs.PreciseWeightedShare()
-	if weightedShare == math.Inf(1) {
+	if drs.ZeroWeightBorrows() {
 		weightedShare = math.NaN()
 	}
 	metrics.ReportClusterQueueWeightedShare(c.Name, cohort, weightedShare, c.GetCustomLabelValues(), c.roleTracker)
