@@ -1598,6 +1598,14 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	fullAssignment, targets, err = *assignmentPlan.Assignment, assignmentPlan.PreemptionTargets, assignmentPlan.Error
 	if assignmentPlan.CanFit() {
 		targets = append(slicePreemptTargets, targets...)
+	} else if err != nil {
+		log.V(3).Error(
+			err, "Assignment planner failed to build a valid plan",
+			"workload", klog.KObj(wl.Obj),
+		)
+	}
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		fullAssignment.ResolveNoFitReason(cq)
 	}
 	return
 }
