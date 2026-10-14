@@ -296,7 +296,7 @@ func TestPlan(t *testing.T) {
 				podKey(kueue.DefaultPodSetName, 1): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
 			}},
 			wantMode:        flavorassigner.NoFit,
-			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+			wantNoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name: kueue.DefaultPodSetName,
 				Status: *flavorassigner.NewErrorStatus(errInsufficientCPU, []string{
@@ -313,7 +313,7 @@ func TestPlan(t *testing.T) {
 				podKey(kueue.DefaultPodSetName, 1): {Node: testNode1},
 			}},
 			wantMode:        flavorassigner.NoFit,
-			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+			wantNoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name: kueue.DefaultPodSetName,
 				Status: *flavorassigner.NewErrorStatus(errPlacement, []string{
@@ -367,7 +367,7 @@ func TestPlan(t *testing.T) {
 				podKey("workers", 1): {Error: errNodeAffinity, Reasons: []string{errNodeAffinity.Error()}},
 			}},
 			wantMode:        flavorassigner.NoFit,
-			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+			wantNoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
 			// Like in the native planner, no PodSet gets a topology assignment,
 			// including the ones which got placed.
 			wantPodSets: []flavorassigner.PodSetAssignment{
@@ -389,7 +389,7 @@ func TestPlan(t *testing.T) {
 				podKey(kueue.DefaultPodSetName, 1): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
 			}},
 			wantMode:        flavorassigner.NoFit,
-			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+			wantNoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name: kueue.DefaultPodSetName,
 				Status: *flavorassigner.NewErrorStatus(errInsufficientCPU, []string{
