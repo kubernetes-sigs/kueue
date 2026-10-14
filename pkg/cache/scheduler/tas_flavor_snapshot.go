@@ -1943,7 +1943,11 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 		if len(state.multiLayerConstraints) > 0 {
 			reason = s.multiLayerNotFitMessage(searchLevelIdx, state.count, state.multiLayerConstraints, state.stats)
 		} else {
-			reason = s.notFitMessage(slicesFitCount, totalRequestsSlicesCount, state.sliceSize, state.stats)
+			var requiredTopologyLevel string
+			if state.required {
+				requiredTopologyLevel = s.levelKeys[state.requestedLevelIdx]
+			}
+			reason = s.notFitMessage(slicesFitCount, totalRequestsSlicesCount, state.sliceSize, requiredTopologyLevel, state.stats)
 		}
 		if len(state.spreadBannedDomains) > 0 {
 			reason += fmt.Sprintf("; topology spreading excluded %d topology domain(s) at level: %s", len(state.spreadBannedDomains), s.levelKeys[searchLevelIdx])
@@ -2949,7 +2953,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, shape sliceShape,
 	}
 }
 
-func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCount, sliceSize int32, stats *tasExclusionStats) string {
+func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCount, sliceSize int32, requiredTopologyLevel string, stats *tasExclusionStats) string {
 	var builder strings.Builder
 
 	unit := "slice"
@@ -2961,6 +2965,9 @@ func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCou
 		fmt.Fprintf(&builder, "topology %q doesn't allow to fit any of %d %s(s)", s.topologyName, totalRequestsSlicesCount, unit)
 	} else {
 		fmt.Fprintf(&builder, "topology %q allows to fit only %d out of %d %s(s)", s.topologyName, slicesFitCount, totalRequestsSlicesCount, unit)
+	}
+	if requiredTopologyLevel != "" {
+		fmt.Fprintf(&builder, "; all pods must fit in a single %q topology domain", requiredTopologyLevel)
 	}
 
 	// Append exclusion stats if available.
