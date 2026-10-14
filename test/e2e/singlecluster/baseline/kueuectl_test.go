@@ -24,21 +24,26 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // Sanity check that the compiled kueuectl binary works end-to-end.
-// The remaining 7 cases live in the integration suite.
+// API persistence cases live in the integration suite.
 var _ = ginkgo.Describe("Kueuectl", ginkgo.Label("area:singlecluster", "feature:kueuectl"), func() {
 	var (
 		ns *corev1.Namespace
 		cq *kueue.ClusterQueue
+		rf *kueue.ResourceFlavor
 	)
 
 	ginkgo.BeforeEach(func() {
+		rf = nil
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-")
 
 		cq = utiltestingapi.MakeClusterQueue("e2e-cq-" + ns.Name).Obj()
@@ -47,6 +52,9 @@ var _ = ginkgo.Describe("Kueuectl", ginkgo.Label("area:singlecluster", "feature:
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		if rf != nil {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+		}
 		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
@@ -74,6 +82,60 @@ var _ = ginkgo.Describe("Kueuectl", ginkgo.Label("area:singlecluster", "feature:
 			gomega.Expect(list.Items).To(gomega.ContainElement(gomega.SatisfyAll(
 				gomega.HaveField("Name", lqName),
 				gomega.HaveField("Spec.ClusterQueue", kueue.ClusterQueueReference(cq.Name)),
+			)))
+		})
+	})
+
+	ginkgo.It("Should schedule a Job with an explicit empty toleration from a non-TAS resource flavor", func() {
+		rfName := "empty-toleration-" + ns.Name
+		rf = utiltestingapi.MakeResourceFlavor(rfName).Obj()
+
+		ginkgo.By("Create a non-TAS resource flavor through the CLI", func() {
+			cmd := exec.Command(kueuectlPath, "create", "resourceflavor", rfName,
+				"--node-labels", corev1.LabelOSStable+"=linux",
+				"--tolerations", "example.com/empty=:NoSchedule")
+			output, err := cmd.CombinedOutput()
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, output)
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: rfName}, rf)).To(gomega.Succeed())
+			gomega.Expect(rf.Spec.TopologyName).To(gomega.BeNil())
+		})
+
+		ginkgo.By("Provide quota for the flavor and a local queue", func() {
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
+			original := cq.DeepCopy()
+			cq.Spec = utiltestingapi.MakeClusterQueue(cq.Name).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(rfName).
+					Resource(corev1.ResourceCPU, "1").
+					Resource(corev1.ResourceMemory, "1Gi").Obj()).Obj().Spec
+			gomega.Expect(k8sClient.Patch(ctx, cq, client.MergeFrom(original))).To(gomega.Succeed())
+			lq := utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(cq.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		})
+
+		job := testingjob.MakeJob("empty-toleration", ns.Name).
+			Queue("main").
+			RequestAndLimit(corev1.ResourceCPU, "100m").
+			RequestAndLimit(corev1.ResourceMemory, "20Mi").
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, job)
+		e2e.ExpectJobToBeCompleted(ctx, k8sClient, job)
+
+		ginkgo.By("Check that the Job and its scheduled pod preserve Equal rather than Exists", func() {
+			wantToleration := corev1.Toleration{
+				Key: "example.com/empty", Operator: corev1.TolerationOpEqual,
+				Effect: corev1.TaintEffectNoSchedule,
+			}
+			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			gomega.Expect(job.Spec.Template.Spec.NodeSelector).To(gomega.HaveKeyWithValue(corev1.LabelOSStable, "linux"))
+			gomega.Expect(job.Spec.Template.Spec.Tolerations).To(gomega.ContainElement(wantToleration))
+			pods := &corev1.PodList{}
+			gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name),
+				client.MatchingLabels{"batch.kubernetes.io/job-name": job.Name})).To(gomega.Succeed())
+			gomega.Expect(pods.Items).To(gomega.ContainElement(gomega.SatisfyAll(
+				gomega.HaveField("Spec.NodeName", gomega.Not(gomega.BeEmpty())),
+				gomega.HaveField("Status.Phase", gomega.Equal(corev1.PodSucceeded)),
+				gomega.HaveField("Spec.Tolerations", gomega.ContainElement(wantToleration)),
 			)))
 		})
 	})
