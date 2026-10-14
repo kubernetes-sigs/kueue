@@ -45,46 +45,110 @@ Kubernetes-native mechanism that stops the progress deadline timer is `spec.paus
 
 ### User Stories
 
-**LLM serving on GPU clusters:** A platform engineer deploys LLM inference Deployments
-with Kueue-managed GPU quota. When the cluster is at capacity, pods are gated. Today the
-Deployment hits `ProgressDeadlineExceeded` after 10m, turning ArgoCD red. With this feature,
-the Deployment shows `DeploymentPaused` — a non-error state.
+#### Story 1: LLM serving on GPU clusters
 
-**GitOps health:** ArgoCD reports paused Deployments as `Suspended` (non-error). Without
-this feature, `ProgressDeadlineExceeded` is reported as `Degraded`.
+As a platform engineer running LLM inference Deployments on Kueue-managed GPU
+quota, I want the Deployment to report a paused state instead of
+`ProgressDeadlineExceeded` while its Pods wait for quota, so that my GitOps
+tooling does not flag the service as failed.
+
+Today the Deployment hits `ProgressDeadlineExceeded` after 10 minutes of
+quota wait, turning ArgoCD red. With this feature, the Deployment shows
+`DeploymentPaused` — a non-error state.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llm-inference
+  labels:
+    kueue.x-k8s.io/queue-name: gpu-queue
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: llm-inference
+  template:
+    metadata:
+      labels:
+        app: llm-inference
+    spec:
+      containers:
+        - name: server
+          image: registry.example.com/llm-server:latest
+          resources:
+            requests:
+              nvidia.com/gpu: "1"
+```
+
+#### Story 2: GitOps health reporting
+
+As an ArgoCD user, I want Kueue-paused Deployments to report a suspended
+(non-error) state instead of degraded, so that quota waits do not trigger
+alerts or sync issues.
+
+ArgoCD reports paused Deployments as `Suspended`. Without this feature,
+`ProgressDeadlineExceeded` is reported as `Degraded`.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+        - name: nginx
+          image: registry.k8s.io/nginx-slim:0.27
+```
 
 ### Design
 
-**Interface:** A `JobWithParentSuspension` optional interface is added to the job framework
-with `SuspendParent(ctx, client)` and `ResumeParent(ctx, client)`. This follows the existing
-pattern (`JobWithCustomStop`, `JobWithFinalize`). Only the Pod type implements it.
+**Job framework capability:** The job framework gains an optional parent-suspension
+behavior, following the same pattern as other optional job behaviors such as custom
+stop and finalize. Only the Pod integration implements it; other integrations are
+unaffected.
 
-**Reconciler call sites** in `pkg/controller/jobframework/reconciler.go`:
+**When the pause happens:** While a Pod's Workload is suspended and not admitted
+(waiting for quota), the Pod integration pauses the parent Deployment and records the
+tracking annotation `kueue.x-k8s.io/paused-by-kueue`. This step is gated by the
+`DeploymentParentSuspension` feature gate and is idempotent — an already-paused
+Deployment is left untouched.
 
-- **Section 7** (job suspended, workload not admitted): calls `SuspendParent`. Gated behind
-  `DeploymentParentSuspension`.
-- **Section 8** (workload admitted, job running): calls `ResumeParent`. Not gated — so
-  disabling the feature gate cleans up existing pauses.
-- **`finalize`** (job being deleted): calls `ResumeParent`. Not gated.
+**When the unpause happens:** The unpause is attempted on every reconciliation in which
+a Pod's Workload is admitted, and when a Pod is deleted. It traverses Pod → ReplicaSet →
+Deployment via owner references (with UID validation at each hop), unpauses only if the
+tracking annotation is present (user-initiated pauses are never touched), and only when
+no other Pods of the Deployment remain scheduling-gated. The unpause paths are **not**
+gated by the feature gate.
 
-**Pod implementation** in `pkg/controller/jobs/pod/`:
+**Disabling the feature gate:** Because only the pause is gated, an admin disabling
+`DeploymentParentSuspension` while Deployments are paused-by-Kueue does not create
+orphaned pauses: each paused Deployment is unpaused as soon as any of its Pods is
+admitted or deleted, since those paths always run. Users observe: already-paused
+Deployments with still-gated Pods stay paused until their Pods are admitted or deleted;
+newly gated Pods no longer pause their Deployment, so the pre-feature behavior —
+`ProgressDeadlineExceeded` after `progressDeadlineSeconds` — returns.
 
-`SuspendParent` checks the pod's `SuspendedByParentAnnotation`, traverses
-Pod → ReplicaSet → Deployment via owner references (with UID validation at each step),
-and patches `spec.paused = true` with a tracking annotation `kueue.x-k8s.io/paused-by-kueue`.
-Idempotent — skips if already paused.
-
-`ResumeParent` does the same traversal, checks for the tracking annotation (never unpauses
-user-initiated pauses), verifies no sibling pods are still gated, then removes the
-annotation and sets `spec.paused = false`.
-
-**Deployment reconciler** in `pkg/controller/jobs/deployment/deployment_reconciler.go`:
-watches Deployments with the `kueue.x-k8s.io/paused-by-kueue` annotation. If the
+**Template drift:** Kueue watches Deployments carrying the tracking annotation. If the
 Deployment's pod template differs from the latest ReplicaSet's template (ignoring
-`pod-template-hash`), it unpauses so the Deployment controller can roll out the change.
+`pod-template-hash`), the Deployment is unpaused so the Deployment controller can roll
+out the change. New Pods are then gated by Kueue and the Deployment is re-paused if
+they remain gated. Drift detection only inspects ReplicaSets owned by the paused
+Deployment.
 
-**RBAC:** Adds `patch` on `apps/deployments` (new) and `get` on `apps/replicasets` to the
-Kueue controller ClusterRole.
+**RBAC:** The Kueue controller ClusterRole gains `patch` on Deployments (new) and `get`
+on ReplicaSets.
 
 ### Risks and Mitigations
 
@@ -106,6 +170,18 @@ unpauses. New pods are then gated by Kueue, and re-paused if they remain gated.
 
 ## Design Details
 
+### Feature Gate
+
+The feature is guarded by the `DeploymentParentSuspension` feature gate (default off).
+Enable it in the Kueue manager configuration:
+
+```yaml
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+featureGates:
+  DeploymentParentSuspension: true
+```
+
 ### Test Plan
 
 [x] I/we understand the owners of the involved components may require updates to
@@ -114,17 +190,16 @@ to implement this enhancement.
 
 #### Unit tests
 
-- `pkg/controller/jobs/pod`: `TestFindParentDeployment`, `TestSuspendParent`,
-  `TestResumeParent`, `TestHasGatedSiblings`
-- `pkg/controller/jobs/deployment`: `TestReconcile`, `TestEqualIgnoreHash`
+- Pod integration: parent lookup and owner-reference traversal (including UID validation),
+  pause, unpause, and the gated-siblings check.
+- Deployment integration: template drift detection and template comparison.
 
 #### Integration tests
 
-- `test/integration/singlecluster/controller/jobs/pod/deployment_parent_suspension_test.go`:
-  pause on gate, unpause on admission, unpause on template drift, unpause on pod deletion,
-  no-op when gate is off, and workload deletion recovery: the gated Pod is deleted, the
-  pause is removed only when no sibling Pods remain gated, and a replacement gated Pod
-  re-pauses the Deployment.
+- Pause on gate, unpause on admission, unpause on template drift, unpause on pod
+  deletion, no-op when the gate is off, and workload deletion recovery: the gated Pod
+  is deleted, the pause is removed only when no sibling Pods remain gated, and a
+  replacement gated Pod re-pauses the Deployment.
 
 #### e2e tests
 

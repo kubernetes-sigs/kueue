@@ -5,9 +5,10 @@ authors:
 status: implementable
 creation-date: 2026-10-01
 reviewers:
-  - TBD
+  - "@kannon92"
+  - "@KR-Ravindra"
 approvers:
-  - TBD
+  - "@mimowo"
 
 see-also:
   - "/keps/369-job-interface"
