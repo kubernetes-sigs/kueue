@@ -143,30 +143,35 @@ comparable with this scenario and must not be reused.
 
 ## CI calibration
 
-Seven scheduled runs of `periodic-kueue-test-multikueue-perf-main` (14 attempts
-including retries) admitted all 1,000 workloads with zero watch gaps. Only the
-original 75 workloads/s throughput floor failed, as reported in
-[issue 15891](https://github.com/kubernetes-sigs/kueue/issues/15891).
-
-The observed ranges cover the
-[first job](https://prow.k8s.io/view/gs/kubernetes-ci-logs/logs/periodic-kueue-test-multikueue-perf-main/2101010794903769088)
+Thirty-two scheduled runs of `periodic-kueue-test-multikueue-perf-main` (64
+attempts including retries) admitted all 1,000 workloads with zero watch gaps.
+These runs have the `MultiKueueOrchestratedPreemption` feature gate enabled by
+default. The observed ranges cover the
+[first job](https://prow.k8s.io/view/gs/kubernetes-ci-logs/logs/periodic-kueue-test-multikueue-perf-main/2104815910060560384)
 through the
-[seventh job](https://prow.k8s.io/view/gs/kubernetes-ci-logs/logs/periodic-kueue-test-multikueue-perf-main/2102097974023688192):
+[thirty-second job](https://prow.k8s.io/view/gs/kubernetes-ci-logs/logs/periodic-kueue-test-multikueue-perf-main/2110434165617856512):
 
 | Measurement | Observed range |
 |---|---|
-| Throughput | 44.82–46.75 workloads/s |
-| Admission P95 | 0.60–1.38 s |
-| Quota-reservation P95 | 0.063–0.070 s |
-| Generation time | 20.59–22.05 s |
-| Total admission time | 21.39–22.31 s |
+| Throughput | 29.29–34.43 workloads/s |
+| Admission P95 | 3.13–5.04 s |
+| Quota-reservation P95 | 0.078–0.093 s |
+| Generation time | 25.86–31.47 s |
+| Total admission time | 29.04–34.14 s |
 | Watch gaps | 0 in all attempts |
 
-The 35 workloads/s floor leaves about 22% headroom below the slowest CI attempt.
-The original 75 workloads/s floor came from local macOS measurements. The
-15-second admission P95 and 1-second quota-reservation P95 ceilings are unchanged.
+The 23 workloads/s floor leaves about 21% headroom below the slowest CI attempt.
+The 15-second admission P95 and 1-second quota-reservation P95 ceilings are
+unchanged and remain well above the observed ranges.
 
-Generation occupies 96–99% of the measured interval, so this floor covers both
+The 21 earlier scheduled runs (42 attempts), before the feature gate was enabled
+by default, measured 44.25–46.86 workloads/s and also pass this floor. The
+original 75 workloads/s floor came from local macOS measurements, and a later
+35 workloads/s floor was calibrated from the first seven of those earlier runs;
+neither is met by the current runs, as reported in
+[issue 15891](https://github.com/kubernetes-sigs/kueue/issues/15891).
+
+Generation occupies 89–93% of the measured interval, so this floor covers both
 workload creation and admission. The generator can mask controller regressions;
 changing generation concurrency requires new CI calibration.
 
