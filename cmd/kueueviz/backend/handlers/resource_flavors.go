@@ -35,20 +35,20 @@ func (h *Handlers) ResourceFlavorsWebSocketHandler() gin.HandlerFunc {
 	}, ResourceFlavorsGVK())
 }
 
-// ResourceFlavorDetailsWebSocketHandler streams details for a specific resource flavor
-// Watches both ResourceFlavors and ClusterQueues since the details depend on both
+// ResourceFlavorDetailsWebSocketHandler streams details for a specific resource flavor.
+// ClusterQueue and Node informers follow cluster-wide watch permission.
 func (h *Handlers) ResourceFlavorDetailsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		flavorName := c.Param("flavor_name")
 		identity, _ := middleware.IdentityFromContext(c)
+		gvks := h.gvksWithAuthorizedSecondaryWatches(c, identity, ResourceFlavorsGVK(),
+			secondaryWatch{gvk: ClusterQueuesGVK(), gvr: ClusterQueuesGVR()},
+			secondaryWatch{gvk: NodesGVK(), gvr: NodesGVR()},
+		)
 
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 			return h.fetchResourceFlavorDetails(ctx, flavorName, identity)
-		},
-			ResourceFlavorsGVK(),
-			ClusterQueuesGVK(),
-			NodesGVK(),
-		)(c)
+		}, gvks...)(c)
 	}
 }
 
