@@ -20,15 +20,18 @@ import (
 	"fmt"
 	"iter"
 	"math"
+	"reflect"
 	"slices"
 
 	v1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
-	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
-
 	fwk "k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
 )
 
 // ClusterSnapshot wraps a scheduler snapshot and its associated frameworks.
@@ -416,6 +419,16 @@ func (s *ClusterSnapshot) Unpreempt(u *Unpreemption) ([]*v1.Pod, error) {
 // ScheduleWorkload schedules the given pods belonging to the same hierarchy using the workload-aware scheduling algorithm.
 // If the pods do not belong to the same hierarchy, it returns an error.
 // The order of the returned SchedulingResult slice is non-deterministic with respect to the input pods order.
+//
+// All PodGroup and CompositePodGroup objects in the hierarchy must exist in the snapshot before calling this method.
+// Callers can register virtual groups (groups not present in the cluster) with AddPodGroup and AddCompositePodGroup.
+//
+// Note: Virtual pods (input pods not present in the snapshot beforehand) are assumed on nodes,
+// but not added to internal pod group sets (allPods/assumedPods). Consequently,
+// PodGroupState.ScheduledPods() does not include virtual pods from previous ScheduleWorkload calls.
+// This is safe when evaluating an entire virtual workload in a single call (such as Kueue admission).
+// However, when scheduling a hierarchy incrementally across multiple ScheduleWorkload calls, plugins
+// that query ScheduledPods() (such as TAS) do not observe virtual pods from earlier calls.
 func (s *ClusterSnapshot) ScheduleWorkload(ctx context.Context, pods []*v1.Pod, opts ScheduleWorkloadOptions) (_ []SchedulingResult, err error) {
 	if len(pods) == 0 {
 		return nil, nil
@@ -477,4 +490,252 @@ func (s *ClusterSnapshot) ScheduleWorkload(ctx context.Context, pods []*v1.Pod, 
 	}
 
 	return results, nil
+}
+
+// AddPodGroup adds a pod group object to the snapshot, linking it to its parent
+// composite pod group if CompositePodGroup is enabled.
+func (s *ClusterSnapshot) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	if pg == nil {
+		return fmt.Errorf("pod group is nil")
+	}
+	pgCopy := pg.DeepCopy()
+	if err := s.addPodGroup(pgCopy); err != nil {
+		return err
+	}
+	logger := klog.FromContext(ctx)
+	s.undoLog.registerOperation(func() {
+		if _, err := s.removePodGroup(pgCopy); err != nil {
+			logger.Error(err, "failed to remove pod group during state revert", "podGroup", klog.KObj(pgCopy))
+		}
+	})
+	s.stateVersionForPreemption++
+	return nil
+}
+
+// RemovePodGroup removes a pod group object from the snapshot, unlinking it from its
+// parent composite pod group if CompositePodGroup is enabled.
+func (s *ClusterSnapshot) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	if pg == nil {
+		return fmt.Errorf("pod group is nil")
+	}
+	removedPG, err := s.removePodGroup(pg)
+	if err != nil {
+		return err
+	}
+	logger := klog.FromContext(ctx)
+	s.undoLog.registerOperation(func() {
+		if err := s.addPodGroup(removedPG); err != nil {
+			logger.Error(err, "failed to restore pod group during state revert", "podGroup", klog.KObj(removedPG))
+		}
+	})
+	s.stateVersionForPreemption++
+	return nil
+}
+
+// AddCompositePodGroup adds a composite pod group object to the snapshot, linking it
+// to its parent composite pod group if present.
+func (s *ClusterSnapshot) AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	if cpg == nil {
+		return fmt.Errorf("composite pod group is nil")
+	}
+	cpgCopy := cpg.DeepCopy()
+	if err := s.addCompositePodGroup(cpgCopy); err != nil {
+		return err
+	}
+	logger := klog.FromContext(ctx)
+	s.undoLog.registerOperation(func() {
+		if _, err := s.removeCompositePodGroup(cpgCopy); err != nil {
+			logger.Error(err, "failed to remove composite pod group during state revert", "compositePodGroup", klog.KObj(cpgCopy))
+		}
+	})
+	s.stateVersionForPreemption++
+	return nil
+}
+
+// RemoveCompositePodGroup removes a composite pod group object from the snapshot,
+// unlinking it from its parent composite pod group if present.
+func (s *ClusterSnapshot) RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	if cpg == nil {
+		return fmt.Errorf("composite pod group is nil")
+	}
+	removedCPG, err := s.removeCompositePodGroup(cpg)
+	if err != nil {
+		return err
+	}
+	logger := klog.FromContext(ctx)
+	s.undoLog.registerOperation(func() {
+		if err := s.addCompositePodGroup(removedCPG); err != nil {
+			logger.Error(err, "failed to restore composite pod group during state revert", "compositePodGroup", klog.KObj(removedCPG))
+		}
+	})
+	s.stateVersionForPreemption++
+	return nil
+}
+
+// UPSTREAM-DIFF: Upstream kubernetes PR #142177 (https://github.com/kubernetes/kubernetes/pull/142177)
+// adds AddGenericPodGroup and RemoveGenericPodGroup directly to cache.Snapshot.
+//
+// Migration Plan:
+// When go.mod updates k8s.io/kubernetes to a version that includes PR #142177:
+// 1. Delete all reflection helper functions below:
+//    - writableField
+//    - addPodGroup
+//    - removePodGroup
+//    - addCompositePodGroup
+//    - removeCompositePodGroup
+//    - addChildToParent
+//    - removeChildFromParent
+//    - getOrCreatePodGroupState
+//    - getOrCreateCompositePodGroupState
+//    - podGroupEmpty
+//    - compositePodGroupEmpty
+// 2. Change AddPodGroup and AddCompositePodGroup to call s.schedulerSnapshot.AddGenericPodGroup.
+//    Preserve DeepCopy() on input objects because AddGenericPodGroup does not copy the passed object.
+// 3. Change RemovePodGroup and RemoveCompositePodGroup to look up the existing object in the
+//    snapshot first, pass that existing object to s.schedulerSnapshot.RemoveGenericPodGroup,
+//    and store existing.DeepCopy() in the undo log.
+// 4. Keep the public ClusterSnapshot methods unchanged so callers do not break.
+
+func writableField(v reflect.Value, name string) reflect.Value {
+	f := v.FieldByName(name)
+	return reflect.NewAt(f.Type(), f.Addr().UnsafePointer()).Elem()
+}
+
+func (s *ClusterSnapshot) addPodGroup(pg *schedulingv1beta1.PodGroup) error {
+	key := fwk.PodGroupKey(pg.Namespace, pg.Name)
+	rv := reflect.ValueOf(s.schedulerSnapshot).Elem()
+
+	pgs := s.getOrCreatePodGroupState(rv, key)
+	pgField := writableField(pgs.Elem(), "podGroup")
+	if !pgField.IsNil() {
+		return fmt.Errorf("pod group %s already exists in snapshot", key)
+	}
+	pgField.Set(reflect.ValueOf(pg))
+
+	s.addChildToParent(rv, key, pg.Namespace, pg.Spec.ParentCompositePodGroupName)
+	return nil
+}
+
+func (s *ClusterSnapshot) removePodGroup(pg *schedulingv1beta1.PodGroup) (*schedulingv1beta1.PodGroup, error) {
+	key := fwk.PodGroupKey(pg.Namespace, pg.Name)
+	rv := reflect.ValueOf(s.schedulerSnapshot).Elem()
+	pgsMap := writableField(rv, "podGroupStates")
+	keyVal := reflect.ValueOf(key)
+
+	pgs := pgsMap.MapIndex(keyVal)
+	if !pgs.IsValid() || pgs.Elem().FieldByName("podGroup").IsNil() {
+		return nil, fmt.Errorf("pod group %s not found in snapshot", key)
+	}
+	existingPG := writableField(pgs.Elem(), "podGroup").Interface().(*schedulingv1beta1.PodGroup)
+	writableField(pgs.Elem(), "podGroup").SetZero()
+	if podGroupEmpty(pgs) {
+		pgsMap.SetMapIndex(keyVal, reflect.Value{})
+	}
+
+	s.removeChildFromParent(rv, key, existingPG.Namespace, existingPG.Spec.ParentCompositePodGroupName)
+	return existingPG.DeepCopy(), nil
+}
+
+func (s *ClusterSnapshot) addCompositePodGroup(cpg *schedulingv1alpha3.CompositePodGroup) error {
+	key := fwk.CompositePodGroupKey(cpg.Namespace, cpg.Name)
+	rv := reflect.ValueOf(s.schedulerSnapshot).Elem()
+
+	cpgs := s.getOrCreateCompositePodGroupState(rv, key)
+	cpgField := writableField(cpgs.Elem(), "compositePodGroup")
+	if !cpgField.IsNil() {
+		return fmt.Errorf("composite pod group %s already exists in snapshot", key)
+	}
+	cpgField.Set(reflect.ValueOf(cpg))
+
+	s.addChildToParent(rv, key, cpg.Namespace, cpg.Spec.ParentCompositePodGroupName)
+	return nil
+}
+
+func (s *ClusterSnapshot) removeCompositePodGroup(cpg *schedulingv1alpha3.CompositePodGroup) (*schedulingv1alpha3.CompositePodGroup, error) {
+	key := fwk.CompositePodGroupKey(cpg.Namespace, cpg.Name)
+	rv := reflect.ValueOf(s.schedulerSnapshot).Elem()
+	cpgsMap := writableField(rv, "compositePodGroupStates")
+	keyVal := reflect.ValueOf(key)
+
+	cpgs := cpgsMap.MapIndex(keyVal)
+	if !cpgs.IsValid() || cpgs.Elem().FieldByName("compositePodGroup").IsNil() {
+		return nil, fmt.Errorf("composite pod group %s not found in snapshot", key)
+	}
+	existingCPG := writableField(cpgs.Elem(), "compositePodGroup").Interface().(*schedulingv1alpha3.CompositePodGroup)
+	writableField(cpgs.Elem(), "compositePodGroup").SetZero()
+	if compositePodGroupEmpty(cpgs) {
+		cpgsMap.SetMapIndex(keyVal, reflect.Value{})
+	}
+
+	s.removeChildFromParent(rv, key, existingCPG.Namespace, existingCPG.Spec.ParentCompositePodGroupName)
+	return existingCPG.DeepCopy(), nil
+}
+
+func (s *ClusterSnapshot) addChildToParent(rv reflect.Value, childKey fwk.EntityKey, namespace string, parentName *string) {
+	if !rv.FieldByName("compositePodGroupEnabled").Bool() || parentName == nil || *parentName == "" {
+		return
+	}
+	parentKey := fwk.CompositePodGroupKey(namespace, *parentName)
+	parent := s.getOrCreateCompositePodGroupState(rv, parentKey)
+	children := writableField(parent.Elem(), "children").Interface().(sets.Set[fwk.EntityKey])
+	children.Insert(childKey)
+}
+
+func (s *ClusterSnapshot) removeChildFromParent(rv reflect.Value, childKey fwk.EntityKey, namespace string, parentName *string) {
+	if !rv.FieldByName("compositePodGroupEnabled").Bool() || parentName == nil || *parentName == "" {
+		return
+	}
+	parentKey := fwk.CompositePodGroupKey(namespace, *parentName)
+	cpgsMap := writableField(rv, "compositePodGroupStates")
+	parentKeyVal := reflect.ValueOf(parentKey)
+	if parent := cpgsMap.MapIndex(parentKeyVal); parent.IsValid() {
+		children := writableField(parent.Elem(), "children").Interface().(sets.Set[fwk.EntityKey])
+		children.Delete(childKey)
+		if compositePodGroupEmpty(parent) {
+			cpgsMap.SetMapIndex(parentKeyVal, reflect.Value{})
+		}
+	}
+}
+
+func (s *ClusterSnapshot) getOrCreatePodGroupState(rv reflect.Value, key fwk.EntityKey) reflect.Value {
+	pgsMap := writableField(rv, "podGroupStates")
+	if pgsMap.IsNil() {
+		pgsMap.Set(reflect.MakeMap(pgsMap.Type()))
+	}
+	keyVal := reflect.ValueOf(key)
+	pgs := pgsMap.MapIndex(keyVal)
+	if !pgs.IsValid() {
+		pgs = reflect.New(pgsMap.Type().Elem().Elem())
+		for _, field := range []string{"allPods", "unscheduledPods", "assumedPods", "assignedPods"} {
+			f := writableField(pgs.Elem(), field)
+			f.Set(reflect.MakeMap(f.Type()))
+		}
+		pgsMap.SetMapIndex(keyVal, pgs)
+	}
+	return pgs
+}
+
+func (s *ClusterSnapshot) getOrCreateCompositePodGroupState(rv reflect.Value, key fwk.EntityKey) reflect.Value {
+	cpgsMap := writableField(rv, "compositePodGroupStates")
+	if cpgsMap.IsNil() {
+		cpgsMap.Set(reflect.MakeMap(cpgsMap.Type()))
+	}
+	keyVal := reflect.ValueOf(key)
+	cpgs := cpgsMap.MapIndex(keyVal)
+	if !cpgs.IsValid() {
+		cpgs = reflect.New(cpgsMap.Type().Elem().Elem())
+		writableField(cpgs.Elem(), "children").Set(reflect.ValueOf(sets.New[fwk.EntityKey]()))
+		cpgsMap.SetMapIndex(keyVal, cpgs)
+	}
+	return cpgs
+}
+
+func podGroupEmpty(pgs reflect.Value) bool {
+	return pgs.Elem().FieldByName("podGroup").IsNil() &&
+		pgs.Elem().FieldByName("allPods").Len() == 0
+}
+
+func compositePodGroupEmpty(cpgs reflect.Value) bool {
+	return cpgs.Elem().FieldByName("compositePodGroup").IsNil() &&
+		cpgs.Elem().FieldByName("children").Len() == 0
 }
