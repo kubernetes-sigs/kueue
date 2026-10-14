@@ -294,7 +294,6 @@ func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, k8sClient 
 }
 
 func AssertMsgForMk(ctx context.Context, msg string, wlKey client.ObjectKey, k8sManagerClient client.Client, k8sWorker1Client client.Client, k8sWorker2Client client.Client) func() string {
-	ginkgo.GinkgoHelper()
 	return func() string {
 		ginkgo.GinkgoHelper()
 		return strings.Join([]string{
