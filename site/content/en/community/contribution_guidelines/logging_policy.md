@@ -35,9 +35,6 @@ At configured verbosity `n`, informational records at levels `0` through `n` are
 
 The table assigns levels to records; it does not require a separate record for every activity.
 
-Scheduler cycles can repeat frequently while waiting for preemption. Log cycle progress, scheduling attempts, and
-workload requeue diagnostics at `V(3)` so they do not overwhelm logs at the default verbosity `V(2)`.
-
 ## Guidelines
 
 Errors:
