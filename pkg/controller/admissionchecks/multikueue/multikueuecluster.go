@@ -922,7 +922,7 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 		return retryAfter, err
 	} else if retryAfter != nil {
 		if logV := ctrl.LoggerFrom(ctx).V(2); logV.Enabled() {
-			logV.Info("reconnect deferred, backoff not elapsed", "retryAfter", retryAfter, "failedAttempts", client.getFailedConnAttempts())
+			logV.Info("reconnect deferred, backoff not elapsed", "retryAfter", *retryAfter, "failedAttempts", client.getFailedConnAttempts())
 		}
 		return retryAfter, nil
 	}
@@ -978,7 +978,7 @@ func (c *clustersReconciler) Reconcile(ctx context.Context, req reconcile.Reques
 	}
 
 	if retryAfter, err := c.setRemoteClientConfig(ctx, cluster.Name, clientConfig, c.origin); err != nil {
-		log.Error(err, "setting client config", "retryAfter", retryAfter)
+		log.Error(err, "setting client config", "retryAfter", ptr.Deref(retryAfter, 0))
 		c.disconnectCluster(req.Name)
 		if err := c.updateStatus(ctx, cluster, false, "ClientConnectionFailed", err.Error()); err != nil {
 			return reconcile.Result{}, err
