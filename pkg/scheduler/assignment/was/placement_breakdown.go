@@ -43,27 +43,27 @@ type failureSummary struct {
 	reasons []string
 }
 
-func (a placementBreakdown) countPodPlacement(psRef kueue.PodSetReference, node types.NodeName) {
-	if a[psRef] == nil {
-		a[psRef] = make(podsPerNode)
+func (pb placementBreakdown) countPodPlacement(psRef kueue.PodSetReference, node types.NodeName) {
+	if pb[psRef] == nil {
+		pb[psRef] = make(podsPerNode)
 	}
-	a[psRef][node]++
+	pb[psRef][node]++
 }
 
-func (f failuresBreakdown) add(psRef kueue.PodSetReference, pod client.ObjectKey, err error, reasons []string) {
-	if _, ok := f[psRef]; !ok {
-		f[psRef] = &failureSummary{}
+func (fb failuresBreakdown) add(psRef kueue.PodSetReference, pod client.ObjectKey, err error, reasons []string) {
+	if _, ok := fb[psRef]; !ok {
+		fb[psRef] = &failureSummary{}
 	}
-	f[psRef].record(pod, err, reasons)
+	fb[psRef].record(pod, err, reasons)
 }
 
-func (fl *failureSummary) record(pod client.ObjectKey, err error, reasons []string) {
-	fl.errs = append(fl.errs, fmt.Errorf("pod: %s, error: %w", pod, err))
+func (fs *failureSummary) record(pod client.ObjectKey, err error, reasons []string) {
+	fs.errs = append(fs.errs, fmt.Errorf("pod: %s, error: %w", pod, err))
 	for _, reason := range reasons {
-		fl.reasons = append(fl.reasons, fmt.Sprintf("pod: %s, failure reason: %s", pod, reason))
+		fs.reasons = append(fs.reasons, fmt.Sprintf("pod: %s, failure reason: %s", pod, reason))
 	}
 }
 
-func (fl *failureSummary) asStatus() flavorassigner.Status {
-	return *flavorassigner.NewErrorStatus(errors.Join(fl.errs...), fl.reasons)
+func (fs *failureSummary) asStatus() flavorassigner.Status {
+	return *flavorassigner.NewErrorStatus(errors.Join(fs.errs...), fs.reasons)
 }
