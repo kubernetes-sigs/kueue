@@ -206,7 +206,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 			ginkgo.By("Check workload is finished", func() {
 				// Using longer timeout instead of util.ExpectWorkloadToFinish
 				// because SparkApplication may take longer time to finish
-				gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+				gomega.Eventually(func(g gomega.Gomega) {
 					var wl kueue.Workload
 					g.Expect(k8sClient.Get(ctx, wlLookupKey, &wl)).To(gomega.Succeed())
 					g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished), "it's finished")

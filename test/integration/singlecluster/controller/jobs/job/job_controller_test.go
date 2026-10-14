@@ -810,7 +810,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 			})
 
 			ginkgo.By("Admitting the workload, the job should unsuspend", func() {
-				admission := utiltestingapi.MakeAdmission("cq", kueue.NewPodSetReference(container.Name)).Obj()
+				admission := utiltestingapi.MakeAdmission("cq").Obj()
 				integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
 				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 
@@ -956,7 +956,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 			behavioral.MustCreate(ctx, k8sClient, wl)
 
 			ginkgo.By("admitting the workload, the job should unsuspend", func() {
-				admission := utiltestingapi.MakeAdmission("cq", kueue.NewPodSetReference(job.Spec.Template.Spec.Containers[0].Name)).Obj()
+				admission := utiltestingapi.MakeAdmission("cq").Obj()
 				integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
 				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 
@@ -991,7 +991,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 			})
 
 			ginkgo.By("admitting the workload, the job should unsuspend", func() {
-				admission := utiltestingapi.MakeAdmission("cq", kueue.NewPodSetReference(job.Spec.Template.Spec.Containers[0].Name)).Obj()
+				admission := utiltestingapi.MakeAdmission("cq").Obj()
 				integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
 				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 
@@ -1031,7 +1031,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 		})
 
 		ginkgo.By("admitting the workload, the job should unsuspend", func() {
-			admission := utiltestingapi.MakeAdmission("cq", kueue.NewPodSetReference(job.Spec.Template.Spec.Containers[0].Name)).Obj()
+			admission := utiltestingapi.MakeAdmission("cq").Obj()
 			integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
@@ -1157,7 +1157,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			admission := utiltestingapi.MakeAdmission("q", kueue.NewPodSetReference(job.Spec.Template.Spec.Containers[0].Name)).Obj()
+			admission := utiltestingapi.MakeAdmission("q").Obj()
 			integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
 			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, wl)
 		})
@@ -1918,14 +1918,17 @@ var _ = ginkgo.Describe("Interacting with scheduler", ginkgo.Ordered, ginkgo.Con
 	)
 
 	startManager := func() {
+		ginkgo.GinkgoHelper()
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(false, true, nil))
 	}
 
 	stopManager := func() {
+		ginkgo.GinkgoHelper()
 		fwk.StopManager(ctx)
 	}
 
 	restartManager := func() {
+		ginkgo.GinkgoHelper()
 		stopManager()
 		startManager()
 	}
@@ -5238,6 +5241,7 @@ var _ = ginkgo.Describe("Job controller with ObjectRetentionPolicies", ginkgo.Or
 })
 
 func ungatedPodNames(g gomega.Gomega, nsName, gateName string) sets.Set[string] {
+	ginkgo.GinkgoHelper()
 	pods := &corev1.PodList{}
 	g.Expect(k8sClient.List(ctx, pods, client.InNamespace(nsName))).Should(gomega.Succeed())
 	ungated := sets.New[string]()
@@ -5473,6 +5477,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		})
 
 		mintGatedPod := func(name string) {
+			ginkgo.GinkgoHelper()
 			pod := testingpod.MakePod(name, ns.Name).
 				Annotation(kueue.WorkloadAnnotation, slice.Name).
 				Annotation(kueue.WorkloadSliceNameAnnotation, slice.Name).

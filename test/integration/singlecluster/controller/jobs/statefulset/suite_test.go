@@ -72,6 +72,7 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		integrationManager := jobcontrollers.NewIntegrationManager()
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())

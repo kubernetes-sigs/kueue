@@ -564,7 +564,7 @@ func (r *ClusterQueueReconciler) updateCqStatusIfChanged(
 	if r.fairSharingEnabled {
 		if r.reportResourceMetrics {
 			weightedShare := stats.WeightedShare
-			if weightedShare == math.Inf(1) {
+			if stats.ZeroWeightBorrows {
 				weightedShare = math.NaN()
 			}
 			metrics.ReportClusterQueueWeightedShare(kueue.ClusterQueueReference(cq.Name), cq.Spec.CohortName, weightedShare, r.customLabels.CQGet(kueue.ClusterQueueReference(cq.Name)), r.roleTracker)

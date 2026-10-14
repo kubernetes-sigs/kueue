@@ -1046,6 +1046,7 @@ var _ = ginkgo.Describe("Kueue", ginkgo.Label("area:singlecluster", "feature:job
 // clusterQueueReservedMilliCPU returns the CPU currently reserved by the
 // ClusterQueue across all flavors, in milliCPU.
 func clusterQueueReservedMilliCPU(g gomega.Gomega, cqKey client.ObjectKey) int64 {
+	ginkgo.GinkgoHelper()
 	cq := &kueue.ClusterQueue{}
 	g.Expect(k8sClient.Get(ctx, cqKey, cq)).Should(gomega.Succeed())
 	var total int64
@@ -1060,6 +1061,7 @@ func clusterQueueReservedMilliCPU(g gomega.Gomega, cqKey client.ObjectKey) int64
 }
 
 func findRunningPods(g gomega.Gomega, namespace, jobName string) []corev1.Pod {
+	ginkgo.GinkgoHelper()
 	podList := &corev1.PodList{}
 	g.Expect(k8sClient.List(ctx, podList,
 		client.InNamespace(namespace),
@@ -1075,8 +1077,9 @@ func findRunningPods(g gomega.Gomega, namespace, jobName string) []corev1.Pod {
 }
 
 func expectJobUnsuspended(key types.NamespacedName) {
+	ginkgo.GinkgoHelper()
 	job := &batchv1.Job{}
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, key, job)).To(gomega.Succeed())
 		g.Expect(job.Spec.Suspend).Should(gomega.Equal(new(false)))
 	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())

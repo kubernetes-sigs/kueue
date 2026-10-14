@@ -1371,8 +1371,9 @@ func setCapacityProviderCapacity(
 	cp *kueuealpha.CapacityProvider,
 	capacity *kueuealpha.CapacityProviderNormalizedCapacity,
 ) {
+	ginkgo.GinkgoHelper()
 	var latestCp kueuealpha.CapacityProvider
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cp), &latestCp)).Should(gomega.Succeed())
 		latestCp.Status.Capacity = capacity
 		apimeta.SetStatusCondition(&latestCp.Status.Conditions, metav1.Condition{
@@ -1393,8 +1394,9 @@ func setCapacityProviderSyncCondition(
 	status metav1.ConditionStatus,
 	reason, message string,
 ) {
+	ginkgo.GinkgoHelper()
 	var latestCp kueuealpha.CapacityProvider
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cp), &latestCp)).Should(gomega.Succeed())
 		apimeta.SetStatusCondition(&latestCp.Status.Conditions, metav1.Condition{
 			Type:               kueuealpha.CapacityProviderCapacitySynchronized,

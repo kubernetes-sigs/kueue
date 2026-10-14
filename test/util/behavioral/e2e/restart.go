@@ -151,12 +151,13 @@ func WaitForActivePodsAndTerminate(
 	activePodsCount, exitCode int,
 	opts ...client.ListOption,
 ) {
+	ginkgo.GinkgoHelper()
 	var activePods []corev1.Pod
 	pods := corev1.PodList{}
 	podListOpts := &client.ListOptions{}
 	podListOpts.Namespace = namespace
 	podListOpts.ApplyOptions(opts)
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.List(ctx, &pods, podListOpts)).To(gomega.Succeed())
 		activePods = make([]corev1.Pod, 0)
 		for _, p := range pods.Items {
@@ -170,6 +171,6 @@ func WaitForActivePodsAndTerminate(
 
 	for _, p := range activePods {
 		ginkgo.GinkgoLogr.Info("Terminating pod", "pod", klog.KObj(&p))
-		gomega.ExpectWithOffset(1, exitAgnHost(ctx, cfg, restClient, &p, exitCode)).To(gomega.Succeed())
+		gomega.Expect(exitAgnHost(ctx, cfg, restClient, &p, exitCode)).To(gomega.Succeed())
 	}
 }
