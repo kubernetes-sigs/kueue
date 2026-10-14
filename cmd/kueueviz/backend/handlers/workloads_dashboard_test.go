@@ -22,6 +22,7 @@ import (
 	"maps"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -152,7 +153,7 @@ func TestFetchWorkloadsDashboardDataSkipsPodsWithoutControllerUID(t *testing.T) 
 		},
 		pods: []corev1.Pod{
 			makeDashboardPod("pod-1", "ns-1", "job-uid-1"),
-			// Pods not created by a batch Job have no controller UID label.
+			// Pods with neither a controller UID label nor a pod group name.
 			{ObjectMeta: metav1.ObjectMeta{Name: "pod-group-1-0", Namespace: "ns-1"}},
 			{ObjectMeta: metav1.ObjectMeta{Name: "pod-group-2-0", Namespace: "ns-1"}},
 		},
@@ -175,6 +176,99 @@ func TestFetchWorkloadsDashboardDataSkipsPodsWithoutControllerUID(t *testing.T) 
 	}
 	if !maps.Equal(wantPodCounts, gotPodCounts) {
 		t.Errorf("pod counts = %v, want %v", gotPodCounts, wantPodCounts)
+	}
+}
+
+func TestFetchWorkloadsDashboardDataMatchesPodGroupPods(t *testing.T) {
+	unrelatedPod := corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "unrelated", Namespace: "ns-1"}}
+
+	cases := map[string]struct {
+		workload kueueapi.Workload
+		pods     []corev1.Pod
+		wantPods []string
+	}{
+		"batch Job": {
+			workload: makeDashboardWorkload("job-wl", "ns-1", "wl-uid-1", "job-uid-1"),
+			pods: []corev1.Pod{
+				makeDashboardPod("job-wl-0", "ns-1", "job-uid-1"),
+				unrelatedPod,
+			},
+			wantPods: []string{"job-wl-0"},
+		},
+		"pod group named by label": {
+			workload: kueueapi.Workload{ObjectMeta: metav1.ObjectMeta{Name: "group", Namespace: "ns-1", UID: "wl-uid-1"}},
+			pods: []corev1.Pod{
+				{ObjectMeta: metav1.ObjectMeta{Name: "group-0", Namespace: "ns-1", Labels: map[string]string{"kueue.x-k8s.io/pod-group-name": "group"}}},
+				{ObjectMeta: metav1.ObjectMeta{Name: "group-1", Namespace: "ns-1", Labels: map[string]string{"kueue.x-k8s.io/pod-group-name": "group"}}},
+				unrelatedPod,
+			},
+			wantPods: []string{"group-0", "group-1"},
+		},
+		"pod group named by annotation": {
+			workload: kueueapi.Workload{ObjectMeta: metav1.ObjectMeta{Name: "group", Namespace: "ns-1", UID: "wl-uid-1"}},
+			pods: []corev1.Pod{
+				{ObjectMeta: metav1.ObjectMeta{Name: "group-0", Namespace: "ns-1", Annotations: map[string]string{"kueue.x-k8s.io/pod-group-name": "group"}}},
+				unrelatedPod,
+			},
+			wantPods: []string{"group-0"},
+		},
+		"pod group with a prebuilt Workload": {
+			workload: kueueapi.Workload{ObjectMeta: metav1.ObjectMeta{Name: "prebuilt", Namespace: "ns-1", UID: "wl-uid-1"}},
+			pods: []corev1.Pod{
+				{ObjectMeta: metav1.ObjectMeta{Name: "group-0", Namespace: "ns-1", Labels: map[string]string{
+					"kueue.x-k8s.io/pod-group-name":         "group",
+					"kueue.x-k8s.io/prebuilt-workload-name": "prebuilt",
+				}}},
+				unrelatedPod,
+			},
+			wantPods: []string{"group-0"},
+		},
+		"pod group named like the Workload but with another prebuilt Workload": {
+			workload: kueueapi.Workload{ObjectMeta: metav1.ObjectMeta{Name: "group", Namespace: "ns-1", UID: "wl-uid-1"}},
+			pods: []corev1.Pod{
+				{ObjectMeta: metav1.ObjectMeta{Name: "group-0", Namespace: "ns-1", Annotations: map[string]string{
+					"kueue.x-k8s.io/pod-group-name":         "group",
+					"kueue.x-k8s.io/prebuilt-workload-name": "prebuilt",
+				}}},
+				unrelatedPod,
+			},
+			wantPods: []string{},
+		},
+		"StatefulSet Workload with a job UID": {
+			workload: makeDashboardWorkload("sts-wl", "ns-1", "wl-uid-1", "sts-uid-1"),
+			pods: []corev1.Pod{
+				{ObjectMeta: metav1.ObjectMeta{Name: "sts-0", Namespace: "ns-1", Annotations: map[string]string{"kueue.x-k8s.io/pod-group-name": "sts-wl"}}},
+				unrelatedPod,
+			},
+			wantPods: []string{"sts-0"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			client := &fakeDashboardClient{
+				workloads: []kueueapi.Workload{tc.workload},
+				pods:      tc.pods,
+			}
+			h := &Handlers{client: client}
+
+			got, err := h.fetchWorkloadsDashboardData(t.Context(), "ns-1")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			items := dashboardWorkloadItems(t, got)
+			if len(items) != 1 {
+				t.Fatalf("got %d workloads, want 1", len(items))
+			}
+			gotPods := make([]string, 0, len(items[0].Pods))
+			for _, pod := range items[0].Pods {
+				gotPods = append(gotPods, pod["name"].(string))
+			}
+			if diff := cmp.Diff(tc.wantPods, gotPods); diff != "" {
+				t.Errorf("unexpected pods (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
 
