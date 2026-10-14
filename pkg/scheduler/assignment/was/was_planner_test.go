@@ -84,8 +84,8 @@ func (f *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, 
 }
 
 // podKey returns the key of the virtual Pod which the planner builds for the
-// given replica of the incoming workload's PodSet. It relies on the production
-// naming, so that the keys of the predefined PodPlacements match the Pods
+// given replica of the incoming workload's PodSet. It uses CandidateVirtualPodsForPodSet
+// to ensure the keys of the predefined PodPlacements match the Pods
 // passed to ScheduleWorkload.
 func podKey(psName kueue.PodSetReference, replicaIdx int) client.ObjectKey {
 	wl := &kueue.Workload{Name: incomingName, Namespace: testNamespace}
@@ -180,7 +180,7 @@ type testPodSet struct {
 	cpu string
 }
 
-// TestPlan runs Plan with the real flavor assigner and a test ScheduleLibrary.
+// TestPlan runs Plan with the real flavor assigner and a test SchedulerLibrary.
 // The initial assignment is computed by the flavor assigner, as in the scheduler,
 // while each test case defines what ScheduleWorkload returns.
 func TestPlan(t *testing.T) {
@@ -192,9 +192,8 @@ func TestPlan(t *testing.T) {
 		podSets []testPodSet
 		// initialMode documents the quota-based mode computed by the flavor assigner.
 		initialMode flavorassigner.FlavorAssignmentMode
-		// schedule is the result of ScheduleWorkload.
-		// Nil means that ScheduleWorkload is expected not to be called.
-		schedule *simulator.SchedulingResult
+		// When set as Nil, ScheduleWorkload is expected not to be called.
+		schedulingResult *simulator.SchedulingResult
 
 		wantMode            flavorassigner.FlavorAssignmentMode
 		wantFit             bool
@@ -219,18 +218,18 @@ func TestPlan(t *testing.T) {
 			wantErr:     "WAS Planner does not support preemptions",
 		},
 		"ScheduleWorkload fails completely: planning error": {
-			quota:       "20",
-			podSets:     []testPodSet{{name: kueue.DefaultPodSetName, count: 2, cpu: "1"}},
-			initialMode: flavorassigner.Fit,
-			schedule:    &simulator.SchedulingResult{Error: errSchedule},
-			wantMode:    flavorassigner.Fit,
-			wantErr:     "failed to schedule workload: " + errSchedule.Error(),
+			quota:            "20",
+			podSets:          []testPodSet{{name: kueue.DefaultPodSetName, count: 2, cpu: "1"}},
+			initialMode:      flavorassigner.Fit,
+			schedulingResult: &simulator.SchedulingResult{Error: errSchedule},
+			wantMode:         flavorassigner.Fit,
+			wantErr:          "failed to schedule workload: " + errSchedule.Error(),
 		},
 		"all pods placed on a single node: fits": {
 			quota:       "20",
 			podSets:     []testPodSet{{name: kueue.DefaultPodSetName, count: 2, cpu: "1"}},
 			initialMode: flavorassigner.Fit,
-			schedule: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
 				podKey(kueue.DefaultPodSetName, 1): {Node: testNode1},
 			}},
@@ -244,7 +243,7 @@ func TestPlan(t *testing.T) {
 			quota:       "20",
 			podSets:     []testPodSet{{name: kueue.DefaultPodSetName, count: 3, cpu: "1"}},
 			initialMode: flavorassigner.Fit,
-			schedule: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey(kueue.DefaultPodSetName, 0): {Node: testNode2},
 				podKey(kueue.DefaultPodSetName, 1): {Node: testNode1},
 				podKey(kueue.DefaultPodSetName, 2): {Node: testNode2},
@@ -259,7 +258,7 @@ func TestPlan(t *testing.T) {
 			quota:       "20",
 			podSets:     []testPodSet{{name: kueue.DefaultPodSetName, count: 2, cpu: "1"}},
 			initialMode: flavorassigner.Fit,
-			schedule: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
 				podKey(kueue.DefaultPodSetName, 1): {Error: errors.New("Insufficient cpu"), Reasons: []string{"Insufficient cpu"}},
 			}},
@@ -276,7 +275,7 @@ func TestPlan(t *testing.T) {
 			quota:       "20",
 			podSets:     []testPodSet{{name: kueue.DefaultPodSetName, count: 2, cpu: "1"}},
 			initialMode: flavorassigner.Fit,
-			schedule: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey(kueue.DefaultPodSetName, 0): {Error: errPlacement, Reasons: []string{"plugin failed"}},
 				podKey(kueue.DefaultPodSetName, 1): {Node: testNode1},
 			}},
@@ -293,7 +292,7 @@ func TestPlan(t *testing.T) {
 			quota:       "20",
 			podSets:     []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "1"}},
 			initialMode: flavorassigner.Fit,
-			schedule: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey(kueue.DefaultPodSetName, 0): {Node: unknownNode},
 			}},
 			wantMode:        flavorassigner.NoFit,
@@ -309,7 +308,7 @@ func TestPlan(t *testing.T) {
 				{name: "workers", count: 2, cpu: "1"},
 			},
 			initialMode: flavorassigner.Fit,
-			schedule: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey("leader", 0):  {Node: testNode2},
 				podKey("workers", 0): {Node: testNode1},
 				podKey("workers", 1): {Node: testNode1},
@@ -328,7 +327,7 @@ func TestPlan(t *testing.T) {
 				{name: "workers", count: 2, cpu: "1"},
 			},
 			initialMode: flavorassigner.Fit,
-			schedule: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey("leader", 0):  {Node: testNode2},
 				podKey("workers", 0): {Node: testNode1},
 				podKey("workers", 1): {Error: errors.New("node(s) didn't match Pod's node affinity"), Reasons: []string{"node(s) didn't match Pod's node affinity"}},
@@ -348,7 +347,7 @@ func TestPlan(t *testing.T) {
 			quota:       "20",
 			podSets:     []testPodSet{{name: kueue.DefaultPodSetName, count: 2, cpu: "1"}},
 			initialMode: flavorassigner.Fit,
-			schedule: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
+			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey(kueue.DefaultPodSetName, 0): {Error: errors.New("Insufficient cpu"), Reasons: []string{"Insufficient cpu"}},
 				podKey(kueue.DefaultPodSetName, 1): {Error: errors.New("Insufficient cpu"), Reasons: []string{"Insufficient cpu"}},
 			}},
@@ -376,8 +375,8 @@ func TestPlan(t *testing.T) {
 			ctx := ctrllog.IntoContext(t.Context(), log)
 			snapshot := newTestSnapshot(ctx, t, log, tc.quota)
 			testSim := &testSimulator{SchedulerSimulator: snapshot.SchedulerSimulator}
-			if tc.schedule != nil {
-				testSim.result = *tc.schedule
+			if tc.schedulingResult != nil {
+				testSim.result = *tc.schedulingResult
 			}
 			snapshot.SchedulerSimulator = testSim
 
@@ -418,7 +417,7 @@ func TestPlan(t *testing.T) {
 				t.Errorf("Plan() returned a different assignment object than the initial one")
 			}
 			wantCalls := 0
-			if tc.schedule != nil {
+			if tc.schedulingResult != nil {
 				wantCalls = 1
 			}
 			if testSim.calls != wantCalls {
@@ -432,8 +431,8 @@ func TestPlan(t *testing.T) {
 			case tc.wantErr != "" && !strings.Contains(gotPlan.Error.Error(), tc.wantErr):
 				t.Errorf("Plan() error mismatch: want it to contain %q, got %q", tc.wantErr, gotPlan.Error.Error())
 			}
-			if tc.schedule != nil && tc.schedule.Error != nil && !errors.Is(gotPlan.Error, tc.schedule.Error) {
-				t.Errorf("Plan() error does not wrap the ScheduleWorkload error: want %v, got %v", tc.schedule.Error, gotPlan.Error)
+			if tc.schedulingResult != nil && tc.schedulingResult.Error != nil && !errors.Is(gotPlan.Error, tc.schedulingResult.Error) {
+				t.Errorf("Plan() error does not wrap the ScheduleWorkload error: want %v, got %v", tc.schedulingResult.Error, gotPlan.Error)
 			}
 			if gotMode := gotPlan.Assignment.RepresentativeMode(); gotMode != tc.wantMode {
 				t.Errorf("Plan() assignment mode mismatch: want %v, got %v", tc.wantMode, gotMode)

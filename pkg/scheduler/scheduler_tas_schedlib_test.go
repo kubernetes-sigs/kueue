@@ -1094,24 +1094,6 @@ func TestScheduleErrorHandling(t *testing.T) {
 				Resource(corev1.ResourceCPU, "1").Obj()).
 			Obj(),
 	}
-	tasConflictWorkloads := []kueue.Workload{
-		*utiltestingapi.MakeWorkload("wl-a", "default").
-			Queue("tas-main").
-			Priority(10).
-			PodSets(*utiltestingapi.MakePodSet("main", 1).
-				RequiredTopologyRequest(corev1.LabelHostname).
-				Request(corev1.ResourceCPU, "1").
-				Obj()).
-			Obj(),
-		*utiltestingapi.MakeWorkload("wl-b", "default").
-			Queue("tas-second").
-			Priority(1).
-			PodSets(*utiltestingapi.MakePodSet("main", 1).
-				RequiredTopologyRequest(corev1.LabelHostname).
-				Request(corev1.ResourceCPU, "1").
-				Obj()).
-			Obj(),
-	}
 	wlAAdmission := *utiltestingapi.MakeAdmission("tas-main").
 		PodSets(utiltestingapi.MakePodSetAssignment("main").
 			Assignment(corev1.ResourceCPU, "tas-default", "1").
@@ -1120,13 +1102,14 @@ func TestScheduleErrorHandling(t *testing.T) {
 				Obj()).
 			Obj()).
 		Obj()
-	wlAAdmitted := *utiltestingapi.MakeWorkload("wl-a", "default").
+	wlABase := utiltestingapi.MakeWorkload("wl-a", "default").
 		Queue("tas-main").
 		Priority(10).
 		PodSets(*utiltestingapi.MakePodSet("main", 1).
 			RequiredTopologyRequest(corev1.LabelHostname).
 			Request(corev1.ResourceCPU, "1").
-			Obj()).
+			Obj())
+	wlAAdmitted := *wlABase.Clone().
 		Admission(&wlAAdmission).
 		Condition(metav1.Condition{
 			Type:               kueue.WorkloadQuotaReserved,
@@ -1143,14 +1126,15 @@ func TestScheduleErrorHandling(t *testing.T) {
 			LastTransitionTime: metav1.NewTime(now),
 		}).
 		Obj()
+	wlBBase := utiltestingapi.MakeWorkload("wl-b", "default").
+		Queue("tas-second").
+		Priority(1).
+		PodSets(*utiltestingapi.MakePodSet("main", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj())
 	wlBNotReserved := func(reason, message string) kueue.Workload {
-		return *utiltestingapi.MakeWorkload("wl-b", "default").
-			Queue("tas-second").
-			Priority(1).
-			PodSets(*utiltestingapi.MakePodSet("main", 1).
-				RequiredTopologyRequest(corev1.LabelHostname).
-				Request(corev1.ResourceCPU, "1").
-				Obj()).
+		return *wlBBase.Clone().
 			Condition(metav1.Condition{
 				Type:               kueue.WorkloadQuotaReserved,
 				Status:             metav1.ConditionFalse,
@@ -1172,6 +1156,10 @@ func TestScheduleErrorHandling(t *testing.T) {
 				},
 			}).
 			Obj()
+	}
+	tasConflictWorkloads := []kueue.Workload{
+		*wlABase.Clone().Obj(),
+		*wlBBase.Clone().Obj(),
 	}
 
 	cases := map[string]tasScheduleTestCase{
@@ -1345,7 +1333,7 @@ func TestScheduleErrorHandling(t *testing.T) {
 				return &mockWorkloadScheduler{
 					placementNode: "x1",
 					injectError:   errors.New("injected recompute failure"),
-					swFailAfter:   3,
+					swFailAt:      3,
 				}
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
@@ -1379,7 +1367,7 @@ type mockWorkloadScheduler struct {
 	placementNode types.NodeName
 
 	injectError error
-	swFailAfter int
+	swFailAt    int
 
 	swCallsCount int
 }
@@ -1403,7 +1391,7 @@ func (s *mockWorkloadScheduler) FindFeasibleNodes(
 
 func (s *mockWorkloadScheduler) ScheduleWorkload(_ context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
 	s.swCallsCount++
-	if s.swCallsCount >= s.swFailAfter {
+	if s.swCallsCount >= s.swFailAt {
 		return simulator.SchedulingResult{Error: s.injectError}
 	}
 	placements := make(simulator.PodPlacements, len(workloadPods))
