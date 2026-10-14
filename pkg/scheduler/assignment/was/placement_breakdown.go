@@ -58,7 +58,9 @@ func (fb failuresBreakdown) add(psRef kueue.PodSetReference, pod client.ObjectKe
 }
 
 func (fs *failureSummary) record(pod client.ObjectKey, err error, reasons []string) {
-	fs.errs = append(fs.errs, fmt.Errorf("pod: %s, error: %w", pod, err))
+	if err != nil {
+		fs.errs = append(fs.errs, fmt.Errorf("pod: %s, error: %w", pod, err))
+	}
 	for _, reason := range reasons {
 		fs.reasons = append(fs.reasons, fmt.Sprintf("pod: %s, failure reason: %s", pod, reason))
 	}
