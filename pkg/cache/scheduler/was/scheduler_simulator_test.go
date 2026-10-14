@@ -1094,11 +1094,11 @@ func TestScheduleWorkload(t *testing.T) {
 		podGroups         []*schedulingv1beta1.PodGroup
 		pods              []*corev1.Pod
 		simulatorOpts     []testSimulatorOption
-		wantPlacements    simulator.PodPlacements
+		legalPlacements   []simulator.PodPlacements
 		wantTopLevelError bool
 	}{
 		"no pods: no placements": {
-			wantPlacements: simulator.PodPlacements{},
+			legalPlacements: []simulator.PodPlacements{},
 		},
 		"pod outside any PodGroup: the result reports the error": {
 			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
@@ -1116,9 +1116,9 @@ func TestScheduleWorkload(t *testing.T) {
 			existingPods: []*corev1.Pod{blocker},
 			podGroups:    []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
 			pods:         []*corev1.Pod{workloadPod("p", "pg").Obj()},
-			wantPlacements: simulator.PodPlacements{
+			legalPlacements: []simulator.PodPlacements{{
 				key("p"): {Node: "node2"},
-			},
+			}},
 		},
 		// The simulator builds one profile, so a workload naming a profile it does
 		// not build is judged by that profile rather than failing to schedule.
@@ -1126,17 +1126,17 @@ func TestScheduleWorkload(t *testing.T) {
 			existingPods: []*corev1.Pod{blocker},
 			podGroups:    []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
 			pods:         []*corev1.Pod{otherSchedulerPod},
-			wantPlacements: simulator.PodPlacements{
+			legalPlacements: []simulator.PodPlacements{{
 				key("p"): {Node: "node2"},
-			},
+			}},
 		},
 		"pod with no feasible node fails with reasons": {
 			existingPods: []*corev1.Pod{blocker},
 			podGroups:    []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
 			pods:         []*corev1.Pod{workloadPod("p", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj()},
-			wantPlacements: simulator.PodPlacements{
+			legalPlacements: []simulator.PodPlacements{{
 				key("p"): {Error: errors.New(noFeasibleNode), Reasons: []string{noFeasibleNode}},
-			},
+			}},
 		},
 		"pods of the workload are each placed on their feasible node": {
 			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 2)},
@@ -1144,9 +1144,15 @@ func TestScheduleWorkload(t *testing.T) {
 				workloadPod("p1", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj(),
 				workloadPod("p2", "pg").NodeSelector(corev1.LabelHostname, "node2").Obj(),
 			},
-			wantPlacements: simulator.PodPlacements{
-				key("p1"): {Node: "node1"},
-				key("p2"): {Node: "node2"},
+			legalPlacements: []simulator.PodPlacements{
+				{
+					key("p1"): {Node: "node1"},
+					key("p2"): {Node: "node2"},
+				},
+				{
+					key("p1"): {Node: "node2"},
+					key("p2"): {Node: "node1"},
+				},
 			},
 		},
 		// Both Pods want host port 8080 on node1, so only one of them could go
@@ -1158,10 +1164,10 @@ func TestScheduleWorkload(t *testing.T) {
 				workloadPod("p1", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj(),
 				workloadPod("p2", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj(),
 			},
-			wantPlacements: simulator.PodPlacements{
+			legalPlacements: []simulator.PodPlacements{{
 				key("p1"): {Error: errors.New(podGroupUnschedulable), Reasons: []string{podGroupUnschedulable}},
 				key("p2"): {Error: errors.New(noFeasibleNode), Reasons: []string{noFeasibleNode}},
-			},
+			}},
 		},
 		// The library tries the Pods in order and stops at the first one that
 		// does not fit:
@@ -1177,12 +1183,12 @@ func TestScheduleWorkload(t *testing.T) {
 				workloadPod("skipped1", "pg").Obj(),
 				workloadPod("skipped2", "pg").Obj(),
 			},
-			wantPlacements: simulator.PodPlacements{
+			legalPlacements: []simulator.PodPlacements{{
 				key("fits"):     {Error: errors.New(podGroupUnschedulable), Reasons: []string{podGroupUnschedulable}},
 				key("errors"):   {Error: errors.New(injectedErr), Reasons: []string{injectedErr}},
 				key("skipped1"): {Reasons: []string{FailedReasonSkipped}},
 				key("skipped2"): {Reasons: []string{FailedReasonSkipped}},
-			},
+			}},
 		},
 		"node resources: only one of two pods fits: the workload fails": {
 			nodes:     []*corev1.Node{makeNode("node1", "4"), makeNode("node2", "8")},
@@ -1191,10 +1197,10 @@ func TestScheduleWorkload(t *testing.T) {
 				cpuPod("p1", "pg", "6"),
 				cpuPod("p2", "pg", "6"),
 			},
-			wantPlacements: simulator.PodPlacements{
+			legalPlacements: []simulator.PodPlacements{{
 				key("p1"): {Error: errors.New(podGroupUnschedulable), Reasons: []string{podGroupUnschedulable}},
 				key("p2"): {Error: errors.New(insufficientCPU), Reasons: []string{insufficientCPU}},
-			},
+			}},
 		},
 		// Ensure 6cpu pod ends up on the 8cpu node, and 3cpu pod on the 4cpu node.
 		"node resources: pods are assigned to nodes that can fit them": {
@@ -1204,10 +1210,10 @@ func TestScheduleWorkload(t *testing.T) {
 				cpuPod("p1", "pg", "6"),
 				cpuPod("p2", "pg", "3"),
 			},
-			wantPlacements: simulator.PodPlacements{
+			legalPlacements: []simulator.PodPlacements{{
 				key("p1"): {Node: "node2"},
 				key("p2"): {Node: "node1"},
-			},
+			}},
 		},
 		"node resources: pods filling a node each are placed on different nodes": {
 			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 2)},
@@ -1215,9 +1221,15 @@ func TestScheduleWorkload(t *testing.T) {
 				cpuPod("p1", "pg", "4"),
 				cpuPod("p2", "pg", "4"),
 			},
-			wantPlacements: simulator.PodPlacements{
-				key("p1"): {Node: "node1"},
-				key("p2"): {Node: "node2"},
+			legalPlacements: []simulator.PodPlacements{
+				{
+					key("p1"): {Node: "node1"},
+					key("p2"): {Node: "node2"},
+				},
+				{
+					key("p1"): {Node: "node2"},
+					key("p2"): {Node: "node1"},
+				},
 			},
 		},
 	}
@@ -1240,17 +1252,17 @@ func TestScheduleWorkload(t *testing.T) {
 			// the first call must not leave its Pods on the nodes.
 			for attempt := range 2 {
 				got := schedulerSimulator.ScheduleWorkload(ctx, tc.pods)
-
 				if gotError := got.Error != nil; gotError != tc.wantTopLevelError {
 					t.Errorf("attempt %d: got error %v, want error: %t", attempt, got.Error, tc.wantTopLevelError)
 				}
-
-				if diff := cmp.Diff(
-					tc.wantPlacements,
-					got.PodPlacements,
-					cmpErrorMessage,
-				); diff != "" {
-					t.Errorf("attempt %d: unexpected placements (-want,+got):\n%s", attempt, diff)
+				if len(tc.legalPlacements) == 0 {
+					if len(got.PodPlacements) > 0 {
+						t.Errorf("attempt %d: want no placements, got %v", attempt, got.PodPlacements)
+					}
+				} else if !slices.ContainsFunc(tc.legalPlacements, func(want simulator.PodPlacements) bool {
+					return cmp.Equal(want, got.PodPlacements, cmpErrorMessage)
+				}) {
+					t.Errorf("attempt %d: placements %v match none of the legal placements %v", attempt, got.PodPlacements, tc.legalPlacements)
 				}
 			}
 		})
