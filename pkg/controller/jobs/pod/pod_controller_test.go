@@ -2117,13 +2117,6 @@ func TestReconciler(t *testing.T) {
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, LastTransitionTime: metav1.NewTime(now)}).
 					Condition(metav1.Condition{
-						Type:               kueue.WorkloadAdmitted,
-						Status:             metav1.ConditionFalse,
-						LastTransitionTime: metav1.NewTime(now),
-						Reason:             "NoReservation",
-						Message:            "The workload has no reservation",
-					}).
-					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
 						LastTransitionTime: metav1.NewTime(now),
@@ -2266,13 +2259,6 @@ func TestReconciler(t *testing.T) {
 					ControllerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
 					ReserveQuotaAt(utiltestingapi.MakeAdmission(clusterQueueName).PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Obj()).Obj(), now).
 					AdmissionCheck(kueue.AdmissionCheckState{Name: "check", State: kueue.CheckStatePending, LastTransitionTime: metav1.NewTime(now)}).
-					Condition(metav1.Condition{
-						Type:               kueue.WorkloadAdmitted,
-						Status:             metav1.ConditionFalse,
-						LastTransitionTime: metav1.NewTime(now),
-						Reason:             "NoReservation",
-						Message:            "The workload has no reservation",
-					}).
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadEvicted,
 						Status:             metav1.ConditionTrue,
