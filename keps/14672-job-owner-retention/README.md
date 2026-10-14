@@ -12,6 +12,7 @@
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
   - [API](#api)
+  - [RBAC](#rbac)
   - [Behavior](#behavior)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
