@@ -630,7 +630,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		}
 		if !job.IsActive() {
 			log.V(6).Info("The job is no longer active, clear the workloads admission")
-			if err := r.clearAdmissionAfterEviction(ctx, wl); err != nil {
+			if err := r.clearAdmissionAfterEviction(ctx, job, wl); err != nil {
 				return ctrl.Result{}, fmt.Errorf("clearing admission: %w", err)
 			}
 		}
@@ -766,7 +766,7 @@ func (r *JobReconciler) finalizeWorkloads(ctx context.Context, key types.Namespa
 				return err
 			}
 			if hasLiveOwner {
-				if err := r.clearAdmissionAfterEviction(ctx, wl); err != nil {
+				if err := r.clearAdmissionAfterEviction(ctx, job, wl); err != nil {
 					return fmt.Errorf("clearing admission for empty composable job: %w", err)
 				}
 				continue
@@ -808,18 +808,29 @@ func (r *JobReconciler) hasLiveManagedOwner(ctx context.Context, wl *kueue.Workl
 	return false, nil
 }
 
-func (r *JobReconciler) clearAdmissionAfterEviction(ctx context.Context, wl *kueue.Workload) error {
+func (r *JobReconciler) clearAdmissionAfterEviction(ctx context.Context, job GenericJob, wl *kueue.Workload) error {
 	return workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 		evCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadEvicted)
-		if evCond == nil || evCond.Status != metav1.ConditionTrue || !workload.HasQuotaReservation(wl) {
+		if evCond == nil || evCond.Status != metav1.ConditionTrue {
 			return false, nil
 		}
 		// The requeued condition status is true only for preemption or node failures.
 		setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
-		// A pod-owned Workload dies with its pod; requeuing it would
-		// recompute an assignment nothing can consume (placement drift).
-		if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wl) {
+		// A pod-owned Workload dies with its pod; requeuing it would recompute an assignment nothing can consume
+		// (placement drift). A pod that is still suspended (gated) has nothing placed and Stop leaves it in place.
+		// Its Workload must be requeued or both stay stuck.
+		if features.Enabled(features.SkipReassignmentForPodOwnedWorkloads) && workload.OwnedBySinglePod(wl) && !job.IsSuspended() {
 			setRequeued = false
+		}
+		if !workload.HasQuotaReservation(wl) {
+			// Quota already released. Repair Workloads that an earlier version parked while the pod was still
+			// gated. Nothing else flips Requeued back for these eviction reasons.
+			// TODO(#16901): remove once v0.19 and v0.20 are out of support.
+			reqCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
+			if setRequeued && reqCond != nil && reqCond.Status == metav1.ConditionFalse && reqCond.Reason == evCond.Reason {
+				return workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, true), nil
+			}
+			return false, nil
 		}
 		updated := workload.SetRequeuedCondition(wl, evCond.Reason, evCond.Message, setRequeued)
 		reason := workload.UnadmittedWorkloadReasonWithFallback(
