@@ -319,6 +319,7 @@ Since `fairSharing.resourceWeights` is orthogonal to topology and node placement
 
 - 2026-02-15: Initial draft.
 - 2026-02-22: Revised API spec, added alternatives and TAS interaction details based on feedback.
+- 2026-10-08: Continued the proposal from the closed [PR #9251](https://github.com/kubernetes-sigs/kueue/pull/9251) in [PR #16922](https://github.com/kubernetes-sigs/kueue/pull/16922).
 
 ## Drawbacks
 
