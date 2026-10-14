@@ -70,9 +70,12 @@ func TestFetchClusterQueues(t *testing.T) {
 		objs      []ctrlclient.Object
 		funcs     *interceptor.Funcs
 		wantNames []string
+		wantEmpty bool
 		wantErr   bool
 	}{
-		"no cluster queues returns nil": {},
+		"no cluster queues returns empty list": {
+			wantEmpty: true,
+		},
 		"returns every cluster queue": {
 			objs:      []ctrlclient.Object{makeClusterQueue("cq-a", "team"), makeClusterQueue("cq-b", "")},
 			wantNames: []string{"cq-a", "cq-b"},
@@ -90,6 +93,11 @@ func TestFetchClusterQueues(t *testing.T) {
 			got, err := h.fetchClusterQueues(t.Context())
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("fetchClusterQueues() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if tc.wantEmpty {
+				if diff := cmp.Diff([]map[string]any{}, got); diff != "" {
+					t.Errorf("unexpected cluster queues (-want,+got):\n%s", diff)
+				}
 			}
 
 			var gotNames []string
