@@ -180,12 +180,33 @@ type testPodSet struct {
 	cpu string
 }
 
+func podFailure(psName kueue.PodSetReference, replicaIdx int, reason string) string {
+	return fmt.Sprintf("pod: %s, failure reason: %s", podKey(psName, replicaIdx), reason)
+}
+
+var podSetAssignmentCmpOpts = cmp.Options{
+	cmpopts.IgnoreFields(
+		flavorassigner.PodSetAssignment{},
+		"Flavors",
+		"Requests",
+		"Count",
+		"DelayedTopologyRequest",
+		"FlavorAssignmentAttempts",
+	),
+	cmp.AllowUnexported(flavorassigner.Status{}),
+	cmpopts.EquateErrors(),
+	cmpopts.SortSlices(func(a, b string) bool { return a < b }),
+	cmpopts.EquateEmpty(),
+}
+
 // TestPlan runs Plan with the real flavor assigner and a test SchedulerLibrary.
 // The initial assignment is computed by the flavor assigner, as in the scheduler,
 // while each test case defines what ScheduleWorkload returns.
 func TestPlan(t *testing.T) {
 	errSchedule := errors.New("schedule library failure")
 	errPlacement := errors.New("pod placement error")
+	errInsufficientCPU := errors.New("Insufficient cpu")
+	errNodeAffinity := errors.New("node(s) didn't match Pod's node affinity")
 
 	cases := map[string]struct {
 		quota   string
@@ -195,13 +216,11 @@ func TestPlan(t *testing.T) {
 		// When set as Nil, ScheduleWorkload is expected not to be called.
 		schedulingResult *simulator.SchedulingResult
 
-		wantMode            flavorassigner.FlavorAssignmentMode
-		wantFit             bool
-		wantErr             string
-		wantNoFitReason     string
-		wantTopology        map[kueue.PodSetReference]*tas.TopologyAssignment
-		wantPodSetMessages  map[kueue.PodSetReference]string
-		wantPodSetErrorFlag map[kueue.PodSetReference]bool
+		wantMode        flavorassigner.FlavorAssignmentMode
+		wantFit         bool
+		wantErr         string
+		wantNoFitReason string
+		wantPodSets     []flavorassigner.PodSetAssignment
 	}{
 		"initial assignment does not fit the quota: returned as is, without scheduling": {
 			quota:           "3",
@@ -209,6 +228,12 @@ func TestPlan(t *testing.T) {
 			initialMode:     flavorassigner.NoFit,
 			wantMode:        flavorassigner.NoFit,
 			wantNoFitReason: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name: kueue.DefaultPodSetName,
+				Status: *flavorassigner.NewStatus(
+					"insufficient quota for cpu in flavor tas-flavor, previously considered podsets requests (0) + current podset request (4) > maximum capacity (3)",
+				),
+			}},
 		},
 		"initial assignment requires preemption: not supported": {
 			quota:       "3",
@@ -216,6 +241,10 @@ func TestPlan(t *testing.T) {
 			initialMode: flavorassigner.Preempt,
 			wantMode:    flavorassigner.Preempt,
 			wantErr:     "WAS Planner does not support preemptions",
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name:   kueue.DefaultPodSetName,
+				Status: *flavorassigner.NewStatus("insufficient unused quota for cpu in flavor tas-flavor, 1 more needed"),
+			}},
 		},
 		"ScheduleWorkload fails completely: planning error": {
 			quota:            "20",
@@ -224,6 +253,9 @@ func TestPlan(t *testing.T) {
 			schedulingResult: &simulator.SchedulingResult{Error: errSchedule},
 			wantMode:         flavorassigner.Fit,
 			wantErr:          "failed to schedule workload: " + errSchedule.Error(),
+			wantPodSets: []flavorassigner.PodSetAssignment{
+				{Name: kueue.DefaultPodSetName},
+			},
 		},
 		"all pods placed on a single node: fits": {
 			quota:       "20",
@@ -235,8 +267,8 @@ func TestPlan(t *testing.T) {
 			}},
 			wantMode: flavorassigner.Fit,
 			wantFit:  true,
-			wantTopology: map[kueue.PodSetReference]*tas.TopologyAssignment{
-				kueue.DefaultPodSetName: onNodes(domain(testNode1, 2)),
+			wantPodSets: []flavorassigner.PodSetAssignment{
+				{Name: kueue.DefaultPodSetName, TopologyAssignment: onNodes(domain(testNode1, 2))},
 			},
 		},
 		"pods spread across nodes: fits, with a domain per node": {
@@ -250,9 +282,10 @@ func TestPlan(t *testing.T) {
 			}},
 			wantMode: flavorassigner.Fit,
 			wantFit:  true,
-			wantTopology: map[kueue.PodSetReference]*tas.TopologyAssignment{
-				kueue.DefaultPodSetName: onNodes(domain(testNode1, 1), domain(testNode2, 2)),
-			},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name:               kueue.DefaultPodSetName,
+				TopologyAssignment: onNodes(domain(testNode1, 1), domain(testNode2, 2)),
+			}},
 		},
 		"a pod fails to be scheduled: the whole PodSet does not fit": {
 			quota:       "20",
@@ -260,16 +293,16 @@ func TestPlan(t *testing.T) {
 			initialMode: flavorassigner.Fit,
 			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
-				podKey(kueue.DefaultPodSetName, 1): {Error: errors.New("Insufficient cpu"), Reasons: []string{"Insufficient cpu"}},
+				podKey(kueue.DefaultPodSetName, 1): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
 			}},
 			wantMode:        flavorassigner.NoFit,
 			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
-			wantPodSetMessages: map[kueue.PodSetReference]string{
-				kueue.DefaultPodSetName: "error: Insufficient cpu",
-			},
-			wantPodSetErrorFlag: map[kueue.PodSetReference]bool{
-				kueue.DefaultPodSetName: true,
-			},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name: kueue.DefaultPodSetName,
+				Status: *flavorassigner.NewErrorStatus(errInsufficientCPU, []string{
+					podFailure(kueue.DefaultPodSetName, 1, errInsufficientCPU.Error()),
+				}),
+			}},
 		},
 		"a pod placement errors out: the whole PodSet does not fit and reports the error": {
 			quota:       "20",
@@ -281,12 +314,12 @@ func TestPlan(t *testing.T) {
 			}},
 			wantMode:        flavorassigner.NoFit,
 			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
-			wantPodSetMessages: map[kueue.PodSetReference]string{
-				kueue.DefaultPodSetName: "error: " + errPlacement.Error(),
-			},
-			wantPodSetErrorFlag: map[kueue.PodSetReference]bool{
-				kueue.DefaultPodSetName: true,
-			},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name: kueue.DefaultPodSetName,
+				Status: *flavorassigner.NewErrorStatus(errPlacement, []string{
+					podFailure(kueue.DefaultPodSetName, 0, "plugin failed"),
+				}),
+			}},
 		},
 		"pod placed on a node unknown to the topology: does not fit": {
 			quota:       "20",
@@ -297,8 +330,9 @@ func TestPlan(t *testing.T) {
 			}},
 			wantMode:        flavorassigner.NoFit,
 			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
-			wantPodSetMessages: map[kueue.PodSetReference]string{
-				kueue.DefaultPodSetName: "node " + unknownNode + " is not defined in the known topology",
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name:   kueue.DefaultPodSetName,
+				Status: *flavorassigner.NewStatus("node " + unknownNode + " is not defined in the known topology")},
 			},
 		},
 		"multiple PodSets, all pods placed: fits, with a topology assignment per PodSet": {
@@ -315,9 +349,9 @@ func TestPlan(t *testing.T) {
 			}},
 			wantMode: flavorassigner.Fit,
 			wantFit:  true,
-			wantTopology: map[kueue.PodSetReference]*tas.TopologyAssignment{
-				"leader":  onNodes(domain(testNode2, 1)),
-				"workers": onNodes(domain(testNode1, 2)),
+			wantPodSets: []flavorassigner.PodSetAssignment{
+				{Name: "leader", TopologyAssignment: onNodes(domain(testNode2, 1))},
+				{Name: "workers", TopologyAssignment: onNodes(domain(testNode1, 2))},
 			},
 		},
 		"multiple PodSets, one fails: the workload does not fit": {
@@ -330,17 +364,20 @@ func TestPlan(t *testing.T) {
 			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey("leader", 0):  {Node: testNode2},
 				podKey("workers", 0): {Node: testNode1},
-				podKey("workers", 1): {Error: errors.New("node(s) didn't match Pod's node affinity"), Reasons: []string{"node(s) didn't match Pod's node affinity"}},
+				podKey("workers", 1): {Error: errNodeAffinity, Reasons: []string{errNodeAffinity.Error()}},
 			}},
 			wantMode:        flavorassigner.NoFit,
 			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
 			// Like in the native planner, no PodSet gets a topology assignment,
 			// including the ones which got placed.
-			wantPodSetMessages: map[kueue.PodSetReference]string{
-				"workers": "error: node(s) didn't match Pod's node affinity",
-			},
-			wantPodSetErrorFlag: map[kueue.PodSetReference]bool{
-				"workers": true,
+			wantPodSets: []flavorassigner.PodSetAssignment{
+				{Name: "leader"},
+				{
+					Name: "workers",
+					Status: *flavorassigner.NewErrorStatus(errNodeAffinity, []string{
+						podFailure("workers", 1, errNodeAffinity.Error()),
+					}),
+				},
 			},
 		},
 		"all pods fail to be scheduled: does not fit": {
@@ -348,17 +385,18 @@ func TestPlan(t *testing.T) {
 			podSets:     []testPodSet{{name: kueue.DefaultPodSetName, count: 2, cpu: "1"}},
 			initialMode: flavorassigner.Fit,
 			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey(kueue.DefaultPodSetName, 0): {Error: errors.New("Insufficient cpu"), Reasons: []string{"Insufficient cpu"}},
-				podKey(kueue.DefaultPodSetName, 1): {Error: errors.New("Insufficient cpu"), Reasons: []string{"Insufficient cpu"}},
+				podKey(kueue.DefaultPodSetName, 0): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
+				podKey(kueue.DefaultPodSetName, 1): {Error: errInsufficientCPU, Reasons: []string{errInsufficientCPU.Error()}},
 			}},
 			wantMode:        flavorassigner.NoFit,
 			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
-			wantPodSetMessages: map[kueue.PodSetReference]string{
-				kueue.DefaultPodSetName: "error: Insufficient cpu",
-			},
-			wantPodSetErrorFlag: map[kueue.PodSetReference]bool{
-				kueue.DefaultPodSetName: true,
-			},
+			wantPodSets: []flavorassigner.PodSetAssignment{{
+				Name: kueue.DefaultPodSetName,
+				Status: *flavorassigner.NewErrorStatus(errInsufficientCPU, []string{
+					podFailure(kueue.DefaultPodSetName, 0, errInsufficientCPU.Error()),
+					podFailure(kueue.DefaultPodSetName, 1, errInsufficientCPU.Error()),
+				}),
+			}},
 		},
 	}
 
@@ -447,24 +485,8 @@ func TestPlan(t *testing.T) {
 				t.Errorf("Plan() assignment NoFitReason mismatch: want %q, got %q", tc.wantNoFitReason, gotPlan.Assignment.NoFitReason)
 			}
 
-			gotTopology := make(map[kueue.PodSetReference]*tas.TopologyAssignment)
-			for _, psa := range gotPlan.Assignment.PodSets {
-				if psa.TopologyAssignment != nil {
-					gotTopology[psa.Name] = psa.TopologyAssignment
-				}
-			}
-			if diff := cmp.Diff(tc.wantTopology, gotTopology, cmpopts.EquateEmpty()); diff != "" {
-				t.Errorf("Plan() topology assignments mismatch (-want +got):\n%s", diff)
-			}
-			for _, psa := range gotPlan.Assignment.PodSets {
-				if want, found := tc.wantPodSetMessages[psa.Name]; found {
-					if got := psa.Status.Message(); !strings.Contains(got, want) {
-						t.Errorf("Plan() PodSet %q status message mismatch: want it to contain %q, got %q", psa.Name, want, got)
-					}
-				}
-				if want, got := tc.wantPodSetErrorFlag[psa.Name], psa.Status.IsError(); want != got {
-					t.Errorf("Plan() PodSet %q status error mismatch: want error: %v, got: %v", psa.Name, want, got)
-				}
+			if diff := cmp.Diff(tc.wantPodSets, gotPlan.Assignment.PodSets, podSetAssignmentCmpOpts); diff != "" {
+				t.Errorf("Plan() PodSet assignments mismatch (-want +got):\n%s", diff)
 			}
 
 			if freeCapacityAfter := freeCapacity(t, snapshot); freeCapacityAfter != freeCapacityBefore {
