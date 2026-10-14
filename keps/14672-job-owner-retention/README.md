@@ -155,6 +155,12 @@ want (see [Alternatives](#alternatives)).
   A dedicated feature gate (`JobOwnerRetentionPolicy`) is proposed
   specifically because of this higher blast radius, separate from
   `ObjectRetentionPolicies`'s own (already-stable) gate.
+- **R**: Because retention applies retroactively, enabling the feature in a
+  cluster with a backlog of finished Jobs can delete many of them at once.
+  **M**: The feature is opt-in, defaults to disabled, and has its own gate, so
+  enabling it is a deliberate act. Administrators should choose
+  `jobs.afterFinished` knowing it is evaluated against each owner's original
+  finish time. This is the same behavior as `workloads.afterFinished`.  
 
 
 ## Design Details
@@ -220,10 +226,17 @@ the blast radius noted under Risks.
 
 1. When a Workload's `WorkloadFinished` condition is set with reason
    `Succeeded` or `Failed`, Kueue stamps the finish timestamp as an
-   annotation on the owner object. The stamp is written in `finalizeJob`
-   (`pkg/controller/jobframework/reconciler.go`), which gains a
-   `*kueue.Workload` parameter; both of its call sites in
-   `ReconcileGenericJob` already have the Workload in scope.
+   annotation on the owner object. The stamp is written at the two points in
+   `ReconcileGenericJob` (`pkg/controller/jobframework/reconciler.go`) where
+   a Workload has just been observed finished: the
+   `wl != nil && workloadfinish.IsFinished(wl)` branch, and the block
+   following `job.Finished(ctx)`.
+
+   It is not written inside `finalizeJob`, despite that being reached from
+   both. `finalizeJob` has two further callers where stamping would be wrong
+   or impossible: `finalize`, the object-deletion cleanup path, which has no
+   Workload in scope, and `handleWorkloadAfterDeactivatedPolicy`, which calls
+   it after the owner has already been deleted.
 
    The annotation key is `kueue.x-k8s.io/workload-finished-at`, holding the
    value of `WorkloadFinished.LastTransitionTime` in RFC3339 as serialized by
@@ -233,10 +246,9 @@ the blast radius noted under Risks.
    is moot for an object already being deleted, and patching its metadata may
    fail.
 
-   The reason check is required rather than incidental. `finalizeJob` is
-   also reached from the `wl != nil && workloadfinish.IsFinished(wl)`
-   branch, which fires for every finish reason — including several that do
-   not mean the job ended:
+   The reason check is required rather than incidental. The
+   `wl != nil && workloadfinish.IsFinished(wl)` branch fires for every finish
+   reason — including several that do not mean the job ended:
 
    - `kueue.WorkloadSliceReplaced` — `normalizeActiveSlices` finishes a
      replaced slice to release quota it still holds, while the job
@@ -262,7 +274,7 @@ the blast radius noted under Risks.
    applies retroactively: an owner whose `jobs.afterFinished` has already elapsed
    becomes eligible for deletion on the first reconcile after the feature is
    enabled. This matches `workloads.afterFinished`, which behaves the same way.   
-   
+
 2. During Kueue's reconciliation loop, an owner carrying this annotation is
    evaluated against `jobs.afterFinished`: if the retention period has
    elapsed, the owner is deleted (cascading to its dependent objects via
