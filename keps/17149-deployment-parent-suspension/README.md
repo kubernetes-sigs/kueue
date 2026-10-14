@@ -88,10 +88,14 @@ Kueue controller ClusterRole.
 
 ### Risks and Mitigations
 
-**Orphaned pause on Workload deletion:** If the Workload object is manually deleted while
-the Deployment is paused, the Deployment may stay paused until the pod is also deleted
-(triggering `finalize`) or the user manually removes the annotation. Acceptable for alpha;
-for beta, evaluate adding `ResumeParent` to the workload-deletion path.
+**Workload deletion while paused:** When a Workload is deleted while its Deployment is
+paused, the Pod integration stops the Pod, which deletes the gated Pod. Deleting the Pod
+triggers finalization, which removes the pause. The unpaused Deployment then creates a
+replacement Pod, which Kueue gates again; a new Workload is constructed for it and the
+Deployment is re-paused. The pause is therefore never orphaned. The Deployment is briefly
+unpaused while the replacement Pod is created — a window of seconds, negligible against the
+default 10-minute progress deadline. If removing the pause during finalization fails, the
+Pod's finalizer is not removed and the resume is retried on subsequent reconciliations.
 
 **Template drift while paused:** The Deployment controller cannot create a new ReplicaSet
 while paused. Mitigated by the Deployment reconciler, which detects template drift and
@@ -115,28 +119,37 @@ to implement this enhancement.
 
 - `test/integration/singlecluster/controller/jobs/pod/deployment_parent_suspension_test.go`:
   pause on gate, unpause on admission, unpause on template drift, unpause on pod deletion,
-  no-op when gate is off.
+  no-op when gate is off, and workload deletion recovery: the gated Pod is deleted, the
+  pause is removed, and a replacement gated Pod re-pauses the Deployment.
 
 #### e2e tests
 
-Deferred to beta.
+The core scenario — a gated Deployment reports `DeploymentPaused` instead of
+`ProgressDeadlineExceeded` and unpauses after admission — requires the real Deployment
+controller and is validated in a follow-up PR before graduation to Beta. Remaining e2e
+scenarios are added in Beta.
 
 ### Graduation Criteria
 
 #### Alpha
 
 - Feature gate `DeploymentParentSuspension` (default off).
-- `JobWithParentSuspension` interface and Pod implementation.
-- Deployment reconciler for template drift.
+- Pause the Deployment while its Pods are scheduling-gated; unpause after admission;
+  never override user-initiated pauses.
+- Cleanup of Kueue-managed pauses when the feature gate is disabled, including on Pod
+deletion. A failure to resume during finalization blocks removal of the finalizer, so
+the resume is retried on subsequent reconciliations.
+- Automatic recovery when a Workload is deleted while the Deployment is paused (see
+Risks and Mitigations), covered by integration tests.
+- Template drift detection scoped to ReplicaSets owned by the paused Deployment.
 - Unit and integration tests.
+- e2e coverage of the core pause/unpause scenario, delivered as a follow-up PR before
+graduation to Beta.
 
 #### Beta
 
-- Propagate `ResumeParent` errors in `finalize`.
-- Evaluate `ResumeParent` on the workload-deletion path.
-- Scope the Deployment reconciler's ReplicaSet list by owner labels.
-- Add e2e tests and gomock coverage.
 - Feature gate default on.
+- Remaining e2e scenarios and gomock coverage.
 
 #### Stable
 
