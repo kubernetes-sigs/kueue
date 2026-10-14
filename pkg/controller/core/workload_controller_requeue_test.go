@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -37,6 +38,7 @@ import (
 )
 
 func TestReconcileRequeue(t *testing.T) {
+	errStatus := errors.New("status write failed")
 	// the clock is primarily used with second rounded times
 	// use the current time trimmed.
 	now := time.Now().Truncate(time.Second)
@@ -1013,6 +1015,19 @@ func TestReconcileRequeue(t *testing.T) {
 				}).
 				Obj(),
 			wantResult: reconcile.Result{},
+		},
+		"should return error when updating requeueState.requeueAt fails": {
+			patchErr: errStatus,
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				RequeueState(nil, new(metav1.NewTime(now.Add(5*time.Second)))).
+				AdmissionCheck(kueue.AdmissionCheckState{
+					Name:                "check",
+					State:               kueue.CheckStateRetry,
+					RequeueAfterSeconds: new(int32(10)),
+					LastTransitionTime:  metav1.NewTime(now),
+				}).
+				Obj(),
+			wantError: errStatus,
 		},
 		"should not update requeueState.requeueAt when admission check delay is smaller": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
