@@ -104,9 +104,7 @@ func (a *Assignment) ResolvePodSetFailure(psRef kueue.PodSetReference, targetMod
 func (a *Assignment) SetRepresentativeMode(mode FlavorAssignmentMode) {
 	a.representativeMode = &mode
 	for i := range a.PodSets {
-		if a.PodSets[i].RepresentativeMode() != mode {
-			a.PodSets[i].updateMode(mode)
-		}
+		a.PodSets[i].updateMode(mode)
 	}
 }
 

@@ -1094,7 +1094,7 @@ func TestScheduleErrorHandling(t *testing.T) {
 				Resource(corev1.ResourceCPU, "1").Obj()).
 			Obj(),
 	}
-	wlAAdmission := *utiltestingapi.MakeAdmission("tas-main").
+	wl1Admission := *utiltestingapi.MakeAdmission("tas-main").
 		PodSets(utiltestingapi.MakePodSetAssignment("main").
 			Assignment(corev1.ResourceCPU, "tas-default", "1").
 			TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
@@ -1102,15 +1102,15 @@ func TestScheduleErrorHandling(t *testing.T) {
 				Obj()).
 			Obj()).
 		Obj()
-	wlABase := utiltestingapi.MakeWorkload("wl-a", "default").
+	wl1Base := utiltestingapi.MakeWorkload("wl-a", "default").
 		Queue("tas-main").
 		Priority(10).
 		PodSets(*utiltestingapi.MakePodSet("main", 1).
 			RequiredTopologyRequest(corev1.LabelHostname).
 			Request(corev1.ResourceCPU, "1").
 			Obj())
-	wlAAdmitted := *wlABase.Clone().
-		Admission(&wlAAdmission).
+	wl1Admitted := *wl1Base.Clone().
+		Admission(&wl1Admission).
 		Condition(metav1.Condition{
 			Type:               kueue.WorkloadQuotaReserved,
 			Status:             metav1.ConditionTrue,
@@ -1126,15 +1126,15 @@ func TestScheduleErrorHandling(t *testing.T) {
 			LastTransitionTime: metav1.NewTime(now),
 		}).
 		Obj()
-	wlBBase := utiltestingapi.MakeWorkload("wl-b", "default").
+	wl2Base := utiltestingapi.MakeWorkload("wl-b", "default").
 		Queue("tas-second").
 		Priority(1).
 		PodSets(*utiltestingapi.MakePodSet("main", 1).
 			RequiredTopologyRequest(corev1.LabelHostname).
 			Request(corev1.ResourceCPU, "1").
 			Obj())
-	wlBNotReserved := func(reason, message string) kueue.Workload {
-		return *wlBBase.Clone().
+	wl2NotReserved := func(reason, message string) kueue.Workload {
+		return *wl2Base.Clone().
 			Condition(metav1.Condition{
 				Type:               kueue.WorkloadQuotaReserved,
 				Status:             metav1.ConditionFalse,
@@ -1158,8 +1158,8 @@ func TestScheduleErrorHandling(t *testing.T) {
 			Obj()
 	}
 	tasConflictWorkloads := []kueue.Workload{
-		*wlABase.Clone().Obj(),
-		*wlBBase.Clone().Obj(),
+		*wl1Base.Clone().Obj(),
+		*wl2Base.Clone().Obj(),
 	}
 
 	cases := map[string]tasScheduleTestCase{
@@ -1337,11 +1337,11 @@ func TestScheduleErrorHandling(t *testing.T) {
 				}
 			},
 			wantNewAssignments: map[workload.Reference]kueue.Admission{
-				"default/wl-a": wlAAdmission,
+				"default/wl-a": wl1Admission,
 			},
 			wantWorkloads: []kueue.Workload{
-				wlAAdmitted,
-				wlBNotReserved(kueue.WorkloadQuotaReservedReasonAssignmentError, "failed to schedule workload: injected recompute failure"),
+				wl1Admitted,
+				wl2NotReserved(kueue.WorkloadQuotaReservedReasonAssignmentError, "failed to schedule workload: injected recompute failure"),
 			},
 			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"tas-second": {"default/wl-b"},

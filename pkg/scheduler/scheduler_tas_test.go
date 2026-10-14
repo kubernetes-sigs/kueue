@@ -4008,7 +4008,7 @@ func (s *recordingSchedulerSimulator) FindFeasibleNodes(
 }
 
 func (s *recordingSchedulerSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
-	return s.ScheduleWorkload(ctx, workloadPods, opts...)
+	return s.SchedulerSimulator.ScheduleWorkload(ctx, workloadPods, opts...)
 }
 
 type tasScheduleTestConfig struct {
