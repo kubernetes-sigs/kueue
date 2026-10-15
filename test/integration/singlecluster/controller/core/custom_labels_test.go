@@ -614,6 +614,7 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 					"custom_team_lq": "alpha",
 				})).To(gomega.HaveLen(1))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 1, "alpha")
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedLq kueue.LocalQueue
@@ -639,6 +640,9 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 					"custom_team_lq": "beta",
 				})).To(gomega.HaveLen(1))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			// Counters keep their history under the old label value.
+			behavioral.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 1, "alpha")
 
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueuePendingWorkloads, map[string]string{
