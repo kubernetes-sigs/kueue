@@ -248,7 +248,7 @@ Introduce a new CRD **PreemptionConfig** that will be used to define:
 - triggers for when preemption should occur (e.g. insufficient topology to schedule the workload),
 - rules defining which workloads should be considered for preemption.
 
-In the initial iteration, to change existing logic as little as possible, configurable preemption candidates are appended after the classical/fair sharing preemption candidates (see [Integration](#integration)). Configurable candidates use the default ordering rules for classical preemption and fair sharing. Configurable candidate ordering and advanced candidate organization (such as Per-Selector, Per-ClusterQueue priority queues) are deferred to [Future Work](FUTURE_WORK.md).
+In the initial iteration, to allow seamless integration with existing logic, configurable preemption candidates are appended after the classical/fair sharing preemption candidates (see [Integration](#integration)). Configurable candidates use the default ordering rules for classical preemption and fair sharing. Configurable candidate ordering and advanced candidate organization (such as Per-Selector, Per-ClusterQueue priority queues) are deferred to [Future Work](FUTURE_WORK.md).
 
 The **PreemptionConfig** object is a cluster-wide resource that can be referenced by multiple ClusterQueues.
 
