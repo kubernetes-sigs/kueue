@@ -425,7 +425,7 @@ Requested functionalities from the community can be satisfied with the following
                comparison: "LessThan"
              priorityClassSelector:
                matchExpressions:
-                 - type: "Name"
+                 - property: "Name"
                    operator: In
                    values:
                      - "batch-low"
@@ -446,7 +446,7 @@ Requested functionalities from the community can be satisfied with the following
              quota: "BorrowingCapacityFromPreemptor"
              priorityClassSelector:
                matchExpressions:
-                 - type: "Name"
+                 - property: "Name"
                    operator: In
                    values:
                      - "batch-low"
@@ -872,15 +872,15 @@ type PreemptionConfigPriorityClassSelector struct {
   MatchExpressions []PriorityClassSelectorRequirement `json:"matchExpressions,omitempty"`
 }
 
-// PriorityClassSelectorRequirement is a selector that contains a type, an operator,
+// PriorityClassSelectorRequirement is a selector that contains a property, an operator,
 // and values that the operator relates to the selected property.
 type PriorityClassSelectorRequirement struct {
-  // type specifies what the selector requirement matches against (e.g., priority class name).
+  // property specifies the property of the priority class reference that the selector requirement matches against.
   // Defaults to "Name" (matching Workload.spec.priorityClassRef.name).
   //
   // +optional
   // +kubebuilder:default="Name"
-  Type *PriorityClassSelectorType `json:"type,omitempty"`
+  Property *PriorityClassSelectorProperty `json:"property,omitempty"`
 
   // operator represents the selected property's relationship to a set of values.
   // Valid operators are In and NotIn.
@@ -888,7 +888,7 @@ type PriorityClassSelectorRequirement struct {
   // +required
   Operator PriorityClassSelectorOperator `json:"operator,omitempty"`
 
-  // values is an array of values for the selected type.
+  // values is an array of values for the selected property.
   // For In, a workload matches only if the selected priority class property equals any value in this list
   // (workloads without a priorityClassRef do not match).
   // For NotIn, a workload matches only if the selected priority class property does not equal any value
@@ -904,16 +904,16 @@ type PriorityClassSelectorRequirement struct {
   Values []string `json:"values,omitempty"`
 }
 
-// PriorityClassSelectorType defines the match type of a PriorityClassSelectorRequirement.
+// PriorityClassSelectorProperty defines the property of a PriorityClassSelectorRequirement.
 // +kubebuilder:validation:Enum=Name
-type PriorityClassSelectorType string
+type PriorityClassSelectorProperty string
 
 const (
-  // PriorityClassSelectorTypeName matches the priority class name (Workload.spec.priorityClassRef.name).
+  // PriorityClassSelectorPropertyName matches the priority class name (Workload.spec.priorityClassRef.name).
   // When WorkloadPriorityClassDefaulting is enabled and a "default" WorkloadPriorityClass exists,
   // or when a globalDefault Pod PriorityClass is configured, its name (e.g., "default") can be used
   // to match or exclude workloads that do not explicitly specify a priority class.
-  PriorityClassSelectorTypeName PriorityClassSelectorType = "Name"
+  PriorityClassSelectorPropertyName PriorityClassSelectorProperty = "Name"
 )
 
 // PriorityClassSelectorOperator is the set of operators that can be used in a PriorityClassSelectorRequirement.
@@ -1160,7 +1160,7 @@ Why should this KEP _not_ be implemented?
 
 ### Priority Class Selectors
 
-Instead of matching `Workload.spec.priorityClassRef` directly via `PreemptionConfigPriorityClassSelector` (`matchExpressions` with `type`, `operator`, and `values`) as a sibling field to `priority`, the following alternatives were considered for filtering workloads by priority tier:
+Instead of matching `Workload.spec.priorityClassRef` directly via `PreemptionConfigPriorityClassSelector` (`matchExpressions` with `property`, `operator`, and `values`) as a sibling field to `priority`, the following alternatives were considered for filtering workloads by priority tier:
 
 1. **Workload `labelSelector` (Alpha Workaround)**:
    Filtering candidates via `labelSelector` matching `kueue.x-k8s.io/priority-class`.
