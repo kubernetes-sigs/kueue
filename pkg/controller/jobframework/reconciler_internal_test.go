@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -269,7 +270,7 @@ func TestGetPodSetsInfoFromStatusAdmissionCheckPodSetUpdates(t *testing.T) {
 		wl                  *kueue.Workload
 		objs                []client.Object
 		want                []podset.PodSetInfo
-		wantErr             bool
+		wantErr             string
 	}{
 		"uses the Workload admission checks when ConcurrentAdmission is disabled": {
 			wl:   baseWl.Clone().AdmissionCheck(provisioningCheckState("wl-pr")).Obj(),
@@ -283,7 +284,7 @@ func TestGetPodSetsInfoFromStatusAdmissionCheckPodSetUpdates(t *testing.T) {
 		"fails when the Parent has no Variants": {
 			concurrentAdmission: true,
 			wl:                  parentWl.Clone().Obj(),
-			wantErr:             true,
+			wantErr:             "no admitted variant matches",
 		},
 		"uses the admission checks of the admitted Variant matching the Parent admission": {
 			concurrentAdmission: true,
@@ -311,7 +312,7 @@ func TestGetPodSetsInfoFromStatusAdmissionCheckPodSetUpdates(t *testing.T) {
 					AdmissionCheck(provisioningCheckState("wl-on-demand-pr")).
 					Obj(),
 			},
-			wantErr: true,
+			wantErr: "no admitted variant matches",
 		},
 	}
 	for name, tc := range cases {
@@ -327,8 +328,12 @@ func TestGetPodSetsInfoFromStatusAdmissionCheckPodSetUpdates(t *testing.T) {
 				Build()
 
 			got, err := getPodSetsInfoFromStatus(t.Context(), cl, tc.wl, false)
-			if (err != nil) != tc.wantErr {
-				t.Fatalf("getPodSetsInfoFromStatus() error = %v, wantErr %v", err, tc.wantErr)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatalf("getPodSetsInfoFromStatus() unexpected error: %v", err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("getPodSetsInfoFromStatus() error = %v, want error containing %q", err, tc.wantErr)
 			}
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("PodSetsInfo mismatch (-want,+got):\n%s", diff)
