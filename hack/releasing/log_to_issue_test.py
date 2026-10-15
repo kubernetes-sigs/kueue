@@ -112,6 +112,18 @@ class MainTest(unittest.TestCase):
                 self.assertEqual(len(checked_lines(out)), want_checked)
                 self.assertIn("Command: /tag-release", out)
 
+    def test_latest_entry_is_on_top(self) -> None:
+        body = self.run_main({"INPUT_COMMAND": "tag-release"})
+        body = self.run_main({"INPUT_COMMAND": "publish-release", "ISSUE_BODY": body})
+        self.assertLess(body.index("### Publish release"), body.index("### Tag release"))
+
+        # Re-running a command moves its entry to the top and archives the old one in history.
+        body = self.run_main({"INPUT_COMMAND": "tag-release", "ISSUE_BODY": body})
+        self.assertLess(body.index("### Tag release"), body.index("### Publish release"))
+        self.assertLess(body.index("### Publish release"), body.index("### History"))
+        self.assertIn("<summary><b>Tag release history</b></summary>", body)
+        self.assertEqual(body.count("### Tag release"), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
