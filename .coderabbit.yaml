@@ -55,6 +55,162 @@ reviews:
 
     If the user-facing impact cannot be determined, state that instead of guessing.
 
+  suggested_reviewers: true
+  auto_assign_reviewers: true
+  suggested_reviewers_instructions:
+    - reviewers:
+        - handle: mbobrovskyi
+          type: user
+      instructions: "Suggest when the PR modifies files under .github/workflows/**"
+
+    - reviewers:
+        - handle: mbobrovskyi
+          type: user
+        - handle: Singularity23x0
+          type: user
+      instructions: "Suggest when the PR modifies files under CHANGELOG/**"
+
+    - reviewers:
+        - handle: j-skiba
+          type: user
+        - handle: mimowo
+          type: user
+        - handle: sohankunkerkar
+          type: user
+        - handle: tenzen-y
+          type: user
+      instructions: "Suggest when the PR modifies files under cmd/experimental/kueue-populator/**"
+
+    - reviewers:
+        - handle: amy
+          type: user
+        - handle: kannon92
+          type: user
+        - handle: pbundyra
+          type: user
+      instructions: "Suggest when the PR modifies files under cmd/experimental/skills/**"
+
+    - reviewers:
+        - handle: akram
+          type: user
+        - handle: mimowo
+          type: user
+        - handle: sohankunkerkar
+          type: user
+        - handle: tenzen-y
+          type: user
+      instructions: "Suggest when the PR modifies files under cmd/kueueviz/**"
+
+    - reviewers:
+        - handle: mbobrovskyi
+          type: user
+        - handle: pbundyra
+          type: user
+      instructions: "Suggest when the PR modifies files under hack/releasing/krew-release-bot/**"
+
+    - reviewers:
+        - handle: mbobrovskyi
+          type: user
+        - handle: olekzabl
+          type: user
+        - handle: pbundyra
+          type: user
+      instructions: "Suggest when the PR modifies files under hack/testing/**"
+
+    - reviewers:
+        - handle: mimowo
+          type: user
+        - handle: sohankunkerkar
+          type: user
+        - handle: tenzen-y
+          type: user
+      instructions: "Suggest when the PR modifies files under hack/tools/yaml-processor/**"
+
+    - reviewers:
+        - handle: mbobrovskyi
+          type: user
+      instructions: "Suggest when the PR modifies files under hack/** excluding hack/releasing/krew-release-bot/**, hack/testing/**, and hack/tools/yaml-processor/**"
+
+    - reviewers:
+        - handle: kannon92
+          type: user
+      instructions: "Suggest when the PR modifies files under pkg/config/** or pkg/util/tlsconfig/**"
+
+    - reviewers:
+        - handle: olekzabl
+          type: user
+      instructions: "Suggest when the PR modifies files under pkg/controller/admissionchecks/multikueue/**"
+
+    - reviewers:
+        - handle: mbobrovskyi
+          type: user
+        - handle: olekzabl
+          type: user
+        - handle: pbundyra
+          type: user
+      instructions: "Suggest when the PR modifies files under pkg/util/testing/** or pkg/util/testingjobs/**"
+
+    - reviewers:
+        - handle: my-git9
+          type: user
+        - handle: windsonsea
+          type: user
+      instructions: "Suggest when the PR modifies files under site/content/zh-CN/**"
+
+    - reviewers:
+        - handle: kannon92
+          type: user
+        - handle: mbobrovskyi
+          type: user
+        - handle: moficodes
+          type: user
+        - handle: Singularity23x0
+          type: user
+      instructions: "Suggest when the PR modifies files under site/** excluding site/content/zh-CN/**"
+
+    - reviewers:
+        - handle: akram
+          type: user
+        - handle: mbobrovskyi
+          type: user
+        - handle: olekzabl
+          type: user
+        - handle: pbundyra
+          type: user
+      instructions: "Suggest when the PR modifies files under test/e2e/kueueviz/**"
+
+    - reviewers:
+        - handle: mbobrovskyi
+          type: user
+        - handle: olekzabl
+          type: user
+        - handle: pbundyra
+          type: user
+      instructions: "Suggest when the PR modifies files under test/** excluding test/e2e/kueueviz/**"
+
+    - reviewers:
+        - handle: amy
+          type: user
+        - handle: kannon92
+          type: user
+        - handle: kshalot
+          type: user
+        - handle: mbobrovskyi
+          type: user
+        - handle: mimowo
+          type: user
+        - handle: olekzabl
+          type: user
+        - handle: pajakd
+          type: user
+        - handle: pbundyra
+          type: user
+        - handle: sohankunkerkar
+          type: user
+        - handle: tenzen-y
+          type: user
+      instructions: "Fallback rule: suggest when the PR modifies files outside the specific subdirectories listed above (such as apis/**, charts/**, config/**, keps/**, cmd/**, or pkg/**)"
+
   path_filters:
     - "!client-go/**"
     - "!**/*_generated*.go"
