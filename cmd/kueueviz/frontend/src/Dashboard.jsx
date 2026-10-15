@@ -26,6 +26,10 @@ import { AccessTime, Check, CheckBox, CheckCircle } from '@mui/icons-material';
 import ErrorMessage from './ErrorMessage';
 import UsageBar, { aggregateResourceForQueue, discoverResourceNames, formatResourceValue } from './UsageBar';
 
+// Matches the preemptor workload UID in an eviction message, which Kueue
+// writes as "(UID: <workload-uid>, JobUID: <job-uid>)".
+export const PREEMPTOR_UID_PATTERN = /\(UID: ([0-9a-fA-F-]+)/;
+
 const Dashboard = () => {
   const [queues, setQueues] = useState([]);
   const [clusterQueues, setClusterQueues] = useState([]);
@@ -103,9 +107,7 @@ const Dashboard = () => {
 
     const preemptedText = `${preemptedCondition.type}: ${preemptedCondition.message || ""}`;
 
-    // Match UID pattern in the message
-    const uidPattern = /\(UID: ([0-9a-fA-F-]+)\)/;
-    const parts = preemptedText.split(uidPattern);
+    const parts = preemptedText.split(PREEMPTOR_UID_PATTERN);
 
     return (
       <Tooltip
@@ -113,7 +115,7 @@ const Dashboard = () => {
           parts.map((part, index) => (
             workloadsByUid[part] ? (
               <Link key={index} to={`/workload/${workloadsByUid[part]}`}>
-                (UID: {part})
+                (UID: {part}
               </Link>
             ) : (
               <span key={index}>{part}</span>
