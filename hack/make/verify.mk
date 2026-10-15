@@ -111,7 +111,7 @@ verify-checks: export GOMAXPROCS = $(VERIFY_GOMAXPROCS)
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-make-failure-summary verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-make-failure-summary verify-unit-coverage-auth-re verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -297,6 +297,10 @@ verify-unit-test-selection: ## Validate unit-test selection and sharding without
 .PHONY: verify-make-failure-summary
 verify-make-failure-summary: ## Validate the verify failure summary.
 	bash $(PROJECT_DIR)/hack/testing/make-failure-summary_test.sh
+
+.PHONY: verify-unit-coverage-auth-re
+verify-unit-coverage-auth-re: ## Check the unit-coverage auth skip regex.
+	bash $(PROJECT_DIR)/hack/testing/unit-coverage-auth-re_test.sh
 
 .PHONY: verify-generation-order
 verify-generation-order: ## Validate generation barriers and overlap without compiling Go.
