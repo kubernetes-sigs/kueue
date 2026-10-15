@@ -1040,6 +1040,290 @@ func TestReconcileDRA(t *testing.T) {
 			wantErrorMsg: "failed to list ResourceSlices",
 			wantEvents:   nil,
 		},
+		"reconcile DRA rejected when DRA disabled does not emit duplicate event when only Requeued changes": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                    false,
+				features.KueueDRARejectWorkloadsWhenDRADisabled: true,
+				features.MultiKueueOrchestratedPreemption:       false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadReactivated,
+					Message: "The workload was reactivated",
+				}).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpus", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadRequeued,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadInadmissible,
+					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				}).
+				Obj(),
+			wantEvents: nil,
+		},
+		"reconcile DRA rejected when DRA disabled does not emit duplicate event after a spec update": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                    false,
+				features.KueueDRARejectWorkloadsWhenDRADisabled: true,
+				features.MultiKueueOrchestratedPreemption:       false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
+				Generation(2).
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:            "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+					ObservedGeneration: 1,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+					Message:            "The workload has no reservation",
+					ObservedGeneration: 1,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadRequeued,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadInadmissible,
+					Message:            "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+					ObservedGeneration: 1,
+				}).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpus", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaimTemplate", "ns").
+				Generation(2).
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:            "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+					ObservedGeneration: 2,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+					Message:            "The workload has no reservation",
+					ObservedGeneration: 2,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadRequeued,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadInadmissible,
+					Message:            "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+					ObservedGeneration: 2,
+				}).
+				Obj(),
+			wantEvents: nil,
+		},
+		"reconcile DRA ResourceClaim already rejected does not emit duplicate event after a spec update": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:              true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
+				Generation(2).
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaim("gpu", "rc1").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:            "KueueDRAIntegration feature does not support use of resource claims",
+					ObservedGeneration: 1,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+					Message:            "The workload has no reservation",
+					ObservedGeneration: 1,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadRequeued,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadInadmissible,
+					Message:            "DRA resource claims not supported",
+					ObservedGeneration: 1,
+				}).
+				Obj(),
+			resourceClaims: []*resourcev1.ResourceClaim{
+				utiltesting.MakeResourceClaim("rc1", "ns").
+					DeviceRequest("", "gpu.example.com", 1).
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpus", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlWithDRAResourceClaim", "ns").
+				Generation(2).
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaim("gpu", "rc1").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:            "KueueDRAIntegration feature does not support use of resource claims",
+					ObservedGeneration: 2,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+					Message:            "The workload has no reservation",
+					ObservedGeneration: 2,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadRequeued,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadInadmissible,
+					Message:            "DRA resource claims not supported",
+					ObservedGeneration: 2,
+				}).
+				Obj(),
+			wantEvents: nil,
+		},
+		"reconcile DRA firstAvailable alternatives of different counts does not emit duplicate event after a spec update": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:                true,
+				features.KueueDRAIntegrationPrioritizedList: true,
+				features.MultiKueueOrchestratedPreemption:   false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlWithUnequalFirstAvailable", "ns").
+				Generation(2).
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
+					Message:            "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
+					ObservedGeneration: 1,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+					Message:            "The workload has no reservation",
+					ObservedGeneration: 1,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadRequeued,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadDRAResourcesUnresolved,
+					Message:            "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
+					ObservedGeneration: 1,
+				}).
+				Obj(),
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequests(testingdra.MakeFirstAvailableRequest("gpu",
+						testingdra.MakeDeviceSubRequest("a", "gpu.example.com", 1).Obj(),
+						testingdra.MakeDeviceSubRequest("b", "gpu-class", 2).Obj(),
+					).Obj()).
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpu", "2").Obj(),
+				).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlWithUnequalFirstAvailable", "ns").
+				Generation(2).
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved,
+					Message:            "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
+					ObservedGeneration: 2,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+					Message:            "The workload has no reservation",
+					ObservedGeneration: 2,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadRequeued,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadDRAResourcesUnresolved,
+					Message:            "spec.podSets[0].template.spec.resourceClaims[0].devices.requests[0].firstAvailable[1].count: Invalid value: 2: ResourceClaimTemplate gpu-template: every alternative must have count 1, this one has 2",
+					ObservedGeneration: 2,
+				}).
+				Obj(),
+			wantEvents: nil,
+		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)
 }

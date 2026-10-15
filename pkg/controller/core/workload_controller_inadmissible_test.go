@@ -942,6 +942,47 @@ func TestReconcileInadmissible(t *testing.T) {
 				Obj(),
 			wantEvents: nil,
 		},
+		"should not emit duplicate event after a spec update if quota not reserved LocalQueue is not created and QuotaReserved is already Misconfigured": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Generation(2).
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:            "LocalQueue lq doesn't exist",
+					ObservedGeneration: 1,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+					Message:            "The workload has no reservation",
+					ObservedGeneration: 1,
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Generation(2).
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadQuotaReserved,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:            "LocalQueue lq doesn't exist",
+					ObservedGeneration: 2,
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+					Message:            "The workload has no reservation",
+					ObservedGeneration: 2,
+				}).
+				Obj(),
+			wantEvents: nil,
+		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)
 }
