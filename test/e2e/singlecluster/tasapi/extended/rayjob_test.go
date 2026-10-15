@@ -170,11 +170,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for RayJob", ginkgo.Ordered, gi
 						},
 						RestartPolicy: corev1.RestartPolicyNever,
 					},
-					ObjectMeta: metav1.ObjectMeta{
-						Annotations: map[string]string{
-							kueue.PodSetRequiredTopologyAnnotation: utiltesting.DefaultBlockTopologyLevel,
-						},
-					},
 				}).
 				Image(rayv1.HeadNode, kuberayTestImage).
 				Image(rayv1.WorkerNode, kuberayTestImage).
