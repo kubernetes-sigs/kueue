@@ -941,6 +941,8 @@ func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 			if len(initialAlpha) == 0 {
 				t.Fatal("Expected pending workload metric with custom_team_cq=alpha")
 			}
+			cqRef := kueue.ClusterQueueReference(cq.Name)
+			metrics.AdmittedWorkload(cqRef, "", time.Second, cLabels.CQGet(cqRef), nil)
 
 			req := ctrl.Request{Name: cq.Name}
 			updateEvt := event.TypedUpdateEvent[*kueue.ClusterQueue]{ObjectOld: cq, ObjectNew: updatedCQ}
@@ -977,6 +979,15 @@ func TestClusterQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 			})
 			if len(gotBeta) == 0 {
 				t.Errorf("Expected custom_team_cq=beta series to be reported")
+			}
+
+			// Counters and histograms keep their history under the old value
+			alphaLabels := map[string]string{"cluster_queue": cq.Name, "custom_team_cq": "alpha"}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.AdmittedWorkloadsTotal, alphaLabels); len(got) != 1 {
+				t.Errorf("Expected admitted workloads counter with custom_team_cq=alpha to be kept, got %v", got)
+			}
+			if got := testingmetrics.CollectFilteredGaugeVec(metrics.AdmissionWaitTime, alphaLabels); len(got) != 1 {
+				t.Errorf("Expected admission wait time histogram with custom_team_cq=alpha to be kept, got %v", got)
 			}
 		})
 	}

@@ -1362,10 +1362,21 @@ func ClearPendingWorkloads(cqName kueue.ClusterQueueReference, pendingStatus str
 	PendingWorkloads.DeleteLabelValues(labels...)
 }
 
+// ClearClusterQueueGaugeMetrics removes the cluster_queue-scoped gauges for cq.
+// Cache and resource gauges are cleared by ClearCacheMetrics and
+// ClearClusterQueueResourceMetrics. Counters and histograms are left intact
+// because they cannot be re-recorded from cache state.
+func ClearClusterQueueGaugeMetrics(cq kueue.ClusterQueueReference) {
+	clearScopedGaugeMetrics(gaugeCleanupScopeClusterQueue, prometheus.Labels{"cluster_queue": string(cq)})
+}
+
+// ClearClusterQueueMetrics removes the cluster_queue-scoped gauges and all
+// counters and histograms for cq. Counters and histograms cannot be
+// re-recorded, so on a custom label change use ClearClusterQueueGaugeMetrics
+// instead.
 func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	cqName := string(cq)
-	// Clears all cluster_queue-scoped gauges for cqName.
-	clearScopedGaugeMetrics(gaugeCleanupScopeClusterQueue, prometheus.Labels{"cluster_queue": cqName})
+	ClearClusterQueueGaugeMetrics(cq)
 	QuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	QuotaReservedWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	FinishedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})

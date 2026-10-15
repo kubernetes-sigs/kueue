@@ -458,6 +458,46 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			ginkgo.By("verifying LQ admitted metric includes custom_team=infra")
 			behavioral.ExpectLQAdmittedWorkloadsTotalMetric(lq, "", 1, "infra")
 		})
+
+		// Lives in this block because it needs the scheduler to admit a workload
+		// so that the admitted counter exists before the label change.
+		ginkgo.It("should preserve ClusterQueue counter metrics on label value change", func() {
+			cq = utiltestingapi.MakeClusterQueue("cq-counter").
+				Label("team", "infra").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(defaultFlavor.Name).
+						Resource(corev1.ResourceCPU, "5").
+						Obj(),
+				).Obj()
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+			lq := utiltestingapi.MakeLocalQueue("lq-counter", ns.Name).
+				ClusterQueue(cq.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+
+			wl := utiltestingapi.MakeWorkload("wl-counter", ns.Name).
+				Queue(kueue.LocalQueueName(lq.Name)).
+				Request(corev1.ResourceCPU, "1").Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			ginkgo.By("verifying CQ admitted counter and status gauge include custom_team=infra")
+			behavioral.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1, "infra")
+			behavioral.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive, "infra")
+
+			ginkgo.By("updating CQ label to team=platform")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedCQ kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCQ)).To(gomega.Succeed())
+				updatedCQ.Labels["team"] = "platform"
+				g.Expect(k8sClient.Update(ctx, &updatedCQ)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("verifying CQ status gauge moves to custom_team=platform, which shows the resync ran")
+			behavioral.ExpectClusterQueueStatusMetric(cq, metrics.CQStatusActive, "platform")
+
+			ginkgo.By("verifying the admitted counter keeps its history under custom_team=infra")
+			behavioral.ExpectAdmittedWorkloadsTotalMetric(cq, "", 1, "infra")
+		})
 	})
 
 	ginkgo.When("CustomMetricLabels and LocalQueueMetrics enabled with scheduler for LQ metrics", func() {
