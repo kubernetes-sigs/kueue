@@ -540,16 +540,16 @@ func assignGatedPodsToDomainsGreedy(
 }
 
 // readRanksIfAvailable returns false when the pods cannot be placed by their ranks.
-// With allowRanksWithoutDomain, a pod whose rank has no domain in the topology
-// assignment is still returned rather than making the whole PodSet fall back to
-// greedy assignment.
+// With lendFreeCapacity, neither a pod whose rank has no domain in the topology
+// assignment nor an ungated pod outside its rank's domain makes the whole PodSet
+// fall back to greedy assignment.
 func readRanksIfAvailable(log logr.Logger,
 	psa *kueue.PodSetAssignment,
 	pods []*corev1.Pod,
 	psReq *kueue.PodSetTopologyRequest,
 	offset int32,
 	rankToDomainID []utiltas.TopologyDomainID,
-	allowRanksWithoutDomain bool) (map[int]*corev1.Pod, bool) {
+	lendFreeCapacity bool) (map[int]*corev1.Pod, bool) {
 	if psReq == nil || psReq.PodIndexLabel == nil {
 		return nil, false
 	}
@@ -567,7 +567,7 @@ func readRanksIfAvailable(log logr.Logger,
 	}
 
 	for rank, pod := range result {
-		if allowRanksWithoutDomain && rank >= len(rankToDomainID) {
+		if lendFreeCapacity && rank >= len(rankToDomainID) {
 			continue
 		}
 		if rank >= int(*psa.Count) || rank >= len(rankToDomainID) {
@@ -578,7 +578,10 @@ func readRanksIfAvailable(log logr.Logger,
 				"pod", klog.KObj(pod), "rank", rank, "podSetCount", *psa.Count, "assignedPodCount", len(rankToDomainID))
 			return nil, false
 		}
-		if utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
+		// Lending ungates a pod into another rank's domain when its own domain is full,
+		// and it counts free capacity from where the ungated pods run, so it does not
+		// need them in their ranks' domains.
+		if lendFreeCapacity || utilpod.HasGate(pod, kueue.TopologySchedulingGate) {
 			continue
 		}
 		expectedDomainID := rankToDomainID[rank]
