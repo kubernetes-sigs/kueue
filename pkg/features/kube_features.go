@@ -804,9 +804,6 @@ const (
 	// Runs the first strategy again for fair preemption algorithm if DRS was decreased
 	// during processing. This allows to preempt more workloads if first run missed some
 	// candidates because of previously high DRS, preemptions are still fair.
-	//
-	// Note: This feature can be promoted to "beta" once https://github.com/kubernetes-sigs/kueue/issues/14543
-	// is fixed because it might boost chances for issue #14543 to appear.
 	FairSharingReevaluatePreemptionCandidates featuregate.Feature = "FairSharingReevaluatePreemptionCandidates"
 
 	// owner: @j-skiba
@@ -1328,6 +1325,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	FairSharingReevaluatePreemptionCandidates: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	DynamicQuotaOrchestration: {
