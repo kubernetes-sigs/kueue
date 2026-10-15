@@ -502,8 +502,12 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// except for two cases (in which we'll update the remote workload accorddingly):
 	// - elastic workloads which have been scaled down
 	// - workloads for which workload priority has changed
+	// Skipped while the local workload is evicted: the worker sets spec.active=false
+	// before it reports Evicted, and deleting the remote in that window loses the
+	// status the local job needs to finish the eviction. Step 2 removes it once
+	// the quota is released.
 	for rem, remWl := range group.remotes {
-		if remWl != nil && isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) {
+		if remWl != nil && !workloadevict.IsEvicted(group.local) && isRemoteSpecOutOfSync(group.local.Spec, remWl.Spec) {
 			var remotePreemptionGates []kueue.PreemptionGate
 			if features.Enabled(features.MultiKueueOrchestratedPreemption) {
 				remotePreemptionGates = remWl.Spec.PreemptionGates
