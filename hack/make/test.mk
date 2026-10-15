@@ -246,9 +246,17 @@ test-multikueue-e2e-sequential-shard-0: test-multikueue-e2e-sequential
 test-multikueue-e2e-sequential-shard-1: GINKGO_ARGS=--label-filter=shard-1
 test-multikueue-e2e-sequential-shard-1: test-multikueue-e2e-sequential
 
-.PHONY: test-multikueue-e2e-helm
-test-multikueue-e2e-helm: E2E_USE_HELM=true
-test-multikueue-e2e-helm: test-multikueue-e2e
+.PHONY: test-multikueue-e2e-baseline-helm
+test-multikueue-e2e-baseline-helm: E2E_USE_HELM=true
+test-multikueue-e2e-baseline-helm: test-multikueue-e2e-baseline
+
+.PHONY: test-multikueue-e2e-extended-helm
+test-multikueue-e2e-extended-helm: E2E_USE_HELM=true
+test-multikueue-e2e-extended-helm: test-multikueue-e2e-extended
+
+.PHONY: test-multikueue-e2e-sequential-helm
+test-multikueue-e2e-sequential-helm: E2E_USE_HELM=true
+test-multikueue-e2e-sequential-helm: test-multikueue-e2e-sequential
 
 # Assign Shard 0 variables to all parent suites AND all shard-0 targets
 TEST_E2E_SHARD_0_TARGETS := test-e2e-extended test-e2e-extended-shard-0 test-tas-e2e-extended test-tas-e2e-extended-shard-0
