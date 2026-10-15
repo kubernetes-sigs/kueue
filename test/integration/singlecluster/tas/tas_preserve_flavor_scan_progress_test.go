@@ -20,6 +20,7 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	eventsv1 "k8s.io/api/events/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -29,6 +30,7 @@ import (
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
@@ -262,6 +264,20 @@ var _ = ginkgo.Describe("Topology Aware Scheduling preserving flavor scan progre
 					Obj()).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, pending)
+		})
+
+		ginkgo.By("verifying the scheduler attempted flavor 2 and recorded TAS placement failure", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var events []eventsv1.Event
+				var err error
+				events, err = behavioral.EventsForObject(ctx, k8sClient, client.ObjectKeyFromObject(pending))
+				g.Expect(err).ShouldNot(gomega.HaveOccurred())
+				g.Expect(events).Should(gomega.ContainElement(gomega.And(
+					gomega.HaveField("Type", corev1.EventTypeWarning),
+					gomega.HaveField("Reason", workload.UnadmittedWorkloadReasonWithFallback(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed, "Pending")),
+					gomega.HaveField("Note", gomega.ContainSubstring("no topology domains at level: kubernetes.io/hostname")),
+				)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("verifying the filler is preempted and the pending workload is admitted on the first flavor", func() {
