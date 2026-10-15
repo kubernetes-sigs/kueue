@@ -463,23 +463,19 @@ func parseStrategies(fs *config.FairSharing) []fairsharing.Strategy {
 // returns true the per-candidate simulation in iterateWithFirstFsStrategy can
 // be skipped, because every candidate is guaranteed to fail.
 //
-// A DominantResourceShare of +Inf has two cases. The first is when the node
-// borrows while having a fair weight of 0, which the API defines as an infinite
-// The second is when the node has a positive borrowing while the lendable
-// capacity is 0.
-// CompareDRS ranks such a zero-weight borrower above every node that is not
-// itself borrowing on a zero weight, so it returns 1. Both fair sharing
-// strategies require the comparison to be <= 0 or < 0, so both fail:
+// A borrowing node with a fair weight of 0 has an infinite share, as the API
+// defines it. A node with a positive weight can have an infinite share too,
+// but CompareDRS ranks a zero-weight borrower above every node that is not
+// one, so it returns 1. Both fair sharing strategies require the comparison
+// to be <= 0 or < 0, so both fail:
 //
 //   - LessThanInitialShare compares against targetOldShare directly, which
 //     this function already has.
 //   - LessThanOrEqualToFinalShare compares against the target's share after
 //     the candidate's usage is removed. Removing usage never changes the
-//     target node's fair weight, and the lendable capacity the usage is
-//     compared against is derived from quota alone, so the target's share
-//     after removal is at most its share before removal or +Inf if it is a
-//     zero-weight borrower. A target that is not a zero-weight borrower
-//     therefore cannot become one after removal, and CompareDRS still returns 1.
+//     target node's fair weight and never makes it start borrowing, so a
+//     target that is not a zero-weight borrower before removal is not one
+//     after removal either, and CompareDRS returns 1 for it as well.
 func fsStrategyUnsatisfiable(preemptorNewShare fairsharing.PreemptorNewShare, targetOldShare fairsharing.TargetOldShare) bool {
 	return schdcache.DRS(preemptorNewShare).ZeroWeightBorrows() &&
 		!schdcache.DRS(targetOldShare).ZeroWeightBorrows()
