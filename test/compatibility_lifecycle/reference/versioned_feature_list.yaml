@@ -33,6 +33,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+- name: ClassicalPreemptionCandidateOrderCache
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: CleanupProvisioningRequestsOnEviction
   versionedSpecs:
   - default: true
