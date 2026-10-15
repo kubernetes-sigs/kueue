@@ -23,7 +23,7 @@ tags, build the mdtoc tool with `make mdtoc` and then generate the TOC with `hac
   - [Non-Goals](#non-goals)
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
-    - [Story 1 - Safe rollout of experimental PreemptionConfig or new preemption rule](#story-1---safe-rollout-of-experimental-preemptionconfig-or-new-preemption-rule)
+    - [Story 1 - Safe rollout of experimental PreemptionConfig (or new preemption rule in the future)](#story-1---safe-rollout-of-experimental-preemptionconfig-or-new-preemption-rule-in-the-future)
     - [Story 2 - Protecting a workload from too many disruptions](#story-2---protecting-a-workload-from-too-many-disruptions)
     - [Story 3 - Global Preemption Rate Limiting](#story-3---global-preemption-rate-limiting)
     - [Story 4 - Protecting a Mission-Critical ClusterQueue from Preemption](#story-4---protecting-a-mission-critical-clusterqueue-from-preemption)
@@ -32,6 +32,8 @@ tags, build the mdtoc tool with `make mdtoc` and then generate the TOC with `hac
     - [Performance degradation](#performance-degradation)
     - [Security considerations](#security-considerations)
 - [Design Details](#design-details)
+  - [Proposed API](#proposed-api)
+  - [API Semantics &amp; Implementation Details](#api-semantics--implementation-details)
   - [Observability](#observability)
   - [Test Plan](#test-plan)
     - [Unit tests](#unit-tests)
@@ -105,7 +107,7 @@ While `PreemptionConfig` provides declarative candidate selection policies, clus
 
 ## Proposal
 
-This KEP proposes a new preemption rate limiting mechanism - for now supported only in Configurable Preemptions, but it can be extened also to the classic or fair sharing preemptions in the future.
+This KEP proposes a new preemption rate limiting mechanism - for now supported only in Configurable Preemptions, but it can be extened also to the classic or fair sharing preemptions in the future. If the `ConfigurablePreemptionLimits` feature gate is disabled, Configurable Preemptions will not be limited according to the limits defined in the system.
 
 Relevant capabilities include:
 
@@ -116,9 +118,9 @@ Relevant capabilities include:
 
 ### User Stories
 
-#### Story 1 - Safe rollout of experimental PreemptionConfig or new preemption rule
+#### Story 1 - Safe rollout of experimental PreemptionConfig (or new preemption rule in the future)
 
-Mistakes in `PreemptionConfigs` can lead to serious consequences like mass evictions or cluster instability. By introducing rate-limiting of preemptions connected to a new `PreemptionConfig` or a new rule within existing config, can limit the blast radius of such misconfigurations. Cluster admins can at first set a small limit to a new rule/config and slowly increase it to the desired level, while observing cluster stability.
+Mistakes in `PreemptionConfigs` can lead to serious consequences like mass evictions or cluster instability. By introducing rate-limiting of preemptions connected to a new `PreemptionConfig` or a new rule within existing config (deferred to future work), can limit the blast radius of such misconfigurations. Cluster admins can at first set a small limit to a new config/rule and slowly increase it to the desired level, while observing cluster stability.
 
 ```yaml
 spec:
@@ -141,6 +143,9 @@ spec:
   limitWindowSeconds: 86400
 ```
 
+> [!WARNING]
+> In Alpha, this will protect only from preemptions originating from configurable preemptions.
+
 #### Story 3 - Global Preemption Rate Limiting
 
 Rate-limit global preemptions to at most 10 evictions across the entire cluster in any 5-minute sliding window to avoid too many disruptions in the cluster:
@@ -151,6 +156,9 @@ spec:
   limit: 10
   limitWindowSeconds: 300
 ```
+
+> [!WARNING]
+> In Alpha, this will protect only from preemptions originating from configurable preemptions.
 
 #### Story 4 - Protecting a Mission-Critical ClusterQueue from Preemption
 
@@ -166,12 +174,16 @@ spec:
   limitWindowSeconds: 3600
 ```
 
+> [!WARNING]
+> In Alpha, this will protect only from preemptions originating from configurable preemptions.
+
 ### Caveats
 
 1. **User-managed resource labeling**: As ClusterQueues right now do not have a constrained resource name to 63 characters and Kueue currently does not auto add labels to the Cluster Scope CRDs (K8s does this for Namespaces), this is up to the users to label cluster queues and appropriate preemption configurations themselves. This might be changed in the future to make the user experience better, but remains out of the scope of this KEP.
 2. **Reset on controller restarts**: Preemption events are tracked strictly in-memory within the controller cache and are not persisted in etcd. Consequently, if the Kueue controller restarts (e.g. due to pod restart, failover, or upgrade), preemption limits will be reset, temporarily allowing preemption events up to the configured limit immediately following the restart.
 3. **Increasing time window**: Because expired preemption timestamps are periodically trimmed from the in-memory map based on the active sliding window, if a user updates a `PreemptionLimit` to increase `limitWindowSeconds`, events that occurred prior to the previously configured window will have already been pruned and will not be retroactively taken into account.
 4. **Deleted and recreated objects**: Preemption events are tracked in-memory by entity key (`namespace/name` for Workloads, or name for ClusterQueues) rather than by UID. Consequently, objects in the same namespace and with the same name will be treated as the same object, and preemption limits for them will not be reset if an object is deleted and recreated within the active time window.
+5. **Reset on spec changes to scope or configSelector**: If a `PreemptionLimit` is modified such that its `scope` or `configSelector` changes, its limits are reset by clearing all recorded in-memory preemption event timestamps for that limit.
 
 ### Risks and Mitigations
 
@@ -194,6 +206,7 @@ As preemption limits will be modifiable only by cluster administrators, there ar
 
 ## Design Details
 
+### Proposed API
 `PreemptionLimit` will be introduced as a cluster-scoped CRD:
 
 ```go
@@ -242,7 +255,8 @@ const (
 	// can be preempted within the sliding time window.
 	PreemptedWorkloadLimitScope PreemptionLimitScope = "PreemptedWorkload"
 )
-PreemptionLimitSpec defines the desired state of PreemptionLimit
+
+// PreemptionLimitSpec defines the desired state of PreemptionLimit
 type PreemptionLimitSpec struct {
 	// scope specifies the entity boundary for this preemption limit.
 	//
@@ -313,19 +327,22 @@ type PreemptionLimitCount struct {
 }
 ```
 
-PreemptionLimit limits the number of preemptions that happen for the specified set of rules. The preemption evaluator evaluates proposed preemptions against defined limit objects, allowing them to proceed only if adequate preemption quota remains. If a preemption is in the scope of multiple limits, quota must exist in all of them.
+### API Semantics & Implementation Details
+
+PreemptionLimit limits the number of preemptions that happen for the specified set of rules. The preemption evaluator evaluates proposed preemptions against defined limit objects, allowing them to proceed only if adequate preemption quota remains. If a preemption is in the scope of multiple limits, quota must exist in all of them. If the `ConfigurablePreemptionLimits` feature gate is disabled, Configurable Preemptions will not be limited according to the limits defined in the system.
 To track this, a list of preemption rule names responsible for selecting each candidate must be maintained.
 
 To manage this data, Kueue will store a comprehensive preemption map in memory, isolated per PreemptionLimit. This map tracks all preemption event timestamps under a specific CQ/workload key, capturing events that occurred within the designated `LimitWindowSeconds`. Moreover, it tracks only events that are in the scope of the specific limit; if a preemption does not match the defined config or rules selector, it will not be tracked in that particular instance of the preemption map. This list is periodically trimmed to filter out expired timestamps.
 
 Because tracking is strictly maintained in-memory and periodically trimmed:
 - **Reset on controller restarts**: Events are not persisted in etcd; restarting the Kueue controller resets the in-memory map, so preemption limit counters start fresh from zero.
+- **Reset on spec changes to scope or config selector**: If the `spec` of a `PreemptionLimit` changes its `scope` or `configSelector`, the limits are reset by clearing all recorded in-memory preemption event timestamps for that limit.
 - **Increasing time window**: If `LimitWindowSeconds` is increased, previous preemption events that occurred before the previously active window have already been discarded and will not be taken into account.
 - **Deleted and recreated objects**: Entity keys in the in-memory tracking map are based on `namespace/name` (or name for ClusterQueues) rather than UID; objects in the same namespace with the same name will be treated as the same object, and their limits will not be reset upon deletion and recreation within the sliding window.
 
 Furthermore, the status of the PreemptionLimit is refreshed periodically by a dedicated `PreemptionLimitReconciler` — approximately every minute — to update `lastUpdateTimestamp` and write the aggregated totals into the count map (restricted to the top 1000 counts to fit within CRD size limits).
 
-`PreemptionLimitReconciler` will be responsible for updating an in-memory representation of limits - removing no longer needed recorded preemption limit timestamps from the memory when particular PreemptionLimit is deleted.
+`PreemptionLimitReconciler` will be responsible for updating an in-memory representation of limits — removing no longer needed recorded preemption limit timestamps from memory when a particular `PreemptionLimit` is deleted, and resetting the in-memory limits when a `PreemptionLimit`'s `spec.scope` or `spec.configSelector` changes.
 
 
 ### Observability
@@ -421,16 +438,12 @@ TBD
 
 ## Implementation History
 
-<!--
-Major milestones in the lifecycle of a KEP should be tracked in this section.
-Major milestones might include:
-- the `Summary` and `Motivation` sections being merged, signaling SIG acceptance
-- the `Proposal` section being merged, signaling agreement on a proposed design
-- the date implementation started
-- the first Kubernetes release where an initial version of the KEP was available
-- the version of Kubernetes where the KEP graduated to general availability
-- when the KEP was retired or superseded
--->
+1. v0.21 Implementation of Alpha version of PreemptionLimit CRD and handling of the limits including:
+	- CRD and RBAC for PreemptionLimit.
+	- PreemptionEvaluator updates to respect preemption limits.
+	- Tracking in memory of preemption events.
+	- Reporting of PreemptionLimit Status
+
 
 ## Drawbacks
 
