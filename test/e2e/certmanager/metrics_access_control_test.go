@@ -21,6 +21,7 @@ import (
 	"net"
 	"os"
 	"slices"
+	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -52,6 +53,10 @@ var _ = ginkgo.Describe("Metrics access control", ginkgo.Serial, ginkgo.SpecPrio
 			TerminationGracePeriod(1).Obj()
 		curlPod.Spec.Volumes = []corev1.Volume{{Name: "metrics-certs", Secret: &corev1.SecretVolumeSource{SecretName: certSecretName}}}
 		curlPod.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{{Name: "metrics-certs", MountPath: certMountPath, ReadOnly: true}}
+		// Copy the sidecar before Pod admission adds a token volume mount.
+		sidecar := *curlPod.Spec.Containers[0].DeepCopy()
+		sidecar.Name = "metrics-scraper"
+		sidecar.SecurityContext = &corev1.SecurityContext{RunAsUser: new(int64(65532))}
 		ginkgo.DeferCleanup(func() {
 			behavioral.ExpectObjectToBeDeletedWithTimeout(ctx, k8sClient, curlPod, true, behavioral.LongTimeout)
 		})
@@ -73,6 +78,10 @@ var _ = ginkgo.Describe("Metrics access control", ginkgo.Serial, ginkgo.SpecPrio
 			e2e.UpdateKueueConfiguration(ctx, k8sClient, originalConfig)
 			e2e.UpdateDeploymentAndWaitForProgressing(ctx, k8sClient, deploymentKey, clusterName, func(deployment *appsv1.Deployment) {
 				deployment.Spec = *originalDeployment.Spec.DeepCopy()
+				if deployment.Spec.Template.Annotations == nil {
+					deployment.Spec.Template.Annotations = make(map[string]string)
+				}
+				deployment.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339Nano)
 			})
 			e2e.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
 			expectMetricsToBeAvailable(curlPod.Name, curlContainer, [][]string{{"go_gc_duration_seconds"}})
@@ -87,8 +96,6 @@ var _ = ginkgo.Describe("Metrics access control", ginkgo.Serial, ginkgo.SpecPrio
 			configuration.Metrics.AccessControlMode = new(configapi.MetricsAccessControlModeNone)
 			configuration.Metrics.BindAddress = "127.0.0.1:8443"
 		})
-		sidecar := *curlPod.Spec.Containers[0].DeepCopy()
-		sidecar.Name = "metrics-scraper"
 		e2e.UpdateDeploymentAndWaitForProgressing(ctx, k8sClient, deploymentKey, clusterName, func(deployment *appsv1.Deployment) {
 			deployment.Spec.Template.Spec.Containers = append(deployment.Spec.Template.Spec.Containers, sidecar)
 			if !slices.ContainsFunc(deployment.Spec.Template.Spec.Volumes, func(volume corev1.Volume) bool { return volume.Name == "metrics-certs" }) {
