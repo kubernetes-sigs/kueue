@@ -21,6 +21,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -138,18 +139,22 @@ func newVirtualCPG(name, namespace, topology string, groupCount int32, parent *s
 	return cpg
 }
 
-func podSetCount(wl *kueue.Workload, ps *kueue.PodSet) int32 {
+func podSetCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
+	counts := make(map[kueue.PodSetReference]int32, len(wl.Spec.PodSets))
 	if wl.Status.Admission != nil {
 		for _, psa := range wl.Status.Admission.PodSetAssignments {
-			if psa.Name == ps.Name {
-				if psa.Count != nil {
-					return *psa.Count
-				}
-				return ps.Count
+			if psa.Count != nil {
+				counts[psa.Name] = *psa.Count
 			}
 		}
 	}
-	return ps.Count
+	for i := range wl.Spec.PodSets {
+		ps := &wl.Spec.PodSets[i]
+		if _, ok := counts[ps.Name]; !ok {
+			counts[ps.Name] = ps.Count
+		}
+	}
+	return counts
 }
 
 // BuildVirtualPodGroups constructs the virtual PodGroup and CompositePodGroup hierarchy
@@ -159,79 +164,56 @@ func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error
 		return nil, errors.New("workload must not be nil")
 	}
 
+	counts := podSetCounts(wl)
+
 	var totalPods int64
-	for _, ps := range wl.Spec.PodSets {
-		totalPods += int64(podSetCount(wl, &ps))
+	for i := range wl.Spec.PodSets {
+		totalPods += int64(counts[wl.Spec.PodSets[i].Name])
 	}
 	if totalPods <= 0 {
 		return nil, fmt.Errorf("workload %q has non-positive total pods count %d", wl.Name, totalPods)
 	}
 
-	// 1. Reject unsupported preferred topology
-	for _, ps := range wl.Spec.PodSets {
-		if podSetCount(wl, &ps) == 0 {
+	// 1: Group active PodSets sharing podSetGroupName and reject preferred topology
+	groups := make(map[string][]*kueue.PodSet)
+	var groupOrder []string
+
+	for i := range wl.Spec.PodSets {
+		ps := &wl.Spec.PodSets[i]
+		if counts[ps.Name] == 0 {
 			continue
 		}
-		tr := ps.TopologyRequest
-		if tr == nil {
-			continue
-		}
-		if tr.Preferred != nil {
+		if tr := ps.TopologyRequest; tr != nil && tr.Preferred != nil {
 			return nil, &ErrUnsupportableWorkload{
 				WorkloadName: wl.Name,
 				Reason:       ReasonPreferredTopology,
 				Message:      fmt.Sprintf("podset %q specifies preferred topology", ps.Name),
 			}
 		}
-	}
 
-	podToLeafPG := make(map[string]map[int]string)
-	var allPGs []*schedulingv1alpha3.PodGroup
-	var allCPGs []*schedulingv1alpha3.CompositePodGroup
-	pgMap := make(map[string]*schedulingv1alpha3.PodGroup)
-	cpgMap := make(map[string]*schedulingv1alpha3.CompositePodGroup)
-
-	addPG := func(pg *schedulingv1alpha3.PodGroup) {
-		allPGs = append(allPGs, pg)
-		pgMap[pg.Name] = pg
-	}
-	addCPG := func(cpg *schedulingv1alpha3.CompositePodGroup) {
-		allCPGs = append(allCPGs, cpg)
-		cpgMap[cpg.Name] = cpg
-	}
-
-	// 2: Group PodSets sharing podSetGroupName
-	type podSetGroup struct {
-		name    string
-		podSets []kueue.PodSet
-	}
-	var groups []podSetGroup
-	groupMap := make(map[string]int)
-
-	for _, ps := range wl.Spec.PodSets {
-		if podSetCount(wl, &ps) == 0 {
-			continue
-		}
 		gName := string(ps.Name)
 		if ps.TopologyRequest != nil && ps.TopologyRequest.PodSetGroupName != nil {
 			gName = *ps.TopologyRequest.PodSetGroupName
 		}
-		if idx, ok := groupMap[gName]; ok {
-			groups[idx].podSets = append(groups[idx].podSets, ps)
-		} else {
-			groupMap[gName] = len(groups)
-			groups = append(groups, podSetGroup{name: gName, podSets: []kueue.PodSet{ps}})
+		if _, ok := groups[gName]; !ok {
+			groupOrder = append(groupOrder, gName)
 		}
+		groups[gName] = append(groups[gName], ps)
 	}
+
+	podToLeafPG := make(map[string]map[int]string)
+	pgMap := make(map[string]*schedulingv1alpha3.PodGroup)
+	cpgMap := make(map[string]*schedulingv1alpha3.CompositePodGroup)
 
 	var topLevelGroupNames []string
 
-	// 3: Build hierarchy bottom-up per PodSet group
-	for _, psGroup := range groups {
+	// 2: Build hierarchy bottom-up per PodSet group
+	for _, gName := range groupOrder {
+		podSets := groups[gName]
 		var groupChildNames []string
 
-		for _, ps := range psGroup.podSets {
-			count := podSetCount(wl, &ps)
+		for _, ps := range podSets {
+			count := counts[ps.Name]
 			podSetName := string(ps.Name)
 			podToLeafPG[podSetName] = make(map[int]string)
 			sliceConstraints := utiltas.PodSetSliceRequiredTopologyConstraints(ps.TopologyRequest)
@@ -272,7 +254,7 @@ func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error
 							for p := start; p < end; p++ {
 								podToLeafPG[podSetName][int(p)] = pgName
 							}
-							addPG(newVirtualPG(pgName, wl.Namespace, constraint.Topology, int32(end-start), nil))
+							pgMap[pgName] = newVirtualPG(pgName, wl.Namespace, constraint.Topology, int32(end-start), nil)
 							currentLevelNames = append(currentLevelNames, pgName)
 						}
 					} else {
@@ -296,7 +278,7 @@ func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error
 							for _, child := range currentLevelNames[startChild:endChild] {
 								setParent(pgMap, cpgMap, child, cpgName)
 							}
-							addCPG(newVirtualCPG(cpgName, wl.Namespace, constraint.Topology, int32(endChild-startChild), nil))
+							cpgMap[cpgName] = newVirtualCPG(cpgName, wl.Namespace, constraint.Topology, int32(endChild-startChild), nil)
 							nextLevelNames = append(nextLevelNames, cpgName)
 						}
 						currentLevelNames = nextLevelNames
@@ -310,7 +292,7 @@ func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error
 				for p := range int(count) {
 					podToLeafPG[podSetName][p] = pgName
 				}
-				addPG(newVirtualPG(pgName, wl.Namespace, *ps.TopologyRequest.Required, count, nil))
+				pgMap[pgName] = newVirtualPG(pgName, wl.Namespace, *ps.TopologyRequest.Required, count, nil)
 				groupChildNames = append(groupChildNames, pgName)
 
 			default:
@@ -319,21 +301,21 @@ func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error
 				for p := range int(count) {
 					podToLeafPG[podSetName][p] = pgName
 				}
-				addPG(newVirtualPG(pgName, wl.Namespace, "", count, nil))
+				pgMap[pgName] = newVirtualPG(pgName, wl.Namespace, "", count, nil)
 				groupChildNames = append(groupChildNames, pgName)
 			}
 		}
 
 		// Enclosing CPG for PodSet group if multiple children or slices with required topology
 		var groupTopology string
-		for _, ps := range psGroup.podSets {
+		for _, ps := range podSets {
 			if ps.TopologyRequest != nil && ps.TopologyRequest.Required != nil {
 				groupTopology = *ps.TopologyRequest.Required
 				break
 			}
 		}
 
-		needsEnclosingCPG := len(groupChildNames) > 1 || (len(utiltas.PodSetSliceRequiredTopologyConstraints(psGroup.podSets[0].TopologyRequest)) > 0 && groupTopology != "")
+		needsEnclosingCPG := len(groupChildNames) > 1 || (len(utiltas.PodSetSliceRequiredTopologyConstraints(podSets[0].TopologyRequest)) > 0 && groupTopology != "")
 		if !needsEnclosingCPG && len(groupChildNames) == 1 {
 			topLevelGroupNames = append(topLevelGroupNames, groupChildNames[0])
 		} else if len(groupChildNames) > 0 {
@@ -341,28 +323,37 @@ func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error
 				return nil, &ErrUnsupportableWorkload{
 					WorkloadName: wl.Name,
 					Reason:       ReasonChildLimitExceeded,
-					Message:      fmt.Sprintf("group %q has %d children (max %d)", psGroup.name, len(groupChildNames), maxWASChildrenPerGroup),
+					Message:      fmt.Sprintf("group %q has %d children (max %d)", gName, len(groupChildNames), maxWASChildrenPerGroup),
 				}
 			}
-			cpgName := virtualGroupName("cpg", wl.Name, "g."+psGroup.name)
+			cpgName := virtualGroupName("cpg", wl.Name, "g."+gName)
 			for _, child := range groupChildNames {
 				setParent(pgMap, cpgMap, child, cpgName)
 			}
-			addCPG(newVirtualCPG(cpgName, wl.Namespace, groupTopology, int32(len(groupChildNames)), nil))
+			cpgMap[cpgName] = newVirtualCPG(cpgName, wl.Namespace, groupTopology, int32(len(groupChildNames)), nil)
 			topLevelGroupNames = append(topLevelGroupNames, cpgName)
 		}
 	}
 
-	// 4: Root CompositePodGroup when multiple top-level groups exist
+	// 3: Root CompositePodGroup when multiple top-level groups exist
 	if len(topLevelGroupNames) > 1 {
 		rootCPGName := virtualGroupName("cpg", wl.Name, "r.root")
 		for _, child := range topLevelGroupNames {
 			setParent(pgMap, cpgMap, child, rootCPGName)
 		}
-		addCPG(newVirtualCPG(rootCPGName, wl.Namespace, "", int32(len(topLevelGroupNames)), nil))
+		cpgMap[rootCPGName] = newVirtualCPG(rootCPGName, wl.Namespace, "", int32(len(topLevelGroupNames)), nil)
 	}
 
-	// 5: Enforce WAS limits
+	allPGs := slices.Collect(maps.Values(pgMap))
+	allCPGs := slices.Collect(maps.Values(cpgMap))
+	slices.SortFunc(allPGs, func(a, b *schedulingv1alpha3.PodGroup) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+	slices.SortFunc(allCPGs, func(a, b *schedulingv1alpha3.CompositePodGroup) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
+	// 4: Enforce WAS limits
 	if err := validateLimits(wl.Name, allPGs, allCPGs); err != nil {
 		return nil, err
 	}

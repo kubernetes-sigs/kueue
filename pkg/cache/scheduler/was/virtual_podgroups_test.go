@@ -23,7 +23,6 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -245,7 +244,7 @@ func TestBuildVirtualPodGroups(t *testing.T) {
 					utiltesting.MakeAdmission("cq").
 						PodSets(kueue.PodSetAssignment{
 							Name:  "main",
-							Count: ptr.To[int32](4),
+							Count: new(int32(4)),
 						}).
 						Obj(),
 				).
@@ -387,6 +386,67 @@ func TestVirtualPodGroupName(t *testing.T) {
 				if strings.Contains(got, forbidden) {
 					t.Errorf("VirtualPodGroupName() = %q contains forbidden substring %q", got, forbidden)
 				}
+			}
+		})
+	}
+}
+
+func TestPodSetCounts(t *testing.T) {
+	cases := map[string]struct {
+		workload *kueue.Workload
+		want     map[kueue.PodSetReference]int32
+	}{
+		"unadmitted workload": {
+			workload: utiltesting.MakeWorkload("wl", "default").
+				PodSets(
+					*utiltesting.MakePodSet("main", 5).Obj(),
+					*utiltesting.MakePodSet("worker", 10).Obj(),
+				).Obj(),
+			want: map[kueue.PodSetReference]int32{
+				"main":   5,
+				"worker": 10,
+			},
+		},
+		"admitted workload with partial counts": {
+			workload: utiltesting.MakeWorkload("wl", "default").
+				PodSets(
+					*utiltesting.MakePodSet("main", 5).Obj(),
+					*utiltesting.MakePodSet("worker", 10).Obj(),
+				).
+				Admission(
+					utiltesting.MakeAdmission("cq").
+						PodSets(
+							kueue.PodSetAssignment{Name: "main", Count: new(int32(3))},
+							kueue.PodSetAssignment{Name: "worker", Count: new(int32(7))},
+						).Obj(),
+				).Obj(),
+			want: map[kueue.PodSetReference]int32{
+				"main":   3,
+				"worker": 7,
+			},
+		},
+		"admitted workload with nil count falls back to podset count": {
+			workload: utiltesting.MakeWorkload("wl", "default").
+				PodSets(
+					*utiltesting.MakePodSet("main", 5).Obj(),
+				).
+				Admission(
+					utiltesting.MakeAdmission("cq").
+						PodSets(
+							kueue.PodSetAssignment{Name: "main"},
+						).Obj(),
+				).Obj(),
+			want: map[kueue.PodSetReference]int32{
+				"main": 5,
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := podSetCounts(tc.workload)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("unexpected counts (-want,+got):\n%s", diff)
 			}
 		})
 	}
