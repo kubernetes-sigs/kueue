@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -401,6 +402,33 @@ func (a *adapter[PtrT, T]) DeleteRemoteObject(ctx context.Context, _ client.Clie
 	job.SetName(key.Name)
 	job.SetNamespace(key.Namespace)
 	return client.IgnoreNotFound(remoteClient.Delete(ctx, job))
+}
+
+// CleanupRemoteSlice waits for deletion to complete before a successor can
+// reuse the job name. The workload marker and UID fence stale cleanup attempts.
+func (a *adapter[PtrT, T]) CleanupRemoteSlice(ctx context.Context, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (bool, error) {
+	if origin == "" {
+		return false, jobframework.ErrMultiKueueOriginEmpty
+	}
+	job := PtrT(new(T))
+	if err := remoteClient.Get(ctx, key, job); err != nil {
+		return apierrors.IsNotFound(err), client.IgnoreNotFound(err)
+	}
+	if job.GetLabels()[kueue.MultiKueueOriginLabel] != origin || jobframework.PrebuiltWorkloadNameFor(job) != workloadName {
+		return true, nil
+	}
+	uid := job.GetUID()
+	resourceVersion := job.GetResourceVersion()
+	if job.GetDeletionTimestamp().IsZero() {
+		ctrl.LoggerFrom(ctx).V(1).Info("Deleting evicted remote Ray slice", "remoteController", key, "workload", workloadName, "uid", uid)
+		if err := remoteClient.Delete(ctx, job, client.Preconditions{UID: &uid, ResourceVersion: &resourceVersion}); err != nil {
+			return apierrors.IsNotFound(err), client.IgnoreNotFound(err)
+		}
+	}
+	if err := remoteClient.Get(ctx, key, job); err != nil {
+		return apierrors.IsNotFound(err), client.IgnoreNotFound(err)
+	}
+	return job.GetUID() != uid, nil
 }
 
 func (a *adapter[PtrT, T]) GetEmptyList() client.ObjectList {

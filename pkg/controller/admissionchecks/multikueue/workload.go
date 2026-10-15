@@ -90,6 +90,7 @@ const syncDeferredRequeueAfter = 2 * time.Second
 
 type wlReconciler struct {
 	client            client.Client
+	apiReader         client.Reader
 	helper            *admissioncheck.MultiKueueStoreHelper
 	clusters          *clustersReconciler
 	origin            string
@@ -161,7 +162,17 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error {
 	remoteClient := g.remoteClients[cluster].getClient()
 	origin := g.remoteClients[cluster].origin
-	if err := jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, remoteClient, g.jobAdapter, g.controllerKey, origin); err != nil {
+	var cleanupErr error
+	if adapter, ok := g.jobAdapter.(sliceCleanupAdapter); ok && g.IsElasticWorkload() && workloadevict.IsEvicted(g.local) {
+		var done bool
+		done, cleanupErr = adapter.CleanupRemoteSlice(ctx, remoteClient, g.controllerKey, g.local.Name, origin)
+		if cleanupErr == nil && !done {
+			cleanupErr = errSliceCleanupPending
+		}
+	} else {
+		cleanupErr = jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, remoteClient, g.jobAdapter, g.controllerKey, origin)
+	}
+	if err := cleanupErr; err != nil {
 		return fmt.Errorf("deleting remote controller object: %w", err)
 	}
 
@@ -368,9 +379,19 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	log.V(3).Info("Reconcile Workload Group")
 
 	acs := admissioncheck.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
+	if group.IsElasticWorkload() {
+		if workloadevict.IsEvicted(group.local) && group.IsFinished() && workload.HasQuotaReservation(group.local) {
+			return reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, nil
+		}
+		if !workloadevict.IsEvicted(group.local) && !group.IsFinished() && workload.HasQuotaReservation(group.local) {
+			if waiting, err := w.waitForRemoteEvictedSlice(ctx, group); err != nil || waiting {
+				return reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, err
+			}
+		}
+	}
 
 	// 1. Ignore Elastic workloads Finished when:
-	// - Workload is "Finished" as a result workload slice replacement, OR
+	// - Workload is "Finished" as a result of replacement without eviction, OR
 	// - Workload doesn't have quota reservation as a result of scale-up, i.e., scaling-up in progress,
 	//   unless it was evicted and its remote objects need cleanup.
 	scaleUpInProgress := !group.IsFinished() &&
@@ -378,7 +399,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		workloadslicing.ScaledUp(group.local) &&
 		!workloadevict.IsEvicted(group.local)
 	if group.IsElasticWorkload() &&
-		((group.IsFinished() && workloadslicing.IsReplaced(group.local.Status)) ||
+		((group.IsFinished() && workloadslicing.IsReplaced(group.local.Status) && !workloadevict.IsEvicted(group.local)) ||
 			scaleUpInProgress) {
 		return reconcile.Result{}, nil
 	}
@@ -386,8 +407,13 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// 2. Delete all remote workloads when the local workload is finished or has no quota reservation.
 	if group.IsFinished() || !workload.HasQuotaReservation(group.local) {
 		var errs []error
+		cleanupPending := false
 		for rem := range group.remotes {
 			if err := group.RemoveRemoteObjects(ctx, rem); err != nil {
+				if errors.Is(err, errSliceCleanupPending) {
+					cleanupPending = true
+					continue
+				}
 				errs = append(errs, err)
 				log.V(2).Error(err, "Deleting remote workload", "workerCluster", rem)
 			}
@@ -395,6 +421,9 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		if len(group.unavailableClusters) > 0 {
 			log.V(3).Info("Retrying remote workload cleanup, some clusters are unavailable", "unavailableClusters", group.unavailableClusters, "retryAfter", w.workerLostTimeout)
 			return reconcile.Result{RequeueAfter: w.workerLostTimeout}, errors.Join(errs...)
+		}
+		if cleanupPending {
+			return reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, errors.Join(errs...)
 		}
 		return reconcile.Result{}, errors.Join(errs...)
 	}
@@ -1184,6 +1213,7 @@ func (h *localJobHandler) queue(ctx context.Context, obj client.Object, q workqu
 }
 
 func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
+	w.apiReader = mgr.GetAPIReader()
 	syncHndl := handler.Funcs{
 		GenericFunc: func(_ context.Context, e event.GenericEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 			q.AddAfter(reconcile.Request{
