@@ -368,15 +368,15 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 				behavioral.MustCreate(ctx, k8sClient, lws)
 			})
 
-			ginkgo.By("verify that both leaders and workers do not have pod-index-offset annotation", func() {
+			ginkgo.By("verify that only workers have pod-index-offset annotation", func() {
 				createdLeaderWorkerSet := &leaderworkersetv1.LeaderWorkerSet{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLeaderWorkerSet)).To(gomega.Succeed())
 					g.Expect(createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.LeaderTemplate.ObjectMeta.Annotations).NotTo(
 						gomega.HaveKey(kueue.PodIndexOffsetAnnotation),
 					)
-					g.Expect(createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta.Annotations).NotTo(
-						gomega.HaveKey(kueue.PodIndexOffsetAnnotation),
+					g.Expect(createdLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate.ObjectMeta.Annotations).To(
+						gomega.HaveKeyWithValue(kueue.PodIndexOffsetAnnotation, "1"),
 					)
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
