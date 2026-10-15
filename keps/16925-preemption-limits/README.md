@@ -43,6 +43,9 @@ tags, build the mdtoc tool with `make mdtoc` and then generate the TOC with `hac
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
+- [Future Work Ideas](#future-work-ideas)
+  - [Rule-Level Rate Limiting via `ruleNames`](#rule-level-rate-limiting-via-rulenames)
+  - [Pod-Level Rate Limiting via `mode`](#pod-level-rate-limiting-via-mode)
 <!-- /toc -->
 
 ## Summary
@@ -303,12 +306,6 @@ when drafting this test plan.
 existing tests to make this code solid enough prior to committing the changes necessary
 to implement this enhancement.
 
-#### Prerequisite testing updates
-
-<!--
-Based on reviewers feedback describe what additional tests need to be added prior
-implementing this enhancement to ensure the enhancements have also solid foundations.
--->
 
 #### Unit tests
 
@@ -328,8 +325,8 @@ in the form of:
 This can inform certain test coverage improvements that we want to do before
 extending the production code to implement this enhancement.
 -->
-Majority of the new code will be added as a separate subpackage in preemptions called limits.
-And in the new controller handling the preemption limits periodical updates.
+Majority of the new code will be added as a separate subpackage in preemptions called "limits",
+and in the new controller handling the preemption limits periodical updates.
 These two components will have all of the public methods covered with unit tests.
 
 Appart from the new subpackage the following existing components will receive additional unit tests for new behavior only if the FG is enabled:
@@ -338,25 +335,24 @@ Appart from the new subpackage the following existing components will receive ad
 	- Returns information which limits where consumed by the selected candidates.
 2. `Preemptor.IssuePreemptions`:
 	- Records the configurable preemption events for tracking preemption limits in memory.
-	- Records preemption events only once if preemption is issued succesfully.
+	- Records preemption events only once if preemption is issued successfully.
 3. Scheduler:
   - Recomputes preemption candidates in case of conflicting limits from many workloads (same as for overlapping preemption targets).
 
 
 #### Integration tests
 
-1. New preemption limits are respected by configurable preemptions candidate selection if FG is enabled. TODO
-<!--
-Describe what tests will be added to ensure proper quality of the enhancement.
+1. New preemption limits are respected by configurable preemptions candidate selection if FG is enabled.
+2. Preemption Configuration can be safely rolled out, by changing its limits.
+3. Preemptions from Confgiurable Preemptions can be blocked for specific candidate cluster queue. 
 
-After the implementation PR is merged, add the names of the tests here.
--->
 
 #### e2e tests
 
 1. Cluster admin can create/update/get/delete a `PreemptionLimit` CRD.
 2. Cluster admin can view the status of the `PreemptionLimit` CRDs.
 3. Batch users cannot manage `PreemptionLimit` CRDs out of the box.
+4. Extension of Configurable Preemptions e2e tests to cover a basic Preemption Limits scenario.
 
 ### Graduation Criteria
 
@@ -427,9 +423,11 @@ Additional CRD to manage by the cluster administrator.
 
 ## Future Work Ideas
 
-To allow safe evolution of the `PreemptionConfig`s, it would be best to add `ruleNames` field to the `PreemptionLimit`, that signalizes that the limit applies only to the specific set subset of rules.
+### Rule-Level Rate Limiting via `ruleNames`
 
-Thanks to this users will be able to specify a strict limit for a new rule, which can be lifted when the rule stability in cluster is confirmed.
+To allow safe evolution of `PreemptionConfig`s, it would be best to add a `ruleNames` field to the `PreemptionLimitSpec`, allowing an administrator to restrict a limit to a specific subset of rules within matching `PreemptionConfig`s.
+
+This enables cluster administrators to define strict rate limits for a new or experimental rule, restricting its blast radius while observing its behavior, and then lift or relax the limit once the rule's stability in the cluster is confirmed.
 
 The addition to `PreemptionLimitSpec` would look like the following:
 
@@ -446,12 +444,57 @@ The addition to `PreemptionLimitSpec` would look like the following:
 	RuleNames []string `json:"ruleNames,omitempty"`
 ```
 
-The caveat here is what should be the result of the preemption candidates selection when some candidate is selected by 2 rules:
-A. Which would validate the preemption limit.
-B. Which does NOT have the preemption limit.
+#### Multi-Rule Attribution Challenge and Alternatives Considered
 
-It would be natural to allow it since it is still allowed by B, and would be selected as candidate if A did not exist at all.
+A key design challenge arises when a candidate workload matches multiple rules in a `PreemptionConfig`, especially when only some of the rules have associated preemption limits or remaining budget. Several alternative approaches were considered:
 
-On the other hand it would be inconsistent with the fact that multiple `PreemptionLimit`s are ANDed - if candidate would violate any of them it is not selected (e.g. Global limit and CQ specific limit).
+1. **Requiring available limits in all matching rules**:
+   - *Drawback*: Would not allow for a stable, safe rollout of new rules. If an existing stable rule permits preemption without limits, adding a new experimental rule with a strict limit would cause preemptions otherwise allowed by the stable rule to be blocked whenever the experimental limit is reached.
+2. **Consuming from only those rules that currently have limits available**:
+   - *Drawback*: Leads to poor user experience because the number of consumed limits and the attribution behavior would non-deterministically differ depending on whether multiple limits or only one are available at the exact moment of preemption.
 
-Proposed approach: If there is a rule allowing preemption according to the limits - the preemption will be allowed but the resulting Condition will only mention rules that are not violating any limit. This preemption will also only count under those rules limits.
+#### Proposed Approach: First Matching Rule Consumes the Limits
+
+The proposed approach is to **always choose the first matching rule** from the `PreemptionConfig` (according to the order in `spec.rules`) to evaluate and consume the limits.
+
+- **Deterministic behavior**: Using the first matching rule provides a predictable priority order for limit consumption based on the administrator's rule sequence.
+- **Maintainable conditions**: While this approach requires an update to the condition reporting defined in Configurable Preemptions (which originally concatenated all matching rules in the preemption condition message), it leads to more maintainable code as always exactly one rule is unambiguously responsible for the preemption and for consuming the limit.
+
+### Pod-Level Rate Limiting via `mode`
+
+Currently, `PreemptionLimit` rate-limits preemption events strictly at the workload level. However, workloads can vary dramatically in size—from single-pod jobs to distributed training workloads spanning hundreds or thousands of pods. Preempting a large distributed workload produces significantly more node and scheduling churn than preempting a single-pod job.
+
+To provide finer-grained guardrails against mass pod disruptions, a new field called `mode` can be introduced to `PreemptionLimitSpec`:
+
+```go
+// PreemptionLimitMode specifies the counting unit for preemption events.
+// Possible values are:
+// - "Workloads": limits the number of preempted workloads (default).
+// - "Pods": limits the total number of pods belonging to preempted workloads.
+//
+// +kubebuilder:validation:Enum=Workloads;Pods
+// +kubebuilder:default=Workloads
+type PreemptionLimitMode string
+
+const (
+	// PreemptionLimitModeWorkloads limits the number of preempted workloads.
+	PreemptionLimitModeWorkloads PreemptionLimitMode = "Workloads"
+
+	// PreemptionLimitModePods limits the total number of pods across preempted workloads.
+	PreemptionLimitModePods PreemptionLimitMode = "Pods"
+)
+```
+
+The addition to `PreemptionLimitSpec` would look like the following:
+
+```go
+	// mode specifies the counting unit for preemption events.
+	// Defaults to "Workloads".
+	//
+	// +optional
+	// +kubebuilder:default=Workloads
+	Mode PreemptionLimitMode `json:"mode,omitempty"`
+```
+
+- When set to `Workloads` (default), the number of preempted workloads will be limited.
+- When changed to `Pods`, it can guardrail the total number of pods that can be preempted in a particular scope within the defined sliding window. The preemption evaluator will calculate the total number of pods across candidate workloads (summing pod counts across their pod sets) and prevent preemptions if evicting them would exceed the allowed pod limit.
