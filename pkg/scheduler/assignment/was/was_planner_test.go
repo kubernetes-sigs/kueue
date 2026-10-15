@@ -61,6 +61,9 @@ const (
 	unknownNode   = "node-unknown"
 	testNodeCPUs  = "8"
 
+	testBlockLabel = "cloud.com/topology-block"
+	testBlock      = "block-1"
+
 	victimName   = "victim"
 	incomingName = "incoming"
 
@@ -97,9 +100,12 @@ func podKey(psName kueue.PodSetReference, replicaIdx int) client.ObjectKey {
 	return client.ObjectKeyFromObject(pods[replicaIdx])
 }
 
-// newTestSnapshot builds a snapshot with a single TAS flavor backed by two
-// hostname-level nodes with 8 CPU each, and a ClusterQueue with the given CPU
-// quota that allows preempting lower-priority workloads within the ClusterQueue.
+// newTestSnapshot builds a snapshot with:
+//   - a single TAS flavor,
+//   - a two-level topology: one block with two nodes, 8 CPU each,
+//   - a ClusterQueue with the given CPU quota that allows preempting
+//     lower-priority workloads within the ClusterQueue.
+//
 // An admitted lower-priority workload, "victim", occupies 2 CPU of node-1.
 func newTestSnapshot(ctx context.Context, t *testing.T, log logr.Logger, quota string) *schdcache.Snapshot {
 	t.Helper()
@@ -107,10 +113,11 @@ func newTestSnapshot(ctx context.Context, t *testing.T, log logr.Logger, quota s
 	cache := schdcache.New(utiltesting.NewFakeClient())
 	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(testFlavor).
 		NodeLabel("tas", "true").TopologyName("topology").Obj())
-	cache.AddOrUpdateTopology(log, utiltestingapi.MakeTopology("topology").Levels(corev1.LabelHostname).Obj())
+	cache.AddOrUpdateTopology(log, utiltestingapi.MakeTopology("topology").Levels(testBlockLabel, corev1.LabelHostname).Obj())
 	for _, node := range []string{testNode1, testNode2} {
 		cache.TASCache().SyncNode(testingnode.MakeNode(node).
 			Label("tas", "true").
+			Label(testBlockLabel, testBlock).
 			Label(corev1.LabelHostname, node).
 			StatusAllocatable(corev1.ResourceList{
 				corev1.ResourceCPU:  resource.MustParse(testNodeCPUs),
@@ -178,6 +185,9 @@ type testPodSet struct {
 	count int
 	// cpu is the CPU requested by a single pod of the PodSet.
 	cpu string
+	// requiredLevel is the required topology level of the PodSet.
+	// Defaults to hostname.
+	requiredLevel string
 }
 
 func podFailure(psName kueue.PodSetReference, replicaIdx int, reason string) string {
@@ -283,7 +293,7 @@ func TestPlan(t *testing.T) {
 		},
 		"pods spread across nodes: fits, with a domain per node": {
 			quota:       "20",
-			podSets:     []testPodSet{{name: kueue.DefaultPodSetName, count: 3, cpu: "1"}},
+			podSets:     []testPodSet{{name: kueue.DefaultPodSetName, count: 3, cpu: "1", requiredLevel: testBlockLabel}},
 			initialMode: flavorassigner.Fit,
 			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
 				podKey(kueue.DefaultPodSetName, 0): {Node: testNode2},
@@ -431,8 +441,12 @@ func TestPlan(t *testing.T) {
 
 			var podSets []kueue.PodSet
 			for _, ps := range tc.podSets {
+				requiredLevel := ps.requiredLevel
+				if requiredLevel == "" {
+					requiredLevel = corev1.LabelHostname
+				}
 				podSets = append(podSets, *utiltestingapi.MakePodSet(ps.name, ps.count).
-					RequiredTopologyRequest(corev1.LabelHostname).
+					RequiredTopologyRequest(requiredLevel).
 					Request(corev1.ResourceCPU, ps.cpu).
 					Obj())
 			}
