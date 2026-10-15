@@ -359,6 +359,121 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 			})
 		})
+
+		// Regression test for kueue#14811: a restart that lowers reclaimablePods while
+		// the Workload holds quota must still release that quota on eviction.
+		ginkgo.It("Should release quota on eviction even if a restart lowers reclaimablePods while quota is held", framework.SlowSpec, func() {
+			trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
+				APIGroup: new("trainer.kubeflow.org"),
+				Name:     "test",
+				Kind:     new("ClusterTrainingRuntime"),
+			}).
+				Suspend(false).
+				Queue(localQueue.Name).
+				Obj()
+
+			createdWorkload := &kueue.Workload{}
+			var wlLookupKey types.NamespacedName
+
+			ginkgo.By("admitting the workload while the trainjob is running", func() {
+				behavioral.MustCreate(ctx, k8sClient, trainJob)
+				wlLookupKey = types.NamespacedName{Name: workloadtrainjob.GetWorkloadNameForTrainJob(trainJob.Name, trainJob.UID), Namespace: ns.Name}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
+					utiltestingapi.MakePodSetAssignment(createdWorkload.Spec.PodSets[0].Name).
+						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(onDemandFlavor.Name)).Obj(),
+					utiltestingapi.MakePodSetAssignment(createdWorkload.Spec.PodSets[1].Name).
+						Flavor(corev1.ResourceCPU, kueue.ResourceFlavorReference(onDemandFlavor.Name)).Obj(),
+				).Obj()
+				integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+			})
+
+			ginkgo.By("waiting for the trainjob to be unsuspended", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainJob), trainJob)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(trainJob.Spec.Suspend, false)).To(gomega.BeFalse())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("driving a succeeded child so the workload records reclaimablePods while it holds quota", func() {
+				// "node" stays active so the workload keeps holding quota; "foo" reports one
+				// succeeded replica so the reconciler records a reclaimablePods entry for it.
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainJob), trainJob)).To(gomega.Succeed())
+					trainJob.Status.JobsStatus = []kftrainerapi.JobStatus{
+						testingtrainjob.MakeJobStatus("node").Active(1).Obj(),
+						testingtrainjob.MakeJobStatus("foo").Succeeded(1).Obj(),
+					}
+					g.Expect(k8sClient.Status().Update(ctx, trainJob)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.ReclaimablePods).To(gomega.ContainElement(kueue.ReclaimablePod{Name: "foo", Count: 1}))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("simulating a restart that lowers the reclaimablePods count while quota is held", func() {
+				// The restart moves the succeeded "foo" child back to running, so the current
+				// reclaimablePods count is lower than the stale one still stored on the workload.
+				// "node" stays active so the workload keeps holding quota during eviction.
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainJob), trainJob)).To(gomega.Succeed())
+					trainJob.Status.JobsStatus = []kftrainerapi.JobStatus{
+						testingtrainjob.MakeJobStatus("node").Active(1).Obj(),
+						testingtrainjob.MakeJobStatus("foo").Active(1).Obj(),
+					}
+					g.Expect(k8sClient.Status().Update(ctx, trainJob)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("pinning the stuck state: the stale reclaimablePods entry for \"foo\" is still held right before eviction", func() {
+				// The restart lowered the current count, but the stale "foo" entry must still be
+				// stored on the workload here, otherwise eviction would not exercise the regression.
+				gomega.Consistently(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.ReclaimablePods).To(gomega.ContainElement(kueue.ReclaimablePod{Name: "foo", Count: 1}))
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("evicting the workload", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(workload.SetConditionAndUpdate(ctx, k8sClient, createdWorkload, kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPodsReadyTimeout, "By test", "evict", behavioral.RealClock)).
+						To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("waiting for the trainjob to be suspended while quota is still held", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainJob), trainJob)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(trainJob.Spec.Suspend, false)).To(gomega.BeTrue())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("stopping the active pods so the eviction can complete", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(trainJob), trainJob)).To(gomega.Succeed())
+					trainJob.Status.JobsStatus = []kftrainerapi.JobStatus{
+						testingtrainjob.MakeJobStatus("node").Active(0).Obj(),
+						testingtrainjob.MakeJobStatus("foo").Active(0).Obj(),
+					}
+					g.Expect(k8sClient.Status().Update(ctx, trainJob)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("verifying quota is released, admission is cleared, and the stale reclaimablePods entry is removed", func() {
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, createdWorkload)
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+					g.Expect(createdWorkload.Status.Admission).To(gomega.BeNil())
+					g.Expect(createdWorkload.Status.ReclaimablePods).To(gomega.BeEmpty())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
 	})
 })
 
