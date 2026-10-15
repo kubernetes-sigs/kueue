@@ -257,6 +257,16 @@ func TestPlan(t *testing.T) {
 				{Name: kueue.DefaultPodSetName},
 			},
 		},
+		"no virtual pods to schedule: initial assignment returned unchanged, without scheduling": {
+			quota:       "20",
+			podSets:     []testPodSet{{name: kueue.DefaultPodSetName, count: 0, cpu: "1"}},
+			initialMode: flavorassigner.Fit,
+			wantMode:    flavorassigner.Fit,
+			wantFit:     true,
+			wantPodSets: []flavorassigner.PodSetAssignment{
+				{Name: kueue.DefaultPodSetName},
+			},
+		},
 		"all pods placed on a single node: fits": {
 			quota:       "20",
 			podSets:     []testPodSet{{name: kueue.DefaultPodSetName, count: 2, cpu: "1"}},
@@ -299,9 +309,9 @@ func TestPlan(t *testing.T) {
 			wantNoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name: kueue.DefaultPodSetName,
-				Status: *flavorassigner.NewErrorStatus(errInsufficientCPU, []string{
+				Status: *flavorassigner.NewStatus(
 					podFailure(kueue.DefaultPodSetName, 1, errInsufficientCPU.Error()),
-				}),
+				).WithError(errInsufficientCPU).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
 			}},
 		},
 		"a pod placement errors out: the whole PodSet does not fit and reports the error": {
@@ -316,9 +326,9 @@ func TestPlan(t *testing.T) {
 			wantNoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name: kueue.DefaultPodSetName,
-				Status: *flavorassigner.NewErrorStatus(errPlacement, []string{
+				Status: *flavorassigner.NewStatus(
 					podFailure(kueue.DefaultPodSetName, 0, "plugin failed"),
-				}),
+				).WithError(errPlacement).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
 			}},
 		},
 		"pod placed on a node unknown to the topology: does not fit": {
@@ -331,8 +341,9 @@ func TestPlan(t *testing.T) {
 			wantMode:        flavorassigner.NoFit,
 			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
 			wantPodSets: []flavorassigner.PodSetAssignment{{
-				Name:   kueue.DefaultPodSetName,
-				Status: *flavorassigner.NewStatus("node " + unknownNode + " is not defined in the known topology")},
+				Name: kueue.DefaultPodSetName,
+				Status: *flavorassigner.NewStatus("node " + unknownNode + " is not defined in the known topology").
+					WithNoFitReason(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)},
 			},
 		},
 		"multiple PodSets, all pods placed: fits, with a topology assignment per PodSet": {
@@ -374,9 +385,9 @@ func TestPlan(t *testing.T) {
 				{Name: "leader"},
 				{
 					Name: "workers",
-					Status: *flavorassigner.NewErrorStatus(errNodeAffinity, []string{
+					Status: *flavorassigner.NewStatus(
 						podFailure("workers", 1, errNodeAffinity.Error()),
-					}),
+					).WithError(errNodeAffinity).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
 				},
 			},
 		},
@@ -392,10 +403,10 @@ func TestPlan(t *testing.T) {
 			wantNoFitReason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name: kueue.DefaultPodSetName,
-				Status: *flavorassigner.NewErrorStatus(errInsufficientCPU, []string{
+				Status: *flavorassigner.NewStatus(
 					podFailure(kueue.DefaultPodSetName, 0, errInsufficientCPU.Error()),
 					podFailure(kueue.DefaultPodSetName, 1, errInsufficientCPU.Error()),
-				}),
+				).WithError(errInsufficientCPU).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
 			}},
 		},
 	}

@@ -68,6 +68,9 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		plan.Error = fmt.Errorf("failed to virtualize workload: %w", err)
 		return
 	}
+	if len(pods) == 0 {
+		return
+	}
 
 	// ScheduleWorkload will always return a failed result here for wasScheduler,
 	// until Virtual Pod Groups are implemented and added to the ClusterSnapshot.
@@ -84,7 +87,7 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		plan.Assignment.ResolvePodSetFailure(
 			psRef,
 			flavorassigner.NoFit,
-			summary.asStatus(),
+			summary.asStatus().WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
 		)
 	}
 	// If any failures occurred, we can already confirm the assignment to be a no-fit.
@@ -104,7 +107,7 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		plan.Assignment.ResolvePodSetFailure(
 			failure.PodSetName,
 			flavorassigner.NoFit,
-			*flavorassigner.NewStatus(failure.Reason),
+			flavorassigner.NewStatus(failure.Reason).WithNoFitReason(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
 		)
 	}
 	if len(tasFails) > 0 {

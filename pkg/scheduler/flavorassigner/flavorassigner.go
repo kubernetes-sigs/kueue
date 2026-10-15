@@ -58,6 +58,7 @@ func mostSevereReason(a, b string) string {
 
 const (
 	reasonSeverityNone int = iota
+	reasonSeveritySimulationFailed
 	reasonSeverityTopologyPlacementFailed
 	reasonSeverityWaitingForQuota
 	reasonSeverityExceedsMaxQuota
@@ -74,6 +75,8 @@ func reasonSeverity(reason string) int {
 		return reasonSeverityWaitingForQuota
 	case kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed:
 		return reasonSeverityTopologyPlacementFailed
+	case kueue.WorkloadQuotaReservedReasonSimulationFailed:
+		return reasonSeveritySimulationFailed
 	default:
 		return reasonSeverityNone
 	}
@@ -492,7 +495,7 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 			assignment.ResolvePodSetFailure(
 				failure.PodSetName,
 				Preempt,
-				*NewStatus(failure.Reason),
+				NewStatus(failure.Reason),
 			)
 		} else {
 			// All PodSets fit, we just update the TopologyAssignments

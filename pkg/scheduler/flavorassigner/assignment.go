@@ -91,9 +91,9 @@ func (a *Assignment) UpdateForTASResult(log logr.Logger, cq *schdcache.ClusterQu
 
 // ResolvePodSetFailure updates the status of the given PodSet and adjusts
 // the RepresentativeMode of the PodSet and the Assignment at large.
-func (a *Assignment) ResolvePodSetFailure(psRef kueue.PodSetReference, targetMode FlavorAssignmentMode, failStatus Status) {
+func (a *Assignment) ResolvePodSetFailure(psRef kueue.PodSetReference, targetMode FlavorAssignmentMode, failStatus *Status) {
 	psAssignment := a.podSetAssignmentByName(psRef)
-	psAssignment.Status = failStatus
+	psAssignment.Status = *failStatus
 	// update the mode for all flavors and the representative mode
 	a.demoteTo(targetMode)
 	psAssignment.demoteTo(targetMode)
@@ -427,11 +427,14 @@ func NewStatus(reasons ...string) *Status {
 	}
 }
 
-func NewErrorStatus(err error, reasons []string) *Status {
-	return &Status{
-		reasons: reasons,
-		err:     err,
-	}
+func (s *Status) WithError(err error) *Status {
+	s.err = err
+	return s
+}
+
+func (s *Status) WithNoFitReason(reason string) *Status {
+	s.noFitReason = reason
+	return s
 }
 
 func (s *Status) IsFit() bool {

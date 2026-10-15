@@ -66,6 +66,6 @@ func (fs *failureSummary) record(pod client.ObjectKey, err error, reasons []stri
 	}
 }
 
-func (fs *failureSummary) asStatus() flavorassigner.Status {
-	return *flavorassigner.NewErrorStatus(errors.Join(fs.errs...), fs.reasons)
+func (fs *failureSummary) asStatus() *flavorassigner.Status {
+	return flavorassigner.NewStatus(fs.reasons...).WithError(errors.Join(fs.errs...))
 }
