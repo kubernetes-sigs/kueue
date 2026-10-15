@@ -262,3 +262,25 @@ func toJSONList(t *testing.T, v any) []map[string]any {
 	}
 	return out
 }
+
+func TestFetchResourceFlavorDetailsSpec(t *testing.T) {
+	flavor := makeResourceFlavor("spot", map[string]string{"capacity": "spot"})
+	flavor.Spec.NodeTaints = []corev1.Taint{{Key: "spot", Value: "true", Effect: corev1.TaintEffectNoSchedule}}
+	flavor.Spec.Tolerations = []corev1.Toleration{{Key: "spot", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}}
+
+	h := New(newFakeClient(t, nil, flavor), nil, nil)
+	got, err := h.fetchResourceFlavorDetails(t.Context(), "spot", middleware.Identity{Username: "alice"})
+	if err != nil {
+		t.Fatalf("fetchResourceFlavorDetails() error = %v", err)
+	}
+
+	// The ResourceFlavor detail page reads these keys from details.
+	want := map[string]any{
+		"nodeLabels":  flavor.Spec.NodeLabels,
+		"nodeTaints":  flavor.Spec.NodeTaints,
+		"tolerations": flavor.Spec.Tolerations,
+	}
+	if diff := cmp.Diff(want, got["details"]); diff != "" {
+		t.Errorf("unexpected details (-want,+got):\n%s", diff)
+	}
+}
