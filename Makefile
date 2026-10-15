@@ -234,11 +234,11 @@ sync-hugo-version:
 
 .PHONY: build
 build:
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/manager ./cmd/kueue
+	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o bin/manager cmd/kueue/main.go
 
 .PHONY: run
 run: compile-crd-manifests generate fmt vet ## Run a controller from your host.
-	$(GO_CMD) run ./cmd/kueue
+	$(GO_CMD) run cmd/kueue/main.go
 
 # Build the multiplatform container image locally.
 .PHONY: image-local-build

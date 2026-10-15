@@ -18,11 +18,13 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -120,9 +122,6 @@ func init() {
 }
 
 func main() {
-	var metricsOpts metricsOptions
-	metricsOpts.bindFlags(flag.CommandLine)
-
 	var configFile string
 	flag.StringVar(&configFile, "config", "",
 		"The controller will load its initial configuration from this file. "+
@@ -185,11 +184,7 @@ func main() {
 	// More info:
 	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/metrics/server
 	// - https://book.kubebuilder.io/reference/metrics.html
-	metricsServerOptions, err := metricsOpts.serverOptions(cfg.Metrics.BindAddress)
-	if err != nil {
-		setupLog.Error(err, "Unable to configure metrics server")
-		os.Exit(1)
-	}
+	metricsServerOptions := config.MetricsServerOptions(setupLog, cfg.Metrics)
 
 	parsedTLSConfig := &tlsconfig.TLS{}
 	if features.Enabled(features.TLSOptions) {
@@ -202,7 +197,7 @@ func main() {
 	}
 
 	// Apply TLS configuration from config
-	if metricsServerOptions.SecureServing && parsedTLSConfig != nil {
+	if parsedTLSConfig != nil {
 		tlsOpts := tlsconfig.BuildTLSOptions(parsedTLSConfig)
 		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, tlsOpts...)
 	}
@@ -215,16 +210,22 @@ func main() {
 	var metricsCertWatcher *certwatcher.CertWatcher
 	if cfg.InternalCertManagement == nil || !*cfg.InternalCertManagement.Enable {
 		metricsCertPath := "/etc/kueue/metrics/certs"
+		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
+			"metrics-cert-path", metricsCertPath)
+
 		var err error
-		metricsCertWatcher, err = setupMetricsCertWatcher(&metricsServerOptions, metricsCertPath)
+		metricsCertWatcher, err = certwatcher.New(
+			filepath.Join(metricsCertPath, "tls.crt"),
+			filepath.Join(metricsCertPath, "tls.key"),
+		)
 		if err != nil {
 			setupLog.Error(err, "Unable to initialize metrics certificate watcher")
 			os.Exit(1)
 		}
-		if metricsCertWatcher != nil {
-			setupLog.Info("Initialized metrics certificate watcher using provided certificates",
-				"metrics-cert-path", metricsCertPath)
-		}
+
+		metricsServerOptions.TLSOpts = append(metricsServerOptions.TLSOpts, func(config *tls.Config) {
+			config.GetCertificate = metricsCertWatcher.GetCertificate
+		})
 	}
 	options.Metrics = metricsServerOptions
 

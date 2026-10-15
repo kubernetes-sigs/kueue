@@ -394,6 +394,12 @@ const (
 	// Enable custom metadata labels on Kueue metrics
 	CustomMetricLabels featuregate.Feature = "CustomMetricLabels"
 
+	// owner: @ankushbbbr
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/16029-metrics-access-control
+	//
+	// Allows disabling metrics authentication and authorization on loopback listeners.
+	MetricsAccessControl featuregate.Feature = "MetricsAccessControl"
+
 	// owner: @everpeace
 	//
 	// pr: https://github.com/kubernetes-sigs/kueue/pull/7268#issuecomment-3890609376
@@ -1120,6 +1126,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	PodGroupSchedulingShapeOrdering: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+	MetricsAccessControl: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	CustomMetricLabels: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},

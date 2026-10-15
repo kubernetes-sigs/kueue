@@ -171,8 +171,31 @@ type ControllerWebhook struct {
 	CertDir string `json:"certDir,omitempty"`
 }
 
+// MetricsAccessControlMode specifies how access to the metrics listener is controlled.
+// +enum
+type MetricsAccessControlMode string
+
+const (
+	// MetricsAccessControlModeDelegated delegates authentication and authorization
+	// to Kubernetes through controller-runtime.
+	MetricsAccessControlModeDelegated MetricsAccessControlMode = "Delegated"
+
+	// MetricsAccessControlModeNone disables authentication and authorization
+	// for the metrics listener.
+	MetricsAccessControlModeNone MetricsAccessControlMode = "None"
+)
+
 // ControllerMetrics defines the metrics configs.
 type ControllerMetrics struct {
+	// AccessControlMode selects how the metrics listener authenticates and authorizes requests.
+	// Possible values are:
+	// - Delegated: each request needs a bearer token that passes TokenReview and SubjectAccessReview.
+	// - None: no authentication or authorization. For enabled metrics, requires the
+	//   MetricsAccessControl feature gate and a loopback IP and port in bindAddress.
+	// Defaults to Delegated.
+	// +optional
+	AccessControlMode *MetricsAccessControlMode `json:"accessControlMode,omitempty"`
+
 	// BindAddress is the TCP address that the controller should bind to
 	// for serving prometheus metrics.
 	// It can be set to "0" to disable the metrics serving.

@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"maps"
 	"net"
+	"net/netip"
 	"regexp"
 	"slices"
 	"strings"
@@ -107,6 +108,7 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme, integrationMan
 	allErrs = append(allErrs, validateTLS(c)...)
 	allErrs = append(allErrs, validateVisibilityServer(c)...)
 	allErrs = append(allErrs, validateCustomLabels(c)...)
+	allErrs = append(allErrs, validateMetrics(c.Metrics)...)
 	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
 	return allErrs
 }
@@ -960,6 +962,29 @@ func validateCIdentifier(id string, fldPath *field.Path) field.ErrorList {
 	}
 	for _, msg := range content.IsCIdentifier(id) {
 		allErrs = append(allErrs, field.Invalid(fldPath, id, msg))
+	}
+	return allErrs
+}
+
+func validateMetrics(metrics configapi.ControllerMetrics) field.ErrorList {
+	mode := ptr.Deref(metrics.AccessControlMode, configapi.MetricsAccessControlModeDelegated)
+	modePath := field.NewPath("metrics", "accessControlMode")
+	if mode != configapi.MetricsAccessControlModeDelegated && mode != configapi.MetricsAccessControlModeNone {
+		return field.ErrorList{field.NotSupported(modePath, mode, []configapi.MetricsAccessControlMode{
+			configapi.MetricsAccessControlModeDelegated, configapi.MetricsAccessControlModeNone,
+		})}
+	}
+	if mode != configapi.MetricsAccessControlModeNone || metrics.BindAddress == "0" {
+		return nil
+	}
+	var allErrs field.ErrorList
+	if !features.Enabled(features.MetricsAccessControl) {
+		allErrs = append(allErrs, field.Forbidden(modePath, "None requires the MetricsAccessControl feature gate; enable it or use Delegated"))
+	}
+	address, err := netip.ParseAddrPort(metrics.BindAddress)
+	if err != nil || !address.Addr().Unmap().IsLoopback() || address.Port() == 0 {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("metrics", "bindAddress"), metrics.BindAddress,
+			"accessControlMode None requires a literal loopback IP and numeric port in the range 1–65535 (for example 127.0.0.1:8443 or [::1]:8443); use Delegated for other addresses"))
 	}
 	return allErrs
 }

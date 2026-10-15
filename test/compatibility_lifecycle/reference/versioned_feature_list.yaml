@@ -305,6 +305,12 @@
     lockToDefault: true
     preRelease: GA
     version: "0.21"
+- name: MetricsAccessControl
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
 - name: MetricsForCohorts
   versionedSpecs:
   - default: true

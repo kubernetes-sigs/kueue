@@ -496,6 +496,20 @@ registered within this manager.</p>
 <tbody>
     
   
+<tr><td><code>accessControlMode</code><br/>
+<a href="#config-kueue-x-k8s-io-v1beta2-MetricsAccessControlMode"><code>MetricsAccessControlMode</code></a>
+</td>
+<td>
+   <p>AccessControlMode selects how the metrics listener authenticates and authorizes requests.
+Possible values are:</p>
+<ul>
+<li>Delegated: each request needs a bearer token that passes TokenReview and SubjectAccessReview.</li>
+<li>None: no authentication or authorization. For enabled metrics, requires the
+MetricsAccessControl feature gate and a loopback IP and port in bindAddress.
+Defaults to Delegated.</li>
+</ul>
+</td>
+</tr>
 <tr><td><code>bindAddress</code><br/>
 <code>string</code>
 </td>
@@ -1094,6 +1108,20 @@ If left empty, then metrics will expose for all local queues across namespaces.<
 </tr>
 </tbody>
 </table>
+
+## `MetricsAccessControlMode`     {#config-kueue-x-k8s-io-v1beta2-MetricsAccessControlMode}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [ControllerMetrics](#config-kueue-x-k8s-io-v1beta2-ControllerMetrics)
+
+
+<p>MetricsAccessControlMode specifies how access to the metrics listener is controlled.</p>
+
+
+
 
 ## `MultiKueue`     {#config-kueue-x-k8s-io-v1beta2-MultiKueue}
     

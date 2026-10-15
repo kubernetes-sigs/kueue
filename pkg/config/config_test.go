@@ -1218,7 +1218,8 @@ func TestEncode(t *testing.T) {
 					"certDir": configapi.DefaultWebhookCertDir,
 				},
 				"metrics": map[string]any{
-					"bindAddress": configapi.DefaultMetricsBindAddress,
+					"bindAddress":       configapi.DefaultMetricsBindAddress,
+					"accessControlMode": string(configapi.MetricsAccessControlModeDelegated),
 					"localQueueMetrics": map[string]any{
 						"enable": true,
 					},
