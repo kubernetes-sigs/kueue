@@ -30,8 +30,7 @@ import (
 // placementBreakdown represents the spread of Pods on Nodes grouped by PodSet.
 type placementBreakdown map[kueue.PodSetReference]podsPerNode
 
-// podsPerNode represents the set of nodes assigned to the PodSet's Pods,
-// mapped to the number of the PodSet's Pods to be placed on each node.
+// podsPerNode represents the count of Pods assignet to each recorded Node.
 type podsPerNode map[types.NodeName]int32
 
 // failuresBreakdown maps PodSets to a list of errors and failures

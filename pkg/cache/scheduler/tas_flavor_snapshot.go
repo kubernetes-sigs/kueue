@@ -989,8 +989,8 @@ func (s *TASFlavorSnapshot) BuildTopologyAssignmentsForPodSet(
 	podSet *kueue.PodSet,
 	flavor kueue.ResourceFlavorReference,
 	podsPerNode map[types.NodeName]int32,
-) (result *tasPodSetAssignmentResult) {
-	result = &tasPodSetAssignmentResult{}
+) *tasPodSetAssignmentResult {
+	result := &tasPodSetAssignmentResult{}
 	result.Flavor = flavor
 
 	domainCounts := map[*domain]int32{}
@@ -998,7 +998,7 @@ func (s *TASFlavorSnapshot) BuildTopologyAssignmentsForPodSet(
 		leafID, ok := s.nodeToDomain[string(nodeName)]
 		if !ok {
 			result.FailureReason = fmt.Sprintf("node %s is not defined in the known topology", nodeName)
-			return
+			return result
 		}
 
 		domain := &s.leaves[leafID].domain
@@ -1010,30 +1010,33 @@ func (s *TASFlavorSnapshot) BuildTopologyAssignmentsForPodSet(
 		domainCounts[domain] += count
 	}
 
-	levelsTotal := len(s.levelKeys)
-	var levelsSliceStart, levelsSliceEnd int
-	switch {
-	case s.virtualHostname:
-		levelsSliceStart = 0
-		levelsSliceEnd = levelsTotal - 1
-	case s.declaresHostnameLevel():
-		levelsSliceStart = levelsTotal - 1
-		levelsSliceEnd = levelsTotal
-	default:
-		levelsSliceStart = 0
-		levelsSliceEnd = levelsTotal
-	}
-
 	tasAssignment := &utiltas.TopologyAssignment{}
-	tasAssignment.Levels = s.levelKeys[levelsSliceStart:levelsSliceEnd]
+	low, high := s.getLevelRange()
+	tasAssignment.Levels = s.levelKeys[low:high]
 	domains := maps.Keys(domainCounts)
 	for _, domain := range slices.SortedFunc(domains, s.compareDomainLevelValues) {
 		tasAssignment.Domains = append(tasAssignment.Domains, utiltas.TopologyDomainAssignment{
-			Values: domain.levelValues[levelsSliceStart:levelsSliceEnd],
+			Values: domain.levelValues[low:high],
 			Count:  domainCounts[domain],
 		})
 	}
 	result.TopologyAssignment = tasAssignment
+	return result
+}
+
+func (s *TASFlavorSnapshot) getLevelRange() (low, high int) {
+	levelsTotal := len(s.levelKeys)
+	switch {
+	case s.virtualHostname:
+		low = 0
+		high = levelsTotal - 1
+	case s.declaresHostnameLevel():
+		low = levelsTotal - 1
+		high = levelsTotal
+	default:
+		low = 0
+		high = levelsTotal
+	}
 	return
 }
 
