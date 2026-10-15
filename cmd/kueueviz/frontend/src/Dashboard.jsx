@@ -323,9 +323,11 @@ const Dashboard = () => {
                         })()}
                       </TableCell>
                       <TableCell className="cluster-queue-column">
-                        <Link to={`/cluster-queue/${workload.status?.admission?.clusterQueue}`}>
-                          {workload.status?.admission?.clusterQueue || "N/A"}
-                        </Link>
+                        {workload.status?.admission?.clusterQueue ? (
+                          <Link to={`/cluster-queue/${workload.status.admission.clusterQueue}`}>
+                            {workload.status.admission.clusterQueue}
+                          </Link>
+                        ) : "N/A"}
                       </TableCell>
                       <TableCell className="preempted-column">
                         {formatPreemptedTextWithTooltip(preemptedCondition)}
