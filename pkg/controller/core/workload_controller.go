@@ -1396,6 +1396,11 @@ func (r *WorkloadReconciler) handleDelete(ctx context.Context, e event.TypedDele
 
 func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpdateEvent[*kueue.Workload]) bool {
 	defer r.notifyWatchers(e.ObjectOld, e.ObjectNew)
+	if e.ObjectOld.Annotations[controllerconsts.MultiKueueEvictionCleanupAnnotation] != e.ObjectNew.Annotations[controllerconsts.MultiKueueEvictionCleanupAnnotation] {
+		if cq, found := r.queues.ClusterQueueFromLocalQueue(qutil.KeyFromWorkload(e.ObjectNew)); found {
+			qcache.NotifyRetryInadmissible(r.queues, sets.New(cq))
+		}
+	}
 
 	status := workload.Status(e.ObjectNew)
 	log := r.logger().WithValues("workload", klog.KObj(e.ObjectNew), "localQueue", klog.KRef(e.ObjectNew.Namespace, string(e.ObjectNew.Spec.QueueName)), "status", status)

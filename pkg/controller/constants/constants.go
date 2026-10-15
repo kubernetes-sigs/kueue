@@ -19,6 +19,11 @@ package constants
 import kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 
 const (
+	// MultiKueueEvictionCleanupFinalizer retains a slice until its remote eviction cleanup completes.
+	MultiKueueEvictionCleanupFinalizer = "kueue.x-k8s.io/multikueue-eviction-cleanup"
+	// MultiKueueEvictionCleanupAnnotation acknowledges one completed eviction.
+	MultiKueueEvictionCleanupAnnotation = "kueue.x-k8s.io/multikueue-eviction-cleanup-completed"
+
 	// QueueLabel is the label key in the workload that holds the queue name.
 	QueueLabel = "kueue.x-k8s.io/queue-name"
 

@@ -17,6 +17,7 @@ limitations under the License.
 package multikueue
 
 import (
+	"slices"
 	"testing"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
@@ -28,12 +29,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingray "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -42,9 +45,13 @@ func TestEvictedSliceCleanup(t *testing.T) {
 	cases := map[string]struct {
 		replacedBeforeCleanup bool
 		holdDeletion          bool
+		quotaHeld             bool
+		unavailable           bool
 		wantRemoteExists      bool
 	}{
 		"cleanup observes quota release before replacement": {},
+		"finished slice still holding quota":                {replacedBeforeCleanup: true, quotaHeld: true},
+		"unavailable worker retains barrier":                {unavailable: true, wantRemoteExists: true},
 		"terminating remote blocks cleanup":                 {replacedBeforeCleanup: true, holdDeletion: true, wantRemoteExists: true},
 		"replacement finishes evicted slice before cleanup": {
 			replacedBeforeCleanup: true,
@@ -65,6 +72,10 @@ func TestEvictedSliceCleanup(t *testing.T) {
 				Condition(metav1.Condition{Type: kueue.WorkloadEvicted, Status: metav1.ConditionTrue,
 					Reason: kueue.WorkloadEvictedByPreemption, Message: "reclamation within the cohort"}).
 				Obj()
+			if tc.quotaHeld {
+				local.Status.Admission = &kueue.Admission{ClusterQueue: "cq"}
+				meta.SetStatusCondition(&local.Status.Conditions, metav1.Condition{Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionTrue, Reason: "Reserved"})
+			}
 			remoteWl := local.DeepCopy()
 			remoteWl.Status.Conditions = []metav1.Condition{{Type: kueue.WorkloadAdmitted,
 				Status: metav1.ConditionTrue, Reason: kueue.WorkloadAdmitted}}
@@ -96,6 +107,10 @@ func TestEvictedSliceCleanup(t *testing.T) {
 					"worker1": {client: NewNeverCachingClient(workerClient), origin: defaultOrigin},
 				},
 			}
+			if tc.unavailable {
+				group.unavailableClusters = []string{"worker1"}
+				group.remotes = map[string]*kueue.Workload{}
+			}
 			reconciler := &wlReconciler{client: localClient}
 			if tc.replacedBeforeCleanup {
 				meta.SetStatusCondition(&local.Status.Conditions, metav1.Condition{
@@ -108,6 +123,20 @@ func TestEvictedSliceCleanup(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
+			actual := &kueue.Workload{}
+			if err := localClient.Get(ctx, client.ObjectKeyFromObject(local), actual); err != nil {
+				t.Fatal(err)
+			}
+			pending := tc.holdDeletion || tc.unavailable
+			if workloadslicing.EvictionCleanupPending(actual) != pending {
+				t.Fatalf("pending=%v, want %v", workloadslicing.EvictionCleanupPending(actual), pending)
+			}
+			if slices.Contains(actual.Finalizers, constants.MultiKueueEvictionCleanupFinalizer) != pending {
+				t.Fatalf("cleanup finalizer=%v, want retained=%v", actual.Finalizers, pending)
+			}
+			if !pending && workload.HasQuotaReservation(actual) {
+				t.Fatal("finished eviction still holds quota")
+			}
 			for _, obj := range []client.Object{&rayv1.RayCluster{}, &kueue.Workload{}} {
 				objectKey := key
 				if _, ok := obj.(*kueue.Workload); ok {
@@ -118,7 +147,7 @@ func TestEvictedSliceCleanup(t *testing.T) {
 					t.Fatal(err)
 				}
 				exists := err == nil
-				if exists != tc.wantRemoteExists {
+				if exists != (tc.wantRemoteExists && (objectKey == key || tc.unavailable)) {
 					t.Fatalf("%T exists=%v, want %v", obj, exists, tc.wantRemoteExists)
 				}
 			}
@@ -172,59 +201,5 @@ func TestRaySliceCleanupWaitsAndFencesReplacement(t *testing.T) {
 	}
 	if successor.UID != "new-uid" {
 		t.Fatal("successor UID changed")
-	}
-}
-
-func TestRemoteEvictedSliceBlocksHandover(t *testing.T) {
-	for name, tc := range map[string]struct {
-		evicted, finished, remoteMissing, alreadyReplaced bool
-		wantWaiting                                       bool
-	}{
-		"normal resize reuses remote":     {},
-		"evicted predecessor":             {evicted: true, wantWaiting: true},
-		"finished evicted predecessor":    {evicted: true, finished: true, wantWaiting: true},
-		"cleanup completed":               {evicted: true, remoteMissing: true},
-		"new remote survives old cleanup": {evicted: true, alreadyReplaced: true},
-	} {
-		t.Run(name, func(t *testing.T) {
-			ctx, _ := utiltesting.ContextWithLog(t)
-			gvk := rayv1.SchemeGroupVersion.WithKind("RayCluster")
-			adapters, err := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("ray.io/raycluster"))
-			if err != nil {
-				t.Fatal(err)
-			}
-			cached := utiltestingapi.MakeWorkload("root", TestNamespace).Obj()
-			current := cached.DeepCopy()
-			if tc.evicted {
-				current.Status.Conditions = []metav1.Condition{{Type: kueue.WorkloadEvicted, Status: metav1.ConditionTrue}}
-			}
-			if tc.finished {
-				meta.SetStatusCondition(&current.Status.Conditions, metav1.Condition{Type: kueue.WorkloadFinished, Status: metav1.ConditionTrue, Reason: kueue.WorkloadSliceReplaced})
-			}
-			successor := utiltestingapi.MakeWorkload("successor", TestNamespace).Obj()
-			ray := testingray.MakeCluster("ray", TestNamespace).Obj()
-			jobframework.SetPrebuiltWorkloadName(ray, cached.Name)
-			if tc.alreadyReplaced {
-				jobframework.SetPrebuiltWorkloadName(ray, successor.Name)
-			}
-			workerBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme)
-			if !tc.remoteMissing {
-				workerBuilder.WithObjects(ray)
-			}
-			group := &wlGroup{
-				local:         successor,
-				controllerKey: client.ObjectKeyFromObject(ray),
-				jobAdapter:    adapters[gvk.String()],
-				remoteClients: map[string]*remoteClient{"worker1": {client: NewNeverCachingClient(workerBuilder.Build())}},
-			}
-			reconciler := &wlReconciler{client: utiltesting.NewClientBuilder().WithObjects(cached).Build(), apiReader: utiltesting.NewClientBuilder().WithObjects(current).Build()}
-			waiting, err := reconciler.waitForRemoteEvictedSlice(ctx, group)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if waiting != tc.wantWaiting {
-				t.Fatalf("waiting=%v, want %v", waiting, tc.wantWaiting)
-			}
-		})
 	}
 }

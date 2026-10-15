@@ -172,13 +172,13 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 	} else {
 		cleanupErr = jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, remoteClient, g.jobAdapter, g.controllerKey, origin)
 	}
-	if err := cleanupErr; err != nil {
+	if err := cleanupErr; err != nil && !errors.Is(err, errSliceCleanupPending) {
 		return fmt.Errorf("deleting remote controller object: %w", err)
 	}
 
 	remWl := g.remotes[cluster]
 	if remWl == nil {
-		return nil
+		return cleanupErr
 	}
 
 	if controllerutil.RemoveFinalizer(remWl, kueue.ResourceInUseFinalizerName) {
@@ -192,7 +192,7 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 		return fmt.Errorf("deleting remote workload: %w", err)
 	}
 	g.remotes[cluster] = nil
-	return nil
+	return cleanupErr
 }
 
 func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -270,6 +270,14 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 		for cluster := range grp.remotes {
 			err := grp.RemoveRemoteObjects(ctx, cluster)
 			if err != nil {
+				return reconcile.Result{}, err
+			}
+		}
+		if len(grp.unavailableClusters) > 0 && controllerutil.ContainsFinalizer(wl, constants.MultiKueueEvictionCleanupFinalizer) {
+			return reconcile.Result{RequeueAfter: w.workerLostTimeout}, nil
+		}
+		if controllerutil.ContainsFinalizer(wl, constants.MultiKueueEvictionCleanupFinalizer) {
+			if err := w.patchSliceCleanupMetadata(ctx, wl, true); client.IgnoreNotFound(err) != nil {
 				return reconcile.Result{}, err
 			}
 		}
@@ -379,12 +387,22 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	log.V(3).Info("Reconcile Workload Group")
 
 	acs := admissioncheck.FindAdmissionCheck(group.local.Status.AdmissionChecks, group.acName)
-	if group.IsElasticWorkload() {
-		if workloadevict.IsEvicted(group.local) && group.IsFinished() && workload.HasQuotaReservation(group.local) {
-			return reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, nil
+	if _, supported := group.jobAdapter.(sliceCleanupAdapter); supported && group.IsElasticWorkload() {
+		if workloadevict.IsEvicted(group.local) && !workloadslicing.EvictionCleanupPending(group.local) {
+			return reconcile.Result{}, nil
+		}
+		if err := w.patchSliceCleanupMetadata(ctx, group.local, false); err != nil {
+			return reconcile.Result{}, err
+		}
+		if workloadevict.IsEvicted(group.local) && (!workload.HasQuotaReservation(group.local) || group.IsFinished()) {
+			return w.cleanupEvictedSlice(ctx, group)
 		}
 		if !workloadevict.IsEvicted(group.local) && !group.IsFinished() && workload.HasQuotaReservation(group.local) {
-			if waiting, err := w.waitForRemoteEvictedSlice(ctx, group); err != nil || waiting {
+			reader := w.apiReader
+			if reader == nil {
+				reader = w.client
+			}
+			if pending, err := workloadslicing.FindPendingEviction(ctx, reader, group.local); err != nil || pending != nil {
 				return reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, err
 			}
 		}

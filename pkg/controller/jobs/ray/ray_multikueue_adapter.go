@@ -230,7 +230,9 @@ func (a *adapter[PtrT, T]) SyncJob(
 		}
 		if a.workerOwnsReplicas(localJob) {
 			if a.elastic.IsSuspended(localJob) {
-				return false, nil
+				// Slice identity must still advance during eviction, so the worker job
+				// reconciler can observe the evicted workload and stop the RayCluster.
+				return false, a.repointPrebuiltWorkload(ctx, remoteClient, workloadName, remoteJob)
 			}
 			changed, err := a.reflectRuntimeState(ctx, localClient, remoteClient, localJob, remoteJob)
 			if err != nil {
@@ -421,7 +423,7 @@ func (a *adapter[PtrT, T]) CleanupRemoteSlice(ctx context.Context, remoteClient 
 	resourceVersion := job.GetResourceVersion()
 	if job.GetDeletionTimestamp().IsZero() {
 		ctrl.LoggerFrom(ctx).V(1).Info("Deleting evicted remote Ray slice", "remoteController", key, "workload", workloadName, "uid", uid)
-		if err := remoteClient.Delete(ctx, job, client.Preconditions{UID: &uid, ResourceVersion: &resourceVersion}); err != nil {
+		if err := remoteClient.Delete(ctx, job, client.Preconditions{UID: &uid, ResourceVersion: &resourceVersion}, client.PropagationPolicy(metav1.DeletePropagationForeground)); err != nil {
 			return apierrors.IsNotFound(err), client.IgnoreNotFound(err)
 		}
 	}

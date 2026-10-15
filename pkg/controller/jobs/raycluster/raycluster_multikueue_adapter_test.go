@@ -448,7 +448,7 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			workerRayClusters: []rayv1.RayCluster{
 				*elasticBuilder.Clone().
-					PrebuiltWorkloadLabel("wl1").
+					PrebuiltWorkloadLabel("previous-slice").
 					Label(kueue.MultiKueueOriginLabel, "origin1").
 					WithEnableAutoscaling(new(true)).
 					FirstWorkerGroupReplicas(3, 1, 5).

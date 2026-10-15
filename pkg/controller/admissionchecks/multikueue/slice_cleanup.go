@@ -19,61 +19,89 @@ package multikueue
 import (
 	"context"
 	"errors"
+	"slices"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/klog/v2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/controller/jobframework"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 // sliceCleanupAdapter scopes deletion to the remote job's prebuilt workload and
-// waits for that job to disappear before removing the remote workload.
+// reports completion only after that job has disappeared.
 type sliceCleanupAdapter interface {
 	CleanupRemoteSlice(ctx context.Context, remoteClient client.Client, key types.NamespacedName, workloadName, origin string) (bool, error)
 }
 
 var errSliceCleanupPending = errors.New("remote slice deletion is still pending")
 
-// A resize normally reuses the remote job. After eviction, however, the old
-// job must be removed first, even if its workload has already finished/Replaced.
-// Use the remote job's existing marker rather than introducing handover state.
-func (w *wlReconciler) waitForRemoteEvictedSlice(ctx context.Context, group *wlGroup) (bool, error) {
-	if _, supported := group.jobAdapter.(sliceCleanupAdapter); !supported {
-		return false, nil
-	}
-	reader := w.apiReader
-	if reader == nil {
-		reader = w.client
-	}
-	for _, remote := range group.remoteClients {
-		job := &metav1.PartialObjectMetadata{}
-		job.SetGroupVersionKind(group.jobAdapter.GVK())
-		if err := remote.getClient().Get(ctx, group.controllerKey, job); err != nil {
-			if client.IgnoreNotFound(err) != nil {
-				return false, err
+// Retention and completion are metadata writes guarded by resourceVersion, so
+// a stale reconcile cannot acknowledge a newer eviction or lose its finalizer.
+func (w *wlReconciler) patchSliceCleanupMetadata(ctx context.Context, wl *kueue.Workload, complete bool) error {
+	updated := wl.DeepCopy()
+	switch {
+	case complete:
+		if workloadevict.IsEvicted(wl) {
+			if updated.Annotations == nil {
+				updated.Annotations = make(map[string]string)
 			}
-			continue
+			updated.Annotations[constants.MultiKueueEvictionCleanupAnnotation] = workloadslicing.EvictionCleanupToken(wl)
 		}
-		predecessorName := jobframework.PrebuiltWorkloadNameFor(job)
-		if predecessorName == "" || predecessorName == group.local.Name {
-			continue
-		}
-		predecessor := &kueue.Workload{}
-		if err := reader.Get(ctx, types.NamespacedName{Namespace: group.local.Namespace, Name: predecessorName}, predecessor); err != nil {
-			if client.IgnoreNotFound(err) != nil {
-				return false, err
+		controllerutil.RemoveFinalizer(updated, constants.MultiKueueEvictionCleanupFinalizer)
+	case workloadfinish.IsFinished(wl) && !workloadevict.IsEvicted(wl):
+		controllerutil.RemoveFinalizer(updated, constants.MultiKueueEvictionCleanupFinalizer)
+	default:
+		controllerutil.AddFinalizer(updated, constants.MultiKueueEvictionCleanupFinalizer)
+	}
+	if slices.Equal(updated.Finalizers, wl.Finalizers) && updated.Annotations[constants.MultiKueueEvictionCleanupAnnotation] == wl.Annotations[constants.MultiKueueEvictionCleanupAnnotation] {
+		return nil
+	}
+	if err := w.client.Patch(ctx, updated, client.MergeFromWithOptions(wl, client.MergeFromWithOptimisticLock{})); err != nil {
+		return err
+	}
+	wl.ObjectMeta = updated.ObjectMeta
+	return nil
+}
+
+func (w *wlReconciler) cleanupEvictedSlice(ctx context.Context, group *wlGroup) (reconcile.Result, error) {
+	for cluster := range group.remotes {
+		if err := group.RemoveRemoteObjects(ctx, cluster); err != nil {
+			if errors.Is(err, errSliceCleanupPending) {
+				return reconcile.Result{RequeueAfter: syncDeferredRequeueAfter}, nil
 			}
-			continue
-		}
-		if workloadevict.IsEvicted(predecessor) {
-			ctrl.LoggerFrom(ctx).V(1).Info("Waiting for evicted remote slice deletion", "workload", klog.KObj(group.local), "predecessor", klog.KObj(predecessor))
-			return true, nil
+			return reconcile.Result{}, err
 		}
 	}
-	return false, nil
+	if len(group.unavailableClusters) > 0 {
+		return reconcile.Result{RequeueAfter: w.workerLostTimeout}, nil
+	}
+	// A prematurely Finished slice cannot be drained by the job reconciler. Once
+	// foreground deletion is complete there are no remote dependents left, so
+	// releasing any remaining reservation is safe.
+	if workload.HasQuotaReservation(group.local) {
+		clk := w.clock
+		if clk == nil {
+			clk = realClock
+		}
+		if err := workloadpatching.PatchAdmissionStatus(ctx, w.client, group.local, clk, func(wl *kueue.Workload) (bool, error) {
+			return workload.UnsetQuotaReservationWithCondition(wl, kueue.WorkloadQuotaReservedReasonPendingEvaluation, "Remote RayCluster eviction cleanup completed", clk.Now()), nil
+		}); err != nil {
+			return reconcile.Result{}, err
+		}
+	}
+	if err := w.patchSliceCleanupMetadata(ctx, group.local, true); err != nil {
+		return reconcile.Result{}, err
+	}
+	ctrl.LoggerFrom(ctx).V(1).Info("Evicted slice cleanup completed", "workload", klog.KObj(group.local))
+	return reconcile.Result{}, nil
 }

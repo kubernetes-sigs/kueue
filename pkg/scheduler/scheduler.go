@@ -30,6 +30,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
@@ -83,6 +84,7 @@ type Scheduler struct {
 	queues                  *qcache.Manager
 	cache                   *schdcache.Cache
 	client                  client.Client
+	apiReader               client.Reader
 	recorder                events.EventRecorder
 	admissionRoutineWrapper routine.Wrapper
 	preemptor               *preemption.Preemptor
@@ -102,6 +104,7 @@ type Scheduler struct {
 }
 
 type options struct {
+	apiReader                   client.Reader
 	podsReadyRequeuingTimestamp config.RequeuingTimestamp
 	fairSharing                 *config.FairSharing
 	admissionFairSharing        *config.AdmissionFairSharing
@@ -122,6 +125,9 @@ var defaultOptions = options{
 	clock:                       realClock,
 	refillBudget:                defaultRefillBudget,
 }
+
+// WithAPIReader supplies direct reads at the elastic eviction barrier.
+func WithAPIReader(reader client.Reader) Option { return func(o *options) { o.apiReader = reader } }
 
 // WithPodsReadyRequeuingTimestamp sets the timestamp that is used for ordering
 // workloads that have been requeued due to the PodsReady condition.
@@ -208,6 +214,7 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 		queues:      queues,
 		cache:       cache,
 		client:      cl,
+		apiReader:   options.apiReader,
 		recorder:    recorder,
 		preemptor: preemption.New(
 			cl,
@@ -452,6 +459,11 @@ func (s *Scheduler) processEntry(
 	skippedPreemptions map[kueue.ClusterQueueReference]int,
 ) {
 	cq := snapshot.ClusterQueue(e.ClusterQueue)
+	if err := s.checkSliceEviction(ctx, e.Obj, cq); err != nil {
+		e.inadmissibleMsg = err.Error()
+		e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
+		return
+	}
 	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)))
 	if cq.HasParent() {
 		log = log.WithValues("parentCohort", klog.KRef("", string(cq.Parent().GetName())), "rootCohort", klog.KRef("", string(cq.Parent().Root().GetName())))
@@ -1093,6 +1105,10 @@ func (s *Scheduler) patchWorkloadAdmission(
 		}
 	}
 	return workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
+		// Recheck inside the asynchronous write, including retries.
+		if err := s.checkSliceEviction(ctx, wl, cq); err != nil {
+			return false, err
+		}
 		s.prepareWorkload(log, wl, cq, admission)
 		updateUnhealthyNodesAfterTASReplacement(log, wl, replacedNodeName)
 		return true, nil
@@ -1623,4 +1639,28 @@ func effectiveReducerPodSets(podSets []kueue.PodSet, replaceableWorkloadSlice *w
 		}
 	}
 	return effective
+}
+
+// checkSliceEviction blocks reservation, not merely the MultiKueue admission
+// check. Unrelated jobs and worker-cluster queues retain their current policy.
+func (s *Scheduler) checkSliceEviction(ctx context.Context, wl *kueue.Workload, cq *schdcache.ClusterQueueSnapshot) error {
+	if !cq.HasMultiKueueAdmissionCheck() || !workloadslicing.IsElasticWorkload(wl) {
+		return nil
+	}
+	owner := metav1.GetControllerOf(wl)
+	if owner == nil || owner.Kind != "RayCluster" || owner.APIVersion != "ray.io/v1" {
+		return nil
+	}
+	reader := s.apiReader
+	if reader == nil {
+		reader = s.client
+	}
+	pending, err := workloadslicing.FindPendingEviction(ctx, reader, wl)
+	if err != nil {
+		return fmt.Errorf("checking slice eviction cleanup: %w", err)
+	}
+	if pending != nil {
+		return fmt.Errorf("waiting for eviction cleanup of workload slice %s", pending.Name)
+	}
+	return nil
 }
