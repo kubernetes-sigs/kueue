@@ -22,7 +22,8 @@ from pathlib import Path
 COMMAND = "/set-release-note"
 MAX_PR_BODY_LENGTH = 65_536
 # A line holding a single Prow-style command, such as "/kind bug" or "/lgtm".
-COMMAND_LINE_RE = re.compile(r"^/[a-z][a-z0-9-]*(?:[ \t]+\S.*)?$")
+# Prow matches command names case-insensitively, so this does too.
+COMMAND_LINE_RE = re.compile(r"^/[a-z][a-z0-9-]*(?:[ \t]+\S.*)?$", re.IGNORECASE)
 FENCE_RE = re.compile(
     r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>[^\r\n]*?)[ \t]*(?:\r?\n)?$"
 )
@@ -40,31 +41,28 @@ def _match_fence(line: str) -> re.Match[str] | None:
     return match
 
 
-def _strip_trailing_commands(lines: list[str]) -> list[str]:
-    """Drop the trailing block of command lines that follows the note.
-
-    Other commands in the same comment, such as "/kind bug", are handled by
-    Prow and must not end up in the release note. Only a trailing block of
-    command and blank lines is removed, so a note line that happens to start
-    with "/" followed by more note text is kept.
-    """
-    end = len(lines)
-    while end > 0 and (
-        not lines[end - 1].strip() or COMMAND_LINE_RE.match(lines[end - 1].strip())
-    ):
-        end -= 1
-    return lines[:end]
+def _is_set_release_note_line(line: str) -> bool:
+    """Report whether the line is the /set-release-note command."""
+    return line.rstrip().lower() == COMMAND
 
 
 def parse_release_note(comment: str) -> str:
-    """Parse and validate the release note from a ChatOps comment."""
-    lines = comment.replace("\r\n", "\n").splitlines()
-    if not lines or lines[0].rstrip() != COMMAND:
-        raise ValueError(f"{COMMAND} must be the first line of the comment.")
+    """Parse and validate the release note from a ChatOps comment.
 
-    # When the command is repeated in one comment, the last one wins.
-    last_command = max(i for i, line in enumerate(lines) if line.rstrip() == COMMAND)
-    note_lines = _strip_trailing_commands(lines[last_command + 1 :])
+    The note is the text after the last /set-release-note line, up to the next
+    command line such as "/kind bug". Other commands in the same comment are
+    handled by Prow and must not end up in the release note.
+    """
+    lines = comment.replace("\r\n", "\n").splitlines()
+    commands = [i for i, line in enumerate(lines) if _is_set_release_note_line(line)]
+    if not commands:
+        raise ValueError(f"{COMMAND} must be on a line of its own.")
+
+    note_lines = []
+    for line in lines[commands[-1] + 1 :]:
+        if COMMAND_LINE_RE.match(line.strip()):
+            break
+        note_lines.append(line)
     release_note = "\n".join(note_lines).strip()
     if not release_note:
         raise ValueError(f"{COMMAND} must be followed by a non-empty release note.")

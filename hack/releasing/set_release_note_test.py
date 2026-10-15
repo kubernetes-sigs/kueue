@@ -57,9 +57,22 @@ class ParseReleaseNoteTest(unittest.TestCase):
                 "/set-release-note\nFirst note\n/set-release-note\nSecond note\n/kind bug",
                 "Second note",
             ),
-            "line starting with a slash inside the note is kept": (
-                "/set-release-note\n/healthz now returns 503 while starting.\nNo action needed.",
-                "/healthz now returns 503 while starting.\nNo action needed.",
+            "command after another command": (
+                "/kind bug\n/set-release-note\nTEST2\n/kind cleanup",
+                "TEST2",
+            ),
+            "command after other text": (
+                "Please update this.\n/set-release-note\nA useful change",
+                "A useful change",
+            ),
+            "note ends at the next command": (
+                "/set-release-note\nFirst line\n/kind bug\nNot part of the note",
+                "First line",
+            ),
+            "commands are matched case-insensitively": (
+                "/set-release-note\nCLI: Example release note.\n\nExample release note.\n\n"
+                "/remove-kind cleanup\n/kind bug\n\n/Set-release-note\nCLI: Example release note.\n\n",
+                "CLI: Example release note.",
             ),
         }
 
@@ -71,15 +84,11 @@ class ParseReleaseNoteTest(unittest.TestCase):
         test_cases = {
             "empty comment": (
                 "",
-                "/set-release-note must be the first line of the comment.",
-            ),
-            "command after other text": (
-                "Please update this.\n/set-release-note\nA useful change",
-                "/set-release-note must be the first line of the comment.",
+                "/set-release-note must be on a line of its own.",
             ),
             "command with surrounding whitespace": (
                 "  /set-release-note  \nA useful change",
-                "/set-release-note must be the first line of the comment.",
+                "/set-release-note must be on a line of its own.",
             ),
             "missing note": (
                 "/set-release-note",
