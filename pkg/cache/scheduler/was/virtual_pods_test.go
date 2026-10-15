@@ -179,9 +179,8 @@ func TestVirtualPodsForWorkload(t *testing.T) {
 					Labels:      map[string]string{constants.PodSetLabel: "main"},
 					Annotations: map[string]string{kueue.WorkloadAnnotation: tc.wl.Name},
 					Spec: corev1.PodSpec{
-						NodeName:        wantNode,
-						Containers:      podTemplate.Spec.Containers,
-						SchedulingGroup: &corev1.PodSchedulingGroup{PodGroupName: new(VirtualPodGroupName(tc.wl.Name))},
+						NodeName:   wantNode,
+						Containers: podTemplate.Spec.Containers,
 					},
 					Status: corev1.PodStatus{Phase: corev1.PodRunning},
 				}
