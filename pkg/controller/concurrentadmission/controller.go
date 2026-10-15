@@ -686,7 +686,7 @@ func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kue
 		if err != nil {
 			return fmt.Errorf("clearing admission: %w", err)
 		}
-	case workload.IsAdmitted(parent) && hasRemovedAdmissionFlavor(parent, flavorOrder):
+	case admittedVariant != nil && workload.IsAdmitted(parent) && hasRemovedAdmissionFlavor(parent, flavorOrder):
 		// Preserve an existing eviction while waiting for the parent to release quota.
 		if workloadevict.IsEvicted(parent) {
 			return nil
