@@ -33,7 +33,8 @@ tags, build the mdtoc tool with `make mdtoc` and then generate the TOC with `hac
     - [Security considerations](#security-considerations)
 - [Design Details](#design-details)
   - [Proposed API](#proposed-api)
-  - [API Semantics &amp; Implementation Details](#api-semantics--implementation-details)
+  - [Limit Enforcement](#limit-enforcement)
+  - [In-Memory State Management](#in-memory-state-management)
   - [Observability](#observability)
   - [Test Plan](#test-plan)
     - [Unit tests](#unit-tests)
@@ -86,41 +87,41 @@ While declarative preemption systems (such as Configurable Preemptions via `Pree
 - **PreemptedClusterQueue**: Constrains the eviction rate targeting workloads running in specific ClusterQueues, including blocking preemptions entirely (`limit: 0`) to protect mission-critical "hero" queues.
 - **PreemptedWorkload**: Limits how frequently an individual workload can be preempted within the window to prevent workload bullying and eviction thrashing loops.
 
-Limits can target only specific subset of preemptions using label selectors (`configSelector` and `clusterQueueSelector`)
+Limits can target a specific subset of preemptions using label selectors (`configSelector` and `clusterQueueSelector`).
 In Alpha, this capability is introduced specifically for Configurable Preemptions under the `ConfigurablePreemptionLimits` feature gate, with possible extensions to classical and fair-sharing preemption in future iterations.
 
 ## Motivation
 
-While `PreemptionConfig` provides declarative candidate selection policies, cluster administrators also need rate-limiting guardrails to rollout new configurations safely, prevent cascading preemptions, eviction storms, and cluster instability during large-scale rescheduling.
+While `PreemptionConfig` provides declarative candidate selection policies, cluster administrators also need rate-limiting guardrails to roll out new configurations safely, prevent cascading preemptions, eviction storms, and cluster instability during large-scale rescheduling.
 
 ### Goals
 
-1. Safe introduction of new `PreemptionConfig`s or rules within `PreemptionConfig`.
-2. Increase of cluster stability by rate-limiting of preemptions.
-3. Definition of most common fields that can be used to limit preemptions.
+1. Safely introduce new `PreemptionConfig`s or rules within `PreemptionConfig`.
+2. Improve cluster stability by rate-limiting preemptions.
+3. Define the most common scopes and fields for limiting preemptions.
 
 ### Non-Goals
 
-1. One advanced set of predefined `PreemptionLimit`s to fullfil every possible rate limiting use case.
-2. Defaults for rate limiting current classical/fair sharing preemptions. (As those would be breaking)
+1. One advanced set of predefined `PreemptionLimit`s to fulfill every possible rate-limiting use case.
+2. Defaults for rate limiting current classical/fair sharing preemptions (as those would be breaking).
 3. Automatic addition of labels to existing Kueue resources (ClusterQueues, PreemptionConfigs).
 
 ## Proposal
 
-This KEP proposes a new preemption rate limiting mechanism - for now supported only in Configurable Preemptions, but it can be extened also to the classic or fair sharing preemptions in the future. If the `ConfigurablePreemptionLimits` feature gate is disabled, Configurable Preemptions will not be limited according to the limits defined in the system.
+This KEP proposes a new preemption rate-limiting mechanism — initially supported only in Configurable Preemptions, with the potential to extend to classical or fair-sharing preemptions in the future. The new mechanism is gated by `ConfigurablePreemptionLimits` feature gate, when disabled Configurable Preemptions will not be limited according to the limits defined in the system.
 
 Relevant capabilities include:
 
 1. **Global rate-limiting**: Restrict the total number of preemption events across the entire cluster within a sliding time window.
 2. **Preemptor ClusterQueue rate-limiting**: Throttle preemptions triggered by workloads originating from a specific ClusterQueue.
 3. **Preempted ClusterQueue protection**: Limit or block preemptions targeting workloads belonging to a specific ClusterQueue (e.g., setting `limit: 0` to make mission-critical or hero queues non-preemptible).
-4. **Preempted Workload churn limiting**: Restrict how many times an individual workload can be preempted within a given time window to avoid starvation, ping-pong eviction loops or bullying of particular workload.
+4. **Preempted Workload churn limiting**: Restrict how many times an individual workload can be preempted within a given time window to avoid starvation, ping-pong eviction loops, or bullying of a particular workload.
 
 ### User Stories
 
 #### Story 1 - Safe rollout of experimental PreemptionConfig (or new preemption rule in the future)
 
-Mistakes in `PreemptionConfigs` can lead to serious consequences like mass evictions or cluster instability. By introducing rate-limiting of preemptions connected to a new `PreemptionConfig` or a new rule within existing config (deferred to future work), can limit the blast radius of such misconfigurations. Cluster admins can at first set a small limit to a new config/rule and slowly increase it to the desired level, while observing cluster stability.
+Mistakes in `PreemptionConfig` can lead to serious consequences, such as mass evictions or cluster instability. Introducing rate-limiting for preemptions associated with a new `PreemptionConfig` (or a specific rule within an existing config, deferred to future work) limits the blast radius of such misconfigurations. Cluster administrators can initially set a conservative limit on a new config and gradually increase it while observing cluster stability.
 
 ```yaml
 spec:
@@ -179,7 +180,7 @@ spec:
 
 ### Caveats
 
-1. **User-managed resource labeling**: As ClusterQueues right now do not have a constrained resource name to 63 characters and Kueue currently does not auto add labels to the Cluster Scope CRDs (K8s does this for Namespaces), this is up to the users to label cluster queues and appropriate preemption configurations themselves. This might be changed in the future to make the user experience better, but remains out of the scope of this KEP.
+1. **User-managed resource labeling**: Because ClusterQueue names are not currently constrained to 63 characters and Kueue does not automatically inject labels onto cluster-scoped CRDs (as Kubernetes does for Namespaces), users must label ClusterQueues and PreemptionConfigs manually to match selectors. Improving this experience may be considered in future work, but is out of scope for this KEP.
 2. **Reset on controller restarts**: Preemption events are tracked strictly in-memory within the controller cache and are not persisted in etcd. Consequently, if the Kueue controller restarts (e.g. due to pod restart, failover, or upgrade), preemption limits will be reset, temporarily allowing preemption events up to the configured limit immediately following the restart.
 3. **Increasing time window**: Because expired preemption timestamps are periodically trimmed from the in-memory map based on the active sliding window, if a user updates a `PreemptionLimit` to increase `limitWindowSeconds`, events that occurred prior to the previously configured window will have already been pruned and will not be retroactively taken into account.
 4. **Deleted and recreated objects**: Preemption events are tracked in-memory by entity key (`namespace/name` for Workloads, or name for ClusterQueues) rather than by UID. Consequently, objects in the same namespace and with the same name will be treated as the same object, and preemption limits for them will not be reset if an object is deleted and recreated within the active time window.
@@ -187,22 +188,22 @@ spec:
 
 ### Risks and Mitigations
 
-As this feature is targeted to derisk Configurable Preemptions usage which is currently in Alpha it will be at first introduced only for the Configurable Preemptions. Thereby, as it will not in any way interfere with well matured preemption algorithms, the risks have small blast radius, and can be always mitigated by disabling Configurable Preemptions or Configurable Preemption Limits (via the `ConfigurablePreemptions` and `ConfigurablePreemptionLimits` feature gates).
+Because this feature is intended to de-risk Configurable Preemptions (currently in Alpha), it is initially introduced solely for Configurable Preemptions. It does not alter mature classical or fair-sharing preemption algorithms, keeping the blast radius small. The feature can be completely disabled at any time via the `ConfigurablePreemptionLimits` (or `ConfigurablePreemptions`) feature gate.
 
 #### Performance degradation
 
-Since this will increase complexity of configurable preemptions algorithm by checking if preemptions are allowed according to the limits, preemption performance monitoring is required to maintain appropriate level of preemption performance.
+Because validating preemption candidates against active limits introduces additional checks during preemption evaluation, performance monitoring is necessary to ensure preemption evaluation speed remains acceptable.
 
-The risk will be mitigated by:
+This risk is mitigated by:
 
-- `PreemptionLimit`s are completely optional and can be disabled by removing them or disabling the `ConfigurablePreemptionLimits` feature gate,
-- performance testing before `ConfigurablePreemptionLimits` is graduated to Beta,
-- short circuts in the implementation (e.g. if Global preemption limit is already reached for the particular PreemptionConfig, we do not need to check candidates for it at all),
-- efficient implamentation of in memory tracking of past preemptions.
+- `PreemptionLimit`s are completely optional and can be disabled by removing the resources or disabling the `ConfigurablePreemptionLimits` feature gate,
+- performance testing prior to graduating `ConfigurablePreemptionLimits` to Beta,
+- short-circuit optimizations in the implementation (e.g., if a Global preemption limit has already been reached for a given `PreemptionConfig`, candidate evaluation for that config is skipped immediately),
+- efficient in-memory timestamp tracking with periodic trimming of expired entries.
 
 #### Security considerations
 
-As preemption limits will be modifiable only by cluster administrators, there are no security risks introduced by this feature. Administrators modifying them should be aware of the risks and consequences of misconfiguration in Kueue, which can lead to workloads not being scheduled and effectively blocked or cascading preemptions.
+Because `PreemptionLimit` is a cluster-scoped resource modifiable only by cluster administrators, this feature introduces no security or multi-tenancy privilege-escalation risks. Administrators modifying them should nonetheless be aware that severe misconfigurations (such as setting an unintended `limit: 0`) could prevent necessary preemptions, leaving workloads pending.
 
 ## Design Details
 
@@ -311,7 +312,7 @@ type PreemptionLimitStatus struct {
 type PreemptionLimitCount struct {
 	// name identifies the scoped entity.
 	// For Global scope it is "Global".
-	// For PreemptingClusterQueue and PreemptedClusterQueue scopes it is the ClusterQueue name.
+	// For PreemptorClusterQueue and PreemptedClusterQueue scopes it is the ClusterQueue name.
 	// For PreemptedWorkload scope it is "<namespace>/<workload-name>".
 	//
 	// +required
@@ -327,16 +328,17 @@ type PreemptionLimitCount struct {
 }
 ```
 
-### API Semantics & Implementation Details
+### Limit Enforcement
 
-PreemptionLimit limits the number of preemptions that happen for the specified set of rules. The preemption evaluator evaluates proposed preemptions against defined limit objects, allowing them to proceed only if adequate preemption quota remains. If a preemption is in the scope of multiple limits, quota must exist in all of them. If the `ConfigurablePreemptionLimits` feature gate is disabled, Configurable Preemptions will not be limited according to the limits defined in the system.
-To track this, a list of preemption rule names responsible for selecting each candidate must be maintained.
+A `PreemptionLimit` limits the number of preemptions that can occur within its configured scope. During scheduling, the preemption evaluator checks proposed preemptions against all applicable limit objects, allowing an eviction to proceed only if sufficient preemption allowance remains. If a preemption falls within the scope of multiple limits, quota must be available in all of them. If the `ConfigurablePreemptionLimits` feature gate is disabled, Configurable Preemptions will not be constrained by any limits defined in the cluster.
 
-To manage this data, Kueue will store a comprehensive preemption map in memory, isolated per PreemptionLimit. This map tracks all preemption event timestamps under a specific CQ/workload key, capturing events that occurred within the designated `LimitWindowSeconds`. Moreover, it tracks only events that are in the scope of the specific limit; if a preemption does not match the defined config or rules selector, it will not be tracked in that particular instance of the preemption map. This list is periodically trimmed to filter out expired timestamps.
+### In-Memory State Management
+
+To manage this data, Kueue stores a comprehensive preemption map in memory, isolated per `PreemptionLimit`. This map tracks all preemption event timestamps indexed by entity key (ClusterQueue or Workload), recording events that occurred within the designated `limitWindowSeconds`. Moreover, it records only events that match the scope and selectors of the specific limit; if a preemption does not match the configured `configSelector` or `clusterQueueSelector`, it is not tracked in that limit's preemption map. Expired timestamps are periodically trimmed from the map.
 
 Because tracking is strictly maintained in-memory and periodically trimmed:
 - **Reset on controller restarts**: Events are not persisted in etcd; restarting the Kueue controller resets the in-memory map, so preemption limit counters start fresh from zero.
-- **Reset on spec changes to scope or config selector**: If the `spec` of a `PreemptionLimit` changes its `scope` or `configSelector`, the limits are reset by clearing all recorded in-memory preemption event timestamps for that limit.
+- **Reset on spec changes to scope or configSelector**: If a `PreemptionLimit`'s `spec` is modified to change its `scope` or `configSelector`, the in-memory limit counters are reset by clearing all recorded preemption event timestamps for that limit.
 - **Increasing time window**: If `LimitWindowSeconds` is increased, previous preemption events that occurred before the previously active window have already been discarded and will not be taken into account.
 - **Deleted and recreated objects**: Entity keys in the in-memory tracking map are based on `namespace/name` (or name for ClusterQueues) rather than UID; objects in the same namespace with the same name will be treated as the same object, and their limits will not be reset upon deletion and recreation within the sliding window.
 
@@ -347,8 +349,8 @@ Furthermore, the status of the PreemptionLimit is refreshed periodically by a de
 
 ### Observability
 
-When preemption is throttled or blocked due to an exhausted `PreemptionLimit`, informational/debug log entries are recorded specifying the limit name, scope, and affected entities for operator troubleshooting.
-Also each preemption operation that is performed and in scope of the limits is recorded and will be visible in the periodically updated `PreemptionLimit.status.counts`.
+When preemption is throttled or blocked due to an exhausted `PreemptionLimit`, informational and debug log entries are recorded specifying the limit name, scope, and affected entities for operator troubleshooting.
+Additionally, each preemption operation executed within the scope of active limits is recorded and reported in the periodically updated `PreemptionLimit.status.counts` and `PreemptionLimit.status.lastUpdateTimestamp`.
 
 ### Test Plan
 
@@ -386,51 +388,49 @@ in the form of:
 This can inform certain test coverage improvements that we want to do before
 extending the production code to implement this enhancement.
 -->
-Majority of the new code will be added as a separate subpackage in preemptions called "limits",
-and in the new controller handling the preemption limits periodical updates.
-These two components will have all of the public methods covered with unit tests.
+The majority of the new code will be introduced as a separate subpackage under `pkg/controller/preemption` called `limits`, alongside a dedicated controller handling periodic updates to `PreemptionLimit` status. All public methods across these components will be thoroughly covered by unit tests.
 
-Appart from the new subpackage the following existing components will receive additional unit tests for new behavior only if the FG is enabled:
-1. Preemption Evaluator:
-	- Selects only candidates that do not violate any of the limits.
-	- Returns information which limits where consumed by the selected candidates.
-2. `Preemptor.IssuePreemptions`:
-	- Records the configurable preemption events for tracking preemption limits in memory.
-	- Records preemption events only once if preemption is issued successfully.
-3. Scheduler:
-  - Recomputes preemption candidates in case of conflicting limits from many workloads (same as for overlapping preemption targets).
+Apart from the new subpackage, the following existing components will receive additional unit tests covering the new behavior when the feature gate is enabled:
+1. **Preemption Evaluator**:
+   - Selects only candidates that do not violate any applicable limits.
+   - Accurately reports which limits were consumed by the selected candidates.
+2. **Preemptor.IssuePreemptions`**:
+   - Records confirmed Configurable Preemption events in the in-memory limits state.
+   - Records each event exactly once upon successful preemption issuance.
+3. **Scheduler**:
+   - Recomputes preemption candidates when concurrent workloads encounter conflicting limit constraints (analogous to overlapping preemption targets).
 
 
 #### Integration tests
 
-1. New preemption limits are respected by configurable preemptions candidate selection if FG is enabled.
-2. Preemption Configuration can be safely rolled out, by changing its limits.
-3. Preemptions from Confgiurable Preemptions can be blocked for specific candidate cluster queue. 
+1. Preemption limits are enforced during Configurable Preemptions candidate selection when the feature gate is enabled.
+2. A `PreemptionConfig` can be safely rolled out by progressively adjusting its limits.
+3. Preemptions from Configurable Preemptions can be blocked entirely for a specific target ClusterQueue (e.g. `limit: 0`).
 
 
 #### e2e tests
 
-1. Cluster admin can create/update/get/delete a `PreemptionLimit` CRD.
-2. Cluster admin can view the status of the `PreemptionLimit` CRDs.
-3. Batch users cannot manage `PreemptionLimit` CRDs out of the box.
-4. Extension of Configurable Preemptions e2e tests to cover a basic Preemption Limits scenario.
+1. Cluster administrators can create, read, update, and delete `PreemptionLimit` resources.
+2. Cluster administrators can observe the reported `status.counts` and `status.lastUpdateTimestamp` of `PreemptionLimit` resources.
+3. Unprivileged batch users cannot create or modify `PreemptionLimit` resources (enforced via RBAC).
+4. Extension of Configurable Preemptions e2e tests to validate end-to-end workload scheduling under active Preemption Limits.
 
 ### Graduation Criteria
 
 #### Alpha
 
-- `PreemptionLimit` CRD is implemented allowing to specify the desired limits for configurable preemptions.
-- `PreemptionLimit` allows narrowing down limits to specific `PreemptionConfig`s.
-- Existing behavior of not limiting classic and fairs sharing preemptions is maintained.
-- Candidates from configurable preemptions are not selected if this would violate `PreemptionLimit`s in the cluster.
+- `PreemptionLimit` CRD is implemented, allowing administrators to declare preemption rate limits for Configurable Preemptions.
+- `PreemptionLimit` supports targeting specific `PreemptionConfig`s and `ClusterQueue`s via label selectors.
+- Existing behavior for classical and fair-sharing preemptions remains unaffected - they are not limited by `PreemptionLimit` resources.
+- Candidates from Configurable Preemptions are not selected if evicting them would violate active `PreemptionLimit`s.
 - The feature is guarded by the `ConfigurablePreemptionLimits` feature gate (Alpha, disabled by default).
 
 #### Beta
 
-- Performance of enabling `ConfigurablePreemptionLimits` is evaluated and does not lead to significant degradation of preemption candidates selection speed for up to 10 `PreemptionLimit`s in the cluster.
-- Public documentation explains Preemption Limits, how can they be configured, and how they can be used to decrease risk of new `PreemptionConfig` rollouts.
-- `PreemptionLimit`s support limiting only a subset of rules in the `PreemptionConfig`.
-- Any bugs discovered during Alpha are fixed.
+- Performance impact of enabling `ConfigurablePreemptionLimits` is evaluated and does not lead to significant degradation in candidate selection latency with up to 10 `PreemptionLimit`s in the cluster.
+- User documentation explains Preemption Limits, how they are configured, and how they can be used to reduce risk during `PreemptionConfig` rollouts.
+- `PreemptionLimit` supports limiting specific rules within a `PreemptionConfig` (rule-level rate limiting).
+- Any bugs discovered during Alpha are resolved.
 
 #### Stable
 
@@ -438,30 +438,28 @@ TBD
 
 ## Implementation History
 
-1. v0.21 Implementation of Alpha version of PreemptionLimit CRD and handling of the limits including:
-	- CRD and RBAC for PreemptionLimit.
-	- PreemptionEvaluator updates to respect preemption limits.
-	- Tracking in memory of preemption events.
-	- Reporting of PreemptionLimit Status
+1. v0.21: Implementation of Alpha version of `PreemptionLimit` CRD and limit enforcement:
+   - CRD and RBAC definitions for `PreemptionLimit`.
+   - `PreemptionEvaluator` updates to respect preemption limits.
+   - In-memory tracking of preemption events.
+   - Status reporting with `counts` and `lastUpdateTimestamp` via `PreemptionLimitReconciler`.
 
 
 ## Drawbacks
 
-Increase of complexity of the PreemptionEvaluator - can be partially mitigated by the maintaining high quality of the code.
-
-Increased memory footprint by tracking of preemption events for each limit.
-
-Additional CRD to manage by the cluster administrator.
+- **Increased PreemptionEvaluator complexity**: Evaluating limits introduces additional logic into the preemption path, partially mitigated by isolating limit-related logic in a dedicated subpackage with high test coverage.
+- **In-memory state footprint**: Tracking timestamps for preemption events consumes memory, partially mitigated by periodic trimming of expired timestamps.
+- **CRD operational overhead**: Introduces an additional custom resource (`PreemptionLimit`) for cluster administrators to manage.
 
 ## Alternatives
 
-1. Hardcoded preemption limits or flag based preemption limits for whole Configurable Preemptions.
+1. **Hardcoded or flag-based preemption limits for all Configurable Preemptions**:
 
-   Rejected as this does not allow slow rule roll-out.
+   Rejected because cluster-wide flags do not allow granular scoping by ClusterQueue, Workload, or PreemptionConfig, nor do they support safe, progressive rollouts of individual configurations or rules.
 
-2. Specifing limits in the `PreemptionConfig` CRD.
+2. **Specifying limits directly within the `PreemptionConfig` CRD**:
 
-   Rejected as this will make global limits either impossible or really unintuitive.
+   Rejected because `PreemptionConfig` defines candidate selection rules for specific queues. Placing limits inside it would make global cluster-wide limits, cross-queue limits, or queue-level protections either impossible or unintuitive.
 
 3. "Bucket"-based tracking for in-memory events similar to how QPS works.
 
@@ -482,9 +480,9 @@ Additional CRD to manage by the cluster administrator.
 
 ### Rule-Level Rate Limiting via `ruleNames`
 
-To allow safe evolution of `PreemptionConfig`s, it would be best to add a `ruleNames` field to the `PreemptionLimitSpec`, allowing an administrator to restrict a limit to a specific subset of rules within matching `PreemptionConfig`s.
+To enable safe evolution of `PreemptionConfig`s, a `ruleNames` field can be added to `PreemptionLimitSpec`, allowing administrators to restrict a limit to a specific subset of rules within matching `PreemptionConfig`s.
 
-This enables cluster administrators to define strict rate limits for a new or experimental rule, restricting its blast radius while observing its behavior, and then lift or relax the limit once the rule's stability in the cluster is confirmed.
+This enables cluster administrators to define strict rate limits for a new or experimental rule to restrict its blast radius, and then relax or remove the limit once its stability in the cluster is verified.
 
 The addition to `PreemptionLimitSpec` would look like the following:
 
