@@ -2979,6 +2979,23 @@ func TestReconcile(t *testing.T) {
 			},
 			wantCounts: []counts{countsR1, countsR2, countsR3},
 		},
+		"ranks: elastic Job keeps rank-based ordering after a Pod was lent the domain of another rank": {
+			// Index 0 was lent r2 while a Pod without a domain held r1, which has finished since.
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkloadR1R2R3.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "2").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").TopologySchedulingGate().Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "2").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r3").Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2, countsR3},
+		},
 		"ranks: elastic Job with backoffLimitPerIndex falls back to greedy assignment while ElasticJobsViaWorkloadSlicesWithTAS is disabled": {
 			workloads: []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
 			pods: []corev1.Pod{
