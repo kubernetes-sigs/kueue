@@ -4808,7 +4808,64 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
-		"deleted pods in group should not be finalized if the workload doesn't match": {
+		"deleted pods in group are finalized and no workload is created from them if the workload doesn't match": {
+			// The non-matching Workload is being deleted, so a Workload built from the terminating pods would be pinned to their node.
+			// Kueue's finalizer was the pods' last one, so they are gone once it is removed.
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: true},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("2").
+					Delete().
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("2").
+					Delete().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet("incorrect-role-name", 1).Request(corev1.ResourceCPU, "1").Obj()).
+					Queue(localTestQueueName).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission(clusterQueueName).
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+								Count(2).
+								Obj()).
+							Obj(),
+						now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			wantWorkloads:   []kueue.Workload{},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			deleteWorkloads: true,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Warning",
+					Reason:    "ErrWorkloadCompose",
+					Message:   "'test-group' group has fewer runnable pods than expected",
+				},
+			},
+		},
+		"deleted pods in group are not finalized and a workload is created from them if the workload doesn't match and FinalizeTerminatingPodGroups is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: false},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -4992,6 +5049,395 @@ func TestReconciler(t *testing.T) {
 					Queue(localTestQueueName).
 					Priority(0).
 					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod1", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
+		},
+		"workload is created from the live pod when another pod of the group is terminating on a node": {
+			// The terminating pod still has Kueue's finalizer, so without the gate it would be kept over the gated live pod.
+			// Its deletionTimestamp is in the future, as during the grace period.
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: true},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					UID("pod1-uid").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					DeletionTimestamp(now.Add(15 * time.Minute)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					UID("pod2-uid").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					UID("pod1-uid").
+					ManagedByKueueLabel().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					DeletionTimestamp(now.Add(15 * time.Minute)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					UID("pod2-uid").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Queue(localTestQueueName).
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "pod2-uid").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
+		},
+		"workload is created from the terminating pod and the live pod is deleted when FinalizeTerminatingPodGroups is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: false},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					UID("pod1-uid").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					DeletionTimestamp(now.Add(15 * time.Minute)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					UID("pod2-uid").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					UID("pod1-uid").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("1").
+					DeletionTimestamp(now.Add(15 * time.Minute)).
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+							Request(corev1.ResourceCPU, "1").
+							NodeName("test-node").
+							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Queue(localTestQueueName).
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "pod1-uid").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "ExcessPodDeleted",
+					Message:   "Excess pod deleted",
+				},
+				{
+					Key:       types.NamespacedName{Name: "pod1", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
+		},
+		"workload is not created while the live pods of the group, without the terminating pod, are fewer than the total": {
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: true},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					UID("pod1-uid").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("2").
+					DeletionTimestamp(now.Add(15 * time.Minute)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					UID("pod2-uid").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					UID("pod1-uid").
+					ManagedByKueueLabel().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("2").
+					DeletionTimestamp(now.Add(15 * time.Minute)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					UID("pod2-uid").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
+					EventType: "Warning",
+					Reason:    "ErrWorkloadCompose",
+					Message:   "'test-group' group has fewer runnable pods than expected",
+				},
+			},
+		},
+		"workload is created from the live pods only when they fill the group next to a terminating pod": {
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: true},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					UID("pod1-uid").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("2").
+					DeletionTimestamp(now.Add(15 * time.Minute)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					UID("pod2-uid").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod3").
+					UID("pod3-uid").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					UID("pod1-uid").
+					ManagedByKueueLabel().
+					Finalizer("example.com/hold").
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					NodeName("test-node").
+					GroupTotalCount("2").
+					DeletionTimestamp(now.Add(15 * time.Minute)).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					UID("pod2-uid").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod3").
+					UID("pod3-uid").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					Queue(localTestQueueName).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Queue(localTestQueueName).
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "pod2-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod3", "pod3-uid").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
+		},
+		"workload keeps the owner reference of a deleted pod that was never bound when FinalizeTerminatingPodGroups is enabled": {
+			// An unbound deleted pod is already inactive, so the gate leaves it as it is.
+			featureGates: map[featuregate.Feature]bool{features.FinalizeTerminatingPodGroups: true},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					UID("pod1-uid").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					UID("pod2-uid").
+					ManagedByKueueLabel().
+					KueueSchedulingGate().
+					Finalizer("example.com/hold").
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					Name("pod1").
+					UID("pod1-uid").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					UID("pod2-uid").
+					ManagedByKueueLabel().
+					KueueSchedulingGate().
+					Finalizer("example.com/hold").
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					Delete().
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "pod1-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "pod2-uid").
 					Obj(),
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
@@ -9984,6 +10430,104 @@ func TestReconciler_DeletePodAfterTransientErrorsOnUpdateOrDeleteOps(t *testing.
 		t.Fatalf("Expected pod %q to be deleted", podKey.String())
 	} else if !apierrors.IsNotFound(err) {
 		t.Fatalf("Got unexpected error %v when checking if pod %q was deleted", err, podKey.String())
+	}
+}
+
+func TestReconciler_UngateGroupWithTerminatingExcessPodWithoutKueueFinalizer(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	ctx, _ := utiltesting.ContextWithLog(t)
+
+	podUID := "dc85db45"
+
+	basePodWrapper := testingpod.MakePod("pod", "ns").
+		Queue("user-queue").
+		Request(corev1.ResourceCPU, "1").
+		Image("", nil).
+		ManagedByKueueLabel().
+		GroupNameLabel("test-group").
+		GroupTotalCount("1")
+
+	// The old pod has no Kueue finalizer left and lingers on its node, so removing it as
+	// excess neither patches nor deletes it.
+	oldPod := *basePodWrapper.
+		Clone().
+		Name("old-pod").
+		UID("old-pod-uid").
+		Finalizer("example.com/hold").
+		NodeName("test-node").
+		DeletionTimestamp(now.Add(15 * time.Minute)).
+		Obj()
+	newPod := *basePodWrapper.
+		Clone().
+		Name("new-pod").
+		UID("new-pod-uid").
+		KueueFinalizer().
+		KueueSchedulingGate().
+		Obj()
+
+	wl := *utiltestingapi.MakeWorkload("test-group", "ns").Group().
+		PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).Request(corev1.ResourceCPU, "1").Obj()).
+		Queue("user-queue").
+		OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "new-pod", "new-pod-uid").
+		Obj()
+
+	clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+		SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+	})
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	if err := SetupIndexes(ctx, indexer); err != nil {
+		t.Fatalf("Could not setup indexes: %v", err)
+	}
+	kClient := clientBuilder.
+		WithObjects(utiltesting.MakeNamespace("ns"), &oldPod, &newPod).
+		WithObjects(utiltestingapi.MakeResourceFlavor("unit-test-flavor").NodeLabel(corev1.LabelArchStable, "arm64").Obj()).
+		WithStatusSubresource(&kueue.Workload{}).
+		Build()
+	if err := kClient.Create(ctx, &wl); err != nil {
+		t.Fatalf("Could not create workload: %v", err)
+	}
+
+	reconciler, err := NewReconciler(ctx, kClient, indexer, &utiltesting.EventRecorder{}, jobframework.WithClock(testingclock.NewFakeClock(now)))
+	if err != nil {
+		t.Fatalf("Error creating the reconciler: %v", err)
+	}
+	reconcileRequest := reconcileRequestForPod(&newPod)
+
+	// The first reconcile, before admission, removes the old pod as excess.
+	if _, err := reconciler.Reconcile(ctx, reconcileRequest); err != nil {
+		t.Fatalf("Unexpected error in the first reconcile: %v", err)
+	}
+
+	var gotWl kueue.Workload
+	if err := kClient.Get(ctx, client.ObjectKeyFromObject(&wl), &gotWl); err != nil {
+		t.Fatalf("Could not get workload: %v", err)
+	}
+	gotWl.Status = utiltestingapi.MakeWorkload("test-group", "ns").
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(podUID)).
+					Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+					Obj()).
+				Obj(),
+			now,
+		).
+		AdmittedAt(true, now).
+		Obj().Status
+	if err := kClient.Status().Update(ctx, &gotWl); err != nil {
+		t.Fatalf("Could not admit workload: %v", err)
+	}
+
+	// The second reconcile must not wait for an event about the old pod, which never comes.
+	if _, err := reconciler.Reconcile(ctx, reconcileRequest); err != nil {
+		t.Fatalf("Unexpected error in the second reconcile: %v", err)
+	}
+
+	var gotPod corev1.Pod
+	if err := kClient.Get(ctx, client.ObjectKeyFromObject(&newPod), &gotPod); err != nil {
+		t.Fatalf("Could not get pod: %v", err)
+	}
+	if isGated(&gotPod) {
+		t.Errorf("Pod %q is still gated after the workload was admitted", gotPod.Name)
 	}
 }
 

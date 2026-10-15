@@ -2229,6 +2229,113 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 			})
 
+			ginkgo.It("Should create the workload for replacement pods only from the live pods when FinalizeTerminatingPodGroups is enabled", func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FinalizeTerminatingPodGroups, true)
+				const holdFinalizer = "test.example.com/hold"
+				makePod := func(name string) *corev1.Pod {
+					return testingpod.MakePod(name, ns.Name).
+						GroupNameLabel("test-group").
+						GroupTotalCount("2").
+						Request(corev1.ResourceCPU, "1").
+						Queue("test-queue").
+						Finalizer(holdFinalizer).
+						Obj()
+				}
+				pod1 := makePod("test-pod1")
+				pod2 := makePod("test-pod2")
+				behavioral.MustCreate(ctx, k8sClient, pod1)
+				behavioral.MustCreate(ctx, k8sClient, pod2)
+
+				wlLookupKey := types.NamespacedName{Namespace: ns.Name, Name: "test-group"}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				originalUID := createdWorkload.UID
+
+				ginkgo.By("admitting the workload and binding the pods to a node", func() {
+					admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
+						kueue.PodSetAssignment{
+							Name:    createdWorkload.Spec.PodSets[0].Name,
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "default"},
+							Count:   new(int32(2)),
+						},
+					).Obj()
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					for _, p := range []*corev1.Pod{pod1, pod2} {
+						behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(p), map[string]string{corev1.LabelArchStable: "arm64"})
+					}
+					integration.BindPodWithNode(ctx, k8sClient, "test-node", pod1, pod2)
+				})
+
+				ginkgo.By("deleting the pods and the workload; the pods linger Terminating on the node", func() {
+					gomega.Expect(k8sClient.Delete(ctx, pod1)).To(gomega.Succeed())
+					gomega.Expect(k8sClient.Delete(ctx, pod2)).To(gomega.Succeed())
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+						createdWorkload.Finalizers = nil
+						g.Expect(k8sClient.Update(ctx, createdWorkload)).To(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					gomega.Expect(k8sClient.Delete(ctx, createdWorkload)).To(gomega.Succeed())
+
+					createdPod := &corev1.Pod{}
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+						for _, p := range []*corev1.Pod{pod1, pod2} {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), createdPod)).To(gomega.Succeed())
+							g.Expect(createdPod.DeletionTimestamp.IsZero()).To(gomega.BeFalse())
+							g.Expect(createdPod.Spec.NodeName).To(gomega.Equal("test-node"))
+							g.Expect(createdPod.Finalizers).NotTo(gomega.ContainElement(podconstants.PodFinalizer))
+						}
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				pod3 := makePod("test-pod3")
+				ginkgo.By("creating one replacement pod; the terminating pods do not fill the other slot", func() {
+					behavioral.MustCreate(ctx, k8sClient, pod3)
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+					}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+				})
+
+				pod4 := makePod("test-pod4")
+				ginkgo.By("creating the second replacement pod; the workload is built from the replacement pods only", func() {
+					behavioral.MustCreate(ctx, k8sClient, pod4)
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+						g.Expect(createdWorkload.UID).NotTo(gomega.Equal(originalUID))
+						g.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(1))
+						g.Expect(createdWorkload.Spec.PodSets[0].Count).To(gomega.Equal(int32(2)))
+						g.Expect(createdWorkload.Spec.PodSets[0].Template.Spec.NodeName).To(gomega.BeEmpty())
+						g.Expect(createdWorkload.Spec.PodSets[0].Template.Spec.NodeSelector).To(gomega.BeEmpty())
+						owners := make([]string, 0, len(createdWorkload.OwnerReferences))
+						for _, ref := range createdWorkload.OwnerReferences {
+							owners = append(owners, ref.Name)
+						}
+						g.Expect(owners).To(gomega.ConsistOf(pod3.Name, pod4.Name))
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("admitting the new workload; the replacement pods are ungated while the old pods are still terminating", func() {
+					admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).PodSets(
+						kueue.PodSetAssignment{
+							Name:    createdWorkload.Spec.PodSets[0].Name,
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: "default"},
+							Count:   new(int32(2)),
+						},
+					).Obj()
+					integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+					for _, p := range []*corev1.Pod{pod3, pod4} {
+						behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(p), map[string]string{corev1.LabelArchStable: "arm64"})
+					}
+					for _, p := range []*corev1.Pod{pod1, pod2} {
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(p), &corev1.Pod{})).To(gomega.Succeed())
+					}
+				})
+			})
+
 			ginkgo.It("Should set WaitingForReplacementPod workload condition to false after replacement", func() {
 				podGroupName := "pod-group"
 
