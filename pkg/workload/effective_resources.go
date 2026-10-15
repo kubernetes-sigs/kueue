@@ -31,7 +31,6 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/resource"
@@ -71,7 +70,7 @@ func ResolveAdjustmentInputs(ctx context.Context, cl client.Client, wl *kueue.Wo
 	// A template copied from an existing Pod already carries what the admission
 	// controller merged into it, so resolving the class again would only make it
 	// diverge from that Pod.
-	resolveScheduling := features.Enabled(features.RuntimeClassScheduling) && !OwnedByPods(wl)
+	resolveScheduling := !OwnedByPods(wl)
 	read := make(map[string]bool)
 	for i := range wl.Spec.PodSets {
 		ps := &wl.Spec.PodSets[i]
@@ -130,7 +129,7 @@ func mergeRuntimeClassScheduling(podSpec *corev1.PodSpec, scheduling *nodev1.Sch
 // Pod, so no flavor can hold the Workload. A class that cannot be read is
 // reported when the effective view is resolved, not here.
 func ValidateRuntimeClassScheduling(ctx context.Context, c client.Client, wi *Info) field.ErrorList {
-	if c == nil || !features.Enabled(features.RuntimeClassScheduling) || OwnedByPods(wi.Obj) {
+	if c == nil || OwnedByPods(wi.Obj) {
 		return nil
 	}
 	var allErrors field.ErrorList

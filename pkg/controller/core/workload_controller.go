@@ -1890,9 +1890,6 @@ func (h *resourceUpdatesHandler) notifyForLimitRangeSchedulingChange(ctx context
 // change to them is invisible to the spec-diff based requeue in
 // queueReconcileForPending. A creation is passed as a nil oldRc.
 func (h *resourceUpdatesHandler) notifyForRuntimeClassSchedulingChange(ctx context.Context, oldRc, newRc *nodev1.RuntimeClass) {
-	if !features.Enabled(features.RuntimeClassScheduling) {
-		return
-	}
 	var oldScheduling *nodev1.Scheduling
 	if oldRc != nil {
 		oldScheduling = oldRc.Scheduling
