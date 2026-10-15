@@ -17,7 +17,6 @@ tags, build the mdtoc tool with `make mdtoc` and then generate the TOC with `hac
 -->
 
 <!-- toc -->
-
 - [Summary](#summary)
 - [Motivation](#motivation)
   - [Goals](#goals)
@@ -33,19 +32,26 @@ tags, build the mdtoc tool with `make mdtoc` and then generate the TOC with `hac
     - [Performance degradation](#performance-degradation)
     - [Security considerations](#security-considerations)
 - [Design Details](#design-details)
-  - [Observability When Reaching Preemption Limits](#observability-when-reaching-preemption-limits)
+  - [Observability](#observability)
   - [Test Plan](#test-plan)
-    - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit tests](#unit-tests)
     - [Integration tests](#integration-tests)
     - [e2e tests](#e2e-tests)
   - [Graduation Criteria](#graduation-criteria)
+    - [Alpha](#alpha)
+    - [Beta](#beta)
+    - [Stable](#stable)
 - [Implementation History](#implementation-history)
 - [Drawbacks](#drawbacks)
 - [Alternatives](#alternatives)
 - [Future Work Ideas](#future-work-ideas)
-  - [Rule-Level Rate Limiting via `ruleNames`](#rule-level-rate-limiting-via-rulenames)
-  - [Pod-Level Rate Limiting via `mode`](#pod-level-rate-limiting-via-mode)
+  - [Rule-Level Rate Limiting via <code>ruleNames</code>](#rule-level-rate-limiting-via-rulenames)
+    - [Multi-Rule Attribution Challenge and Alternatives Considered](#multi-rule-attribution-challenge-and-alternatives-considered)
+    - [Proposed Approach: First Matching Rule Consumes the Limits](#proposed-approach-first-matching-rule-consumes-the-limits)
+  - [Pod-Level Rate Limiting via <code>mode</code>](#pod-level-rate-limiting-via-mode)
+  - [Reconstructing Approximate In-Memory State on Restart from Status](#reconstructing-approximate-in-memory-state-on-restart-from-status)
+    - [Advantages](#advantages)
+    - [Trade-offs](#trade-offs)
 <!-- /toc -->
 
 ## Summary
@@ -152,7 +158,8 @@ spec:
 
 1. **User-managed resource labeling**: As ClusterQueues right now do not have a constrained resource name to 63 characters and Kueue currently does not auto add labels to the Cluster Scope CRDs (K8s does this for Namespaces), this is up to the users to label cluster queues and appropriate preemption configurations themselves. This might be changed in the future to make the user experience better, but remains out of the scope of this KEP.
 2. **Reset on controller restarts**: Preemption events are tracked strictly in-memory within the controller cache and are not persisted in etcd. Consequently, if the Kueue controller restarts (e.g. due to pod restart, failover, or upgrade), preemption limits will be reset, temporarily allowing preemption events up to the configured limit immediately following the restart.
-3. **Increasing time window**: Because expired preemption timestamps are dynamically trimmed from the in-memory map based on the active sliding window, if a user updates a `PreemptionLimit` to increase `limitWindowSeconds`, events that occurred prior to the previously configured window will have already been pruned and will not be retroactively taken into account.
+3. **Increasing time window**: Because expired preemption timestamps are periodically trimmed from the in-memory map based on the active sliding window, if a user updates a `PreemptionLimit` to increase `limitWindowSeconds`, events that occurred prior to the previously configured window will have already been pruned and will not be retroactively taken into account.
+4. **Deleted and recreated objects**: Preemption events are tracked in-memory by entity key (`namespace/name` for Workloads, or name for ClusterQueues) rather than by UID. Consequently, objects in the same namespace and with the same name will be treated as the same object, and preemption limits for them will not be reset if an object is deleted and recreated within the active time window.
 
 ### Risks and Mitigations
 
@@ -260,6 +267,11 @@ type PreemptionLimitSpec struct {
 
 // PreemptionLimitStatus defines the observed state of PreemptionLimit
 type PreemptionLimitStatus struct {
+	// lastUpdateTimestamp is the time when the status was last updated.
+	//
+	// +required
+	LastUpdateTimestamp metav1.Time `json:"lastUpdateTimestamp"`
+
 	// counts is periodically updated, for reference only.
 	// Restricted to the top 1000 counts to fit within CRD size limits.
 	//
@@ -268,26 +280,46 @@ type PreemptionLimitStatus struct {
 	// +kubebuilder:validation:MaxItems=1000
 	Counts []PreemptionLimitCount `json:"counts,omitempty"`
 }
+
+// PreemptionLimitCount tracks the number of preemptions for a single scoped entity.
+type PreemptionLimitCount struct {
+	// name identifies the scoped entity.
+	// For Global scope it is "Global".
+	// For PreemptingClusterQueue and PreemptedClusterQueue scopes it is the ClusterQueue name.
+	// For PreemptedWorkload scope it is "<namespace>/<workload-name>".
+	//
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=317
+	Name string `json:"name"`
+
+	// value is the number of preemptions recorded within the sliding time window.
+	//
+	// +required
+	// +kubebuilder:validation:Minimum=0
+	Value int32 `json:"value"`
+}
 ```
 
 PreemptionLimit limits the number of preemptions that happen for the specified set of rules. The preemption evaluator evaluates proposed preemptions against defined limit objects, allowing them to proceed only if adequate preemption quota remains. If a preemption is in the scope of multiple limits, quota must exist in all of them.
 To track this, a list of preemption rule names responsible for selecting each candidate must be maintained.
 
-To manage this data, Kueue will store a comprehensive preemption map in memory, isolated per PreemptionLimit. This map tracks all preemption event timestamps under a specific CQ/workload key, capturing events that occurred within the designated `LimitWindowSeconds`. Moreover, it tracks only events that are in the scope of the specific limit; if a preemption does not match the defined config or rules selector, it will not be tracked in that particular instance of the preemption map. This list is dynamically trimmed upon each retrieval to filter out expired timestamps.
+To manage this data, Kueue will store a comprehensive preemption map in memory, isolated per PreemptionLimit. This map tracks all preemption event timestamps under a specific CQ/workload key, capturing events that occurred within the designated `LimitWindowSeconds`. Moreover, it tracks only events that are in the scope of the specific limit; if a preemption does not match the defined config or rules selector, it will not be tracked in that particular instance of the preemption map. This list is periodically trimmed to filter out expired timestamps.
 
-Because tracking is strictly maintained in-memory and dynamically trimmed:
+Because tracking is strictly maintained in-memory and periodically trimmed:
 - **Reset on controller restarts**: Events are not persisted in etcd; restarting the Kueue controller resets the in-memory map, so preemption limit counters start fresh from zero.
 - **Increasing time window**: If `LimitWindowSeconds` is increased, previous preemption events that occurred before the previously active window have already been discarded and will not be taken into account.
+- **Deleted and recreated objects**: Entity keys in the in-memory tracking map are based on `namespace/name` (or name for ClusterQueues) rather than UID; objects in the same namespace with the same name will be treated as the same object, and their limits will not be reset upon deletion and recreation within the sliding window.
 
-Furthermore, the status of the PreemptionLimit is refreshed periodically — approximately every minute — to write the aggregated totals into the count map (restricted to the top 1000 counts to fit within CRD size limits).
+Furthermore, the status of the PreemptionLimit is refreshed periodically by a dedicated `PreemptionLimitReconciler` — approximately every minute — to update `lastUpdateTimestamp` and write the aggregated totals into the count map (restricted to the top 1000 counts to fit within CRD size limits).
 
-### Observability When Reaching Preemption Limits
+`PreemptionLimitReconciler` will be responsible for updating an in-memory representation of limits - removing no longer needed recorded preemption limit timestamps from the memory when particular PreemptionLimit is deleted.
 
-When preemption is throttled or blocked due to an exhausted `PreemptionLimit`:
 
-1. **Workload Condition**: A condition with type `PreemptionBlockedByLimit` (reason `PreemptionLimitExceeded`) is assigned to the preemptor Workload, with an informative message indicating which limit blocked admission (e.g. `"Preemption was blocked by PreemptionLimit <limit-name>"`).
-2. **Kubernetes Events**: A Kubernetes `Event` with reason `PreemptionThrottled` is emitted on both the preemptor Workload and its ClusterQueue.
-3. **Structured Audit Logging**: Informational/debug log entries are recorded specifying the limit name, scope, and affected entities for operator troubleshooting.
+### Observability
+
+When preemption is throttled or blocked due to an exhausted `PreemptionLimit`, informational/debug log entries are recorded specifying the limit name, scope, and affected entities for operator troubleshooting.
+Also each preemption operation that is performed and in scope of the limits is recorded and will be visible in the periodically updated `PreemptionLimit.status.counts`.
 
 ### Test Plan
 
@@ -498,3 +530,34 @@ The addition to `PreemptionLimitSpec` would look like the following:
 
 - When set to `Workloads` (default), the number of preempted workloads will be limited.
 - When changed to `Pods`, it can guardrail the total number of pods that can be preempted in a particular scope within the defined sliding window. The preemption evaluator will calculate the total number of pods across candidate workloads (summing pod counts across their pod sets) and prevent preemptions if evicting them would exceed the allowed pod limit.
+
+### Reconstructing Approximate In-Memory State on Restart from Status
+
+As described in [Caveats](#caveats) (Caveat 2), preemption events are tracked strictly in-memory and are reset whenever the Kueue controller restarts. This can temporarily allow a burst of preemption events up to the configured limit immediately following a restart (such as a controller pod upgrade, node drain, or leader election failover).
+
+To mitigate this limitation without incurring the performance penalty of persisting every individual preemption event to etcd, an extension can reconstruct an approximate in-memory event state on startup from the previously persisted status saved in etcd (`PreemptionLimit.status`).
+
+The reconstruction will work as follows:
+
+1. **Status Update Timestamps**:
+   `PreemptionLimitStatus` includes `lastUpdateTimestamp`, which is updated periodically by `PreemptionLimitReconciler` (e.g. approximately every minute) whenever aggregate counts are refreshed and persisted to etcd.
+
+2. **Synthesizing Artificial In-Memory Events on Startup**:
+   Instead of resetting limit counters entirely to zero upon controller startup:
+   - The controller inspects each `PreemptionLimit`'s `status.counts` and `status.lastUpdateTimestamp`.
+   - For each scoped entity entry present in `status.counts` (e.g. `"Global"`, ClusterQueue name, or `namespace/name`), the controller artificially creates in-memory preemption events matching the persisted count value.
+   - Each synthesized event is assigned a timestamp equal to `lastUpdateTimestamp` from the status for the appropriate limit and connected scope values.
+
+3. **Natural Expiration via Sliding Window**:
+   - These synthesized events are inserted into the in-memory tracking map and immediately consume available quota under the limit.
+   - The existing sliding window logic remains unchanged: as time advances past controller startup, these artificial events will naturally age out and be periodically trimmed once `time.Now() - lastUpdateTimestamp >= limitWindowSeconds`.
+   - If the controller was offline longer than `limitWindowSeconds`, all synthesized events will already be expired upon startup and will be pruned immediately, cleanly granting a fresh budget.
+
+#### Advantages
+
+- **Zero evaluation overhead**: By relying on the periodic status reconciler rather than synchronous per-event etcd writes, this mechanism provides cross-restart resilience while maintaining zero latency overhead during the scheduling and preemption evaluation path.
+- **Protection against post-restart eviction bursts**: Workloads and ClusterQueues are protected from sudden bursts of preemptions immediately following controller upgrades, node restarts, or failovers.
+
+#### Trade-offs
+
+- **Conservative approximation**: Because individual event timestamps are not persisted (only the periodic aggregate count and `lastUpdateTimestamp`), all pre-restart events are conservatively treated as having occurred at `lastUpdateTimestamp`. If some events actually occurred earlier within the window, this may slightly over-restrict preemptions for a short interval following startup. However, this prioritizes safety by preventing preemption spikes across controller restarts.
