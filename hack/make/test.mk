@@ -248,15 +248,19 @@ test-multikueue-e2e-sequential-shard-1: test-multikueue-e2e-sequential
 
 .PHONY: test-multikueue-e2e-baseline-helm
 test-multikueue-e2e-baseline-helm: E2E_USE_HELM=true
-test-multikueue-e2e-baseline-helm: test-multikueue-e2e-baseline
+test-multikueue-e2e-baseline-helm: test-multikueue-e2e-baseline ## Run the baseline MultiKueue e2e test suite using Helm.
 
 .PHONY: test-multikueue-e2e-extended-helm
 test-multikueue-e2e-extended-helm: E2E_USE_HELM=true
-test-multikueue-e2e-extended-helm: test-multikueue-e2e-extended
+test-multikueue-e2e-extended-helm: test-multikueue-e2e-extended ## Run the extended MultiKueue e2e test suite using Helm.
 
 .PHONY: test-multikueue-e2e-sequential-helm
 test-multikueue-e2e-sequential-helm: E2E_USE_HELM=true
-test-multikueue-e2e-sequential-helm: test-multikueue-e2e-sequential
+test-multikueue-e2e-sequential-helm: test-multikueue-e2e-sequential ## Run the sequential MultiKueue e2e test suite using Helm.
+
+.PHONY: test-multikueue-e2e-extended-ray-autoscaling-helm
+test-multikueue-e2e-extended-ray-autoscaling-helm: E2E_USE_HELM=true
+test-multikueue-e2e-extended-ray-autoscaling-helm: test-multikueue-e2e-extended-ray-autoscaling ## Run the extended MultiKueue Ray autoscaling e2e test suite using Helm.
 
 # Assign Shard 0 variables to all parent suites AND all shard-0 targets
 TEST_E2E_SHARD_0_TARGETS := test-e2e-extended test-e2e-extended-shard-0 test-tas-e2e-extended test-tas-e2e-extended-shard-0
@@ -481,6 +485,10 @@ test-e2e-dra-baseline: setup-e2e-env run-test-e2e-dra-baseline-$(E2E_KIND_VERSIO
 .PHONY: test-e2e-multikueue-dra
 test-e2e-multikueue-dra: setup-e2e-env run-test-e2e-multikueue-dra-$(E2E_KIND_VERSION:kindest/node:v%=%) ## Run the MultiKueue Dynamic Resource Allocation (DRA) e2e test suite.
 
+.PHONY: test-e2e-multikueue-dra-helm
+test-e2e-multikueue-dra-helm: E2E_USE_HELM=true
+test-e2e-multikueue-dra-helm: test-e2e-multikueue-dra ## Run the MultiKueue Dynamic Resource Allocation (DRA) e2e test suite using Helm.
+
 run-test-e2e-baseline-%: K8S_VERSION = $(@:run-test-e2e-baseline-%=%)
 run-test-e2e-baseline-%:
 	@echo Running baseline e2e for k8s ${K8S_VERSION}
@@ -622,8 +630,10 @@ run-test-e2e-dra-baseline-%:
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/whole-device" \
+		E2E_CONFIG_FOLDER="dra/whole-device" \
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
 run-test-e2e-multikueue-dra-%: K8S_VERSION = $(@:run-test-e2e-multikueue-dra-%=%)
@@ -636,7 +646,9 @@ run-test-e2e-multikueue-dra-%:
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		E2E_TARGET_FOLDER="multikueue/dra" \
+		E2E_CONFIG_FOLDER="dra/whole-device" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-multikueue-test.sh
 
 .PHONY: test-e2e-dra-counter
@@ -651,9 +663,11 @@ run-test-e2e-dra-counter-%:
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/counter" \
+		E2E_CONFIG_FOLDER="dra/counter" \
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		DRA_GPU_PARTITIONS=4 \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
 .PHONY: test-e2e-dra-capacity
@@ -668,9 +682,11 @@ run-test-e2e-dra-capacity-%:
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
 		KIND_CLUSTER_FILE="kind-cluster.yaml" E2E_TARGET_FOLDER="dra/capacity" \
+		E2E_CONFIG_FOLDER="dra/capacity" \
 		DRA_EXAMPLE_DRIVER_VERSION=$(DRA_EXAMPLE_DRIVER_VERSION) \
 		DRA_GPU_ALLOW_MULTIPLE_ALLOCATIONS=true \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
+		E2E_USE_HELM=$(E2E_USE_HELM) \
 		./hack/testing/e2e-test.sh
 
 run-test-e2e-multikueue-sequential-%: K8S_VERSION = $(@:run-test-e2e-multikueue-sequential-%=%)

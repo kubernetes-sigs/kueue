@@ -983,14 +983,6 @@ function cluster_kueue_deploy {
         else
             deploy_with_certmanager "$1"
         fi
-    elif [[ -n ${DRA_EXAMPLE_DRIVER_VERSION:-} ]]; then
-        if [[ ${E2E_TARGET_FOLDER:-} == "dra/counter" ]]; then
-            build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/counter"
-        elif [[ ${E2E_TARGET_FOLDER:-} == "dra/capacity" ]]; then
-            build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/capacity"
-        else
-            build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/dra/whole-device"
-        fi
     elif [ "$E2E_USE_HELM" == 'true' ]; then
         helm_install "$1" "${ROOT_DIR}/test/e2e/config/default/values.yaml" "${ROOT_DIR}/test/e2e/config/${E2E_CONFIG_FOLDER:-default}"
     else
