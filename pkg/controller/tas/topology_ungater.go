@@ -225,18 +225,22 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 			// layout depends on the integration (e.g. LeaderWorkerSet workers start
 			// from 1, JobSet workers start from 0), not on the group shape.
 			var offset int
-			if len(pods) > 0 {
-				// Assume that same replica all Pods has the same offset value.
-				offsetVal, found := pods[0].Annotations[kueue.PodIndexOffsetAnnotation]
-				if found {
-					if offset, err = strconv.Atoi(offsetVal); err != nil {
-						log.Error(err, errParseOffsetAnnotation.Error(),
-							kueue.PodIndexOffsetAnnotation, offsetVal,
-							"pod", klog.KObj(pods[0]),
-						)
-						return reconcile.Result{}, errors.Join(err, errParseOffsetAnnotation)
-					}
+			// Pods created before the integration set the annotation can lack it,
+			// e.g. while a grouped LeaderWorkerSet rolls out after an upgrade,
+			// so take the offset from the first Pod that has it.
+			for _, pod := range pods {
+				offsetVal, found := pod.Annotations[kueue.PodIndexOffsetAnnotation]
+				if !found {
+					continue
 				}
+				if offset, err = strconv.Atoi(offsetVal); err != nil {
+					log.Error(err, errParseOffsetAnnotation.Error(),
+						kueue.PodIndexOffsetAnnotation, offsetVal,
+						"pod", klog.KObj(pod),
+					)
+					return reconcile.Result{}, errors.Join(err, errParseOffsetAnnotation)
+				}
+				break
 			}
 			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name], int32(offset), lendFreeCapacity)
 			// While a node is recorded in Status.UnhealthyNodes the assignment still

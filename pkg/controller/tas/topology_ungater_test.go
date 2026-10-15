@@ -1555,6 +1555,151 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"ranks: take the offset from an annotated Pod when an earlier Pod lacks it": {
+			// A grouped LeaderWorkerSet created before Kueue set the offset for
+			// PodSet groups has Pods without the annotation. While it rolls out,
+			// such a Pod can be listed before the new annotated Pods.
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet("workers", 4).
+							Request(corev1.ResourceCPU, "1").
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
+							PodSetGroup("lws-group").
+							Obj(),
+						*utiltestingapi.MakePodSet("leader", 1).
+							Request(corev1.ResourceCPU, "1").
+							PodIndexLabel(new(leaderworkersetv1.WorkerIndexLabelKey)).
+							PodSetGroup("lws-group").
+							Obj(),
+					).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(
+								utiltestingapi.MakePodSetAssignment("workers").
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
+									Count(4).
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+										Domains(
+											utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj(),
+											utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r2"}, 1).Obj(),
+											utiltestingapi.MakeTopologyDomainAssignment([]string{"b2", "r1"}, 2).Obj(),
+										).
+										Obj()).
+									Obj(),
+								utiltestingapi.MakePodSetAssignment("leader").
+									Assignment(corev1.ResourceCPU, "unit-test-flavor", "1").
+									TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+										Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()).
+										Obj()).
+									Obj(),
+							).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("l0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(leaderworkersetv1.WorkerIndexLabelKey, "0").
+					Label(constants.PodSetLabel, "leader").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("w0-old", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(leaderworkersetv1.WorkerIndexLabelKey, "4").
+					Label(constants.PodSetLabel, "workers").
+					NodeSelector(tasBlockLabel, "b2").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("w1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(leaderworkersetv1.WorkerIndexLabelKey, "2").
+					Label(constants.PodSetLabel, "workers").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("w2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(leaderworkersetv1.WorkerIndexLabelKey, "1").
+					Label(constants.PodSetLabel, "workers").
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("w3", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(leaderworkersetv1.WorkerIndexLabelKey, "3").
+					Label(constants.PodSetLabel, "workers").
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("l0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(leaderworkersetv1.WorkerIndexLabelKey, "0").
+					Label(constants.PodSetLabel, "leader").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("w0-old", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(leaderworkersetv1.WorkerIndexLabelKey, "4").
+					Label(constants.PodSetLabel, "workers").
+					NodeSelector(tasBlockLabel, "b2").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("w1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(leaderworkersetv1.WorkerIndexLabelKey, "2").
+					Label(constants.PodSetLabel, "workers").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r2").
+					Obj(),
+				*testingpod.MakePod("w2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(leaderworkersetv1.WorkerIndexLabelKey, "1").
+					Label(constants.PodSetLabel, "workers").
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("w3", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Annotation(kueue.PodIndexOffsetAnnotation, "1").
+					Label(leaderworkersetv1.WorkerIndexLabelKey, "3").
+					Label(constants.PodSetLabel, "workers").
+					NodeSelector(tasBlockLabel, "b2").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 2,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r2",
+					},
+					Count: 1,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b2",
+						tasRackLabel:  "r1",
+					},
+					Count: 2,
+				},
+			},
+		},
 		"ranks: ungate pods according to their ranks for batch/Job - for all Pods": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
