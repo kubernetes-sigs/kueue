@@ -310,3 +310,27 @@ func makeDashboardPod(name, namespace, controllerUID string) corev1.Pod {
 		},
 	}
 }
+
+func TestFetchWorkloadsDashboardDataWorkloadsByUIDIncludesNamespace(t *testing.T) {
+	client := &fakeDashboardClient{
+		workloads: []kueueapi.Workload{
+			makeDashboardWorkload("wl-1", "ns-1", "wl-uid-1", "job-uid-1"),
+			makeDashboardWorkload("wl-1", "ns-2", "wl-uid-2", "job-uid-2"),
+		},
+	}
+	h := &Handlers{client: client}
+
+	got, _, err := h.fetchWorkloadsDashboardData(t.Context(), "", middleware.Identity{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The dashboard links each UID to /workload/<namespace>/<name>.
+	want := map[types.UID]string{
+		"wl-uid-1": "ns-1/wl-1",
+		"wl-uid-2": "ns-2/wl-1",
+	}
+	if diff := cmp.Diff(want, got.(map[string]any)["workloads_by_uid"]); diff != "" {
+		t.Errorf("unexpected workloads_by_uid (-want,+got):\n%s", diff)
+	}
+}
