@@ -112,14 +112,12 @@ func (w *MpiJobWebhook) Default(ctx context.Context, obj *v2beta1.MPIJob) error 
 
 	jobframework.ApplyDefaultForManagedBy(mpiJob, w.queues, w.cache, log)
 
-	if features.Enabled(features.TopologyAwareScheduling) {
-		if expected, managed := expectedWorkerPodIndexOffset(mpiJob); managed && expected != "" {
-			workerSpec := mpiJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker]
-			if workerSpec.Template.Annotations == nil {
-				workerSpec.Template.Annotations = make(map[string]string)
-			}
-			workerSpec.Template.Annotations[kueue.PodIndexOffsetAnnotation] = expected
+	if features.Enabled(features.TopologyAwareScheduling) && managesWorkerPodIndexOffset(mpiJob) {
+		workerSpec := mpiJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeWorker]
+		if workerSpec.Template.Annotations == nil {
+			workerSpec.Template.Annotations = make(map[string]string)
 		}
+		workerSpec.Template.Annotations[kueue.PodIndexOffsetAnnotation] = launcherAsWorkerPodIndexOffset
 	}
 
 	return nil
@@ -157,13 +155,15 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2be
 	}
 	allErrs = append(allErrs, validationErrs...)
 
-	if features.Enabled(features.TopologyAwareScheduling) {
+	if features.Enabled(features.TopologyAwareScheduling) && managesWorkerPodIndexOffset(newMpiJob) {
 		got := workerPodIndexOffset(newMpiJob)
-		if expected, managed := expectedWorkerPodIndexOffset(newMpiJob); managed {
-			if got != expected {
-				allErrs = append(allErrs, field.Invalid(workerOffsetAnnotationPath, got,
-					fmt.Sprintf("must be %q, the value the defaulting webhook would set", expected)))
-			}
+		// Grouped MPIJobs created before Kueue set the offset for PodSet groups have none.
+		// TODO: remove once v0.19 and v0.20 are out of support.
+		_, grouped := newMpiJob.Spec.MPIReplicaSpecs[v2beta1.MPIReplicaTypeLauncher].Template.Annotations[kueue.PodSetGroupName]
+		legacyGrouped := grouped && got == "" && workerPodIndexOffset(oldMpiJob) == ""
+		if got != launcherAsWorkerPodIndexOffset && !legacyGrouped {
+			allErrs = append(allErrs, field.Invalid(workerOffsetAnnotationPath, got,
+				fmt.Sprintf("must be %q, the value the defaulting webhook would set", launcherAsWorkerPodIndexOffset)))
 		}
 	}
 	slices.SortFunc(allErrs, func(a, b *field.Error) int {
@@ -185,20 +185,16 @@ func workerPodIndexOffset(mpiJob *MPIJob) string {
 	return worker.Template.Annotations[kueue.PodIndexOffsetAnnotation]
 }
 
-func expectedWorkerPodIndexOffset(mpiJob *MPIJob) (expected string, managed bool) {
+// launcherAsWorkerPodIndexOffset is the Worker offset when the Launcher takes
+// replica index 0, so Worker replica indexes start from 1.
+const launcherAsWorkerPodIndexOffset = "1"
+
+func managesWorkerPodIndexOffset(mpiJob *MPIJob) bool {
 	if !ptr.Deref(mpiJob.Spec.RunLauncherAsWorker, false) {
-		return "", false
+		return false
 	}
 	replicaSpecs := mpiJob.Spec.MPIReplicaSpecs
-	launcherSpec, workerSpec := replicaSpecs[v2beta1.MPIReplicaTypeLauncher], replicaSpecs[v2beta1.MPIReplicaTypeWorker]
-	if launcherSpec == nil || workerSpec == nil {
-		return "", false
-	}
-	// A PodSet group manages its own offset; see topology-ungater.
-	if _, isPodSetGroup := launcherSpec.Template.Annotations[kueue.PodSetGroupName]; isPodSetGroup {
-		return "", true
-	}
-	return "1", true
+	return replicaSpecs[v2beta1.MPIReplicaTypeLauncher] != nil && replicaSpecs[v2beta1.MPIReplicaTypeWorker] != nil
 }
 
 func (w *MpiJobWebhook) validateCommon(ctx context.Context, mpiJob *MPIJob, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {

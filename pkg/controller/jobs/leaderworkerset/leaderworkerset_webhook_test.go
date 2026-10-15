@@ -210,7 +210,7 @@ func TestDefault(t *testing.T) {
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 		},
-		"LWS with PodSetGroupName set, no offset annotation": {
+		"LWS with PodSetGroupName set": {
 			defaultLqExist: true,
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -221,6 +221,7 @@ func TestDefault(t *testing.T) {
 				Queue("default").
 				WorkerTemplateSpecLabel(constants.QueueLabel, "default").
 				WorkerTemplateSpecAnnotation(kueue.PodSetGroupName, "test-group").
+				WorkerTemplateSpecAnnotation(kueue.PodIndexOffsetAnnotation, "1").
 				LeaderTemplateSpecLabel(constants.QueueLabel, "default").
 				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
@@ -502,7 +503,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
-		"invalid PodSet group name request - pod-index-offset set alongside podset-group-name": {
+		"valid PodSet group name request - pod-index-offset set alongside podset-group-name": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{
@@ -519,12 +520,6 @@ func TestValidateCreate(t *testing.T) {
 					},
 				}).
 				Obj(),
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeForbidden,
-					Field: "spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/pod-index-offset]",
-				},
-			}.ToAggregate(),
 		},
 		"invalid PodSet group name request - value is a number": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
