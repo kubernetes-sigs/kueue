@@ -168,6 +168,10 @@ Concurrent Admission currently has the following constraints:
 - The `concurrentAdmissionPolicy` field is immutable after the `ClusterQueue` is
   created.
 - `TryPreferredFlavors` is the only supported migration mode.
+- Each Variant admits all pod sets of the Workload to the same single
+  ResourceFlavor. Workloads whose pod sets require different flavors at the same
+  time (heterogeneous pod sets), such as a RayJob with a CPU head pod and GPU
+  worker pods, cannot be admitted under Concurrent Admission.
 
 ## What's next?
 
