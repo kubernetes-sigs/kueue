@@ -36,9 +36,10 @@ func MakeService(name, ns string) *ServiceWrapper {
 		Namespace:   ns,
 		Annotations: make(map[string]string, 1),
 		Spec: rayv1.RayServiceSpec{
+			Suspend: true,
 			RayClusterSpec: rayv1.RayClusterSpec{
 				RayVersion: utiltesting.TestRayVersion(),
-				Suspend:    new(true),
+				Suspend:    new(false),
 				HeadGroupSpec: rayv1.HeadGroupSpec{
 					RayStartParams: map[string]string{},
 					Template: corev1.PodTemplateSpec{
@@ -93,7 +94,7 @@ func (j *ServiceWrapper) Obj() *rayv1.RayService {
 
 // Suspend updates the suspend status of the RayService
 func (j *ServiceWrapper) Suspend(s bool) *ServiceWrapper {
-	j.Spec.RayClusterSpec.Suspend = new(s)
+	j.Spec.Suspend = s
 	return j
 }
 
@@ -271,6 +272,12 @@ func (j *ServiceWrapper) WithHeadGroupSpec(value rayv1.HeadGroupSpec) *ServiceWr
 // RayVersion sets the Ray version.
 func (j *ServiceWrapper) RayVersion(rv string) *ServiceWrapper {
 	j.Spec.RayClusterSpec.RayVersion = rv
+	return j
+}
+
+// UpgradeStrategy sets the RayService upgrade strategy.
+func (j *ServiceWrapper) UpgradeStrategy(upgradeType rayv1.RayServiceUpgradeType) *ServiceWrapper {
+	j.Spec.UpgradeStrategy = &rayv1.RayServiceUpgradeStrategy{Type: &upgradeType}
 	return j
 }
 

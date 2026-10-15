@@ -35,6 +35,9 @@ type cohort struct {
 
 	FairWeight float64
 
+	// admittedWorkloadsCount counts admitted Workloads in the subtree. Workload
+	// events only adjust it along the current path to the root, so it is
+	// recomputed from the children whenever the tree is rebuilt.
 	admittedWorkloadsCount int
 
 	DynamicQuotaOrchestrator kueuealpha.DynamicQuotaOrchestratorReference

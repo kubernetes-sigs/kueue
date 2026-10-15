@@ -39,7 +39,7 @@ spec:
           metadata:
             type: object
           spec:
-            description: PreemptionConfigSpec defines the desired state of PreemptionConfig
+            description: spec defines the preemption rules of the PreemptionConfig.
             properties:
               rules:
                 description: rules specifies preemption candidate selection rules.
@@ -231,6 +231,7 @@ spec:
                                     key is the label key that stores the integer value in the workload that will
                                     be used for candidate selection.
                                   maxLength: 316
+                                  minLength: 1
                                   type: string
                                 maxValue:
                                   description: |-
@@ -251,6 +252,11 @@ spec:
                               required:
                               - key
                               type: object
+                              x-kubernetes-validations:
+                              - message: minValue must be less than or equal to maxValue
+                                rule: '!has(self.minValue) || !has(self.maxValue)
+                                  || self.minValue <= self.maxValue'
+                            maxItems: 32
                             type: array
                             x-kubernetes-list-type: atomic
                           priority:
@@ -294,7 +300,9 @@ spec:
                         required:
                         - scope
                         type: object
+                      maxItems: 32
                       type: array
+                      x-kubernetes-list-type: atomic
                     name:
                       description: name is the identifier of the preemption rule.
                       maxLength: 63

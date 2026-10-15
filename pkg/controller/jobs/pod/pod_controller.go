@@ -55,6 +55,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/util/api"
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	cmputil "sigs.k8s.io/kueue/pkg/util/cmp"
@@ -64,6 +65,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	"sigs.k8s.io/kueue/pkg/workload"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
 
@@ -78,9 +80,10 @@ var errMsgIncorrectGroupRoleCount = fmt.Sprintf("pod group can't include more th
 
 // Event reasons used by the pod controller
 const (
-	ReasonExcessPodDeleted     = "ExcessPodDeleted"
-	ReasonOwnerReferencesAdded = "OwnerReferencesAdded"
-	ReasonWorkloadNameConflict = "WorkloadNameConflict"
+	ReasonExcessPodDeleted       = "ExcessPodDeleted"
+	ReasonOwnerReferencesAdded   = "OwnerReferencesAdded"
+	ReasonWorkloadNameConflict   = "WorkloadNameConflict"
+	ReasonPodExceedsRoleRequests = "PodExceedsRoleRequests"
 )
 
 const (
@@ -317,6 +320,7 @@ func (p *Pod) Suspend() {
 func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podSetsInfo []podset.PodSetInfo, recorder events.EventRecorder, msg string) error {
 	log := ctrl.LoggerFrom(ctx)
 
+	var keepGated sets.Set[string]
 	if !p.isGroup {
 		if len(podSetsInfo) != 1 {
 			return fmt.Errorf("%w: expecting 1 pod set got %d", podset.ErrInvalidPodsetInfo, len(podSetsInfo))
@@ -337,12 +341,18 @@ func (p *Pod) Run(ctx context.Context, c client.Client, wl *kueue.Workload, podS
 		}
 
 		utilpod.RecordPodSchedulingGateRemovalSeconds(p.clock, podconstants.SchedulingGateName, wl, p.isGroup, p.customLabels, p.roleTracker)
+	} else {
+		var err error
+		keepGated, err = validatePodsBeforeUngating(ctx, c, p.list.Items, wl, recorder)
+		if err != nil {
+			return err
+		}
 	}
 
 	return parallelize.Until(ctx, len(p.list.Items), func(i int) error {
 		pod := &p.list.Items[i]
 
-		if !isGated(pod) {
+		if !isGated(pod) || keepGated.Has(pod.Name) {
 			return nil
 		}
 
@@ -445,6 +455,7 @@ func (p *Pod) Finished(ctx context.Context) (message string, success, finished b
 
 	if succeededCount == groupTotalCount || (!isActive && unretriableGroup) {
 		message = fmt.Sprintf("Pods succeeded: %d/%d.", succeededCount, groupTotalCount)
+		success = succeededCount == groupTotalCount
 	} else {
 		return message, success, false
 	}
@@ -457,7 +468,7 @@ func (p *Pod) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 	if !p.isGroup {
 		return constructPodSets(&p.pod)
 	} else {
-		return p.constructGroupPodSets()
+		return p.constructGroupPodSets(nil)
 	}
 }
 
@@ -493,9 +504,9 @@ func (p *Pod) IsActive() bool {
 		// If a pod is stuck terminating (e.g., due to a lost node), we should avoid
 		// counting as Active, as doing so could block the workload to release acquired quota.
 		if pod.DeletionTimestamp != nil && pod.DeletionGracePeriodSeconds != nil {
-			now := p.clock.Now()
-			gracePeriod := time.Duration(*pod.DeletionGracePeriodSeconds) * time.Second
-			if now.After(pod.DeletionTimestamp.Add(gracePeriod)) {
+			// For graceful deletion, the API server sets DeletionTimestamp to the
+			// end of the grace period.
+			if p.clock.Now().After(pod.DeletionTimestamp.Time) {
 				continue
 			}
 		}
@@ -529,7 +540,10 @@ func (p *Pod) isPodReadyOrSucceeded(pod *corev1.Pod) bool {
 	return hasPodReadyTrue(pod.Status.Conditions)
 }
 
-// PodsReady instructs whether job derived pods are all ready now.
+// PodsReady reports whether the pod or pod group has reached the required number
+// of ready (or succeeded) pods. For pod groups (plain Pod groups, StatefulSet,
+// LeaderWorkerSet), the not-ready count is evaluated across all pods in the
+// group without distinguishing between PodSet roles (e.g., leader vs. worker).
 func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 	if !p.isGroup {
 		return p.isPodReadyOrSucceeded(&p.pod)
@@ -540,16 +554,27 @@ func (p *Pod) PodsReady(ctx context.Context, _ client.Client) bool {
 		ctrl.LoggerFrom(ctx).V(2).Error(err, "Failed to get group total count for PodsReady check")
 		return false
 	}
-	if len(p.list.Items) < tc {
-		return false
-	}
+	allowedNotReady := p.groupMaxNotReadyCount(tc)
 
+	var readyCount int
 	for i := range p.list.Items {
-		if !p.isPodReadyOrSucceeded(&p.list.Items[i]) {
-			return false
+		if p.isPodReadyOrSucceeded(&p.list.Items[i]) {
+			readyCount++
 		}
 	}
-	return true
+	notReady := tc - readyCount
+	if notReady <= allowedNotReady {
+		if notReady > 0 {
+			ctrl.LoggerFrom(ctx).V(4).Info("Not all pods in the group are ready, but the not-ready pods count is within the allowed maximum",
+				"podGroup", utilpod.GetPodGroupName(&p.pod),
+				"notReadyPods", notReady,
+				"maxNotReadyPods", allowedNotReady,
+				"totalPods", tc,
+			)
+		}
+		return true
+	}
+	return false
 }
 
 // GVK returns GVK (Group Version Kind) for the job.
@@ -723,6 +748,38 @@ func (p *Pod) groupTotalCount() (int, error) {
 	return gtc, nil
 }
 
+// groupMaxNotReadyCount returns how many not-ready pods in the group are
+// tolerated for the group to be PodsReady. It is 0 unless the
+// WaitForPodsReadyMaxNotReady feature gate is enabled, in which case it is the
+// lowest (strictest) GroupMaxNotReadyCountAnnotation value across the group,
+// falling back to 0 for any pod whose annotation is missing, malformed, or
+// outside [0, totalCount-1]. Reading the whole group - rather than only the
+// reconciled pod - keeps the result independent of which pod triggered the
+// reconcile while the annotation is being updated, and a missing or malformed
+// annotation never marks an incomplete group as PodsReady.
+func (p *Pod) groupMaxNotReadyCount(totalCount int) int {
+	if !features.Enabled(features.WaitForPodsReadyMaxNotReady) || len(p.list.Items) == 0 {
+		return 0
+	}
+	allowed := totalCount - 1
+	for i := range p.list.Items {
+		allowed = min(allowed, podMaxNotReadyCount(&p.list.Items[i], totalCount))
+	}
+	return allowed
+}
+
+// podMaxNotReadyCount returns the GroupMaxNotReadyCountAnnotation value of a
+// single pod, or 0 when the annotation is missing, malformed, or outside
+// [0, totalCount-1].
+func podMaxNotReadyCount(pod *corev1.Pod, totalCount int) int {
+	if v, ok := pod.GetAnnotations()[podconstants.GroupMaxNotReadyCountAnnotation]; ok {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 && n < totalCount {
+			return n
+		}
+	}
+	return 0
+}
+
 // getRoleHash will filter all the fields of the pod that are relevant to admission (pod role) and return a sha256
 // checksum of those fields. This is used to group the pods of the same roles when interacting with the workload.
 func getRoleHash(p corev1.Pod) (string, error) {
@@ -806,17 +863,58 @@ func (p *Pod) fastAdmission() bool {
 	return p.pod.GetAnnotations()[podconstants.GroupFastAdmissionAnnotationKey] == podconstants.GroupFastAdmissionAnnotationValue
 }
 
-func (p *Pod) constructGroupPodSets() ([]kueue.PodSet, error) {
+func (p *Pod) constructGroupPodSets(referenceOrder []kueue.PodSetReference) ([]kueue.PodSet, error) {
 	if p.fastAdmission() {
 		tc, err := p.groupTotalCount()
 		if err != nil {
 			return nil, err
 		}
-		return constructGroupPodSetsFast(p.list.Items, tc)
+
+		podSets, err := constructGroupPodSetsFast(p.list.Items, tc)
+		if err != nil {
+			return nil, err
+		}
+
+		return reorderPodSets(podSets, referenceOrder), nil
 	}
-	return constructGroupPodSets(p.list.Items)
+
+	return constructGroupPodSets(p.list.Items, referenceOrder)
 }
 
+func podSetReferenceOrder(podSets []kueue.PodSet) []kueue.PodSetReference {
+	references := make([]kueue.PodSetReference, len(podSets))
+	for i := range podSets {
+		references[i] = podSets[i].Name
+	}
+	return references
+}
+
+func reorderPodSets(podSets []kueue.PodSet, referenceOrder []kueue.PodSetReference) []kueue.PodSet {
+	podSetsByName := make(map[kueue.PodSetReference]kueue.PodSet, len(podSets))
+	for _, podSet := range podSets {
+		podSetsByName[podSet.Name] = podSet
+	}
+
+	result := make([]kueue.PodSet, 0, len(podSets))
+	used := sets.New[kueue.PodSetReference]()
+
+	for _, referenceName := range referenceOrder {
+		if podSet, found := podSetsByName[referenceName]; found {
+			result = append(result, podSet)
+			used.Insert(podSet.Name)
+		}
+	}
+
+	// Keep any PodSets that aren't present in the Workload so
+	// equivalentToWorkload can detect them.
+	for _, podSet := range podSets {
+		if !used.Has(podSet.Name) {
+			result = append(result, podSet)
+		}
+	}
+
+	return result
+}
 func constructPodSets(p *corev1.Pod) ([]kueue.PodSet, error) {
 	podSet, err := constructPodSet(p)
 	if err != nil {
@@ -873,8 +971,90 @@ func constructGroupPodSetsFast(pods []corev1.Pod, groupTotalCount int) ([]kueue.
 	return nil, errors.New("failed to find a runnable pod in the group")
 }
 
-func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
-	var resultPodSets []kueue.PodSet
+// firstExceededResource returns the first resource the pod requests above the reservation.
+// A resource absent from the reservation is treated as zero.
+func firstExceededResource(pod *corev1.Pod, reserved resources.Requests) (corev1.ResourceName, bool) {
+	actual := resources.NewRequestsFromPodSpec(&pod.Spec)
+	if reserved == nil {
+		reserved = resources.NewRequests()
+	}
+	for name, val := range actual.Iter() {
+		if val.Cmp(reserved.ResourceValue(name)) > 0 {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// validatePodsBeforeUngating verifies that every gated pod fits the PodSet its
+// role-hash annotation names, and returns the names of the pods that do not. The
+// annotation is user-supplied and is treated as an untrusted PodSet name: it selects
+// the reservation to check against, it does not assert anything about the pod.
+// Verifying here rather than at admission means the pod is in its final shape
+// (admission-check nodeSelectors already applied) and no pod annotation has to be
+// rewritten to make the check sound. A pod exceeding its reservation gets a Warning
+// event and is left gated instead of failing the group, so that such a pod cannot
+// disrupt an already admitted group.
+// The reservation is taken from the effective PodSet spec (requests defaulted from
+// limits, LimitRange defaults and RuntimeClass overhead applied), the same view
+// quota is accounted against.
+func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []corev1.Pod, wl *kueue.Workload, recorder events.EventRecorder) (sets.Set[string], error) {
+	if !features.Enabled(features.PodIntegrationVerifyRoleRequests) {
+		return nil, nil
+	}
+	if !slices.ContainsFunc(pods, func(pod corev1.Pod) bool { return isGated(&pod) }) {
+		return nil, nil
+	}
+	in, errs := workload.ResolveAdjustmentInputs(ctx, c, wl)
+	for _, err := range errs {
+		ctrl.LoggerFrom(ctx).Error(err, "Could not resolve workload resource defaults", "workload", klog.KObj(wl))
+	}
+	effectiveSpecs := workload.EffectivePodSpecs(wl, in)
+	podSpecs := make(map[kueue.PodSetReference]*corev1.PodSpec, len(wl.Spec.PodSets))
+	for i := range wl.Spec.PodSets {
+		podSpecs[wl.Spec.PodSets[i].Name] = &effectiveSpecs[i]
+	}
+	oversized := sets.New[string]()
+	for i := range pods {
+		pod := &pods[i]
+		if !isGated(pod) {
+			continue
+		}
+		role, err := getRoleHash(*pod)
+		if err != nil {
+			return nil, errRoleHashCalculationForPod(pod.Name, err)
+		}
+		podSpec, found := podSpecs[kueue.NewPodSetReference(role)]
+		if !found {
+			return nil, fmt.Errorf("%w: no podset named %q for pod %q", podset.ErrInvalidPodsetInfo, role, pod.Name)
+		}
+		reserved := resources.NewRequestsFromPodSpec(podSpec)
+		resourceName, exceeds := firstExceededResource(pod, reserved)
+		if !exceeds {
+			continue
+		}
+		msg := fmt.Sprintf("Pod %q requests more %s than podset %q reserves", pod.Name, resourceName, role)
+		recorder.Eventf(pod, nil, corev1.EventTypeWarning, ReasonPodExceedsRoleRequests, "Admission", api.TruncateEventMessage(msg))
+		oversized.Insert(pod.Name)
+	}
+	return oversized, nil
+}
+
+func errRoleHashCalculationForPod(podName string, err error) error {
+	return fmt.Errorf("failed to calculate pod role hash for pod %q: %w", podName, err)
+}
+
+func errRoleHashCalculation(errs []error) error {
+	return fmt.Errorf("failed to calculate pod role hash: %w", errors.Join(errs...))
+}
+
+type podSetWithShapeHash struct {
+	podSet    kueue.PodSet
+	shapeHash string
+}
+
+func constructGroupPodSets(pods []corev1.Pod, referenceOrder []kueue.PodSetReference) ([]kueue.PodSet, error) {
+	var resultPodSets []podSetWithShapeHash
 
 	for _, podInGroup := range pods {
 		if !isPodRunnableOrSucceeded(&podInGroup) {
@@ -888,9 +1068,10 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 
 		podRoleFound := false
 		for psi := range resultPodSets {
-			if string(resultPodSets[psi].Name) == roleHash {
+			if string(resultPodSets[psi].podSet.Name) == roleHash {
 				podRoleFound = true
-				resultPodSets[psi].Count++
+				resultPodSets[psi].podSet.Count++
+
 				break
 			}
 		}
@@ -900,17 +1081,51 @@ func constructGroupPodSets(pods []corev1.Pod) ([]kueue.PodSet, error) {
 			if err != nil {
 				return nil, err
 			}
+
+			shapeHash, err := utilpod.GenerateRoleHash(&podInGroup.Spec)
+			if err != nil {
+				return nil, fmt.Errorf("failed to calculate pod scheduling shape hash: %w", err)
+			}
+
 			podSet.Name = kueue.NewPodSetReference(roleHash)
 
-			resultPodSets = append(resultPodSets, podSet)
+			resultPodSets = append(resultPodSets, podSetWithShapeHash{
+				podSet:    podSet,
+				shapeHash: shapeHash,
+			})
 		}
 	}
 
-	slices.SortFunc(resultPodSets, func(a, b kueue.PodSet) int {
-		return cmp.Compare(a.Name, b.Name)
+	if referenceOrder != nil {
+		podSets := make([]kueue.PodSet, len(resultPodSets))
+		for i := range resultPodSets {
+			podSets[i] = resultPodSets[i].podSet
+		}
+		return reorderPodSets(podSets, referenceOrder), nil
+	}
+
+	slices.SortFunc(resultPodSets, func(a, b podSetWithShapeHash) int {
+		if features.Enabled(features.PodGroupSchedulingShapeOrdering) {
+			if byShape := cmp.Compare(a.shapeHash, b.shapeHash); byShape != 0 {
+				return byShape
+			}
+
+			if byCount := cmp.Compare(a.podSet.Count, b.podSet.Count); byCount != 0 {
+				return byCount
+			}
+
+			return cmp.Compare(string(a.podSet.Name), string(b.podSet.Name))
+		}
+
+		return cmp.Compare(string(a.podSet.Name), string(b.podSet.Name))
 	})
 
-	return resultPodSets, nil
+	podSets := make([]kueue.PodSet, len(resultPodSets))
+	for i := range resultPodSets {
+		podSets[i] = resultPodSets[i].podSet
+	}
+
+	return podSets, nil
 }
 
 // validatePodGroupMetadata validates metadata of all members of the pod group
@@ -1444,7 +1659,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		roleActivePods := utilslices.Pick(activePods, hasRoleFunc)
 		roleInactivePods := utilslices.Pick(inactivePods, hasRoleFunc)
 		if len(roleHashErrors) > 0 {
-			return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", errors.Join(roleHashErrors...))
+			return nil, nil, errRoleHashCalculation(roleHashErrors)
 		}
 
 		absentPods += p.countAbsentPods(ps, len(roleActivePods))
@@ -1466,7 +1681,7 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		}
 	}
 
-	jobPodSets, err := constructGroupPodSets(keptPods)
+	jobPodSets, err := constructGroupPodSets(keptPods, podSetReferenceOrder(workload.Spec.PodSets))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1652,12 +1867,11 @@ func (p *Pod) waitingForReplacementPodsCondition(wl *kueue.Workload) (*metav1.Co
 }
 
 func (p *Pod) EquivalentToWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) (bool, error) {
-	// For single job using base EquivalentToWorkload method.
 	if !p.isGroup {
 		return jobframework.EquivalentToWorkload(ctx, c, p, wl)
 	}
 
-	podSets, err := p.constructGroupPodSets()
+	podSets, err := p.constructGroupPodSets(podSetReferenceOrder(wl.Spec.PodSets))
 	if err != nil {
 		return false, err
 	}

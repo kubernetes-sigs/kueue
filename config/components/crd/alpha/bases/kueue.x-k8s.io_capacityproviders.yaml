@@ -19,7 +19,9 @@ spec:
   - name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: CapacityProvider is the Schema for the capacityproviders API
+        description: |-
+          CapacityProvider reports capacity for ResourceFlavors.
+          DQO uses this capacity only when CapacitySynchronized=True.
         properties:
           apiVersion:
             description: |-
@@ -39,16 +41,14 @@ spec:
           metadata:
             type: object
           spec:
+            description: spec defines the desired state of the CapacityProvider.
             properties:
               controllerName:
-                allOf:
-                - maxLength: 253
-                  minLength: 1
-                - maxLength: 253
-                  minLength: 1
                 description: |-
                   controllerName identifies the controller publishing capacity.
                   This field is immutable.
+                maxLength: 253
+                minLength: 1
                 type: string
                 x-kubernetes-validations:
                 - message: field is immutable
@@ -57,7 +57,8 @@ spec:
                 description: |-
                   orchestratedFlavors identifies the ResourceFlavors for which this provider may
                   publish capacity. DQO ignores entries in status.capacity.flavors whose
-                  names are not listed here.
+                  names are not listed here. The provider orchestrates all resources of the
+                  listed flavors: capacity that is not reported for a listed flavor is zero.
                 items:
                   description: |-
                     CapacityProviderOrchestratedFlavor identifies a flavor managed by a provider.
@@ -111,13 +112,19 @@ spec:
             - orchestratedFlavors
             type: object
           status:
+            description: status defines the capacity observed and published by the
+              provider.
             properties:
               capacity:
                 description: capacity is the normalized capacity published by the
                   provider.
                 properties:
                   flavors:
-                    description: flavors contains capacity per flavor and resource.
+                    description: |-
+                      flavors reports capacity for each flavor and resource.
+                      The list must contain at least one flavor.
+                      It should contain the same flavors as spec.orchestratedFlavors.
+                      An empty resources map means zero capacity for all resources of the flavor.
                     items:
                       properties:
                         name:
@@ -133,18 +140,20 @@ spec:
                             - type: string
                             pattern: ^(\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))(([KMGTPE]i)|[numkMGTPE]|([eE](\+|-)?(([0-9]+(\.[0-9]*)?)|(\.[0-9]+))))?$
                             x-kubernetes-int-or-string: true
-                          description: resources contains total capacity by resource
-                            name.
+                          description: |-
+                            resources contains total capacity by resource name.
+                            The provider orchestrates all resources of the flavor: a resource that is
+                            not listed, including when the map is empty, has zero capacity.
                           type: object
                           x-kubernetes-validations:
-                          - message: resource capacity must have between 1 and 64
-                              entries
-                            rule: size(self) >= 1 && size(self) <= 64
+                          - message: resource capacity must have at most 64 entries
+                            rule: size(self) <= 64
                       required:
                       - name
                       - resources
                       type: object
                     maxItems: 64
+                    minItems: 1
                     type: array
                     x-kubernetes-list-map-keys:
                     - name

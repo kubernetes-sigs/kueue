@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -139,6 +140,135 @@ func TestFetchWorkloadsDashboardDataKeepsPodsNamespaceScoped(t *testing.T) {
 		if got, want := len(item.Pods), wantPodCounts[item.Name]; got != want {
 			t.Fatalf("workload %s has %d pods, want %d", item.Name, got, want)
 		}
+	}
+}
+
+func TestFetchWorkloadsDashboardDataSkipsPodsWithoutControllerUID(t *testing.T) {
+	client := &fakeDashboardClient{
+		workloads: []kueueapi.Workload{
+			makeDashboardWorkload("wl-1", "ns-1", "wl-uid-1", "job-uid-1"),
+			// Pod group Workloads have no job UID label.
+			{Name: "pod-group-1", Namespace: "ns-1", UID: "wl-uid-2"},
+			{Name: "pod-group-2", Namespace: "ns-1", UID: "wl-uid-3"},
+		},
+		pods: []corev1.Pod{
+			makeDashboardPod("pod-1", "ns-1", "job-uid-1"),
+			// Pods with neither a controller UID label nor a pod group name.
+			{Name: "pod-group-1-0", Namespace: "ns-1"},
+			{Name: "pod-group-2-0", Namespace: "ns-1"},
+		},
+	}
+	h := &Handlers{client: client}
+
+	got, _, err := h.fetchWorkloadsDashboardData(t.Context(), "ns-1", middleware.Identity{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	gotPodCounts := make(map[string]int)
+	for _, item := range dashboardWorkloadItems(t, got) {
+		gotPodCounts[item.Name] = len(item.Pods)
+	}
+	wantPodCounts := map[string]int{
+		"wl-1":        1,
+		"pod-group-1": 0,
+		"pod-group-2": 0,
+	}
+	if diff := cmp.Diff(wantPodCounts, gotPodCounts); diff != "" {
+		t.Errorf("unexpected pod counts (-want,+got):\n%s", diff)
+	}
+}
+
+func TestFetchWorkloadsDashboardDataMatchesPodGroupPods(t *testing.T) {
+	unrelatedPod := corev1.Pod{Name: "unrelated", Namespace: "ns-1"}
+
+	cases := map[string]struct {
+		workload kueueapi.Workload
+		pods     []corev1.Pod
+		wantPods []string
+	}{
+		"batch Job": {
+			workload: makeDashboardWorkload("job-wl", "ns-1", "wl-uid-1", "job-uid-1"),
+			pods: []corev1.Pod{
+				makeDashboardPod("job-wl-0", "ns-1", "job-uid-1"),
+				unrelatedPod,
+			},
+			wantPods: []string{"job-wl-0"},
+		},
+		"pod group named by label": {
+			workload: kueueapi.Workload{Name: "group", Namespace: "ns-1", UID: "wl-uid-1"},
+			pods: []corev1.Pod{
+				{Name: "group-0", Namespace: "ns-1", Labels: map[string]string{"kueue.x-k8s.io/pod-group-name": "group"}},
+				{Name: "group-1", Namespace: "ns-1", Labels: map[string]string{"kueue.x-k8s.io/pod-group-name": "group"}},
+				unrelatedPod,
+			},
+			wantPods: []string{"group-0", "group-1"},
+		},
+		"pod group named by annotation": {
+			workload: kueueapi.Workload{Name: "group", Namespace: "ns-1", UID: "wl-uid-1"},
+			pods: []corev1.Pod{
+				{Name: "group-0", Namespace: "ns-1", Annotations: map[string]string{"kueue.x-k8s.io/pod-group-name": "group"}},
+				unrelatedPod,
+			},
+			wantPods: []string{"group-0"},
+		},
+		"pod group with a prebuilt Workload": {
+			workload: kueueapi.Workload{Name: "prebuilt", Namespace: "ns-1", UID: "wl-uid-1"},
+			pods: []corev1.Pod{
+				{Name: "group-0", Namespace: "ns-1", Labels: map[string]string{
+					"kueue.x-k8s.io/pod-group-name":         "group",
+					"kueue.x-k8s.io/prebuilt-workload-name": "prebuilt",
+				}},
+				unrelatedPod,
+			},
+			wantPods: []string{"group-0"},
+		},
+		"pod group named like the Workload but with another prebuilt Workload": {
+			workload: kueueapi.Workload{Name: "group", Namespace: "ns-1", UID: "wl-uid-1"},
+			pods: []corev1.Pod{
+				{Name: "group-0", Namespace: "ns-1", Annotations: map[string]string{
+					"kueue.x-k8s.io/pod-group-name":         "group",
+					"kueue.x-k8s.io/prebuilt-workload-name": "prebuilt",
+				}},
+				unrelatedPod,
+			},
+			wantPods: []string{},
+		},
+		"StatefulSet Workload with a job UID": {
+			workload: makeDashboardWorkload("sts-wl", "ns-1", "wl-uid-1", "sts-uid-1"),
+			pods: []corev1.Pod{
+				{Name: "sts-0", Namespace: "ns-1", Annotations: map[string]string{"kueue.x-k8s.io/pod-group-name": "sts-wl"}},
+				unrelatedPod,
+			},
+			wantPods: []string{"sts-0"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			client := &fakeDashboardClient{
+				workloads: []kueueapi.Workload{tc.workload},
+				pods:      tc.pods,
+			}
+			h := &Handlers{client: client}
+
+			got, _, err := h.fetchWorkloadsDashboardData(t.Context(), "ns-1", middleware.Identity{})
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			items := dashboardWorkloadItems(t, got)
+			if len(items) != 1 {
+				t.Fatalf("got %d workloads, want 1", len(items))
+			}
+			gotPods := make([]string, 0, len(items[0].Pods))
+			for _, pod := range items[0].Pods {
+				gotPods = append(gotPods, pod["name"].(string))
+			}
+			if diff := cmp.Diff(tc.wantPods, gotPods); diff != "" {
+				t.Errorf("unexpected pods (-want,+got):\n%s", diff)
+			}
+		})
 	}
 }
 

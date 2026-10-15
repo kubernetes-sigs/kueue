@@ -39,7 +39,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -48,6 +49,9 @@ var (
 	ctx       context.Context
 	fwk       *framework.Framework
 	qManager  *qcache.Manager
+	// managerClient reads the manager's cache, which is what effective-resource
+	// resolution reads.
+	managerClient client.Client
 	// customMetricLabels is the instance handed to the controllers, caches and
 	// scheduler by managerAndControllerSetup. Tests read it to assert that the
 	// cached label values of deleted objects are dropped.
@@ -55,12 +59,12 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunSuite(t, "Core Controllers Suite")
+	behavioral.RunSuite(t, "Core Controllers Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
@@ -89,10 +93,12 @@ func withRoleTracker(rt *roletracker.RoleTracker) managerSetupOption {
 }
 
 func managerSetup(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	managerAndControllerSetup(nil)(ctx, mgr)
 }
 
 func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	managerAndControllerSetup(nil, runScheduler)(ctx, mgr)
 }
 
@@ -100,6 +106,7 @@ func managerAndControllerSetup(
 	controllersCfg *config.Configuration,
 	options ...managerSetupOption,
 ) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		var opts managerSetupOpts
 		for _, opt := range options {
@@ -120,7 +127,8 @@ func managerAndControllerSetup(
 
 		controllersCfg.Metrics.EnableClusterQueueResources = true
 
-		lqMetrics := metrics.NewLocalQueueMetricsConfig(controllersCfg.Metrics.LocalQueueMetrics)
+		lqMetrics, err := metrics.NewLocalQueueMetricsConfig(controllersCfg.Metrics.LocalQueueMetrics)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		var customLabels *metrics.CustomLabels
 		if features.Enabled(features.CustomMetricLabels) && len(controllersCfg.Metrics.CustomLabels) > 0 {
@@ -144,8 +152,9 @@ func managerAndControllerSetup(
 		}
 
 		cCache := schdcache.New(mgr.GetClient(), cacheOpts...)
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOpts...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOpts...)
 		qManager = queues
+		managerClient = mgr.GetClient()
 
 		failedCtrl, err := core.SetupControllers(mgr, queues, cCache, controllersCfg, core.SetupControllersOpts{
 			RoleTracker:            opts.roleTracker,

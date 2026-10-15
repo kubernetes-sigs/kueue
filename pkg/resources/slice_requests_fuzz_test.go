@@ -44,7 +44,7 @@ var fuzzResourceNames = []corev1.ResourceName{
 //     - Each entry consumes 9 bytes:
 //     - Byte 0: Resource name index into fuzzResourceNames array (data[0] % len(fuzzResourceNames)).
 //     - Bytes 1..8: 64-bit little-endian value for the resource quantity, taken as
-//     int64, so negative values and the saturation boundary are both reachable.
+//     int64, so negative values and the int64 boundary are both reachable.
 //  3. Map 2 parsing:
 //     - If bytes remain, the next byte (data[0] % 5) defines len2 (0 to 4).
 //     - Up to len2 entries are parsed using 9 bytes each, exactly as in m1.
@@ -85,7 +85,7 @@ func parseFuzzMap(data []byte) (MapRequests, []byte) {
 		val := int64(uint64(data[1]) | uint64(data[2])<<8 | uint64(data[3])<<16 | uint64(data[4])<<24 |
 			uint64(data[5])<<32 | uint64(data[6])<<40 | uint64(data[7])<<48 | uint64(data[8])<<56)
 		if val != 0 {
-			m[res] = val
+			m[res] = NewAmount(val)
 		}
 		data = data[9:]
 	}
@@ -98,7 +98,7 @@ func normalizeMap(m MapRequests) MapRequests {
 	}
 	res := make(MapRequests)
 	for k, v := range m {
-		if v != 0 {
+		if v.Sign() != 0 {
 			res[k] = v
 		}
 	}
@@ -165,108 +165,118 @@ func (s fuzzSeed) encode() []byte {
 	buf := []byte{s.opChoice, byte(len(s.m1))}
 	for res, val := range s.m1 {
 		idx := resourceIndex(res)
-		buf = append(buf, idx,
-			byte(val), byte(val>>8), byte(val>>16), byte(val>>24),
-			byte(val>>32), byte(val>>40), byte(val>>48), byte(val>>56))
+		buf = append(buf, idx)
+		buf = append(buf, amountSeedBytes(val)...)
 	}
 	buf = append(buf, byte(len(s.m2)))
 	for res, val := range s.m2 {
 		idx := resourceIndex(res)
-		buf = append(buf, idx,
-			byte(val), byte(val>>8), byte(val>>16), byte(val>>24),
-			byte(val>>32), byte(val>>40), byte(val>>48), byte(val>>56))
+		buf = append(buf, idx)
+		buf = append(buf, amountSeedBytes(val)...)
 	}
 	return buf
+}
+
+// amountSeedBytes encodes a seed that fits an int64. Seeds are built from
+// int64 literals, so a value past that range is a programming error.
+func amountSeedBytes(val Amount) []byte {
+	n, ok := val.asInt64()
+	if !ok {
+		panic("fuzz seed does not fit int64: " + val.String())
+	}
+	return []byte{
+		byte(n), byte(n >> 8), byte(n >> 16), byte(n >> 24),
+		byte(n >> 32), byte(n >> 40), byte(n >> 48), byte(n >> 56),
+	}
 }
 
 func FuzzSliceRequestsEquivalence(f *testing.F) {
 	seeds := []fuzzSeed{
 		{
 			opChoice: opAdd,
-			m1:       MapRequests{corev1.ResourceCPU: 100, corev1.ResourceMemory: 200},
-			m2:       MapRequests{corev1.ResourceMemory: 50, corev1.ResourcePods: 100},
+			m1:       MapRequests{corev1.ResourceCPU: NewAmount(100), corev1.ResourceMemory: NewAmount(200)},
+			m2:       MapRequests{corev1.ResourceMemory: NewAmount(50), corev1.ResourcePods: NewAmount(100)},
 		},
 		{
 			opChoice: opSub,
-			m1:       MapRequests{corev1.ResourceCPU: 200},
-			m2:       MapRequests{corev1.ResourceCPU: 100},
+			m1:       MapRequests{corev1.ResourceCPU: NewAmount(200)},
+			m2:       MapRequests{corev1.ResourceCPU: NewAmount(100)},
 		},
 		{
 			opChoice: opScaledUp,
-			m1:       MapRequests{corev1.ResourcePods: 10},
-			m2:       MapRequests{corev1.ResourcePods: 20},
+			m1:       MapRequests{corev1.ResourcePods: NewAmount(10)},
+			m2:       MapRequests{corev1.ResourcePods: NewAmount(20)},
 		},
 		{
 			opChoice: opScaledDown,
-			m1:       MapRequests{corev1.ResourceCPU: 300, corev1.ResourceMemory: 600},
+			m1:       MapRequests{corev1.ResourceCPU: NewAmount(300), corev1.ResourceMemory: NewAmount(600)},
 			m2:       MapRequests{},
 		},
 		{
 			opChoice: opDivide,
-			m1:       MapRequests{corev1.ResourceCPU: 200, corev1.ResourceMemory: 400},
+			m1:       MapRequests{corev1.ResourceCPU: NewAmount(200), corev1.ResourceMemory: NewAmount(400)},
 			m2:       MapRequests{},
 		},
 		{
 			opChoice: opMul,
-			m1:       MapRequests{corev1.ResourceCPU: 100, corev1.ResourceMemory: 200},
+			m1:       MapRequests{corev1.ResourceCPU: NewAmount(100), corev1.ResourceMemory: NewAmount(200)},
 			m2:       MapRequests{},
 		},
 		{
 			opChoice: opCountIn,
-			m1:       MapRequests{corev1.ResourceCPU: 100, corev1.ResourceMemory: 200},
-			m2:       MapRequests{corev1.ResourceMemory: 50, corev1.ResourcePods: 100},
+			m1:       MapRequests{corev1.ResourceCPU: NewAmount(100), corev1.ResourceMemory: NewAmount(200)},
+			m2:       MapRequests{corev1.ResourceMemory: NewAmount(50), corev1.ResourcePods: NewAmount(100)},
 		},
 		{
 			opChoice: opCountIn,
-			m1:       MapRequests{corev1.ResourceCPU: 100, corev1.ResourceMemory: 200},
+			m1:       MapRequests{corev1.ResourceCPU: NewAmount(100), corev1.ResourceMemory: NewAmount(200)},
 			m2:       MapRequests{},
 		},
 		{
 			opChoice: opCountIn,
 			m1:       MapRequests{},
-			m2:       MapRequests{corev1.ResourceCPU: 100},
+			m2:       MapRequests{corev1.ResourceCPU: NewAmount(100)},
 		},
 		{
 			opChoice: opCountIn,
-			m1:       MapRequests{corev1.ResourceMemory: 1},
-			m2:       MapRequests{corev1.ResourceMemory: math.MaxInt32 + 1},
+			m1:       MapRequests{corev1.ResourceMemory: NewAmount(1)},
+			m2:       MapRequests{corev1.ResourceMemory: NewAmount(math.MaxInt32 + 1)},
 		},
 		// The int64 boundary, which the corpus could not encode while a value
-		// was four bytes wide. Both implementations saturate, so they have to
-		// saturate to the same place.
+		// was four bytes wide. Both implementations keep the exact total.
 		{
 			opChoice: opAdd,
-			m1:       MapRequests{corev1.ResourceCPU: math.MaxInt64},
-			m2:       MapRequests{corev1.ResourceCPU: 1},
+			m1:       MapRequests{corev1.ResourceCPU: NewAmount(math.MaxInt64)},
+			m2:       MapRequests{corev1.ResourceCPU: NewAmount(1)},
 		},
 		{
 			opChoice: opSub,
-			m1:       MapRequests{corev1.ResourceCPU: math.MinInt64},
-			m2:       MapRequests{corev1.ResourceCPU: 1},
+			m1:       MapRequests{corev1.ResourceCPU: NewAmount(math.MinInt64)},
+			m2:       MapRequests{corev1.ResourceCPU: NewAmount(1)},
 		},
 		{
 			opChoice: opSub,
 			m1:       MapRequests{},
-			m2:       MapRequests{corev1.ResourceCPU: math.MinInt64},
+			m2:       MapRequests{corev1.ResourceCPU: NewAmount(math.MinInt64)},
 		},
 		{
 			opChoice: opSet,
-			m1:       MapRequests{corev1.ResourceCPU: 100},
-			m2:       MapRequests{corev1.ResourceMemory: 200},
+			m1:       MapRequests{corev1.ResourceCPU: NewAmount(100)},
+			m2:       MapRequests{corev1.ResourceMemory: NewAmount(200)},
 		},
 		{
 			opChoice: opGetValue,
-			m1:       MapRequests{corev1.ResourceCPU: 100, corev1.ResourceMemory: 200},
+			m1:       MapRequests{corev1.ResourceCPU: NewAmount(100), corev1.ResourceMemory: NewAmount(200)},
 			m2:       MapRequests{},
 		},
 		{
 			opChoice: opLenAndIsEmpty,
-			m1:       MapRequests{corev1.ResourceCPU: 100},
+			m1:       MapRequests{corev1.ResourceCPU: NewAmount(100)},
 			m2:       MapRequests{},
 		},
 		{
 			opChoice: opToResourceList,
-			m1:       MapRequests{corev1.ResourceCPU: 1000, corev1.ResourceMemory: 2048},
+			m1:       MapRequests{corev1.ResourceCPU: NewAmount(1000), corev1.ResourceMemory: NewAmount(2048)},
 			m2:       MapRequests{},
 		},
 	}
@@ -345,7 +355,7 @@ func FuzzSliceRequestsEquivalence(f *testing.F) {
 			}
 		case opSet:
 			res := fuzzResourceNames[int(opChoice)%len(fuzzResourceNames)]
-			val := int64(opChoice%100 + 1)
+			val := NewAmount(int64(opChoice%100 + 1))
 			m1Copy := m1.Clone()
 			m1Copy.Set(res, val)
 			s1Copy := s1.Clone()
@@ -355,8 +365,8 @@ func FuzzSliceRequestsEquivalence(f *testing.F) {
 			res := fuzzResourceNames[int(opChoice)%len(fuzzResourceNames)]
 			mVal := m1.ResourceValue(res)
 			sVal := s1.ResourceValue(res)
-			if mVal != sVal {
-				t.Errorf("GetValue mismatch for %s: Map got %d, Slice got %d", res, mVal, sVal)
+			if !mVal.Equal(sVal) {
+				t.Errorf("GetValue mismatch for %s: Map got %s, Slice got %s", res, mVal, sVal)
 			}
 		case opLenAndIsEmpty:
 			if m1.Len() != s1.Len() {

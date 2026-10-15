@@ -21,5 +21,8 @@ set -o pipefail
 DOCKER="${DOCKER:-docker}"
 CURRENT_DIR=$(dirname "${BASH_SOURCE[0]}")
 
-"${DOCKER}" build --load -f "${CURRENT_DIR}/Dockerfile" -t depcheck "$1"
-"${DOCKER}" run -i --rm depcheck
+"${DOCKER}" build \
+  --output=type=cacheonly \
+  --progress=plain \
+  -f "${CURRENT_DIR}/Dockerfile" \
+  "$1"

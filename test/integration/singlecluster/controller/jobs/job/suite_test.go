@@ -38,13 +38,16 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/controller/unscheduledpods"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -55,7 +58,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunSuite(t, "Job Controller Suite")
+	behavioral.RunSuite(t, "Job Controller Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -69,7 +72,22 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
+	return managerSetupWithConfiguration(nil, opts...)
+}
+
+func managerSetupWithConfiguration(configuration *config.Configuration, opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
+		if configuration == nil {
+			configuration = &config.Configuration{}
+		}
+		mgr.GetScheme().Default(configuration)
+		trackPodsScheduled := waitforpodsready.PodsScheduledTrackingEnabled(configuration.WaitForPodsReady)
+		var indexerOpts []indexer.Option
+		if trackPodsScheduled {
+			indexerOpts = append(indexerOpts, indexer.WithPodWorkloadSliceNameIndex())
+		}
 		integrationManager := jobcontrollers.NewIntegrationManager()
 		opts = append(opts, jobframework.WithIntegrationManager(integrationManager))
 		reconciler, err := job.NewReconciler(
@@ -79,7 +97,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 			mgr.GetEventRecorder(constants.JobControllerName),
 			opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		err = indexer.Setup(ctx, mgr.GetFieldIndexer())
+		err = indexer.Setup(ctx, mgr.GetFieldIndexer(), indexerOpts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		err = job.SetupIndexes(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -90,6 +108,10 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 		failedWebhook, err := webhooks.Setup(mgr, nil)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 		integrationManager.EnableIntegration(job.FrameworkName)
+		if trackPodsScheduled {
+			failedCtrl, err := unscheduledpods.NewTracker(mgr.GetClient(), nil, configuration.WaitForPodsReady).SetupWithManager(mgr, configuration)
+			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "controller", failedCtrl)
+		}
 	}
 }
 
@@ -99,13 +121,15 @@ func managerAndControllersSetup(
 	configuration *config.Configuration,
 	opts ...jobframework.Option,
 ) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		if configuration == nil {
 			configuration = &config.Configuration{}
 		}
 		mgr.GetScheme().Default(configuration)
 
-		lqMetrics := metrics.NewLocalQueueMetricsConfig(configuration.Metrics.LocalQueueMetrics)
+		lqMetrics, err := metrics.NewLocalQueueMetricsConfig(configuration.Metrics.LocalQueueMetrics)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		customLabels := metrics.NewCustomLabels(configuration.Metrics.CustomLabels)
 
 		cCache := schdcache.New(mgr.GetClient(),
@@ -118,10 +142,10 @@ func managerAndControllersSetup(
 			qcache.WithLocalQueueMetrics(lqMetrics),
 			qcache.WithCustomLabels(customLabels),
 		}
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		opts = append(opts, jobframework.WithCache(cCache), jobframework.WithCustomLabels(customLabels))
-		managerSetup(opts...)(ctx, mgr)
+		managerSetupWithConfiguration(configuration, opts...)(ctx, mgr)
 
 		failedCtrl, err := core.SetupControllers(
 			mgr,

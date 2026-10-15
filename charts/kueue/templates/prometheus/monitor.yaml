@@ -34,5 +34,19 @@ spec:
       scheme: https
       bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
       tlsConfig:
+      {{- if .Values.metrics.serviceMonitor.tlsConfig }}
       {{- toYaml .Values.metrics.serviceMonitor.tlsConfig | nindent 8 }}
+      {{- if not (hasKey .Values.metrics.serviceMonitor.tlsConfig "insecureSkipVerify") }}
+        insecureSkipVerify: true
+      {{- end }}
+      {{- else if .Values.enableCertManager }}
+        serverName: '{{ include "kueue.fullname" . }}-controller-manager-metrics-service.{{ .Release.Namespace }}.svc'
+        insecureSkipVerify: false
+        ca:
+          secret:
+            name: '{{ include "kueue.fullname" . }}-metrics-server-cert'
+            key: ca.crt
+      {{- else }}
+        insecureSkipVerify: true
+      {{- end }}
 {{- end }}

@@ -16,19 +16,12 @@ package framework
 
 import (
 	"context"
-	"sync"
 
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/informers"
-	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/klog/v2"
 	fwk "k8s.io/kube-scheduler/framework"
-	"k8s.io/kubernetes/pkg/scheduler"
-	schedulerapi "k8s.io/kubernetes/pkg/scheduler/apis/config"
-	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
-	"k8s.io/kubernetes/pkg/scheduler/metrics"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
 )
 
@@ -41,47 +34,30 @@ import (
 // SchedulingSimulator), each having to make sure the metrics exist without knowing about the
 // others. sync.OnceFunc lets them all call it while the metric objects are only ever built once,
 // so the values recorded so far are not thrown away by a later initialization.
-var InitMetricsOnce = sync.OnceFunc(metrics.InitMetrics)
+var InitMetricsOnce = upstreamsync.InitMetricsOnce
 
-// NewProfileMap builds the scheduling profiles (one framework.Framework per scheduler name)
-// used by the library to run the scheduling cycle in memory.
-//
-// It wires the upstream framework with the no-op implementations of the extension points that
-// only make sense for a real, cluster-connected scheduler: events are discarded, pods are never
-// nominated nor activated and no API calls are issued. This keeps the simulation purely in-memory
-// while still running the very same plugins as kube-scheduler.
-//
-// The client is used by the plugins and the informers to read the cluster state; it must never be
-// allowed to mutate it (see simulator.ReadonlyClient). The snap is shared with all the built
-// frameworks, so mutating it in place is immediately visible to every plugin.
-// A nil informerFactory makes the function create one, and a nil cfg selects the default profile.
-func NewProfileMap(ctx context.Context, client kubernetes.Interface, informerFactory informers.SharedInformerFactory, snap *cache.Snapshot, cfg *schedulerapi.KubeSchedulerConfiguration) (*upstreamsync.ProfileMap, error) {
-	InitMetricsOnce()
+// DiscardRecorderFactory returns an EventRecorderLogger that drops all events.
+// Simulations run against a read-only view of the cluster, so they must not
+// report anything back to the API server.
+func DiscardRecorderFactory(string) events.EventRecorderLogger {
+	return &discardEventRecorder{}
+}
 
-	recorderFactory := func(name string) events.EventRecorderLogger {
-		return &discardEventRecorder{}
+// ApplySimulationNeutralizers sets no-op implementations of APICacher, PodNominator,
+// and PodActivator on each framework in the profile map so that simulations run purely
+// in-memory without contacting the API server.
+func ApplySimulationNeutralizers(profiles *upstreamsync.ProfileMap) {
+	if profiles == nil {
+		return
 	}
-
-	if informerFactory == nil {
-		informerFactory = scheduler.NewInformerFactory(client, 0, nil)
+	nominator := &noopPodNominator{}
+	activator := &noopPodActivator{}
+	apiCacher := &noopAPICacher{}
+	for _, f := range profiles.Map {
+		f.SetPodNominator(nominator)
+		f.SetPodActivator(activator)
+		f.SetAPICacher(apiCacher)
 	}
-
-	opts := []upstreamsync.Option{}
-	if cfg != nil {
-		opts = append(opts, upstreamsync.WithProfiles(cfg.Profiles...))
-	}
-
-	return upstreamsync.NewProfileMap(
-		ctx,
-		client,
-		informerFactory,
-		recorderFactory,
-		&noopPodNominator{},
-		&noopPodActivator{},
-		&noopAPICacher{},
-		snap,
-		opts...,
-	)
 }
 
 // discardEventRecorder drops all the events emitted by the plugins.

@@ -51,6 +51,7 @@ type MutatingSnapshot struct {
 	removedPods map[string]func()
 }
 
+// NewMutatingSnapshot wraps a cache.Snapshot with reversible AddPod and RemovePod operations.
 func NewMutatingSnapshot(snapshot *cache.Snapshot) *MutatingSnapshot {
 	return &MutatingSnapshot{
 		Snapshot:    snapshot,
@@ -59,6 +60,7 @@ func NewMutatingSnapshot(snapshot *cache.Snapshot) *MutatingSnapshot {
 	}
 }
 
+// RemovePod removes a pod from its assigned node in the snapshot without advancing node generation.
 func (s *MutatingSnapshot) RemovePod(logger klog.Logger, podInfo *framework.PodInfo) error {
 	key, err := framework.GetPodKey(podInfo.Pod)
 	if err != nil {
@@ -91,6 +93,7 @@ func (s *MutatingSnapshot) RemovePod(logger klog.Logger, podInfo *framework.PodI
 	return nil
 }
 
+// AddPod adds a pod to its assigned node in the snapshot without advancing node generation.
 func (s *MutatingSnapshot) AddPod(logger klog.Logger, podInfo *framework.PodInfo) error {
 	key, err := framework.GetPodKey(podInfo.Pod)
 	if err != nil {
@@ -120,6 +123,7 @@ func (s *MutatingSnapshot) AddPod(logger klog.Logger, podInfo *framework.PodInfo
 	return nil
 }
 
+// RestoreState reverts all pod additions and removals recorded on the MutatingSnapshot.
 func (s *MutatingSnapshot) RestoreState() {
 	for _, restoreFn := range s.addedPods {
 		restoreFn()
@@ -132,6 +136,7 @@ func (s *MutatingSnapshot) RestoreState() {
 	s.removedPods = map[string]func(){}
 }
 
+// GetNodeByPod returns the NodeInfo for the node specified in pod.Spec.NodeName.
 func (s *MutatingSnapshot) GetNodeByPod(pod *v1.Pod) (fwk.NodeInfo, error) {
 	nodeName := pod.Spec.NodeName
 	ni, err := s.Get(nodeName)

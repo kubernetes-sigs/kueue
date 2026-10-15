@@ -30,6 +30,8 @@ type EffectiveCapacityFlavorApplyConfiguration struct {
 	//
 	Name *kueuev1alpha1.ResourceFlavorReference `json:"name,omitempty"`
 	// resources contains total capacity by resource name.
+	// A resource that is not listed, including when the map is empty, has zero
+	// capacity for the flavor.
 	//
 	Resources *v1.ResourceList `json:"resources,omitempty"`
 }

@@ -1,0 +1,172 @@
+# TAS + DRA Performance Test Configuration
+#
+# Same topology and workloads as configs/tas, so the two runs compare directly.
+# Every pod also claims DRA devices, which turns on the per-node device
+# feasibility check in each scheduling cycle.
+#
+# Devices: 8 per node, 5,120 in total. Small and medium pods claim 1, large pods 2.
+# Device quota is twice the CPU quota and no workload needs more than 2 devices
+# per CPU, so CPU stays the binding quota, as in configs/tas.
+# Devices are never allocated (there is no kube-scheduler), so the run measures
+# the cost of the check, not device contention.
+# Devices carry no attributes and the DeviceClass selects on the driver only, so
+# each device is cheaper to evaluate than a real GPU with attributes and an
+# attribute-based selector.
+# Topology configuration
+topology:
+  name: "default-topology"
+  levels:
+    - name: block
+      count: 1
+      nodeLabel: "cloud.provider.com/topology-block"
+    - name: rack
+      count: 10
+      nodeLabel: "cloud.provider.com/topology-rack"
+    - name: node
+      count: 64
+      nodeLabel: "kubernetes.io/hostname"
+      capacity:
+        cpu: "96"
+        memory: "256Gi"
+
+# DRA configuration
+dra:
+  devicesPerNode: 8
+
+# Resource flavor configuration
+resourceFlavor:
+  name: "tas-flavor"
+  nodeLabel: "tas-node-group"
+  topologyName: "default-topology"
+
+# Workload generation matched to baseline: 5 cohorts × 6 queues × 500 workloads = 15,000 total
+# Cluster capacity: 640 nodes × 96 CPU = 61,440 CPU
+cohorts:
+  - className: cohort
+    count: 5
+    queuesSets:
+    - className: cq
+      count: 6
+      nominalQuota: "20"
+      borrowingLimit: "100"
+      reclaimWithinCohort: Any
+      withinClusterQueue: LowerPriority
+      deviceNominalQuota: "40"
+      deviceBorrowingLimit: "200"
+      workloadsSets:
+      # Small workloads: 2 pods × 500m = 1 CPU per workload (matches baseline: 1 CPU)
+      # 120 + 120 + 110 = 350 total
+      - count: 120
+        creationIntervalMs: 100
+        workloads:
+        - className: small-required-rack
+          runtimeMs: 200
+          priority: 50
+          request: "500m"
+          podCount: 2
+          devices: 1
+          tasConstraint: "required"
+          tasLevel: "cloud.provider.com/topology-rack"
+
+      - count: 120
+        creationIntervalMs: 100
+        workloads:
+        - className: small-preferred-rack
+          runtimeMs: 200
+          priority: 50
+          request: "500m"
+          podCount: 2
+          devices: 1
+          tasConstraint: "preferred"
+          tasLevel: "cloud.provider.com/topology-rack"
+
+      - count: 110
+        creationIntervalMs: 100
+        workloads:
+        - className: small-balanced-rack
+          runtimeMs: 200
+          priority: 50
+          request: "500m"
+          podCount: 2
+          devices: 1
+          tasConstraint: "balanced"
+          tasLevel: "cloud.provider.com/topology-rack"
+          sliceSize: 1
+
+      # Medium workloads: 4 pods × 1250m = 5 CPU per workload (matches baseline: 5 CPU)
+      # 34 + 33 + 33 = 100 total
+      - count: 34
+        creationIntervalMs: 500
+        workloads:
+        - className: medium-required-rack
+          runtimeMs: 500
+          priority: 100
+          request: "1250m"
+          podCount: 4
+          devices: 1
+          tasConstraint: "required"
+          tasLevel: "cloud.provider.com/topology-rack"
+
+      - count: 33
+        creationIntervalMs: 500
+        workloads:
+        - className: medium-preferred-rack
+          runtimeMs: 500
+          priority: 100
+          request: "1250m"
+          podCount: 4
+          devices: 1
+          tasConstraint: "preferred"
+          tasLevel: "cloud.provider.com/topology-rack"
+
+      - count: 33
+        creationIntervalMs: 500
+        workloads:
+        - className: medium-balanced-rack
+          runtimeMs: 500
+          priority: 100
+          request: "1250m"
+          podCount: 4
+          devices: 1
+          tasConstraint: "balanced"
+          tasLevel: "cloud.provider.com/topology-rack"
+          sliceSize: 2
+
+      # Large workloads: 8 pods × 2500m = 20 CPU per workload (matches baseline: 20 CPU)
+      # 17 + 17 + 16 = 50 total
+      - count: 17
+        creationIntervalMs: 1200
+        workloads:
+        - className: large-required-rack
+          runtimeMs: 1000
+          priority: 200
+          request: "2500m"
+          podCount: 8
+          devices: 2
+          tasConstraint: "required"
+          tasLevel: "cloud.provider.com/topology-rack"
+
+      - count: 17
+        creationIntervalMs: 1200
+        workloads:
+        - className: large-preferred-rack
+          runtimeMs: 1000
+          priority: 200
+          request: "2500m"
+          podCount: 8
+          devices: 2
+          tasConstraint: "preferred"
+          tasLevel: "cloud.provider.com/topology-rack"
+
+      - count: 16
+        creationIntervalMs: 1200
+        workloads:
+        - className: large-balanced-rack
+          runtimeMs: 1000
+          priority: 200
+          request: "2500m"
+          podCount: 8
+          devices: 2
+          tasConstraint: "balanced"
+          tasLevel: "cloud.provider.com/topology-rack"
+          sliceSize: 4

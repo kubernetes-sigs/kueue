@@ -145,6 +145,21 @@ func (cl *CustomLabels) UpdateRequired(kind configapi.SourceKind, ref string, la
 	)
 }
 
+// ValuesChanged returns true if the extracted custom label values differ between old and new labels/annotations.
+func (cl *CustomLabels) ValuesChanged(kind configapi.SourceKind, oldLabels, oldAnnotations, newLabels, newAnnotations map[string]string) bool {
+	if !cl.enabled() {
+		return false
+	}
+	store, supported := cl.m[kind]
+	if !supported || store == nil {
+		return false
+	}
+	return !slices.Equal(
+		store.extractValues(oldLabels, oldAnnotations),
+		store.extractValues(newLabels, newAnnotations),
+	)
+}
+
 func (cl *CustomLabels) Store(kind configapi.SourceKind, ref string, labels, annotations map[string]string) bool {
 	if !cl.enabled() || cl.m[kind] == nil {
 		return false
@@ -290,6 +305,10 @@ func (cl *CustomLabels) CQDelete(key kueue.ClusterQueueReference) {
 	cl.Delete(configapi.SourceKindClusterQueue, string(key))
 }
 
+func (cl *CustomLabels) CQValuesChanged(oldLabels, oldAnnotations, newLabels, newAnnotations map[string]string) bool {
+	return cl.ValuesChanged(configapi.SourceKindClusterQueue, oldLabels, oldAnnotations, newLabels, newAnnotations)
+}
+
 func (cl *CustomLabels) LQStore(key utilqueue.LocalQueueReference, labels, annotations map[string]string) bool {
 	return cl.Store(configapi.SourceKindLocalQueue, string(key), labels, annotations)
 }
@@ -300,6 +319,10 @@ func (cl *CustomLabels) LQGet(key utilqueue.LocalQueueReference) []string {
 
 func (cl *CustomLabels) LQDelete(key utilqueue.LocalQueueReference) {
 	cl.Delete(configapi.SourceKindLocalQueue, string(key))
+}
+
+func (cl *CustomLabels) LQValuesChanged(oldLabels, oldAnnotations, newLabels, newAnnotations map[string]string) bool {
+	return cl.ValuesChanged(configapi.SourceKindLocalQueue, oldLabels, oldAnnotations, newLabels, newAnnotations)
 }
 
 func (cl *CustomLabels) CohortStore(key kueue.CohortReference, labels, annotations map[string]string) bool {
@@ -341,21 +364,6 @@ func Copy(t *LabelValsTracker) *LabelValsTracker {
 	return NewLabelValsTracker().merge(t)
 }
 
-func (c *LabelValsTracker) PopZeroCounts() iter.Seq[*labelValsSet] {
-	return func(yield func(*labelValsSet) bool) {
-		c.Lock()
-		defer c.Unlock()
-		for lv, count := range c.counts {
-			if count == 0 {
-				delete(c.counts, lv)
-				if !yield(&lv) {
-					return
-				}
-			}
-		}
-	}
-}
-
 func (c *LabelValsTracker) Incr(ls labelValsSet) {
 	c.Add(ls, 1)
 }
@@ -371,6 +379,13 @@ func (c *LabelValsTracker) Add(ls labelValsSet, incr int) {
 	newCount := max(0, oldCount+incr)
 	c.counts[ls] = newCount
 	c.total += newCount - oldCount
+}
+
+// Count returns the number of workloads tracked for the label values set ls.
+func (c *LabelValsTracker) Count(ls labelValsSet) int {
+	c.RLock()
+	defer c.RUnlock()
+	return c.counts[ls]
 }
 
 func (c *LabelValsTracker) Iter() iter.Seq2[labelValsSet, int] {

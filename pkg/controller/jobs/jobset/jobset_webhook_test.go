@@ -18,6 +18,7 @@ package jobset
 
 import (
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -35,7 +36,6 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingutil "sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
-	testutil "sigs.k8s.io/kueue/test/util"
 )
 
 var (
@@ -59,7 +59,7 @@ func TestValidateCreate(t *testing.T) {
 		{
 			name:    "invalid queue-name label",
 			job:     testingutil.MakeJobSet("job", "default").Queue("queue_name").Obj(),
-			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", testutil.InvalidRFC1123Message)}.ToAggregate(),
+			wantErr: field.ErrorList{field.Invalid(queueNameLabelPath, "queue_name", utiltesting.InvalidRFC1123Message)}.ToAggregate(),
 		},
 		{
 			name:    "with prebuilt workload",
@@ -333,12 +333,13 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testcases := []struct {
-		name               string
-		oldJob             *jobset.JobSet
-		newJob             *jobset.JobSet
-		wantValidationErrs field.ErrorList
-		wantErr            error
-		featureGates       map[featuregate.Feature]bool
+		name                 string
+		oldJob               *jobset.JobSet
+		newJob               *jobset.JobSet
+		maxTimeoutOnWorkload *metav1.Duration
+		wantValidationErrs   field.ErrorList
+		wantErr              error
+		featureGates         map[featuregate.Feature]bool
 	}{
 		{
 			name: "set valid topology request",
@@ -372,13 +373,38 @@ func TestValidateUpdate(t *testing.T) {
 					`"kueue.x-k8s.io/podset-preferred-topology", "kueue.x-k8s.io/podset-unconstrained-topology"]`)},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
 		},
+		{
+			name: "unchanged wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is not re-validated on update",
+			oldJob: testingutil.MakeJobSet("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			newJob: testingutil.MakeJobSet("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			featureGates:         map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
+		{
+			name: "changed wait-for-pods-ready annotation exceeding maxTimeoutOnWorkload is rejected on update",
+			oldJob: testingutil.MakeJobSet("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":30}`).Obj(),
+			newJob: testingutil.MakeJobSet("job", "default").
+				Annotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":3600}`).Obj(),
+			maxTimeoutOnWorkload: &metav1.Duration{Duration: 60 * time.Second},
+			wantValidationErrs: field.ErrorList{
+				field.Invalid(
+					metadataPath.Child("annotations").Key(constants.WaitForPodsReadyAnnotation),
+					float64(3600),
+					"timeoutSeconds must be less than or equal to 60 seconds",
+				),
+			},
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			gotValidationErrs, gotErr := new(JobSetWebhook).validateUpdate(ctx, (*JobSet)(tc.oldJob), (*JobSet)(tc.newJob))
+			gotValidationErrs, gotErr := (&JobSetWebhook{maxTimeoutOnWorkload: tc.maxTimeoutOnWorkload}).validateUpdate(ctx, (*JobSet)(tc.oldJob), (*JobSet)(tc.newJob))
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{})); diff != "" {
 				t.Errorf("validateUpdate() error mismatch (-want +got):\n%s", diff)
 			}

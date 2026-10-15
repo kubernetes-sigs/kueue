@@ -30,6 +30,8 @@ type CapacityProviderNormalizedCapacityFlavorApplyConfiguration struct {
 	//
 	Name *kueuev1alpha1.ResourceFlavorReference `json:"name,omitempty"`
 	// resources contains total capacity by resource name.
+	// The provider orchestrates all resources of the flavor: a resource that is
+	// not listed, including when the map is empty, has zero capacity.
 	//
 	Resources *v1.ResourceList `json:"resources,omitempty"`
 }

@@ -76,10 +76,7 @@ func (q *secondPassQueue) prequeueIfAbsent(obj *kueue.Workload) bool {
 	return true
 }
 
-func (q *secondPassQueue) queue(w *workload.Info) bool {
-	q.Lock()
-	defer q.Unlock()
-
+func (q *secondPassQueue) queueLocked(w *workload.Info) bool {
 	key := workload.Key(w.Obj)
 	enqueued := q.prequeued.Has(key) && workload.NeedsSecondPass(w.Obj)
 	if enqueued {
@@ -92,7 +89,10 @@ func (q *secondPassQueue) queue(w *workload.Info) bool {
 func (q *secondPassQueue) deleteByKey(key workload.Reference) {
 	q.Lock()
 	defer q.Unlock()
+	q.deleteByKeyLocked(key)
+}
 
+func (q *secondPassQueue) deleteByKeyLocked(key workload.Reference) {
 	delete(q.queued, key)
 	q.prequeued.Delete(key)
 }

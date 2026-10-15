@@ -28,6 +28,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
@@ -55,6 +56,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 )
@@ -76,6 +78,8 @@ type Reconciler struct {
 	logName                      string
 	manageJobsWithoutQueueName   bool
 	managedJobsNamespaceSelector labels.Selector
+	labelKeysToCopy              sets.Set[string]
+	annotationsToCopy            sets.Set[string]
 	roleTracker                  *roletracker.RoleTracker
 	customLabels                 *metrics.CustomLabels
 }
@@ -140,16 +144,17 @@ func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlN
 	return client.IgnoreNotFound(clientutil.Patch(ctx, r.client, pod, func() (bool, error) {
 		var updated bool
 		log = log.WithValues("pod", klog.KObj(pod), "group", utilpod.GetPodGroupName(pod))
-		if r.syncQueueLabel(sts, pod) {
-			log.V(3).Info("Syncing queue label")
-			updated = true
-		}
 		if r.setDefault(sts, wlName, pod) {
 			log.V(3).Info("Updating pod in group")
 			updated = true
 		}
-		if utilstatefulset.UngatePod(sts, pod, false) {
+		// Kueue stops managing the Pods of a deleted StatefulSet, so it releases them.
+		if sts == nil && utilstatefulset.UngatePod(pod) {
 			log.V(3).Info("Ungating pod in group")
+			updated = true
+		}
+		if r.syncQueueLabel(sts, pod) {
+			log.V(3).Info("Syncing queue label")
 			updated = true
 		}
 		return updated, nil
@@ -158,6 +163,10 @@ func (r *Reconciler) ungatePod(ctx context.Context, sts *appsv1.StatefulSet, wlN
 
 func (r *Reconciler) syncQueueLabel(sts *appsv1.StatefulSet, pod *corev1.Pod) bool {
 	if sts == nil || ptr.Deref(sts.Spec.Replicas, 1) == 0 {
+		return false
+	}
+	// Only gated pods qualify: the pod webhook rejects the change on others.
+	if !utilpod.HasGate(pod, podconstants.SchedulingGateName) {
 		return false
 	}
 	queueName := string(jobframework.QueueNameForObject(sts))
@@ -308,6 +317,15 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		shouldUpdate = admissionGatedByUpdated || shouldUpdate
 	}
 
+	var waitForPodsReadyUpdated bool
+	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		waitForPodsReadyUpdated, err = jobframework.PropagateWaitForPodsReadyAnnotation(sts, wl)
+		if err != nil {
+			return err
+		}
+		shouldUpdate = waitForPodsReadyUpdated || shouldUpdate
+	}
+
 	if shouldUpdate {
 		if err := r.client.Update(ctx, wl); err != nil {
 			return err
@@ -317,6 +335,9 @@ func (r *Reconciler) reconcileWorkload(ctx context.Context, sts *appsv1.Stateful
 		jobframework.RecordAdmissionGatedByUpdateEvent(r.record, sts)
 	}
 
+	if waitForPodsReadyUpdated {
+		jobframework.RecordWaitForPodsReadyUpdateEvent(r.record, sts)
+	}
 	if shouldReleaseReservation {
 		return r.releaseScaleDownReservation(ctx, wl)
 	}
@@ -412,7 +433,7 @@ func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet) (*kueue.Workload
 		podSet.TopologyRequest = topologyRequest
 	}
 
-	wl := podcontroller.NewGroupWorkload(GetWorkloadName(GetOwnerUID(sts), sts.Name), sts, []kueue.PodSet{podSet}, nil, nil)
+	wl := podcontroller.NewGroupWorkload(GetWorkloadName(GetOwnerUID(sts), sts.Name), sts, []kueue.PodSet{podSet}, r.labelKeysToCopy, r.annotationsToCopy)
 
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string, 1)
@@ -457,6 +478,8 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 		logName:                      "statefulset-reconciler",
 		manageJobsWithoutQueueName:   options.ManageJobsWithoutQueueName,
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
+		labelKeysToCopy:              options.LabelKeysToCopy,
+		annotationsToCopy:            options.AnnotationsToCopy,
 		roleTracker:                  options.RoleTracker,
 		customLabels:                 options.CustomLabels,
 	}, nil

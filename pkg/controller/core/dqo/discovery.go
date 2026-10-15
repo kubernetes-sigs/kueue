@@ -85,18 +85,23 @@ func (r *Reconciler) reconcileDiscovery(ctx context.Context, orchestrator *kueue
 
 // aggregateProviderCapacity scales and adds flavor resource quantities from a single CapacityProvider into the running aggregated total,
 // filtering exclusively by the flavors declared in the CapacityProvider's spec.orchestratedFlavors.
+// Every orchestrated flavor is added to the aggregate, with no resources if the provider reports none,
+// because a provider orchestrates all resources of its flavors: an unreported resource has zero capacity.
 func aggregateProviderCapacity(
 	capacity *kueuealpha.CapacityProviderNormalizedCapacity,
 	orchestratedFlavors []kueuealpha.CapacityProviderOrchestratedFlavor,
 	multiplier *resource.Quantity,
 	aggregatedCapacity map[kueuealpha.ResourceFlavorReference]corev1.ResourceList,
 ) {
-	if capacity == nil {
-		return
-	}
 	allowedFlavors := sets.New[kueuealpha.ResourceFlavorReference]()
 	for _, f := range orchestratedFlavors {
 		allowedFlavors.Insert(f.Name)
+		if _, found := aggregatedCapacity[f.Name]; !found {
+			aggregatedCapacity[f.Name] = corev1.ResourceList{}
+		}
+	}
+	if capacity == nil {
+		return
 	}
 	for _, flavor := range capacity.Flavors {
 		if !allowedFlavors.Has(flavor.Name) {

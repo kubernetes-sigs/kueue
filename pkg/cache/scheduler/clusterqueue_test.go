@@ -760,3 +760,87 @@ func TestClusterQueueEffectiveQuotasPastInt64(t *testing.T) {
 			cqObj.resourceNode.Quotas[fr].Nominal)
 	}
 }
+
+func TestClusterQueueLabels(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, true)
+	const cqName = "cq"
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	cq := utiltestingapi.MakeClusterQueue(cqName).
+		Label("env", "prod").
+		Label("tier", "batch").
+		Obj()
+
+	cache := New(utiltesting.NewFakeClient())
+	if err := cache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed to add cluster queue: %v", err)
+	}
+
+	snap, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Failed to snapshot: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"env": "prod", "tier": "batch"}, snap.ClusterQueue(cqName).Labels); diff != "" {
+		t.Errorf("Unexpected snapshot labels (-want,+got):\n%s", diff)
+	}
+
+	// Verify mutating original object does not affect snapshot or cache
+	cq.Labels["env"] = "mutated"
+	snap2, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Failed to snapshot: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"env": "prod", "tier": "batch"}, snap2.ClusterQueue(cqName).Labels); diff != "" {
+		t.Errorf("Snapshot was mutated by modifying original object (-want,+got):\n%s", diff)
+	}
+
+	// Verify UpdateClusterQueue updates labels and clones them
+	updatedCQ := utiltestingapi.MakeClusterQueue(cqName).
+		Label("env", "staging").
+		Obj()
+	if err := cache.UpdateClusterQueue(log, updatedCQ); err != nil {
+		t.Fatalf("Failed to update cluster queue: %v", err)
+	}
+	snap3, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Failed to snapshot: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"env": "staging"}, snap3.ClusterQueue(cqName).Labels); diff != "" {
+		t.Errorf("Unexpected updated snapshot labels (-want,+got):\n%s", diff)
+	}
+
+	// Verify mutating updated object does not affect subsequent snapshot
+	updatedCQ.Labels["env"] = "mutated-again"
+	snap4, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Failed to snapshot: %v", err)
+	}
+	if diff := cmp.Diff(map[string]string{"env": "staging"}, snap4.ClusterQueue(cqName).Labels); diff != "" {
+		t.Errorf("Snapshot was mutated by modifying updated object (-want,+got):\n%s", diff)
+	}
+
+	// Verify DeleteClusterQueue removes it from subsequent snapshots
+	cache.DeleteClusterQueue(updatedCQ)
+	snap5, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Failed to snapshot: %v", err)
+	}
+	if snap5.ClusterQueue(cqName) != nil {
+		t.Errorf("Expected ClusterQueue %q to be deleted from snapshot, but it was present", cqName)
+	}
+
+	t.Run("labels ignored when ConfigurablePreemptions feature gate is disabled", func(t *testing.T) {
+		features.SetFeatureGateDuringTest(t, features.ConfigurablePreemptions, false)
+		cacheDisabled := New(utiltesting.NewFakeClient())
+		if err := cacheDisabled.AddClusterQueue(ctx, cq); err != nil {
+			t.Fatalf("Failed to add cluster queue: %v", err)
+		}
+		snapDisabled, err := cacheDisabled.Snapshot(ctx)
+		if err != nil {
+			t.Fatalf("Failed to snapshot: %v", err)
+		}
+		if snapDisabled.ClusterQueue(cqName).Labels != nil {
+			t.Errorf("Expected snapshot labels to be nil when feature gate is disabled, got %v", snapDisabled.ClusterQueue(cqName).Labels)
+		}
+	})
+}

@@ -23,6 +23,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -50,8 +51,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
+	"sigs.k8s.io/kueue/pkg/resources"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/util/queue"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -152,6 +155,135 @@ func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 	// The workload event must have been delivered (guaranteed, not dropped).
 	if got := len(ch); got != 1 {
 		t.Fatalf("unexpected draReconcileChannel length: got %d, want 1", got)
+	}
+}
+
+// TestRequeueWorkloadDRAStaleCharges verifies that a requeued DRA-backed
+// workload is never queued with quota charges preprocessed for an older
+// generation. DRA charges live only in the Info, they cannot be rebuilt from
+// the spec, so requeue hands such a workload back to the workload controller.
+func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
+	claimTmpl := "claim-tmpl"
+	gpuCharge := []workload.PodSetResources{{
+		Name:           kueue.DefaultPodSetName,
+		Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 1}),
+		PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 1}),
+		Count:          1,
+	}}
+
+	cases := map[string]struct {
+		draIntegration bool
+		// clientGeneration is the newest object, the one requeue fetches.
+		clientGeneration  int64
+		wantRequeued      bool
+		wantTotalRequests []workload.PodSetResources
+		// wantSentGeneration is the generation handed back on the reconcile
+		// channel, 0 when nothing is sent.
+		wantSentGeneration int64
+	}{
+		"requeues with the charges it holds while the object has not changed": {
+			draIntegration:    true,
+			clientGeneration:  1,
+			wantRequeued:      true,
+			wantTotalRequests: gpuCharge,
+		},
+		"hands the workload to the controller once the object has moved on": {
+			draIntegration:     true,
+			clientGeneration:   2,
+			wantSentGeneration: 2,
+		},
+		"requeues without a hand-back when KueueDRAIntegration is off": {
+			clientGeneration: 2,
+			wantRequeued:     true,
+			// Preprocessed DRA charges are ignored while the integration is off.
+			wantTotalRequests: []workload.PodSetResources{{
+				Name:           kueue.DefaultPodSetName,
+				Requests:       resources.NewRequestsFromMap(nil),
+				PerPodRequests: resources.NewRequestsFromMap(nil),
+				Count:          1,
+			}},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, tc.draIntegration)
+			features.SetFeatureGateDuringTest(t, features.KueueDRARejectWorkloadsWhenDRADisabled, true)
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			// The pod spec carries a resourceClaim, so the workload is DRA-backed; the
+			// quota key it translates to ("gpu") only ever comes from preprocessing.
+			wl := utiltestingapi.MakeWorkload("wl", defaultNamespace).Queue("lq").Generation(1).PodSets(
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).PodSpec(corev1.PodSpec{
+					ResourceClaims: []corev1.PodResourceClaim{{Name: "rc", ResourceClaimTemplateName: &claimTmpl}},
+				}).Obj(),
+			).Obj()
+			clientWl := wl.DeepCopy()
+			clientWl.Generation = tc.clientGeneration
+
+			lq := utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()
+			kClient := utiltesting.NewClientBuilder().
+				WithObjects(clientWl, lq).
+				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+				Build()
+			manager := NewManagerForUnitTests(kClient, nil, WithPreemptionExpectations(preemptexpectations.New()))
+			draCh := make(chan event.TypedGenericEvent[*kueue.Workload], 1)
+			manager.SetDRAReconcileChannel(draCh)
+			if err := manager.AddClusterQueue(ctx, utiltestingapi.MakeClusterQueue("cq").Obj()); err != nil {
+				t.Fatalf("Failed adding ClusterQueue: %v", err)
+			}
+			if err := manager.AddLocalQueue(ctx, lq); err != nil {
+				t.Fatalf("Failed adding LocalQueue: %v", err)
+			}
+			// With KueueDRAIntegration on, AddLocalQueue hands pre-existing DRA
+			// workloads to the controller, so drain that send.
+			select {
+			case <-draCh:
+			default:
+			}
+
+			// The workload controller preprocesses generation 1 and queues it.
+			charges := workload.WithPreprocessedDRAResources(
+				map[kueue.PodSetReference]corev1.ResourceList{
+					kueue.DefaultPodSetName: {"gpu": *resource.NewQuantity(1, resource.DecimalSI)},
+				},
+				nil,
+			)
+			if err := manager.AddOrUpdateWorkload(ctx, log, wl, charges); err != nil {
+				t.Fatalf("Failed adding workload: %v", err)
+			}
+			// Check the workload out the way the scheduler does, so the Info
+			// remembers which ClusterQueue it was borrowed from.
+			head := manager.PopFrom("cq")
+			if head == nil {
+				t.Fatal("expected to pop workload")
+			}
+			inflight := &head.Info
+
+			if got := manager.RequeueWorkload(ctx, inflight, RequeueReasonGeneric, ""); got != tc.wantRequeued {
+				t.Errorf("RequeueWorkload() = %t, want %t", got, tc.wantRequeued)
+			}
+
+			var gotTotalRequests []workload.PodSetResources
+			if tracked := manager.hm.ClusterQueue("cq").trackedInfo(workload.Key(inflight.Obj)); tracked != nil {
+				gotTotalRequests = tracked.TotalRequests
+			}
+			if diff := gocmp.Diff(tc.wantTotalRequests, gotTotalRequests,
+				cmpopts.IgnoreFields(workload.PodSetResources{}, "Flavors"),
+				gocmp.Comparer(resources.Equal)); diff != "" {
+				t.Errorf("queued TotalRequests (-want,+got):\n%s", diff)
+			}
+
+			var gotSentGeneration int64
+			select {
+			case ev := <-draCh:
+				gotSentGeneration = ev.Object.Generation
+			default:
+			}
+			if gotSentGeneration != tc.wantSentGeneration {
+				t.Errorf("generation sent to the reconcile channel = %d, want %d", gotSentGeneration, tc.wantSentGeneration)
+			}
+		})
 	}
 }
 
@@ -356,7 +488,6 @@ func TestResyncClusterQueueGaugeMetrics(t *testing.T) {
 
 	customLabels.CQStore("cq1", map[string]string{"team": "beta"}, nil)
 	metrics.ClearClusterQueueMetrics("cq1")
-	metrics.ClearClusterQueueMetricsOnLabelChange("cq1")
 	manager.ResyncClusterQueueGaugeMetrics("cq1")
 
 	expectPending("alpha", 0)
@@ -2443,6 +2574,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 		wantUpdateQueued *bool
 		passTime         time.Duration
 		wantReady        sets.Set[workload.Reference]
+		wantNoTimers     bool
 	}{
 		"single queued workload checked immediately": {
 			workloads: []*kueue.Workload{
@@ -2513,7 +2645,7 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			passTime:         time.Second,
 			wantReady:        sets.New(workload.NewReference("default", "second")),
 		},
-		"one workload gets queued twice, don't queue if already in present in queue": {
+		"workload already prequeued is reported as queued without a second timer": {
 			workloads: []*kueue.Workload{
 				baseWorkloadNeedingSecondPass.Clone().Obj(),
 			},
@@ -2521,9 +2653,10 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				baseWorkloadNeedingSecondPass.Clone().Obj(),
 			},
 			updateWorkload:   baseWorkloadNeedingSecondPass.Clone().Obj(),
-			wantUpdateQueued: new(false),
+			wantUpdateQueued: new(true),
 			passTime:         time.Second,
 			wantReady:        sets.New(workload.Key(baseWorkloadNeedingSecondPass.Obj())),
+			wantNoTimers:     true,
 		},
 	}
 
@@ -2554,6 +2687,9 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 			}
 
 			fakeClock.Step(tc.passTime)
+			if tc.wantNoTimers && fakeClock.HasWaiters() {
+				t.Error("Unexpected pending second-pass timer")
+			}
 
 			gotReady := sets.New[workload.Reference]()
 			for _, head := range manager.secondPassQueue.takeAllReady() {
@@ -2564,6 +2700,66 @@ func TestQueueSecondPassIfNeeded(t *testing.T) {
 				t.Errorf("Unexpected ready workloads returned (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestQueueSecondPassRefreshesMultipleNodeReplacementWorkload(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASReplaceMultipleFailedNodes, true)
+
+	now := time.Now()
+	queuedWl := utiltestingapi.MakeWorkload("foo", "default").
+		Queue("tas-main").
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("tas-main").
+				PodSets(
+					utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
+						DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+							Domain(utiltas.TopologyDomainAssignment{Count: 1, Values: []string{"x3"}}).
+							Obj()).
+						Obj(),
+				).
+				Obj(),
+			now,
+		).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:  "prov-check",
+			State: kueue.CheckStateReady,
+		}).
+		AdmittedAt(true, now).
+		UnhealthyNodes("x3").
+		Obj()
+	latestWl := queuedWl.DeepCopy()
+	latestWl.Status.UnhealthyNodes = append(latestWl.Status.UnhealthyNodes, kueue.UnhealthyNode{Name: "x1"})
+	if !workload.HasTopologyAssignmentWithUnhealthyNode(queuedWl) {
+		t.Fatal("queued workload should have a topology assignment containing an unhealthy node")
+	}
+	if !workload.NeedsSecondPass(latestWl) {
+		t.Fatal("latest workload should need a second scheduling pass")
+	}
+
+	ctx, _ := utiltesting.ContextWithLog(t)
+	fakeClock := testingclock.NewFakeClock(now)
+	manager := NewManagerForUnitTests(
+		utiltesting.NewFakeClient(latestWl),
+		nil,
+		WithClock(fakeClock),
+	)
+
+	manager.QueueSecondPassIfNeeded(ctx, queuedWl, 0)
+	fakeClock.Step(time.Second)
+
+	ready := manager.secondPassQueue.takeAllReady()
+	if len(ready) != 1 {
+		t.Fatalf("expected one ready workload, got %d", len(ready))
+	}
+	if diff := gocmp.Diff(latestWl.Status.UnhealthyNodes, ready[0].Obj.Status.UnhealthyNodes); diff != "" {
+		t.Errorf("unexpected unhealthy nodes (-want,+got):\n%s", diff)
 	}
 }
 
@@ -2626,6 +2822,141 @@ func TestQueueSecondPassReadErrorRetried(t *testing.T) {
 	}
 	if wantReady := sets.New(workload.Key(wl)); !gotReady.Equal(wantReady) {
 		t.Errorf("Unexpected ready workloads: want %v, got %v", wantReady, gotReady)
+	}
+}
+
+// A node failure recorded while the pending pass re-reads an older version still gets a pass.
+func TestQueueSecondPassRequestDuringReReadNotLost(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	wl := utiltestingapi.MakeWorkload("foo", "default").
+		Queue("tas-main").
+		PodSets(*utiltestingapi.MakePodSet("one", 2).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("tas-main").
+				PodSets(utiltestingapi.MakePodSetAssignment("one").
+					Assignment(corev1.ResourceCPU, "tas-default", "2").
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+						Obj()).
+					Obj()).
+				Obj(),
+			now,
+		).
+		AdmittedAt(true, now).
+		UnhealthyNodes("x1").
+		Obj()
+
+	healed := wl.DeepCopy()
+	healed.Status.UnhealthyNodes = nil
+	readDone := make(chan struct{})
+	releaseRead := make(chan struct{})
+	release := sync.OnceFunc(func() { close(releaseRead) })
+	defer release()
+	var firstRead atomic.Bool
+	c := utiltesting.NewClientBuilder().WithObjects(healed).WithStatusSubresource(healed).WithInterceptorFuncs(interceptor.Funcs{
+		Get: func(ctx context.Context, cl client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if err := cl.Get(ctx, key, obj, opts...); err != nil {
+				return err
+			}
+			if _, ok := obj.(*kueue.Workload); ok && firstRead.CompareAndSwap(false, true) {
+				close(readDone)
+				<-releaseRead
+			}
+			return nil
+		},
+	}).Build()
+
+	fakeClock := testingclock.NewFakeClock(now)
+	manager := NewManagerForUnitTests(c, nil, WithClock(fakeClock))
+
+	manager.QueueSecondPassIfNeeded(ctx, wl, 0)
+	// The fake clock runs the pass inside Step.
+	stepDone := make(chan struct{})
+	go func() {
+		fakeClock.Step(time.Second)
+		close(stepDone)
+	}()
+	<-readDone
+
+	// The informer stores the new failure before its handler requests a pass.
+	var latest kueue.Workload
+	if err := c.Get(ctx, client.ObjectKeyFromObject(wl), &latest); err != nil {
+		t.Fatal(err)
+	}
+	latest.Status.UnhealthyNodes = []kueue.UnhealthyNode{{Name: "x2"}}
+	if err := c.Status().Update(ctx, &latest); err != nil {
+		t.Fatal(err)
+	}
+	handlerDone := make(chan struct{})
+	go func() {
+		manager.QueueSecondPassIfNeeded(ctx, &latest, 0)
+		close(handlerDone)
+	}()
+	// A request that only arrives after the release arms a fresh pass and can't
+	// be lost; give it time to reach the pending pass first.
+	select {
+	case <-handlerDone:
+	case <-time.After(200 * time.Millisecond):
+	}
+	release()
+	<-stepDone
+	<-handlerDone
+
+	fakeClock.Step(maxBackoff)
+	if ready := manager.secondPassQueue.takeAllReady(); len(ready) != 1 {
+		t.Errorf("Unexpected number of ready workloads: want 1, got %d", len(ready))
+	}
+}
+
+// An update for a workload with a pending pass must not shorten the scheduler's retry backoff.
+func TestQueueSecondPassUpdateKeepsPendingRetry(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	wl := utiltestingapi.MakeWorkload("foo", "default").
+		Queue("tas-main").
+		PodSets(*utiltestingapi.MakePodSet("one", 2).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("tas-main").
+				PodSets(utiltestingapi.MakePodSetAssignment("one").
+					Assignment(corev1.ResourceCPU, "tas-default", "2").
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+						Obj()).
+					Obj()).
+				Obj(),
+			now,
+		).
+		AdmittedAt(true, now).
+		UnhealthyNodes("x1").
+		Obj()
+
+	fakeClock := testingclock.NewFakeClock(now)
+	manager := NewManagerForUnitTests(utiltesting.NewFakeClient(wl.DeepCopy()), nil, WithClock(fakeClock))
+	retryDelay := manager.secondPassQueue.nextDelay(5)
+
+	manager.QueueSecondPassIfNeeded(ctx, wl, 4)
+	manager.QueueSecondPassIfNeeded(ctx, wl, 0)
+
+	fakeClock.Step(time.Second)
+	if early := manager.secondPassQueue.takeAllReady(); len(early) != 0 {
+		t.Fatalf("Unexpected ready workloads before the retry delay: %d", len(early))
+	}
+	fakeClock.Step(retryDelay - time.Second)
+	ready := manager.secondPassQueue.takeAllReady()
+	if len(ready) != 1 {
+		t.Fatalf("Unexpected number of ready workloads: want 1, got %d", len(ready))
+	}
+	if ready[0].SecondPassIteration != 5 {
+		t.Errorf("Unexpected second pass iteration: want 5, got %d", ready[0].SecondPassIteration)
 	}
 }
 
@@ -2934,14 +3265,18 @@ func TestAddOrUpdateWorkloadCarriesFlavorScanState(t *testing.T) {
 	// heap. exhaustedScan has none, so requeueing holds it as inadmissible.
 	pendingFlavors := func() *workload.FlavorScanState {
 		return &workload.FlavorScanState{
-			LastTriedFlavorIndexes:        []map[corev1.ResourceName]int{{corev1.ResourceCPU: 1}},
+			TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+				{corev1.ResourceCPU: sets.New[kueue.ResourceFlavorReference]("flavor-0", "flavor-1")},
+			},
 			AllocatableResourceGeneration: 3,
 			SchedulingCycle:               7,
 		}
 	}
 	exhaustedScan := func() *workload.FlavorScanState {
 		return &workload.FlavorScanState{
-			LastTriedFlavorIndexes:        []map[corev1.ResourceName]int{{corev1.ResourceCPU: -1}},
+			TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+				{corev1.ResourceCPU: nil},
+			},
 			AllocatableResourceGeneration: 3,
 			SchedulingCycle:               7,
 		}
@@ -2995,7 +3330,7 @@ func TestAddOrUpdateWorkloadCarriesFlavorScanState(t *testing.T) {
 			recorded:         pendingFlavors(),
 			wantCarried:      false,
 		},
-		// The recorded flavor indices were chosen for the old requests, so resuming from
+		// The recorded flavors were chosen for the old requests, so resuming from
 		// them could skip a flavor the changed Workload now fits.
 		"a changed scheduling shape is not carried": {
 			preserveProgress: true,
@@ -3835,7 +4170,9 @@ func TestAddOrUpdateWorkloadCarriesFlavorScanStateMultiInflight(t *testing.T) {
 		}
 		// Distinct cycles tell the two records apart in the assertion.
 		tracked.FlavorScanState = &workload.FlavorScanState{
-			LastTriedFlavorIndexes:        []map[corev1.ResourceName]int{{corev1.ResourceCPU: 1}},
+			TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+				{corev1.ResourceCPU: sets.New[kueue.ResourceFlavorReference]("flavor-0", "flavor-1")},
+			},
 			AllocatableResourceGeneration: 3,
 			SchedulingCycle:               int64(7 + i),
 			SchedulingHash:                tracked.SchedulingHash,

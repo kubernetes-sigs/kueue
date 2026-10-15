@@ -1,0 +1,75 @@
+apiVersion: ray.io/v1
+kind: RayJob
+metadata:
+  name: rayjob-autoscaling-sample
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+  annotations:
+    kueue.x-k8s.io/elastic-job: "true"
+spec:
+  shutdownAfterJobFinishes: true
+  entrypoint: python /home/ray/samples/sample_code.py
+  runtimeEnvYAML: |
+    pip:
+      - requests==2.26.0
+      - pendulum==2.1.2
+    env_vars:
+      counter_name: "test_counter"
+  rayClusterSpec:
+    rayVersion: '2.55.1'
+    autoscalerOptions:
+      idleTimeoutSeconds: 30
+      upscalingMode: Aggressive
+    enableInTreeAutoscaling: true
+    headGroupSpec:
+      rayStartParams:
+        dashboard-host: '0.0.0.0'
+      template:
+        spec:
+          containers:
+            - name: ray-head
+              image: rayproject/ray:2.55.1
+              ports:
+                - containerPort: 6379
+                  name: gcs-server
+                - containerPort: 8265
+                  name: dashboard
+                - containerPort: 10001
+                  name: client
+              resources:
+                limits:
+                  cpu: "1"
+                  memory: "5Gi"
+                requests:
+                  cpu: "1"
+                  memory: "2Gi"
+              volumeMounts:
+                - mountPath: /home/ray/samples
+                  name: code-sample
+          volumes:
+            - name: code-sample
+              configMap:
+                name: ray-job-autoscaling-code-sample
+                items:
+                  - key: sample_code.py
+                    path: sample_code.py
+    workerGroupSpecs:
+      - replicas: 1
+        minReplicas: 1
+        maxReplicas: 5
+        groupName: small-group
+        rayStartParams: {}
+        template:
+          spec:
+            containers:
+              - name: ray-worker
+                image: rayproject/ray:2.55.1
+                lifecycle:
+                  preStop:
+                    exec:
+                      command: [ "/bin/sh","-c","ray stop" ]
+                resources:
+                  limits:
+                    cpu: "1"
+                  requests:
+                    cpu: "200m"

@@ -26,8 +26,15 @@ package v1beta2
 type EffectiveQuotaStatusApplyConfiguration struct {
 	// orchestratorRef identifies the component managing this value.
 	OrchestratorRef *EffectiveQuotaStatusOrchestratorRefApplyConfiguration `json:"orchestratorRef,omitempty"`
-	// resourceGroups is the effective quota used by the scheduler.
-	// An empty list is a valid complete override and does not cause fallback to
+	// resourceGroups contains the quotas used by the scheduler.
+	// DQO starts with spec.resourceGroups.
+	// For each flavor in the DQO's status.effectiveCapacity, it replaces each
+	// resource's nominalQuota with its share of the effective capacity.
+	// If a resource is missing from that flavor's effective capacity, its
+	// nominalQuota is set to zero.
+	// For these resources, DQO limits any configured ClusterQueue lendingLimit
+	// to the new nominalQuota.
+	// An empty list is valid. The scheduler uses it without falling back to
 	// spec.resourceGroups.
 	//
 	ResourceGroups []ResourceGroupApplyConfiguration `json:"resourceGroups,omitempty"`

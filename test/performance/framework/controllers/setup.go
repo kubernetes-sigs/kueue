@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -30,11 +31,31 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/tas"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
+	"sigs.k8s.io/kueue/pkg/dra"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	utildra "sigs.k8s.io/kueue/pkg/util/dra"
 )
 
+// The DRA objects the performance tests generate, and the quota resource they map to.
+const (
+	DRADriverName      = "gpu.perf.example.com"
+	DRADeviceClassName = "gpu.perf.example.com"
+	DRAResourceName    = corev1.ResourceName("perf.example.com/gpu")
+)
+
+// DRADeviceClassMappings maps the generated DeviceClass to DRAResourceName.
+func DRADeviceClassMappings() []configapi.DeviceClassMapping {
+	return []configapi.DeviceClassMapping{{
+		Name:             DRAResourceName,
+		DeviceClassNames: []corev1.ResourceName{DRADeviceClassName},
+	}}
+}
+
 // Setup registers the core indexers, controllers and scheduler, optionally including TAS.
+// DRA is wired as cmd/kueue/main.go wires it, but only when the configuration has
+// deviceClassMappings, so the configurations without DRA measure what they did before.
 // The caller supplies the configuration and owns the manager's startup and context lifetime.
 func Setup(ctx context.Context, mgr manager.Manager, cfg *configapi.Configuration, enableTAS bool) error {
 	if err := indexer.Setup(ctx, mgr.GetFieldIndexer()); err != nil {
@@ -46,18 +67,40 @@ func Setup(ctx context.Context, mgr manager.Manager, cfg *configapi.Configuratio
 		}
 	}
 
-	schedulerCache := schdcache.New(mgr.GetClient())
+	var draMapper *dra.ResourceMapper
+	var draBackedResources *dra.ExtendedResourceCache
+	var resourceSliceAPIAvailable bool
+	var cacheOptions []schdcache.Option
+	var queueOptions []qcache.Option
+	if features.Enabled(features.KueueDRAIntegration) && cfg.Resources != nil && len(cfg.Resources.DeviceClassMappings) > 0 {
+		draMapper = dra.NewResourceMapper()
+		if err := draMapper.PopulateFromConfiguration(cfg.Resources.DeviceClassMappings); err != nil {
+			return fmt.Errorf("populate DRA mapper: %w", err)
+		}
+		draBackedResources = dra.NewExtendedResourceCache()
+		cacheOptions = append(cacheOptions, schdcache.WithDRABackedResources(draBackedResources))
+		queueOptions = append(queueOptions, qcache.WithDRABackedResources(draBackedResources))
+		resourceSliceAPIAvailable = utildra.CheckResourceSliceAPIAvailable(mgr)
+		if resourceSliceAPIAvailable {
+			if err := core.SetupResourceSliceIndexer(ctx, mgr.GetFieldIndexer()); err != nil {
+				return fmt.Errorf("setup ResourceSlice indexer: %w", err)
+			}
+		}
+	}
+
+	schedulerCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 	requeuer := qcache.NewRequeuer()
 	if err := mgr.Add(requeuer); err != nil {
 		return fmt.Errorf("add workload requeuer: %w", err)
 	}
 
 	preemptionExpectations := preemptexpectations.New()
+	queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
 	queues := qcache.NewManager(
 		mgr.GetClient(),
 		schedulerCache,
 		requeuer,
-		qcache.WithPreemptionExpectations(preemptionExpectations),
+		queueOptions...,
 	)
 	go queues.CleanUpOnContext(ctx)
 	go schedulerCache.CleanUpOnContext(ctx)
@@ -67,7 +110,12 @@ func Setup(ctx context.Context, mgr manager.Manager, cfg *configapi.Configuratio
 		queues,
 		schedulerCache,
 		cfg,
-		core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+		core.SetupControllersOpts{
+			PreemptionExpectations:    preemptionExpectations,
+			DRAMapper:                 draMapper,
+			DRABackedResources:        draBackedResources,
+			ResourceSliceAPIAvailable: resourceSliceAPIAvailable,
+		},
 	); err != nil {
 		return fmt.Errorf("setup core controller %s: %w", failedController, err)
 	}

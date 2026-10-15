@@ -118,7 +118,7 @@ func scheduleOnePod(ctx context.Context, profiles *upstreamsync.ProfileMap, sche
 	}
 	algRes, revertFn := sched.SchedulePod(ctx, schedFramework, pendingPod)
 
-	if !algRes.Status.IsSuccess() {
+	if !algRes.GetStatus().IsSuccess() {
 		return &algRes, nil, nil
 	}
 

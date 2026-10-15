@@ -148,6 +148,104 @@ func TestDynamicQuotaOrchestratorDistribution(t *testing.T) {
 					Obj(),
 			},
 		},
+		"distribution: unreported resources of orchestrated flavors are distributed as zero": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-zero").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("cp-1").
+					OrchestratedFlavors("default-flavor", "gpu-flavor").
+					Condition(metav1.Condition{
+						Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+						Status: metav1.ConditionTrue,
+						Reason: kueuealpha.CapacityProviderReasonSynchronized,
+					}).
+					Capacity(utiltestingalpha.MakeNormalizedCapacity().
+						Flavors(
+							utiltestingalpha.MakeNormalizedCapacityFlavor("default-flavor").
+								Resource(corev1.ResourceCPU, "200").
+								Obj(),
+						).
+						Obj()).
+					Obj(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").
+							Resource(corev1.ResourceCPU, "50").
+							Resource(corev1.ResourceMemory, "10Gi").
+							Obj(),
+					).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("gpu-flavor").Resource("nvidia.com/gpu", "8").Obj(),
+					).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("static-flavor").Resource("example.com/license", "5").Obj(),
+					).
+					Obj(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-zero").
+				DiscoveryProvider("cp-1", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-1").
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("default-flavor").
+							Resource(corev1.ResourceCPU, "200").
+							Obj(),
+						*utiltestingalpha.MakeEffectiveCapacityFlavor("gpu-flavor").Obj(),
+					).
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonQuotasDistributed,
+					Message: "Quotas successfully distributed",
+				}).
+				Obj(),
+			wantClusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("cq-1").
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("default-flavor").
+							Resource(corev1.ResourceCPU, "50").
+							Resource(corev1.ResourceMemory, "10Gi").
+							Obj(),
+					).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("gpu-flavor").Resource("nvidia.com/gpu", "8").Obj(),
+					).
+					ResourceGroup(
+						*utiltestingapi.MakeFlavorQuotas("static-flavor").Resource("example.com/license", "5").Obj(),
+					).
+					EffectiveQuotaStatus(
+						utiltestingapi.MakeEffectiveQuotaStatus().
+							Name("dqo-zero").
+							ResourceGroups(
+								utiltestingapi.ResourceGroup(
+									*utiltestingapi.MakeFlavorQuotas("default-flavor").
+										Resource(corev1.ResourceCPU, "200").
+										Resource(corev1.ResourceMemory, "0").
+										Obj(),
+								),
+								utiltestingapi.ResourceGroup(
+									*utiltestingapi.MakeFlavorQuotas("gpu-flavor").Resource("nvidia.com/gpu", "0").Obj(),
+								),
+								utiltestingapi.ResourceGroup(
+									*utiltestingapi.MakeFlavorQuotas("static-flavor").Resource("example.com/license", "5").Obj(),
+								),
+							).
+							Obj(),
+					).
+					Obj(),
+			},
+		},
 		"distribution: caps lendingLimit on ClusterQueue at effective nominalQuota, but preserves lendingLimit on Cohort": {
 			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-lending").
 				DiscoveryProvider("cp-1", nil).

@@ -78,8 +78,8 @@ excluded.
 
 | metric (Prometheus) | meaning |
 |---|---|
-| `prow:job:cpu_usage_seconds_rate:1m` | CPU core usage |
-| `prow:job:memory_working_set_bytes` | RAM usage |
+| `container_cpu_usage_seconds_total` (rate over 1m) | CPU core usage, joined to `prow:job` by Pod |
+| `container_memory_working_set_bytes` | RAM usage, joined to `prow:job` by Pod |
 | `prow:job:resource_requests_cpu_cores` | configured k8s CPU request |
 | `prow:job:resource_requests_memory_bytes` | configured k8s memory request |
 | `prow:job:resource_limits_cpu_cores` | configured k8s CPU limit |
@@ -89,13 +89,13 @@ excluded.
 | `container_network_receive_bytes_total` | cumulative bytes received (network **in**); pod-scoped, `eth0` only, attributed per build via the job's prow:job pods |
 | `container_network_transmit_bytes_total` | cumulative bytes transmitted (network **out**); pod-scoped, `eth0` only, attributed per build via the job's prow:job pods |
 
-The two network metrics are fetched alongside cpu/mem — there is no flag to disable them. Unlike the
-other metrics (pre-aggregated `prow:job:*` recording rules), network comes from raw cAdvisor counters
-that must be scanned and joined per pod at query time — many heavy queries per job that stress the
-shared prow proxy and can make wide `--job-regex` batch pulls unstable (403/502/504). Network is
-therefore **best-effort**: it retries harder per request (8 vs 5 elsewhere), and if the queries still
-fail the job simply writes its cpu/mem data with no `net_*` series (and `plot.py` skips the
-`timeline_network.png` plot for that job).
+The two network metrics are fetched alongside cpu/mem — there is no flag to disable them. Resource
+requests and limits come from pre-aggregated `prow:job:*` recording rules, while cpu/mem usage and
+network come from raw cAdvisor metrics that must be joined per pod at query time. The network
+queries are especially heavy and can make wide `--job-regex` batch pulls unstable (403/502/504).
+Network is therefore **best-effort**: it retries harder per request (8 vs 5 elsewhere), and if the
+queries still fail the job simply writes its cpu/mem data with no `net_*` series (and `plot.py` skips
+the `timeline_network.png` plot for that job).
 
 CPU "cores" = CPU-seconds of work per wall-second (a rate). Build nodes have ~7 usable
 cores, so a 7-core request packs one build per node; cutting it toward 3–4 lets two share

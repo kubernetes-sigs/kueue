@@ -10,6 +10,7 @@
 | [kueue-flake-debugger](kueue-flake-debugger/SKILL.md) | "debug a flake", "investigate test failure", "test timed out", "CI flake" |
 | [kueue-release-notes](kueue-release-notes/SKILL.md) | Review or propose a concise PR release note focused on the user-observable change. |
 | [kep-review](kep-review/SKILL.md) | Reviewing new or updated Kueue enhancement proposals (KEPs). |
+| [kep-writing](kep-writing/SKILL.md) | "write a KEP", "update this KEP", "make this KEP easier to review", before opening or pushing a KEP PR |
 | [was-cluster](was-cluster/SKILL.md) | "set up WAS cluster", "build WAS kind cluster", "run WAS e2e tests", "tear down WAS cluster", Workload-Aware Scheduling cluster management |
 | [kueue-e2e-cluster-singlecluster](kueue-e2e-cluster-singlecluster/SKILL.md) | "spin up an e2e cluster", "get a kind cluster ready for e2e", single-cluster e2e suite setup (baseline, extended, sequential, TAS, cert-manager, DRA) |
 | [kueue-e2e-cluster-multikueue](kueue-e2e-cluster-multikueue/SKILL.md) | "spin up MultiKueue e2e clusters", "set up manager/worker kind clusters", MultiKueue e2e suite setup (baseline, extended, sequential, DRA) |
@@ -38,6 +39,8 @@
 @kueue-release-notes/SKILL.md
 
 @kep-review/SKILL.md
+
+@kep-writing/SKILL.md
 
 @was-cluster/SKILL.md
 

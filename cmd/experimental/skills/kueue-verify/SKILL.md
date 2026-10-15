@@ -8,6 +8,9 @@ metadata:
 
 # Skill: Run Kueue Verification
 
+`make verify` does not replace running the relevant tests; see
+[Writing tests](../../../../site/content/en/community/contribution_guidelines/writing_tests.md).
+
 Before pushing changes or opening or updating a pull request:
 
 1. Run `make verify` from the repository root.

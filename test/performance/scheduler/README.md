@@ -53,9 +53,31 @@ The resulting artifacts are stored in `$(PROJECT_DIR)/artifacts/run-performance-
 
 The generation config to be used can be set in `SCALABILITY_GENERATOR_CONFIG` by default using `$(PROJECT_DIR)/test/performance/scheduler/configs/baseline/generator.yaml`
 
+The generator supports nested Cohorts through `children`. Workload submission can be staged with `initialDelayMs` and `creationIntervalMs`, and ClusterQueue
+resource sharing can be limited with `borrowingLimit` and `lendingLimit`.
+
 Setting `SCALABILITY_CPU_PROFILE=1` will generate a cpuprofile of minimalkueue in `$(PROJECT_DIR)/artifacts/run-performance-scheduler/minimalkueue.cpu.prof`
 
+With `cpuProfileCount <= 0`, `--withCPUProfile` records one profile for the full process lifetime. With `cpuProfileCount > 0`, it records the configured number of scheduled profiles.
+
+To collect profiles only during selected scheduling windows, pass the profiling options through `SCALABILITY_EXTRA_ARGS`:
+
+```bash
+SCALABILITY_CPU_PROFILE=1 \
+SCALABILITY_EXTRA_ARGS="\
+  --cpuProfileStartDelay=180s \
+  --cpuProfileCount=2 \
+  --cpuProfileDuration=10s \
+  --cpuProfileInterval=5s" \
+make run-performance-scheduler
+```
+
+This example waits 180 seconds, records two 10-second profiles, and sleeps 5 seconds
+between profiles. The files are written as `minimalkueue.cpu.001.prof`, `minimalkueue.cpu.002.prof`.
+
 Setting `SCALABILITY_KUEUE_LOGS=1` will save the logs of minimalkueue in `$(PROJECT_DIR)/artifacts/run-performance-scheduler/minimalkueue.out.log` and `$(PROJECT_DIR)/artifacts/run-performance-scheduler/minimalkueue.err.log`
+
+The `qps` and `burst` values are applied to both the runner and MinimalKueue.
 
 Setting `SCALABILITY_SCRAPE_INTERVAL` to an interval value (e.g. `1s`) will expose the metrics of `minimalkueue` and have them collected by the scalability runner in `$(PROJECT_DIR)/artifacts/run-performance-scheduler/metricsDump.tgz` every interval.
 
@@ -135,3 +157,31 @@ cohorts:
 ```
 
 Performance thresholds are defined in `configs/tas/rangespec.yaml`.
+
+## TAS with DRA Tests
+
+The TAS with DRA config (`configs/tas-dra/generator.yaml`) runs the TAS workloads with every
+pod claiming DRA devices, so each scheduling cycle runs the per-node device feasibility check.
+The `--enableDRA` flag enables `KueueDRADeviceFeasibility` in minimalkueue and maps the generated
+DeviceClass to the `perf.example.com/gpu` quota resource.
+
+The config extends the TAS format with:
+
+```yaml
+dra:
+  devicesPerNode: 8          # devices in the ResourceSlice of each generated node
+
+cohorts:
+  # queue sets add deviceNominalQuota and deviceBorrowingLimit
+  # TAS workloads add devices: the number of devices each pod claims
+```
+
+No kube-scheduler runs, so ResourceClaims are never allocated and devices are never consumed.
+The test measures the cost of the check, not device contention.
+
+```bash
+make run-tas-dra-performance-scheduler
+make test-tas-dra-performance-scheduler
+```
+
+Performance thresholds are defined in `configs/tas-dra/rangespec.yaml`.

@@ -264,7 +264,7 @@ func (r *cqReconciler) updateQuotaAutomationCondition(ctx context.Context, cq *k
 	}
 
 	oldCondition := apimeta.FindStatusCondition(cq.Status.Conditions, kueue.MultiKueueManagerQuotaAutomation)
-	if isConditionEqual(oldCondition, &newCondition) {
+	if isConditionEqual(oldCondition, &newCondition) && oldCondition.ObservedGeneration == newCondition.ObservedGeneration {
 		return nil
 	}
 

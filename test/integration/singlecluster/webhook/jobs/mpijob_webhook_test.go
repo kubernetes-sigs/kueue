@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/mpijob"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("MPIJob Webhook", func() {
@@ -32,10 +32,10 @@ var _ = ginkgo.Describe("MPIJob Webhook", func() {
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(mpijob.SetupMPIJobWebhook))
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "mpi-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "mpi-")
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
 	})
 

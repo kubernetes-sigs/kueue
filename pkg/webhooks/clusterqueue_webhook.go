@@ -242,9 +242,9 @@ func validateConcurrentAdmissionPolicy(cq *kueue.ClusterQueue, path *field.Path)
 			"must have exactly one ResourceGroup when ConcurrentAdmissionPolicy is defined"))
 	}
 
-	if len(cq.Spec.ResourceGroups) == 1 && len(cq.Spec.ResourceGroups[0].Flavors) > 16 {
+	if len(cq.Spec.ResourceGroups) == 1 && len(cq.Spec.ResourceGroups[0].Flavors) > 32 {
 		allErrs = append(allErrs, field.Invalid(path.Child("resourceGroups").Index(0).Child("flavors"), len(cq.Spec.ResourceGroups[0].Flavors),
-			"cannot have more than 16 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined"))
+			"cannot have more than 32 resource flavors in the ResourceGroup when ConcurrentAdmissionPolicy is defined"))
 	}
 
 	if cq.Spec.ConcurrentAdmissionPolicy.Migration.Constraints != nil {

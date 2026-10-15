@@ -3749,11 +3749,12 @@ func TestReconciler(t *testing.T) {
 				Suspend(false).
 				Obj(),
 		},
-		"non-standalone job is suspended if its parent workload is not found": {
+		"non-standalone job is suspended if its parent workload is not found; SkipChildJobSuspension disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 
 				features.AssignQueueLabelsForPods: true,
+				features.SkipChildJobSuspension:   false,
 			},
 			job: baseJobWrapper.
 				Clone().
@@ -3777,6 +3778,30 @@ func TestReconciler(t *testing.T) {
 					Reason:    "Suspended",
 					Message:   "Kueue managed child job suspended",
 				},
+			},
+		},
+		"non-standalone job is not suspended if its parent workload is not found; SkipChildJobSuspension enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+
+				features.AssignQueueLabelsForPods: true,
+				features.SkipChildJobSuspension:   true,
+			},
+			job: baseJobWrapper.
+				Clone().
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Suspend(false).
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Suspend(false).
+				Obj(),
+			otherJobs: []batchv1.Job{
+				*utiltestingjob.MakeJob("parent", "ns").
+					UID("parent").
+					Queue("queue").
+					Obj(),
 			},
 		},
 		"non-standalone job is not suspended if its parent workload is admitted": {
@@ -3822,11 +3847,12 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"non-standalone job is suspended if its parent workload is found and not admitted": {
+		"non-standalone job is suspended if its parent workload is found and not admitted; SkipChildJobSuspension disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 
 				features.AssignQueueLabelsForPods: true,
+				features.SkipChildJobSuspension:   false,
 			},
 			reconcilerOptions: []jobframework.Option{
 				jobframework.WithManageJobsWithoutQueueName(true),
@@ -3868,6 +3894,48 @@ func TestReconciler(t *testing.T) {
 					Reason:    "Suspended",
 					Message:   "Kueue managed child job suspended",
 				},
+			},
+		},
+		"non-standalone job is not suspended if its parent workload is found and not admitted; SkipChildJobSuspension enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+
+				features.AssignQueueLabelsForPods: true,
+				features.SkipChildJobSuspension:   true,
+			},
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
+			},
+			job: baseJobWrapper.
+				Clone().
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Suspend(false).
+				Obj(),
+			wantJob: *baseJobWrapper.
+				Clone().
+				OwnerReference("parent", batchv1.SchemeGroupVersion.WithKind("Job")).
+				Suspend(false).
+				Obj(),
+			otherJobs: []batchv1.Job{
+				*utiltestingjob.MakeJob("parent", "ns").
+					Queue("queue").
+					UID("parent").
+					Obj(),
+			},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("parent-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
+					Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("parent-workload", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).SetMinimumCount(5).Request(corev1.ResourceCPU, "1").Obj()).
+					ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "parent", "parent").
+					Obj(),
 			},
 		},
 		"non-standalone job is not suspended if its parent workload is admitted and queue name is set": {
@@ -5312,6 +5380,17 @@ func TestReclaimablePods(t *testing.T) {
 	}
 	retryableFailureJob := indexedJob(1, 1, "0", "")
 	retryableFailureJob.Spec.BackoffLimitPerIndex = new(int32(1))
+	nonIndexedJob := func(parallelism, completions, succeeded int32) *Job {
+		j := utiltestingjob.MakeJob("job", "ns").
+			Parallelism(parallelism).
+			Completions(completions).
+			Obj()
+		j.Status.Succeeded = succeeded
+		return (*Job)(j)
+	}
+	indexedJobWithParallelismAboveCompletions := indexedJob(1, 0, "0", "")
+	indexedJobWithParallelismAboveCompletions.Spec.Parallelism = new(int32(10))
+	indexedJobWithParallelismAboveCompletions.Spec.Completions = new(int32(5))
 	cases := map[string]struct {
 		job  *Job
 		want []kueue.ReclaimablePod
@@ -5336,6 +5415,16 @@ func TestReclaimablePods(t *testing.T) {
 		"indexed Job with empty terminal indexes holds quota": {
 			job:  indexedJob(4, 0, "", ""),
 			want: nil,
+		},
+		// The PodSet only reserves min(parallelism, completions) Pods, so the Pods
+		// still running must keep their quota.
+		"non-indexed Job with parallelism above completions reclaims only finished Pods": {
+			job:  nonIndexedJob(10, 5, 1),
+			want: []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 1}},
+		},
+		"indexed Job with parallelism above completions reclaims only finished indexes": {
+			job:  indexedJobWithParallelismAboveCompletions,
+			want: []kueue.ReclaimablePod{{Name: kueue.DefaultPodSetName, Count: 1}},
 		},
 	}
 	for name, tc := range cases {

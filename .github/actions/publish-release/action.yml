@@ -50,7 +50,6 @@ runs:
             --repo "$TARGET_REPO" \
             --json tagName,isDraft,isPrerelease \
             --jq '.[] | select(.isDraft == false and .isPrerelease == false) | .tagName' \
-            
             --limit 10)
         HIGHEST_VERSION=$(printf '%s\n%s\n' "$PUBLISHED_VERSIONS" "$VERSION" \
             | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \

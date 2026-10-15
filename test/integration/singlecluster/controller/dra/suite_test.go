@@ -39,7 +39,8 @@ import (
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -50,7 +51,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunSuite(t, "DRA Controller Suite")
+	behavioral.RunSuite(t, "DRA Controller Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -60,7 +61,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationConsumableCapacity, true)
 
 	fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 		APIServerFeatureGates: []string{
 			"DynamicResourceAllocation=true",
 			"DRAExtendedResource=true",
@@ -83,6 +84,7 @@ var _ = ginkgo.AfterSuite(func() {
 
 // Manager setup used by tests to start controllers with DRA ConfigMap configuration
 func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		// Indexes
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
@@ -138,7 +140,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			qcache.WithDRABackedResources(draBackedResources),
 			qcache.WithResourceFormatter(resourceFormatter),
 		}
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		// Core controllers
 		failedCtrl, err := core.SetupControllers(

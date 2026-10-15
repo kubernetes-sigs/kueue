@@ -1,0 +1,32 @@
+# sample-jobset-tas-required.yaml
+apiVersion: jobset.x-k8s.io/v1alpha2
+kind: JobSet
+metadata:
+  name: jobset-tas-required
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  replicatedJobs:
+    - name: workers
+      replicas: 1
+      template:
+        spec:
+          parallelism: 4
+          completions: 4
+          backoffLimit: 0
+          template:
+            metadata:
+              annotations:
+                kueue.x-k8s.io/podset-required-topology: "cloud.provider.com/topology-rack"
+            spec:
+              containers:
+                - name: sleep
+                  image: busybox
+                  resources:
+                    requests:
+                      cpu: 1
+                      memory: "200Mi"
+                  command:
+                    - sleep
+                  args:
+                    - 100s

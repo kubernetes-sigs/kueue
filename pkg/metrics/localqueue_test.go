@@ -19,10 +19,76 @@ package metrics
 import (
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 )
+
+func TestNewLocalQueueMetricsConfig(t *testing.T) {
+	testCases := map[string]struct {
+		cfg     *configapi.LocalQueueMetrics
+		labels  map[string]string
+		want    bool
+		wantErr error
+	}{
+		"no configuration exposes all queues": {
+			labels: map[string]string{"env": "dev"},
+			want:   true,
+		},
+		"enabled without selector exposes all queues": {
+			cfg:    &configapi.LocalQueueMetrics{Enable: true},
+			labels: map[string]string{"env": "dev"},
+			want:   true,
+		},
+		"valid selector filters queues": {
+			cfg: &configapi.LocalQueueMetrics{
+				Enable:             true,
+				LocalQueueSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"env": "prod"}},
+			},
+			labels: map[string]string{"env": "dev"},
+		},
+		"disabled metrics ignore selector": {
+			cfg: &configapi.LocalQueueMetrics{
+				LocalQueueSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{Key: "env", Operator: metav1.LabelSelectorOperator("InvalidOp")},
+					},
+				},
+			},
+			labels: map[string]string{"env": "prod"},
+		},
+		"invalid selector reports error": {
+			cfg: &configapi.LocalQueueMetrics{
+				Enable: true,
+				LocalQueueSelector: &metav1.LabelSelector{
+					MatchExpressions: []metav1.LabelSelectorRequirement{
+						{Key: "env", Operator: metav1.LabelSelectorOperator("InvalidOp")},
+					},
+				},
+			},
+			wantErr: ErrInvalidLocalQueueSelector,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+			cfg, err := NewLocalQueueMetricsConfig(tc.cfg)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+			if err == nil {
+				if got := cfg.ShouldExposeLocalQueueMetrics(tc.labels); got != tc.want {
+					t.Errorf("ShouldExposeLocalQueueMetrics() = %v, want %v", got, tc.want)
+				}
+			}
+		})
+	}
+}
 
 func TestShouldExposeLocalQueueMetrics(t *testing.T) {
 	testCases := map[string]struct {

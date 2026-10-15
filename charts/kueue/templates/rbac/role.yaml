@@ -306,6 +306,7 @@ rules:
       - localqueues
       - multikueueclusters
       - multikueueconfigs
+      - preemptionconfigs
       - provisioningrequestconfigs
       - workloadpriorityclasses
     verbs:
@@ -384,6 +385,7 @@ rules:
       - resource.k8s.io
     resources:
       - deviceclasses
+      - devicetaintrules
       - resourceclaims
       - resourceclaimtemplates
       - resourceslices

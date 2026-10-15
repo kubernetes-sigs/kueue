@@ -16,7 +16,11 @@ limitations under the License.
 
 package strings
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+)
 
 func TestStringContainsSubstrings(t *testing.T) {
 	cases := map[string]struct {
@@ -54,6 +58,47 @@ func TestStringContainsSubstrings(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			if got := StringContainsSubstrings(tc.s, tc.substrings...); got != tc.want {
+				t.Errorf("Unexpected result: want: %v, got: %v", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestJoinMap(t *testing.T) {
+	cases := map[string]struct {
+		m           map[string][]int
+		keyValueSep string
+		valueSep    string
+		entrySep    string
+		want        string
+	}{
+		"empty map": {
+			m:           map[string][]int{},
+			keyValueSep: ":",
+			valueSep:    ",",
+			entrySep:    ";",
+			want:        "",
+		},
+		"basic test": {
+			m:           map[string][]int{"a": {1, 2}, "b": {3}},
+			keyValueSep: ":",
+			valueSep:    ",",
+			entrySep:    "; ",
+			want:        "a:1,2; b:3",
+		},
+		"key present with empty values": {
+			m:           map[string][]int{"a": {}, "b": {1, 2}},
+			keyValueSep: ":",
+			valueSep:    ",",
+			entrySep:    "; ",
+			want:        "a; b:1,2",
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := JoinMap(tc.m, tc.keyValueSep, tc.valueSep, tc.entrySep)
+			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected result: want: %v, got: %v", tc.want, got)
 			}
 		})

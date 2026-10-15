@@ -931,6 +931,11 @@ Each resource group defines the list of resources and a list of flavors
 that provide quotas for these resources.
 Each resource and each flavor can only form part of one resource group.
 resourceGroups can be up to 16, with a max of 256 total flavors across all groups.</p>
+<p>Many flavors can increase admission latency, especially with many
+ClusterQueues or frequent workload submissions. Depending on
+flavorFungibility, the scheduler may try every flavor and simulate
+preemption for each. Configure only necessary flavors and evaluate
+performance under representative peak load.</p>
 </td>
 </tr>
 <tr><td><code>cohortName</code><br/>
@@ -1037,6 +1042,11 @@ if FairSharing is enabled in the Kueue configuration.</p>
 Its main capability is to allow Workloads pursuing multiple flavors at the same time, and starting on the first flavor that led to admission.
 Additionally after the admission, Workloads can still try to pursue capacity on the more preferable flavors while running.
 It enables them to migrate to more preferable, whenever capacity appears.</p>
+<p>When set, resourceGroups must contain exactly one group with at most
+32 flavors, and queueingStrategy must be BestEffortFIFO. Kueue creates
+a Variant Workload for each flavor, even if unsuitable, multiplying the
+number of Workloads that the scheduler and controllers process.
+This field is immutable.</p>
 </td>
 </tr>
 </tbody>
@@ -1122,7 +1132,8 @@ This is recorded only when Fair Sharing is enabled in the Kueue configuration.</
 </td>
 <td>
    <p>effectiveQuotas is used for scheduling instead of spec.resourceGroups when
-present.</p>
+present. It is set by Dynamic Quota Orchestration (DQO), which overrides
+the quotas of whole flavors.</p>
 <p>This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
 feature gate is disabled.</p>
 </td>
@@ -1279,7 +1290,8 @@ The is recorded only when Fair Sharing is enabled in the Kueue configuration.</p
 </td>
 <td>
    <p>effectiveQuotas is used for scheduling instead of spec.resourceGroups when
-present.</p>
+present. It is set by Dynamic Quota Orchestration (DQO), which overrides
+the quotas of whole flavors.</p>
 <p>This field is alpha-level, and is ignored by Kueue when the DynamicQuotaOrchestration
 feature gate is disabled.</p>
 </td>
@@ -1437,8 +1449,15 @@ Dynamic Quota Orchestration (DQO).</p>
 <a href="#kueue-x-k8s-io-v1beta2-ResourceGroup"><code>[]ResourceGroup</code></a>
 </td>
 <td>
-   <p>resourceGroups is the effective quota used by the scheduler.
-An empty list is a valid complete override and does not cause fallback to
+   <p>resourceGroups contains the quotas used by the scheduler.
+DQO starts with spec.resourceGroups.
+For each flavor in the DQO's status.effectiveCapacity, it replaces each
+resource's nominalQuota with its share of the effective capacity.
+If a resource is missing from that flavor's effective capacity, its
+nominalQuota is set to zero.
+For these resources, DQO limits any configured ClusterQueue lendingLimit
+to the new nominalQuota.
+An empty list is valid. The scheduler uses it without falling back to
 spec.resourceGroups.</p>
 </td>
 </tr>

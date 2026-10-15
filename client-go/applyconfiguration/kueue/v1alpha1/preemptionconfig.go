@@ -29,9 +29,11 @@ import (
 //
 // PreemptionConfig is the Schema for the preemptionconfigs API
 type PreemptionConfigApplyConfiguration struct {
-	v1.TypeMetaApplyConfiguration    `json:""`
+	v1.TypeMetaApplyConfiguration `json:""`
+	// metadata is the standard object metadata.
 	*v1.ObjectMetaApplyConfiguration `json:"metadata,omitempty"`
-	Spec                             *PreemptionConfigSpecApplyConfiguration `json:"spec,omitempty"`
+	// spec defines the preemption rules of the PreemptionConfig.
+	Spec *PreemptionConfigSpecApplyConfiguration `json:"spec,omitempty"`
 }
 
 // PreemptionConfig constructs a declarative configuration of the PreemptionConfig type for use with

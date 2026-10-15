@@ -7,8 +7,10 @@ leaderElection:
   retryPeriod: 5s
 integrations:
   frameworks:
+  - "batch/job"
   - "ray.io/raycluster"
   - "ray.io/rayjob"
 featureGates:
   ElasticJobsViaWorkloadSlices: true
   MultiKueueRayInTreeAutoscaling: true
+  SkipChildJobSuspension: true
