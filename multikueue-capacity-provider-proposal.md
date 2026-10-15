@@ -1,23 +1,20 @@
-# MultiKueue `CapacityProvider` Parameters (KEP-9988 Alpha2)
+# Alpha2 for MultiKueue Dynamic Quota
 
-- **Status**: Initial review
-- **Author**: JanKaczmarski
-- **Date**: 2026-10-12
+## Introduction
 
-## Summary
+This document describes the “Alpha2” stage of [KEP-9988](https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation) (MultiKueue Manager Quota Automation). Alpha2 uses the Dynamic Quota Orchestrator (DQO) from [KEP-12382](https://github.com/kubernetes-sigs/kueue/blob/main/keps/12382-dynamic-quota-orchestration/README.md). DQO reads the capacity from a list of CapacityProviders (providers). Then DQO distributes this capacity as a quota over a `ClusterQueue` or a `Cohort` tree.
 
-KEP-9988 Alpha1 sums worker `ClusterQueue` quotas and writes them into the manager `ClusterQueue.spec.resourceGroups`. In Alpha2, a built-in KEP-12382 `CapacityProvider` publishes this sum, and a `DynamicQuotaOrchestrator` (DQO) distributes it into the manager `ClusterQueue.status.effectiveQuotas`.
+In Alpha1, the MultiKueue controller writes the sum of the related worker quotas into the manager `ClusterQueue.spec`. In Alpha2, the controller writes this sum into `CapacityProvider.status.capacity`. Then DQO writes the quota into `ClusterQueue.status.effectiveQuotas`. The controller no longer changes `ClusterQueue.spec`.
 
-The open point is what `CapacityProvider.spec.parameters` references. I propose a new cluster-scoped `MultiKueueCapacityProviderConfig` CRD (`v1alpha1`) with two required fields: `multiKueueConfigName` and `managerQuotaScope`.
+### Components
 
-Section 1 shows the full setup, Section 2 compares the options, and Section 3 has the API. After approval, I will update the KEP-9988 README with watches, validation, and feature gates.
+Alpha2 uses two Kubernetes objects:
 
-## 1. Setup
+#### MultiKueue CapacityProvider
 
-### 1.1 Example
+The YAML below shows the object. [The DQO KEP](https://github.com/kubernetes-sigs/kueue/blob/main/keps/12382-dynamic-quota-orchestration/README.md#capacityprovider) describes its fields. The main difference from a standard provider is `spec.parameters`. This field refers to the configuration of the provider, `MultiKueueCapacityProviderConfig` (below). The configuration has one field, `managerQuotaScope`. This field selects the manager ClusterQueues that the provider covers.
 
 ```yaml
-# 1. CapacityProvider
 apiVersion: kueue.x-k8s.io/v1alpha1
 kind: CapacityProvider
 metadata:
@@ -33,243 +30,110 @@ spec:
 status:
   capacity:
     flavors:
-    # Sum of the related worker ClusterQueues (see the setup below):
-    # worker1 cq1 (6 CPU, 24Gi) + worker1 cq2 (7 CPU, 28Gi)
-    # + worker2 worker-cq (8 CPU, 32Gi, nvidia.com/gpu: 5 in gpu-a4 + 7 in gpu-h100)
+    # Sum of the related worker ClusterQueues
     - name: multikueue-worker-flavor
       resources:
         cpu: "21"
         memory: 84Gi
         nvidia.com/gpu: "12"
----
-# 2. MultiKueueCapacityProviderConfig (proposed in Section 3)
+```
+
+#### MultiKueueCapacityProviderConfig
+
+```yaml
 apiVersion: kueue.x-k8s.io/v1alpha1
 kind: MultiKueueCapacityProviderConfig
 metadata:
   name: multikueue-cp-config
 spec:
-  multiKueueConfigName: multikueue-config
   managerQuotaScope:
-    kind: ClusterQueue
+    kind: ClusterQueue   # or Cohort
     name: cq
----
-# 3. DQO -> cq
-apiVersion: kueue.x-k8s.io/v1alpha1
-kind: DynamicQuotaOrchestrator
-metadata:
-  name: multikueue-dqo
-spec:
-  capacityDiscovery:
-    providers:
-    - name: multikueue-worker-capacity
-  capacityDistribution:
-    subtreeRootQuotaRef:
-      kind: ClusterQueue
-      name: cq
----
-# 4. Manager ClusterQueue. spec nominalQuota values are DQO weights;
-#    the result lands in status.effectiveQuotas.
-apiVersion: kueue.x-k8s.io/v1beta2
-kind: ClusterQueue
-metadata:
-  name: cq
-spec:
-  admissionChecksStrategy:
-    admissionChecks:
-    - name: multikueue-ac
-  resourceGroups:
-  - coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
-    flavors:
-    - name: multikueue-worker-flavor
-      resources:
-      - name: cpu
-        nominalQuota: "1"
-      - name: memory
-        nominalQuota: "1"
-      - name: nvidia.com/gpu
-        nominalQuota: "1"
-status:
-  effectiveQuotas:
-    orchestratorRef:
-      apiGroup: kueue.x-k8s.io
-      kind: DynamicQuotaOrchestrator
-      name: multikueue-dqo
-    resourceGroups:
-    - coveredResources: ["cpu", "memory", "nvidia.com/gpu"]
-      flavors:
-      - name: multikueue-worker-flavor
-        resources:
-        - name: cpu
-          nominalQuota: "21"
-        - name: memory
-          nominalQuota: 84Gi
-        - name: nvidia.com/gpu
-          nominalQuota: "12"
 ```
 
-<details>
-<summary>MultiKueue, LocalQueue, and worker setup</summary>
+### How the controller uses managerQuotaScope
 
-```yaml
-# Manager ResourceFlavor. No nodeLabels: the manager does not run the workloads.
-apiVersion: kueue.x-k8s.io/v1beta2
-kind: ResourceFlavor
-metadata:
-  name: multikueue-worker-flavor
----
-apiVersion: kueue.x-k8s.io/v1beta2
-kind: MultiKueueConfig
-metadata:
-  name: multikueue-config
-spec:
-  clusters:
-  - worker1
-  - worker2
----
-apiVersion: kueue.x-k8s.io/v1beta2
-kind: AdmissionCheck
-metadata:
-  name: multikueue-ac
-spec:
-  controllerName: kueue.x-k8s.io/multikueue
-  parameters:
-    apiGroup: kueue.x-k8s.io
-    kind: MultiKueueConfig
-    name: multikueue-config
----
-# Manager LocalQueues -> cq
-apiVersion: kueue.x-k8s.io/v1beta2
-kind: LocalQueue
-metadata:
-  namespace: ns1
-  name: lq1
-spec:
-  clusterQueue: cq
----
-apiVersion: kueue.x-k8s.io/v1beta2
-kind: LocalQueue
-metadata:
-  namespace: ns2
-  name: lq2
-spec:
-  clusterQueue: cq
----
-# worker1: ns1/lq1 -> cq1, ns2/lq2 -> cq2
-# worker2: ns1/lq1 and ns2/lq2 -> worker-cq
-```
+`managerQuotaScope` is a single `ClusterQueue` or a single `Cohort` (with its full subtree). For each manager ClusterQueue in this scope, the controller finds the related worker ClusterQueues in these steps:
 
-</details>
+1. The controller gets the MultiKueue AdmissionCheck of the ClusterQueue. If the ClusterQueue has no MultiKueue AdmissionCheck, the controller skips it.
+1. It gets the `MultiKueueConfig` of this AdmissionCheck. The `MultiKueueConfig` lists the worker clusters.
+1. It gets the LocalQueues of the manager ClusterQueue.
+1. On each connected worker cluster from step 2, it finds the LocalQueues with the same namespace and name.
+1. It gets the ClusterQueues of these worker LocalQueues.
 
-### 1.2 `CapacityProvider` Contract
+The controller sums the quotas of these worker ClusterQueues.
 
-Both options use the KEP-12382 `CapacityProvider` API unchanged.
+- **ClusterQueue** scope: the provider covers one ClusterQueue, as in Alpha1.
+- **Cohort** scope: the provider covers all ClusterQueues in the Cohort. DQO divides the total between them.
 
-- `spec.controllerName`: `kueue.x-k8s.io/multikueue`.
-- `spec.orchestratedFlavors`: exactly one flavor. The controller sums all resources of all worker flavors into it. The name does not need to match a worker flavor.
-- `spec.parameters`: required by this provider (optional in the core API). Only the MultiKueue controller reads it; the DQO does not.
+### Problems
 
-The controller reports the `CapacitySynchronized` condition:
+- `managerQuotaScope` must match the DQO `spec.capacityDistribution.subtreeRootQuotaRef`. If the two are different, DQO distributes the sum for `managerQuotaScope` to `subtreeRootQuotaRef`. The API cannot reject this mismatch. DQO does not read `spec.parameters`, and a CEL (Common Expression Language) rule cannot compare two objects.
+- To solve the above the following might be considered: the MultiKueue controller finds the DQOs that refer to the provider. If a DQO has a different scope, the controller reports the mismatch. It uses a Warning event or a separate condition on the provider (to be decided).
 
-| Status | Reason | Description |
-|---|---|---|
-| `True` | `Synchronized` | At least one worker cluster is connected. `status.capacity.flavors[0]` holds the sum of the connected workers. The message lists the disconnected workers. |
-| `False` | `Misconfigured` | `spec.parameters` is missing or has the wrong kind, a referenced object is missing, or `len(spec.orchestratedFlavors) != 1`. |
-| `False` | `SourceUnavailable` | No worker cluster is connected. |
+### Details
 
-If any provider of a DQO is not `True`, the DQO stops distributing (`EffectiveCapacityComputed=False`, `Distributed=False`). The manager `ClusterQueue.status.effectiveQuotas` keeps its last value ([`discovery.go:57-66`](https://github.com/kubernetes-sigs/kueue/blob/436fa2bf7c39adb2e816cfbb247f904a6dbee582/pkg/controller/core/dqo/discovery.go#L57-L66), [`reconciler.go:226-233`](https://github.com/kubernetes-sigs/kueue/blob/436fa2bf7c39adb2e816cfbb247f904a6dbee582/pkg/controller/core/dqo/reconciler.go#L226-L233)).
+#### CapacitySynchronized condition
 
-## 2. Options
+| **Status** | **Reason** | **Description** |
+| --- | --- | --- |
+| True | Synchronized | At least one worker cluster of the in-scope ClusterQueues is connected. `status.capacity.flavors[0]` holds the sum of the connected worker clusters. The condition message lists the disconnected worker clusters. |
+| False | Misconfigured | One of these conditions occurs:<br>• `spec.parameters` is missing or has the wrong kind.<br>• The MultiKueueCapacityProviderConfig does not exist.<br>• The MultiKueueConfig of an in-scope ClusterQueue does not exist.<br>• An in-scope ClusterQueue has more than one MultiKueue AdmissionCheck, or a per-flavor one.<br>• No ClusterQueue in scope uses MultiKueue.<br>• `len(spec.orchestratedFlavors) != 1`. |
+| False | SourceUnavailable | No worker cluster of the in-scope ClusterQueues is connected. |
 
-### 2.1 Option A: Reference `MultiKueueConfig`
+If a provider in a DQO does not have `CapacitySynchronized=True`, DQO skips the distribution. Then the manager `ClusterQueue.status.effectiveQuotas` keeps its last value. This is the DQO behavior from [KEP-12382](https://github.com/kubernetes-sigs/kueue/blob/main/keps/12382-dynamic-quota-orchestration/README.md) (see the [`Distributed` condition](https://github.com/kubernetes-sigs/kueue/blob/main/keps/12382-dynamic-quota-orchestration/README.md#condition-distributed-phase-2-quota-distribution) and [Stale Effective Quota](https://github.com/kubernetes-sigs/kueue/blob/main/keps/12382-dynamic-quota-orchestration/README.md#stale-effective-quota)). This proposal does not change it.
 
-Pros:
-- No new CRD. It reuses the object that the MultiKueue `AdmissionCheck` already references.
+#### orchestratedFlavors
 
-Cons:
-- Over-counting. Many `AdmissionCheck`s and manager `ClusterQueue`s can share one `MultiKueueConfig`. Suppose `cq-team-a` (10 CPU on the worker) and `cq-team-b` (30 CPU on the worker) share `multikueue-config`. A provider that points to `multikueue-config` sums both teams (40 CPU). If the DQO targets only `cq-team-a`, it gets 40 CPU instead of 10.
-- Any future provider setting would have to go into `MultiKueueConfig` (a `v1beta2` dispatch API), or we would later have to change `spec.parameters.kind`, which is a breaking change.
+`spec.orchestratedFlavors` must contain exactly one flavor. The name does not need to match a worker flavor.
 
-### 2.2 Option B: Reference a new `MultiKueueCapacityProviderConfig` CRD
+As in Alpha1, the controller sums all worker flavors into one manager flavor, because separate flavor totals would be wrong. The manager picks a flavor when it admits a workload. The worker does not use this choice and picks its own flavor. So a total for one manager flavor does not show where the workloads run.
 
-Pros:
-- Matches KEP-12382: a provider may use its own configuration CRD through `spec.parameters` ([KEP-12382 L520-522](https://github.com/kubernetes-sigs/kueue/blob/436fa2bf7c39adb2e816cfbb247f904a6dbee582/keps/12382-dynamic-quota-orchestration/README.md#L520-L522)). Same pattern as `ProvisioningRequestConfig` and `MultiKueueConfig`.
-- `managerQuotaScope` limits the sum to the manager `ClusterQueue` or `Cohort` subtree, even when other queues share the same `MultiKueueConfig`.
-- Quota settings stay out of the `v1beta2` dispatch API.
-
-Cons:
-- One more small CRD and one more object to create.
-- Users repeat the DQO target in `managerQuotaScope`. The provider cannot derive it: it does not know which DQOs reference it, and several DQOs can reference one provider.
-
-## 3. Proposal
-
-Option B. It fixes the over-counting of Option A and keeps quota settings out of the `v1beta2` API. The cost is one small `v1alpha1` CRD.
-
-**Usage rule**: normally one MultiKueue `CapacityProvider` per DQO target, with `managerQuotaScope` equal to the DQO `subtreeRootQuotaRef` (a `ClusterQueue` or a `Cohort`). This is not validated; a mismatch silently over- or under-counts. If a DQO lists several MultiKueue providers (for example, for different `MultiKueueConfig`s in the same scope), their worker `ClusterQueue`s must not overlap, because the DQO adds them up.
-
-### 3.1 Go API
-
-`managerQuotaScope` reuses `CapacityDistributionSubtreeRootRef` from the DQO API ([`dynamicquotaorchestrator_types.go:79-93`](https://github.com/kubernetes-sigs/kueue/blob/436fa2bf7c39adb2e816cfbb247f904a6dbee582/apis/kueue/v1alpha1/dynamicquotaorchestrator_types.go#L79-L93)). See object 2 in Section 1.1 for a YAML example.
-
-<details>
-<summary>Go types</summary>
+#### Go types
 
 ```go
-// MultiKueueCapacityProviderConfig holds the settings of the built-in
-// MultiKueue CapacityProvider.
-//
 // +genclient
 // +genclient:nonNamespaced
 // +kubebuilder:object:root=true
 // +kubebuilder:storageversion
 // +kubebuilder:resource:scope=Cluster
 type MultiKueueCapacityProviderConfig struct {
-	metav1.TypeMeta `json:",inline"`
-
-	// metadata is the standard object metadata.
-	// +optional
-	metav1.ObjectMeta `json:"metadata,omitempty"`
-
-	// spec is the specification of the MultiKueueCapacityProviderConfig.
-	// +required
-	Spec MultiKueueCapacityProviderConfigSpec `json:"spec,omitzero"`
+    metav1.TypeMeta `json:",inline"`
+    // +optional
+    metav1.ObjectMeta `json:"metadata,omitempty"`
+    // +required
+    Spec MultiKueueCapacityProviderConfigSpec `json:"spec,omitzero"`
 }
-
 type MultiKueueCapacityProviderConfigSpec struct {
-	// multiKueueConfigName is the name of the MultiKueueConfig that defines
-	// the worker clusters from which capacity is aggregated.
-	// +required
-	// +kubebuilder:validation:MinLength=1
-	// +kubebuilder:validation:MaxLength=63
-	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
-	MultiKueueConfigName string `json:"multiKueueConfigName,omitempty"`
-
-	// managerQuotaScope bounds which manager ClusterQueues contribute
-	// LocalQueues when discovering related worker ClusterQueues.
-	// Only manager ClusterQueues in this scope that also reference a
-	// MultiKueue AdmissionCheck backed by multiKueueConfigName are included.
-	// +required
-	ManagerQuotaScope CapacityDistributionSubtreeRootRef `json:"managerQuotaScope,omitzero"`
-}
-
-// +kubebuilder:object:root=true
-
-// MultiKueueCapacityProviderConfigList contains a list of MultiKueueCapacityProviderConfig.
-type MultiKueueCapacityProviderConfigList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []MultiKueueCapacityProviderConfig `json:"items"`
+    // +required
+    ManagerQuotaScope CapacityDistributionSubtreeRootRef `json:"managerQuotaScope,omitzero"`
 }
 ```
 
-</details>
+#### Alternatives
 
-## 4. Migration Plan
+- `spec.parameters` refers to a MultiKueueConfig. A MultiKueueConfig lists worker clusters, not manager ClusterQueues. This causes two problems:
+    - Many manager ClusterQueues can use the same MultiKueueConfig. The provider sums the worker quotas of all of them. A DQO that targets only one of them gets too much quota.
+    - A Cohort can contain ClusterQueues with different MultiKueueConfigs. Each config then needs its own provider. If two configs list the same worker cluster, DQO counts its quota twice.
+- `spec.parameters` refers to the ClusterQueue or Cohort directly. This gives the same scope as `managerQuotaScope`, but it has two problems:
+    - There is no provider configuration object, so there is no place for future settings (for example, a multi-flavor mode). [KEP-12382](https://github.com/kubernetes-sigs/kueue/blob/main/keps/12382-dynamic-quota-orchestration/README.md#capacityprovider) intends `spec.parameters` to refer to a provider configuration CRD.
+    - `spec.parameters.name` allows a maximum of 63 characters and no dots. ClusterQueue and Cohort names allow 253 characters with dots.
+
+#### Double counting compared to Alpha1
+
+Two manager ClusterQueues can send workloads to the same worker ClusterQueue. For example, `team-a` and `team-b` both use `worker-cq`, which has 100 CPU.
+
+Alpha1 gives each manager ClusterQueue the full 100 CPU, so the manager has 200 CPU in total. KEP-9988 accepts this because each manager quota is only an upper limit.
+
+In Alpha2, the result depends on the scope:
+
+- **ClusterQueue scope:** Each manager ClusterQueue has its own provider. Each provider reports 100 CPU, which is the same as Alpha1.
+- **Cohort scope:** One provider covers both manager ClusterQueues. It counts `worker-cq` once and reports 100 CPU. The DQO then splits the 100 CPU between `team-a` and `team-b`.
+
+A Cohort scope removes duplicates only inside the Cohort. Suppose a manager ClusterQueue outside the Cohort also uses `worker-cq`. Its provider counts `worker-cq` again.
+
+Use one provider for the full DQO target. The DQO adds up the capacity of all its providers. It cannot find duplicates, because each provider reports only totals.
+
+#### Migration Plan
 
 TBD.
-
-## 5. Consequences
-
-- Discovery reuses the Alpha1 path ([`clusterqueue.go:186-245`](https://github.com/kubernetes-sigs/kueue/blob/436fa2bf7c39adb2e816cfbb247f904a6dbee582/pkg/controller/admissionchecks/multikueue/clusterqueue.go#L186-L245)). The controller now reconciles the `CapacityProvider` and writes `status.capacity` instead of `ClusterQueue.spec`. New: `Cohort` scope, each worker `ClusterQueue` counted once, and worker `status.effectiveQuotas` preferred over `spec.resourceGroups`.
-- `MultiKueueConfig.spec.quotaManagement` is deprecated and ignored. It stays because it is a `v1beta2` field. The `MultiKueueManagerQuotaAutomation` condition is no longer written.
-- One manager flavor, as in Alpha1. This is a KEP-9988 choice; the DQO itself works per `(flavor, resource)` ([`discovery.go:90-122`](https://github.com/kubernetes-sigs/kueue/blob/436fa2bf7c39adb2e816cfbb247f904a6dbee582/pkg/controller/core/dqo/discovery.go#L90-L122)). The manager does not send its flavor assignment to workers, so per-flavor totals may differ from what workers admit. A later optional field in `MultiKueueCapacityProviderConfig` can add a multi-flavor mode without a breaking change.
-- Overbooking and headroom stay in the DQO. The provider reports the real worker total; users set `effectiveCapacityMultiplier` on the provider entry in the DQO `spec.capacityDiscovery.providers` (for example, `2` or `0.9`).
