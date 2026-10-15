@@ -33,8 +33,8 @@ import (
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 )
 
-// WorkloadsDashboardWebSocketHandler streams workloads along with attached pod details
-// Watches Workloads, Pods, ClusterQueues, LocalQueues, and ResourceFlavors for comprehensive updates
+// WorkloadsDashboardWebSocketHandler streams workloads along with attached pod details.
+// Pod, ClusterQueue, LocalQueue, and ResourceFlavor informers follow cluster-wide watch permission.
 func (h *Handlers) WorkloadsDashboardWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Extract namespace query parameter if provided
@@ -46,13 +46,13 @@ func (h *Handlers) WorkloadsDashboardWebSocketHandler() gin.HandlerFunc {
 			return h.fetchDashboardData(ctx, namespace, identity)
 		}
 
-		h.GenericWebSocketHandler(dataFetcher,
-			WorkloadsGVK(),
-			PodsGVK(),
-			ClusterQueuesGVK(),
-			LocalQueuesGVK(),
-			ResourceFlavorsGVK(),
-		)(c)
+		gvks := h.gvksWithAuthorizedSecondaryWatches(c, identity, WorkloadsGVK(),
+			secondaryWatch{gvk: PodsGVK(), gvr: PodsGVR()},
+			secondaryWatch{gvk: ClusterQueuesGVK(), gvr: ClusterQueuesGVR()},
+			secondaryWatch{gvk: LocalQueuesGVK(), gvr: LocalQueuesGVR()},
+			secondaryWatch{gvk: ResourceFlavorsGVK(), gvr: ResourceFlavorsGVR()},
+		)
+		h.GenericWebSocketHandler(dataFetcher, gvks...)(c)
 	}
 }
 

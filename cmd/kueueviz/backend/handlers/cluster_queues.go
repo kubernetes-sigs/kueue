@@ -34,15 +34,19 @@ func (h *Handlers) ClusterQueuesWebSocketHandler() gin.HandlerFunc {
 	}, ClusterQueuesGVK())
 }
 
-// ClusterQueueDetailsWebSocketHandler streams details for a specific cluster queue
+// ClusterQueueDetailsWebSocketHandler streams details for a specific cluster queue.
+// The LocalQueue informer follows cluster-wide watch permission.
 func (h *Handlers) ClusterQueueDetailsWebSocketHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterQueueName := c.Param("cluster_queue_name")
 		identity, _ := middleware.IdentityFromContext(c)
+		gvks := h.gvksWithAuthorizedSecondaryWatches(c, identity, ClusterQueuesGVK(),
+			secondaryWatch{gvk: LocalQueuesGVK(), gvr: LocalQueuesGVR()},
+		)
 
 		h.GenericWebSocketHandler(func(ctx context.Context) (any, error) {
 			return h.fetchClusterQueueDetails(ctx, clusterQueueName, identity)
-		}, ClusterQueuesGVK(), LocalQueuesGVK())(c)
+		}, gvks...)(c)
 	}
 }
 
