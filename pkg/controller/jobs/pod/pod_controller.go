@@ -1328,6 +1328,10 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.Ev
 			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 			return err
 		}
+		if !removed && !pod.DeletionTimestamp.IsZero() {
+			// Nothing was patched or deleted, so don't wait for an event that may come only when the pod is gone.
+			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
+		}
 		if removed {
 			log.V(3).Info("Finalized excess pod in group", "excessPod", klog.KObj(pod))
 		}
@@ -1443,9 +1447,14 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		return wl, nil
 	}
 
+	var terminatingPods []corev1.Pod
+	if features.Enabled(features.FinalizeTerminatingPodGroups) {
+		terminatingPods = p.dropTerminatingPods()
+	}
+
 	activePods, inactivePods := p.partitionPods()
 
-	if err := p.finalizePods(ctx, c, inactivePods); err != nil {
+	if err := p.finalizePods(ctx, c, append(inactivePods, terminatingPods...)); err != nil {
 		return nil, err
 	}
 
@@ -1510,6 +1519,27 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		utilmaps.Copy(&wl.Annotations, annotationsToCopyList)
 	}
 	return wl, nil
+}
+
+// dropTerminatingPods removes from the group the pods that are being deleted but still count as
+// runnable, and returns them. Such a pod never runs again, but its spec carries the placement of
+// its earlier admission, so it must not shape a new Workload.
+func (p *Pod) dropTerminatingPods() []corev1.Pod {
+	isTerminating := func(pod *corev1.Pod) bool {
+		return !pod.DeletionTimestamp.IsZero() && isPodRunnableOrSucceeded(pod)
+	}
+	var terminatingPods []corev1.Pod
+	p.list.Items = slices.DeleteFunc(p.list.Items, func(pod corev1.Pod) bool {
+		if !isTerminating(&pod) {
+			return false
+		}
+		terminatingPods = append(terminatingPods, pod)
+		return true
+	})
+	if isTerminating(&p.pod) && len(p.list.Items) > 0 {
+		p.pod = p.list.Items[0]
+	}
+	return terminatingPods
 }
 
 // applyDeploymentJobUID replaces the Pod UID that ConstructWorkload put in the job-uid

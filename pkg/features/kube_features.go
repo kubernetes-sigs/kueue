@@ -440,9 +440,11 @@ const (
 	// owner: @anguszzzz
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/15148
-	// When enabled, the Pod integration finalizes a pod group without creating a
-	// Workload when every pod of the group is terminating and no Workload remains
-	// for the group (introduced in https://github.com/kubernetes-sigs/kueue/pull/15154).
+	// When enabled, the Pod integration does not build pod group Workloads from
+	// terminating pods. A group whose pods are all terminating, with no Workload left,
+	// is finalized without one (introduced in https://github.com/kubernetes-sigs/kueue/pull/15154).
+	// A new group Workload is built without the pods that are being deleted on a node,
+	// and Kueue removes their finalizer.
 	FinalizeTerminatingPodGroups featuregate.Feature = "FinalizeTerminatingPodGroups"
 
 	// owner: @ShaanveerS
