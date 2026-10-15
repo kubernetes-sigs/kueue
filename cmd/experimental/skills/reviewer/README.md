@@ -11,6 +11,7 @@ When reviewing tests or test coverage, follow
 
 | Skill | Triggers on |
 |---|---|
+| [multikueue](multikueue/SKILL.md) | reviewing MultiKueue changes |
 | [table-driven-tests](table-driven-tests/SKILL.md) | independent unit scenarios duplicate setup or bypass a suitable existing table |
 | [encapsulate-paired-ops](encapsulate-paired-ops/SKILL.md) | two calls/fields that always appear together but aren't wrapped |
 | [metrics-label-sets](metrics-label-sets/SKILL.md) | new metric adds labels not present on existing ClusterQueue metrics |
@@ -67,6 +68,7 @@ When reviewing tests or test coverage, follow
 | [integration-adapter-trust-boundary](security/integration-adapter-trust-boundary/SKILL.md) | adapters reading credential-like fields from third-party CRDs without treating them as untrusted (security) |
 | [webhook-safety-regressions](security/webhook-safety-regressions/SKILL.md) | loosened failurePolicy, shortened timeouts, TLS bypass, non-idempotent mutating webhooks (security) |
 
+@multikueue/SKILL.md
 @table-driven-tests/SKILL.md
 @encapsulate-paired-ops/SKILL.md
 @metrics-label-sets/SKILL.md
