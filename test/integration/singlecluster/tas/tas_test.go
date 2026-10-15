@@ -5973,6 +5973,216 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 				})
 			})
 
+			// Regression coverage for https://github.com/kubernetes-sigs/kueue/issues/15337.
+			ginkgo.When("A workload replacing a failed node has a free node to relocate to", func() {
+				var nodes []corev1.Node
+
+				ginkgo.BeforeEach(func() {
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, false)
+
+					nodes = []corev1.Node{
+						*testingnode.MakeNode("x1").
+							Label("node-group", "tas").
+							Label(corev1.LabelHostname, "x1").
+							StatusAllocatable(corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("5"),
+								corev1.ResourceMemory: resource.MustParse("5Gi"),
+								corev1.ResourcePods:   resource.MustParse("10"),
+							}).
+							Ready().
+							Obj(),
+						*testingnode.MakeNode("y1").
+							Label("node-group", "tas").
+							Label(corev1.LabelHostname, "y1").
+							StatusAllocatable(corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("5"),
+								corev1.ResourceMemory: resource.MustParse("5Gi"),
+								corev1.ResourcePods:   resource.MustParse("10"),
+							}).
+							Ready().
+							Obj(),
+						*testingnode.MakeNode("y2").
+							Label("node-group", "tas").
+							Label(corev1.LabelHostname, "y2").
+							StatusAllocatable(corev1.ResourceList{
+								corev1.ResourceCPU:    resource.MustParse("5"),
+								corev1.ResourceMemory: resource.MustParse("5Gi"),
+								corev1.ResourcePods:   resource.MustParse("10"),
+							}).
+							Ready().
+							Obj(),
+					}
+					integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
+
+					topology = utiltestingapi.MakeDefaultOneLevelTopology("default")
+					behavioral.MustCreate(ctx, k8sClient, topology)
+
+					tasFlavor = utiltestingapi.MakeResourceFlavor("tas-flavor").
+						NodeLabel("node-group", "tas").
+						TopologyName("default").Obj()
+					behavioral.MustCreate(ctx, k8sClient, tasFlavor)
+
+					// Enough quota for one 5-CPU workload per node, so the
+					// cases below are limited by free nodes, not by quota.
+					clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
+						Preemption(kueue.ClusterQueuePreemption{
+							WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+						}).
+						ResourceGroup(*utiltestingapi.MakeFlavorQuotas(tasFlavor.Name).
+							Resource(corev1.ResourceCPU, "15").
+							Resource(corev1.ResourceMemory, "15Gi").Obj()).
+						Obj()
+					behavioral.MustCreate(ctx, k8sClient, clusterQueue)
+					behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+
+					localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+					behavioral.MustCreate(ctx, k8sClient, localQueue)
+				})
+
+				ginkgo.AfterEach(func() {
+					gomega.Expect(behavioral.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+					gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+					gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, tasFlavor, true)
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+					for _, node := range nodes {
+						behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &node, true)
+					}
+				})
+
+				ginkgo.It("relocates to the free node instead of preempting the other workload", func() {
+					var wlLowPrio, wlNeedsReplacement *kueue.Workload
+
+					var lowPrioNode string
+					ginkgo.By("admitting a low-priority workload", func() {
+						wlLowPrio = utiltestingapi.MakeWorkload("low-prio", ns.Name).
+							Priority(1).
+							PodSets(*utiltestingapi.MakePodSet("worker", 1).
+								RequiredTopologyRequest(corev1.LabelHostname).
+								Obj()).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "5").Obj()
+						behavioral.MustCreate(ctx, k8sClient, wlLowPrio)
+						behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlLowPrio)
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlLowPrio), wlLowPrio)).To(gomega.Succeed())
+						domains := utiltas.InternalFrom(wlLowPrio.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains
+						gomega.Expect(domains).To(gomega.HaveLen(1))
+						lowPrioNode = domains[0].Values[0]
+					})
+
+					var failedNode string
+					ginkgo.By("admitting a higher-priority workload on another node", func() {
+						wlNeedsReplacement = utiltestingapi.MakeWorkload("needs-replacement", ns.Name).
+							Priority(3).
+							PodSets(*utiltestingapi.MakePodSet("worker", 1).
+								RequiredTopologyRequest(corev1.LabelHostname).
+								Obj()).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "5").Obj()
+						behavioral.MustCreate(ctx, k8sClient, wlNeedsReplacement)
+						behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlNeedsReplacement)
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlNeedsReplacement), wlNeedsReplacement)).To(gomega.Succeed())
+						// Which of the three nodes this lands on isn't guaranteed,
+						// only that it differs from low-prio's node and leaves one
+						// node free - read it back so the next step can fail the
+						// right one.
+						domains := utiltas.InternalFrom(wlNeedsReplacement.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains
+						gomega.Expect(domains).To(gomega.HaveLen(1))
+						failedNode = domains[0].Values[0]
+					})
+
+					ginkgo.By("making that node NotReady to trigger node replacement", func() {
+						nodeToUpdate := &corev1.Node{}
+						gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: failedNode}, nodeToUpdate)).Should(gomega.Succeed())
+						behavioral.SetNodeCondition(ctx, k8sClient, nodeToUpdate, &corev1.NodeCondition{
+							Type:               corev1.NodeReady,
+							Status:             corev1.ConditionFalse,
+							LastTransitionTime: metav1.NewTime(time.Now().Add(-tas.NodeFailureDelay)),
+						})
+					})
+
+					ginkgo.By("verify the low-priority workload is never evicted or preempted", func() {
+						gomega.Consistently(func(g gomega.Gomega) {
+							updated := &kueue.Workload{}
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlLowPrio), updated)).To(gomega.Succeed())
+							g.Expect(updated.Status.Admission).ShouldNot(gomega.BeNil())
+							g.Expect(apimeta.FindStatusCondition(updated.Status.Conditions, kueue.WorkloadEvicted)).Should(gomega.BeNil())
+						}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("verify the replacement workload relocates to the free node, still admitted, still holding its own quota", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							updated := &kueue.Workload{}
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlNeedsReplacement), updated)).To(gomega.Succeed())
+							g.Expect(updated.Status.Admission).ShouldNot(gomega.BeNil())
+							newDomains := utiltas.InternalFrom(updated.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains
+							g.Expect(newDomains).To(gomega.HaveLen(1))
+							g.Expect(newDomains[0].Values[0]).ToNot(gomega.Equal(failedNode))
+							g.Expect(newDomains[0].Values[0]).ToNot(gomega.Equal(lowPrioNode))
+							g.Expect(apimeta.FindStatusCondition(updated.Status.Conditions, kueue.WorkloadEvicted)).Should(gomega.BeNil())
+
+							// Re-check low-prio here too: Consistently above only
+							// guarantees it wasn't touched during that window, not
+							// that it stays untouched until the replacement settles.
+							updatedLowPrio := &kueue.Workload{}
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlLowPrio), updatedLowPrio)).To(gomega.Succeed())
+							g.Expect(updatedLowPrio.Status.Admission).ShouldNot(gomega.BeNil())
+							g.Expect(apimeta.FindStatusCondition(updatedLowPrio.Status.Conditions, kueue.WorkloadEvicted)).Should(gomega.BeNil())
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+					})
+				})
+
+				ginkgo.It("stays on the failed node instead of preempting when no node is free", func() {
+					makeWorkload := func(name string, priority int32) *kueue.Workload {
+						return utiltestingapi.MakeWorkload(name, ns.Name).
+							Priority(priority).
+							PodSets(*utiltestingapi.MakePodSet("worker", 1).
+								RequiredTopologyRequest(corev1.LabelHostname).
+								Obj()).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "5").Obj()
+					}
+					wlLowPrioA := makeWorkload("low-prio-a", 1)
+					wlLowPrioB := makeWorkload("low-prio-b", 1)
+					wlNeedsReplacement := makeWorkload("needs-replacement", 3)
+
+					ginkgo.By("admitting one workload per node, so no node is free", func() {
+						for _, wl := range []*kueue.Workload{wlLowPrioA, wlLowPrioB, wlNeedsReplacement} {
+							behavioral.MustCreate(ctx, k8sClient, wl)
+							behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+						}
+					})
+
+					var failedNode string
+					ginkgo.By("deleting the higher-priority workload's node", func() {
+						gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlNeedsReplacement), wlNeedsReplacement)).To(gomega.Succeed())
+						domains := utiltas.InternalFrom(wlNeedsReplacement.Status.Admission.PodSetAssignments[0].TopologyAssignment).Domains
+						gomega.Expect(domains).To(gomega.HaveLen(1))
+						failedNode = domains[0].Values[0]
+
+						node := &corev1.Node{}
+						node.Name = failedNode
+						behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, node, true)
+					})
+
+					ginkgo.By("verify the replacement is requested but no low-priority workload is preempted", func() {
+						gomega.Eventually(func(g gomega.Gomega) {
+							updated := &kueue.Workload{}
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wlNeedsReplacement), updated)).To(gomega.Succeed())
+							g.Expect(updated.Status.UnhealthyNodes).To(gomega.ContainElement(kueue.UnhealthyNode{Name: failedNode}))
+						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+						// Outlast the backoff before the replacement's second scheduling
+						// pass, so the check covers the cycle that would preempt.
+						gomega.Consistently(func(g gomega.Gomega) {
+							for _, wl := range []*kueue.Workload{wlLowPrioA, wlLowPrioB} {
+								updated := &kueue.Workload{}
+								g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), updated)).To(gomega.Succeed())
+								g.Expect(updated.Status.Admission).ShouldNot(gomega.BeNil())
+								g.Expect(apimeta.FindStatusCondition(updated.Status.Conditions, kueue.WorkloadEvicted)).Should(gomega.BeNil())
+							}
+						}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+					})
+				})
+			})
+
 			ginkgo.When("Preemption is enabled within Cohort", func() {
 				var (
 					nodes         []corev1.Node

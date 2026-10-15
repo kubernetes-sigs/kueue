@@ -485,43 +485,71 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 		defer restore()
 	}
 	tasRequests := assignment.WorkloadsTopologyRequests(log, a.wl, a.cq)
+	unhealthyReplacement := workload.HasTopologyAssignmentWithUnhealthyNode(a.wl.Obj)
 	if assignment.RepresentativeMode() == Fit {
 		result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(a.wl))
 		if failure := result.Failure(); failure != nil {
 			// There is at least one PodSet which does not fit
+			mode := Preempt
+			if unhealthyReplacement {
+				// Failed-node replacement must use currently available capacity
+				mode = NoFit
+			}
 			assignment.ResolvePodSetFailure(
 				failure.PodSetName,
-				Preempt,
+				mode,
 				*NewStatus(failure.Reason),
 			)
+			if mode == NoFit && features.Enabled(features.UnadmittedWorkloadsObservability) {
+				psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
+				psAssignment.markFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
+			}
 		} else {
 			// All PodSets fit, we just update the TopologyAssignments
 			assignment.UpdateForTASResult(log, a.cq, a.wl, result)
 		}
 	}
-	if assignment.RepresentativeMode() == Preempt && !workload.HasUnhealthyNodes(a.wl.Obj) {
-		// Don't preempt other workloads if looking for a failed node replacement
-		result := a.cq.FindTopologyAssignmentsForWorkload(
-			ctx,
-			tasRequests,
-			schdcache.WithSimulateEmpty(true),
-			schdcache.WithWorkloadInfo(a.wl),
-		)
-		if failure := result.Failure(); failure != nil {
-			// There is at least one PodSet which does not fit even if
-			// all workloads are preempted.
-			psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
-			if features.Enabled(features.UnadmittedWorkloadsObservability) {
-				psAssignment.markFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
+	if assignment.RepresentativeMode() != Preempt {
+		return
+	}
+	if unhealthyReplacement {
+		// Workloads replacing a failed node already hold their quota, so they
+		// normally enter AssignTopology as Fit. Reaching Preempt here means
+		// quota alone doesn't fit, and a failed-node replacement must not
+		// preempt others to make room, so leave it pending.
+		if features.Enabled(features.UnadmittedWorkloadsObservability) {
+			for i := range assignment.PodSets {
+				psAssignment := &assignment.PodSets[i]
+				for _, flavor := range psAssignment.Flavors {
+					if flavor.Mode == Preempt {
+						psAssignment.markFlavorAttempt(flavor.Name, NoFit, kueue.WorkloadQuotaReservedReasonWaitingForQuota)
+					}
+				}
 			}
-			// update the mode for all flavors and the representative mode
-			assignment.updateMode(failure.PodSetName, NoFit)
-		} else {
-			// Update TAS-related assignments to Preempt because preemptions might be needed
-			// in resources in which total unused quota is sufficient (Fit), but the
-			// quota is fragmented.
-			assignment.updateModeForTASRequests(tasRequests, Preempt)
 		}
+		assignment.SetRepresentativeMode(NoFit)
+		return
+	}
+	result := a.cq.FindTopologyAssignmentsForWorkload(
+		ctx,
+		tasRequests,
+		schdcache.WithSimulateEmpty(true),
+		schdcache.WithWorkloadInfo(a.wl),
+	)
+	if failure := result.Failure(); failure != nil {
+		// There is at least one PodSet which does not fit even if
+		// all workloads are preempted.
+		psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
+		if features.Enabled(features.UnadmittedWorkloadsObservability) {
+			psAssignment.markFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
+		}
+		// update the mode for all flavors and the representative mode
+		assignment.updateMode(failure.PodSetName, NoFit)
+	} else {
+		// Update TAS-related assignments to Preempt because preemptions might be needed
+		// in resources in which total unused quota is sufficient (Fit), but the
+		// quota is fragmented.
+		assignment.updateModeForTASRequests(tasRequests, Preempt)
 	}
 }
 
