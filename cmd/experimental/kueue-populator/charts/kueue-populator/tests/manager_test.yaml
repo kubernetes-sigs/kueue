@@ -159,6 +159,22 @@ tests:
           path: data["controller_manager_config.yaml"]
           pattern: "managedJobsNamespaceSelector:\\n\\s+matchLabels:\\n\\s+team: research"
 
+  - it: should reject an unknown manager configuration input without enabling the subchart
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.confg: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)managerConfig.*confg.*not allowed"
+
+  - it: should reject an unknown manager configuration input with the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.confg: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)managerConfig.*confg.*not allowed"
+
   - it: should prefer nonempty YAML with the Kueue subchart disabled
     documentIndex: 3
     set:

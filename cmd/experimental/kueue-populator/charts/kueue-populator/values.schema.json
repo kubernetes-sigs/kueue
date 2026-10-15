@@ -8,6 +8,7 @@
       "properties": {
         "managerConfig": {
           "type": "object",
+          "additionalProperties": false,
           "description": "A nonempty controllerManagerConfigYaml takes precedence over config. Set the YAML string to an empty string to migrate to structured configuration.",
           "properties": {
             "config": {

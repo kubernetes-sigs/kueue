@@ -123,8 +123,10 @@ job webhooks:
 
 The two inputs are never merged together. Both must have the correct type when
 supplied: `controllerManagerConfigYaml` is a string and `config` is a map. Values
-schema validation checks these types during `helm lint`, `helm template`,
-installation, and upgrade. To check your values before upgrading, run
+schema validation checks these types and rejects unknown keys directly under
+`managerConfig` during `helm lint`, `helm template`, installation, and upgrade.
+Fields inside `config` are validated by Kueue when it loads the configuration.
+To check your chart values before upgrading, run
 `helm lint <chart> --values values.yaml`.
 
 For structured configuration, specify only your customizations:
@@ -153,8 +155,8 @@ is not set.
 Nonempty legacy YAML configurations require no migration. A customer-supplied
 YAML string continues to win if a wrapper chart adopts structured defaults.
 **An explicitly empty YAML string now selects structured configuration or chart
-defaults.** Previously it supplied an empty configuration. To keep an intentionally
-empty configuration instead, use the nonempty YAML string `"{}"`.
+defaults.** Previously it supplied an empty configuration, apart from injected
+certificate settings, and Kueue applied its runtime defaults.
 
 To migrate to structured configuration, copy every intentional manager
 customization into `config` and explicitly clear the legacy string in the same

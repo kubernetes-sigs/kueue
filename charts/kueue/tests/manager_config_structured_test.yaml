@@ -302,7 +302,7 @@ tests:
         template: webhook/manifests.yaml
         documentIndex: 0
 
-  - it: should allow an explicit empty YAML object as a complete replacement
+  - it: should render an empty legacy YAML object without adding configuration defaults
     template: manager/manager-config.yaml
     set:
       managerConfig.controllerManagerConfigYaml: "{}"
@@ -313,7 +313,7 @@ tests:
           pattern: "internalCertManagement:"
       - notMatchRegex:
           path: data["controller_manager_config.yaml"]
-          pattern: "clientConnection:|integrations:|leaderElection:|controller:"
+          pattern: "apiVersion:|kind:|clientConnection:|integrations:|leaderElection:|controller:"
 
   - it: should ignore optional framework webhooks for an empty legacy YAML object
     template: webhook/manifests.yaml
@@ -424,6 +424,14 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "(?s)managerConfig[/.]config.*(object|map)"
+
+  - it: should reject an unknown manager configuration input
+    template: manager/manager-config.yaml
+    set:
+      managerConfig.confg: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)managerConfig.*confg.*not allowed"
 
   - it: should reject a non-string legacy input
     template: webhook/manifests.yaml
