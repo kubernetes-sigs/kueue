@@ -762,15 +762,15 @@ minimalkueue:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(MINIMALKUEUE_RUNNER) test/performance/scheduler/minimalkueue/main.go
 
 ifdef SCALABILITY_CPU_PROFILE
-SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
+override SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
 endif
 
 ifdef SCALABILITY_MEM_PROFILE
-SCALABILITY_EXTRA_ARGS += --withMemProfile=true
+override SCALABILITY_EXTRA_ARGS += --withMemProfile=true
 endif
 
 ifndef NO_SCALABILITY_KUEUE_LOGS
-SCALABILITY_EXTRA_ARGS +=  --withLogs=true --logToFile=true
+override SCALABILITY_EXTRA_ARGS += --withLogs=true --logToFile=true
 endif
 
 SCALABILITY_SCRAPE_INTERVAL ?= 5s
