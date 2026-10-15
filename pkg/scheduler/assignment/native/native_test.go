@@ -188,21 +188,21 @@ func TestPlan(t *testing.T) {
 			wantFit:                false,
 			wantTopologyAssignment: onNode,
 		},
+		// The NoFit reason for TAS failures is not resolved by the planner
+		// itself; the scheduler resolves it after planning (see getAssignments).
 		"quota fits, topology does not fit even in an empty cluster: does not fit": {
-			quota:           "20",
-			cpu:             "7",
-			initialMode:     flavorassigner.Fit,
-			wantMode:        flavorassigner.NoFit,
-			wantFit:         false,
-			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+			quota:       "20",
+			cpu:         "7",
+			initialMode: flavorassigner.Fit,
+			wantMode:    flavorassigner.NoFit,
+			wantFit:     false,
 		},
 		"quota requires preemption, topology does not fit even in an empty cluster: does not fit": {
-			quota:           "8",
-			cpu:             "7",
-			initialMode:     flavorassigner.Preempt,
-			wantMode:        flavorassigner.NoFit,
-			wantFit:         false,
-			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+			quota:       "8",
+			cpu:         "7",
+			initialMode: flavorassigner.Preempt,
+			wantMode:    flavorassigner.NoFit,
+			wantFit:     false,
 		},
 		"quota requires preemption: fits by preempting the lower-priority workload": {
 			quota:                  "4",
