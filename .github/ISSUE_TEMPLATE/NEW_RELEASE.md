@@ -24,7 +24,7 @@ Please do not remove items from the checklist
   - Create the release tag at the tip of the release branch.
   - Push the tag upstream (triggers Prow to build and publish staging container image: `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$VERSION`).
 - [ ] Use `/wait-for-images` to await for the staging images. <!-- step:wait-for-images -->
-- [ ] Create the draft release and promote images and Helm Charts to production (the two steps below are independent and can run in parallel; there is no need to wait for `/create-draft-release` to finish before running `promote_pull.sh`):
+- [ ] Create the draft release and promote images and Helm Charts to production (the two steps below are independent and can run in parallel):
   - [ ] Run ChatOps command `/create-draft-release` on this issue. This will: <!-- step:create-draft-release -->
     - Extract the changelog from the issue description.
     - Create the draft release pointing out to the created tag.
