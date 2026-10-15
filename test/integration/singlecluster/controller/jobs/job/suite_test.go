@@ -164,7 +164,7 @@ func managerAndControllersSetup(
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 
-		if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if features.Enabled(features.ElasticJobsViaWorkloadSlices) || features.Enabled(features.ElasticJobsViaWorkloadResize) {
 			failedCtrl, err = elasticjobs.SetupWithManager(mgr, configuration, nil, customLabels)
 			gomega.Expect(err).ToNot(gomega.HaveOccurred(), "ElasticJobUngater controller", failedCtrl)
 		}

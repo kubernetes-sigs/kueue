@@ -58,7 +58,8 @@ func newPodSetReducer(podSets []kueue.PodSet, fits func([]int32) bool, distribut
 		ps := &psr.podSets[i]
 		psr.fullCounts[i] = ps.Count
 
-		d := ps.Count - ptr.Deref(ps.MinCount, ps.Count)
+		floor := min(ptr.Deref(ps.MinCount, ps.Count), ps.Count)
+		d := ps.Count - floor
 		psr.deltas[i] = d
 		psr.totalDelta += int64(d)
 	}

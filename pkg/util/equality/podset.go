@@ -30,6 +30,7 @@ type ComparePodSetsOptions struct {
 	ignoreTolerations         bool
 	ignoreTopologyRequest     bool
 	ignoreTopologyIndexLabels bool
+	ignoreCounts              bool
 }
 
 type ComparePodSetsOption func(*ComparePodSetsOptions)
@@ -49,6 +50,16 @@ func WithIgnoreTopologyRequest() ComparePodSetsOption {
 func WithIgnoreTopologyIndexLabels() ComparePodSetsOption {
 	return func(options *ComparePodSetsOptions) {
 		options.ignoreTopologyIndexLabels = true
+	}
+}
+
+// WithIgnoreCounts skips comparing the PodSet Count and MinCount. It is used for in-place
+// resize-elastic jobs (ElasticJobsViaWorkloadResize), where the executor PodSet count is owned by
+// the running driver (patched in place on the admitted Workload) rather than derived from the job
+// spec, so a count-only divergence must not be treated as the Workload being out of sync.
+func WithIgnoreCounts() ComparePodSetsOption {
+	return func(options *ComparePodSetsOptions) {
+		options.ignoreCounts = true
 	}
 }
 
@@ -131,11 +142,13 @@ func ComparePodSets(a, b *kueue.PodSet, options ...ComparePodSetsOption) bool {
 	for _, opt := range options {
 		opt(opts)
 	}
-	if a.Count != b.Count {
-		return false
-	}
-	if ptr.Deref(a.MinCount, -1) != ptr.Deref(b.MinCount, -1) {
-		return false
+	if !opts.ignoreCounts {
+		if a.Count != b.Count {
+			return false
+		}
+		if ptr.Deref(a.MinCount, -1) != ptr.Deref(b.MinCount, -1) {
+			return false
+		}
 	}
 	if !opts.ignoreTopologyRequest &&
 		(utiltas.HasTopologyConstraint(a.TopologyRequest) || utiltas.HasTopologyConstraint(b.TopologyRequest)) &&

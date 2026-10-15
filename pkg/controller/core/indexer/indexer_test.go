@@ -447,6 +447,35 @@ func TestIndexPodWorkloadSliceName(t *testing.T) {
 	}
 }
 
+func TestIndexWorkloadSliceName(t *testing.T) {
+	cases := map[string]struct {
+		obj  client.Object
+		want []string
+	}{
+		"non-Workload returns nil": {
+			obj:  testingpod.MakePod("pod", "ns").Obj(),
+			want: nil,
+		},
+		"workload with WorkloadSliceNameAnnotation": {
+			obj:  utiltestingapi.MakeWorkload("wl", "ns").Annotation(kueue.WorkloadSliceNameAnnotation, "slice-123").Obj(),
+			want: []string{"slice-123"},
+		},
+		"workload without slice annotation falls back to its own name": {
+			obj:  utiltestingapi.MakeWorkload("wl", "ns").Obj(),
+			want: []string{"wl"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := indexer.IndexWorkloadSliceName(tc.obj)
+			if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestIndexWorkloadAdmissionCheck(t *testing.T) {
 	cases := map[string]struct {
 		obj  client.Object

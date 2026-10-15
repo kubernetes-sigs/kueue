@@ -368,12 +368,15 @@ func Setup(ctx context.Context, indexer client.FieldIndexer, opts ...Option) err
 	if err := indexer.IndexField(ctx, &kueue.Workload{}, OwnerReferenceUID, IndexOwnerUID); err != nil {
 		return fmt.Errorf("setting index on ownerReferences.uid for Workload: %w", err)
 	}
-	if o.podWorkloadSliceNameIndex || features.Enabled(features.ElasticJobsViaWorkloadSlices) || features.Enabled(features.TopologyAwareScheduling) {
+	if o.podWorkloadSliceNameIndex ||
+		features.Enabled(features.ElasticJobsViaWorkloadSlices) ||
+		features.Enabled(features.TopologyAwareScheduling) ||
+		features.Enabled(features.ElasticJobsViaWorkloadResize) {
 		if err := indexer.IndexField(ctx, &corev1.Pod{}, WorkloadSliceNameKey, IndexPodWorkloadSliceName); err != nil {
 			return fmt.Errorf("setting index on workloadSliceName for Pod: %w", err)
 		}
 	}
-	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) || features.Enabled(features.ElasticJobsViaWorkloadResize) {
 		if err := indexer.IndexField(ctx, &kueue.Workload{}, WorkloadSliceNameKey, IndexWorkloadSliceName); err != nil {
 			return fmt.Errorf("setting index on workloadSliceName for Workload: %w", err)
 		}

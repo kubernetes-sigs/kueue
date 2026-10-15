@@ -87,6 +87,11 @@ const (
 	// ElasticJobAnnotation is an annotation set on the Job to indicate that it is an elastic job.
 	ElasticJobAnnotation = "kueue.x-k8s.io/elastic-job"
 
+	// ResizeElasticJobAnnotation is an annotation set on a Job to indicate that it supports
+	// in-place elastic resize (ElasticJobsViaWorkloadResize feature gate).
+	// This is separate from ElasticJobAnnotation used by ElasticJobsViaWorkloadSlices.
+	ResizeElasticJobAnnotation = "kueue.x-k8s.io/resize-elastic-job"
+
 	// ElasticJobScaleUpAnnotationKey refers to the annotation key present on Jobs that support
 	// partial scale up.
 	// This annotation is alpha-level.

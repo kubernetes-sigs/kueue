@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	apiresource "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -78,6 +79,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
+	"sigs.k8s.io/kueue/pkg/workloadresize"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -844,6 +846,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 	}
 
 	if workload.HasQuotaReservation(&wl) {
+		// For an in-place resize-elastic workload that was scaled down, converge the admitted counts
+		// to the (reduced) spec so status stays consistent and a later scale-up below the old
+		// admission is still detected by IsResizeScaleUp (and re-checked against quota).
+		if updated, err := r.reconcileResizeScaleDown(ctx, &wl); updated || err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+
 		if evictionTriggered, err := r.reconcileCheckBasedEviction(ctx, &wl); evictionTriggered || err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
@@ -1510,6 +1519,35 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 				r.queues.DeleteSecondPassWithoutLock(wlKey)
 			}
 		})
+	case workloadresize.IsScaleUp(e.ObjectNew):
+		// Resize scale-up: the desired spec count is above the admitted count. Cache usage stays at
+		// the admitted count (frees nothing); refresh the cache and (re)enqueue with the latest
+		// target so the scheduler admits the delta.
+		if !r.cache.AddOrUpdateWorkload(ctx, log, wl) {
+			log.V(2).Info("ClusterQueue for workload didn't exist; ignored for now")
+		}
+		if err := r.queues.AddOrUpdateWorkload(ctx, log, wl); err != nil {
+			log.V(2).Info("Failed to enqueue resize scale-up workload", "error", err)
+		}
+
+	case workloadresize.Enabled(e.ObjectNew):
+		// Resize converged: the scale-up case above handled the desired spec count being above the
+		// admitted count, so a resize-elastic workload reaching here has the desired spec count at or
+		// below the admitted count and must NOT stay in the scheduling queue (nothing left to admit).
+		// reconcileResizeScaleDown converges status.admission down to the desired spec count afterward.
+		refreshCache := func() {
+			r.cache.AddOrUpdateWorkload(ctx, log, wl)
+		}
+		if workloadresize.IsScaleDown(e.ObjectNew) {
+			// The reduced spec frees quota, so refresh under the queues lock and let inadmissible
+			// workloads retry with the freed capacity.
+			r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, refreshCache)
+		} else {
+			// Nothing is freed, just refresh the cache.
+			refreshCache()
+		}
+		r.queues.DeleteWorkload(log, wlKey)
+
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),
 		features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)),
 		workload.PriorityChanged(log, e.ObjectOld, e.ObjectNew):
@@ -1529,6 +1567,55 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 	r.reconcileAfsPenaltiesOnUpdate(log, e, wl, active, status, prevStatus, prevQueue)
 	r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
 	return true
+}
+
+// reconcileResizeScaleDown converges the admitted counts of an in-place resize-elastic Workload down
+// to its (reduced) spec.podSets[].count. status.admission is Kueue-owned; leaving it at the
+// pre-scale-down value would (a) make status inconsistent with the spec and (b) cause a later
+// scale-up that is still below that stale admitted count to be missed by IsResizeScaleUp, skipping
+// the quota check and over-committing the ClusterQueue.
+func (r *WorkloadReconciler) reconcileResizeScaleDown(ctx context.Context, wl *kueue.Workload) (bool, error) {
+	if !workloadresize.IsScaleDown(wl) {
+		return false, nil
+	}
+	counts := workload.ExtractPodSetCountsFromWorkload(wl)
+	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
+		changed := false
+		for i := range wl.Status.Admission.PodSetAssignments {
+			psa := &wl.Status.Admission.PodSetAssignments[i]
+			sc, ok := counts[psa.Name]
+			if !ok {
+				continue
+			}
+			admitted := ptr.Deref(psa.Count, sc)
+			if admitted > sc {
+				psa.ResourceUsage = scaleResourceUsage(psa.ResourceUsage, admitted, sc)
+				psa.Count = new(sc)
+				changed = true
+			}
+		}
+		if changed {
+			workloadresize.SetScaleDownCondition(wl, wl.Generation, "ScaleDown", "Admitted counts converged to spec", r.clock)
+		}
+		return changed, nil
+	})
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// scaleResourceUsage returns usage scaled proportionally from `from` replicas to `to` replicas.
+// Because usage == perPodRequest * from, the result equals perPodRequest * to exactly.
+func scaleResourceUsage(usage corev1.ResourceList, from, to int32) corev1.ResourceList {
+	if usage == nil || from == to || from <= 0 {
+		return usage
+	}
+	scaled := make(corev1.ResourceList, len(usage))
+	for name, q := range usage {
+		scaled[name] = *apiresource.NewMilliQuantity(q.MilliValue()*int64(to)/int64(from), q.Format)
+	}
+	return scaled
 }
 
 // reconcileAfsPenaltiesOnUpdate advances the AFS entry-penalty lifecycle against

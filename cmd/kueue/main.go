@@ -606,7 +606,7 @@ func setupControllers(
 		}
 	}
 
-	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) || features.Enabled(features.ElasticJobsViaWorkloadResize) {
 		if failedCtrl, err := elasticjobs.SetupWithManager(mgr, cfg, opts.RoleTracker, opts.CustomLabels); err != nil {
 			return fmt.Errorf("could not setup %s controller: %w", failedCtrl, err)
 		}

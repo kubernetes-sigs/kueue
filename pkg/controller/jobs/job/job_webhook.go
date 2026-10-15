@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
+	"sigs.k8s.io/kueue/pkg/workloadresize"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -61,6 +62,22 @@ var (
 // Note: This function modifies the Job's pod template in-place.
 func applyWorkloadSliceSchedulingGate(job *Job) {
 	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || !workloadslicing.Enabled(job.Object()) {
+		return
+	}
+	utilpod.GateTemplate(&job.Spec.Template, kueue.ElasticJobSchedulingGate)
+}
+
+// applyWorkloadResizeSchedulingGate ensures that the shared elastic-job
+// PodSchedulingGate is present in a resize-enabled Job's pod template. Without
+// it, raising spec.parallelism makes the Job controller create scale-up pods
+// before Kueue admits the delta quota, bypassing quota gating. The gate keeps
+// those pods unschedulable until the ElasticJobUngater removes it after the
+// delta is admitted.
+//
+// workloadresize and workloadslicing are two implementations of elastic jobs;
+// both reuse kueue.ElasticJobSchedulingGate and the ElasticJobUngater.
+func applyWorkloadResizeSchedulingGate(job *Job) {
+	if !features.Enabled(features.ElasticJobsViaWorkloadResize) || !workloadresize.Enabled(job.Object()) {
 		return
 	}
 	utilpod.GateTemplate(&job.Spec.Template, kueue.ElasticJobSchedulingGate)
@@ -121,6 +138,7 @@ func (w *JobWebhook) Default(ctx context.Context, obj *batchv1.Job) error {
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
 
 	applyWorkloadSliceSchedulingGate(job)
+	applyWorkloadResizeSchedulingGate(job)
 
 	return nil
 }
@@ -237,7 +255,8 @@ func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (f
 func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 	var allErrs field.ErrorList
 	if _, found := oldJob.Annotations[JobMinParallelismAnnotation]; found {
-		if !ptr.Deref(oldJob.Spec.Suspend, false) && ptr.Deref(oldJob.Spec.Parallelism, 1) != ptr.Deref(newJob.Spec.Parallelism, 1) {
+		resizeElastic := features.Enabled(features.ElasticJobsViaWorkloadResize) && workloadresize.Enabled(newJob.Object())
+		if !resizeElastic && !ptr.Deref(oldJob.Spec.Suspend, false) && ptr.Deref(oldJob.Spec.Parallelism, 1) != ptr.Deref(newJob.Spec.Parallelism, 1) {
 			allErrs = append(allErrs, field.Forbidden(field.NewPath("spec", "parallelism"), "cannot change when partial admission is enabled and the job is not suspended"))
 		}
 	}

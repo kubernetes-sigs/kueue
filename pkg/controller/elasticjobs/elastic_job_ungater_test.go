@@ -98,6 +98,7 @@ func makeElasticPodForPodSet(name string, podSet kueue.PodSetReference) *testing
 func TestReconcile(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForProvisioningRequests, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadResize, true)
 	now := time.Now().Truncate(time.Second)
 
 	testCases := map[string]struct {
@@ -138,6 +139,58 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Obj(),
+			},
+		},
+		"resize scale-up: partially admitted, ungates only granted count": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl", "ns").
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Annotation(constants.ResizeElasticJobAnnotation, "true").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "flavor", "2").
+								Count(2).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("pod-0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*testingpod.MakePod("pod-1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*testingpod.MakePod("pod-2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*testingpod.MakePod("pod-3", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("pod-0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Obj(),
+				*testingpod.MakePod("pod-1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Obj(),
+				*testingpod.MakePod("pod-2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
+					Obj(),
+				*testingpod.MakePod("pod-3", "ns").
+					Annotation(kueue.WorkloadAnnotation, "wl").
+					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
 			},
 		},
@@ -1246,11 +1299,21 @@ func TestProvisioningRequestFeatureGateDisabled(t *testing.T) {
 
 func TestShouldUngate(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadResize, true)
 	now := time.Now().Truncate(time.Second)
 
 	admittedElasticWorkload := func() *utiltestingapi.WorkloadWrapper {
 		return utiltestingapi.MakeWorkload("wl", "ns").
 			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+			AdmittedAt(true, now)
+	}
+
+	// A resize workload shares the ungater but opts in via the resize annotation
+	// instead of the slice annotation.
+	admittedResizeWorkload := func() *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			Annotation(constants.ResizeElasticJobAnnotation, "true").
 			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
 			AdmittedAt(true, now)
 	}
@@ -1262,6 +1325,13 @@ func TestShouldUngate(t *testing.T) {
 		"fully admitted elastic workload": {
 			workload: admittedElasticWorkload().Obj(),
 			want:     true,
+		},
+		"fully admitted resize workload": {
+			workload: admittedResizeWorkload().Obj(),
+			want:     true,
+		},
+		"finished admitted resize workload": {
+			workload: admittedResizeWorkload().FinishedAt(now).Obj(),
 		},
 		"quota reserved with pending admission check": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").

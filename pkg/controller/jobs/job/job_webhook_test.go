@@ -812,6 +812,25 @@ func TestValidateUpdate(t *testing.T) {
 			},
 		},
 		{
+			name: "mutable parallelism while unsuspended for an elastic resize job with partial admission enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(4).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				SetAnnotation(kueueconstants.ResizeElasticJobAnnotation, "true").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				Suspend(false).
+				Parallelism(5).
+				Completions(6).
+				SetAnnotation(JobMinParallelismAnnotation, "3").
+				SetAnnotation(kueueconstants.ResizeElasticJobAnnotation, "true").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadResize: true},
+		},
+		{
 			name: "mutable parallelism while suspended with partial admission enabled",
 			oldJob: testingutil.MakeJob("job", "default").
 				Parallelism(4).
@@ -1581,6 +1600,95 @@ func Test_applyWorkloadSliceSchedulingGate(t *testing.T) {
 			applyWorkloadSliceSchedulingGate(tt.args.job)
 			if diff := cmp.Diff(tt.args.job.Spec.Template.Spec.SchedulingGates, tt.want); diff != "" {
 				t.Errorf("applyWorkloadSliceSchedulingGate() got(-),want(+): %s", diff)
+			}
+		})
+	}
+}
+
+func Test_applyWorkloadResizeSchedulingGate(t *testing.T) {
+	type args struct {
+		job *Job
+	}
+	// workloadresize shares kueue.ElasticJobSchedulingGate with workloadslicing.
+	// The matrix covers combinations of:
+	//   - ElasticJobsViaWorkloadResize feature enabled: true or false
+	//   - Job opt-in via resize-elastic-job annotation: present or absent
+	tests := map[string]struct {
+		featureGates map[featuregate.Feature]bool
+		args         args
+		want         []corev1.PodSchedulingGate
+	}{
+		"FeatureDisabledAndNotOptIn": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadResize: false},
+			args:         args{job: &Job{}},
+		},
+		"FeatureDisabledAndOptIn": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadResize: false},
+			args: args{
+				job: &Job{
+					Annotations: map[string]string{
+						kueueconstants.ResizeElasticJobAnnotation: "true",
+					},
+				},
+			},
+		},
+		"FeatureEnabledButNotOptIn": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadResize: true},
+			args:         args{job: &Job{}},
+		},
+		"FeatureEnabledAndOptIn": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadResize: true},
+			args: args{
+				job: &Job{
+					Annotations: map[string]string{
+						kueueconstants.ResizeElasticJobAnnotation: "true",
+					},
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								SchedulingGates: []corev1.PodSchedulingGate{
+									// To assert that other gates are not removed as a side effect.
+									{Name: "SomeOtherGate"},
+								},
+							},
+						},
+					},
+				},
+			},
+			want: []corev1.PodSchedulingGate{
+				{Name: "SomeOtherGate"},
+				{Name: kueue.ElasticJobSchedulingGate},
+			},
+		},
+		"FeatureEnabledAndOptIn_SpecAlreadyContainsElasticJobGate": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadResize: true},
+			args: args{
+				job: &Job{
+					Annotations: map[string]string{
+						kueueconstants.ResizeElasticJobAnnotation: "true",
+					},
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								SchedulingGates: []corev1.PodSchedulingGate{
+									{Name: kueue.ElasticJobSchedulingGate},
+								},
+							},
+						},
+					},
+				},
+			},
+			want: []corev1.PodSchedulingGate{
+				{Name: kueue.ElasticJobSchedulingGate},
+			},
+		},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tt.featureGates)
+			applyWorkloadResizeSchedulingGate(tt.args.job)
+			if diff := cmp.Diff(tt.args.job.Spec.Template.Spec.SchedulingGates, tt.want); diff != "" {
+				t.Errorf("applyWorkloadResizeSchedulingGate() got(-),want(+): %s", diff)
 			}
 		})
 	}

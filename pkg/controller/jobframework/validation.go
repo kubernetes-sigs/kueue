@@ -60,6 +60,7 @@ var (
 	prebuiltWorkloadAnnotationPath          = annotationsPath.Key(constants.PrebuiltWorkloadAnnotation)
 	elasticJobAnnotationPath                = annotationsPath.Key(workloadslicing.EnabledAnnotationKey)
 	elasticJobScaleUpStrategyAnnotationPath = annotationsPath.Key(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey)
+	resizeElasticJobAnnotationPath          = annotationsPath.Key(kueueconstants.ResizeElasticJobAnnotation)
 	waitForPodsReadyAnnotationPath          = annotationsPath.Key(constants.WaitForPodsReadyAnnotation)
 	supportedElasticJobScaleUpStrategies    = sets.New(kueueconstants.ElasticJobScaleUpStrategyAtomic, kueueconstants.ElasticJobScaleUpStrategyPartial)
 	supportedElasticJobGVKs                 = sets.New(
@@ -91,6 +92,7 @@ func ValidateJobOnCreate(job GenericJob, maxTimeoutOnWorkload *metav1.Duration) 
 	allErrs = append(allErrs, validateCreateForPrebuiltWorkload(job)...)
 	allErrs = append(allErrs, validateCreateForMaxExecTime(job)...)
 	allErrs = append(allErrs, ValidateElasticJobAnnotation(job.Object(), job.GVK())...)
+	allErrs = append(allErrs, validateElasticAnnotationMutualExclusion(job.Object())...)
 	allErrs = append(allErrs, ValidateWaitForPodsReadyAnnotation(job.Object(), maxTimeoutOnWorkload)...)
 
 	if features.Enabled(features.AdmissionGatedBy) {
@@ -118,12 +120,34 @@ func ValidateJobOnUpdate(oldJob, newJob GenericJob, defaultQueueExist func(strin
 	allErrs = append(allErrs, validateUpdateForMaxExecTime(oldJob, newJob)...)
 	allErrs = append(allErrs, validateJobUpdateForWorkloadPriorityClassName(oldJob, newJob)...)
 	allErrs = append(allErrs, validatedUpdateForEnabledWorkloadSlice(oldJob, newJob)...)
+	allErrs = append(allErrs, validateElasticAnnotationMutualExclusion(newJob.Object())...)
 	allErrs = append(allErrs, ValidateWaitForPodsReadyAnnotationOnUpdate(oldJob.Object(), newJob.Object(), maxTimeoutOnWorkload)...)
 	if features.Enabled(features.AdmissionGatedBy) {
 		allErrs = append(allErrs, webhook.ValidateAdmissionGatedByAnnotationOnUpdate(oldJob.Object(), newJob.Object())...)
 	}
 
 	return allErrs
+}
+
+// validateElasticAnnotationMutualExclusion rejects jobs that set both
+// kueue.x-k8s.io/elastic-job and kueue.x-k8s.io/resize-elastic-job simultaneously.
+// The two mechanisms are mutually exclusive: elastic-job creates new Workload slices
+// on replica changes, while resize-elastic-job updates the existing admitted Workload
+// in-place; combining them leads to undefined behavior.
+func validateElasticAnnotationMutualExclusion(obj client.Object) field.ErrorList {
+	annotations := obj.GetAnnotations()
+	if annotations[workloadslicing.EnabledAnnotationKey] == workloadslicing.EnabledAnnotationValue &&
+		annotations[kueueconstants.ResizeElasticJobAnnotation] == "true" {
+		return field.ErrorList{
+			field.Invalid(
+				resizeElasticJobAnnotationPath,
+				"true",
+				fmt.Sprintf("%q and %q cannot both be set; they are mutually exclusive elastic-job mechanisms",
+					workloadslicing.EnabledAnnotationKey, kueueconstants.ResizeElasticJobAnnotation),
+			),
+		}
+	}
+	return nil
 }
 
 func validateCreateForPrebuiltWorkload(job GenericJob) field.ErrorList {

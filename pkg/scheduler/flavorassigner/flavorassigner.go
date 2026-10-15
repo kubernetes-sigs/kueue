@@ -720,8 +720,10 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 		var flavorNoFitReason string
 
 		requests.ForEach(func(rName corev1.ResourceName, val resources.Amount) {
-			// Ensure the same resource flavor is used for the workload slice as in the original admitted slice.
-			if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.replaceWorkloadSlice != nil {
+			// Ensure the same resource flavor is used for the elastic replacement baseline (workload slicing's old
+			// slice, or the in-place resize self-baseline) as in the currently admitted slice, and request only
+			// the delta needed on top of it.
+			if (features.Enabled(features.ElasticJobsViaWorkloadSlices) || features.Enabled(features.ElasticJobsViaWorkloadResize)) && a.replaceWorkloadSlice != nil {
 				for _, psID := range psIDs {
 					// The replaced slice's requests come from its admission, which is in group order.
 					preemptWorkloadRequests := podSetResourcesByName(a.replaceWorkloadSlice.TotalRequests, a.wl.Obj.Spec.PodSets[psID].Name)

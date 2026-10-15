@@ -53,6 +53,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	"sigs.k8s.io/kueue/pkg/workloadresize"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -338,7 +339,7 @@ func (r *elasticJobUngater) Update(e event.TypedUpdateEvent[*kueue.Workload]) bo
 }
 
 func shouldUngate(wl *kueue.Workload) bool {
-	return workloadslicing.IsElasticWorkload(wl) &&
+	return (workloadslicing.IsElasticWorkload(wl) || workloadresize.Enabled(wl)) &&
 		!workloadfinish.IsFinished(wl) &&
 		workload.IsAdmitted(wl)
 }

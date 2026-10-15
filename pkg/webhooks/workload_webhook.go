@@ -41,6 +41,7 @@ import (
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadresize"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -126,6 +127,17 @@ func ValidateWorkload(obj, oldObj *kueue.Workload) field.ErrorList {
 		allErrs = append(allErrs, validatePodSetOverhead(ps, oldPS, psPath.Child("template", "spec", "overhead"))...)
 		if ps.MinCount != nil {
 			variableCountPodSets++
+			if *ps.MinCount > ps.Count {
+				allErrs = append(allErrs, field.Invalid(psPath.Child("minCount"), *ps.MinCount, fmt.Sprintf("must not be greater than count (%d)", ps.Count)))
+			}
+		}
+		// In-place resize does not support topology-aware scheduling: ScaledTo cannot rescale a
+		// topology assignment, so a resize scale-up would compute a zero delta and never progress.
+		// Reject the combination at the PodSet level (TAS and resize can still be used separately).
+		// TODO: TAS is temporarily unsupported with workloadresize (ElasticJobsViaWorkloadResize)
+		if workloadresize.Enabled(obj) && ps.TopologyRequest != nil {
+			allErrs = append(allErrs, field.Invalid(psPath.Child("topologyRequest"), ps.TopologyRequest,
+				"topology-aware scheduling is not supported for an elastic (resize) workload"))
 		}
 	}
 
@@ -400,13 +412,16 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	statusPath := field.NewPath("status")
 	allErrs = append(allErrs, ValidateWorkload(newObj, oldObj)...)
 
+	// Both old and new Workloads must be resize-elastic to allow PodSet count changes.
+	// This prevents a non-elastic admitted Workload from becoming elastic via annotation update.
+	resizeElastic := workloadresize.Enabled(oldObj) && workloadresize.Enabled(newObj)
 	if workload.HasQuotaReservation(oldObj) {
-		allErrs = append(allErrs, validateImmutablePodSets(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"))...)
+		allErrs = append(allErrs, validateImmutablePodSets(newObj.Spec.PodSets, oldObj.Spec.PodSets, specPath.Child("podSets"), resizeElastic)...)
 	}
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
 	}
-	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"))...)
+	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"), resizeElastic)...)
 	allErrs = append(allErrs, validateImmutablePodSetUpdates(newObj, oldObj, statusPath.Child("admissionChecks"))...)
 	allErrs = append(allErrs, validateClusterNameUpdate(newObj, oldObj, statusPath)...)
 
@@ -419,7 +434,7 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 
 // validateAdmissionUpdate validates that admission can be set or unset, but the
 // fields within can't change.
-func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.ErrorList {
+func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path, resizeElastic bool) field.ErrorList {
 	if old == nil || new == nil {
 		return nil
 	}
@@ -431,6 +446,14 @@ func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.
 		for i := range new.PodSetAssignments {
 			old.PodSetAssignments[i].TopologyAssignment = new.PodSetAssignments[i].TopologyAssignment
 			old.PodSetAssignments[i].DelayedTopologyRequest = new.PodSetAssignments[i].DelayedTopologyRequest
+		}
+	}
+	if resizeElastic && len(new.PodSetAssignments) == len(old.PodSetAssignments) {
+		// Allow Kueue to resize the admitted counts (and the proportional resource usage) of an
+		// already-admitted resize-elastic Workload in place. ClusterQueue and Flavors stay immutable.
+		for i := range new.PodSetAssignments {
+			old.PodSetAssignments[i].Count = new.PodSetAssignments[i].Count
+			old.PodSetAssignments[i].ResourceUsage = new.PodSetAssignments[i].ResourceUsage
 		}
 	}
 	return apivalidation.ValidateImmutableField(new, old, path)
@@ -499,22 +522,27 @@ func scaledDownPodSetNames(wl *kueue.Workload) sets.Set[kueue.PodSetReference] {
 }
 
 // validateImmutablePodSet helper to validate PodSet immutability on all fields but PodSet.Count.
-func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path) field.ErrorList {
+// resizeElastic indicates the Workload opted into in-place resize (gate enabled and the elastic-job
+// annotation set); only such Workloads may mutate PodSet.Count.
+func validateImmutablePodSet(new, old kueue.PodSet, path *field.Path, resizeElastic bool) field.ErrorList {
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && new.Count < old.Count {
 		// Allow scale-down for elastic jobs.
+		new.Count = old.Count
+	}
+	if resizeElastic {
 		new.Count = old.Count
 	}
 	return apivalidation.ValidateImmutableField(new, old, path)
 }
 
 // validateImmutablePodSets helper to validate PodSet lists for immutability on all fields but PodSet.Count.
-func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path) field.ErrorList {
+func validateImmutablePodSets(new, old []kueue.PodSet, path *field.Path, resizeElastic bool) field.ErrorList {
 	if len(new) != len(old) {
 		return field.ErrorList{field.Invalid(path, new, apivalidation.FieldImmutableErrorMsg)}
 	}
 	allErrs := make(field.ErrorList, 0, len(new))
 	for i := range new {
-		if errs := validateImmutablePodSet(new[i], old[i], path.Child(strconv.Itoa(i))); len(errs) > 0 {
+		if errs := validateImmutablePodSet(new[i], old[i], path.Child(strconv.Itoa(i)), resizeElastic); len(errs) > 0 {
 			allErrs = append(allErrs, errs...)
 		}
 	}

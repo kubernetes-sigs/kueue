@@ -484,6 +484,15 @@ func TestPatchAdmissionStatus(t *testing.T) {
 		Message:            "By test",
 	}
 
+	scaleDownCond := metav1.Condition{
+		Type:               kueue.WorkloadScaleDown,
+		Status:             metav1.ConditionTrue,
+		ObservedGeneration: 1,
+		LastTransitionTime: metav1.NewTime(now),
+		Reason:             "By test",
+		Message:            "By test",
+	}
+
 	type args struct {
 		wl     *kueue.Workload
 		update func(wl *kueue.Workload) (bool, error)
@@ -532,6 +541,18 @@ func TestPatchAdmissionStatus(t *testing.T) {
 			},
 			want: want{
 				wl: baseWl.Clone().ResourceVersion("3").Obj(),
+			},
+		},
+		"update returns true with ScaleDown condition": {
+			args: args{
+				wl: baseWl.DeepCopy(),
+				update: func(wl *kueue.Workload) (bool, error) {
+					apimeta.SetStatusCondition(&wl.Status.Conditions, scaleDownCond)
+					return true, nil
+				},
+			},
+			want: want{
+				wl: baseWl.Clone().ResourceVersion("3").Condition(scaleDownCond).Obj(),
 			},
 		},
 		"update returns true with conflict error": {

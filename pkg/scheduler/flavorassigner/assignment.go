@@ -340,7 +340,7 @@ func (a *Assignment) append(psIdx int, requests resources.Requests, psAssignment
 		if requests != nil {
 			requestAmount = requests.ResourceValue(resource)
 		}
-		if features.Enabled(features.ElasticJobsViaWorkloadSlices) && a.replaceWorkloadSlice != nil {
+		if (features.Enabled(features.ElasticJobsViaWorkloadSlices) || features.Enabled(features.ElasticJobsViaWorkloadResize)) && a.replaceWorkloadSlice != nil {
 			oldRequest := a.findOldPodSetRequest(psAssignment.Name, resource)
 			requestAmount = requestAmount.Sub(oldRequest)
 		}

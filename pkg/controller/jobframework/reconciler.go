@@ -74,6 +74,7 @@ import (
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
+	"sigs.k8s.io/kueue/pkg/workloadresize"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -731,6 +732,19 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			log.Error(err, "Suspending job with non admitted workload")
 		}
 		return ctrl.Result{}, err
+	}
+
+	// 9. For resize-elastic jobs, reconcile the workload's podSet counts to match the
+	// current job spec. WithIgnoreCounts() prevents the reconciler from deleting/recreating
+	// the workload when counts diverge; this step actively syncs the count in-place.
+	if workloadresize.Enabled(job.Object()) {
+		updated, err := r.reconcileWorkloadResize(ctx, job, wl)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if updated {
+			return ctrl.Result{}, nil
+		}
 	}
 
 	// Workload is admitted and job is running, nothing to do. For elastic jobs,
@@ -1744,7 +1758,7 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	}
 	jobPodSets := clearUnusableMinCounts(getPodSets, wl)
 
-	opts := make([]equality.ComparePodSetsOption, 0, 3)
+	opts := make([]equality.ComparePodSetsOption, 0, 4)
 	if workload.IsAdmitted(wl) {
 		opts = append(opts, equality.WithIgnoreTolerations())
 	}
@@ -1753,6 +1767,11 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	}
 	if optJob, ok := job.(JobWithCustomEquivalenceOptions); ok {
 		opts = append(opts, optJob.CustomEquivalenceOptions(ctx, c, wl)...)
+	}
+	// For resize-elastic jobs the driver owns the PodSet counts in-place; ignore
+	// count-only divergence so the reconciler does not delete/recreate the resized Workload.
+	if workloadresize.Enabled(wl) {
+		opts = append(opts, equality.WithIgnoreCounts())
 	}
 
 	if runningPodSets := expectedRunningPodSets(ctx, c, wl); runningPodSets != nil {
@@ -1767,6 +1786,67 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	}
 
 	return equality.ComparePodSetSlices(jobPodSets, wl.Spec.PodSets, opts...), nil
+}
+
+// reconcileWorkloadResize detects when the job's podSet counts differ from the
+// workload's spec.podSets[].count and patches the workload in-place. It is
+// called only for resize-elastic jobs (workloadresize.Enabled returns true).
+// WithIgnoreCounts() in equivalence checks prevents the reconciler from
+// deleting/recreating the workload when counts diverge; this function is the
+// complementary active sync that keeps the workload count in step with the job.
+// Returns (true, nil) when a patch was issued so the caller can return early
+// and wait for the next reconcile with the updated workload.
+func (r *JobReconciler) reconcileWorkloadResize(ctx context.Context, job GenericJob, wl *kueue.Workload) (bool, error) {
+	if !workload.IsAdmitted(wl) {
+		return false, nil
+	}
+
+	jobPodSets, err := job.PodSets(ctx, r.client)
+	if err != nil {
+		return false, fmt.Errorf("getting job podSets for workload resize: %w", err)
+	}
+
+	jobCounts := make(map[kueue.PodSetReference]int32, len(jobPodSets))
+	for i := range jobPodSets {
+		jobCounts[jobPodSets[i].Name] = jobPodSets[i].Count
+	}
+
+	// Check whether any workload podSet count differs from the job.
+	needsUpdate := false
+	for i := range wl.Spec.PodSets {
+		if jobCount, ok := jobCounts[wl.Spec.PodSets[i].Name]; ok {
+			if wl.Spec.PodSets[i].Count != jobCount {
+				needsUpdate = true
+				break
+			}
+		}
+	}
+	if !needsUpdate {
+		return false, nil
+	}
+
+	log := ctrl.LoggerFrom(ctx)
+	log.V(3).Info("Updating workload podSet counts for resize-elastic job",
+		"workload", klog.KObj(wl))
+
+	if err := clientutil.Patch(ctx, r.client, wl, func() (bool, error) {
+		changed := false
+		for i := range wl.Spec.PodSets {
+			if jobCount, ok := jobCounts[wl.Spec.PodSets[i].Name]; ok {
+				if wl.Spec.PodSets[i].Count != jobCount {
+					wl.Spec.PodSets[i].Count = jobCount
+					changed = true
+				}
+			}
+		}
+		return changed, nil
+	}); err != nil {
+		return false, fmt.Errorf("patching workload podSet counts: %w", err)
+	}
+
+	r.record.Eventf(job.Object(), nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, "UpdatedWorkload",
+		"Updated PodSet counts for resize-elastic job: %v", klog.KObj(wl))
+	return true, nil
 }
 
 func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) (*kueue.Workload, error) {
@@ -2121,6 +2201,14 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 		return err
 	}
 
+	// Propagate resize-elastic annotation from job to workload so the reconciler and
+	// scheduler can identify resize workloads via the workload object directly.
+	// This must run before clearUnusableMinCounts for the same reason as workload
+	// slice annotation propagation below.
+	if workloadresize.Enabled(job.Object()) {
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, constants.ResizeElasticJobAnnotation, "true")
+	}
+
 	// Elastic jobs only get their elastic annotation in prepareWorkloadSlice, so it must run before
 	// clearUnusableMinCounts: MinCountsUsable recognizes elastic workloads by that annotation and
 	// would otherwise drop the minCounts of elastic partial scale-up workloads before the annotation
@@ -2196,7 +2284,7 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 			features.Enabled(features.SchedulerLibraryIntegration) {
 			info.Annotations[kueue.WorkloadAnnotation] = w.Name
 		}
-		if workloadslicing.IsElasticWorkload(w) {
+		if workloadslicing.IsElasticWorkload(w) || workloadresize.Enabled(w) {
 			info.Annotations[kueue.WorkloadSliceNameAnnotation] = workloadslicing.SliceName(w)
 		}
 

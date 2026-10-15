@@ -68,6 +68,7 @@ import (
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
+	"sigs.k8s.io/kueue/pkg/workloadresize"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -434,6 +435,10 @@ func (s *Scheduler) requeueHeadsAfterSnapshotError(ctx context.Context, heads []
 func (s *Scheduler) finishEntry(ctx context.Context, log logr.Logger, e *entry) bool {
 	logAdmissionAttemptIfVerbose(log, e)
 	if e.status == assumed || e.status == evicted {
+		// Release the inflight claim so a scale-up workload is not left stuck inflight.
+		if e.status == assumed && workloadresize.IsScaleUp(e.Obj) {
+			s.queues.ForgetInflight(e.ClusterQueue, workload.Key(e.Obj))
+		}
 		return true
 	}
 	s.requeueAndUpdate(ctx, *e)
@@ -676,16 +681,22 @@ func (s *Scheduler) waitForPodsReadyIfNeeded(ctx context.Context, log logr.Logge
 		return
 	}
 	log.V(5).Info("Waiting for all admitted workloads to be in the PodsReady condition")
-	wl := e.Obj.DeepCopy()
-	if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
-		reason := workload.UnadmittedWorkloadReasonWithFallback(
-			kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
-			//nolint:staticcheck // SA1019: intentional deprecated fallback
-			kueue.WorkloadWaiting,
-		)
-		return workload.UnsetQuotaReservationWithCondition(wl, reason, "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
-	}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
-		log.Error(err, "Could not update Workload status")
+	if !workloadresize.IsScaleUp(e.Obj) {
+		// A resize scale-up is already admitted at its current count; only the delta is pending,
+		// so do NOT unset its existing quota reservation. We still block below (WaitForPodsReady)
+		// like any other workload, then admit the delta once pods are ready — keeping the current
+		// admission intact the whole time.
+		wl := e.Obj.DeepCopy()
+		if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
+			reason := workload.UnadmittedWorkloadReasonWithFallback(
+				kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
+				//nolint:staticcheck // SA1019: intentional deprecated fallback
+				kueue.WorkloadWaiting,
+			)
+			return workload.UnsetQuotaReservationWithCondition(wl, reason, "waiting for all admitted workloads to be in PodsReady condition", s.clock.Now()), nil
+		}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict()); err != nil {
+			log.Error(err, "Could not update Workload status")
+		}
 	}
 	s.cache.WaitForPodsReady(ctx)
 	log.V(5).Info("Finished waiting for all admitted workloads to be in the PodsReady condition")
@@ -809,7 +820,7 @@ func (s *Scheduler) nominate(ctx context.Context, heads []qcache.Head, snap *sch
 // workload is neither requeued nor deleted, so nothing else would release its
 // inflight claim.
 func (s *Scheduler) dropIfAlreadyAccounted(log logr.Logger, h qcache.Head) bool {
-	if workload.NeedsSecondPass(h.Obj) || !s.cache.IsAdded(h.Info) {
+	if workload.NeedsSecondPass(h.Obj) || !s.cache.IsAdded(h.Info) || workloadresize.IsScaleUp(h.Obj) {
 		return false
 	}
 	log.Info("Workload skipped from admission because it's already accounted in cache, and it does not need second pass", "workload", klog.KObj(h.Obj))
@@ -823,6 +834,24 @@ func (s *Scheduler) dropIfAlreadyAccounted(log logr.Logger, h qcache.Head) bool 
 // in the entry's inadmissibleMsg and is requeued by the cycle.
 func (s *Scheduler) nominateWorkload(ctx context.Context, log logr.Logger, h qcache.Head, snap *schdcache.Snapshot) (entry, bool) {
 	e := entry{Head: h}
+	// Resize scale-up: evaluate the workload at its desired (spec) size rather than the
+	// currently admitted size, so the flavor assigner can compute and admit the delta. Reuse
+	// h.Info (which already has resource-transformation / DRA / excluded-prefix options applied
+	// by the queue manager) and only re-scale TotalRequests to the spec counts — rebuilding
+	// Info from scratch would drop those options.
+	if workloadresize.IsScaleUp(h.Obj) {
+		specCounts := workload.ExtractPodSetCountsFromWorkload(h.Obj)
+		scaled := make([]workload.PodSetResources, len(e.TotalRequests))
+		for i := range e.TotalRequests {
+			ps := e.TotalRequests[i].ScaledTo(specCounts[e.TotalRequests[i].Name])
+			// Clear the admitted flavor assignment so the flavor assigner evaluates the delta
+			// fresh (as for a pending workload); flavor stickiness is still enforced via the
+			// self-baseline oldSlice in getAssignments.
+			ps.Flavors = nil
+			scaled[i] = *ps
+		}
+		e.TotalRequests = scaled
+	}
 	e.clusterQueueSnapshot = snap.ClusterQueue(h.ClusterQueue)
 	if workload.HasRetryChecks(h.Obj) || workload.HasRejectedChecks(h.Obj) {
 		e.inadmissibleMsg = "The workload has failed admission checks"
@@ -942,13 +971,18 @@ func resourcesToReserve(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSna
 	return netUsage(log, e, quotaResourcesToReserve(e, cq))
 }
 
-// netUsage calculates the net usage for quota and TAS to reserve
+// netUsage calculates the net usage for quota and TAS to reserve/consume.
 func netUsage(log logr.Logger, e *entry, netQuota resources.FlavorResourceQuantities) workload.Usage {
 	result := workload.Usage{}
 	if features.Enabled(features.TopologyAwareScheduling) {
 		result.TAS = e.assignment.ComputeTASNetUsage(log, e.clusterQueueSnapshot, &e.Info, e.Obj.Status.Admission)
 	}
-	if !workload.HasQuotaReservation(e.Obj) {
+	// A not-yet-admitted workload consumes/reserves its full assigned quota. A resize scale-up already
+	// holds a quota reservation but still consumes new quota for the delta (target - admitted) it is
+	// acquiring — the assignment usage here is exactly that delta (computed via the self-baseline in
+	// getAssignments) — so it must be counted too (both for the in-cycle snapshot usage and for
+	// reservation).
+	if !workload.HasQuotaReservation(e.Obj) || workloadresize.IsScaleUp(e.Obj) {
 		result.Quota.Assigned = netQuota
 	}
 	return result
@@ -1046,8 +1080,18 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 		if !workload.NeedsSecondPass(e.Obj) || apierrors.IsNotFound(err) {
 			// Ignore errors because the workload or clusterQueue could have been deleted
 			// by an event.
-			_ = s.cache.DeleteWorkload(log, workload.Key(cacheWl))
-			s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
+			if workloadresize.IsScaleUp(e.Obj) && !apierrors.IsNotFound(err) {
+				// Failed to persist a resize scale-up. The API object still holds its pre-scale-up
+				// admission, so restore that in the cache instead of deleting the entry: assumeWorkload
+				// replaced the cached entry with the larger target count, and deleting it would
+				// under-count the quota that is still actually consumed.
+				if !s.cache.AddOrUpdateWorkload(ctx, log, e.Obj.DeepCopy(), workload.WithEffectivePodSpecs(e.EffectivePodSpecs)) {
+					log.V(2).Info("Failed to restore resize workload admission in cache after failed admission")
+				}
+			} else {
+				_ = s.cache.DeleteWorkload(log, workload.Key(cacheWl))
+				s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
+			}
 		} else {
 			// The workload still holds its reservation, so put back the version this pass read; this is skipped if an event already replaced or removed the entry.
 			s.cache.UpdateWorkloadIfUnchanged(ctx, log, e.Obj.DeepCopy(), workload.WithEffectivePodSpecs(e.EffectivePodSpecs))
@@ -1267,7 +1311,9 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 		wl := e.Obj.DeepCopy()
 		condReason := workload.UnadmittedWorkloadReasonWithFallback(e.quotaReservedReason, "Pending")
 		if err := workloadpatching.PatchAdmissionStatus(ctx, s.client, wl, s.clock, func(wl *kueue.Workload) (bool, error) {
-			updated := workload.UnsetQuotaReservationWithCondition(wl, condReason, e.inadmissibleMsg, s.clock.Now())
+			// A resize scale-up already holds a quota reservation for its current pod count;
+			// do NOT unset it here — doing so would abandon the running workload's reservation.
+			updated := !workloadresize.IsScaleUp(wl) && workload.UnsetQuotaReservationWithCondition(wl, condReason, e.inadmissibleMsg, s.clock.Now())
 			if workload.PropagateResourceRequests(wl, &e.Info, s.resourceFormatter) {
 				updated = true
 			}
@@ -1559,6 +1605,11 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	}
 
 	slicePreemptTargets, replaceableWorkloadSlice := workloadslicing.ReplacedWorkloadSlice(wl, snap)
+
+	if replaceableWorkloadSlice == nil && workloadresize.IsScaleUp(wl.Obj) {
+		replaceableWorkloadSlice = cq.Workloads[workload.Key(wl.Obj)]
+	}
+
 	flvAssigner := flavorassigner.New(
 		wl, cq, snap.ResourceFlavors, fairsharing.Enabled(s.fairSharing), preemption.NewOracle(s.preemptor, snap),
 		replaceableWorkloadSlice, s.quotaCheckStrategy, s.resourceFormatter, s.schedulingCycle,
@@ -1586,8 +1637,9 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 			}
 			return false
 		}
-		// Only an admitted predecessor can already be running these PodSets. A predecessor
-		// that only holds quota may still be waiting for admission checks and needs the baseline back.
+		// Only an admitted predecessor (slice) or an admitted workload being resized can already be
+		// running these PodSets. One that only holds quota may still be waiting for admission checks
+		// and needs the baseline back.
 		mustGrow := replaceableWorkloadSlice != nil && workload.IsAdmitted(replaceableWorkloadSlice.Obj)
 		reducer := flavorassigner.NewOrderedPodSetReducer(effectiveReducerPodSets(wl.Obj.Spec.PodSets, replaceableWorkloadSlice, mustGrow), fitsFn)
 		if _, found := reducer.Reduce(mustGrow); found {

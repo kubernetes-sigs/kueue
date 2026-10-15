@@ -1041,6 +1041,10 @@ const (
 	// This condition is temporary, so it should be removed after deactivation.
 	WorkloadDeactivationTarget = "DeactivationTarget"
 
+	// WorkloadScaleDown means that the Workload is scaling down its admitted pod counts
+	// to match the counts requested in spec.podSets.
+	WorkloadScaleDown = "ScaleDown"
+
 	// WorkloadWaitingForReplacementPods means that Kueue doesn't observe all
 	// the Pods declared for the group.
 	WorkloadWaitingForReplacementPods = "WaitingForReplacementPods"
