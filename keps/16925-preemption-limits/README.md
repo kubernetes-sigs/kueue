@@ -75,6 +75,18 @@ updates.
 [documentation style guide]: https://github.com/kubernetes/community/blob/master/contributors/guide/style-guide.md
 -->
 
+This KEP introduces **Preemption Limits** in Kueue through a new cluster-scoped `PreemptionLimit` Custom Resource Definition (CRD).
+While declarative preemption systems (such as Configurable Preemptions via `PreemptionConfig`, introduced in [KEP-13396](/keps/13396-configurable-preemptions/README.md)) allow expressive candidate selection policies, cluster administrators need rate-limiting guardrails to safely roll out new configurations, control the blast radius of misconfigurations, avoid cascading evictions, and protect workloads and queues from disruptive eviction storms.
+
+`PreemptionLimit` allows administrators to configure sliding-window rate limits across multiple scopes:
+- **Global**: Limits the total number of preemption events across the entire cluster within the sliding window.
+- **PreemptorClusterQueue**: Restricts the preemption rate triggered by workloads originating from specific ClusterQueues.
+- **PreemptedClusterQueue**: Constrains the eviction rate targeting workloads running in specific ClusterQueues, including blocking preemptions entirely (`limit: 0`) to protect mission-critical "hero" queues.
+- **PreemptedWorkload**: Limits how frequently an individual workload can be preempted within the window to prevent workload bullying and eviction thrashing loops.
+
+Limits can target only specific subset of preemptions using label selectors (`configSelector` and `clusterQueueSelector`)
+In Alpha, this capability is introduced specifically for Configurable Preemptions under the `ConfigurablePreemptionLimits` feature gate, with possible extensions to classical and fair-sharing preemption in future iterations.
+
 ## Motivation
 
 While `PreemptionConfig` provides declarative candidate selection policies, cluster administrators also need rate-limiting guardrails to rollout new configurations safely, prevent cascading preemptions, eviction storms, and cluster instability during large-scale rescheduling.
