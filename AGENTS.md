@@ -33,6 +33,29 @@ Kueue Development
 
 This is a deliberately trivial marker. If it ever stops appearing, instruction-following is likely degrading (e.g. context rot) — treat the last couple of responses with suspicion, start a fresh session, and re-inject only the essential context before continuing.
 
+## Contribution Workflow
+
+1. Use the required `Kueue Development` canary to acknowledge that you are
+   contributing to Kueue.
+2. Search this repository's open and closed PRs for the same issue or objective
+   before implementing a change, and repeat the search before opening a PR.
+   If a same-purpose PR exists, report it to the developer and avoid duplicate
+   implementation or submission unless the developer explicitly requests a
+   separate follow-up.
+3. Before implementation, establish the following from the request and existing
+   context. Ask the developer for missing information and wait for answers before
+   proceeding with work that depends on it:
+   - The issue or objective, expected behavior, and acceptance criteria.
+   - The components that may change and the APIs, configuration settings, and
+     data formats that must remain compatible.
+   - The required build checks, tests, and real-environment validations.
+4. Run the relevant local checks before finalizing changes. Report the commands
+   and results, and explicitly identify any required validation that was not run.
+5. Keep PR titles, descriptions, and commit messages in English. Use the existing
+   PR template to explain the contribution to Kueue, summarize the behavior
+   change and validation, and reference the relevant issue when one exists.
+   Follow the PR and issue workflow skill linked below for submission details.
+
 ## AI Contribution Policy
 
 Kueue follows the [Kubernetes AI Tool Usage Policy](https://www.kubernetes.dev/docs/guide/pull-requests/#ai-guidance). Key rules:
