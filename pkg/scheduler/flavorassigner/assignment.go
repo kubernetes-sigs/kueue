@@ -387,10 +387,13 @@ func (a *Assignment) ResolveNoFitReason(cq *schdcache.ClusterQueueSnapshot) {
 		podSetReason := ps.Status.noFitReason
 
 		for i, att := range ps.FlavorAssignmentAttempts {
-			if att.Mode != NoFit {
-				continue
-			}
 			r := att.NoFitReason
+			if att.Mode != NoFit {
+				// If the flavor is not a no fit, that means it succeeded its initial check
+				// and is considered failed by virtue of whatever mechanism
+				// marked the while PodSet as failed.
+				r = podSetReason
+			}
 			rgIndices := findRGIndicesByFlavor(cq, att.Flavor)
 			if len(rgIndices) == 0 {
 				// Special case: flavor not found in any group (e.g. deleted).
@@ -425,6 +428,11 @@ func NewStatus(reasons ...string) *Status {
 	return &Status{
 		reasons: reasons,
 	}
+}
+
+func (s *Status) WithNoFitReason(reason string) *Status {
+	s.noFitReason = reason
+	return s
 }
 
 func (s *Status) IsFit() bool {
@@ -502,16 +510,6 @@ func (psa *PodSetAssignment) updateMode(newMode FlavorAssignmentMode) {
 func (psa *PodSetAssignment) demoteTo(targetMode FlavorAssignmentMode) {
 	for _, flvAssignment := range psa.Flavors {
 		flvAssignment.Mode = min(flvAssignment.Mode, targetMode)
-	}
-}
-
-func (psa *PodSetAssignment) markFlavorAttempt(flavor kueue.ResourceFlavorReference, mode FlavorAssignmentMode, reason string) {
-	for i := range psa.FlavorAssignmentAttempts {
-		if psa.FlavorAssignmentAttempts[i].Flavor == flavor {
-			psa.FlavorAssignmentAttempts[i].Mode = mode
-			psa.FlavorAssignmentAttempts[i].NoFitReason = reason
-			break
-		}
 	}
 }
 

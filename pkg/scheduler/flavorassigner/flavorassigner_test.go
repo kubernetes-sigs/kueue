@@ -8781,8 +8781,9 @@ func TestAssignTopology(t *testing.T) {
 			Flavors: ResourceAssignment{
 				corev1.ResourceCPU: &FlavorAssignment{Name: "flavor-1", Mode: mode},
 			},
-			// Pre-seeded because markFlavorAttempt only updates an attempt that already
-			// exists; it never appends one.
+			// Pre-seeded with the attempt the quota pass would have recorded. AssignTopology
+			// leaves attempts untouched, so ResolveNoFitReason has to derive the reason of a
+			// topology failure from the pod set Status rather than from this attempt.
 			FlavorAssignmentAttempts: []FlavorAssignmentAttempt{{Flavor: "flavor-1", Mode: mode}},
 		}
 		if mode != Fit {
@@ -8863,8 +8864,9 @@ func TestAssignTopology(t *testing.T) {
 		// assignment that carries a plan can later be invalidated mid-cycle, which is
 		// what the in-cycle recomputation is triggered by.
 		wantPlan bool
-		// wantAttemptReason, when non-empty, is the NoFitReason expected on the flavor-1 attempt.
-		wantAttemptReason string
+		// wantNoFitReason, when non-empty, is the NoFitReason expected both on the pod set
+		// Status and on the Assignment once ResolveNoFitReason has run.
+		wantNoFitReason string
 		// wantStatusErrMsg, when non-empty, is the expected pod set Status message, which is
 		// how an error raised while building the topology requests surfaces.
 		wantStatusErrMsg string
@@ -8898,9 +8900,9 @@ func TestAssignTopology(t *testing.T) {
 			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
 				return newFixture(ctx, t, log, Preempt, "5", "")
 			},
-			wantMode:          NoFit,
-			wantPlan:          false,
-			wantAttemptReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+			wantMode:        NoFit,
+			wantPlan:        false,
+			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
 		},
 		// The two branches are sequential, not exclusive: the demotion the first one
 		// performs is what makes the second one run. A pod set that quota says fits but
@@ -8910,9 +8912,9 @@ func TestAssignTopology(t *testing.T) {
 			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
 				return newFixture(ctx, t, log, Fit, "5", "")
 			},
-			wantMode:          NoFit,
-			wantPlan:          false,
-			wantAttemptReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+			wantMode:        NoFit,
+			wantPlan:        false,
+			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
 		},
 		// Verifies that the !HasUnhealthyNodes check prevents demoting an
 		// unhealthy node replacement from Preempt to NoFit.
@@ -9077,19 +9079,13 @@ func TestAssignTopology(t *testing.T) {
 			if got := f.assignment.PodSets[0].TopologyAssignment != nil; got != tc.wantPlan {
 				t.Errorf("has TopologyAssignment = %t, want %t", got, tc.wantPlan)
 			}
-			if tc.wantAttemptReason != "" {
-				attemptRecorded := false
-				for _, att := range f.assignment.PodSets[0].FlavorAssignmentAttempts {
-					if att.Flavor == "flavor-1" {
-						attemptRecorded = true
-						if att.NoFitReason != tc.wantAttemptReason {
-							t.Errorf("flavor-1 attempt NoFitReason = %q, want %q", att.NoFitReason, tc.wantAttemptReason)
-						}
-						break
-					}
+			if tc.wantNoFitReason != "" {
+				if got := f.assignment.PodSets[0].Status.noFitReason; got != tc.wantNoFitReason {
+					t.Errorf("pod set Status noFitReason = %q, want %q", got, tc.wantNoFitReason)
 				}
-				if !attemptRecorded {
-					t.Error("Expeccted failed attempt for flavor-1, but none was recorded.")
+				f.assignment.ResolveNoFitReason(f.cq)
+				if got := f.assignment.NoFitReason; got != tc.wantNoFitReason {
+					t.Errorf("Assignment.NoFitReason = %q, want %q", got, tc.wantNoFitReason)
 				}
 			}
 			if tc.wantStatusErrMsg != "" {
@@ -9225,15 +9221,48 @@ func TestResolveNoFitReason(t *testing.T) {
 			cq:   cqWithGroups([]kueue.ResourceFlavorReference{"flavor-a"}),
 			want: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
 		},
-		"attempts that are not NoFit are ignored": {
+		// A flavor that passed the quota pass means its resource group was not the
+		// blocker, so the alternatives that did not fit there are not reported.
+		"a non-NoFit attempt clears the blockers of its resource group": {
 			assignment: Assignment{
 				PodSets: []PodSetAssignment{noFitPodSet("main",
-					FlavorAssignmentAttempt{Flavor: "flavor-a", Mode: Preempt, NoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed},
+					FlavorAssignmentAttempt{Flavor: "flavor-a", Mode: Preempt},
 					noFitAttempt("flavor-b", kueue.WorkloadQuotaReservedReasonWaitingForQuota),
 				)},
 			},
 			cq:   cqWithGroups([]kueue.ResourceFlavorReference{"flavor-a", "flavor-b"}),
-			want: kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+			want: "",
+		},
+		// A pod set that failed after the quota pass (e.g. topology placement) reports the
+		// reason recorded on its Status, and a reason carried by the non-NoFit attempt
+		// itself cannot raise it.
+		"a non-NoFit attempt is capped at the pod set status reason": {
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{withStatusReason(
+					noFitPodSet("main",
+						FlavorAssignmentAttempt{Flavor: "flavor-a", Mode: Preempt, NoFitReason: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota},
+						noFitAttempt("flavor-b", kueue.WorkloadQuotaReservedReasonWaitingForQuota),
+					),
+					kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+				)},
+			},
+			cq:   cqWithGroups([]kueue.ResourceFlavorReference{"flavor-a", "flavor-b"}),
+			want: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+		},
+		// The quota pass leaves no reason on the pod set Status, so a resource group that
+		// fit must not hide the blocker recorded for another group.
+		"a non-NoFit attempt does not hide a blocker in another resource group": {
+			assignment: Assignment{
+				PodSets: []PodSetAssignment{noFitPodSet("main",
+					FlavorAssignmentAttempt{Flavor: "flavor-a", Mode: Fit},
+					noFitAttempt("flavor-b", kueue.WorkloadQuotaReservedReasonExceedsMaxQuota),
+				)},
+			},
+			cq: cqWithGroups(
+				[]kueue.ResourceFlavorReference{"flavor-a"},
+				[]kueue.ResourceFlavorReference{"flavor-b"},
+			),
+			want: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
 		},
 		"the pod set status reason seeds the aggregation": {
 			assignment: Assignment{
