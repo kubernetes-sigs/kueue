@@ -35,6 +35,7 @@ tags, build the mdtoc tool with `make mdtoc` and then generate the TOC with `hac
   - [Proposed API](#proposed-api)
   - [Limit Enforcement](#limit-enforcement)
   - [In-Memory State Management](#in-memory-state-management)
+  - [Workload Requeuing When No Candidates Are Available](#workload-requeuing-when-no-candidates-are-available)
   - [Observability](#observability)
   - [Test Plan](#test-plan)
     - [Unit tests](#unit-tests)
@@ -354,6 +355,14 @@ Because tracking is strictly maintained in-memory and periodically trimmed:
 Furthermore, the status of the PreemptionLimit is refreshed periodically by a dedicated `PreemptionLimitReconciler` — approximately every minute — to update `lastUpdateTimestamp` and write the aggregated totals into the count map (restricted to the top 1000 counts to fit within CRD size limits).
 
 `PreemptionLimitReconciler` will be responsible for updating an in-memory representation of limits — removing no longer needed recorded preemption limit timestamps from memory when a particular `PreemptionLimit` is deleted, and resetting the in-memory limits when a `PreemptionLimit`'s `spec.scope`, `spec.configSelector`, `spec.preemptorClusterQueueSelector`, or `spec.preemptedClusterQueueSelector` changes.
+
+
+### Workload Requeuing When No Candidates Are Available
+
+If a workload cannot be admitted due to encountering preemption limits, a timestamp will be returned from the candidate-finding function. This timestamp indicates when the first encountered blocking limit will become available again, so that candidate searching can proceed further.
+
+To requeue the workload, `NotifyRetryInadmissible` will be used with the workload's ClusterQueue when the time elapses, moving the workload from the inadmissible queue back to the active queue heap so scheduling can be retried.
+
 
 ### Observability
 
