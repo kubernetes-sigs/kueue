@@ -196,20 +196,13 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 
 	isSuspended := oldLeaderWorkerSet.Status.ReadyReplicas == 0
 
-	// Prevents updating the queue-name if at least one replica is ready
-	// or if the queue-name has been deleted.
-	if !isSuspended || newQueueName == "" {
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
-	} else if newQueueName != oldQueueName {
-		// A Workload's queueName can't change while its quota is reserved.
-		reserved, err := hasWorkloadWithQuotaReservation(ctx, wh.client, oldObj)
-		if err != nil {
-			return nil, err
-		}
-		if reserved {
-			allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
-		}
+	queueErrs, err := jobframework.ValidateQueueNameUpdate(oldQueueName, newQueueName, isSuspended, func() (bool, error) {
+		return hasWorkloadWithQuotaReservation(ctx, wh.client, oldObj)
+	})
+	if err != nil {
+		return nil, err
 	}
+	allErrs = append(allErrs, queueErrs...)
 
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
 		isSuspended,
