@@ -27,7 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -1842,18 +1842,22 @@ func (prc *ProvisioningRequestConfigWrapper) Obj() *kueue.ProvisioningRequestCon
 }
 
 type ClusterProfileWrapper struct {
-	inventoryv1alpha1.ClusterProfile
+	inventoryv1alpha2.ClusterProfile
 }
 
 func MakeClusterProfile(name, ns string) *ClusterProfileWrapper {
 	return &ClusterProfileWrapper{
 		Name:      name,
 		Namespace: ns,
-		Spec:      inventoryv1alpha1.ClusterProfileSpec{},
+		Spec: inventoryv1alpha2.ClusterProfileSpec{
+			ClusterManager: inventoryv1alpha2.ClusterManager{
+				Name: "test-cluster-manager",
+			},
+		},
 	}
 }
 
-func (cpw *ClusterProfileWrapper) Obj() *inventoryv1alpha1.ClusterProfile {
+func (cpw *ClusterProfileWrapper) Obj() *inventoryv1alpha2.ClusterProfile {
 	return &cpw.ClusterProfile
 }
 
@@ -1863,7 +1867,7 @@ func (cpw *ClusterProfileWrapper) DisplayName(displayName string) *ClusterProfil
 }
 
 func (cpw *ClusterProfileWrapper) ClusterManager(clusterManagerName string) *ClusterProfileWrapper {
-	cpw.Spec.ClusterManager = inventoryv1alpha1.ClusterManager{
+	cpw.Spec.ClusterManager = inventoryv1alpha2.ClusterManager{
 		Name: clusterManagerName,
 	}
 	return cpw

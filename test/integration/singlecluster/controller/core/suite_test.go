@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -92,10 +93,12 @@ func withRoleTracker(rt *roletracker.RoleTracker) managerSetupOption {
 }
 
 func managerSetup(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	managerAndControllerSetup(nil)(ctx, mgr)
 }
 
 func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	managerAndControllerSetup(nil, runScheduler)(ctx, mgr)
 }
 
@@ -103,6 +106,7 @@ func managerAndControllerSetup(
 	controllersCfg *config.Configuration,
 	options ...managerSetupOption,
 ) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		var opts managerSetupOpts
 		for _, opt := range options {
@@ -148,7 +152,7 @@ func managerAndControllerSetup(
 		}
 
 		cCache := schdcache.New(mgr.GetClient(), cacheOpts...)
-		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOpts...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOpts...)
 		qManager = queues
 		managerClient = mgr.GetClient()
 

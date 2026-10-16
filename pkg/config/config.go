@@ -22,9 +22,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -33,7 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -49,7 +51,7 @@ var ErrWebhookTLSParse = errors.New("unable to parse TLS options for webhook ser
 
 var (
 	objectKeySecret         = new(corev1.Secret)
-	objectKeyClusterProfile = new(inventoryv1alpha1.ClusterProfile)
+	objectKeyClusterProfile = new(inventoryv1alpha2.ClusterProfile)
 )
 
 // fromFile provides an alternative to the deprecated ctrl.ConfigFile().AtPath(path).OfKind(&cfg)
@@ -282,12 +284,16 @@ func ConfigureClusterProfileCache(ctx context.Context, log logr.Logger, options 
 }
 
 func configureClusterProfileCacheWithClient(ctx context.Context, log logr.Logger, options *ctrl.Options, crdClient apiextensionsclient.Interface, cfg configapi.Configuration) error {
-	if _, err := crdClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, "clusterprofiles.multicluster.x-k8s.io", metav1.GetOptions{}); err != nil {
+	crd, err := crdClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, "clusterprofiles.multicluster.x-k8s.io", metav1.GetOptions{})
+	if err != nil {
 		if apierrors.IsNotFound(err) {
 			log.Info("Skipping MultiKueue ClusterProfile setup as the ClusterProfile CRD is not installed")
 			return nil
 		}
 		return fmt.Errorf("failed loading the ClusterProfile CRD: %w", err)
+	}
+	if servedVersions := servedCRDVersions(crd); !slices.Contains(servedVersions, inventoryv1alpha2.GroupVersion.Version) {
+		return fmt.Errorf("the ClusterProfile CRD does not serve %s, which Kueue requires; served versions: %v", inventoryv1alpha2.GroupVersion, servedVersions)
 	}
 	if options.Cache.ByObject == nil {
 		options.Cache.ByObject = make(map[ctrlclient.Object]ctrlcache.ByObject)
@@ -298,4 +304,14 @@ func configureClusterProfileCacheWithClient(ctx context.Context, log logr.Logger
 		},
 	}
 	return nil
+}
+
+func servedCRDVersions(crd *apiextensionsv1.CustomResourceDefinition) []string {
+	var versions []string
+	for _, v := range crd.Spec.Versions {
+		if v.Served {
+			versions = append(versions, v.Name)
+		}
+	}
+	return versions
 }

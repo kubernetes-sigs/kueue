@@ -46,7 +46,7 @@ import (
 	"k8s.io/utils/clock"
 	testingclock "k8s.io/utils/clock/testing"
 	"k8s.io/utils/ptr"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -120,7 +120,7 @@ type testClusterProfileAccessProvider struct {
 	supportedProviders map[string]bool
 }
 
-func (t *testClusterProfileAccessProvider) BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error) {
+func (t *testClusterProfileAccessProvider) BuildConfigFromCP(clusterprofile *inventoryv1alpha2.ClusterProfile) (*rest.Config, error) {
 	for _, provider := range clusterprofile.Status.AccessProviders {
 		if t.supportedProviders[provider.Name] {
 			if strings.Contains(clusterprofile.Name, "invalid") {
@@ -149,12 +149,12 @@ func testRestConfigInvalid() *rest.Config {
 	}
 }
 
-func makeTestClusterProfile(name string, providerName string) inventoryv1alpha1.ClusterProfile {
-	return inventoryv1alpha1.ClusterProfile{
+func makeTestClusterProfile(name string, providerName string) inventoryv1alpha2.ClusterProfile {
+	return inventoryv1alpha2.ClusterProfile{
 		Name:      name,
 		Namespace: TestNamespace,
-		Status: inventoryv1alpha1.ClusterProfileStatus{
-			AccessProviders: []inventoryv1alpha1.AccessProvider{
+		Status: inventoryv1alpha2.ClusterProfileStatus{
+			AccessProviders: []inventoryv1alpha2.AccessProvider{
 				{
 					Name: providerName,
 				},
@@ -196,7 +196,7 @@ func TestUpdateConfig(t *testing.T) {
 		remoteClients    map[string]*remoteClient
 		clusters         []kueue.MultiKueueCluster
 		secrets          []corev1.Secret
-		clusterprofiles  []inventoryv1alpha1.ClusterProfile
+		clusterprofiles  []inventoryv1alpha2.ClusterProfile
 		cpAccessProvider clusterProfileAccessProvider
 
 		wantRemoteClients             map[string]*remoteClient
@@ -530,7 +530,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			secrets: []corev1.Secret{},
-			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
+			clusterprofiles: []inventoryv1alpha2.ClusterProfile{
 				makeTestClusterProfile("worker1", "accessProvider1"),
 			},
 			cpAccessProvider: &testClusterProfileAccessProvider{
@@ -562,7 +562,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			secrets: []corev1.Secret{},
-			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
+			clusterprofiles: []inventoryv1alpha2.ClusterProfile{
 				makeTestClusterProfile("worker1", "accessProvider1"),
 			},
 			cpAccessProvider: &testClusterProfileAccessProvider{
@@ -586,7 +586,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			secrets: []corev1.Secret{},
-			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
+			clusterprofiles: []inventoryv1alpha2.ClusterProfile{
 				makeTestClusterProfile("worker2", "accessProvider2"),
 			},
 			cpAccessProvider: &testClusterProfileAccessProvider{
@@ -659,7 +659,7 @@ func TestUpdateConfig(t *testing.T) {
 					Obj(),
 			},
 			secrets: []corev1.Secret{},
-			clusterprofiles: []inventoryv1alpha1.ClusterProfile{
+			clusterprofiles: []inventoryv1alpha2.ClusterProfile{
 				makeTestClusterProfile("invalid", "accessProvider1"),
 			},
 			cpAccessProvider: &testClusterProfileAccessProvider{
@@ -684,7 +684,7 @@ func TestUpdateConfig(t *testing.T) {
 			builder := getClientBuilder(ctx)
 			builder = builder.WithLists(&kueue.MultiKueueClusterList{Items: tc.clusters})
 			builder = builder.WithLists(&corev1.SecretList{Items: tc.secrets})
-			builder = builder.WithLists(&inventoryv1alpha1.ClusterProfileList{Items: tc.clusterprofiles})
+			builder = builder.WithLists(&inventoryv1alpha2.ClusterProfileList{Items: tc.clusterprofiles})
 			builder = builder.WithStatusSubresource(slices.Map(tc.clusters, func(c *kueue.MultiKueueCluster) client.Object { return c })...)
 			c := builder.Build()
 

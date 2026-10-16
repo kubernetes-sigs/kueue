@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Topology Aware Scheduling with workload slices and fair sharing refill", ginkgo.Ordered, func() {
@@ -73,7 +74,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with workload slices and fair
 				Ready().
 				Obj(),
 		}
-		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = utiltestingapi.MakeDefaultOneLevelTopology("default")
 		behavioral.MustCreate(ctx, k8sClient, topology)
@@ -162,7 +163,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with workload slices and fair
 		})
 		freedAt := metav1.NowMicro()
 		ginkgo.By("freeing 2 CPU in a single step", func() {
-			behavioral.FinishWorkloads(ctx, k8sClient, blocker)
+			integration.FinishWorkloads(ctx, k8sClient, blocker)
 		})
 
 		ginkgo.By("admitting the replacement and the successor", func() {

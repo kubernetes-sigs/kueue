@@ -19,6 +19,7 @@ package e2e
 import (
 	"context"
 	"regexp"
+	"strings"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftrainerapi "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
@@ -127,6 +128,7 @@ var frameworkRules = map[string][]rbacv1.PolicyRule{
 // MultiKueueRulesForManager returns RBAC rules matching the integrations
 // enabled in the Kueue manager configuration. Workload rules are always included.
 func MultiKueueRulesForManager(ctx context.Context, k8sClient client.Client) []rbacv1.PolicyRule {
+	ginkgo.GinkgoHelper()
 	cfg := GetKueueConfiguration(ctx, k8sClient)
 
 	rules := []rbacv1.PolicyRule{
@@ -286,4 +288,27 @@ func ExpectWorkloadsToBeAdmittedAndGetWorkerName(ctx context.Context, k8sClient 
 		g.Expect(workerName).NotTo(gomega.BeEmpty())
 	}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 	return workerName
+}
+
+func AssertMsgForMk(ctx context.Context, msg string, wlKey client.ObjectKey, k8sManagerClient client.Client, k8sWorker1Client client.Client, k8sWorker2Client client.Client) func() string {
+	return func() string {
+		ginkgo.GinkgoHelper()
+		return strings.Join([]string{
+			msg,
+			behavioral.AssertMsg("Manager", getWorkload(ctx, k8sManagerClient, wlKey))(),
+			behavioral.AssertMsg("Worker1", getWorkload(ctx, k8sWorker1Client, wlKey))(),
+			behavioral.AssertMsg("Worker2", getWorkload(ctx, k8sWorker2Client, wlKey))(),
+		}, "\n")
+	}
+}
+
+func getWorkload(ctx context.Context, c client.Client, wlKey client.ObjectKey) *kueue.Workload {
+	ginkgo.GinkgoHelper()
+	wl := &kueue.Workload{}
+	err := c.Get(ctx, wlKey, wl)
+	if err != nil {
+		gomega.Expect(client.IgnoreNotFound(err)).NotTo(gomega.HaveOccurred())
+		return nil
+	}
+	return wl
 }

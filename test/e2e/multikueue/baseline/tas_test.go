@@ -284,7 +284,7 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 			})
 
 			ginkgo.By("Finishing the job's pods", func() {
-				listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
+				listOpts := e2e.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
 				if assignedClusterName == workerCluster1.Name {
 					e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 2, 0, listOpts)
 				} else {
@@ -300,8 +300,8 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 			})
 
 			ginkgo.By("Checking no objects are left in the worker clusters and the job is completed", func() {
-				behavioral.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
-				behavioral.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
+				e2e.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
+				e2e.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 
 				createdJob := &batchv1.Job{}
 				gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
@@ -358,7 +358,7 @@ var _ = ginkgo.Describe("MultiKueue with TopologyAwareScheduling", func() {
 			})
 
 			ginkgo.By("Finishing the job", func() {
-				listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
+				listOpts := e2e.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
 				if assignedClusterName == workerCluster1.Name {
 					e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 2, 0, listOpts)
 				} else {
@@ -566,7 +566,7 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 		})
 
 		ginkgo.By(fmt.Sprintf("Finishing the job's pods on %s", admittedWorkerName))
-		listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
+		listOpts := e2e.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
 		e2e.WaitForActivePodsAndTerminate(ctx, workerClient, kubernetesClients[admittedWorkerName].restClient, kubernetesClients[admittedWorkerName].cfg, job.Namespace, 1, 0, listOpts)
 
 		ginkgo.By("Waiting for workload to finish")
@@ -577,8 +577,8 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 		}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Checking no objects are left in worker clusters and job is completed")
-		behavioral.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
-		behavioral.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
+		e2e.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
+		e2e.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 
 		createdJob := &batchv1.Job{}
 		gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(job), createdJob)).To(gomega.Succeed())
@@ -633,7 +633,7 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 		})
 
 		ginkgo.By(fmt.Sprintf("Finishing the job's pods on %s", assignedClusterName))
-		listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
+		listOpts := e2e.GetListOptsFromLabel(fmt.Sprintf("%s=%s", batchv1.JobNameLabel, job.Name))
 		if assignedClusterName == workerCluster1.Name {
 			e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 1, 0, listOpts)
 		} else {
@@ -648,7 +648,7 @@ var _ = ginkgo.Describe("MultiKueue TAS with asymmetric quotas", func() {
 		}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Checking cleanup on worker clusters")
-		behavioral.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
-		behavioral.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
+		e2e.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
+		e2e.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 	})
 })

@@ -45,6 +45,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -53,6 +54,9 @@ var (
 	serverVersionFetcher *kubeversion.ServerVersionFetcher
 	ctx                  context.Context
 	fwk                  *framework.Framework
+	// managerClient reads the manager's cache, which is what effective-resource
+	// resolution reads.
+	managerClient client.Client
 )
 
 func TestAPIs(t *testing.T) {
@@ -77,6 +81,7 @@ func managerSetup(
 	configuration *config.Configuration,
 	opts ...jobframework.Option,
 ) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	if configuration == nil {
 		configuration = &config.Configuration{}
 	}
@@ -108,6 +113,7 @@ func managerSetup(
 
 		cCache := schdcache.New(mgr.GetClient(), schdcache.WithCustomLabels(customLabels))
 		opts = append(opts, jobframework.WithCache(cCache))
+		managerClient = mgr.GetClient()
 
 		podReconciler, err := pod.NewReconciler(
 			ctx,
@@ -133,7 +139,7 @@ func managerSetup(
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		integrationManager.EnableIntegration(job.FrameworkName)
 
-		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 		opts = append(opts, jobframework.WithQueues(queues), jobframework.WithCache(cCache))
 
 		mgr.GetScheme().Default(configuration)

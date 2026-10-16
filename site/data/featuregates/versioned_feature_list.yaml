@@ -33,6 +33,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+- name: ClassicalPreemptionCandidateOrderCache
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: CleanupProvisioningRequestsOnEviction
   versionedSpecs:
   - default: true
@@ -149,12 +155,22 @@
     lockToDefault: false
     preRelease: Alpha
     version: "0.20"
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: FairSharingRefill
   versionedSpecs:
   - default: false
     lockToDefault: false
     preRelease: Alpha
     version: "0.20"
+- name: FairSharingVerifyFinalTargets
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: FastQuotaReleaseInPodIntegration
   versionedSpecs:
   - default: false
@@ -191,6 +207,18 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: KubeRayEvictOnInconsistentTopologyRequest
+  versionedSpecs:
+  - default: false
+    lockToDefault: false
+    preRelease: Alpha
+    version: "0.21"
+- name: KubeRayServiceUsingTopLevelSuspend
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: KueueDRADeviceFeasibility
   versionedSpecs:
   - default: false
@@ -409,6 +437,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.18"
+- name: PodIntegrationVerifyRoleRequests
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: PrioritizePreemptorWorkloads
   versionedSpecs:
   - default: false
@@ -697,6 +731,10 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+  - default: true
+    lockToDefault: true
+    preRelease: GA
+    version: "0.21"
 - name: TLSOptions
   versionedSpecs:
   - default: true

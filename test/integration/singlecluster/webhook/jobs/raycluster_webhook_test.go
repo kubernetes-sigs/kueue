@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("RayCluster Webhook", func() {
@@ -204,8 +205,8 @@ var _ = ginkgo.Describe("RayCluster Webhook", func() {
 					},
 				},
 			).Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-			behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+			integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+			integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			gomega.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
 
 			ginkgo.By("Creating the child cluster")

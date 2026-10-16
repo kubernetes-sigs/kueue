@@ -42,6 +42,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var defaultEnabledIntegrations = sets.New(
@@ -74,7 +75,7 @@ func waitForRemoteWorkloadToBeDeleted(workerCtx context.Context, workerClient cl
 func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.NamespacedName, admission *utiltestingapi.AdmissionWrapper) {
 	ginkgo.GinkgoHelper()
 	ginkgo.By("setting workload reservation in the management cluster", func() {
-		behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
+		integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
 	})
 
 	ginkgo.By("checking the workload creation in the worker clusters", func() {
@@ -90,7 +91,7 @@ func admitWorkloadAndCheckWorkerCopies(acName string, wlLookupKey types.Namespac
 	})
 
 	ginkgo.By("setting workload reservation in worker2, the workload is admitted in manager and worker1 wl is removed", func() {
-		behavioral.SetQuotaReservation(worker2TestCluster.ctx, worker2TestCluster.client, wlLookupKey, admission.Obj())
+		integration.SetQuotaReservation(worker2TestCluster.ctx, worker2TestCluster.client, wlLookupKey, admission.Obj())
 
 		createdWorkload := &kueue.Workload{}
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -217,7 +218,7 @@ func waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey types.Names
 func setQuotaReservationInCluster(wlLookupKey types.NamespacedName, admission *utiltestingapi.AdmissionWrapper) {
 	ginkgo.GinkgoHelper()
 	ginkgo.By("setting workload reservation in the management cluster", func() {
-		behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
+		integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
 	})
 }
 

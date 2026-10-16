@@ -242,7 +242,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Finishing the job's pods")
-			listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
+			listOpts := e2e.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
 			if assignedClusterName == workerCluster1.Name {
 				e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 1, 0, listOpts)
 			} else {
@@ -257,8 +257,8 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Checking no objects are left in worker clusters and job is completed")
-			behavioral.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
-			behavioral.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
+			e2e.ExpectObjectToBeDeletedOnClusters(ctx, createdWorkload, k8sWorker1Client, k8sWorker2Client)
+			e2e.ExpectObjectToBeDeletedOnClusters(ctx, job, k8sWorker1Client, k8sWorker2Client)
 
 			createdJob := &batchv1.Job{}
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -365,7 +365,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Finishing the job's pods on worker1")
-			listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
+			listOpts := e2e.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
 			e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 1, 0, listOpts)
 
 			ginkgo.By("Waiting for job to complete")
@@ -445,7 +445,7 @@ var _ = ginkgo.Describe("MultiKueue with DRA", ginkgo.Label("feature:dra", "area
 			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Finishing the job's pods")
-			listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
+			listOpts := e2e.GetListOptsFromLabel(fmt.Sprintf("batch.kubernetes.io/job-name=%s", job.Name))
 			if selectedWorker.Name == workerCluster1.Name {
 				e2e.WaitForActivePodsAndTerminate(ctx, k8sWorker1Client, worker1RestClient, worker1Cfg, job.Namespace, 2, 0, listOpts)
 			} else {

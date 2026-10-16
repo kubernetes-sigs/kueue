@@ -29,7 +29,7 @@ import (
 
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
-	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 const (
@@ -95,7 +95,7 @@ func generateTopologyNodes(ctx context.Context, c client.Client, config Topology
 
 	// Create nodes with status Ready
 	log.Info("Updating node status to Ready")
-	behavioral.CreateNodesWithStatus(ctx, c, nodes)
+	integration.CreateNodesWithStatus(ctx, c, nodes)
 
 	log.Info("Successfully generated nodes", "count", len(nodes))
 	return nil

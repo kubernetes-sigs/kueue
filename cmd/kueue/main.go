@@ -40,7 +40,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/utils/ptr"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -111,7 +111,7 @@ func init() {
 	utilruntime.Must(kueuealpha.AddToScheme(scheme))
 	utilruntime.Must(configapi.AddToScheme(scheme))
 	utilruntime.Must(autoscaling.AddToScheme(scheme))
-	utilruntime.Must(inventoryv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(inventoryv1alpha2.AddToScheme(scheme))
 	// Add any additional framework integration types.
 	utilruntime.Must(
 		integrationManager.ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
@@ -177,6 +177,10 @@ func main() {
 	)
 
 	features.LogFeatureGates(setupLog)
+
+	if labels := jobframework.NonInheritableLabelsIn(cfg.Integrations.LabelKeysToCopy); len(labels) > 0 {
+		setupLog.Info("integrations.labelKeysToCopy names Kueue's internal labels, which are never copied to a Workload", "labels", labels)
+	}
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
 	// More info:

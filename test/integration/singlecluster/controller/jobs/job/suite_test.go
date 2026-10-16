@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -71,10 +72,12 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return managerSetupWithConfiguration(nil, opts...)
 }
 
 func managerSetupWithConfiguration(configuration *config.Configuration, opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		if configuration == nil {
 			configuration = &config.Configuration{}
@@ -118,6 +121,7 @@ func managerAndControllersSetup(
 	configuration *config.Configuration,
 	opts ...jobframework.Option,
 ) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		if configuration == nil {
 			configuration = &config.Configuration{}
@@ -138,7 +142,7 @@ func managerAndControllersSetup(
 			qcache.WithLocalQueueMetrics(lqMetrics),
 			qcache.WithCustomLabels(customLabels),
 		}
-		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		opts = append(opts, jobframework.WithCache(cCache), jobframework.WithCustomLabels(customLabels))
 		managerSetupWithConfiguration(configuration, opts...)(ctx, mgr)

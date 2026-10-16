@@ -261,15 +261,21 @@ function reset_gh_stub() {
   MILESTONE_RESULT="not run"
 }
 
+start_case "ensure_milestone is skipped unless CREATE_MILESTONE is set"
+reset_gh_stub '[]'
+CREATE_MILESTONE="" ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null
+assert_eq "skipped (use /create-milestone, or set CREATE_MILESTONE)" "${MILESTONE_RESULT}" "result"
+assert_eq "" "$(cat "${GH_FAKE_LOG}")" "gh calls"
+
 start_case "ensure_milestone creates an absent milestone"
 reset_gh_stub '[{"title":"v0.20","state":"closed"}]'
-ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null
+CREATE_MILESTONE=1 ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null
 assert_eq "created" "${MILESTONE_RESULT}" "result"
 assert_contains "$(cat "${GH_FAKE_LOG}")" "--method POST repos/kubernetes-sigs/kueue/milestones -f title=v0.21" "create call"
 
 start_case "ensure_milestone leaves an existing open milestone alone"
 reset_gh_stub '[{"title":"v0.21","state":"open"}]'
-ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null
+CREATE_MILESTONE=1 ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null
 assert_eq "already present" "${MILESTONE_RESULT}" "result"
 if grep -q "POST" "${GH_FAKE_LOG}"; then
   fail "a POST was issued for an existing milestone"
@@ -277,7 +283,7 @@ fi
 
 start_case "ensure_milestone leaves a closed milestone closed"
 reset_gh_stub '[{"title":"v0.21","state":"closed"}]'
-ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null
+CREATE_MILESTONE=1 ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null
 assert_eq "already present (closed, left as-is)" "${MILESTONE_RESULT}" "result"
 if grep -qE "POST|PATCH|DELETE" "${GH_FAKE_LOG}"; then
   fail "a mutating call was issued for a closed milestone"
@@ -285,12 +291,12 @@ fi
 
 start_case "ensure_milestone matches titles exactly, not by prefix"
 reset_gh_stub '[{"title":"v0.2","state":"open"},{"title":"v0.21-rc","state":"open"}]'
-ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null
+CREATE_MILESTONE=1 ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null
 assert_eq "created" "${MILESTONE_RESULT}" "result when only a prefix match exists"
 
 start_case "ensure_milestone honours DRY_RUN"
 reset_gh_stub '[]'
-DRY_RUN=1 ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null
+CREATE_MILESTONE=1 DRY_RUN=1 ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null
 assert_eq "skipped (DRY_RUN)" "${MILESTONE_RESULT}" "result"
 if grep -q "POST" "${GH_FAKE_LOG}"; then
   fail "a POST was issued under DRY_RUN"
@@ -302,7 +308,7 @@ import json
 print(json.dumps([{"title": "v0.21", "state": "open"}] * 200000))
 ')"
 rc=0
-ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null || rc=$?
+CREATE_MILESTONE=1 ensure_milestone "kubernetes-sigs/kueue" "v0.21" >/dev/null || rc=$?
 assert_eq "0" "${rc}" "exit code on a large listing"
 assert_eq "already present" "${MILESTONE_RESULT}" "result on a large listing"
 

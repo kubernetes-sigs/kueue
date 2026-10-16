@@ -32,6 +32,7 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("SchedulerWithExcludeResourcePrefixes", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -248,7 +249,7 @@ var _ = ginkgo.Describe("TAS with ExcludeResourcePrefixes", ginkgo.Ordered, gink
 				Ready().
 				Obj(),
 		}
-		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = utiltestingapi.MakeDefaultOneLevelTopology("tas-topology")
 		behavioral.MustCreate(ctx, k8sClient, topology)

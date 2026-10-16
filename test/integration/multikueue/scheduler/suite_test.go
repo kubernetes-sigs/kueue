@@ -49,6 +49,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 const (
@@ -112,10 +113,12 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 }
 
 func managerSetup(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	setupManager(ctx, mgr)
 }
 
 func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.IntegrationManager {
+	ginkgo.GinkgoHelper()
 	integrationManager := jobframework.NewIntegrationManager()
 	gomega.Expect(workloadjob.RegisterIntegration(integrationManager)).To(gomega.Succeed())
 	err := indexer.Setup(ctx, mgr.GetFieldIndexer())
@@ -124,7 +127,7 @@ func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.Integr
 	cCache := schdcache.New(mgr.GetClient())
 	preemptionExpectations := preemptexpectations.New()
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-	queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+	queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 	jobOptions := []jobframework.Option{
 		jobframework.WithIntegrationManager(integrationManager),
 		jobframework.WithCache(cCache),
@@ -195,6 +198,7 @@ func managerAndMultiKueueSetup(
 	enabledIntegrations sets.Set[string],
 	dispatcherName string,
 ) {
+	ginkgo.GinkgoHelper()
 	integrationManager := setupManager(ctx, mgr)
 
 	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)

@@ -42,6 +42,7 @@ import (
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var defaultEnabledIntegrations sets.Set[string] = sets.New(
@@ -240,8 +241,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", ginkgo.Label("area:multikue
 					Ready().
 					Obj(),
 			}
-			behavioral.CreateNodesWithStatus(worker1TestCluster.ctx, worker1TestCluster.client, worker1Nodes)
-			behavioral.CreateNodesWithStatus(worker2TestCluster.ctx, worker2TestCluster.client, worker2Nodes)
+			integration.CreateNodesWithStatus(worker1TestCluster.ctx, worker1TestCluster.client, worker1Nodes)
+			integration.CreateNodesWithStatus(worker2TestCluster.ctx, worker2TestCluster.client, worker2Nodes)
 		})
 
 		ginkgo.AfterEach(func() {

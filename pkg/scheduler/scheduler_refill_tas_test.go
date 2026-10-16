@@ -589,7 +589,12 @@ func TestRefillNotTriggeredBySecondPassAdmission(t *testing.T) {
 	if err := qManager.AddLocalQueue(ctx, localQueue.DeepCopy()); err != nil {
 		t.Fatalf("Inserting queue %s/%s in manager: %v", localQueue.Namespace, localQueue.Name, err)
 	}
-	cqCache.AddOrUpdateWorkload(ctx, log, secondPass.DeepCopy())
+	// Seed the cache with the stored object so its resourceVersion matches, as the informer does.
+	storedSecondPass := &kueue.Workload{}
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(secondPass), storedSecondPass); err != nil {
+		t.Fatalf("Getting the second-pass workload: %v", err)
+	}
+	cqCache.AddOrUpdateWorkload(ctx, log, storedSecondPass)
 	if !qManager.QueueSecondPassIfNeeded(ctx, secondPass, 0) {
 		t.Fatal("expected the workload to be queued for a second pass")
 	}

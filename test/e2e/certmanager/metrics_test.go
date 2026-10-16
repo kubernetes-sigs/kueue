@@ -188,7 +188,7 @@ var _ = ginkgo.Describe("Metrics", ginkgo.Ordered, func() {
 
 			ginkgo.By("Verifying admission metric is available via PromQL")
 			gomega.Eventually(func(g gomega.Gomega) {
-				result, _, err := prometheusClient.Query(ctx,
+				result, _, _, err := prometheusClient.Query(ctx,
 					fmt.Sprintf(`kueue_admitted_workloads_total{cluster_queue="%s"}`, clusterQueue.Name),
 					time.Now())
 				g.Expect(err).NotTo(gomega.HaveOccurred())
@@ -268,10 +268,12 @@ func getKueueMetricsSecure(curlPodName, curlContainerName string) ([]byte, error
 }
 
 func expectMetricsToBeAvailable(curlPodName, curlContainerName string, metrics [][]string) {
+	ginkgo.GinkgoHelper()
 	expectMetricsToBeAvailableWithTimeout(curlPodName, curlContainerName, metrics, behavioral.Timeout)
 }
 
 func expectMetricsToBeAvailableWithTimeout(curlPodName, curlContainerName string, metrics [][]string, timeout time.Duration) {
+	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		metricsOutput, err := getKueueMetricsSecure(curlPodName, curlContainerName)
 		g.Expect(err).NotTo(gomega.HaveOccurred())

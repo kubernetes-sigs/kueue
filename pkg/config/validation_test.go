@@ -1644,8 +1644,9 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.deviceClassMappings[0].name",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.deviceClassMappings[0].name",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1684,8 +1685,9 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].outputs[pods]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].outputs[pods]",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1704,8 +1706,9 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].outputs[pods]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].outputs[pods]",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1724,8 +1727,9 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].input",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].input",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1745,8 +1749,9 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].multiplyBy",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].multiplyBy",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1793,12 +1798,14 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].outputs[pods]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].outputs[pods]",
+					Detail: "the key is reserved for internal kueue use",
 				},
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].multiplyBy",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].multiplyBy",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -1824,12 +1831,14 @@ func TestValidate(t *testing.T) {
 			},
 			wantErr: field.ErrorList{
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[0].outputs[pods]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[0].outputs[pods]",
+					Detail: "the key is reserved for internal kueue use",
 				},
 				&field.Error{
-					Type:  field.ErrorTypeInvalid,
-					Field: "resources.transformations[1].outputs[pods]",
+					Type:   field.ErrorTypeInvalid,
+					Field:  "resources.transformations[1].outputs[pods]",
+					Detail: "the key is reserved for internal kueue use",
 				},
 			},
 		},
@@ -2335,7 +2344,12 @@ func TestValidate(t *testing.T) {
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			if diff := cmp.Diff(tc.wantErr, Validate(tc.cfg, testScheme, jobs.NewIntegrationManager()), cmpopts.IgnoreFields(field.Error{}, "BadValue", "Detail")); diff != "" {
+			// Most cases leave Detail empty; compare it only when the first error sets one.
+			ignoreFields := []string{"BadValue"}
+			if len(tc.wantErr) > 0 && tc.wantErr[0].Detail == "" {
+				ignoreFields = append(ignoreFields, "Detail")
+			}
+			if diff := cmp.Diff(tc.wantErr, Validate(tc.cfg, testScheme, jobs.NewIntegrationManager()), cmpopts.IgnoreFields(field.Error{}, ignoreFields...)); diff != "" {
 				t.Errorf("Unexpected returned error (-want,+got):\n%s", diff)
 			}
 		})
@@ -2349,6 +2363,64 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		ignoreDetail    bool
 		wantErr         field.ErrorList
 	}{
+		"CLI rejects MultiKueue Ray autoscaling when child suspension bypass is disabled": {
+			featureGatesCLI: "MultiKueue=true,ElasticJobsViaWorkloadSlices=true,MultiKueueRayInTreeAutoscaling=true,SkipChildJobSuspension=false",
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "MultiKueueRayInTreeAutoscaling is enabled, but depends on features that are disabled: [SkipChildJobSuspension]",
+				},
+			},
+		},
+		"CLI accepts MultiKueue Ray autoscaling when child suspension bypass is enabled": {
+			featureGatesCLI: "MultiKueue=true,ElasticJobsViaWorkloadSlices=true,MultiKueueRayInTreeAutoscaling=true,SkipChildJobSuspension=true",
+		},
+		"configuration rejects MultiKueue Ray autoscaling when child suspension bypass is unset": {
+			featureGateMap: map[string]bool{
+				string(features.MultiKueue):                     true,
+				string(features.ElasticJobsViaWorkloadSlices):   true,
+				string(features.MultiKueueRayInTreeAutoscaling): true,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "MultiKueueRayInTreeAutoscaling is enabled, but depends on features that are disabled: [SkipChildJobSuspension]",
+				},
+			},
+		},
+		"configuration rejects MultiKueue Ray autoscaling when child suspension bypass is disabled": {
+			featureGateMap: map[string]bool{
+				string(features.MultiKueue):                     true,
+				string(features.ElasticJobsViaWorkloadSlices):   true,
+				string(features.MultiKueueRayInTreeAutoscaling): true,
+				string(features.SkipChildJobSuspension):         false,
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  "featureGates",
+					Detail: "MultiKueueRayInTreeAutoscaling is enabled, but depends on features that are disabled: [SkipChildJobSuspension]",
+				},
+			},
+		},
+		"configuration accepts MultiKueue Ray autoscaling when child suspension bypass is enabled": {
+			featureGateMap: map[string]bool{
+				string(features.MultiKueue):                     true,
+				string(features.ElasticJobsViaWorkloadSlices):   true,
+				string(features.MultiKueueRayInTreeAutoscaling): true,
+				string(features.SkipChildJobSuspension):         true,
+			},
+		},
+		"child suspension bypass is not required when MultiKueue Ray autoscaling is disabled": {
+			featureGateMap: map[string]bool{
+				string(features.MultiKueue):                     true,
+				string(features.ElasticJobsViaWorkloadSlices):   true,
+				string(features.MultiKueueRayInTreeAutoscaling): false,
+				string(features.SkipChildJobSuspension):         false,
+			},
+		},
 		"no feature gates is null": {
 			featureGatesCLI: "",
 		},

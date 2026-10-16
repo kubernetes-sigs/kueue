@@ -38,6 +38,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 const (
@@ -111,8 +112,8 @@ func shouldReconcileSparkApplication(ctx context.Context, k8sClient client.Clien
 			},
 		).Obj()
 
-	behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-	behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+	integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+	integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, lookupKey, createdSparkApplication)).Should(gomega.Succeed())
 		g.Expect(ptr.Deref(createdSparkApplication.Spec.Suspend, true)).Should(gomega.BeFalse())
@@ -181,8 +182,8 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 			Count: new(createdWorkload.Spec.PodSets[1].Count),
 		},
 	).Obj()
-	behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-	behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+	integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+	integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 	ginkgo.By("Await for the SparkApplication to be unsuspended")
 	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
@@ -191,7 +192,7 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 	if podsReadyTestSpec.PodsScheduled != nil {
-		behavioral.SetPodsScheduledCondition(ctx, k8sClient, wlLookupKey, *podsReadyTestSpec.PodsScheduled)
+		integration.SetPodsScheduledCondition(ctx, k8sClient, wlLookupKey, *podsReadyTestSpec.PodsScheduled)
 	}
 
 	if podsReadyTestSpec.BeforeAppState != nil {
@@ -223,8 +224,8 @@ func waitForPodsReadyEnabledForSparkApplication(ctx context.Context, k8sClient c
 
 	if podsReadyTestSpec.Suspended {
 		ginkgo.By("Unset admission of the workload to suspend the SparkApplication")
-		behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, nil)
-		behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+		integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, nil)
+		integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 	}
 
 	ginkgo.By("Verify the PodsReady condition")

@@ -32,6 +32,7 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSets", ginkgo.Ordered, func() {
@@ -66,7 +67,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 					corev1.ResourcePods: resource.MustParse("10"),
 				}).Ready().Obj())
 		}
-		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 		cq = utiltestingapi.MakeClusterQueue("zero-count-group").ResourceGroup(
 			*utiltestingapi.MakeFlavorQuotas("small").Resource(corev1.ResourceCPU, "1").Obj(),
 			*utiltestingapi.MakeFlavorQuotas("large").Resource(corev1.ResourceCPU, "2").Obj(),
@@ -205,7 +206,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling with zero-count grouped PodSe
 			}
 		})
 		ginkgo.By("reclaiming the completed workers and draining the queue", func() {
-			behavioral.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 1}})
+			integration.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 1}})
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
 				cq.Spec.StopPolicy = new(kueue.HoldAndDrain)

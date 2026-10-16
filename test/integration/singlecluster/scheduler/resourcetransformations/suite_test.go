@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -64,6 +65,7 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerAndSchedulerSetup(transformations []config.ResourceTransformation, excludedResourcePrefixes []string) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -80,7 +82,7 @@ func managerAndSchedulerSetup(transformations []config.ResourceTransformation, e
 		cCache := schdcache.New(mgr.GetClient(), cacheOptions...)
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
-		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		configuration := &config.Configuration{}
 		mgr.GetScheme().Default(configuration)

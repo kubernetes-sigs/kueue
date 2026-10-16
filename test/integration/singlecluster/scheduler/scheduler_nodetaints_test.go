@@ -78,6 +78,7 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor nodeTaints", ginkgo.Or
 	}
 
 	removeNodeTaints := func() {
+		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			var updatedFlavor kueue.ResourceFlavor
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(flavor), &updatedFlavor)).To(gomega.Succeed())

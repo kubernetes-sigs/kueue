@@ -104,6 +104,18 @@ func TestPodSetTopologyRequestBuilder(t *testing.T) {
 				PodSetGroupName:    new("block"),
 			},
 		},
+		"required annotation with sub group count only": {
+			meta: &metav1.ObjectMeta{
+				Annotations: map[string]string{
+					kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block",
+				},
+			},
+			subGroupCount: new(int32(2)),
+			wantReq: &kueue.PodSetTopologyRequest{
+				Required:      new("cloud.com/block"),
+				SubGroupCount: new(int32(2)),
+			},
+		},
 		"preferred annotation": {
 			meta: &metav1.ObjectMeta{
 				Annotations: map[string]string{

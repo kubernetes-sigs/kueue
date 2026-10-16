@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 const (
@@ -200,8 +201,8 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 						},
 					},
 				).Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 
 				lookupKey := types.NamespacedName{Name: trainJob.Name, Namespace: ns.Name}
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -280,8 +281,8 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 						},
 					},
 				).Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
-				behavioral.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
 			ginkgo.By("wait for the trainjob to be unsuspended", func() {
@@ -672,7 +673,7 @@ var _ = ginkgo.Describe("TrainJob controller with TopologyAwareScheduling", gink
 				Ready().
 				Obj(),
 		}
-		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes)
+		integration.CreateNodesWithStatus(ctx, k8sClient, nodes)
 
 		topology = utiltestingapi.MakeDefaultTwoLevelTopology("default")
 		behavioral.MustCreate(ctx, k8sClient, topology)
