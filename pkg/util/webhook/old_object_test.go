@@ -23,13 +23,14 @@ import (
 	"github.com/google/go-cmp/cmp"
 	admissionv1 "k8s.io/api/admission/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
 
 func TestOldObjectFromContext(t *testing.T) {
-	oldPod := &corev1.Pod{Name: "pod", Namespace: "ns", Labels: map[string]string{"key": "value"}}
+	oldPod := &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: "pod", Namespace: "ns", Labels: map[string]string{"key": "value"}}}
 	testCases := map[string]struct {
 		ctx  func(context.Context) context.Context
 		want *corev1.Pod
@@ -39,7 +40,7 @@ func TestOldObjectFromContext(t *testing.T) {
 		},
 		"create request": {
 			ctx: func(ctx context.Context) context.Context {
-				return admission.NewContextWithRequest(ctx, admission.Request{Operation: admissionv1.Create})
+				return admission.NewContextWithRequest(ctx, admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{Operation: admissionv1.Create}})
 			},
 		},
 		"update request": {

@@ -69,7 +69,9 @@ func ContextWithUpdateRequest(ctx context.Context, tb testing.TB, oldObj runtime
 		tb.Fatalf("Failed to marshal the old object: %v", err)
 	}
 	return admission.NewContextWithRequest(ctx, admission.Request{
-		Operation: admissionv1.Update,
-		OldObject: runtime.RawExtension{Raw: raw},
+		AdmissionRequest: admissionv1.AdmissionRequest{
+			Operation: admissionv1.Update,
+			OldObject: runtime.RawExtension{Raw: raw},
+		},
 	})
 }
