@@ -188,6 +188,9 @@ type remoteClient struct {
 	// would stall every other cluster's reconcile via clustersReconciler.lock.
 	// See #11297.
 	updateConfigLock sync.Mutex
+	// resyncPending tracks whether a workload resync after reconnect is pending
+	// due to a previous list failure. Protected by updateConfigLock.
+	resyncPending bool
 
 	clock clock.Clock
 
@@ -343,12 +346,12 @@ func (rc *remoteClient) deferConnAttempt(d time.Duration) *time.Duration {
 
 // updateConfigAndRefreshWatchers - will try to recreate the k8s client and restart watching if the new config is different than
 // the one currently used, a reconnect was requested, or the client was marked as disconnected.
-// If the encountered error is not permanent the duration after which a retry should be done is returned.
-func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context, config *clientConfig) (*time.Duration, error) {
+// Returns whether the watchers were refreshed, a duration to retry after if the error is non-permanent, and any error encountered.
+func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context, config *clientConfig) (bool, *time.Duration, error) {
 	configChanged := !equality.Semantic.DeepEqual(config, rc.config)
 	connected := rc.connState.isConnected()
 	if !configChanged && connected {
-		return nil, nil
+		return false, nil, nil
 	}
 
 	rc.StopWatchers()
@@ -360,7 +363,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 
 	if !connected {
 		if untilNextAttempt := rc.getRetryConnNextAttempt().Sub(rc.clock.Now()); untilNextAttempt > 0 {
-			return &untilNextAttempt, nil
+			return false, &untilNextAttempt, nil
 		}
 	}
 
@@ -374,7 +377,7 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 	}
 	remoteClient, err := builder(watchCtx, config, client.Options{Scheme: rc.localClient.Scheme()})
 	if err != nil {
-		return rc.increaseFailedConnAttempt(), err
+		return false, rc.increaseFailedConnAttempt(), err
 	}
 
 	rc.setClient(remoteClient)
@@ -388,9 +391,9 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 	startWatcher, err := rc.establishWatcher(watchCtx, kueue.SchemeGroupVersion.WithKind("Workload").GroupKind().String(), &workloadKueueWatcher{})
 	if err != nil {
 		if errors.Is(err, errWatchEstablishInProgress) {
-			return rc.deferConnAttempt(retryIncrement), err
+			return false, rc.deferConnAttempt(retryIncrement), err
 		}
-		return rc.increaseFailedConnAttempt(), err
+		return false, rc.increaseFailedConnAttempt(), err
 	}
 	startWatcherCallbacks = append(startWatcherCallbacks, startWatcher)
 
@@ -403,18 +406,18 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 		startWatcher, err := rc.establishWatcher(watchCtx, kind, watcher)
 		if err != nil {
 			if errors.Is(err, errWatchEstablishInProgress) {
-				return rc.deferConnAttempt(retryIncrement), err
+				return false, rc.deferConnAttempt(retryIncrement), err
 			}
 			// not being able to setup a watcher is not ideal but we can function with only the wl watcher.
 			ctrl.LoggerFrom(watchCtx).Error(err, "Unable to establish the watcher", "kind", kind)
 			// however let's not accept this for now.
-			return rc.increaseFailedConnAttempt(), err
+			return false, rc.increaseFailedConnAttempt(), err
 		}
 		startWatcherCallbacks = append(startWatcherCallbacks, startWatcher)
 	}
 	if features.Enabled(features.MultiKueueManagerQuotaAutomation) {
 		if err := rc.startQueueWatchers(watchCtx); err != nil {
-			return rc.increaseFailedConnAttempt(), err
+			return false, rc.increaseFailedConnAttempt(), err
 		}
 	}
 
@@ -424,7 +427,23 @@ func (rc *remoteClient) updateConfigAndRefreshWatchers(watchCtx context.Context,
 	}
 
 	rc.resetFailedConnAttempt()
-	return nil, nil
+	return true, nil, nil
+}
+
+func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) *time.Duration {
+	wls := &kueue.WorkloadList{}
+	if err := rc.localClient.List(ctx, wls); err != nil {
+		ctrl.LoggerFrom(ctx).Error(err, "listing manager workloads for resync after reconnect")
+		retryAfter := retryIncrement
+		return &retryAfter
+	}
+	for i := range wls.Items {
+		if ptr.Deref(wls.Items[i].Status.ClusterName, "") == rc.clusterName ||
+			slices.Contains(wls.Items[i].Status.NominatedClusterNames, rc.clusterName) {
+			rc.queueWorkloadEvent(ctx, client.ObjectKeyFromObject(&wls.Items[i]))
+		}
+	}
+	return nil
 }
 
 // cancelOnStopWatcher carries the establishment context's cancel func so it
@@ -917,7 +936,10 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 	clientLog := ctrl.LoggerFrom(c.rootContext).WithValues("clusterName", clusterName)
 	clientCtx := ctrl.LoggerInto(c.rootContext, clientLog)
 
-	if retryAfter, err := client.updateConfigAndRefreshWatchers(clientCtx, config); err != nil {
+	hadClientBefore := client.getClient() != nil
+
+	refreshed, retryAfter, err := client.updateConfigAndRefreshWatchers(clientCtx, config)
+	if err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "failed to set kubeConfig in the remote client")
 		return retryAfter, err
 	} else if retryAfter != nil {
@@ -926,6 +948,16 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 		}
 		return retryAfter, nil
 	}
+
+	shouldResync := hadClientBefore && refreshed
+	if shouldResync || client.resyncPending {
+		if retryAfter := client.requeueWorkloadsForCluster(clientCtx); retryAfter != nil {
+			client.resyncPending = true
+			return retryAfter, nil
+		}
+		client.resyncPending = false
+	}
+
 	return nil, nil
 }
 
