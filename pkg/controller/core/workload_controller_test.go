@@ -2194,7 +2194,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 								t.Errorf("Expected workload in inadmissible=%v, got %v", *tc.wantWorkloadInadmissible, inInadmissible)
 							}
 						}
-						if tc.wantWorkloadsInQueue != nil && !foundInQueue {
+						if tc.wantWorkloadsInQueue != nil && *tc.wantWorkloadsInQueue > 0 && !foundInQueue {
 							t.Errorf("DRA workload not found in queue - expected to be queued for processing")
 						}
 					} else {
