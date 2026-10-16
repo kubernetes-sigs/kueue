@@ -1344,10 +1344,24 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 	multiclusterCRD := &apiextensionsv1.CustomResourceDefinition{
 		Name: "clusterprofiles.multicluster.x-k8s.io",
+		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
+				{Name: "v1alpha1", Served: true, Storage: true},
+				{Name: "v1alpha2", Served: true},
+			},
+		},
+	}
+	multiclusterCRDWithoutV1alpha2 := &apiextensionsv1.CustomResourceDefinition{
+		Name: "clusterprofiles.multicluster.x-k8s.io",
+		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{
+				{Name: "v1alpha1", Served: true, Storage: true},
+			},
+		},
 	}
 
 	testCases := map[string]struct {
-		crdPresent       bool
+		crd              *apiextensionsv1.CustomResourceDefinition
 		failedGetCRD     bool
 		wantError        bool
 		wantOptionsCache func(string) ctrlcache.Options
@@ -1356,7 +1370,7 @@ func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 			wantOptionsCache: defaultControlCacheOptions,
 		},
 		"clusterProfile cache added to ByObject": {
-			crdPresent: true,
+			crd: multiclusterCRD,
 			wantOptionsCache: func(namespace string) ctrlcache.Options {
 				cOpts := defaultControlOptions(namespace)
 				cOpts.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
@@ -1368,9 +1382,13 @@ func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 			},
 		},
 		"error failed loading the ClusterProfile CRD": {
-			crdPresent:   true,
+			crd:          multiclusterCRD,
 			failedGetCRD: true,
 			wantError:    true,
+		},
+		"error ClusterProfile CRD does not serve v1alpha2": {
+			crd:       multiclusterCRDWithoutV1alpha2,
+			wantError: true,
 		},
 	}
 
@@ -1385,8 +1403,8 @@ func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 			}
 
 			var objects []runtime.Object
-			if tc.crdPresent {
-				objects = append(objects, multiclusterCRD)
+			if tc.crd != nil {
+				objects = append(objects, tc.crd)
 			}
 
 			fake := apiextensionsfake.NewClientset(objects...)
