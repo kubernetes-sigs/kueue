@@ -52,7 +52,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -847,12 +847,12 @@ type clustersReconciler struct {
 }
 
 type clusterProfileAccessProvider interface {
-	BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error)
+	BuildConfigFromCP(clusterprofile *inventoryv1alpha2.ClusterProfile) (*rest.Config, error)
 }
 
 type NoOpClusterProfileAccessProvider struct{}
 
-func (NoOpClusterProfileAccessProvider) BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error) {
+func (NoOpClusterProfileAccessProvider) BuildConfigFromCP(clusterprofile *inventoryv1alpha2.ClusterProfile) (*rest.Config, error) {
 	return nil, errors.New("no access provider configured")
 }
 
@@ -1121,7 +1121,7 @@ func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeC
 }
 
 func (c *clustersReconciler) getRestConfigFromClusterProfile(ctx context.Context, profileRef *kueue.ClusterProfileReference) (*rest.Config, error) {
-	cp := &inventoryv1alpha1.ClusterProfile{}
+	cp := &inventoryv1alpha2.ClusterProfile{}
 	if err := c.localClient.Get(ctx, types.NamespacedName{Name: profileRef.Name, Namespace: c.configNamespace}, cp); err != nil {
 		return nil, err
 	}
@@ -1412,7 +1412,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 		})
 
 		controllerBuilder = controllerBuilder.
-			Watches(&inventoryv1alpha1.ClusterProfile{}, &clusterProfileHandler{client: c.localClient}, builder.WithPredicates(systemNamespacePredicate))
+			Watches(&inventoryv1alpha2.ClusterProfile{}, &clusterProfileHandler{client: c.localClient}, builder.WithPredicates(systemNamespacePredicate))
 	}
 
 	return controllerBuilder.Complete(c)
@@ -1569,7 +1569,7 @@ func (cp *clusterProfileHandler) Generic(ctx context.Context, event event.Generi
 }
 
 func (cp *clusterProfileHandler) handleEvent(ctx context.Context, object client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	clusterprofile, isClusterProfile := object.(*inventoryv1alpha1.ClusterProfile)
+	clusterprofile, isClusterProfile := object.(*inventoryv1alpha2.ClusterProfile)
 	if !isClusterProfile {
 		ctrl.LoggerFrom(ctx).Error(errors.New("not a clusterprofile"), "Failure on event")
 		return

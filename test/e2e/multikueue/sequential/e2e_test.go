@@ -33,9 +33,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	versionutil "k8s.io/apimachinery/pkg/util/version"
 	"k8s.io/client-go/tools/clientcmd/api"
-	apiv1 "k8s.io/client-go/tools/clientcmd/api/v1"
 	"k8s.io/utils/ptr"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueueconfig "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -465,7 +464,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 		var (
 			workerCluster3         *kueue.MultiKueueCluster
 			defaultManagerKueueCfg *kueueconfig.Configuration
-			cp                     *inventoryv1alpha1.ClusterProfile
+			cp                     *inventoryv1alpha2.ClusterProfile
 		)
 
 		ginkgo.BeforeAll(func() {
@@ -529,7 +528,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 			ginkgo.By("checking ClusterProfile exists", func() {
 				clusterProfileKey := client.ObjectKeyFromObject(cp)
 				gomega.Eventually(func(g gomega.Gomega) {
-					createdClusterProfile := &inventoryv1alpha1.ClusterProfile{}
+					createdClusterProfile := &inventoryv1alpha2.ClusterProfile{}
 					g.Expect(k8sManagerClient.Get(ctx, clusterProfileKey, createdClusterProfile)).To(gomega.Succeed())
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
@@ -578,7 +577,7 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 
 			defaultManagerDeployment = &appsv1.Deployment{}
 			clusterProfileSecrets    []*corev1.Secret
-			clusterProfiles          []*inventoryv1alpha1.ClusterProfile
+			clusterProfiles          []*inventoryv1alpha2.ClusterProfile
 			deploymentKey            = types.NamespacedName{Namespace: kueueNS, Name: "kueue-controller-manager"}
 		)
 
@@ -753,15 +752,15 @@ var _ = ginkgo.Describe("MultiKueue Sequential", func() {
 				workerCAData := [][]byte{worker1Cfg.CAData, worker2Cfg.CAData}
 				for i, wc := range mkc {
 					gomega.Eventually(func(g gomega.Gomega) {
-						createdCp := &inventoryv1alpha1.ClusterProfile{}
+						createdCp := &inventoryv1alpha2.ClusterProfile{}
 						g.Expect(k8sManagerClient.Get(ctx, client.ObjectKey{Namespace: kueueNS, Name: wc.Name}, createdCp)).To(gomega.Succeed())
-						createdCp.Status.AccessProviders = []inventoryv1alpha1.AccessProvider{
+						createdCp.Status.AccessProviders = []inventoryv1alpha2.AccessProvider{
 							{
 								Name: "secretreader",
-								Cluster: apiv1.Cluster{
+								Cluster: inventoryv1alpha2.Cluster{
 									Server:                   e2e.GetClusterServerAddress(workerClusterNames[i]),
 									CertificateAuthorityData: workerCAData[i],
-									Extensions: []apiv1.NamedExtension{
+									Extensions: []inventoryv1alpha2.NamedExtension{
 										{
 											Name: "client.authentication.k8s.io/exec",
 											Extension: runtime.RawExtension{
