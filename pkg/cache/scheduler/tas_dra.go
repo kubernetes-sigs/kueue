@@ -78,6 +78,9 @@ func newPodRequests(podSetRequests TASPodSetRequests) podRequests {
 // RequestsForDomain is the single-Pod request to record against domainID, chosen the way
 // forLeaf counts it, so a leaf that supplied the delegated resources is charged for them.
 func (s *TASFlavorSnapshot) RequestsForDomain(domainID utiltas.TopologyDomainID, requests resources.Requests, delegation *DRADelegation) resources.Requests {
+	// What TAS records on a domain is what it counted there, so the resources
+	// no node publishes are left out here as well.
+	requests, _ = s.requestsWithoutUnadvertised(requests)
 	if !features.Enabled(features.KueueDRADeviceFeasibility) {
 		return requests
 	}
