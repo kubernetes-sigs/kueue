@@ -176,6 +176,31 @@ func TestBuildVirtualPodGroups(t *testing.T) {
 				).Obj(),
 			wantUnsupportable: new(ReasonHierarchyDepthExceeded),
 		},
+		"JobSet with launcher and 3-level sliced workers produces valid depth-4 hierarchy": {
+			workload: utiltesting.MakeWorkload("wl-jobset-sliced", "default").
+				PodSets(
+					*utiltesting.MakePodSet("launcher", 1).Obj(),
+					*utiltesting.MakePodSet("workers", 8).
+						SliceRequiredTopologyConstraints(
+							kueue.PodsetSliceRequiredTopologyConstraint{Topology: "cloud.com/block", Size: 4},
+							kueue.PodsetSliceRequiredTopologyConstraint{Topology: "cloud.com/rack", Size: 2},
+							kueue.PodsetSliceRequiredTopologyConstraint{Topology: "kubernetes.io/hostname", Size: 1},
+						).
+						Obj(),
+				).Obj(),
+			wantPodGroups: 9,
+			wantCPGs:      7,
+			checkFn: func(t *testing.T, res *WorkloadVirtualPodGroups) {
+				if got := res.LeafPGForPod("launcher", 0); got == "" {
+					t.Errorf("expected non-empty leaf PG for launcher")
+				}
+				for i := range 8 {
+					if got := res.LeafPGForPod("workers", i); got == "" {
+						t.Errorf("expected non-empty leaf PG for worker %d", i)
+					}
+				}
+			},
+		},
 		"nil workload": {
 			workload: nil,
 			wantErr:  "workload must not be nil",
