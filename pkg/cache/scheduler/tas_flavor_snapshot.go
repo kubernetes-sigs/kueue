@@ -925,6 +925,21 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 			for _, tr := range trs {
 				psa := findPSA(wlObj, tr.PodSet.Name)
 				if psa == nil || psa.TopologyAssignment == nil {
+					// This PodSet has no existing assignment to replace a domain in, so
+					// give it a fresh placement instead of a replacement. This happens when:
+					//  - a sibling PodSet's node failed while this PodSet's topology
+					//    assignment was delayed (e.g. its flavor has a ProvisioningRequest
+					//    check); the delayed second pass then runs with unhealthyNodes set,
+					//  - the workload was admitted without a topology assignment for this
+					//    PodSet before #15337 was fixed.
+					// Like the replacement path below, don't simulate preemption: a
+					// failed-node repair must only use capacity that's free right now.
+					assignments, leafAssignments, reason := s.findTopologyAssignment(ctx, tr, nil, assumedUsage, false, "", opts.workload, nil)
+					result[tr.PodSet.Name] = tasPodSetAssignmentResult{TopologyAssignment: assignments[tr.PodSet.Name], FailureReason: reason}
+					if reason != "" {
+						return result
+					}
+					s.addAssumedUsageForCycle(assumedUsage, assignments[tr.PodSet.Name], leafAssignments[tr.PodSet.Name], &tr)
 					continue
 				}
 				if shouldKeepExistingAssignment(wlObj, psa) {
