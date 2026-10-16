@@ -988,6 +988,10 @@ const (
 	// failed because the workload's DRA resources could not be resolved.
 	WorkloadQuotaReservedReasonDRAResourcesUnresolved = "DRAResourcesUnresolved"
 
+	// WorkloadQuotaReservedReasonSimulationFailed indicates that quota reservation
+	// failed when running the scheduling simulation.
+	WorkloadQuotaReservedReasonSimulationFailed = "SchedulingSimulationFailed"
+
 	// WorkloadAdmittedReasonNoReservation indicates that the workload has no reservation.
 	WorkloadAdmittedReasonNoReservation = "NoReservation"
 

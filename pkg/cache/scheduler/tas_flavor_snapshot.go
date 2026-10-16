@@ -641,6 +641,19 @@ func (r TASAssignmentsResult) Failure() *FailureInfo {
 	return nil
 }
 
+func (r TASAssignmentsResult) Failures() (failures []*FailureInfo) {
+	for psName, psAssignment := range r {
+		if psAssignment.FailureReason != "" {
+			failures = append(failures, &FailureInfo{
+				PodSetName: psName,
+				Reason:     psAssignment.FailureReason,
+				Flavor:     psAssignment.Flavor,
+			})
+		}
+	}
+	return
+}
+
 type tasPodSetAssignmentResult struct {
 	TopologyAssignment *utiltas.TopologyAssignment
 	FailureReason      string
@@ -974,6 +987,56 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 	}
 
 	return result
+}
+
+// BuildTopologyAssignmentsForPodSet returns TAS assignment based on the registered
+// spread of the PodSet's Pods across specific Nodes.
+func (s *TASFlavorSnapshot) BuildTopologyAssignmentsForPodSet(
+	ctx context.Context,
+	podSet *kueue.PodSet,
+	flavor kueue.ResourceFlavorReference,
+	podsPerNode map[types.NodeName]int32,
+) *tasPodSetAssignmentResult {
+	result := &tasPodSetAssignmentResult{}
+	result.Flavor = flavor
+
+	domainCounts := map[*domain]int32{}
+	for nodeName, count := range podsPerNode {
+		leafID := s.nodeToDomain[string(nodeName)]
+
+		domain := &s.leaves[leafID].domain
+		if s.virtualHostname {
+			// The domain we read is not published.
+			// Using parent as the first published domain.
+			domain = domain.parent
+		}
+		domainCounts[domain] += count
+	}
+
+	tasAssignment := &utiltas.TopologyAssignment{}
+	low, high := s.getLevelRange()
+	tasAssignment.Levels = s.levelKeys[low:high]
+	domains := maps.Keys(domainCounts)
+	for _, domain := range slices.SortedFunc(domains, s.compareDomainLevelValues) {
+		tasAssignment.Domains = append(tasAssignment.Domains, utiltas.TopologyDomainAssignment{
+			Values: domain.levelValues[low:high],
+			Count:  domainCounts[domain],
+		})
+	}
+	result.TopologyAssignment = tasAssignment
+	return result
+}
+
+func (s *TASFlavorSnapshot) getLevelRange() (int, int) {
+	levelsTotal := len(s.levelKeys)
+	switch {
+	case s.virtualHostname:
+		return 0, levelsTotal - 1
+	case s.declaresHostnameLevel():
+		return levelsTotal - 1, levelsTotal
+	default:
+		return 0, levelsTotal
+	}
 }
 
 func shouldKeepExistingAssignment(wl *kueue.Workload, psa *kueue.PodSetAssignment) bool {

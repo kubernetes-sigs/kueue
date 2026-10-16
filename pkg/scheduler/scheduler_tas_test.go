@@ -3922,6 +3922,11 @@ type tasScheduleTestCase struct {
 	workloads       []kueue.Workload
 	wantWorkloads   []kueue.Workload
 
+	featureGates map[featuregate.Feature]bool
+
+	// simulatorOverride allows to set a custom simulator.SchedulerSimulator.
+	simulatorOverride func() simulator.SchedulerSimulator
+
 	// prequeuedSecondPasses are the Workloads with a second pass already pending when the cycle runs.
 	prequeuedSecondPasses []workload.Reference
 
@@ -3940,10 +3945,8 @@ type tasScheduleTestCase struct {
 	// eventCmpOpts are the comparison options for the events
 	eventCmpOpts cmp.Options
 
-	featureGates map[featuregate.Feature]bool
-
 	// wantSimulatorPreemptions are the Workloads the scheduler must tell the
-	// simulator to preempt. Setting it installs a recording simulator.
+	// simulator to preempt.
 	wantSimulatorPreemptions []workload.Reference
 
 	// failSimulatorPreemption makes that simulator refuse to release Workloads.
@@ -3953,6 +3956,15 @@ type tasScheduleTestCase struct {
 	// at the same moment feasibility runs. A call count cannot tell that apart from a
 	// release that happened afterwards.
 	wantSimulatorReleasedTogether []workload.Reference
+}
+
+type simulatorFactoryOverride struct {
+	simulator.Factory
+	simulatorOverride simulator.SchedulerSimulator
+}
+
+func (sfo *simulatorFactoryOverride) NewSimulator(_ context.Context, _ []*corev1.Node, _ ...simulator.Option) (simulator.SchedulerSimulator, error) {
+	return sfo.simulatorOverride, nil
 }
 
 // tasScheduleTestConfig carries the per-suite fixtures shared by the TAS preemption
@@ -3970,7 +3982,7 @@ func (s *recordingSimulatorFactory) NewSimulator(ctx context.Context, nodes []*c
 	if err != nil {
 		return nil, err
 	}
-	s.recorder.schedulerSimulator = schedulerSimulator
+	s.recorder.SchedulerSimulator = schedulerSimulator
 	s.recorder.releasedNow = sets.New[workload.Reference]()
 	return &s.recorder, nil
 }
@@ -3982,20 +3994,16 @@ func (s *recordingSimulatorFactory) UntrackPod(ctx context.Context, key client.O
 }
 
 type recordingSchedulerSimulator struct {
+	simulator.SchedulerSimulator
 	// failPreempt makes PreemptWorkload return an error.
 	failPreempt bool
 	// asked holds every Workload the scheduler tried to release, released holds the
 	// ones it managed to. They differ when failPreempt is set.
-	asked              []workload.Reference
-	released           int
-	reverted           int
-	releasedNow        sets.Set[workload.Reference]
-	releasedTogether   sets.Set[workload.Reference]
-	schedulerSimulator simulator.SchedulerSimulator
-}
-
-func (s *recordingSchedulerSimulator) Simulate(ctx context.Context, fn func()) error {
-	return s.schedulerSimulator.Simulate(ctx, fn)
+	asked            []workload.Reference
+	released         int
+	reverted         int
+	releasedNow      sets.Set[workload.Reference]
+	releasedTogether sets.Set[workload.Reference]
 }
 
 func (s *recordingSchedulerSimulator) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (func() error, error) {
@@ -4004,7 +4012,7 @@ func (s *recordingSchedulerSimulator) PreemptWorkload(ctx context.Context, wlKey
 	if s.failPreempt {
 		return nil, errors.New("simulated failure")
 	}
-	revert, err := s.schedulerSimulator.PreemptWorkload(ctx, wlKey)
+	revert, err := s.SchedulerSimulator.PreemptWorkload(ctx, wlKey)
 	if err != nil {
 		return nil, err
 	}
@@ -4028,11 +4036,11 @@ func (s *recordingSchedulerSimulator) FindFeasibleNodes(
 	if s.releasedNow.Len() > s.releasedTogether.Len() {
 		s.releasedTogether = s.releasedNow.Clone()
 	}
-	return s.schedulerSimulator.FindFeasibleNodes(ctx, candidates, requirements, stats)
+	return s.SchedulerSimulator.FindFeasibleNodes(ctx, candidates, requirements, stats)
 }
 
 func (s *recordingSchedulerSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
-	return s.schedulerSimulator.ScheduleWorkload(ctx, workloadPods, opts...)
+	return s.SchedulerSimulator.ScheduleWorkload(ctx, workloadPods, opts...)
 }
 
 type tasScheduleTestConfig struct {
@@ -4145,13 +4153,18 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					recorder := &utiltesting.EventRecorder{}
 					var recordingFactory *recordingSimulatorFactory
 					cacheOptions := []schdcache.Option{}
-					if tc.wantSimulatorPreemptions != nil {
-						// main.go only installs a simulator behind this gate, so a test
-						// that installs one has to set it too.
-						features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
-						simulatorFactory, err := was.NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
+					if tc.featureGates[features.SchedulerLibraryIntegration] {
+						var simulatorFactory simulator.Factory
+						var err error
+						simulatorFactory, err = was.NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
 						if err != nil {
 							t.Fatalf("Failed to initialize WAS scheduling simulator: %v", err)
+						}
+						if tc.simulatorOverride != nil {
+							simulatorFactory = &simulatorFactoryOverride{
+								Factory:           simulatorFactory,
+								simulatorOverride: tc.simulatorOverride(),
+							}
 						}
 						recordingFactory = &recordingSimulatorFactory{simulatorFactory: simulatorFactory}
 						recordingFactory.recorder.failPreempt = tc.failSimulatorPreemption
