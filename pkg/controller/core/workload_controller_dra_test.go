@@ -234,8 +234,10 @@ func TestReconcileDRA(t *testing.T) {
 				features.KueueDRAIntegration:              true,
 				features.MultiKueueOrchestratedPreemption: false,
 			},
-			wantDRAResourceTotal: new(int64(1)),
-			wantWorkloadsInQueue: new(1),
+			wantDRAResourceTotal:     new(int64(1)),
+			wantWorkloadsInQueue:     new(1),
+			wantWorkloadInHeap:       new(true),
+			wantWorkloadInadmissible: new(false),
 			workload: utiltestingapi.MakeWorkload("wlStaleInadmissibleDRA", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -291,16 +293,13 @@ func TestReconcileDRA(t *testing.T) {
 				Obj(),
 			wantEvents: nil,
 		},
-		"reconcile DRA workload waiting for backoff should preprocess and queue as inadmissible": {
+		"reconcile DRA workload waiting for backoff should preprocess but not queue": {
 			featureGates: map[featuregate.Feature]bool{
 				features.KueueDRAIntegration:              true,
 				features.MultiKueueOrchestratedPreemption: false,
 			},
-			wantDRAResourceTotal:     new(int64(1)),
-			wantWorkloadsInQueue:     new(1),
-			wantWorkloadInHeap:       new(false),
-			wantWorkloadInadmissible: new(true),
-			wantResult:               reconcile.Result{RequeueAfter: time.Hour},
+			wantWorkloadsInQueue: new(0),
+			wantResult:           reconcile.Result{RequeueAfter: time.Hour},
 			workload: utiltestingapi.MakeWorkload("wlDRAWaitingForBackoff", "ns").
 				Queue("lq").
 				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
@@ -368,9 +367,9 @@ func TestReconcileDRA(t *testing.T) {
 					Obj()).
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
-					Message: "Exceeded the PodsReady timeout ns",
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadBackoffFinished,
+					Message: "The workload backoff was finished",
 				}).
 				RequeueState(new(int32(1)), nil).
 				Obj(),
@@ -414,9 +413,9 @@ func TestReconcileDRA(t *testing.T) {
 				Request("example.com/gpu", "1").
 				Condition(metav1.Condition{
 					Type:    kueue.WorkloadRequeued,
-					Status:  metav1.ConditionFalse,
-					Reason:  kueue.WorkloadEvictedByPodsReadyTimeout,
-					Message: "Exceeded the PodsReady timeout ns",
+					Status:  metav1.ConditionTrue,
+					Reason:  kueue.WorkloadBackoffFinished,
+					Message: "The workload backoff was finished",
 				}).
 				RequeueState(new(int32(1)), nil).
 				Obj(),
