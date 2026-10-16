@@ -82,6 +82,7 @@ This KEP introduces **Preemption Limits** in Kueue through a new cluster-scoped 
 While declarative preemption systems (such as Configurable Preemptions via `PreemptionConfig`, introduced in [KEP-13396](/keps/13396-configurable-preemptions/README.md)) allow expressive candidate selection policies, cluster administrators need rate-limiting guardrails to safely roll out new configurations, control the blast radius of misconfigurations, avoid cascading evictions, and protect workloads and queues from disruptive eviction storms.
 
 `PreemptionLimit` allows administrators to configure sliding-window rate limits across multiple scopes:
+
 - **Global**: Limits the total number of preemption events across the entire cluster within the sliding window.
 - **PreemptorClusterQueue**: Restricts the preemption rate triggered by workloads originating from specific ClusterQueues.
 - **PreemptedClusterQueue**: Constrains the eviction rate targeting workloads running in specific ClusterQueues, including blocking preemptions entirely (`limit: 0`) to protect mission-critical "hero" queues.
@@ -208,6 +209,7 @@ Because `PreemptionLimit` is a cluster-scoped resource modifiable only by cluste
 ## Design Details
 
 ### Proposed API
+
 `PreemptionLimit` will be introduced as a cluster-scoped CRD:
 
 ```go
@@ -337,6 +339,7 @@ A `PreemptionLimit` limits the number of preemptions that can occur within its c
 To manage this data, Kueue stores a comprehensive preemption map in memory, isolated per `PreemptionLimit`. This map tracks all preemption event timestamps indexed by entity key (ClusterQueue or Workload), recording events that occurred within the designated `limitWindowSeconds`. Moreover, it records only events that match the scope and selectors of the specific limit; if a preemption does not match the configured `configSelector` or `clusterQueueSelector`, it is not tracked in that limit's preemption map. Expired timestamps are periodically trimmed from the map.
 
 Because tracking is strictly maintained in-memory and periodically trimmed:
+
 - **Reset on controller restarts**: Events are not persisted in etcd; restarting the Kueue controller resets the in-memory map, so preemption limit counters start fresh from zero.
 - **Reset on spec changes to scope or configSelector**: If a `PreemptionLimit`'s `spec` is modified to change its `scope` or `configSelector`, the in-memory limit counters are reset by clearing all recorded preemption event timestamps for that limit.
 - **Increasing time window**: If `LimitWindowSeconds` is increased, previous preemption events that occurred before the previously active window have already been discarded and will not be taken into account.
@@ -345,7 +348,6 @@ Because tracking is strictly maintained in-memory and periodically trimmed:
 Furthermore, the status of the PreemptionLimit is refreshed periodically by a dedicated `PreemptionLimitReconciler` — approximately every minute — to update `lastUpdateTimestamp` and write the aggregated totals into the count map (restricted to the top 1000 counts to fit within CRD size limits).
 
 `PreemptionLimitReconciler` will be responsible for updating an in-memory representation of limits — removing no longer needed recorded preemption limit timestamps from memory when a particular `PreemptionLimit` is deleted, and resetting the in-memory limits when a `PreemptionLimit`'s `spec.scope` or `spec.configSelector` changes.
-
 
 ### Observability
 
@@ -369,7 +371,6 @@ when drafting this test plan.
 existing tests to make this code solid enough prior to committing the changes necessary
 to implement this enhancement.
 
-
 #### Unit tests
 
 <!--
@@ -388,25 +389,25 @@ in the form of:
 This can inform certain test coverage improvements that we want to do before
 extending the production code to implement this enhancement.
 -->
-The majority of the new code will be introduced as a separate subpackage under `pkg/controller/preemption` called `limits`, alongside a dedicated controller handling periodic updates to `PreemptionLimit` status. All public methods across these components will be thoroughly covered by unit tests.
+
+The majority of the new code will be introduced as a separate subpackage under `preemption` called `limits`, alongside a dedicated controller handling periodic updates to `PreemptionLimit` status. All public methods across these components will be thoroughly covered by unit tests.
 
 Apart from the new subpackage, the following existing components will receive additional unit tests covering the new behavior when the feature gate is enabled:
-1. **Preemption Evaluator**:
+
+1. **Configurable Preemptions Evaluation**:
    - Selects only candidates that do not violate any applicable limits.
    - Accurately reports which limits were consumed by the selected candidates.
-2. **Preemptor.IssuePreemptions`**:
+2. **Issuing preemptions**:
    - Records confirmed Configurable Preemption events in the in-memory limits state.
    - Records each event exactly once upon successful preemption issuance.
-3. **Scheduler**:
+3. **Scheduling**:
    - Recomputes preemption candidates when concurrent workloads encounter conflicting limit constraints (analogous to overlapping preemption targets).
-
 
 #### Integration tests
 
 1. Preemption limits are enforced during Configurable Preemptions candidate selection when the feature gate is enabled.
 2. A `PreemptionConfig` can be safely rolled out by progressively adjusting its limits.
 3. Preemptions from Configurable Preemptions can be blocked entirely for a specific target ClusterQueue (e.g. `limit: 0`).
-
 
 #### e2e tests
 
@@ -444,7 +445,6 @@ TBD
    - In-memory tracking of preemption events.
    - Status reporting with `counts` and `lastUpdateTimestamp` via `PreemptionLimitReconciler`.
 
-
 ## Drawbacks
 
 - **Increased PreemptionEvaluator complexity**: Evaluating limits introduces additional logic into the preemption path, partially mitigated by isolating limit-related logic in a dedicated subpackage with high test coverage.
@@ -470,7 +470,6 @@ TBD
    Rejected because allowing the number of preemptions to reach up to $2\times$ the configured limit within the defined preemption window would be confusing for users and is not expected.
 
 4. Using `limitWindowDuration` (`metav1.Duration`) instead of `limitWindowSeconds`.
-
    - **Advantages**: Better UX for manual configuration and manipulation in YAML manifests (e.g., writing `"1h"` or `"5m"` instead of `3600` or `300`).
    - **Drawbacks**: Discouraged by KAL (Kubernetes API Review guidelines) because of ambiguous values and lack of support for Go duration formats in client libraries across other programming languages.
 
@@ -504,9 +503,9 @@ The addition to `PreemptionLimitSpec` would look like the following:
 A key design challenge arises when a candidate workload matches multiple rules in a `PreemptionConfig`, especially when only some of the rules have associated preemption limits or remaining budget. Several alternative approaches were considered:
 
 1. **Requiring available limits in all matching rules**:
-   - *Drawback*: Would not allow for a stable, safe rollout of new rules. If an existing stable rule permits preemption without limits, adding a new experimental rule with a strict limit would cause preemptions otherwise allowed by the stable rule to be blocked whenever the experimental limit is reached.
+   - _Drawback_: Would not allow for a stable, safe rollout of new rules. If an existing stable rule permits preemption without limits, adding a new experimental rule with a strict limit would cause preemptions otherwise allowed by the stable rule to be blocked whenever the experimental limit is reached.
 2. **Consuming from only those rules that currently have limits available**:
-   - *Drawback*: Leads to poor user experience because the number of consumed limits and the attribution behavior would non-deterministically differ depending on whether multiple limits or only one are available at the exact moment of preemption.
+   - _Drawback_: Leads to poor user experience because the number of consumed limits and the attribution behavior would non-deterministically differ depending on whether multiple limits or only one are available at the exact moment of preemption.
 
 #### Proposed Approach: First Matching Rule Consumes the Limits
 
