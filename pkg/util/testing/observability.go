@@ -68,6 +68,27 @@ func AdjustConditionsForDisabledObservabilityInWorkloadController(conditions []m
 	return filtered
 }
 
+// AdjustEventsForDisabledObservabilityInWorkloadController maps the granular
+// unadmitted reasons of Workload controller Events to the legacy Inadmissible
+// reason, matching the scenario when the UnadmittedWorkloadsObservability feature
+// gate is disabled. It mirrors AdjustConditionsForDisabledObservabilityInWorkloadController.
+func AdjustEventsForDisabledObservabilityInWorkloadController(events []EventRecord) []EventRecord {
+	if events == nil {
+		return nil
+	}
+	adjusted := make([]EventRecord, len(events))
+	for i, e := range events {
+		switch e.Reason {
+		case kueue.WorkloadQuotaReservedReasonMisconfigured,
+			kueue.WorkloadQuotaReservedReasonSuspended,
+			kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved:
+			e.Reason = kueue.WorkloadInadmissible
+		}
+		adjusted[i] = e
+	}
+	return adjusted
+}
+
 // AdjustWorkloadsForDisabledObservabilityInWorkloadController adjusts the workload status conditions in-place for
 // a slice of workloads, matching the scenario when the UnadmittedWorkloadsObservability
 // feature gate is disabled. It delegates the condition adjustments to AdjustConditionsForDisabledObservabilityInWorkloadController.

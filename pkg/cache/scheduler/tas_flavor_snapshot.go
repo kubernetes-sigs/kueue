@@ -652,26 +652,33 @@ type FlavorTASRequests []TASPodSetRequests
 // Fits checks if the snapshot has enough capacity to accommodate the workload
 func (s *TASFlavorSnapshot) Fits(flavorUsage workload.TASFlavorUsage) bool {
 	cachingEnabled := features.Enabled(features.TASCachingRemainingResources)
+	assumed := make(map[utiltas.TopologyDomainID]resources.Requests, len(flavorUsage))
 	for _, domainUsage := range flavorUsage {
 		dom := s.usageDomain(utiltas.DomainID(domainUsage.Values))
 		if dom == nil {
 			return false
 		}
+		perPod := domainUsage.SinglePodRequests.Clone()
+		perPod.Add(resources.OnePodRequest)
 		var fitCount int32
 		for leaf := range s.leavesOf(dom) {
 			remainingCapacity := s.remainingCapacityForLeaf(leaf, false, cachingEnabled)
-			fitCount += domainUsage.SinglePodRequests.CountIn(remainingCapacity.Get())
+			if !s.virtualHostname {
+				remainingCapacity.Sub(assumed[dom.id])
+			}
+			fitCount += perPod.CountIn(remainingCapacity.Get())
 			if fitCount >= domainUsage.Count {
 				break
 			}
 		}
 		if s.virtualHostname {
-			remaining := s.domainRemainingCapacity(dom, nil, false)
-			fitCount = min(fitCount, domainUsage.SinglePodRequests.CountIn(remaining.Get()))
+			remaining := s.domainRemainingCapacity(dom, assumed[dom.id], false)
+			fitCount = min(fitCount, perPod.CountIn(remaining.Get()))
 		}
 		if fitCount < domainUsage.Count {
 			return false
 		}
+		assumed[dom.id] = updateUsage(assumed[dom.id], perPod.ScaledUp(int64(domainUsage.Count)), add)
 	}
 	return true
 }
@@ -1943,7 +1950,11 @@ func (s *TASFlavorSnapshot) findLevelWithFitDomains(
 		if len(state.multiLayerConstraints) > 0 {
 			reason = s.multiLayerNotFitMessage(searchLevelIdx, state.count, state.multiLayerConstraints, state.stats)
 		} else {
-			reason = s.notFitMessage(slicesFitCount, totalRequestsSlicesCount, state.sliceSize, state.stats)
+			var requiredTopologyLevel string
+			if state.required {
+				requiredTopologyLevel = s.levelKeys[state.requestedLevelIdx]
+			}
+			reason = s.notFitMessage(slicesFitCount, totalRequestsSlicesCount, state.sliceSize, requiredTopologyLevel, state.stats)
 		}
 		if len(state.spreadBannedDomains) > 0 {
 			reason += fmt.Sprintf("; topology spreading excluded %d topology domain(s) at level: %s", len(state.spreadBannedDomains), s.levelKeys[searchLevelIdx])
@@ -2949,7 +2960,7 @@ func (s *TASFlavorSnapshot) fillInCountsHelper(domain *domain, shape sliceShape,
 	}
 }
 
-func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCount, sliceSize int32, stats *tasExclusionStats) string {
+func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCount, sliceSize int32, requiredTopologyLevel string, stats *tasExclusionStats) string {
 	var builder strings.Builder
 
 	unit := "slice"
@@ -2961,6 +2972,9 @@ func (s *TASFlavorSnapshot) notFitMessage(slicesFitCount, totalRequestsSlicesCou
 		fmt.Fprintf(&builder, "topology %q doesn't allow to fit any of %d %s(s)", s.topologyName, totalRequestsSlicesCount, unit)
 	} else {
 		fmt.Fprintf(&builder, "topology %q allows to fit only %d out of %d %s(s)", s.topologyName, slicesFitCount, totalRequestsSlicesCount, unit)
+	}
+	if requiredTopologyLevel != "" {
+		fmt.Fprintf(&builder, "; all pods must fit in a single %q topology domain", requiredTopologyLevel)
 	}
 
 	// Append exclusion stats if available.

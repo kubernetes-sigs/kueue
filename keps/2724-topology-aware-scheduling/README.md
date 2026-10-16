@@ -1617,6 +1617,9 @@ period on the original node — an assignment no pod can ever consume, occupying
 newly assigned node for the full grace period. With the gate enabled, evicted
 pod-owned Workloads get `Requeued=False` instead: the Workload is parked, finishes
 with its pod, and the owning controller's replacement pod arrives as a new Workload.
+This applies only once the pod's `kueue.x-k8s.io/admission` scheduling gate has been
+removed; a pod that still carries it at eviction time has not been placed and is not
+deleted by the stop, so its Workload is requeued as usual.
 
 #### Tainted nodes treatment
 

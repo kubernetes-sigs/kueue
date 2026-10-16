@@ -14,11 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1alpha1
+package v1alpha2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	clientcmdv1 "k8s.io/client-go/tools/clientcmd/api/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // ClusterProfileSpec defines the desired state of ClusterProfile.
@@ -46,7 +46,11 @@ type ClusterProfileSpec struct {
 //
 // +kubebuilder:validation:XValidation:rule="self == oldSelf",message="ClusterManager is immutable"
 type ClusterManager struct {
-	// Name defines the name of the cluster manager
+	// Name defines the name of the cluster manager.
+	// It must be a valid Kubernetes label value.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=63
+	// +kubebuilder:validation:XValidation:rule="!format.labelValue().validate(self).hasValue()",message="must be a valid Kubernetes label value"
 	// +required
 	Name string `json:"name"`
 }
@@ -57,7 +61,7 @@ type ClusterProfileStatus struct {
 	// +optional
 	// +listType=map
 	// +listMapKey=type
-	Conditions []metav1.Condition `json:"conditions"`
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
 
 	// Version defines the version information of the cluster.
 	// +optional
@@ -75,35 +79,93 @@ type ClusterProfileStatus struct {
 	// +listMapKey=name
 	Properties []Property `json:"properties,omitempty"`
 
-	// CredentialProviders is a list of cluster access providers that can provide access
-	// information for clusters.
-	// Deprecated: Use AccessProviders instead. If both AccessProviders and CredentialProviders are provided,
-	// both are used. In case they specify a provider with the same name, the one in AccessProviders is preferred.
-	// +optional
-	// +deprecated
-	// +listType=map
-	// +listMapKey=name
-	CredentialProviders []CredentialProvider `json:"credentialProviders,omitempty"`
-
 	// AccessProviders is a list of cluster access providers that can provide access
 	// information for clusters.
 	// +optional
 	// +listType=map
 	// +listMapKey=name
+	// +kubebuilder:validation:MaxItems=64
 	AccessProviders []AccessProvider `json:"accessProviders,omitempty"`
 }
 
-// AccessProvider defines how to access the cluster.
-// It contains the name of the provider name and the cluster connection details.
-// The name is used to identify different access info types, such as "kubeconfig" or "oidc".
-// The Cluster field contains the actual cluster connection details, such as server address,
-// certificate authority data, and authentication information.
+// AccessProvider describes one way a consumer can connect to the cluster.
 type AccessProvider struct {
-	Name    string              `json:"name"`
-	Cluster clientcmdv1.Cluster `json:"cluster,omitempty"`
+	// Name matches one of the consumer's configured access provider names.
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
+	Name string `json:"name"`
+
+	// Cluster contains the cluster connection details, such as the server
+	// address and certificate authority data.
+	// +required
+	Cluster Cluster `json:"cluster"`
 }
 
-type CredentialProvider = AccessProvider
+// Cluster contains the connection information a consumer uses to reach the
+// Kubernetes API server.
+type Cluster struct {
+	// Server is the URL of the Kubernetes API server, for example,
+	// "https://api.example.com:6443".
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:XValidation:rule="isURL(self) && url(self).getHost() != ''",message="server must be a valid absolute URL with a host"
+	// +required
+	Server string `json:"server"`
+
+	// TLSServerName is the server name used to verify the server certificate.
+	// If empty, the hostname in Server is used.
+	// +kubebuilder:validation:MaxLength=253
+	// +optional
+	TLSServerName string `json:"tls-server-name,omitempty"`
+
+	// InsecureSkipTLSVerify disables server certificate verification.
+	// Enabling this field makes HTTPS connections insecure.
+	// +optional
+	InsecureSkipTLSVerify bool `json:"insecure-skip-tls-verify,omitempty"`
+
+	// CertificateAuthorityData contains PEM-encoded CA certificate bytes.
+	// In YAML or JSON, these bytes must be base64-encoded.
+	// +optional
+	CertificateAuthorityData []byte `json:"certificate-authority-data,omitempty"`
+
+	// ProxyURL is the proxy URL used for requests to the cluster. Supported
+	// schemes are "http", "https", and "socks5". If empty, the ClusterProfile
+	// does not specify a proxy.
+	//
+	// SOCKS5 proxying does not support SPDY streaming endpoints such as exec,
+	// attach, and port-forward.
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:XValidation:rule="self == '' || (isURL(self) && url(self).getScheme() in ['http', 'https', 'socks5'] && url(self).getHost() != '')",message="proxy-url must be a valid URL with scheme http, https, or socks5 and a host"
+	// +optional
+	ProxyURL string `json:"proxy-url,omitempty"`
+
+	// DisableCompression disables response compression for requests to the
+	// cluster. This can reduce CPU usage when network bandwidth is sufficient.
+	// +optional
+	DisableCompression bool `json:"disable-compression,omitempty"`
+
+	// Extensions contains provider-specific cluster configuration. For example,
+	// an extension named "client.authentication.k8s.io/exec" supplies
+	// configuration to an exec credential plugin.
+	// +optional
+	// +listType=map
+	// +listMapKey=name
+	Extensions []NamedExtension `json:"extensions,omitempty"`
+}
+
+// NamedExtension associates a name with provider-specific configuration.
+type NamedExtension struct {
+	// Name identifies the extension, for example,
+	// "client.authentication.k8s.io/exec".
+	// +kubebuilder:validation:MinLength=1
+	// +kubebuilder:validation:MaxLength=253
+	// +required
+	Name string `json:"name"`
+
+	// Extension contains the provider-specific configuration.
+	// +required
+	Extension runtime.RawExtension `json:"extension"`
+}
 
 // ClusterVersion represents version information about the cluster.
 type ClusterVersion struct {
@@ -155,6 +217,13 @@ const (
 	// The purpose of this label is to make filter clusters from different cluster managers easier.
 	LabelClusterManagerKey = "x-k8s.io/cluster-manager"
 
+	// LabelInventoryMemberIDKey correlates ClusterProfiles that represent the same member cluster.
+	// When set, the value MUST be non-empty. The platform administrator SHOULD coordinate values
+	// on a hub so that the same member cluster uses the same value and different member clusters
+	// use different values. Cluster managers SHOULD keep the value unchanged while a ClusterProfile
+	// continues to represent the same member cluster.
+	LabelInventoryMemberIDKey = "multicluster.x-k8s.io/inventory-member-id"
+
 	// LabelClusterSetKey is used on a namespace to indicate the clusterset that a ClusterProfile belongs to.
 	// If a cluster inventory represents a ClusterSet,
 	// all its ClusterProfile objects MUST be part of the same clusterSet
@@ -166,7 +235,12 @@ const (
 //+genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-//+kubebuilder:resource:scope=Namespaced
+//+kubebuilder:resource:scope=Namespaced,categories=multicluster
+//+kubebuilder:printcolumn:name="Display Name",type=string,JSONPath=`.spec.displayName`
+//+kubebuilder:printcolumn:name="Manager",type=string,JSONPath=`.spec.clusterManager.name`
+//+kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.status.version.kubernetes`
+//+kubebuilder:printcolumn:name="Healthy",type=string,JSONPath=`.status.conditions[?(@.type=="ControlPlaneHealthy")].status`
+//+kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // ClusterProfile represents a single cluster in a multi-cluster deployment.
 type ClusterProfile struct {

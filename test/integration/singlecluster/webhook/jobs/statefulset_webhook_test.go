@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
@@ -113,6 +114,79 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 					gomega.MatchError(gomega.ContainSubstring("must not contain more than one topology annotation")),
 				))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.When("The default WorkloadPriorityClass is created after the StatefulSet", func() {
+			ginkgo.BeforeEach(func() {
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadPriorityClassDefaulting, true)
+			})
+
+			markReady := func(sts *appsv1.StatefulSet) {
+				ginkgo.By("Marking the StatefulSet as ready")
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
+					sts.Status.Replicas = 1
+					sts.Status.ReadyReplicas = 1
+					g.Expect(k8sClient.Status().Update(ctx, sts)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			}
+
+			createDefaultWPC := func() {
+				ginkgo.By("Creating the default WorkloadPriorityClass")
+				defaultWPC := utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj()
+				behavioral.MustCreate(ctx, k8sClient, defaultWPC)
+				ginkgo.DeferCleanup(func() {
+					behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultWPC, true)
+				})
+
+				ginkgo.By("Waiting for the webhook to see the default WorkloadPriorityClass")
+				gomega.Eventually(func(g gomega.Gomega) {
+					probe := testingstatefulset.MakeStatefulSet("sts-probe", ns.Name).Obj()
+					g.Expect(k8sClient.Create(ctx, probe, client.DryRunAll)).To(gomega.Succeed())
+					g.Expect(probe.Labels).To(gomega.HaveKeyWithValue(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			}
+
+			updateWithoutPriorityClassLabel := func(sts *appsv1.StatefulSet) {
+				ginkgo.By("Updating the StatefulSet without the priority class label")
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), sts)).To(gomega.Succeed())
+					delete(sts.Labels, constants.WorkloadPriorityClassLabel)
+					metav1.SetMetaDataAnnotation(&sts.ObjectMeta, "example.com/touched", "true")
+					g.Expect(k8sClient.Update(ctx, sts)).To(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			}
+
+			ginkgo.It("Should not add the label to a ready StatefulSet that does not have it", func() {
+				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Obj()
+				behavioral.MustCreate(ctx, k8sClient, sts)
+				markReady(sts)
+				createDefaultWPC()
+
+				updateWithoutPriorityClassLabel(sts)
+				gomega.Expect(sts.Labels).NotTo(gomega.HaveKey(constants.WorkloadPriorityClassLabel))
+			})
+
+			ginkgo.It("Should add the label to a not ready StatefulSet that does not have it", func() {
+				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Obj()
+				behavioral.MustCreate(ctx, k8sClient, sts)
+				createDefaultWPC()
+
+				updateWithoutPriorityClassLabel(sts)
+				gomega.Expect(sts.Labels).To(gomega.HaveKeyWithValue(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName))
+			})
+
+			ginkgo.It("Should add the label back to a ready StatefulSet whose update drops it", func() {
+				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).
+					Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, sts)
+				markReady(sts)
+				createDefaultWPC()
+
+				updateWithoutPriorityClassLabel(sts)
+				gomega.Expect(sts.Labels).To(gomega.HaveKeyWithValue(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName))
+			})
 		})
 
 		// Regression test for GC teardown deadlock:
