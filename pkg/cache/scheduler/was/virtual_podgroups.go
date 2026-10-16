@@ -26,6 +26,7 @@ import (
 	"strings"
 
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
@@ -65,7 +66,7 @@ func (e *ErrUnsupportableWorkload) Error() string {
 // WorkloadVirtualPodGroups holds the generated PodGroups, CompositePodGroups,
 // and a function mapping each pod to its leaf PodGroup
 type WorkloadVirtualPodGroups struct {
-	PodGroups          []*schedulingv1alpha3.PodGroup
+	PodGroups          []*schedulingv1beta1.PodGroup
 	CompositePodGroups []*schedulingv1alpha3.CompositePodGroup
 	LeafPGForPod       func(podSetName string, replicaIdx int) string
 }
@@ -99,20 +100,20 @@ func virtualGroupName(prefix, wlName, groupID string) string {
 }
 
 // newVPG creates a leaf PodGroup with gang count and optional topology constraint
-func newVPG(name, namespace, topology string, count int32, parent *string) *schedulingv1alpha3.PodGroup {
-	pg := &schedulingv1alpha3.PodGroup{
+func newVPG(name, namespace, topology string, count int32, parent *string) *schedulingv1beta1.PodGroup {
+	pg := &schedulingv1beta1.PodGroup{
 		Name:      name,
 		Namespace: namespace,
-		Spec: schedulingv1alpha3.PodGroupSpec{
+		Spec: schedulingv1beta1.PodGroupSpec{
 			ParentCompositePodGroupName: parent,
-			SchedulingPolicy: schedulingv1alpha3.PodGroupSchedulingPolicy{
-				Gang: &schedulingv1alpha3.GangSchedulingPolicy{MinCount: count},
+			SchedulingPolicy: schedulingv1beta1.PodGroupSchedulingPolicy{
+				Gang: &schedulingv1beta1.GangSchedulingPolicy{MinCount: count},
 			},
 		},
 	}
 	if topology != "" {
-		pg.Spec.SchedulingConstraints = &schedulingv1alpha3.PodGroupSchedulingConstraints{
-			Topology: []schedulingv1alpha3.TopologyConstraint{{Key: topology}},
+		pg.Spec.SchedulingConstraints = &schedulingv1beta1.PodGroupSchedulingConstraints{
+			Topology: []schedulingv1beta1.TopologyConstraint{{Key: topology}},
 		}
 	}
 	return pg
@@ -231,7 +232,7 @@ type virtualPodGroupFactory struct {
 	wl          *kueue.Workload
 	podCounts   map[kueue.PodSetReference]int32
 	podToLeafPG map[string]map[int]string
-	vpgMap      map[string]*schedulingv1alpha3.PodGroup
+	vpgMap      map[string]*schedulingv1beta1.PodGroup
 	vcpgMap     map[string]*schedulingv1alpha3.CompositePodGroup
 }
 
@@ -240,7 +241,7 @@ func newVirtualPodGroupFactory(wl *kueue.Workload, podCounts map[kueue.PodSetRef
 		wl:          wl,
 		podCounts:   podCounts,
 		podToLeafPG: make(map[string]map[int]string),
-		vpgMap:      make(map[string]*schedulingv1alpha3.PodGroup),
+		vpgMap:      make(map[string]*schedulingv1beta1.PodGroup),
 		vcpgMap:     make(map[string]*schedulingv1alpha3.CompositePodGroup),
 	}
 }
@@ -261,7 +262,7 @@ func (f *virtualPodGroupFactory) build(groups map[string][]*kueue.PodSet, groupO
 
 	allPGs := slices.Collect(maps.Values(f.vpgMap))
 	allCPGs := slices.Collect(maps.Values(f.vcpgMap))
-	slices.SortFunc(allPGs, func(a, b *schedulingv1alpha3.PodGroup) int {
+	slices.SortFunc(allPGs, func(a, b *schedulingv1beta1.PodGroup) int {
 		return strings.Compare(a.Name, b.Name)
 	})
 	slices.SortFunc(allCPGs, func(a, b *schedulingv1alpha3.CompositePodGroup) int {
@@ -444,7 +445,7 @@ func (f *virtualPodGroupFactory) buildRootCPG(topLevelGroupNames []string) {
 }
 
 // setParent sets the parent CompositePodGroup name on a child group
-func setParent(vpgMap map[string]*schedulingv1alpha3.PodGroup, vcpgMap map[string]*schedulingv1alpha3.CompositePodGroup, child, parent string) {
+func setParent(vpgMap map[string]*schedulingv1beta1.PodGroup, vcpgMap map[string]*schedulingv1alpha3.CompositePodGroup, child, parent string) {
 	if pg, ok := vpgMap[child]; ok {
 		pg.Spec.ParentCompositePodGroupName = new(parent)
 		return
@@ -456,7 +457,7 @@ func setParent(vpgMap map[string]*schedulingv1alpha3.PodGroup, vcpgMap map[strin
 }
 
 // validateLimits checks WAS limits: at most 8 children per group and max depth 4
-func validateLimits(wlName string, pgs []*schedulingv1alpha3.PodGroup, cpgs []*schedulingv1alpha3.CompositePodGroup) error {
+func validateLimits(wlName string, pgs []*schedulingv1beta1.PodGroup, cpgs []*schedulingv1alpha3.CompositePodGroup) error {
 	children := make(map[string]int)
 	parentOf := make(map[string]string)
 
