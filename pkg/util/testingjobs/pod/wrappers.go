@@ -371,6 +371,12 @@ func (p *PodWrapper) Limit(r corev1.ResourceName, v string) *PodWrapper {
 	return p
 }
 
+// RuntimeClass sets the RuntimeClassName of the Pod.
+func (p *PodWrapper) RuntimeClass(name string) *PodWrapper {
+	p.Spec.RuntimeClassName = &name
+	return p
+}
+
 // OwnerReference adds a ownerReference to the default container.
 func (p *PodWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersionKind) *PodWrapper {
 	utiltesting.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, ownerName, new(true), new(true))

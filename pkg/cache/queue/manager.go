@@ -731,7 +731,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.L
 	// carry it over. Any update to the Workload lands here, and on a busy cluster those
 	// arrive constantly, which would otherwise send the scan back to the first flavor every
 	// time. The progress still expires on its own, since it keeps the scheduling cycle it
-	// was recorded in and flavorScanStateOutdated discards it once it is older than that.
+	// was recorded in and FlavorScanState.IsOutdated discards it once it is older than that.
 	if features.Enabled(features.FlavorFungibilityPreserveScanProgress) && cq != nil {
 		if tracked := cq.trackedInfo(wlKey); tracked != nil && tracked.FlavorScanState != nil &&
 			tracked.FlavorScanState.MatchesSchedulingShape(wInfo.SchedulingHash) {
@@ -760,6 +760,18 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.L
 // computed by the scheduler during this cycle. It must be passed explicitly because info.Obj
 // has not yet been patched with the updated condition when RequeueWorkload is called.
 func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reason RequeueReason, quotaReservedReason QuotaReservedReason) bool {
+	requeued, draWorkload := m.requeueWorkloadLocked(ctx, info, reason, quotaReservedReason)
+	if draWorkload != nil {
+		m.draReconcileChannel <- event.TypedGenericEvent[*kueue.Workload]{Object: draWorkload}
+		ctrl.LoggerFrom(ctx).V(4).Info("Sent DRA workload to reconcile channel due to a generation change while inflight",
+			"workload", klog.KObj(draWorkload), "generation", draWorkload.Generation)
+	}
+	return requeued
+}
+
+// requeueWorkloadLocked requeues the workload, or returns it for the workload
+// controller when its quota charges can no longer describe it.
+func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info, reason RequeueReason, quotaReservedReason QuotaReservedReason) (bool, *kueue.Workload) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -780,11 +792,11 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 			// The client is cached, so NotFound is the only expected error.
 			log.Error(err, "Failed to get the workload to requeue", "workload", klog.KObj(info.Obj))
 		}
-		return false
+		return false, nil
 	}
 	// An inadmissible workload may still have a pending second-pass request.
 	if !workload.IsAdmissible(&w) {
-		return false
+		return false, nil
 	}
 
 	qKey := queue.KeyFromWorkload(&w)
@@ -800,11 +812,22 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 
 	q := m.localQueues[qKey]
 	if q == nil {
-		return false
+		return false, nil
 	}
 	fresh := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
 	options := append(slices.Clone(m.workloadInfoOptions), workload.WithEffectivePodSpecs(fresh.EffectivePodSpecs))
 	if dra.NeedsDRAReconcile(fresh, m.draBackedResources) {
+		// DRA quota charges are resolved by the workload controller and cannot be
+		// rebuilt here, because the spec carries resourceClaims rather than the quota
+		// keys they translate to. Charges preprocessed for an older generation would
+		// admit the workload against a shape nobody asked for, so hand it back and let
+		// the controller recompute them. A matching generation is weaker than it looks
+		// for extended resources, where a DeviceClass change moves the charge with
+		// metadata.generation untouched; the reconcile that follows such a change
+		// re-pushes the workload with the current charges.
+		if features.Enabled(features.KueueDRAIntegration) && info.Obj.Generation != w.Generation {
+			return false, w.DeepCopy()
+		}
 		options = append(options, workload.WithPreserveTotalRequests())
 	}
 	info.Update(log, &w, options...)
@@ -812,7 +835,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	if cq == nil {
-		return false
+		return false, nil
 	}
 
 	added := cq.RequeueIfNotPresent(ctx, info, reason, quotaReservedReason)
@@ -821,7 +844,7 @@ func (m *Manager) RequeueWorkload(ctx context.Context, info *workload.Info, reas
 	if added {
 		m.Broadcast()
 	}
-	return added
+	return added, nil
 }
 
 // forgetInflight releases the claim that Pop took on a workload in the given

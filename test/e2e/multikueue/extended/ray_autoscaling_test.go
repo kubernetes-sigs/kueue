@@ -55,6 +55,7 @@ type rayAutoscalingTestContext struct {
 }
 
 func liveRayWorkloadSlice(g gomega.Gomega, c client.Client, ns, sliceName string) *kueue.Workload {
+	ginkgo.GinkgoHelper()
 	wls := &kueue.WorkloadList{}
 	g.Expect(c.List(ctx, wls, client.InNamespace(ns))).To(gomega.Succeed())
 	var live []kueue.Workload

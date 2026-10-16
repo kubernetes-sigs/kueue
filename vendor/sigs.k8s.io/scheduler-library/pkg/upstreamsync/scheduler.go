@@ -118,6 +118,31 @@ func WithFrameworkOutOfTreeRegistry(registry frameworkruntime.Registry) Option {
 	}
 }
 
+type frameworkMapOptions struct {
+	sharedDRAManager fwk.SharedDRAManager
+}
+
+// FrameworkMapOption configures a single ProfileMap built by NewFrameworkMap. Unlike Option,
+// which configures the FrameworkComponents shared by every map, it applies to that map only.
+//
+// UPSTREAM-DIFF: library-only. Upstream builds a single profile map per scheduler, so its options
+// all live on scheduler.New. The library builds one ProfileMap per snapshot from shared
+// FrameworkComponents, and the DRA manager is per ProfileMap, so it is configured here.
+type FrameworkMapOption func(*frameworkMapOptions)
+
+// WithSharedDRAManager makes the plugins of the map read DRA objects through the given manager
+// rather than through the one built from FrameworkComponents. A nil manager keeps the default.
+//
+// UPSTREAM-DIFF: library-only. Upstream has one cluster to schedule against and builds the
+// manager from its own informers. The interface is documented as the place to plug a simulated
+// state in, so a caller holding claims the cluster has never seen can have them judged by the
+// same plugin kube-scheduler runs.
+func WithSharedDRAManager(m fwk.SharedDRAManager) FrameworkMapOption {
+	return func(o *frameworkMapOptions) {
+		o.sharedDRAManager = m
+	}
+}
+
 // NewScheduler creates a Scheduler operating on the given snapshot.
 // numNodesToFind caps how many feasible nodes a scheduling attempt looks for; pass math.MaxInt32
 // to consider all of them.

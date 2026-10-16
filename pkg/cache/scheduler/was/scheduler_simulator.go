@@ -25,12 +25,15 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 )
+
+const FailedReasonSkipped = "skipped"
 
 var _ simulator.SchedulerSimulator = (*wasSimulator)(nil)
 
@@ -140,4 +143,47 @@ func (s *wasSimulator) Simulate(ctx context.Context, fn func()) error {
 		fn()
 		return schedlib.Revert, nil
 	})
+}
+
+func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
+	workloadPods = copyWithDefaultScheduler(workloadPods...)
+	wasResults, err := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, schedlib.ScheduleWorkloadOptions{DryRun: true})
+	if err != nil {
+		return simulator.SchedulingResult{Error: err}
+	}
+
+	// Parse scheduler-library results
+	placements := make(simulator.PodPlacements, len(workloadPods))
+	for _, podResult := range wasResults {
+		podKey := client.ObjectKeyFromObject(podResult.Pod)
+		status := podResult.Status
+		if status.IsSuccess() {
+			placements[podKey] = &simulator.PodPlacement{Node: types.NodeName(podResult.SelectedNodeName)}
+		} else {
+			placements[podKey] = &simulator.PodPlacement{
+				Error:   status.AsError(),
+				Reasons: status.Reasons(),
+			}
+		}
+	}
+
+	// Add entries for pods not scheduled by the scheduler-library
+	for _, wlPod := range workloadPods {
+		podKey := client.ObjectKeyFromObject(wlPod)
+		if _, placed := placements[podKey]; !placed {
+			placements[podKey] = &simulator.PodPlacement{Reasons: []string{FailedReasonSkipped}}
+		}
+	}
+
+	return simulator.SchedulingResult{PodPlacements: placements}
+}
+
+func copyWithDefaultScheduler(pods ...*corev1.Pod) []*corev1.Pod {
+	copiedPods := make([]*corev1.Pod, len(pods))
+	for i, pod := range pods {
+		copiedPods[i] = pod.DeepCopy()
+		// The simulator builds one profile, so judge the Pod by it rather than by the scheduler it names.
+		copiedPods[i].Spec.SchedulerName = corev1.DefaultSchedulerName
+	}
+	return copiedPods
 }

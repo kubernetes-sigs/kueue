@@ -19,7 +19,9 @@ package simulator
 import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
@@ -70,6 +72,34 @@ type PodRequirements struct {
 	// to check whether preemption could help, and to reserve capacity for a
 	// Workload that is waiting for preemption candidates.
 	SimulateEmpty bool
+}
+
+type scheduleOptions struct{}
+
+type ScheduleOption func(*scheduleOptions)
+
+// SchedulingResult encapsulates the node assignments for the pods of the Workload.
+type SchedulingResult struct {
+	PodPlacements PodPlacements
+	Error         error
+}
+
+type PodPlacements map[client.ObjectKey]*PodPlacement
+
+// PodPlacement represents the assignment of a Pod to a specific node.
+// The placement is considered a success only if:
+//   - Node is not empty,
+//   - Error is not set, and
+//   - Reasons list is empty.
+//
+// If the pleacement is not successful, Node is expected to be empty.
+type PodPlacement struct {
+	// Node is the assigned Node.
+	Node types.NodeName
+	// Error lists the error returned for a Pod assignment, if present.
+	Error error
+	// Reasons explain why the Simulator failed to assign the Pod.
+	Reasons []string
 }
 
 type NodeExclusionType int

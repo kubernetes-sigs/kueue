@@ -23,19 +23,20 @@ Please do not remove items from the checklist
   - Extract the changelog from the issue description.
   - Create the release tag at the tip of the release branch.
   - Push the tag upstream (triggers Prow to build and publish staging container image: `us-central1-docker.pkg.dev/k8s-staging-images/kueue/kueue:$VERSION`).
-- [ ] Run ChatOps command `/create-draft-release` on this issue. This will: <!-- step:create-draft-release -->
-  - Extract the changelog from the issue description.
-  - Create the draft release pointing out to the created tag.
-  - Write the change log into the draft release.
-  - Generate the artifacts in the `release-artifacts` folder.
-  - Upload the files in the `release-artifacts` folder to the draft release.
-  - Generate openvex data.
-  - Generate the SBOM and add it to the release.
-- [ ] Promote images and Helm Charts to production:
-  - [ ] Use `/wait-for-images` to await for the staging images. <!-- step:wait-for-images -->
-  - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR <!-- step:promote-pull -->
-  - [ ] Wait for the PR to be merged <!-- K8S_IO_PULL --> <!-- example kubernetes/k8s.io#7899 -->
-  - [ ] Use `/wait-for-prod-images` to verify that the promoted images are available. <!-- step:wait-for-prod-images -->
+- [ ] Use `/wait-for-images` to await for the staging images. <!-- step:wait-for-images -->
+- [ ] Create the draft release and promote images and Helm Charts to production (the two steps below are independent and can run in parallel):
+  - [ ] Run ChatOps command `/create-draft-release` on this issue. This will: <!-- step:create-draft-release -->
+    - Extract the changelog from the issue description.
+    - Create the draft release pointing out to the created tag.
+    - Write the change log into the draft release.
+    - Generate the artifacts in the `release-artifacts` folder.
+    - Upload the files in the `release-artifacts` folder to the draft release.
+    - Generate openvex data.
+    - Generate the SBOM and add it to the release.
+  - [ ] Promote images and Helm Charts to production:
+    - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR <!-- step:promote-pull -->
+    - [ ] Wait for the PR to be merged <!-- K8S_IO_PULL --> <!-- example kubernetes/k8s.io#7899 -->
+    - [ ] Use `/wait-for-prod-images` to verify that the promoted images are available. <!-- step:wait-for-prod-images -->
 - [ ] Use `/publish-release` to publish the release prepared at the [GitHub releases page](https://github.com/kubernetes-sigs/kueue/releases). <!-- step:publish-release -->
       Link: <!-- RELEASE_LINK --> <!-- example https://github.com/kubernetes-sigs/kueue/releases/tag/v0.1.0 -->
 - [ ] For the latest published release, run ChatOps command `/update-krew-index` on this issue to submit the krew plugin release. <!-- step:update-krew-index -->

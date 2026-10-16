@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -88,10 +89,30 @@ func (a *Assignment) UpdateForTASResult(log logr.Logger, cq *schdcache.ClusterQu
 	a.Usage.TAS = a.ComputeTASNetUsage(log, cq, wl, nil)
 }
 
+// ResolvePodSetFailure updates the status of the given PodSet and adjusts
+// the RepresentativeMode of the PodSet and the Assignment at large.
+func (a *Assignment) ResolvePodSetFailure(psRef kueue.PodSetReference, targetMode FlavorAssignmentMode, failStatus Status) {
+	psAssignment := a.podSetAssignmentByName(psRef)
+	psAssignment.Status = failStatus
+	// update the mode for all flavors and the representative mode
+	a.demoteTo(targetMode)
+	psAssignment.demoteTo(targetMode)
+}
+
+// SetRepresentativeMode updates the representative mode
+// and flavor assignment modes across all registered PodSets.
 func (a *Assignment) SetRepresentativeMode(mode FlavorAssignmentMode) {
 	a.representativeMode = &mode
 	for i := range a.PodSets {
 		a.PodSets[i].updateMode(mode)
+	}
+}
+
+// demoteTo demotes representative mode of asssignment to the targeted mode.
+// Can only lower the mode (e.g. Fit to Preempt).
+func (a *Assignment) demoteTo(targetMode FlavorAssignmentMode) {
+	if targetMode < *a.representativeMode {
+		a.representativeMode = new(targetMode)
 	}
 }
 
@@ -305,7 +326,7 @@ func (a *Assignment) psError(psAssignment *PodSetAssignment, err error) {
 }
 
 func (a *Assignment) append(psIdx int, requests resources.Requests, psAssignment *PodSetAssignment) {
-	flavorIdx := make(map[corev1.ResourceName]int, len(psAssignment.Flavors))
+	triedFlavors := make(map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference], len(psAssignment.Flavors))
 	a.PodSets = append(a.PodSets, *psAssignment)
 	for resource, flvAssignment := range psAssignment.Flavors {
 		if flvAssignment.borrow > a.Borrowing {
@@ -325,14 +346,11 @@ func (a *Assignment) append(psIdx int, requests resources.Requests, psAssignment
 		}
 
 		a.Usage.Quota.Assigned[fr] = a.Usage.Quota.Assigned[fr].Add(requestAmount)
-		flavorIdx[resource] = flvAssignment.TriedFlavorIdx
+		triedFlavors[resource] = flvAssignment.TriedFlavors
 	}
 	// The next attempt resumes each PodSet by its position in the Workload, not by the
 	// order in which the groups were assigned.
-	if missing := psIdx + 1 - len(a.FlavorScanState.LastTriedFlavorIndexes); missing > 0 {
-		a.FlavorScanState.LastTriedFlavorIndexes = append(a.FlavorScanState.LastTriedFlavorIndexes, make([]map[corev1.ResourceName]int, missing)...)
-	}
-	a.FlavorScanState.LastTriedFlavorIndexes[psIdx] = flavorIdx
+	a.FlavorScanState.RecordPodSet(psIdx, triedFlavors)
 }
 
 // findOldPodSetRequest returns the resource request from the old workload slice
@@ -481,8 +499,10 @@ func (psa *PodSetAssignment) updateMode(newMode FlavorAssignmentMode) {
 	}
 }
 
-func (psa *PodSetAssignment) reason(reason string) {
-	psa.Status.reasons = append(psa.Status.reasons, reason)
+func (psa *PodSetAssignment) demoteTo(targetMode FlavorAssignmentMode) {
+	for _, flvAssignment := range psa.Flavors {
+		flvAssignment.Mode = min(flvAssignment.Mode, targetMode)
+	}
 }
 
 func (psa *PodSetAssignment) markFlavorAttempt(flavor kueue.ResourceFlavorReference, mode FlavorAssignmentMode, reason string) {
@@ -557,10 +577,10 @@ func (m FlavorAssignmentMode) String() string {
 }
 
 type FlavorAssignment struct {
-	Name           kueue.ResourceFlavorReference
-	Mode           FlavorAssignmentMode
-	TriedFlavorIdx int
-	borrow         int
+	Name         kueue.ResourceFlavorReference
+	Mode         FlavorAssignmentMode
+	TriedFlavors sets.Set[kueue.ResourceFlavorReference]
+	borrow       int
 }
 
 // FlavorAssignmentAttempt captures one attempted flavor and its worst-case outcome

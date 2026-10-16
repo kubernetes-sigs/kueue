@@ -103,14 +103,14 @@ from pathlib import Path
 
 args = sys.argv[1:]
 real_git = os.environ["REAL_GIT"]
-if args[0] == "ls-remote" and os.environ.get("FAIL_LOOKUP"):
+if args and args[0] == "ls-remote" and os.environ.get("FAIL_LOOKUP"):
     print("injected remote lookup failure", file=sys.stderr)
     sys.exit(1)
-if args[0] == "tag" and "-a" in args and os.environ.get("FAIL_TAG"):
+if args and args[0] == "tag" and "-a" in args and os.environ.get("FAIL_TAG"):
     print("injected tag creation failure", file=sys.stderr)
     sys.exit(1)
 marker = Path(os.environ["CONCURRENT_MARKER"])
-if args[0] == "push" and os.environ.get("CONCURRENT_TAG") and not marker.exists():
+if args and args[0] == "push" and os.environ.get("CONCURRENT_TAG") and not marker.exists():
     subprocess.run([real_git, "-C", os.environ["TEST_ORIGIN"], "update-ref",
                     "refs/tags/" + os.environ["VERSION"], os.environ["CONCURRENT_TAG"]], check=True)
     marker.touch()
@@ -118,8 +118,13 @@ os.execv(real_git, [real_git, *args])
 ''')
         self.env["PATH"] = str(self.bin) + os.pathsep + os.environ["PATH"]
         action = Path(__file__).resolve().parents[2] / ".github/actions/create-release-tag/action.yml"
+        self.action = yaml.safe_load(action.read_text())
         self.script = self.root / "action.sh"
-        self.script.write_text(yaml.safe_load(action.read_text())["runs"]["steps"][0]["run"])
+        self.write_action_script()
+
+    def write_action_script(self):
+        tag_step = next(step for step in self.action["runs"]["steps"] if step.get("id") == "tag")
+        self.script.write_text(tag_step["run"])
 
     def write_executable(self, path, body):
         path.write_text(f"#!{sys.executable}\n" + body)
@@ -156,6 +161,22 @@ os.execv(real_git, [real_git, *args])
         annotation = self.git("for-each-ref", "--format=%(contents)",
                               f"refs/tags/{self.version}", cwd=self.origin).stdout.strip()
         self.assertEqual(self.version + "\n\n" + self.env["CHANGELOG"], annotation)
+
+    def test_tag_step_is_selected_after_a_preceding_step(self):
+        self.action["runs"]["steps"].insert(0, {"id": "setup", "run": "exit 1"})
+        self.write_action_script()
+        self.assert_success(self.run_action(), "updated")
+
+    def test_git_wrapper_passes_empty_arguments_to_git(self):
+        result = subprocess.run([str(self.bin / "git")], cwd=self.work,
+                                env={**self.env, "FAIL_LOOKUP": "1", "FAIL_TAG": "1",
+                                     "CONCURRENT_TAG": self.head},
+                                capture_output=True, text=True, check=False)
+        expected = subprocess.run([self.real_git], cwd=self.work, env=self.env,
+                                  capture_output=True, text=True, check=False)
+        self.assertEqual(expected.returncode, result.returncode)
+        self.assertEqual(expected.stdout, result.stdout)
+        self.assertEqual(expected.stderr, result.stderr)
 
     def test_lookup_errors_leave_local_and_remote_tags_unchanged(self):
         for error in ("HTTP 401: Bad credentials", "HTTP 403: Forbidden",

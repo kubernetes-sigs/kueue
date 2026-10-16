@@ -315,4 +315,5 @@ KUEUECTL_DOCS = $(BIN_DIR)/kueuectl-docs
 
 .PHONY: kueuectl-docs
 kueuectl-docs: generate-code ## kueuectl-docs imports generated packages (apis/config, client-go).
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(KUEUECTL_DOCS) ./cmd/kueuectl-docs/main.go
+# Match the CLI's CGO setting so host-platform dependencies can share build-cache entries.
+	CGO_ENABLED=$(CGO_ENABLED) $(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(KUEUECTL_DOCS) ./cmd/kueuectl-docs/main.go

@@ -298,7 +298,7 @@ func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 			if tc.wantNoArrayBuilt {
 				// A disabled strategy log must not accumulate entries even as record is called.
 				pCtx := fixture.preemptionCtx
-				ordering := fairsharing.MakeClusterQueueOrdering(pCtx.preemptorCQ, fixture.candidates, log, pCtx.clock)
+				ordering := fairsharing.MakeClusterQueueOrdering(pCtx.preemptorCQ, fixture.candidates, pCtx.frsNeedPreemption, log, pCtx.clock)
 				var candCQ *fairsharing.TargetClusterQueue
 				for cq := range ordering.Iter() {
 					candCQ = cq
