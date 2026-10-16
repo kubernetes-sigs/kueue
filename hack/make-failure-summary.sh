@@ -14,7 +14,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Inline, the echo below would show in make-timed-shell.sh previews of passing runs.
+# Runs a make command and, if it fails, lists the failed targets again at the end of the output.
+# This is a script, not part of the verify recipe, so that recipe previews of passing runs
+# do not contain the ERROR text.
 #
 # Usage: make-failure-summary.sh <make> [args...]
 
@@ -29,6 +31,6 @@ status=0
 "$@" 2>&1 | tee "${log}" || status=$?
 if [[ "${status}" -ne 0 ]]; then
   echo "ERROR: failed make targets:" >&2
-  grep -E 'make\[[0-9]+\]: \*\*\* \[' "${log}" >&2 || true
+  grep -E 'make\[[0-9]+\]: \*\*\* ' "${log}" | grep -vF 'Waiting for unfinished jobs' >&2 || true
 fi
 exit "${status}"

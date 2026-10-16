@@ -21,9 +21,15 @@ set -o pipefail
 script="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/make-failure-summary.sh"
 
 status=0
-out=$("${script}" sh -c 'echo "make[1]: *** [x] Error 1" >&2; exit 2' 2>&1) || status=$?
+out=$("${script}" sh -c '
+  echo "make[1]: *** [x] Error 1" >&2
+  echo "make[1]: *** No rule to make target y, needed by z.  Stop." >&2
+  echo "make[1]: *** Waiting for unfinished jobs...." >&2
+  exit 2' 2>&1) || status=$?
 [[ "${status}" -eq 2 ]] || { echo "expected exit 2, got ${status}" >&2; exit 1; }
 [[ "$(grep -cF 'make[1]: *** [x]' <<<"${out}")" -eq 2 ]] || { echo "expected the failed target to be listed again" >&2; exit 1; }
+[[ "$(grep -cF 'make[1]: *** No rule' <<<"${out}")" -eq 2 ]] || { echo "expected the missing target to be listed again" >&2; exit 1; }
+[[ "$(grep -cF 'Waiting for unfinished jobs' <<<"${out}")" -eq 1 ]] || { echo "expected Waiting for unfinished jobs not to be listed again" >&2; exit 1; }
 
 out=$("${script}" true 2>&1)
 [[ "${out}" != *ERROR* ]] || { echo "expected no ERROR on success" >&2; exit 1; }
