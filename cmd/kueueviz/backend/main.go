@@ -35,7 +35,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/routine"
 )
 
-const shutdownTimeout = 30 * time.Second
+const (
+	shutdownTimeout = 30 * time.Second
+	componentCount  = 2
+)
 
 type managerRunner interface {
 	Start(context.Context) error
@@ -131,7 +134,7 @@ func runComponents(parentCtx context.Context, manager managerRunner, srv httpSer
 
 	managerErrCh := routine.NewErrorChannel()
 	serverErrCh := routine.NewErrorChannel()
-	componentDone := make(chan struct{}, 2)
+	componentDone := make(chan struct{}, componentCount)
 	wrapper := routine.NewWrapper(nil, func() {
 		componentDone <- struct{}{}
 	})
@@ -163,7 +166,7 @@ func runComponents(parentCtx context.Context, manager managerRunner, srv httpSer
 		runErr = errors.Join(runErr, fmt.Errorf("shutting down HTTP server: %w", err))
 	}
 
-	if err := waitForShutdown(shutdownCtx, componentDone, 2); err != nil {
+	if err := waitForShutdown(shutdownCtx, componentDone, componentCount); err != nil {
 		runErr = errors.Join(runErr, err)
 	}
 
