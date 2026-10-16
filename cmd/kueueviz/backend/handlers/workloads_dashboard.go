@@ -207,6 +207,10 @@ func (h *Handlers) buildWorkloadPodsIndex(ctx context.Context, identity middlewa
 		for _, pod := range pl.Items {
 			podLabels := pod.GetLabels()
 			controllerUID := podLabels["controller-uid"]
+			// An empty key would match every Workload without a job UID, such as pod groups.
+			if controllerUID == "" {
+				continue
+			}
 			podDetails := map[string]any{
 				"name":   pod.GetName(),
 				"status": pod.Status,

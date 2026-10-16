@@ -732,13 +732,15 @@ func TestReconcile(t *testing.T) {
 					Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic").
 					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
-				// A compatible gated pod receives the current request identity
-				// and selector before its elastic gate is removed. The class
-				// annotation is not stamped per pod; it comes from the template.
+				// A compatible gated pod receives the current request identity,
+				// its provisioning class and selector before its elastic gate is
+				// removed. The class is stamped too because this pod was created
+				// before the template carried it.
 				*testingpod.MakePod("pod-from-scale-up", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl-slice-1").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Annotation(autoscaling.ProvisioningRequestPodAnnotationKey, "wl-slice-1-provisioning-1").
+					Annotation(autoscaling.ProvisioningClassPodAnnotationKey, "atomic").
 					NodeSelector("cloud.example.com/provisioning-request", "current-booking").
 					Obj(),
 			},

@@ -36,7 +36,7 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() {
@@ -51,7 +51,7 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerAndControllersSetup(true, true, nil))
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-replacement-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "tas-replacement-")
 		nodes = nil
 		for _, name := range []string{"node1", "node2", "node3", "node4"} {
 			nodes = append(nodes, *testingnode.MakeNode(name).
@@ -63,28 +63,28 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 				}).
 				Ready().Obj())
 		}
-		util.CreateNodesWithStatus(ctx, k8sClient, nodes[:2])
+		behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes[:2])
 		topology = utiltestingapi.MakeTopology("job-replacement").Levels(corev1.LabelHostname).Obj()
-		util.MustCreate(ctx, k8sClient, topology)
+		behavioral.MustCreate(ctx, k8sClient, topology)
 		flavor = utiltestingapi.MakeResourceFlavor("job-replacement").
 			NodeLabel("node-group", "tas-replacement").TopologyName(topology.Name).Obj()
-		util.MustCreate(ctx, k8sClient, flavor)
+		behavioral.MustCreate(ctx, k8sClient, flavor)
 		cq = utiltestingapi.MakeClusterQueue("job-replacement").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).Resource(corev1.ResourceCPU, "2").Obj()).Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 		lq = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).ClusterQueue(cq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+		gomega.Expect(behavioral.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
 		for i := range nodes {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[i], true)
 		}
 		fwk.StopManager(ctx)
 	})
@@ -97,7 +97,7 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 			PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 			Parallelism(2).Completions(2).CompletionMode(batchv1.IndexedCompletion).
 			Request(corev1.ResourceCPU, "1").Obj()
-		util.MustCreate(ctx, k8sClient, job)
+		behavioral.MustCreate(ctx, k8sClient, job)
 		wl := &kueue.Workload{}
 		key := client.ObjectKey{Namespace: ns.Name, Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID)}
 
@@ -109,23 +109,23 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))
 				g.Expect(slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))).
 					To(gomega.ConsistOf("node1", "node2"))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 		originalUID := wl.UID
 
 		ginkgo.By("failing both nodes without replacement capacity", func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[0], true)
-			util.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl, "node1")
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[1], true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[0], true)
+			behavioral.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl, "node1")
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[1], true)
 		})
 
 		ginkgo.By("keeping the Job running with both failures queued", func() {
-			util.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl, "node1", "node2")
+			behavioral.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl, "node1", "node2")
 			gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
 			gomega.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))
 		})
 		ginkgo.By("replacing both nodes without creating a new Workload", func() {
-			util.CreateNodesWithStatus(ctx, k8sClient, nodes[2:])
+			behavioral.CreateNodesWithStatus(ctx, k8sClient, nodes[2:])
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, key, wl)).To(gomega.Succeed())
 				g.Expect(wl.UID).To(gomega.Equal(originalUID))
@@ -136,7 +136,7 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 					To(gomega.ConsistOf("node3", "node4"))
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
 				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))
-			}, util.LongTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -148,7 +148,7 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 			PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 			Parallelism(2).Completions(2).CompletionMode(batchv1.IndexedCompletion).
 			Request(corev1.ResourceCPU, "1").Obj()
-		util.MustCreate(ctx, k8sClient, job)
+		behavioral.MustCreate(ctx, k8sClient, job)
 		wl := &kueue.Workload{}
 		key := client.ObjectKey{Namespace: ns.Name, Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID)}
 
@@ -160,19 +160,19 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 					To(gomega.ConsistOf("node1", "node2"))
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
 				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("failing a node without replacement capacity", func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[0], true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[0], true)
 		})
 
 		ginkgo.By("checking fail-fast eviction and Job suspension", func() {
-			util.ExpectWorkloadsToBeEvictedByKeys(ctx, k8sClient, key)
+			behavioral.ExpectWorkloadsToBeEvictedByKeys(ctx, k8sClient, key)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
 				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(true)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -185,7 +185,7 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 			PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
 			Parallelism(2).Completions(2).CompletionMode(batchv1.IndexedCompletion).
 			Request(corev1.ResourceCPU, "1").Obj()
-		util.MustCreate(ctx, k8sClient, job)
+		behavioral.MustCreate(ctx, k8sClient, job)
 		wl := &kueue.Workload{}
 		key := client.ObjectKey{Namespace: ns.Name, Name: workloadjob.GetWorkloadNameForJob(job.Name, job.UID)}
 
@@ -197,20 +197,20 @@ var _ = ginkgo.Describe("Job controller with multiple failed TAS nodes", func() 
 				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(false)))
 				g.Expect(slices.Collect(tas.LowestLevelValues(wl.Status.Admission.PodSetAssignments[0].TopologyAssignment))).
 					To(gomega.ConsistOf("node1", "node2"))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("failing both nodes without replacement capacity", func() {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[0], true)
-			util.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl, "node1")
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[1], true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[0], true)
+			behavioral.ExpectAdmittedWorkloadWithUnhealthyNodes(ctx, k8sClient, wl, "node1")
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, &nodes[1], true)
 		})
 		ginkgo.By("checking eviction and Job suspension without the feature", func() {
-			util.ExpectWorkloadsToBeEvictedByKeys(ctx, k8sClient, key)
+			behavioral.ExpectWorkloadsToBeEvictedByKeys(ctx, k8sClient, key)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
 				g.Expect(job.Spec.Suspend).To(gomega.Equal(new(true)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })

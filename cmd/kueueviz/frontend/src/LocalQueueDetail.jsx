@@ -107,6 +107,7 @@ const LocalQueueDetail = () => {
             {workloads.map((workload) => (
               <TableRow key={workload.metadata.name}>
                 <TableCell><Link to={`/workload/${namespace}/${workload.metadata.name}`}>{workload.metadata.name}</Link></TableCell>
+                <TableCell>{workload.status?.conditions?.[0]?.type || 'Unknown'}</TableCell>
               </TableRow>
             ))}
           </TableBody>

@@ -18,6 +18,7 @@ package resources
 
 import (
 	"cmp"
+	"encoding/json"
 	"math"
 	"math/big"
 	"strconv"
@@ -83,8 +84,27 @@ func (a Amount) big() *big.Int {
 }
 
 // AmountFromQuantity converts q into the unit name is accounted in, milli for
-// CPU, capped at the magnitude AmountQuantity can report back.
+// CPU, capped at the magnitude AmountQuantity can report back. A positive
+// quantity up to the limit stays on Value or MilliValue, which cannot overflow
+// there and round up as scaledBig does. Past it, for a negative quantity, and
+// for an exponent far from zero, the decimal path keeps the exact amount or
+// the Quantity cap.
 func AmountFromQuantity(name corev1.ResourceName, q resource.Quantity) Amount {
+	if q.IsZero() {
+		return Amount{}
+	}
+	limit := int64(math.MaxInt64)
+	if name == corev1.ResourceCPU {
+		limit = math.MaxInt64 / 1000
+	}
+	// CmpInt64 builds 10^n to align a large exponent n, while the float
+	// estimate turns it into 0 or a value past the limit without that cost.
+	if f := q.AsApproximateFloat64(); f > 0 && f <= float64(limit) && q.CmpInt64(limit) <= 0 {
+		if name == corev1.ResourceCPU {
+			return NewAmount(q.MilliValue())
+		}
+		return NewAmount(q.Value())
+	}
 	return fromBig(scaledBig(name, q))
 }
 
@@ -158,6 +178,61 @@ func (a Amount) SubInt64(v int64) Amount {
 	return a.Sub(Amount{small: v})
 }
 
+// MulInt64 returns a * v.
+func (a Amount) MulInt64(v int64) Amount {
+	if v == 0 || a.Sign() == 0 {
+		return Amount{}
+	}
+	if a.large == nil {
+		if prod, ok := mulInt64(a.small, v); ok {
+			return Amount{small: prod}
+		}
+	}
+	return fromBig(new(big.Int).Mul(a.big(), big.NewInt(v)))
+}
+
+// QuoInt64 returns a / v, truncated toward zero. It panics when v is zero.
+func (a Amount) QuoInt64(v int64) Amount {
+	if v == 0 {
+		panic("division by zero")
+	}
+	if a.large == nil {
+		if quo, ok := quoInt64(a.small, v); ok {
+			return Amount{small: quo}
+		}
+	}
+	return fromBig(new(big.Int).Quo(a.big(), big.NewInt(v)))
+}
+
+// Quo returns a / b, truncated toward zero. It panics when b is zero.
+func (a Amount) Quo(b Amount) Amount {
+	if b.Sign() == 0 {
+		panic("division by zero")
+	}
+	if a.large == nil && b.large == nil {
+		if quo, ok := quoInt64(a.small, b.small); ok {
+			return Amount{small: quo}
+		}
+	}
+	return fromBig(new(big.Int).Quo(a.big(), b.big()))
+}
+
+// RemInt64 returns a % v, with the sign of a, matching integer remainder.
+// It panics when v is zero.
+func (a Amount) RemInt64(v int64) Amount {
+	if v == 0 {
+		panic("division by zero")
+	}
+	if a.large == nil {
+		if a.small == math.MinInt64 && v == -1 {
+			// The quotient does not fit an int64, and the remainder is zero.
+			return Amount{}
+		}
+		return Amount{small: a.small % v}
+	}
+	return fromBig(new(big.Int).Rem(a.big(), big.NewInt(v)))
+}
+
 // addInt64 returns x + y, and false when the sum leaves the int64 range.
 func addInt64(x, y int64) (int64, bool) {
 	sum := x + y
@@ -173,6 +248,35 @@ func subInt64(x, y int64) (int64, bool) {
 		return 0, false
 	}
 	return addInt64(x, -y)
+}
+
+// mulInt64 returns x * y, and false when the product leaves the int64 range.
+func mulInt64(x, y int64) (int64, bool) {
+	if x == 0 || y == 0 {
+		return 0, true
+	}
+	// MinInt64 * -1 is one past MaxInt64. The wrapping product compares equal
+	// to the dividend, so the division check below would miss it.
+	if (x == -1 && y == math.MinInt64) || (y == -1 && x == math.MinInt64) {
+		return 0, false
+	}
+	prod := x * y
+	if prod/y != x {
+		return 0, false
+	}
+	return prod, true
+}
+
+// quoInt64 returns x / y, truncated toward zero, and false when the quotient
+// leaves the int64 range. It panics when y is zero.
+func quoInt64(x, y int64) (int64, bool) {
+	if y == 0 {
+		panic("division by zero")
+	}
+	if x == math.MinInt64 && y == -1 {
+		return 0, false
+	}
+	return x / y, true
 }
 
 // Cmp returns -1 / 0 / +1 like bytes.Compare.
@@ -203,6 +307,11 @@ func (a Amount) Sign() int {
 		return a.large.Sign()
 	}
 	return cmp.Compare(a.small, 0)
+}
+
+// Int64 returns a as an int64, and false when it does not fit one.
+func (a Amount) Int64() (int64, bool) {
+	return a.asInt64()
 }
 
 // asInt64 returns a as an int64, and false when it does not fit one.
@@ -337,6 +446,16 @@ func MaxAmount(a, b Amount) Amount {
 		return a
 	}
 	return b
+}
+
+// MarshalJSON writes a as a JSON number while it fits an int64, which is the
+// shape map[ResourceName]int64 used to produce, and as a decimal string past
+// that so two amounts do not collapse into one float.
+func (a Amount) MarshalJSON() ([]byte, error) {
+	if a.large == nil {
+		return json.Marshal(a.small)
+	}
+	return json.Marshal(a.large.String())
 }
 
 // String formats the Amount in the unit it is accounted in.

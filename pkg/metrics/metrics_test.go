@@ -26,6 +26,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -667,6 +668,29 @@ func TestMetricsWithDifferentRoles(t *testing.T) {
 	ClearClusterQueueResourceMetrics("queue_follower")
 	ClearClusterQueueMetrics("cq_leader")
 	ClearClusterQueueMetrics("cq_follower")
+}
+
+func TestRegisterExposesReplacedWorkloadSlicesTotal(t *testing.T) {
+	const cqName = "cq-registered"
+
+	registry := prometheus.NewRegistry()
+	originalRegistry := ctrlmetrics.Registry
+	ctrlmetrics.Registry = registry
+	t.Cleanup(func() {
+		ctrlmetrics.Registry = originalRegistry
+		ClearClusterQueueMetrics(cqName)
+	})
+
+	Register()
+	ReportReplacedWorkloadSlices(cqName, nil, nil)
+
+	count, err := testutil.GatherAndCount(registry, "kueue_replaced_workload_slices_total")
+	if err != nil {
+		t.Fatalf("Failed to gather metrics: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("Unexpected number of kueue_replaced_workload_slices_total series in the registry: got %d, want 1", count)
+	}
 }
 
 func TestClearClusterQueueMetricsOnLabelChangeOnlyClearsScopedGaugeMetrics(t *testing.T) {

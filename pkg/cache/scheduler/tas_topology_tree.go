@@ -251,7 +251,7 @@ func (t *topologyTree) initializeHelper(dom *domain) {
 // resource still counts as publishing it while the resource is fully in use.
 func (l *leafDomain) advertisesAll(names []corev1.ResourceName) bool {
 	for _, name := range names {
-		if l.capacity.ResourceValue(name) == 0 {
+		if l.capacity.ResourceValue(name).Sign() == 0 {
 			return false
 		}
 	}

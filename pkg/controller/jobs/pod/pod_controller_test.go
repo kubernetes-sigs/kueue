@@ -32,7 +32,6 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -512,37 +511,17 @@ func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testi
 		features.PodGroupSchedulingShapeOrdering: false,
 	})
 
-	leader := corev1.Pod{
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "zzzz",
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "leader",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
-					},
-				},
-			}},
-		},
-	}
+	leader := *testingpod.MakePod("", "").
+		RoleHash("zzzz").
+		Request(corev1.ResourceCPU, "1").
+		ContainerName("leader").
+		Obj()
 
-	worker := corev1.Pod{
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "aaaa",
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "worker",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("4"),
-					},
-				},
-			}},
-		},
-	}
+	worker := *testingpod.MakePod("", "").
+		RoleHash("aaaa").
+		Request(corev1.ResourceCPU, "4").
+		ContainerName("worker").
+		Obj()
 
 	got, err := constructGroupPodSets([]corev1.Pod{leader, worker}, nil)
 	if err != nil {
@@ -563,66 +542,94 @@ func TestConstructGroupPodSetsRoleHashOrderingWhenShapeOrderingDisabled(t *testi
 		t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
 	}
 }
-func TestConstructGroupPodSetsSameShapeUsesRoleHashTieBreaker(t *testing.T) {
+
+func TestConstructGroupPodSetsSameShapeOrdering(t *testing.T) {
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 		features.PodGroupSchedulingShapeOrdering: true,
 	})
 
-	leader := corev1.Pod{
-		Name: "leader",
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "aaaa",
+	makePod := func(name, roleHash string) corev1.Pod {
+		return *testingpod.MakePod(name, "").
+			RoleHash(roleHash).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
+	}
+
+	testCases := map[string]struct {
+		pods         []corev1.Pod
+		reversedPods []corev1.Pod
+		wantOrder    []string
+	}{
+		"same shape and count uses PodSet name as tie-breaker": {
+			pods: []corev1.Pod{
+				makePod("worker", "zzzz"),
+				makePod("leader", "aaaa"),
+			},
+			wantOrder: []string{
+				string(kueue.NewPodSetReference("aaaa")),
+				string(kueue.NewPodSetReference("zzzz")),
+			},
 		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "leader",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
-					},
-				},
-			}},
+		"same shape uses count before PodSet name": {
+			pods: []corev1.Pod{
+				makePod("small-1", "zzzz"),
+				makePod("small-2", "zzzz"),
+				makePod("large-1", "aaaa"),
+				makePod("large-2", "aaaa"),
+				makePod("large-3", "aaaa"),
+			},
+			reversedPods: []corev1.Pod{
+				makePod("large-1", "aaaa"),
+				makePod("large-2", "aaaa"),
+				makePod("large-3", "aaaa"),
+				makePod("small-1", "zzzz"),
+				makePod("small-2", "zzzz"),
+			},
+			wantOrder: []string{
+				string(kueue.NewPodSetReference("zzzz")),
+				string(kueue.NewPodSetReference("aaaa")),
+			},
 		},
 	}
 
-	worker := corev1.Pod{
-		Name: "worker",
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "zzzz",
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "worker",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
-					},
-				},
-			}},
-		},
-	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got, err := constructGroupPodSets(tc.pods, nil)
+			if err != nil {
+				t.Fatalf("constructGroupPodSets() error = %v", err)
+			}
 
-	got, err := constructGroupPodSets([]corev1.Pod{worker, leader}, nil)
-	if err != nil {
-		t.Fatalf("constructGroupPodSets() error = %v", err)
-	}
+			if len(got) != len(tc.wantOrder) {
+				t.Fatalf("constructGroupPodSets() returned %d PodSets, want %d", len(got), len(tc.wantOrder))
+			}
 
-	if len(got) != 2 {
-		t.Fatalf("constructGroupPodSets() returned %d PodSets, want 2", len(got))
-	}
+			gotOrder := make([]string, len(got))
+			for i := range got {
+				gotOrder[i] = string(got[i].Name)
+			}
 
-	gotOrder := []string{
-		string(got[0].Name),
-		string(got[1].Name),
-	}
+			if diff := cmp.Diff(tc.wantOrder, gotOrder); diff != "" {
+				t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
+			}
 
-	wantOrder := []string{
-		string(kueue.NewPodSetReference("aaaa")),
-		string(kueue.NewPodSetReference("zzzz")),
-	}
+			if tc.reversedPods == nil {
+				return
+			}
 
-	if diff := cmp.Diff(wantOrder, gotOrder); diff != "" {
-		t.Errorf("PodSet order mismatch (-want, +got):\n%s", diff)
+			gotReversed, err := constructGroupPodSets(tc.reversedPods, nil)
+			if err != nil {
+				t.Fatalf("constructGroupPodSets() with reversed input error = %v", err)
+			}
+
+			gotReversedOrder := make([]string, len(gotReversed))
+			for i := range gotReversed {
+				gotReversedOrder[i] = string(gotReversed[i].Name)
+			}
+
+			if diff := cmp.Diff(gotOrder, gotReversedOrder); diff != "" {
+				t.Errorf("PodSet order depends on input pod order (-first, +second):\n%s", diff)
+			}
+		})
 	}
 }
 
@@ -630,33 +637,16 @@ func TestConstructGroupPodSetsRoleHashDoesNotAffectOrder(t *testing.T) {
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 		features.PodGroupSchedulingShapeOrdering: true,
 	})
-	leader := corev1.Pod{
-		Annotations: map[string]string{},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "leader",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
-					},
-				},
-			}},
-		},
-	}
 
-	worker := corev1.Pod{
-		Annotations: map[string]string{},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "worker",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("4"),
-					},
-				},
-			}},
-		},
-	}
+	leader := *testingpod.MakePod("", "").
+		Request(corev1.ResourceCPU, "1").
+		ContainerName("leader").
+		Obj()
+
+	worker := *testingpod.MakePod("", "").
+		Request(corev1.ResourceCPU, "4").
+		ContainerName("worker").
+		Obj()
 
 	leaderShapeHash, err := utilpod.GenerateRoleHash(&leader.Spec)
 	if err != nil {
@@ -723,39 +713,16 @@ func TestConstructGroupPodSetsOrderIndependentOfInputOrder(t *testing.T) {
 	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
 		features.PodGroupSchedulingShapeOrdering: true,
 	})
-	leader := corev1.Pod{
-		Name: "leader",
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "zzzz",
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "container",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
-					},
-				},
-			}},
-		},
-	}
 
-	worker := corev1.Pod{
-		Name: "worker",
-		Annotations: map[string]string{
-			podconstants.RoleHashAnnotation: "aaaa",
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{{
-				Name: "container",
-				Resources: corev1.ResourceRequirements{
-					Requests: corev1.ResourceList{
-						corev1.ResourceCPU: resource.MustParse("1"),
-					},
-				},
-			}},
-		},
-	}
+	leader := *testingpod.MakePod("leader", "").
+		RoleHash("zzzz").
+		Request(corev1.ResourceCPU, "1").
+		Obj()
+
+	worker := *testingpod.MakePod("worker", "").
+		RoleHash("aaaa").
+		Request(corev1.ResourceCPU, "1").
+		Obj()
 
 	leaderShapeHash, err := utilpod.GenerateRoleHash(&leader.Spec)
 	if err != nil {
@@ -4372,7 +4339,7 @@ func TestReconciler(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadFinishedReasonSucceeded,
+						Reason:  kueue.WorkloadFinishedReasonFailed,
 						Message: "Pods succeeded: 1/3.",
 					}).
 					Obj(),
@@ -6260,6 +6227,64 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads:   nil,
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 			wantErr:         errPodGroupLabelsMismatch,
+		},
+		"workload is created for pod group whose pods differ only in a label Kueue never copies": {
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					Label("toCopyKey1", "toCopyValue1").
+					Label(controllerconsts.ConcurrentAdmissionParentLabelKey, "true").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupIndex("0").
+					GroupTotalCount("2").
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					Label("toCopyKey1", "toCopyValue1").
+					Label(controllerconsts.ConcurrentAdmissionParentLabelKey, "false").
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupIndex("1").
+					GroupTotalCount("2").
+					Obj(),
+			},
+			wantPods: nil,
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithLabelKeysToCopy(sets.New("toCopyKey1", controllerconsts.ConcurrentAdmissionParentLabelKey)),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 2).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					Labels(map[string]string{
+						"toCopyKey1": "toCopyValue1",
+					}).
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+			},
 		},
 		"workload is created with correct annotations for a single pod": {
 			featureGates: map[featuregate.Feature]bool{

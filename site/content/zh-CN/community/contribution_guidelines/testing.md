@@ -231,7 +231,7 @@ INTEGRATION_FILTERS="--label-filter=feature:fairsharing" make test-integration
 单集群测试按特性和区域打标签，可通过 `GINKGO_ARGS` 和 `--label-filter` 运行特定测试：
 
 **标签分类：**
-- 特性：`appwrapper,certs,deployment,job,fairsharing,jaxjob,jobset,kuberay,kueuectl,leaderworkerset,metrics,pod,pytorchjob,statefulset,tas,trainjob,visibility,e2e_v1beta1,ha`
+- 特性：`appwrapper,certs,deployment,job,fairsharing,jaxjob,jobset,kuberay,kueuectl,leaderworkerset,metrics,pod,pytorchjob,statefulset,tas,trainjob,visibility,ha`
 
 **示例：**
 ```shell

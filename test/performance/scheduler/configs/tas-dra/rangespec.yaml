@@ -1,27 +1,34 @@
 # TAS + DRA Performance Test - Expected Performance Ranges
 #
-# NOTE: the thresholds below are provisional and will be fully specified based on the actual
-# numbers only once we have enough execution history on CI. The provisional thresholds avoid
-# flaky CI failures in the meantime.
+# Thresholds are based on 10 CI runs:
+#   2104951053412732928  2105132249207803904  2105313444411478016
+#   2105494805923500032  2105676002934919168  2105857302891335680
+#   2106038499462352896  2106219694544392192  2106400890612092928
+#   2106582086184865792
 #
 # Configuration: 640 nodes, 8 devices per node, 15,000 workloads (matched to configs/tas)
 
 # Command execution limits
+# Thresholds: mean + 20% rounded up to 1000ms
 cmd:
-  maxWallMs: 1_000_000
+  maxWallMs: 436_000       # 362887 / 2091 / 0.58%
 
-# Cluster Queue utilization targets
+# Cluster Queue utilization targets (minimum)
+# Thresholds: mean − 7%, rounded down to 0.1%
+# Class  min usage%    mean / stddev / CV%
 clusterQueueClassesMinUsage:
-  cq: 1 #%
+  cq:  49.7          # 53.50 / 0.60 / 1.13%
 
 # Workload admission time limits
+# Thresholds: mean + 20% rounded up to 1000ms
+# Class                  threshold     mean / stddev / CV%
 wlClassesMaxAvgTimeToAdmissionMs:
-  large-balanced-rack: 1_000_000
-  large-preferred-rack: 1_000_000
-  large-required-rack: 1_000_000
-  medium-balanced-rack: 1_000_000
-  medium-preferred-rack: 1_000_000
-  medium-required-rack: 1_000_000
-  small-balanced-rack: 1_000_000
-  small-preferred-rack: 1_000_000
-  small-required-rack: 1_000_000
+  large-balanced-rack:    35_000        # 28652 / 1542 / 5.38%
+  large-preferred-rack:   35_000        # 28771 / 1463 / 5.09%
+  large-required-rack:    35_000        # 29146 / 2027 / 6.95%
+  medium-balanced-rack:   116_000       # 96605 / 2976 / 3.08%
+  medium-preferred-rack:  116_000       # 96393 / 2960 / 3.07%
+  medium-required-rack:   117_000       # 97430 / 2914 / 2.99%
+  small-balanced-rack:    278_000       # 231280 / 2433 / 1.05%
+  small-preferred-rack:   288_000       # 239238 / 2504 / 1.05%
+  small-required-rack:    288_000       # 239454 / 2359 / 0.99%

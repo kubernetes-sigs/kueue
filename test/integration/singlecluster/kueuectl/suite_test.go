@@ -24,6 +24,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -35,9 +36,10 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -52,12 +54,12 @@ var (
 )
 
 func TestKueuectl(t *testing.T) {
-	util.RunSuite(t, "Kueuectl Suite")
+	behavioral.RunSuite(t, "Kueuectl Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
@@ -82,6 +84,9 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	failedWebhook, err := webhooks.Setup(mgr, nil)
 	gomega.Expect(err).ToNot(gomega.HaveOccurred(), "webhook", failedWebhook)
 
+	err = webhook.SetupNoopWebhook(mgr, &batchv1.Job{})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
 	controllersCfg := &config.Configuration{}
 	mgr.GetScheme().Default(controllersCfg)
 
@@ -90,7 +95,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 	cCache := schdcache.New(mgr.GetClient())
 	preemptionExpectations := preemptexpectations.New()
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+	queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 	failedCtrl, err := core.SetupControllers(
 		mgr,

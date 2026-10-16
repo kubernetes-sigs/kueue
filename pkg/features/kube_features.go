@@ -178,6 +178,15 @@ const (
 	// Requires both ElasticJobsViaWorkloadSlices and TopologyAwareScheduling to be enabled.
 	ElasticJobsViaWorkloadSlicesWithTAS featuregate.Feature = "ElasticJobsViaWorkloadSlicesWithTAS"
 
+	// owner: @neilb-dotcom
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/77-dynamically-sized-jobs
+	//
+	// Allows a replacement workload slice to be assigned a different resource
+	// flavor than the slice it replaces when the replaced PodSet has zero pods,
+	// so an elastic job scaling up from zero is not pinned to the flavor chosen
+	// while it was empty.
+	ElasticJobsViaWorkloadSlicesFlavorChangeFromZero featuregate.Feature = "ElasticJobsViaWorkloadSlicesFlavorChangeFromZero"
+
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
@@ -610,7 +619,9 @@ const (
 	// owner: @kshalot
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/8871
-	// Enable integration of the https://github.com/kubernetes-sigs/scheduler-library.
+	// Enable shallow integration of the https://github.com/kubernetes-sigs/scheduler-library.
+	// The core scheduling loop is still calculated by native kueue logic.
+	// Scheduler library is used as feasibility-checker.
 	SchedulerLibraryIntegration featuregate.Feature = "SchedulerLibraryIntegration"
 
 	// owner: @sohankunkerkar
@@ -724,7 +735,7 @@ const (
 	// kep: https://github.com/kubernetes-sigs/kueue/pull/16370
 	//
 	// Leaves managed child job suspension to the ancestor's controller.
-	// Disable to restore suspension based on the ancestor Workload's state.
+	// When disabled, child jobs are suspended based on the ancestor Workload's state.
 	SkipChildJobSuspension featuregate.Feature = "SkipChildJobSuspension"
 
 	// owner: @kevin85421
@@ -835,6 +846,12 @@ const (
 	// pods are dropped from the assignment.
 	TASPartialSlices featuregate.Feature = "TASPartialSlices"
 
+	// owner: @alien1403
+	//
+	// Enable the usage of the ScheduleWorkload() method from
+	// https://github.com/kubernetes-sigs/scheduler-library to plan Pod placement.
+	SchedulerLibraryDeepIntegration featuregate.Feature = "SchedulerLibraryDeepIntegration"
+
 	// owner: @olekzabl
 	//
 	// Increases max parallelism for batch operations within a single reconcile thread from 8 to 32.
@@ -865,6 +882,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASProfileMixed:                                     {TopologyAwareScheduling},
 	TASRecomputeAssignmentWithinSchedulingCycle:         {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesWithTAS:                 {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
+	ElasticJobsViaWorkloadSlicesFlavorChangeFromZero:    {ElasticJobsViaWorkloadSlices},
 	MultiKueueRayInTreeAutoscaling:                      {MultiKueue, ElasticJobsViaWorkloadSlices},
 	KueueDRAIntegrationExtendedResource:                 {KueueDRAIntegration},
 	KueueDRAIntegrationPartitionableDevices:             {KueueDRAIntegration},
@@ -880,6 +898,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	TASPartialSlices:                                    {TopologyAwareScheduling},
 	ElasticJobsViaWorkloadSlicesForProvisioningRequests: {ElasticJobsViaWorkloadSlices},
 	SchedulerLibraryIntegration:                         {TopologyAwareScheduling},
+	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -963,6 +982,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ElasticJobsViaWorkloadSlicesWithTAS: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	ElasticJobsViaWorkloadSlicesFlavorChangeFromZero: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	TASFailedNodeReplacementFailFast: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
@@ -1115,7 +1137,8 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 	MetricForWorkloadCreationLatency: {
-		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.21
+		{Version: version.MustParse("0.18"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.21
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.22
 	},
 	TASRespectNodeAffinityPreferred: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
@@ -1236,7 +1259,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	SkipChildJobSuspension: {
-		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	MultiKueueRemoteSpecSync: {
@@ -1299,6 +1322,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	HighMaxParallelismWithinReconcile: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	SchedulerLibraryDeepIntegration: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

@@ -56,6 +56,32 @@ func TestSaturatingMul(t *testing.T) {
 	}
 }
 
+func TestSaturatingCeil(t *testing.T) {
+	cases := map[string]struct {
+		f    float64
+		want int64
+	}{
+		"zero":                       {f: 0, want: 0},
+		"rounds up":                  {f: 2.5, want: 3},
+		"integer":                    {f: 1000, want: 1000},
+		"negative rounds up":         {f: -2.5, want: -2},
+		"largest float64 below 2^63": {f: stdmath.Nextafter(float64(stdmath.MaxInt64), 0), want: stdmath.MaxInt64 - 1023},
+		"2^63":                       {f: float64(stdmath.MaxInt64), want: stdmath.MaxInt64},
+		"past int64":                 {f: 1.5e19, want: stdmath.MaxInt64},
+		"+Inf":                       {f: stdmath.Inf(1), want: stdmath.MaxInt64},
+		"-2^63":                      {f: float64(stdmath.MinInt64), want: stdmath.MinInt64},
+		"below int64":                {f: -1.5e19, want: stdmath.MinInt64},
+		"-Inf":                       {f: stdmath.Inf(-1), want: stdmath.MinInt64},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := SaturatingCeil(tc.f); got != tc.want {
+				t.Errorf("SaturatingCeil(%g) = %d, want %d", tc.f, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestSafeValue(t *testing.T) {
 	cases := map[string]struct {
 		q    resource.Quantity

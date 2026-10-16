@@ -43,7 +43,7 @@ import (
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 const (
@@ -61,7 +61,7 @@ var (
 )
 
 func TestConfigurablePreemptions(t *testing.T) {
-	util.RunSuite(t, "Configurable Preemptions Suite")
+	behavioral.RunSuite(t, "Configurable Preemptions Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -70,7 +70,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.PrioritizePreemptorWorkloads, true)
 
 	fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = fwk.SetupClient(cfg)
@@ -95,7 +95,7 @@ func managerAndSchedulerSetup() framework.ManagerSetup {
 
 		cCache := schdcache.New(mgr.GetClient())
 		preemptionExpectations := preemptexpectations.New()
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache,
+		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache,
 			qcache.WithPreemptionExpectations(preemptionExpectations))
 		qManager = queues
 

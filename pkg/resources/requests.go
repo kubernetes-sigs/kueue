@@ -23,21 +23,18 @@ import (
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/utils/ptr"
-
-	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
 // The following resources calculations are inspired on
 // https://github.com/kubernetes/kubernetes/blob/master/pkg/scheduler/framework/types.go
 
 // MapRequests maps ResourceName to flavor to value; for CPU it is tracked in MilliCPU.
-type MapRequests map[corev1.ResourceName]int64
+type MapRequests map[corev1.ResourceName]Amount
 
-var OnePodRequest = MapRequests{corev1.ResourcePods: 1}
+var OnePodRequest = MapRequests{corev1.ResourcePods: NewAmount(1)}
 
-func (r MapRequests) ForEach(fn func(name corev1.ResourceName, val int64)) {
+func (r MapRequests) ForEach(fn func(name corev1.ResourceName, val Amount)) {
 	for k, v := range r {
 		fn(k, v)
 	}
@@ -46,7 +43,7 @@ func (r MapRequests) ForEach(fn func(name corev1.ResourceName, val int64)) {
 func NewMapRequests(rl corev1.ResourceList) MapRequests {
 	r := MapRequests{}
 	for name, quant := range rl {
-		r[name] = ResourceValue(name, quant)
+		r[name] = AmountFromQuantity(name, quant)
 	}
 	return r
 }
@@ -72,28 +69,28 @@ func (r MapRequests) ScaledDown(f int64) Requests {
 }
 
 func (r MapRequests) Divide(f int64) {
-	for k := range r {
-		if r[k] == 0 && f == 0 {
+	for k, v := range r {
+		if v.Sign() == 0 && f == 0 {
 			// Skip dividing by 0 when resources are 0.
 			// This may happen when the function is used to scale down the
 			// resources computed initially for all (0) Pods, and thus r[k] = 0.
 			continue
 		}
-		r[k] /= f
+		r[k] = v.QuoInt64(f)
 	}
 }
 
 func (r MapRequests) Mul(f int64) {
-	for k := range r {
-		r[k] = utilmath.SaturatingMul(r[k], f)
+	for k, v := range r {
+		r[k] = v.MulInt64(f)
 	}
 }
 
-func (r MapRequests) ResourceValue(name corev1.ResourceName) int64 {
+func (r MapRequests) ResourceValue(name corev1.ResourceName) Amount {
 	return r[name]
 }
 
-func (r MapRequests) Set(name corev1.ResourceName, val int64) {
+func (r MapRequests) Set(name corev1.ResourceName, val Amount) {
 	r[name] = val
 }
 
@@ -111,19 +108,21 @@ func (r MapRequests) IsEmpty() bool {
 // TODO: remove ~2 releases after WorkloadValidateResourcesAreNonNegative locks to GA.
 func (r MapRequests) FloorToZero() {
 	for k, v := range r {
-		r[k] = max(v, 0)
+		if v.Sign() < 0 {
+			r[k] = Amount{}
+		}
 	}
 }
 
 func (r MapRequests) Add(other Requests) {
-	other.ForEach(func(k corev1.ResourceName, v int64) {
-		r[k] = utilmath.SaturatingAdd(r[k], v)
+	other.ForEach(func(k corev1.ResourceName, v Amount) {
+		r[k] = r[k].Add(v)
 	})
 }
 
 func (r MapRequests) Sub(other Requests) {
-	other.ForEach(func(k corev1.ResourceName, v int64) {
-		r[k] = utilmath.SaturatingSub(r[k], v)
+	other.ForEach(func(k corev1.ResourceName, v Amount) {
+		r[k] = r[k].Sub(v)
 	})
 }
 
@@ -133,20 +132,9 @@ func (r MapRequests) ToResourceList(formatter *ResourceFormatter) corev1.Resourc
 	}
 	ret := make(corev1.ResourceList, len(r))
 	for k, v := range r {
-		ret[k] = formatter.ResourceQuantity(k, v)
+		ret[k] = formatter.AmountQuantity(k, v)
 	}
 	return ret
-}
-
-// ResourceValue returns the integer value for the resource name.
-// It's milli-units for CPU and absolute units for everything else.
-// Both clamp: Quantity.Value and Quantity.MilliValue read a big.Int that need
-// not fit in an int64.
-func ResourceValue(name corev1.ResourceName, q resource.Quantity) int64 {
-	if name == corev1.ResourceCPU {
-		return utilmath.SafeMilliValue(q)
-	}
-	return utilmath.SafeValue(q)
 }
 
 // GreaterKeys returns keys where the receiver is greater than other,
@@ -158,7 +146,7 @@ func (r MapRequests) GreaterKeys(other Requests) []corev1.ResourceName {
 	otherMap := ToMap(other)
 	var result []corev1.ResourceName
 	for name, value := range r {
-		if otherValue, found := otherMap[name]; found && value > otherValue {
+		if otherValue, found := otherMap[name]; found && value.Cmp(otherValue) > 0 {
 			result = append(result, name)
 		}
 	}
@@ -196,27 +184,22 @@ func CountInWithLimitingResource(requests Requests, capacity Requests) (int32, c
 		result           *int32
 		limitingResource corev1.ResourceName
 	)
-	requests.ForEach(func(rName corev1.ResourceName, rValue int64) {
+	requests.ForEach(func(rName corev1.ResourceName, rValue Amount) {
 		cap := capacity.ResourceValue(rName)
 		// find the minimum count matching all the resource quota.
-		var count int32
-		if rValue == 0 {
-			count = int32(math.MaxInt32)
-		} else {
-			// Clamp to 0: when an extended-resource allocatable on a node
-			// drops below current usage mid-workload (e.g. GPU lost to a
-			// driver issue, SKU removed, or NFD label flap), the TAS
-			// snapshot's per-domain cap (allocatable - inUse) can go
-			// negative. Integer division would then yield a negative count
-			// and propagate into TopologyDomain.Count, which the apiserver
-			// rejects with "podCounts.individual[X] in body should be greater
-			// than or equal to 1", permanently wedging the workload. A
-			// negative "fits N times" is meaningless; treat it as 0 so the
-			// scheduler skips the over-subscribed domain instead.
-			// Clamp the upper bound before converting to int32 to avoid
-			// overflowing large capacity-to-request ratios.
-			count = int32(max(0, min(cap/rValue, math.MaxInt32)))
-		}
+		// Clamp to 0: when an extended-resource allocatable on a node
+		// drops below current usage mid-workload (e.g. GPU lost to a
+		// driver issue, SKU removed, or NFD label flap), the TAS
+		// snapshot's per-domain cap (allocatable - inUse) can go
+		// negative. Integer division would then yield a negative count
+		// and propagate into TopologyDomain.Count, which the apiserver
+		// rejects with "podCounts.individual[X] in body should be greater
+		// than or equal to 1", permanently wedging the workload. A
+		// negative "fits N times" is meaningless; treat it as 0 so the
+		// scheduler skips the over-subscribed domain instead.
+		// Clamp the upper bound before converting to int32 to avoid
+		// overflowing large capacity-to-request ratios.
+		count := fitsCount(cap, rValue)
 		// Tie-break between CPU and memory counts to ensure deterministic results.
 		if result == nil || count < *result || (count == *result && rName < limitingResource) {
 			result = new(count)
@@ -226,8 +209,25 @@ func CountInWithLimitingResource(requests Requests, capacity Requests) (int32, c
 	return ptr.Deref(result, 0), limitingResource
 }
 
-func (r MapRequests) Iter() iter.Seq2[corev1.ResourceName, int64] {
-	return func(yield func(corev1.ResourceName, int64) bool) {
+// fitsCount is how many times req fits into cap, clamped to [0, MaxInt32].
+// A zero request is treated as unbounded.
+func fitsCount(capVal, req Amount) int32 {
+	if req.Sign() == 0 {
+		return math.MaxInt32
+	}
+	q := capVal.Quo(req)
+	if q.Sign() <= 0 {
+		return 0
+	}
+	if q.CmpInt64(math.MaxInt32) >= 0 {
+		return math.MaxInt32
+	}
+	n, _ := q.asInt64()
+	return int32(n)
+}
+
+func (r MapRequests) Iter() iter.Seq2[corev1.ResourceName, Amount] {
+	return func(yield func(corev1.ResourceName, Amount) bool) {
 		for k, v := range r {
 			if !yield(k, v) {
 				return

@@ -31,13 +31,19 @@ runs:
         # Merge main into website, preferring main on conflicts.
         # -X theirs resolves content conflicts; rename/delete conflicts need manual resolution.
         if ! git merge -X theirs origin/main; then
+          # Snapshot unmerged paths before resolving them. A streaming
+          # `git diff` (process substitution or a pipe) can still refresh
+          # the index and hold index.lock when checkout/add/rm run.
+          conflict_files=$(mktemp)
+          git diff --name-only --diff-filter=U -z >"$conflict_files"
           while IFS= read -r -d '' f; do
             if git checkout --theirs -- "$f" 2>/dev/null; then
               git add -- "$f"
             else
               git rm -q -- "$f"
             fi
-          done < <(git diff --name-only --diff-filter=U -z)
+          done <"$conflict_files"
+          rm -f "$conflict_files"
           if ! git commit --no-edit; then
             echo "message=❌ Failed to merge the main branch into the website branch." >> "$GITHUB_OUTPUT"
             exit 1

@@ -1,3 +1,45 @@
+## v0.18.11
+
+Changes since `v0.18.10`:
+
+## Actions Required Before Upgrading
+
+### (No, really, you MUST read this before you upgrade)
+
+- **Minor releases:** Review the `.0` release notes for each new minor version you cross; see: [`v0.17.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.17.0), [`v0.18.0`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.18.0).
+- **Patch releases:** Review the patch release notes leading up to this version, but *only* within this minor release line; see: [`v0.18.1`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.18.1), [`v0.18.2`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.18.2), [`v0.18.3`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.18.3), [`v0.18.4`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.18.4), [`v0.18.5`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.18.5), [`v0.18.6`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.18.6), [`v0.18.7`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.18.7), [`v0.18.8`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.18.8), [`v0.18.9`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.18.9), [`v0.18.10`](https://github.com/kubernetes-sigs/kueue/releases/tag/v0.18.10).
+
+## Changes by Kind
+
+### Feature
+
+- Controllers: Increased the maximum concurrent API updates per reconcile from 8 to 32. Controlled by the HighMaxParallelismWithinReconcile feature gate. (#16388, @mimowo)
+
+### Bug or Regression
+
+- AFS: Fixed a bug where workloads could be scheduled in priority order instead of fair-sharing order when Admission Fair Sharing was enabled. (#16308, @abhayjoshi201)
+- CLI: Fixed a bug where `kueuectl list pods --for pod/NAME` printed `No resources found` instead of listing the group members, when the Pod group name was stored in the `kueue.x-k8s.io/pod-group-name` annotation rather than the label. (#16407, @tenzen-y)
+- CLI: Fixed a bug where `list pods --for pod/NAME` printed `No resources found` for a Pod that is not part of a pod group. The command now lists that Pod itself. (#16377, @tenzen-y)
+- Cohorts: Fixed a possible controller hang after an invalid Cohort hierarchy cycle update. ClusterQueues in a cyclic Cohort now surface a clear `CohortCycleDetected` condition instead of hanging. (#16375, @tenzen-y)
+- ConcurrentAdmission: Fixed a panic that left a parent Workload without variants when its name contained no "-". (#16380, @tenzen-y)
+- Helm: Fixed ServiceMonitor metrics scraping to verify the cert-manager-issued certificate when enableCertManager is true and no custom tlsConfig is set. (#16319, @HsiuChuanHsu)
+- KueueViz: Fix Workloads page crash when no workloads exist by adding the missing Alert import. (#16397, @Dasmat13)
+- LeaderWorkerSet & StatefulSet: Fixed a bug where, during a rolling update, Pods at the current revision were ungated before the Workload was admitted, so they could run without quota. Kueue now ungates these Pods only when the Workload is admitted. (#16399, @henry3260)
+- LeaderWorkerSet: Fixed a bug where a rolling update with a percentage `maxSurge` (such as `50%`) had its surge groups' Workloads deleted while those groups were still running. The value was read as zero, so Kueue treated the update as having no surge. (#14405, @thc1006)
+- MultiKueue: Fixed a bug where evicted elastic workloads left stale remote objects on worker clusters, preventing re-admission from the manager-cluster specification. (#16179, @kevin85421)
+- MultiKueue: Fixed a bug where the quota automation condition could retain a stale ObservedGeneration after a ClusterQueue spec update. Kueue now refreshes it after successful evaluation. (#16404, @mbobrovskyi)
+- Observability: Fixed Admitted events reporting 0s when quota was reserved before admission. Events now show the actual time between quota reservation and admission. (#16411, @tenzen-y)
+- Observability: Fixed kueue_cohort_subtree_admitted_active_workloads after Cohort hierarchy changes so it reflects admitted Workloads in the current subtree. (#16398, @apullo777)
+- Pod: Fixed a bug where Pod groups could receive different ResourceFlavor assignments depending on client-provided role-hash values. PodSets are now ordered by scheduling shape rather than role-hash, making flavor assignment deterministic. Controlled by the `PodGroupSchedulingShapeOrdering` feature gate (Alpha, disabled by default). (#16365, @amirialy)
+- Scheduling: Fixed a bug that could leave workloads pending when preemption target selection omitted `pods` quota or used the spec count for a partially admitted workload-slice replacement. Kueue now sizes preemption targets using the assigned counts and resources. (#16201, @apullo777)
+- Scheduling: Fixed a bug where preemption for workloads with non-adjacent members of a kueue.x-k8s.io/podset-group-name group could use incorrect resource requests or flavors, causing a scheduler panic or leaving a Workload pending. Kueue now matches PodSets by name. (#16273, @apullo777)
+- StatefulSet: Fixed a bug where changing the `kueue.x-k8s.io/queue-name` label after the Pods were ungated but before any was Ready made the StatefulSet reconciler fail on every retry, and could keep a Pod scheduling-gated during a rolling update. Kueue now only updates the queue name on Pods that are still gated. (#16334, @henry3260)
+- TAS: Fixed a bug where a Node or TAS ResourceFlavor change requeued inadmissible Workloads in every ClusterQueue instead of only the ClusterQueues that use that flavor. (#16152, @sohankunkerkar)
+
+### Other (Cleanup or Flake)
+
+- FairSharing: Improved preemption performance by up to 20% by precomputing lendable Cohort capacity instead of recalculating it for each preemption candidate. (#15955, @venuchitta)
+
 ## v0.18.10
 
 Changes since `v0.18.9`:

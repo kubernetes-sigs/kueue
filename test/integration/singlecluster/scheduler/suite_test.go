@@ -45,7 +45,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 type subResourcePatchFn func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error
@@ -82,12 +82,12 @@ func setFakeSubResourcePatchResponseHookSpec(g fakeClientCallResponseHookSpec) {
 }
 
 func TestScheduler(t *testing.T) {
-	util.RunSuite(t, "Scheduler Suite")
+	behavioral.RunSuite(t, "Scheduler Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
 	fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 	}
 	cfg = fwk.Init()
 	ctx, k8sClient = setupInterceptedClient()
@@ -116,7 +116,7 @@ func managerAndSchedulerSetup(ctx context.Context, mgr manager.Manager) {
 	}
 	cCache := schdcache.New(mgr.GetClient())
 	preemptionExpectations := preemptexpectations.New()
-	queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache,
+	queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache,
 		qcache.WithResourceTransformations(transformations),
 		qcache.WithPreemptionExpectations(preemptionExpectations),
 		qcache.WithResourceMetrics(true),

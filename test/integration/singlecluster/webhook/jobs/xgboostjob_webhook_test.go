@@ -26,18 +26,18 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/kubeflow/jobs/xgboostjob"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingjobsxgboostjob "sigs.k8s.io/kueue/pkg/util/testingjobs/xgboostjob"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("XGBoostJob Webhook", func() {
 	var ns *corev1.Namespace
 	ginkgo.BeforeEach(func() {
 		fwk.StartManager(ctx, cfg, managerSetup(xgboostjob.SetupXGBoostJobWebhook))
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "xgboost-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "xgboost-")
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		fwk.StopManager(ctx)
 	})
 

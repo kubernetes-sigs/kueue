@@ -1247,13 +1247,14 @@ func TestFairPreemptions(t *testing.T) {
 			}
 			wlInfo := workload.NewInfo(log, tc.incoming)
 			wlInfo.ClusterQueue = tc.targetCQ
-			targets := preemptor.GetTargets(ctx, *wlInfo, singlePodSetAssignment(
+			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshotWorkingCopy, singlePodSetAssignment(
 				flavorassigner.ResourceAssignment{
 					corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 						Name: flavorName, Mode: flavorassigner.Preempt,
 					},
 				},
-			), snapshotWorkingCopy)
+			))
+			targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 			gotTargets := sets.New(utilslices.Map(targets, func(t **Target) string {
 				return targetKeyReason(workload.Key((*t).WorkloadInfo.Obj), (*t).Reason)
 			})...)
@@ -1375,13 +1376,14 @@ func TestFairPreemptionSkipsUnsatisfiableTournament(t *testing.T) {
 				false, clocktesting.NewFakeClock(now), nil, preemptexpectations.New(), nil)
 			wlInfo := workload.NewInfo(setupLog, unitWl.Clone().Name("a_incoming").Obj())
 			wlInfo.ClusterQueue = "a"
-			targets := preemptor.GetTargets(ctx, *wlInfo, singlePodSetAssignment(
+			strategies := preemptor.GetPreemptionStrategyIterator(ctx, *wlInfo, snapshot, singlePodSetAssignment(
 				flavorassigner.ResourceAssignment{
 					corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
 						Name: "default", Mode: flavorassigner.Preempt,
 					},
 				},
-			), snapshot)
+			))
+			targets := preemptor.GetTargetsWithStrategy(ctx, strategies)
 
 			// The preemptor's share is at or above the target's either way, so
 			// no candidate wins and nothing is preempted.

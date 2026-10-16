@@ -34,7 +34,8 @@ import (
 	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	jobtesting "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configurablepreemption"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -62,7 +63,7 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 		).Obj()
 
 	ginkgo.BeforeAll(func() {
-		util.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
+		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.FeatureGates = map[string]bool{
 				string(features.ConfigurablePreemptions):      true,
 				string(features.TopologyAwareScheduling):      true,
@@ -75,12 +76,12 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 	})
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "ns-")
 
-		util.MustCreate(ctx, k8sClient, preemptionConfig)
+		behavioral.MustCreate(ctx, k8sClient, preemptionConfig)
 
 		rf = utiltestingapi.MakeResourceFlavor("rf-" + ns.Name).Obj()
-		util.MustCreate(ctx, k8sClient, rf)
+		behavioral.MustCreate(ctx, k8sClient, rf)
 
 		cohort := kueue.CohortReference("cohort-" + ns.Name)
 
@@ -100,18 +101,18 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 				},
 			}).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
 
 		lq = utiltestingapi.MakeLocalQueue("lq", ns.Name).ClusterQueue(cq.Name).Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, preemptionConfig, true)
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, preemptionConfig, true)
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
 	ginkgo.When("Configurable preemption enabled", func() {
@@ -119,45 +120,45 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 			ginkgo.By("Create jobs for admission")
 			lowPriorityJob := jobtesting.MakeJob("low-priority-job", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				RequestAndLimit(corev1.ResourceMemory, "200Mi").
 				Label(priorityLabel, "1").
 				TerminationGracePeriod(1).
 				Obj()
-			util.MustCreate(ctx, k8sClient, lowPriorityJob)
+			behavioral.MustCreate(ctx, k8sClient, lowPriorityJob)
 
 			highPriorityJob := jobtesting.MakeJob("high-priority-job", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				RequestAndLimit(corev1.ResourceMemory, "200Mi").
 				Label(priorityLabel, "9").
 				TerminationGracePeriod(1).
 				Obj()
-			util.MustCreate(ctx, k8sClient, highPriorityJob)
+			behavioral.MustCreate(ctx, k8sClient, highPriorityJob)
 
 			ginkgo.By("Waiting for workloads to be admitted")
 			gomega.Eventually(func(g gomega.Gomega) {
-				util.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(lowPriorityJob))
-				util.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(highPriorityJob))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(lowPriorityJob))
+				behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(highPriorityJob))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Create preempting job")
 			preemptingJob := jobtesting.MakeJob("preempting-job", ns.Name).
 				Queue(kueue.LocalQueueName(lq.Name)).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "1").
 				RequestAndLimit(corev1.ResourceMemory, "200Mi").
 				Label(priorityLabel, "5").
 				TerminationGracePeriod(1).
 				Obj()
-			util.MustCreate(ctx, k8sClient, preemptingJob)
+			behavioral.MustCreate(ctx, k8sClient, preemptingJob)
 
 			ginkgo.By("Verify preemption")
 			gomega.Eventually(func(g gomega.Gomega) {
-				util.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(preemptingJob))
-				util.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(highPriorityJob))
+				behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(preemptingJob))
+				behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(highPriorityJob))
 
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lowPriorityJob), lowPriorityJob)).Should(gomega.Succeed())
 				g.Expect(lowPriorityJob.Spec.Suspend).Should(gomega.Equal(new(true)))
@@ -173,7 +174,7 @@ var _ = ginkgo.Describe("Configurable Preemption", ginkgo.Label("feature:configu
 					},
 					cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message", "ObservedGeneration"),
 				)))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })

@@ -148,20 +148,9 @@ func (p *Preemptor) getPreemptionStrategyIterator(ctx context.Context, preemptio
 	return classicalPreemptionStrategy(ctx, p, preemptionCtx)
 }
 
+// GetTargetsWithStrategy returns the workloads to evict using the provided preemption strategies.
 func (p *Preemptor) GetTargetsWithStrategy(ctx context.Context, strategies iter.Seq[PreemptionStrategy]) []*Target {
 	return p.getTargets(ctx, strategies)
-}
-
-// GetTargets returns the list of workloads that should be evicted in
-// order to make room for wl.
-func (p *Preemptor) GetTargets(
-	ctx context.Context,
-	wl workload.Info,
-	assignment flavorassigner.Assignment,
-	snapshot *schdcache.Snapshot,
-) []*Target {
-	pCtx := p.buildContext(ctx, wl, assignment, snapshot)
-	return p.getTargets(ctx, p.getPreemptionStrategyIterator(ctx, pCtx))
 }
 
 func (p *Preemptor) buildContext(

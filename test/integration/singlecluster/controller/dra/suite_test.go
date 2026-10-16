@@ -39,7 +39,7 @@ import (
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -50,7 +50,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunSuite(t, "DRA Controller Suite")
+	behavioral.RunSuite(t, "DRA Controller Suite")
 }
 
 var _ = ginkgo.BeforeSuite(func() {
@@ -60,7 +60,7 @@ var _ = ginkgo.BeforeSuite(func() {
 	features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KueueDRAIntegrationConsumableCapacity, true)
 
 	fwk = &framework.Framework{
-		WebhookPath: util.WebhookPath,
+		WebhookPath: behavioral.WebhookPath,
 		APIServerFeatureGates: []string{
 			"DynamicResourceAllocation=true",
 			"DRAExtendedResource=true",
@@ -138,7 +138,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			qcache.WithDRABackedResources(draBackedResources),
 			qcache.WithResourceFormatter(resourceFormatter),
 		}
-		queues := util.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		// Core controllers
 		failedCtrl, err := core.SetupControllers(

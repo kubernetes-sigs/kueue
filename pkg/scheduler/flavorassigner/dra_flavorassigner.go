@@ -52,7 +52,7 @@ func delegateDRABackedExtendedResources(spec *corev1.PodSpec, erCache *dra.Exten
 	}
 	undelegated := requests.Clone()
 	for _, name := range names {
-		requests.Set(name, 0)
+		requests.Set(name, resources.Amount{})
 	}
 	return &schdcache.DRADelegation{Resources: names, Undelegated: undelegated}
 }

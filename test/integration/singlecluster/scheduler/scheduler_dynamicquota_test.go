@@ -27,7 +27,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, func() {
@@ -44,42 +44,42 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 	ginkgo.BeforeEach(func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.DynamicQuotaOrchestration, true)
 
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dynquota-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "dynquota-")
 
 		flavor = utiltestingapi.MakeResourceFlavor("dynquota-flavor").Obj()
-		util.MustCreate(ctx, k8sClient, flavor)
+		behavioral.MustCreate(ctx, k8sClient, flavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("dynquota-cq").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).
 				Resource(corev1.ResourceCPU, "1").
 				Obj()).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("dynquota-lq", ns.Name).
 			ClusterQueue(clusterQueue.Name).
 			Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		secondClusterQueue = nil
 		secondLocalQueue = nil
 		cohort = nil
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-		gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
 		if secondLocalQueue != nil {
-			gomega.Expect(util.DeleteObject(ctx, k8sClient, secondLocalQueue)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, secondLocalQueue)).Should(gomega.Succeed())
 		}
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
 		if secondClusterQueue != nil {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, secondClusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, secondClusterQueue, true)
 		}
 		if cohort != nil {
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohort, true)
 		}
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	ginkgo.It("should admit pending workloads when EffectiveQuotas status is updated with quota", func() {
@@ -89,8 +89,8 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 			Obj()
 
 		ginkgo.By("creating a workload when spec quota is 1 CPU (requesting 2 CPU)", func() {
-			util.MustCreate(ctx, k8sClient, wl)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
 		})
 
 		ginkgo.By("updating ClusterQueue status with EffectiveQuotas providing 5 CPU", func() {
@@ -98,7 +98,7 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 		})
 
 		ginkgo.By("verifying the pending workload is scheduled and admitted", func() {
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 		})
 
 		ginkgo.By("creating a second workload that fits within remaining EffectiveQuotas", func() {
@@ -106,8 +106,8 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl2)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+			behavioral.MustCreate(ctx, k8sClient, wl2)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
 		})
 
 		ginkgo.By("creating a third workload that exceeds remaining EffectiveQuotas", func() {
@@ -115,8 +115,8 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl3)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
+			behavioral.MustCreate(ctx, k8sClient, wl3)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
 		})
 	})
 
@@ -128,8 +128,8 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl1)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+			behavioral.MustCreate(ctx, k8sClient, wl1)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 		})
 
 		ginkgo.By("clearing EffectiveQuotas in status", func() {
@@ -141,8 +141,8 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl2)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+			behavioral.MustCreate(ctx, k8sClient, wl2)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 		})
 	})
 
@@ -155,8 +155,8 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 			Queue(kueue.LocalQueueName(localQueue.Name)).
 			Request(corev1.ResourceCPU, "2").
 			Obj()
-		util.MustCreate(ctx, k8sClient, wl)
-		util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+		behavioral.MustCreate(ctx, k8sClient, wl)
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
 	})
 
 	ginkgo.It("should adjust scheduling capacity dynamically when EffectiveQuotas is reduced", func() {
@@ -168,15 +168,15 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 			Queue(kueue.LocalQueueName(localQueue.Name)).
 			Request(corev1.ResourceCPU, "4").
 			Obj()
-		util.MustCreate(ctx, k8sClient, wl1)
-		util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+		behavioral.MustCreate(ctx, k8sClient, wl1)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 
 		ginkgo.By("reducing EffectiveQuotas to 5 CPU while wl1 is running", func() {
 			updateCQEffectiveQuotas(ctx, k8sClient, clusterQueue, flavor, "5", "dqo-test")
 		})
 
 		ginkgo.By("verifying running workload wl1 remains admitted", func() {
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 		})
 
 		ginkgo.By("verifying a new workload fitting within remaining reduced capacity is admitted", func() {
@@ -184,8 +184,8 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Request(corev1.ResourceCPU, "1").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wlFitting)
-			util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlFitting)
+			behavioral.MustCreate(ctx, k8sClient, wlFitting)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlFitting)
 		})
 
 		ginkgo.By("verifying a new workload exceeding reduced EffectiveQuotas stays pending", func() {
@@ -193,8 +193,8 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Request(corev1.ResourceCPU, "2").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl2)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+			behavioral.MustCreate(ctx, k8sClient, wl2)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 		})
 	})
 
@@ -205,13 +205,13 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 					Resource(corev1.ResourceCPU, "1").
 					Obj()).
 				Obj()
-			util.MustCreate(ctx, k8sClient, cohort)
+			behavioral.MustCreate(ctx, k8sClient, cohort)
 			gomega.Eventually(func(g gomega.Gomega) {
 				var currentCQ kueue.ClusterQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &currentCQ)).To(gomega.Succeed())
 				currentCQ.Spec.CohortName = kueue.CohortReference(cohort.Name)
 				g.Expect(k8sClient.Update(ctx, &currentCQ)).To(gomega.Succeed())
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("should admit workload borrowing from cohort when Cohort and CQ status are updated with EffectiveQuotas", func() {
@@ -221,8 +221,8 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 				Obj()
 
 			ginkgo.By("creating a workload when CQ has 1 CPU and Cohort has 1 CPU (requesting 4 CPU)", func() {
-				util.MustCreate(ctx, k8sClient, wl)
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
 			})
 
 			ginkgo.By("updating CQ and Cohort status with EffectiveQuotas (CQ 2 CPU, Cohort 3 CPU)", func() {
@@ -231,7 +231,7 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 			})
 
 			ginkgo.By("verifying the pending workload is scheduled and admitted borrowing from Cohort", func() {
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 			})
 		})
 
@@ -247,8 +247,8 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 				Obj()
 
 			ginkgo.By("verifying initial workload uses CQ effective quota and borrows from Cohort", func() {
-				util.MustCreate(ctx, k8sClient, wl1)
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+				behavioral.MustCreate(ctx, k8sClient, wl1)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 			})
 
 			ginkgo.By("clearing EffectiveQuotas in Cohort status", func() {
@@ -260,8 +260,8 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					Obj()
-				util.MustCreate(ctx, k8sClient, wl2)
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
+				behavioral.MustCreate(ctx, k8sClient, wl2)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl2)
 			})
 		})
 
@@ -272,12 +272,12 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 					Resource(corev1.ResourceCPU, "1").
 					Obj()).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, secondClusterQueue)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, secondClusterQueue)
 
 			secondLocalQueue = utiltestingapi.MakeLocalQueue("dynquota-lq2", ns.Name).
 				ClusterQueue(secondClusterQueue.Name).
 				Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, secondLocalQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, secondLocalQueue)
 
 			ginkgo.By("updating CQ1, CQ2, and Cohort status with EffectiveQuotas (CQs 2 CPU each, Cohort 2 CPU)", func() {
 				updateCQEffectiveQuotas(ctx, k8sClient, clusterQueue, flavor, "2", "dqo-test")
@@ -296,13 +296,13 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 				Obj()
 
 			ginkgo.By("admitting wl-cq1 which uses 2 CPU from CQ1 and borrows 1 CPU from Cohort", func() {
-				util.MustCreate(ctx, k8sClient, wlCQ1)
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlCQ1)
+				behavioral.MustCreate(ctx, k8sClient, wlCQ1)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlCQ1)
 			})
 
 			ginkgo.By("admitting wl-cq2 which uses 2 CPU from CQ2 and borrows 1 CPU from Cohort", func() {
-				util.MustCreate(ctx, k8sClient, wlCQ2)
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlCQ2)
+				behavioral.MustCreate(ctx, k8sClient, wlCQ2)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlCQ2)
 			})
 
 			ginkgo.By("verifying a third workload stays pending when Cohort EffectiveQuotas is exhausted", func() {
@@ -310,8 +310,8 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 					Queue(kueue.LocalQueueName(localQueue.Name)).
 					Request(corev1.ResourceCPU, "1").
 					Obj()
-				util.MustCreate(ctx, k8sClient, wlCQ1Pending)
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wlCQ1Pending)
+				behavioral.MustCreate(ctx, k8sClient, wlCQ1Pending)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlCQ1Pending)
 			})
 		})
 
@@ -325,14 +325,14 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 				Queue(kueue.LocalQueueName(localQueue.Name)).
 				Request(corev1.ResourceCPU, "3").
 				Obj()
-			util.MustCreate(ctx, k8sClient, wl)
-			util.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
 		})
 	})
 
 	ginkgo.It("should report dynamic quota orchestrator in cluster queue info metric", func() {
 		ginkgo.By("verifying initial info metric dynamic_quota_orchestrator=''", func() {
-			util.ExpectClusterQueueInfoWithDynamicQuotaOrchestratorMetric(clusterQueue.Name, "", "", "", 1)
+			behavioral.ExpectClusterQueueInfoWithDynamicQuotaOrchestratorMetric(clusterQueue.Name, "", "", "", 1)
 		})
 
 		ginkgo.By("updating ClusterQueue status with EffectiveQuotas providing 10 CPU and orchestrator 'dqo-orchestrator'", func() {
@@ -340,7 +340,7 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 		})
 
 		ginkgo.By("verifying info metric reports dynamic_quota_orchestrator='dqo-orchestrator'", func() {
-			util.ExpectClusterQueueInfoWithDynamicQuotaOrchestratorMetric(clusterQueue.Name, "", "", "dqo-orchestrator", 1)
+			behavioral.ExpectClusterQueueInfoWithDynamicQuotaOrchestratorMetric(clusterQueue.Name, "", "", "dqo-orchestrator", 1)
 		})
 
 		ginkgo.By("clearing EffectiveQuotas in status", func() {
@@ -348,7 +348,7 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 		})
 
 		ginkgo.By("verifying info metric reverts to dynamic_quota_orchestrator=''", func() {
-			util.ExpectClusterQueueInfoWithDynamicQuotaOrchestratorMetric(clusterQueue.Name, "", "", "", 1)
+			behavioral.ExpectClusterQueueInfoWithDynamicQuotaOrchestratorMetric(clusterQueue.Name, "", "", "", 1)
 		})
 	})
 
@@ -358,10 +358,10 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 				Resource(corev1.ResourceCPU, "0").
 				Obj()).
 			Obj()
-		util.MustCreate(ctx, k8sClient, cohort)
+		behavioral.MustCreate(ctx, k8sClient, cohort)
 
 		ginkgo.By("verifying initial cohort info metric dynamic_quota_orchestrator=''", func() {
-			util.ExpectCohortInfoWithDynamicQuotaOrchestratorMetric(cohort.Name, "", cohort.Name, "", 1)
+			behavioral.ExpectCohortInfoWithDynamicQuotaOrchestratorMetric(cohort.Name, "", cohort.Name, "", 1)
 		})
 
 		ginkgo.By("updating Cohort status with EffectiveQuotas", func() {
@@ -369,7 +369,7 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 		})
 
 		ginkgo.By("verifying cohort info metric reports dynamic_quota_orchestrator='dqo-cohort-orchestrator'", func() {
-			util.ExpectCohortInfoWithDynamicQuotaOrchestratorMetric(cohort.Name, "", cohort.Name, "dqo-cohort-orchestrator", 1)
+			behavioral.ExpectCohortInfoWithDynamicQuotaOrchestratorMetric(cohort.Name, "", cohort.Name, "dqo-cohort-orchestrator", 1)
 		})
 
 		ginkgo.By("clearing Cohort EffectiveQuotas in status", func() {
@@ -377,7 +377,7 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 		})
 
 		ginkgo.By("verifying cohort info metric reverts to dynamic_quota_orchestrator=''", func() {
-			util.ExpectCohortInfoWithDynamicQuotaOrchestratorMetric(cohort.Name, "", cohort.Name, "", 1)
+			behavioral.ExpectCohortInfoWithDynamicQuotaOrchestratorMetric(cohort.Name, "", cohort.Name, "", 1)
 		})
 	})
 })
@@ -388,7 +388,7 @@ func updateCohortEffectiveQuotas(ctx context.Context, k8sClient client.Client, c
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), &currentCohort)).To(gomega.Succeed())
 		currentCohort.Status.EffectiveQuotas = makeEffectiveQuotaStatus(flavor, cpuQty, orchestratorName)
 		g.Expect(k8sClient.Status().Update(ctx, &currentCohort)).To(gomega.Succeed())
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 func updateCQEffectiveQuotas(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, flavor *kueue.ResourceFlavor, cpuQty, orchestratorName string) {
@@ -397,7 +397,7 @@ func updateCQEffectiveQuotas(ctx context.Context, k8sClient client.Client, cq *k
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &currentCQ)).To(gomega.Succeed())
 		currentCQ.Status.EffectiveQuotas = makeEffectiveQuotaStatus(flavor, cpuQty, orchestratorName)
 		g.Expect(k8sClient.Status().Update(ctx, &currentCQ)).To(gomega.Succeed())
-	}, util.Timeout, util.Interval).Should(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
 func makeEffectiveQuotaStatus(flavor *kueue.ResourceFlavor, cpuQty, orchestratorName string) *kueue.EffectiveQuotaStatus {

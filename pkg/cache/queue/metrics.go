@@ -81,7 +81,7 @@ func reportCQPendingWorkloads(m *Manager, cq *ClusterQueue) {
 		// Update), so iterating it once covers both the zero-series and actual pending.
 		pendingResources := cq.pendingResources()
 		for resourceName, v := range pendingResources {
-			q := m.resourceFormatter.ResourceQuantity(resourceName, v)
+			q := m.resourceFormatter.AmountQuantity(resourceName, v)
 			metrics.ReportClusterQueueResourcePending(string(cq.name), string(resourceName), utilresource.QuantityToFloat(&q), cqCustomLabels, m.roleTracker)
 		}
 	}

@@ -29,6 +29,7 @@ import (
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
+	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 )
 
 func TestCheckerListsClusterStateOncePerSnapshot(t *testing.T) {
@@ -52,15 +53,11 @@ func TestCheckerListsClusterStateOncePerSnapshot(t *testing.T) {
 			},
 		},
 	}
-	slice := &resourceapi.ResourceSlice{
-		Name: "gpu-node-slice",
-		Spec: resourceapi.ResourceSliceSpec{
-			NodeName: new("gpu-node"),
-			Driver:   "gpu.example.com",
-			Pool:     resourceapi.ResourcePool{Name: "gpu-node", ResourceSliceCount: 1},
-			Devices:  []resourceapi.Device{{Name: "gpu-0"}},
-		},
-	}
+	slice := testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+		NodeName("gpu-node").
+		Pool("gpu-node", 1, 1).
+		Device("gpu-0").
+		Obj()
 
 	var listCalls int
 	cl := fake.NewClientBuilder().WithScheme(scheme).

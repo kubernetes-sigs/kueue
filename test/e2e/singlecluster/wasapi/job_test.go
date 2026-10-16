@@ -21,8 +21,8 @@ import (
 	"github.com/onsi/gomega"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -31,7 +31,8 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
 // These tests verify integration between Kueue's Workload and a Job admitted
@@ -49,11 +50,11 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", 
 	var ns *corev1.Namespace
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-was-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "e2e-was-")
 	})
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-		util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 	ginkgo.When("A Job is admitted by Kueue with the GenericWorkload feature gate enabled", func() {
 		var (
@@ -68,7 +69,7 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", 
 			clusterQueueName = "cluster-queue-was-" + ns.Name
 			onDemandRF = utiltestingapi.MakeResourceFlavor(flavorOnDemand).
 				NodeLabel("instance-type", "on-demand").Obj()
-			util.MustCreate(ctx, k8sClient, onDemandRF)
+			behavioral.MustCreate(ctx, k8sClient, onDemandRF)
 			clusterQueue = utiltestingapi.MakeClusterQueue(clusterQueueName).
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas(flavorOnDemand).
@@ -77,67 +78,66 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", 
 						Obj(),
 				).
 				Obj()
-			util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+			behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 			localQueue = utiltestingapi.MakeLocalQueue("main", ns.Name).ClusterQueue(clusterQueueName).Obj()
-			util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+			behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 		})
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			gomega.Expect(util.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
-			util.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
+			gomega.Expect(behavioral.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteAllPodsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandRF, true)
+			behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 		})
 
-		ginkgo.XIt("Should create a Workload with PodSet count matching Job parallelism", func() {
+		ginkgo.It("Should create a Workload with PodSet count matching Job parallelism", func() {
 			const parallelism int32 = 3
 
-			// This job is being skipped because in 1.37 the job controller has an
-			// api to control gang scheduling.
-			// The default behavior is not have gang scheduling so PodSet will not match podgroup mincount
-			// unless we bring in 1.37 apis to create the right job.
-			// Skipping for now but will reenable once we have 1.37 apis.
 			job := testingjob.MakeJob("was-test-job", ns.Name).
 				Queue("main").
 				Parallelism(parallelism).
 				Completions(parallelism).
 				Indexed(true).
-				Image(util.GetAgnHostImage(), util.BehaviorWaitForDeletion).
+				Scheduling(&batchv1.JobSchedulingConfiguration{
+					SchedulingPolicy: &schedulingv1alpha3.WorkloadPodGroupSchedulingPolicy{
+						Gang: &schedulingv1alpha3.WorkloadPodGroupGangSchedulingPolicy{},
+					},
+				}).
+				Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
 				RequestAndLimit(corev1.ResourceCPU, "200m").
 				RequestAndLimit(corev1.ResourceMemory, "20Mi").
 				TerminationGracePeriod(1).
 				Obj()
 			jobKey := client.ObjectKeyFromObject(job)
-			util.MustCreate(ctx, k8sClient, job)
+			behavioral.MustCreate(ctx, k8sClient, job)
 
 			ginkgo.By("verifying that the Kueue Workload is created with matching pod count", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdWorkload := workloadForJob(g, jobKey)
 					g.Expect(createdWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
 					g.Expect(createdWorkload.Spec.PodSets[0].Count).Should(gomega.Equal(parallelism))
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verifying the workload is admitted and the job is unsuspended", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdWorkload := workloadForJob(g, jobKey)
 					g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeTrue())
-				}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 				createdJob := &batchv1.Job{}
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, jobKey, createdJob)).Should(gomega.Succeed())
 					g.Expect(*createdJob.Spec.Suspend).Should(gomega.BeFalse())
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
 			ginkgo.By("verifying the upstream PodGroup gang minCount matches the Kueue Workload pod count", func() {
-				// The Job qualifies for gang scheduling (parallelism > 1, Indexed,
-				// completions == parallelism), so the upstream Job controller creates
-				// a PodGroup owned by the Job. We read it as unstructured data to
-				// avoid vendoring k8s.io/api/scheduling/v1beta1 into Kueue.
+				// The Job requests gang scheduling via spec.scheduling.schedulingPolicy.gang
+				// without a minCount, so the upstream Job controller creates a PodGroup
+				// owned by the Job with minCount defaulted to the Job's parallelism.
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdWorkload := workloadForJob(g, jobKey)
 					g.Expect(createdWorkload.Spec.PodSets).Should(gomega.HaveLen(1))
@@ -146,27 +146,14 @@ var _ = ginkgo.Describe("WorkloadAwareScheduling Job", ginkgo.Label("area:was", 
 					g.Expect(err).ShouldNot(gomega.HaveOccurred())
 					g.Expect(found).Should(gomega.BeTrue(), "expected a PodGroup owned by the Job with a gang scheduling policy")
 					g.Expect(minCount).Should(
-						gomega.Equal(int64(createdWorkload.Spec.PodSets[0].Count)),
+						gomega.Equal(createdWorkload.Spec.PodSets[0].Count),
 						"PodGroup gang minCount should match the Kueue Workload pod count",
 					)
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
 })
-
-// podGroupListGVK identifies the upstream scheduling.k8s.io/v1beta1 PodGroup
-// list kind. We deliberately query it as unstructured data (instead of
-// importing k8s.io/api/scheduling/v1beta1) so that Kueue does not need to
-// vendor that API just to observe it in this e2e test.
-// TODO: once Kueue can depend on a k8s.io/api release that vendors the beta
-// types (Kubernetes 1.37), switch this back to a structured client using the
-// typed PodGroup/PodGroupList types.
-var podGroupListGVK = schema.GroupVersionKind{
-	Group:   "scheduling.k8s.io",
-	Version: "v1beta1",
-	Kind:    "PodGroupList",
-}
 
 // workloadForJob fetches the Job identified by jobKey and returns the Kueue
 // Workload owned by it, asserting both fetches succeed. It is intended for
@@ -187,18 +174,20 @@ func workloadForJob(g gomega.Gomega, jobKey types.NamespacedName) *kueue.Workloa
 
 // gangMinCountForJob returns the gang scheduling minCount of the upstream
 // PodGroup owned by the given Job name, if one exists.
-func gangMinCountForJob(namespace, jobName string) (int64, bool, error) {
-	podGroupList := &unstructured.UnstructuredList{}
-	podGroupList.SetGroupVersionKind(podGroupListGVK)
+func gangMinCountForJob(namespace, jobName string) (int32, bool, error) {
+	podGroupList := &schedulingv1beta1.PodGroupList{}
 	if err := k8sClient.List(ctx, podGroupList, client.InNamespace(namespace)); err != nil {
 		return 0, false, err
 	}
 
 	for i := range podGroupList.Items {
 		pg := &podGroupList.Items[i]
-		for _, ownerRef := range pg.GetOwnerReferences() {
+		for _, ownerRef := range pg.OwnerReferences {
 			if ownerRef.Kind == "Job" && ownerRef.Name == jobName {
-				return unstructured.NestedInt64(pg.Object, "spec", "schedulingPolicy", "gang", "minCount")
+				if gang := pg.Spec.SchedulingPolicy.Gang; gang != nil {
+					return gang.MinCount, true, nil
+				}
+				return 0, false, nil
 			}
 		}
 	}

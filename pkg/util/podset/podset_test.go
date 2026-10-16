@@ -78,3 +78,38 @@ func TestFindPodSetByName(t *testing.T) {
 		})
 	}
 }
+
+func TestSpecIndexes(t *testing.T) {
+	podSets := []kueue.PodSet{{Name: "leader"}, {Name: "other"}, {Name: "worker"}}
+	testCases := map[string]struct {
+		items []kueue.PodSetReference
+		want  []int
+	}{
+		"empty items": {
+			items: []kueue.PodSetReference{},
+			want:  []int{},
+		},
+		"same order": {
+			items: []kueue.PodSetReference{"leader", "other", "worker"},
+			want:  []int{0, 1, 2},
+		},
+		"different order": {
+			items: []kueue.PodSetReference{"leader", "worker", "other"},
+			want:  []int{0, 2, 1},
+		},
+		"no match": {
+			items: []kueue.PodSetReference{"leader", "launcher"},
+			want:  []int{0, -1},
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			got := SpecIndexes(podSets, tc.items, func(n *kueue.PodSetReference) kueue.PodSetReference { return *n })
+
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("SpecIndexes() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

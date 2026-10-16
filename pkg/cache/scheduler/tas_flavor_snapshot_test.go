@@ -1472,6 +1472,11 @@ func TestTruncateAssignment(t *testing.T) {
 		newCount   int32
 		want       *tas.TopologyAssignment
 	}{
+		"nil assignment": {
+			assignment: nil,
+			newCount:   3,
+			want:       nil,
+		},
 		"truncate to zero": {
 			assignment: &tas.TopologyAssignment{
 				Levels: []string{"hostname"},
@@ -2189,7 +2194,8 @@ func TestLeaderIsNotPlacedInUsedUpDomain(t *testing.T) {
 			for _, tr := range []TASPodSetRequests{workers, leader} {
 				for _, domain := range assignments[tr.PodSet.Name].Domains {
 					if domain.Values[0] == "r1" {
-						gotCPU += domain.Count * int32(tr.SinglePodRequests.ResourceValue(corev1.ResourceCPU)/1000)
+						cores, _ := tr.SinglePodRequests.ResourceValue(corev1.ResourceCPU).QuoInt64(1000).Int64()
+						gotCPU += domain.Count * int32(cores)
 					}
 				}
 			}

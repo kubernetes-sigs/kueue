@@ -61,11 +61,13 @@ import (
 
 func TestDefault(t *testing.T) {
 	defaultNamespace := utiltesting.MakeNamespaceWrapper("test-ns").Label(corev1.LabelMetadataName, "test-ns").Obj()
-	defaultNamespaceSelector := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(metav1.LabelSelectorRequirement{
-		Key:      corev1.LabelMetadataName,
-		Operator: metav1.LabelSelectorOpNotIn,
-		Values:   []string{"kube-system"},
-	}).Obj()
+	defaultNamespaceSelector := utiltestingapi.MakeManagedJobsNamespaceSelector().MatchExpressions(
+		utiltestingapi.MakeMatchExpression().
+			Key(corev1.LabelMetadataName).
+			Operator(metav1.LabelSelectorOpNotIn).
+			Values("kube-system").
+			Obj(),
+	).Obj()
 	defaultPodSelector := &metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{
 			{
@@ -1348,6 +1350,22 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: true},
+		},
+		"queue name changed to an invalid value on a gated pod": {
+			oldPod: testingpod.MakePod("test-pod", "test-ns").
+				Queue("lq1").
+				KueueSchedulingGate().
+				Obj(),
+			newPod: testingpod.MakePod("test-pod", "test-ns").
+				Queue("Bad_Queue").
+				KueueSchedulingGate().
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "metadata.labels[kueue.x-k8s.io/queue-name]",
+				},
+			}.ToAggregate(),
 		},
 	}
 

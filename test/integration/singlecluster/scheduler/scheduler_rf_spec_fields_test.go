@@ -24,7 +24,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor tolerations", ginkgo.Ordered, func() {
@@ -42,32 +42,32 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor tolerations", ginkgo.O
 	}
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rf-tolerations-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rf-tolerations-")
 
 		flavor = utiltestingapi.MakeResourceFlavor("tolerations-flavor").
 			Taint(taint).
 			Obj()
-		util.MustCreate(ctx, k8sClient, flavor)
+		behavioral.MustCreate(ctx, k8sClient, flavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).
 				Resource(corev1.ResourceCPU, "5").
 				Obj()).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).
 			ClusterQueue(clusterQueue.Name).
 			Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-		gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	makeWorkload := func(name, cpu string) *kueue.Workload {
@@ -88,7 +88,7 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor tolerations", ginkgo.O
 				Effect:   taint.Effect,
 			}}
 			g.Expect(k8sClient.Update(ctx, &updatedFlavor)).To(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	}
 
 	// The second workload's shape is the only difference between the scenarios:
@@ -99,20 +99,20 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor tolerations", ginkgo.O
 		func(secondWorkloadCPU string) {
 			wl1 := makeWorkload("wl1", "1")
 			ginkgo.By("creating a workload that cannot tolerate the flavor nodeTaints", func() {
-				util.MustCreate(ctx, k8sClient, wl1)
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl1)
+				behavioral.MustCreate(ctx, k8sClient, wl1)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl1)
 			})
 
 			ginkgo.By("adding a matching toleration to the flavor spec", addFlavorToleration)
 
 			ginkgo.By("verifying the pending workload is retried and admitted", func() {
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 			})
 
 			ginkgo.By("verifying a workload created after the update is admitted", func() {
 				wl2 := makeWorkload("wl2", secondWorkloadCPU)
-				util.MustCreate(ctx, k8sClient, wl2)
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+				behavioral.MustCreate(ctx, k8sClient, wl2)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
 			})
 		},
 		ginkgo.Entry("with a differently-shaped new workload", "500m"),
@@ -131,32 +131,32 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor nodeLabels", ginkgo.Or
 	const zoneKey = "example.com/zone"
 
 	ginkgo.BeforeEach(func() {
-		ns = util.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rf-nodelabels-")
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rf-nodelabels-")
 
 		flavor = utiltestingapi.MakeResourceFlavor("nodelabels-flavor").
 			NodeLabel(zoneKey, "zone-a").
 			Obj()
-		util.MustCreate(ctx, k8sClient, flavor)
+		behavioral.MustCreate(ctx, k8sClient, flavor)
 
 		clusterQueue = utiltestingapi.MakeClusterQueue("cluster-queue").
 			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).
 				Resource(corev1.ResourceCPU, "5").
 				Obj()).
 			Obj()
-		util.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
 
 		localQueue = utiltestingapi.MakeLocalQueue("local-queue", ns.Name).
 			ClusterQueue(clusterQueue.Name).
 			Obj()
-		util.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, localQueue)
 	})
 
 	ginkgo.AfterEach(func() {
-		gomega.Expect(util.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-		gomega.Expect(util.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-		util.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
-		gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+		gomega.Expect(behavioral.DeleteObject(ctx, k8sClient, localQueue)).Should(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 	})
 
 	makeWorkload := func(name, cpu string) *kueue.Workload {
@@ -173,7 +173,7 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor nodeLabels", ginkgo.Or
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(flavor), &updatedFlavor)).To(gomega.Succeed())
 			updatedFlavor.Spec.NodeLabels = map[string]string{zoneKey: zone}
 			g.Expect(k8sClient.Update(ctx, &updatedFlavor)).To(gomega.Succeed())
-		}, util.Timeout, util.Interval).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	}
 
 	// The second workload's shape is the only difference between the scenarios:
@@ -184,8 +184,8 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor nodeLabels", ginkgo.Or
 		func(secondWorkloadCPU string) {
 			wl1 := makeWorkload("wl1", "1")
 			ginkgo.By("creating a workload whose nodeSelector does not match the flavor nodeLabels", func() {
-				util.MustCreate(ctx, k8sClient, wl1)
-				util.ExpectWorkloadsToBePending(ctx, k8sClient, wl1)
+				behavioral.MustCreate(ctx, k8sClient, wl1)
+				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl1)
 			})
 
 			ginkgo.By("updating the flavor nodeLabels to match the workload nodeSelector", func() {
@@ -193,13 +193,13 @@ var _ = ginkgo.Describe("Scheduler non-TAS ResourceFlavor nodeLabels", ginkgo.Or
 			})
 
 			ginkgo.By("verifying the pending workload is retried and admitted", func() {
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
 			})
 
 			ginkgo.By("verifying a workload created after the update is admitted", func() {
 				wl2 := makeWorkload("wl2", secondWorkloadCPU)
-				util.MustCreate(ctx, k8sClient, wl2)
-				util.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
+				behavioral.MustCreate(ctx, k8sClient, wl2)
+				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
 			})
 		},
 		ginkgo.Entry("with a differently-shaped new workload", "500m"),

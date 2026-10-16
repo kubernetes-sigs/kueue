@@ -23,14 +23,9 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 
-	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 )
-
-func domainIDs(domains []*domain) []string {
-	return utilslices.Map(domains, func(d **domain) string { return string((*d).id) })
-}
 
 func addDomainWithState(s *TASFlavorSnapshot, d *domain, state domainState) *domain {
 	d.idx = len(s.domainStates)

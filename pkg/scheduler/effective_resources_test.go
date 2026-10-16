@@ -76,11 +76,11 @@ func TestAssumeWorkloadPreservesEffectiveResourcesForTAS(t *testing.T) {
 	}
 	cached := snapshot.ClusterQueue("cq").Workloads[workload.Key(wl)]
 	domain := cached.TotalRequests[0].TopologyRequest.DomainRequests[0]
-	if got := domain.SinglePodRequests.ResourceValue(corev1.ResourceCPU); got != 1000 {
-		t.Errorf("assumed TAS CPU = %d, want the scheduling snapshot's 1000", got)
+	if got := domain.SinglePodRequests.ResourceValue(corev1.ResourceCPU); got.CmpInt64(1000) != 0 {
+		t.Errorf("assumed TAS CPU = %s, want the scheduling snapshot's 1000", got)
 	}
-	if got := cached.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got != 1000 {
-		t.Errorf("reserved quota CPU = %d, want 1000", got)
+	if got := cached.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU); got.CmpInt64(1000) != 0 {
+		t.Errorf("reserved quota CPU = %s, want 1000", got)
 	}
 	if len(cached.Obj.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests) != 0 {
 		t.Fatal("cache raw Workload contains injected defaults")

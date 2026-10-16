@@ -17,6 +17,7 @@ limitations under the License.
 package create
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -512,6 +513,13 @@ func mergeFlavorsByCoveredResources(resourceGroups []kueue.ResourceGroup) ([]kue
 			return resourceGroupResources.Equal(sets.New(existing.CoveredResources...))
 		})
 		if idx != -1 {
+			// The webhook requires resources in coveredResources order.
+			covered := mergedResources[idx].CoveredResources
+			for i := range rg.Flavors {
+				slices.SortFunc(rg.Flavors[i].Resources, func(a, b kueue.ResourceQuota) int {
+					return cmp.Compare(slices.Index(covered, a.Name), slices.Index(covered, b.Name))
+				})
+			}
 			mergedResources[idx].Flavors = append(mergedResources[idx].Flavors, rg.Flavors...)
 			continue
 		}

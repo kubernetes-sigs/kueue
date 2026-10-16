@@ -32,7 +32,7 @@ import (
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -92,7 +92,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 						Obj(),
 				).Obj()
 			gomega.Expect(k8sClient.Create(ctx, clusterQueue)).To(gomega.Succeed())
-			util.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
+			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, clusterQueue)
 
 			localQueue = utiltestingapi.MakeLocalQueue("cc-lq", ns.Name).
 				ClusterQueue(clusterQueue.Name).Obj()
@@ -100,15 +100,15 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 		})
 
 		ginkgo.AfterEach(func() {
-			gomega.Expect(util.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
-			util.ExpectObjectToBeDeleted(ctx, k8sClient, vgpuClass, true)
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, resourceFlavor, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, vgpuClass, true)
 		})
 
 		ginkgo.It("Should charge explicit capacity request", func() {
 			ginkgo.By("Creating ResourceSlice with capacity dimensions")
-			slice := utiltesting.MakeResourceSlice("cc-explicit-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-explicit-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", nil).
@@ -150,12 +150,12 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpu.memory")))
 				memUsage := assignment.ResourceUsage["gpu.memory"]
 				g.Expect(memUsage.Cmp(resource.MustParse("20Gi"))).To(gomega.Equal(0))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should default to max capacity value when no request specified", func() {
 			ginkgo.By("Creating ResourceSlice with capacity dimensions")
-			slice := utiltesting.MakeResourceSlice("cc-default-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-default-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", nil).
@@ -193,13 +193,13 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
 				memUsage := assignment.ResourceUsage["gpu.memory"]
 				g.Expect(memUsage.Cmp(resource.MustParse("80Gi"))).To(gomega.Equal(0))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should default to RequestPolicy.Default when no request specified", func() {
 			ginkgo.By("Creating ResourceSlice with RequestPolicy.Default")
 			defaultQty := resource.MustParse("10Gi")
-			slice := utiltesting.MakeResourceSlice("cc-policy-default-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-policy-default-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
@@ -239,13 +239,13 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
 				memUsage := assignment.ResourceUsage["gpu.memory"]
 				g.Expect(memUsage.Cmp(resource.MustParse("10Gi"))).To(gomega.Equal(0))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should round up capacity request to ValidValues", func() {
 			ginkgo.By("Creating ResourceSlice with ValidValues policy")
 			defaultQty := resource.MustParse("10Gi")
-			slice := utiltesting.MakeResourceSlice("cc-validvalues-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-validvalues-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
@@ -292,7 +292,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
 				memUsage := assignment.ResourceUsage["gpu.memory"]
 				g.Expect(memUsage.Cmp(resource.MustParse("20Gi"))).To(gomega.Equal(0))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should round up capacity request to ValidRange with step", func() {
@@ -301,7 +301,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 			minQty := resource.MustParse("5Gi")
 			maxQty := resource.MustParse("80Gi")
 			stepQty := resource.MustParse("5Gi")
-			slice := utiltesting.MakeResourceSlice("cc-validrange-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-validrange-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
@@ -347,12 +347,12 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
 				memUsage := assignment.ResourceUsage["gpu.memory"]
 				g.Expect(memUsage.Cmp(resource.MustParse("5Gi"))).To(gomega.Equal(0))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should multiply capacity charge by request count", func() {
 			ginkgo.By("Creating ResourceSlice with multiple allocatable devices")
-			slice := utiltesting.MakeResourceSlice("cc-count-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-count-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", nil).
@@ -394,13 +394,13 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
 				memUsage := assignment.ResourceUsage["gpu.memory"]
 				g.Expect(memUsage.Cmp(resource.MustParse("40Gi"))).To(gomega.Equal(0))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should mark workload inadmissible when request exceeds ValidValues", framework.SlowSpec, func() {
 			ginkgo.By("Creating ResourceSlice with ValidValues policy")
 			defaultQty := resource.MustParse("10Gi")
-			slice := utiltesting.MakeResourceSlice("cc-exceed-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-exceed-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
@@ -447,12 +447,12 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 					gomega.HaveField("Status", metav1.ConditionFalse),
 					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
 				)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should mark workload inadmissible when no devices have capacity dimension", framework.SlowSpec, func() {
 			ginkgo.By("Creating ResourceSlice without capacity dimensions")
-			slice := utiltesting.MakeResourceSlice("cc-nodim-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-nodim-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				AllowMultipleAllocations(true).
@@ -491,12 +491,12 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 					gomega.HaveField("Status", metav1.ConditionFalse),
 					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
 				)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should skip device-count charge when capacity sources configured", func() {
 			ginkgo.By("Creating ResourceSlice with capacity")
-			slice := utiltesting.MakeResourceSlice("cc-skipcount-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-skipcount-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", nil).
@@ -536,7 +536,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 				memUsage := assignment.ResourceUsage["gpu.memory"]
 				g.Expect(memUsage.Cmp(resource.MustParse("20Gi"))).To(gomega.Equal(0),
 					"should be 20Gi (capacity), not 1 (device count)")
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should requeue inadmissible workload when ResourceSlice appears", framework.SlowSpec, func() {
@@ -568,10 +568,10 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 					gomega.HaveField("Status", metav1.ConditionFalse),
 					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
 				)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Creating ResourceSlice — should trigger requeue")
-			slice := utiltesting.MakeResourceSlice("cc-requeue-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-requeue-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", nil).
@@ -590,14 +590,14 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 
 				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
 				g.Expect(assignment.ResourceUsage).To(gomega.HaveKey(corev1.ResourceName("gpu.memory")))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should use max Default across devices with heterogeneous Defaults", func() {
 			ginkgo.By("Creating ResourceSlice with two devices having different Defaults")
 			default40 := resource.MustParse("40Gi")
 			default10 := resource.MustParse("10Gi")
-			slice := utiltesting.MakeResourceSlice("cc-hetdefault-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-hetdefault-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
@@ -643,13 +643,13 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 				memUsage := assignment.ResourceUsage["gpu.memory"]
 				g.Expect(memUsage.Cmp(resource.MustParse("40Gi"))).To(gomega.Equal(0),
 					"should be 40Gi (max Default across devices), not 10Gi (max-capacity device's Default)")
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should mark inadmissible without retry when all policies reject request", framework.SlowSpec, func() {
 			ginkgo.By("Creating ResourceSlice where all devices have ValidValues that reject 50Gi")
 			defaultQty := resource.MustParse("10Gi")
-			slice := utiltesting.MakeResourceSlice("cc-allreject-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-allreject-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "80Gi", &resourcev1.CapacityRequestPolicy{
@@ -698,19 +698,19 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 					gomega.HaveField("Status", metav1.ConditionFalse),
 					gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonDRAResourcesUnresolved),
 				)))
-			}, util.MediumTimeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verifying workload stays inadmissible (deterministic, no requeue)")
 			gomega.Consistently(func(g gomega.Gomega) {
 				var updatedWl kueue.Workload
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWl)).To(gomega.Succeed())
 				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
-			}, util.ConsistentDuration, util.Interval).Should(gomega.Succeed())
+			}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.It("Should use max capacity across multiple devices", func() {
 			ginkgo.By("Creating ResourceSlice with two devices having different capacities")
-			slice := utiltesting.MakeResourceSlice("cc-maxcap-slice", "gpu.example.com").
+			slice := testingdra.MakeResourceSlice("cc-maxcap-slice", "gpu.example.com").
 				Pool("node1-gpu0", 1, 1).
 				Device("gpu-0").
 				DeviceCapacity("memory", "40Gi", nil).
@@ -751,7 +751,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity Integration", ginkgo.Ordered, g
 				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
 				memUsage := assignment.ResourceUsage["gpu.memory"]
 				g.Expect(memUsage.Cmp(resource.MustParse("80Gi"))).To(gomega.Equal(0))
-			}, util.Timeout, util.Interval).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })

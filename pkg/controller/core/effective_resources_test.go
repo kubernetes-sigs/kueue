@@ -137,11 +137,11 @@ func TestWorkloadReconcilerPreservesDRAResourceSnapshotWhenQueueing(t *testing.T
 			if qty.Cmp(resource.MustParse("1")) != 0 {
 				t.Errorf("queued view uses %s GPU, but DRA processed 1", qty.String())
 			}
-			if got := infos[0].TotalRequests[0].Requests.ResourceValue("logical-gpu"); got != 1 {
-				t.Errorf("logical quota = %d, want 1", got)
+			if got := infos[0].TotalRequests[0].Requests.ResourceValue("logical-gpu"); got.CmpInt64(1) != 0 {
+				t.Errorf("logical quota = %s, want 1", got)
 			}
-			if got := infos[0].TotalRequests[0].Requests.ResourceValue(gpu); got != 0 {
-				t.Errorf("replaced extended resource quota = %d, want 0", got)
+			if got := infos[0].TotalRequests[0].Requests.ResourceValue(gpu); got.Sign() != 0 {
+				t.Errorf("replaced extended resource quota = %s, want 0", got)
 			}
 			if len(infos[0].Obj.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests) != 0 {
 				t.Fatal("raw Workload contains defaults")

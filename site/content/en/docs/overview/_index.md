@@ -36,6 +36,7 @@ A core design principle for Kueue is to avoid duplicating mature functionality i
 - **Multi-cluster job dispatching:** called [MultiKueue](/docs/concepts/multikueue/), allows to search for capacity and off-load the main cluster.
 - **Topology-Aware Scheduling**: Allows to optimize the pod-pod communication throughput by [scheduling aware of the data-center topology](/docs/concepts/topology_aware_scheduling/).
 - **Topology Spreading**: Allows to improve availability of serving workloads by [spreading separate workloads across failure domains](/docs/concepts/topology_aware_scheduling/#topology-spreading), limiting how many of them may occupy a single zone or rack.
+- **Dynamic Resource Allocation (DRA):** Quota management for devices such as GPUs requested through [DRA](/docs/concepts/dynamic_resource_allocation/), either with ResourceClaimTemplates or extended resources, including partitionable devices. Consumable capacity is available as an alpha feature.
 
 ## Job-integrated features
 

@@ -65,7 +65,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 func TestAdmittedNotReadyWorkload(t *testing.T) {
@@ -1783,7 +1783,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: new(util.MediumTimeout),
+						afterFinished: new(behavioral.MediumTimeout),
 					},
 				),
 			},
@@ -1798,7 +1798,7 @@ func TestReconcile(t *testing.T) {
 				Obj(),
 			wantError: nil,
 			wantResult: reconcile.Result{
-				RequeueAfter: util.MediumTimeout,
+				RequeueAfter: behavioral.MediumTimeout,
 			},
 		},
 		"shouldn't handle finished workload logic for orphaned workloads on error when FinishOrphanedWorkloads enabled": {
@@ -1810,7 +1810,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: new(util.MediumTimeout),
+						afterFinished: new(behavioral.MediumTimeout),
 					},
 				),
 			},
@@ -1854,7 +1854,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: new(util.MediumTimeout),
+						afterFinished: new(behavioral.MediumTimeout),
 					},
 				),
 			},
@@ -1867,7 +1867,7 @@ func TestReconcile(t *testing.T) {
 					Type:   kueue.WorkloadFinished,
 					Status: metav1.ConditionTrue,
 					LastTransitionTime: metav1.Time{
-						Time: now.Add(-2 * util.MediumTimeout),
+						Time: now.Add(-2 * behavioral.MediumTimeout),
 					},
 				}).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
@@ -1877,7 +1877,7 @@ func TestReconcile(t *testing.T) {
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: new(util.MediumTimeout),
+						afterFinished: new(behavioral.MediumTimeout),
 					},
 				),
 			},
@@ -1886,7 +1886,7 @@ func TestReconcile(t *testing.T) {
 					Type:   kueue.WorkloadFinished,
 					Status: metav1.ConditionTrue,
 					LastTransitionTime: metav1.Time{
-						Time: now.Add(-2 * util.MediumTimeout),
+						Time: now.Add(-2 * behavioral.MediumTimeout),
 					},
 				}).
 				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
@@ -1900,24 +1900,24 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
 					Status:             metav1.ConditionTrue,
-					LastTransitionTime: metav1.NewTime(now.Add(-util.Timeout)),
+					LastTransitionTime: metav1.NewTime(now.Add(-behavioral.Timeout)),
 				}).
 				Obj(),
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: new(util.MediumTimeout),
+						afterFinished: new(behavioral.MediumTimeout),
 					},
 				),
 			},
 			wantResult: reconcile.Result{
-				RequeueAfter: util.MediumTimeout - util.Timeout,
+				RequeueAfter: behavioral.MediumTimeout - behavioral.Timeout,
 			},
 			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
 					Status:             metav1.ConditionTrue,
-					LastTransitionTime: metav1.NewTime(now.Add(-util.Timeout)),
+					LastTransitionTime: metav1.NewTime(now.Add(-behavioral.Timeout)),
 				}).
 				Obj(),
 			wantError: nil,
@@ -1927,13 +1927,13 @@ func TestReconcile(t *testing.T) {
 				Condition(metav1.Condition{
 					Type:               kueue.WorkloadFinished,
 					Status:             metav1.ConditionTrue,
-					LastTransitionTime: metav1.NewTime(now.Add(-2 * util.MediumTimeout)),
+					LastTransitionTime: metav1.NewTime(now.Add(-2 * behavioral.MediumTimeout)),
 				}).
 				Obj(),
 			reconcilerOpts: []Option{
 				WithWorkloadRetention(
 					&workloadRetentionConfig{
-						afterFinished: new(util.MediumTimeout),
+						afterFinished: new(behavioral.MediumTimeout),
 					},
 				),
 			},
@@ -2957,9 +2957,9 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 									if tc.wantDRAResourceTotal != nil {
 										if len(wlInfo.TotalRequests) > 0 && wlInfo.TotalRequests[0].Requests != nil {
 											gpuVal := wlInfo.TotalRequests[0].Requests.ResourceValue("gpu")
-											if gpuVal > 0 {
-												if gpuVal != *tc.wantDRAResourceTotal {
-													t.Errorf("Expected gpu resource total to be %d, got %d", *tc.wantDRAResourceTotal, gpuVal)
+											if gpuVal.Sign() > 0 {
+												if gpuVal.CmpInt64(*tc.wantDRAResourceTotal) != 0 {
+													t.Errorf("Expected gpu resource total to be %d, got %s", *tc.wantDRAResourceTotal, gpuVal)
 												}
 											} else {
 												t.Errorf("Expected gpu resource in DRA workload TotalRequests, but not found")
@@ -2971,7 +2971,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 									for _, resName := range tc.wantAbsentDRAResources {
 										if len(wlInfo.TotalRequests) > 0 && wlInfo.TotalRequests[0].Requests != nil {
 											var found bool
-											wlInfo.TotalRequests[0].Requests.ForEach(func(name corev1.ResourceName, _ int64) {
+											wlInfo.TotalRequests[0].Requests.ForEach(func(name corev1.ResourceName, _ resources.Amount) {
 												if name == resName {
 													found = true
 												}

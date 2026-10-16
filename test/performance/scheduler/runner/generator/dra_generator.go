@@ -25,7 +25,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	testingdra "sigs.k8s.io/kueue/pkg/util/testingjobs/dra"
 	"sigs.k8s.io/kueue/test/performance/framework/controllers"
 )
@@ -58,7 +57,7 @@ func generateDRADevices(ctx context.Context, c client.Client, config DRAConfig) 
 	}
 
 	for _, node := range nodes.Items {
-		slice := utiltesting.MakeResourceSlice(node.Name+"-gpus", controllers.DRADriverName).
+		slice := testingdra.MakeResourceSlice(node.Name+"-gpus", controllers.DRADriverName).
 			NodeName(node.Name).
 			Pool(node.Name, 1, 1)
 		for i := range config.DevicesPerNode {

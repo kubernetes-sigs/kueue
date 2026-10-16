@@ -30,7 +30,7 @@ import (
 	jobcontrollers "sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
-	"sigs.k8s.io/kueue/test/util"
+	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
 var (
@@ -41,7 +41,7 @@ var (
 )
 
 func TestAPIs(t *testing.T) {
-	util.RunSuite(t, "Setup Controllers Suite")
+	behavioral.RunSuite(t, "Setup Controllers Suite")
 }
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {

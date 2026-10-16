@@ -17,12 +17,11 @@ limitations under the License.
 package core
 
 import (
-	"math"
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
+// WeightedShare rounds a share up to the int64 that FairSharingStatus reports,
+// math.MaxInt64 for +Inf and for any share above the int64 range.
 func WeightedShare(f float64) int64 {
-	if f == math.Inf(1) {
-		return math.MaxInt64
-	}
-	return int64(math.Ceil(f))
+	return utilmath.SaturatingCeil(f)
 }
