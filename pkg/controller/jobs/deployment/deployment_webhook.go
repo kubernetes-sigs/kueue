@@ -75,8 +75,15 @@ func (wh *Webhook) Default(ctx context.Context, obj *appsv1.Deployment) error {
 	if err := jobframework.ApplyDefaultLocalQueueWithManagedJobsNamespaceSelector(ctx, wh.client, deployment.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	if err := jobframework.ApplyDefaultWorkloadPriorityClassWithManagedJobsNamespaceSelector(ctx, wh.client, deployment.Object(), wh.managedJobsNamespaceSelector); err != nil {
+	oldDeploymentObj, err := webhook.OldObjectFromContext[appsv1.Deployment](ctx)
+	if err != nil {
 		return err
+	}
+	// ValidateUpdate rejects adding the label to a running Deployment that did not have it.
+	if oldDeploymentObj == nil || jobframework.CanSetWorkloadPriorityClassName(oldDeploymentObj.Status.ReadyReplicas == 0, oldDeploymentObj) {
+		if err := jobframework.ApplyDefaultWorkloadPriorityClassWithManagedJobsNamespaceSelector(ctx, wh.client, deployment.Object(), wh.managedJobsNamespaceSelector); err != nil {
+			return err
+		}
 	}
 	suspend, err := jobframework.WorkloadShouldBeSuspended(
 		ctx,
