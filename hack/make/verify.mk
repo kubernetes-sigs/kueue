@@ -240,10 +240,11 @@ mkdir -p $(ARTIFACTS)
 $(_skillsaw_cmd)
 endef
 
-# skillsaw has no quiet flag, so make verify prints its output only on failure.
+# skillsaw has no quiet flag, so make verify prints its output only on failure or warnings.
 define _skills_lint_verify_recipe
 mkdir -p $(ARTIFACTS)
-out=$$($(_skillsaw_cmd) 2>&1) || { printf '%s\n' "$$out"; exit 1; }
+out=$$($(_skillsaw_cmd) 2>&1) || { printf '%s\n' "$$out"; exit 1; }; \
+if printf '%s\n' "$$out" | grep -qE '^ +Warnings: +[1-9]'; then printf '%s\n' "$$out"; fi
 endef
 
 # ray-project-mini-image-build pip-installs ray==RAY_VERSION, but rayproject/ray also tags
