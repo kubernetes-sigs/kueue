@@ -14,15 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package baseline
+package deepintegration
 
 import (
 	"context"
 	"fmt"
 
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -146,7 +148,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.La
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 				g.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
 				g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeFalse())
-				expectQuotaReservedFailure(g, createdWorkload, "doesn't allow to fit")
+				expectQuotaReservedFailure(g, createdWorkload)
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
@@ -174,7 +176,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.La
 				g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 				g.Expect(createdWorkload.Status.Admission).Should(gomega.BeNil())
 				g.Expect(workload.HasQuotaReservation(createdWorkload)).Should(gomega.BeFalse())
-				expectQuotaReservedFailure(g, createdWorkload, "allows to fit only")
+				expectQuotaReservedFailure(g, createdWorkload)
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
@@ -321,19 +323,13 @@ func expectPodsScheduledAndRunning(ctx context.Context, k8sClient client.Client,
 	}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 }
 
-func expectQuotaReservedFailure(g gomega.Gomega, wl *kueue.Workload, tasMessageSubstring string) {
-	g.Expect(wl.Status.Conditions).To(gomega.ContainElement(gomega.Or(
-		gomega.And(
-			gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
-			gomega.HaveField("Status", metav1.ConditionFalse),
-			gomega.HaveField("Reason", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
-			gomega.HaveField("Message", gomega.ContainSubstring(tasMessageSubstring)),
-		),
-		gomega.And(
-			gomega.HaveField("Type", kueue.WorkloadQuotaReserved),
-			gomega.HaveField("Status", metav1.ConditionFalse),
-			gomega.HaveField("Reason", workloadQuotaReservedReasonSimulationFailed),
-			gomega.HaveField("Message", gomega.ContainSubstring("Insufficient")),
-		),
-	)))
+func expectQuotaReservedFailure(g gomega.Gomega, wl *kueue.Workload) {
+	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+	g.Expect(cond).ShouldNot(gomega.BeNil())
+	g.Expect(cond).Should(gomega.BeComparableTo(&metav1.Condition{
+		Type:   kueue.WorkloadQuotaReserved,
+		Status: metav1.ConditionFalse,
+		Reason: workloadQuotaReservedReasonSimulationFailed,
+	}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message", "ObservedGeneration")))
+	g.Expect(cond.Message).Should(gomega.ContainSubstring("Insufficient"))
 }
