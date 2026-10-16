@@ -47,9 +47,11 @@ var (
 
 func TestDefault(t *testing.T) {
 	testCases := map[string]struct {
-		deployment     *appsv1.Deployment
-		defaultLqExist bool
-		want           *appsv1.Deployment
+		oldDeployment   *appsv1.Deployment
+		deployment      *appsv1.Deployment
+		defaultLqExist  bool
+		defaultWPCExist bool
+		want            *appsv1.Deployment
 	}{
 		"deployment without queue": {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").Obj(),
@@ -108,6 +110,45 @@ func TestDefault(t *testing.T) {
 			want: testingdeployment.MakeDeployment("test-pod", "").
 				Obj(),
 		},
+		"create sets the default WorkloadPriorityClass": {
+			defaultWPCExist: true,
+			deployment:      testingdeployment.MakeDeployment("test-pod", "").Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
+				Obj(),
+		},
+		"update of a not ready deployment sets the default WorkloadPriorityClass": {
+			defaultWPCExist: true,
+			oldDeployment:   testingdeployment.MakeDeployment("test-pod", "").Obj(),
+			deployment:      testingdeployment.MakeDeployment("test-pod", "").Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
+				Obj(),
+		},
+		"update of a ready deployment without the priority class label does not set the default WorkloadPriorityClass": {
+			defaultWPCExist: true,
+			oldDeployment:   testingdeployment.MakeDeployment("test-pod", "").ReadyReplicas(1).Obj(),
+			deployment:      testingdeployment.MakeDeployment("test-pod", "").ReadyReplicas(1).Obj(),
+			want:            testingdeployment.MakeDeployment("test-pod", "").ReadyReplicas(1).Obj(),
+		},
+		"update that marks a ready deployment as not ready does not set the default WorkloadPriorityClass": {
+			defaultWPCExist: true,
+			oldDeployment:   testingdeployment.MakeDeployment("test-pod", "").ReadyReplicas(1).Obj(),
+			deployment:      testingdeployment.MakeDeployment("test-pod", "").Obj(),
+			want:            testingdeployment.MakeDeployment("test-pod", "").Obj(),
+		},
+		"update of a ready deployment that drops the priority class label sets the default WorkloadPriorityClass": {
+			defaultWPCExist: true,
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
+				ReadyReplicas(1).
+				Obj(),
+			deployment: testingdeployment.MakeDeployment("test-pod", "").ReadyReplicas(1).Obj(),
+			want: testingdeployment.MakeDeployment("test-pod", "").
+				Label(constants.WorkloadPriorityClassLabel, constants.DefaultWorkloadPriorityClassName).
+				ReadyReplicas(1).
+				Obj(),
+		},
 		"deployment with queue and priority class": {
 			deployment: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue").
@@ -152,9 +193,16 @@ func TestDefault(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.WorkloadPriorityClassDefaulting, true)
 			ctx, _ := utiltesting.ContextWithLog(t)
+			if tc.oldDeployment != nil {
+				ctx = utiltesting.ContextWithUpdateRequest(ctx, t, tc.oldDeployment)
+			}
 			t.Cleanup(jobframework.EnableIntegrationsForTest(t, "pod"))
 			builder := utiltesting.NewClientBuilder()
+			if tc.defaultWPCExist {
+				builder = builder.WithObjects(utiltestingapi.MakeWorkloadPriorityClass(constants.DefaultWorkloadPriorityClassName).PriorityValue(100).Obj())
+			}
 			client := builder.Build()
 			cqCache := schdcache.New(client)
 			queueManager := qcache.NewManagerForUnitTests(client, cqCache)

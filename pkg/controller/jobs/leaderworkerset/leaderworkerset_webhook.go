@@ -83,8 +83,15 @@ func (wh *Webhook) Default(ctx context.Context, obj *leaderworkersetv1.LeaderWor
 	if err := jobframework.ApplyDefaultLocalQueueWithManagedJobsNamespaceSelector(ctx, wh.client, obj, wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	if err := jobframework.ApplyDefaultWorkloadPriorityClassWithManagedJobsNamespaceSelector(ctx, wh.client, obj, wh.managedJobsNamespaceSelector); err != nil {
+	oldLWSObj, err := webhook.OldObjectFromContext[leaderworkersetv1.LeaderWorkerSet](ctx)
+	if err != nil {
 		return err
+	}
+	// ValidateUpdate rejects adding the label to a running LeaderWorkerSet that did not have it.
+	if oldLWSObj == nil || jobframework.CanSetWorkloadPriorityClassName(oldLWSObj.Status.ReadyReplicas == 0, oldLWSObj) {
+		if err := jobframework.ApplyDefaultWorkloadPriorityClassWithManagedJobsNamespaceSelector(ctx, wh.client, obj, wh.managedJobsNamespaceSelector); err != nil {
+			return err
+		}
 	}
 	suspend, err := jobframework.WorkloadShouldBeSuspended(
 		ctx,
