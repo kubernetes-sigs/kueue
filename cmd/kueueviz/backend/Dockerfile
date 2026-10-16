@@ -22,7 +22,7 @@ USER 65532:65532
 COPY --from=builder /kueueviz /
 
 # Set environment variables
-ENV PORT=8080
+ENV KUEUEVIZ_PORT=8080
 # Expose the application port
 EXPOSE 8080
 
