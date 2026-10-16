@@ -425,8 +425,7 @@ Requested functionalities from the community can be satisfied with the following
                comparison: "LessThan"
              priorityClassSelector:
                matchExpressions:
-                 - property: "Name"
-                   operator: In
+                 - operator: In
                    values:
                      - "batch-low"
                      - "dev-preemptible"
@@ -446,8 +445,7 @@ Requested functionalities from the community can be satisfied with the following
              quota: "BorrowingCapacityFromPreemptor"
              priorityClassSelector:
                matchExpressions:
-                 - property: "Name"
-                   operator: In
+                 - operator: In
                    values:
                      - "batch-low"
    ```
@@ -631,7 +629,8 @@ type PreemptionConfigPreemptionRule struct {
   PreemptorSelector *metav1.LabelSelector `json:"preemptorSelector,omitempty"`
 
   // preemptorPriorityClassSelector filters which preempting workloads can activate this rule
-  // based on their priority class (spec.priorityClassRef).
+  // based on their priority class name (spec.priorityClassRef.name).
+  // When set alongside preemptorSelector, a preempting workload must satisfy both selectors (logical AND).
   // If omitted or empty, workloads of any priority class can trigger this rule.
   //
   // +optional
@@ -731,6 +730,7 @@ const (
 
 
 // PreemptionConfigPreemptionCandidateSelector defines the selection criteria for workloads that are candidates for preemption.
+// All specified criteria within a candidate selector are combined using logical AND (a candidate workload must satisfy all set fields).
 type PreemptionConfigPreemptionCandidateSelector struct {
   // scope specifies the queue or cohort relation boundary of candidates to the preemptor workload.
   //
@@ -764,8 +764,8 @@ type PreemptionConfigPreemptionCandidateSelector struct {
   // +optional
   Priority *PreemptionConfigPriorityConstraint `json:"priority,omitempty"`
 
-  // priorityClassSelector filters candidate workloads by their priority class
-  // (matched against spec.priorityClassRef).
+  // priorityClassSelector filters candidate workloads by their priority class name
+  // (matched against spec.priorityClassRef.name).
   // Accepts all if not set.
   //
   // +optional
@@ -846,75 +846,59 @@ const (
 type PreemptionConfigPriorityConstraint struct {
   // mode specifies whether priority comparison uses base or boosted (effective) priority.
   //
-  // +required
-  Mode PreemptionConfigPriorityMode `json:"mode,omitempty"`
+  // +kubebuilder:validation:Required
+  Mode PreemptionConfigPriorityMode `json:"mode"`
 
   // comparison defines how the candidate's priority compares to the preemptor's priority.
   // For example, "LessThan" means that only workloads with lower
   // priority will be allowed as preemption candidates.
   //
-  // +required
-  Comparison NumericComparison `json:"comparison,omitempty"`
+  // +kubebuilder:validation:Required
+  Comparison NumericComparison `json:"comparison"`
 }
 
-// PreemptionConfigPriorityClassSelector filters workloads by their priority class
-// (matched against the Workload's spec.priorityClassRef, which is populated by Kueue
+// PreemptionConfigPriorityClassSelector filters workloads by their priority class name
+// (matched against the Workload's spec.priorityClassRef.name, which is populated by Kueue
 // for both WorkloadPriorityClass and Pod PriorityClass).
+// When WorkloadPriorityClassDefaulting is enabled and a "default" WorkloadPriorityClass exists,
+// or when a globalDefault Pod PriorityClass is configured, its name (e.g., "default") can be used
+// to match or exclude workloads that do not explicitly specify a priority class.
 type PreemptionConfigPriorityClassSelector struct {
   // matchExpressions is a list of priority class selector requirements. The requirements are ANDed.
-  // If omitted, no priority class restrictions are enforced.
+  // If omitted, no priority class name restrictions are enforced.
   // When set, matchExpressions must contain at least one requirement.
   //
   // +optional
   // +listType=atomic
   // +kubebuilder:validation:MinItems=1
-  // +kubebuilder:validation:MaxItems=32
+  // +kubebuilder:validation:MaxItems=16
   MatchExpressions []PriorityClassSelectorRequirement `json:"matchExpressions,omitempty"`
 }
 
-// PriorityClassSelectorRequirement is a selector that contains a property, an operator,
-// and values that the operator relates to the selected property.
+// PriorityClassSelectorRequirement is a selector that contains values and an operator
+// that relates the priority class name (Workload.spec.priorityClassRef.name) to the set of values.
 type PriorityClassSelectorRequirement struct {
-  // property specifies the property of the priority class reference that the selector requirement matches against.
-  // Defaults to "Name" (matching Workload.spec.priorityClassRef.name).
-  //
-  // +optional
-  // +kubebuilder:default="Name"
-  Property *PriorityClassSelectorProperty `json:"property,omitempty"`
-
-  // operator represents the selected property's relationship to a set of values.
+  // operator represents a priority class name's relationship to a set of values.
   // Valid operators are In and NotIn.
   //
   // +required
   Operator PriorityClassSelectorOperator `json:"operator,omitempty"`
 
-  // values is an array of values for the selected property.
-  // For In, a workload matches only if the selected priority class property equals any value in this list
+  // values is an array of priority class names (matched against Workload.spec.priorityClassRef.name).
+  // For In, a workload matches only if its spec.priorityClassRef.name equals any value in this list
   // (workloads without a priorityClassRef do not match).
-  // For NotIn, a workload matches only if the selected priority class property does not equal any value
+  // For NotIn, a workload matches only if its spec.priorityClassRef.name does not equal any value
   // in this list (workloads without a priorityClassRef always match).
   //
   // +required
   // +listType=set
   // +kubebuilder:validation:MinItems=1
-  // +kubebuilder:validation:MaxItems=32
+  // +kubebuilder:validation:MaxItems=16
   // +kubebuilder:validation:items:MinLength=1
   // +kubebuilder:validation:items:MaxLength=253
   // +kubebuilder:validation:items:Pattern="^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$"
   Values []string `json:"values,omitempty"`
 }
-
-// PriorityClassSelectorProperty defines the property of a PriorityClassSelectorRequirement.
-// +kubebuilder:validation:Enum=Name
-type PriorityClassSelectorProperty string
-
-const (
-  // PriorityClassSelectorPropertyName matches the priority class name (Workload.spec.priorityClassRef.name).
-  // When WorkloadPriorityClassDefaulting is enabled and a "default" WorkloadPriorityClass exists,
-  // or when a globalDefault Pod PriorityClass is configured, its name (e.g., "default") can be used
-  // to match or exclude workloads that do not explicitly specify a priority class.
-  PriorityClassSelectorPropertyName PriorityClassSelectorProperty = "Name"
-)
 
 // PriorityClassSelectorOperator is the set of operators that can be used in a PriorityClassSelectorRequirement.
 // +kubebuilder:validation:Enum=In;NotIn
@@ -1160,7 +1144,7 @@ Why should this KEP _not_ be implemented?
 
 ### Priority Class Selectors
 
-Instead of matching `Workload.spec.priorityClassRef` directly via `PreemptionConfigPriorityClassSelector` (`matchExpressions` with `property`, `operator`, and `values`) as a sibling field to `priority`, the following alternatives were considered for filtering workloads by priority tier:
+Instead of matching `Workload.spec.priorityClassRef.name` directly via `PreemptionConfigPriorityClassSelector` (`matchExpressions` with `In` and `NotIn` operators) as a sibling field to `priority`, the following alternatives were considered for filtering workloads by priority tier:
 
 1. **Workload `labelSelector` (Alpha Workaround)**:
    Filtering candidates via `labelSelector` matching `kueue.x-k8s.io/priority-class`.
