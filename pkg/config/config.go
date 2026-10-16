@@ -33,7 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -49,7 +49,7 @@ var ErrWebhookTLSParse = errors.New("unable to parse TLS options for webhook ser
 
 var (
 	objectKeySecret         = new(corev1.Secret)
-	objectKeyClusterProfile = new(inventoryv1alpha1.ClusterProfile)
+	objectKeyClusterProfile = new(inventoryv1alpha2.ClusterProfile)
 )
 
 // fromFile provides an alternative to the deprecated ctrl.ConfigFile().AtPath(path).OfKind(&cfg)

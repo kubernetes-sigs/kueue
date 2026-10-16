@@ -35,7 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -892,8 +892,8 @@ var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:mul
 		var (
 			mkc1 *kueue.MultiKueueCluster
 			mkc2 *kueue.MultiKueueCluster
-			cp1  *inventoryv1alpha1.ClusterProfile
-			cp2  *inventoryv1alpha1.ClusterProfile
+			cp1  *inventoryv1alpha2.ClusterProfile
+			cp2  *inventoryv1alpha2.ClusterProfile
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -1223,7 +1223,7 @@ var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:mul
 	ginkgo.When("Feature gate disabled", ginkgo.Ordered, func() {
 		var (
 			mkc *kueue.MultiKueueCluster
-			cp  *inventoryv1alpha1.ClusterProfile
+			cp  *inventoryv1alpha2.ClusterProfile
 		)
 
 		ginkgo.BeforeEach(func() {

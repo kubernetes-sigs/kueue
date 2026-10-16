@@ -207,7 +207,7 @@ one per cluster (including the manager itself).
 
 For example:
 ```yaml
-apiVersion: multicluster.x-k8s.io/v1alpha1
+apiVersion: multicluster.x-k8s.io/v1alpha2
 kind: ClusterProfile
 metadata:
   labels:
@@ -256,7 +256,7 @@ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/cluster-inven
 
 Next, the `ClusterProfile` objects can be created:
 ```yaml
-apiVersion: multicluster.x-k8s.io/v1alpha1
+apiVersion: multicluster.x-k8s.io/v1alpha2
 kind: ClusterProfile
 metadata:
   name: worker1-cluster
@@ -285,7 +285,7 @@ The access provider defined in `ClusterProfile` depends upon an executable plugi
 Kueue controller manager pods running within the MultiKueue manager cluster.
 It's the responsibility of the Kueue administrator to make sure that the required command is available.
 
-An example plugin can be found [here](https://github.com/kubernetes-sigs/cluster-inventory-api/tree/v0.1.3/plugins/secretreader) (secret reader) or [here](https://cloud.google.com/blog/products/containers-kubernetes/kubectl-auth-changes-in-gke) (Google Cloud Platform).
+An example plugin can be found [here](https://github.com/kubernetes-sigs/cluster-inventory-api/tree/v0.2.0/plugins/secretreader) (secret reader) or [here](https://cloud.google.com/blog/products/containers-kubernetes/kubectl-auth-changes-in-gke) (Google Cloud Platform).
 
 #### Mount the executable with `initContainers`
 
