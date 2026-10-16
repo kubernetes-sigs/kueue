@@ -233,9 +233,17 @@ $(PROJECT_DIR)/hack/testing/rbac/verify_manifests.sh
 endef
 
 # Validates skills against https://agentskills.io/specification
+_skillsaw_cmd = $(CONTAINER_ENGINE) run --rm --user "$(shell id -u):$(shell id -g)" $(CONTAINER_SECURITY_OPTS) -v $(PROJECT_DIR):/workspace$(VOLUME_FLAGS) -v $(ARTIFACTS):/out$(VOLUME_FLAGS) $(SKILLSAW_IMAGE) --output /out/skillsaw-summary.html
+
 define _skills_lint_recipe
 mkdir -p $(ARTIFACTS)
-$(CONTAINER_ENGINE) run --rm --user "$(shell id -u):$(shell id -g)" $(CONTAINER_SECURITY_OPTS) -v $(PROJECT_DIR):/workspace$(VOLUME_FLAGS) -v $(ARTIFACTS):/out$(VOLUME_FLAGS) $(SKILLSAW_IMAGE) --output /out/skillsaw-summary.html
+$(_skillsaw_cmd)
+endef
+
+# skillsaw has no quiet flag, so make verify prints its output only on failure.
+define _skills_lint_verify_recipe
+mkdir -p $(ARTIFACTS)
+out=$$($(_skillsaw_cmd) 2>&1) || { printf '%s\n' "$$out"; exit 1; }
 endef
 
 # ray-project-mini-image-build pip-installs ray==RAY_VERSION, but rayproject/ray also tags
@@ -327,7 +335,7 @@ verify-rbac: verify-tree-prereqs ## Verify RBAC subject and roleRef relationship
 
 .PHONY: verify-skills-lint
 verify-skills-lint: ## Lint agent skills with skillsaw
-	$(_skills_lint_recipe)
+	$(_skills_lint_verify_recipe)
 
 .PHONY: verify-ray-version
 verify-ray-version: export RAY_VERSION := $(RAY_VERSION)
