@@ -566,7 +566,10 @@ func (c *clusterQueue) reportCohortSubtreeAdmittedActiveWorkloads() {
 
 func (c *clusterQueue) reportAdmittedActiveWorkloads(wlRef workload.Reference, wl *kueue.Workload, incr int) {
 	metrics.ReportAdmittedActiveWorkloads(c.Name, incr, c.getLabelValuesFor(wlRef), c.roleTracker)
+	c.reportLocalQueueAdmittedActiveWorkloads(wlRef, wl, incr)
+}
 
+func (c *clusterQueue) reportLocalQueueAdmittedActiveWorkloads(wlRef workload.Reference, wl *kueue.Workload, incr int) {
 	qKey := queue.KeyFromWorkload(wl)
 	if lq, ok := c.localQueues[qKey]; ok && lq.shouldExposeMetrics(c.lqMetrics) {
 		lqRef := metrics.LocalQueueReference{Name: wl.Spec.QueueName, Namespace: wl.Namespace}
@@ -574,10 +577,31 @@ func (c *clusterQueue) reportAdmittedActiveWorkloads(wlRef workload.Reference, w
 	}
 }
 
+// resyncAdmittedActiveWorkloads re-reports only the ClusterQueue series; the
+// LocalQueue series are rebuilt by resyncLocalQueueAdmittedActiveWorkloads.
 func (c *clusterQueue) resyncAdmittedActiveWorkloads() {
 	for wlRef, wl := range c.Workloads {
 		if workload.IsActive(wl.Obj) && workload.IsAdmitted(wl.Obj) {
-			c.reportAdmittedActiveWorkloads(wlRef, wl.Obj, 1)
+			metrics.ReportAdmittedActiveWorkloads(c.Name, 1, c.getLabelValuesFor(wlRef), c.roleTracker)
+		}
+	}
+}
+
+// resyncLocalQueueAdmittedActiveWorkloads rebuilds the series of the
+// LocalQueues in lqKeys in one pass over the workloads. The rebuild adds one per
+// workload, so it clears the series first: they can still hold values, for
+// example after a ClusterQueue custom label change.
+func (c *clusterQueue) resyncLocalQueueAdmittedActiveWorkloads(lqKeys sets.Set[queue.LocalQueueReference]) {
+	if !c.lqMetrics.IsEnabled() {
+		return
+	}
+	for lqKey := range lqKeys {
+		namespace, lqName := queue.MustParseLocalQueueReference(lqKey)
+		metrics.ClearLocalQueueAdmittedActiveWorkloadsSeries(metrics.LocalQueueReference{Name: lqName, Namespace: namespace})
+	}
+	for wlRef, wl := range c.Workloads {
+		if lqKeys.Has(queue.KeyFromWorkload(wl.Obj)) && workload.IsActive(wl.Obj) && workload.IsAdmitted(wl.Obj) {
+			c.reportLocalQueueAdmittedActiveWorkloads(wlRef, wl.Obj, 1)
 		}
 	}
 }
