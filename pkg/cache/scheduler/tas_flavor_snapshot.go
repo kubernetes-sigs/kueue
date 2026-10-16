@@ -1024,20 +1024,16 @@ func (s *TASFlavorSnapshot) BuildTopologyAssignmentsForPodSet(
 	return result
 }
 
-func (s *TASFlavorSnapshot) getLevelRange() (low, high int) {
+func (s *TASFlavorSnapshot) getLevelRange() (int, int) {
 	levelsTotal := len(s.levelKeys)
 	switch {
 	case s.virtualHostname:
-		low = 0
-		high = levelsTotal - 1
+		return 0, levelsTotal - 1
 	case s.declaresHostnameLevel():
-		low = levelsTotal - 1
-		high = levelsTotal
+		return levelsTotal - 1, levelsTotal
 	default:
-		low = 0
-		high = levelsTotal
+		return 0, levelsTotal
 	}
-	return
 }
 
 func shouldKeepExistingAssignment(wl *kueue.Workload, psa *kueue.PodSetAssignment) bool {
