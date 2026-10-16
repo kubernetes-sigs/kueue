@@ -27,33 +27,33 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 )
 
-// placementBreakdown represents the spread of Pods on Nodes grouped by PodSet.
-type placementBreakdown map[kueue.PodSetReference]podsPerNode
+// podSetPlacementSummary represents the spread of Pods on Nodes grouped by PodSet.
+type podSetPlacementSummary map[kueue.PodSetReference]podsPerNode
 
-// podsPerNode represents the count of Pods assignet to each recorded Node.
+// podsPerNode represents the count of Pods assigned to each recorded Node.
 type podsPerNode map[types.NodeName]int32
 
-// failuresBreakdown maps PodSets to a list of errors and failures
+// podSetFailureSummary maps PodSets to a list of errors and failures
 // reported by Pods when trying to schedule.
-type failuresBreakdown map[kueue.PodSetReference]*failureSummary
+type podSetFailureSummary map[kueue.PodSetReference]*failureSummary
 
 type failureSummary struct {
 	errs    []error
 	reasons []string
 }
 
-func (pb placementBreakdown) countPodPlacement(psRef kueue.PodSetReference, node types.NodeName) {
-	if pb[psRef] == nil {
-		pb[psRef] = make(podsPerNode)
+func (s podSetPlacementSummary) countPodPlacement(psRef kueue.PodSetReference, node types.NodeName) {
+	if s[psRef] == nil {
+		s[psRef] = make(podsPerNode)
 	}
-	pb[psRef][node]++
+	s[psRef][node]++
 }
 
-func (fb failuresBreakdown) add(psRef kueue.PodSetReference, pod client.ObjectKey, err error, reasons []string) {
-	if _, ok := fb[psRef]; !ok {
-		fb[psRef] = &failureSummary{}
+func (s podSetFailureSummary) add(psRef kueue.PodSetReference, pod client.ObjectKey, err error, reasons []string) {
+	if _, ok := s[psRef]; !ok {
+		s[psRef] = &failureSummary{}
 	}
-	fb[psRef].record(pod, err, reasons)
+	s[psRef].record(pod, err, reasons)
 }
 
 func (fs *failureSummary) record(pod client.ObjectKey, err error, reasons []string) {

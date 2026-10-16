@@ -80,7 +80,7 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		return
 	}
 
-	placementBreakdown, failures := groupByPodSet(pods, schedulingResult.PodPlacements)
+	placementSummary, failures := groupByPodSet(pods, schedulingResult.PodPlacements)
 
 	// Record the scheduling failures of Pods that failed to secure any Placement.
 	for psRef, summary := range failures {
@@ -99,7 +99,7 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 	// Process topology assignments for PodSets with successfully calculated allotments.
 	log := ctrl.LoggerFrom(ctx)
 	tasRequests := plan.Assignment.WorkloadsTopologyRequests(log, p.wl, cq)
-	tasAssignment := p.calculateTopologyAssignment(ctx, tasRequests, placementBreakdown)
+	tasAssignment := p.calculateTopologyAssignment(ctx, tasRequests, placementSummary)
 
 	// Record topology assignments failures.
 	tasFails := tasAssignment.Failures()
@@ -132,9 +132,9 @@ func setNoFit(a *flavorassigner.Assignment, reason string) {
 func groupByPodSet(
 	pods []*corev1.Pod,
 	placements simulator.PodPlacements,
-) (breakdown placementBreakdown, failures failuresBreakdown) {
-	breakdown = make(placementBreakdown)
-	failures = make(failuresBreakdown)
+) (podSetPlacementSummary, podSetFailureSummary) {
+	placementSummary := make(podSetPlacementSummary)
+	failureSummary := make(podSetFailureSummary)
 	podsByKey := map[client.ObjectKey]*corev1.Pod{}
 	for _, pod := range pods {
 		podsByKey[client.ObjectKeyFromObject(pod)] = pod
@@ -143,29 +143,29 @@ func groupByPodSet(
 		pod := podsByKey[podRef]
 		psRef := kueue.PodSetReference(pod.Labels[constants.PodSetLabel])
 		if placement.IsSuccess() {
-			breakdown.countPodPlacement(psRef, placement.Node)
+			placementSummary.countPodPlacement(psRef, placement.Node)
 		} else {
-			failures.add(psRef, podRef, placement.Error, placement.Reasons)
+			failureSummary.add(psRef, podRef, placement.Error, placement.Reasons)
 		}
 	}
-	if len(failures) > 0 {
-		breakdown = nil
+	if len(failureSummary) > 0 {
+		placementSummary = nil
 	}
-	return breakdown, failures
+	return placementSummary, failureSummary
 }
 
 func (p *wasPlanner) calculateTopologyAssignment(
 	ctx context.Context,
 	tasRequests schedcache.WorkloadTASRequests,
-	placementBreakdown placementBreakdown,
+	placementSummary podSetPlacementSummary,
 ) schedcache.TASAssignmentsResult {
 	cq := p.snapshot.ClusterQueue(p.wl.ClusterQueue)
-	tasAssignment := make(schedcache.TASAssignmentsResult, len(placementBreakdown))
+	tasAssignment := make(schedcache.TASAssignmentsResult, len(placementSummary))
 	for flavor, requests := range tasRequests {
 		tasFlavorCache := cq.TASFlavors[flavor]
 		for _, psRequests := range requests {
 			psRef := psRequests.PodSet.Name
-			if podsPerNode, psRequested := placementBreakdown[psRef]; psRequested {
+			if podsPerNode, psRequested := placementSummary[psRef]; psRequested {
 				tasAssignment[psRef] = *tasFlavorCache.BuildTopologyAssignmentsForPodSet(
 					ctx,
 					psRequests.PodSet,
