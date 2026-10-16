@@ -20,7 +20,7 @@ vi.mock('./useWebSocket', () => ({
   default: vi.fn(),
 }));
 
-import { PREEMPTOR_UID_PATTERN } from './Dashboard';
+import { PREEMPTOR_UID_PATTERN, splitPreemptionMessage } from './Dashboard';
 
 describe('PREEMPTOR_UID_PATTERN', () => {
   it('extracts the preemptor workload UID from a Kueue eviction message', () => {
@@ -38,5 +38,30 @@ describe('PREEMPTOR_UID_PATTERN', () => {
 
   it('does not match the JobUID', () => {
     expect('(JobUID: 5e6f-7a8b)'.split(PREEMPTOR_UID_PATTERN)).toEqual(['(JobUID: 5e6f-7a8b)']);
+  });
+});
+
+describe('splitPreemptionMessage', () => {
+  const message = 'Evicted: Preempted to accommodate a workload (UID: 1a2b-3c4d, JobUID: 5e6f-7a8b) due to prioritization';
+
+  it('links the preemptor UID when the workload is known', () => {
+    expect(splitPreemptionMessage(message, { '1a2b-3c4d': 'ns-1/wl-1' })).toEqual([
+      { text: 'Evicted: Preempted to accommodate a workload ' },
+      { text: '(UID: 1a2b-3c4d', to: '/workload/ns-1/wl-1' },
+      { text: ', JobUID: 5e6f-7a8b) due to prioritization' },
+    ]);
+  });
+
+  it('keeps the full message text when the preemptor is not known', () => {
+    const segments = splitPreemptionMessage(message, {});
+
+    expect(segments.map((segment) => segment.text).join('')).toBe(message);
+    expect(segments.some((segment) => segment.to)).toBe(false);
+  });
+
+  it('returns the message unchanged when it has no preemptor UID', () => {
+    expect(splitPreemptionMessage('Evicted: InactiveWorkload', {})).toEqual([
+      { text: 'Evicted: InactiveWorkload' },
+    ]);
   });
 });
