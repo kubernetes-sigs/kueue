@@ -27,6 +27,7 @@ tags, build the mdtoc tool with `make mdtoc` and then generate the TOC with `hac
     - [Story 2 - Protecting a workload from too many disruptions](#story-2---protecting-a-workload-from-too-many-disruptions)
     - [Story 3 - Global Preemption Rate Limiting](#story-3---global-preemption-rate-limiting)
     - [Story 4 - Protecting a Mission-Critical ClusterQueue from Preemption](#story-4---protecting-a-mission-critical-clusterqueue-from-preemption)
+    - [Story 5 - Fair Preemption Budget per Tenant in a Shared Cohort](#story-5---fair-preemption-budget-per-tenant-in-a-shared-cohort)
   - [Caveats](#caveats)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Performance degradation](#performance-degradation)
@@ -174,6 +175,27 @@ spec:
     matchLabels:
       example.com/cluster-queue-name: "hero-cq"
   limit: 0
+  limitWindowSeconds: 3600
+```
+
+> [!WARNING]
+> In Alpha, this will protect only from preemptions originating from configurable preemptions.
+
+#### Story 5 - Fair Preemption Budget per Tenant in a Shared Cohort
+
+In a multi-tenant cluster where multiple department ClusterQueues share resources in a common Cohort, higher-priority workloads are permitted to reclaim or borrow capacity by preempting other teams' running workloads. Without rate limiting, a single aggressive tenant could flood the cohort with high-priority jobs, triggering dozens of preemptions in a sudden burst and monopolizing the cohort's preemption capacity.
+
+By defining a `PreemptionLimit` under the `PreemptorClusterQueue` scope with `preemptorClusterQueueSelector`, Kueue enforces an independent sliding-window rate limit per preempting ClusterQueue for standard tenant queues, while exempting mission-critical queues from this limit. Each standard tenant queue is allocated an independent budget (e.g. at most 10 preemptions per hour), preventing any single tenant from dominating preemption bandwidth across the shared cohort.
+
+```yaml
+spec:
+  scope: "PreemptorClusterQueue"
+  preemptorClusterQueueSelector:
+    matchExpressions:
+      - key: example.com/tier
+        operator: NotIn
+        values: ["mission-critical"]
+  limit: 10
   limitWindowSeconds: 3600
 ```
 
