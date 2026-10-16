@@ -327,11 +327,6 @@ EOF
 # $3 - local branch
 # $4 - pr name
 function push_and_create_pr() {
-  if [[ -n "${DRY_RUN}" ]]; then
-    echo "!!! Skipping git push and PR creation because you set DRY_RUN."
-    return
-  fi
-
   echo
   echo "+++ I'm about to do the following to push to GitHub (and I'm assuming ${FORK_REMOTE} is your personal fork):"
   echo
@@ -367,6 +362,8 @@ if [[ "$TARGET" == "all" || "$TARGET" == "release" ]]; then
         echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
       }
     fi
+  else
+    echo "!!! Skipping git push, PR creation and issue update because you set DRY_RUN."
   fi
 fi
 
@@ -389,5 +386,7 @@ if [[ "$TARGET" == "all" || "$TARGET" == "main" ]]; then
         echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
       }
     fi
+  else
+    echo "!!! Skipping git push, PR creation and issue update because you set DRY_RUN."
   fi
 fi
