@@ -51,6 +51,7 @@ type SetupControllersOpts struct {
 	DRABackedResources        *dra.ExtendedResourceCache
 	ResourceFormatter         *resources.ResourceFormatter
 	ResourceSliceAPIAvailable bool
+	ClusterProfileCRDPresent  bool
 }
 
 // SetupControllers sets up the core controllers. It returns the name of the

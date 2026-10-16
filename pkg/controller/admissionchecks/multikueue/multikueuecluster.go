@@ -820,6 +820,11 @@ type clustersReconciler struct {
 
 	clusterProfileAccessProvider clusterProfileAccessProvider
 
+	// clusterProfileCRDPresent indicates the ClusterProfile CRD is installed.
+	// The ClusterProfile watch is only registered when both the feature gate is
+	// enabled and the CRD exists.
+	clusterProfileCRDPresent bool
+
 	logName     string
 	roleTracker *roletracker.RoleTracker
 
@@ -1255,6 +1260,7 @@ func newClustersReconciler(
 	roleTracker *roletracker.RoleTracker,
 	recorder events.EventRecorder,
 	clientConnection *configapi.ClientConnection,
+	clusterProfileCRDPresent bool,
 ) *clustersReconciler {
 	return &clustersReconciler{
 		localClient:                  c,
@@ -1270,6 +1276,7 @@ func newClustersReconciler(
 		fsWatcher:                    fsWatcher,
 		adapters:                     adapters,
 		clusterProfileAccessProvider: cpAccessProvider,
+		clusterProfileCRDPresent:     clusterProfileCRDPresent,
 		logName:                      "multikueuecluster-reconciler",
 		roleTracker:                  roleTracker,
 		clientConnection:             clientConnection,
@@ -1313,7 +1320,7 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "multikueue-cluster"),
 		})
-	if features.Enabled(features.MultiKueueClusterProfile) {
+	if c.shouldWatchClusterProfiles() {
 		systemNamespacePredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
 			return obj.GetNamespace() == c.configNamespace
 		})
@@ -1323,6 +1330,15 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 	}
 
 	return controllerBuilder.Complete(c)
+}
+
+// shouldWatchClusterProfiles reports whether the ClusterProfile watch should be
+// registered. Registering the watch without the CRD installed (and therefore
+// without a configured cache entry) makes cache sync fail and the manager exit,
+// which would break kubeconfig-based MultiKueue on clusters lacking the
+// optional CRD.
+func (c *clustersReconciler) shouldWatchClusterProfiles() bool {
+	return features.Enabled(features.MultiKueueClusterProfile) && c.clusterProfileCRDPresent
 }
 
 func (c *clustersReconciler) Generic(e event.GenericEvent) bool {
