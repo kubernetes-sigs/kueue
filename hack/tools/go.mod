@@ -516,7 +516,7 @@ require (
 	k8s.io/kube-controller-manager v0.34.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // indirect
 	k8s.io/kube-proxy v0.34.1 // indirect
-	k8s.io/kube-scheduler v0.34.1 // indirect
+	k8s.io/kube-scheduler v0.34.12 // indirect
 	k8s.io/kubectl v0.37.1 // indirect
 	k8s.io/kubelet v0.37.0 // indirect
 	k8s.io/metrics v0.37.1 // indirect
