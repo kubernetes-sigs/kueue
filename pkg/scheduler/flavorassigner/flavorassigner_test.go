@@ -8799,6 +8799,49 @@ func TestAssignTopology(t *testing.T) {
 		}
 	}
 
+	// newMixedModeFixture builds the entry state for a workload with two single-pod
+	// PodSets on flavor-1: "unplaceable" fit quota but requests more cpu than any node
+	// has, while "preempting" needs preemption. The Preempt PodSet makes the Assignment
+	// skip the Fit branch, so "unplaceable" reaches the empty-cluster check with a Status
+	// that carries no reasons. "unplaceable" comes first because the runner inspects
+	// PodSets[0].
+	newMixedModeFixture := func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
+		t.Helper()
+		cq := newBookmarkSnapshot(ctx, t, log, "10", "0", kueue.FlavorFungibility{})
+		wlInfo := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl", "default").
+			PodSets(
+				*utiltestingapi.MakePodSet("unplaceable", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "5").
+					Obj(),
+				*utiltestingapi.MakePodSet("preempting", 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			).
+			Obj())
+		podSet := func(name kueue.PodSetReference, request string, mode FlavorAssignmentMode) PodSetAssignment {
+			return PodSetAssignment{
+				Name:     name,
+				Count:    1,
+				Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse(request)},
+				Flavors: ResourceAssignment{
+					corev1.ResourceCPU: &FlavorAssignment{Name: "flavor-1", Mode: mode},
+				},
+				FlavorAssignmentAttempts: []FlavorAssignmentAttempt{{Flavor: "flavor-1", Mode: mode}},
+			}
+		}
+		unplaceable := podSet("unplaceable", "5", Fit)
+		preempting := podSet("preempting", "1", Preempt)
+		preempting.Status = *NewStatus("insufficient unused quota")
+		return fixture{
+			assigner: New(wlInfo, cq, bookmarkTestFlavors(), false, &testOracle{}, nil,
+				configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), bookmarkTestCycle),
+			assignment: &Assignment{PodSets: []PodSetAssignment{unplaceable, preempting}},
+			cq:         cq,
+		}
+	}
+
 	// newElasticFixture builds the entry state for an elastic workload slice replacing an
 	// admitted 2-pod slice with a 4-pod one. The old slice already occupies node-1, so the
 	// replacement only fits because AssignTopology simulates the old slice's usage away
@@ -8912,6 +8955,15 @@ func TestAssignTopology(t *testing.T) {
 			setup: func(ctx context.Context, t *testing.T, log logr.Logger) fixture {
 				return newFixture(ctx, t, log, Fit, "5", "")
 			},
+			wantMode:        NoFit,
+			wantPlan:        false,
+			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+		},
+		// The PodSet that fails the empty-cluster check fit quota, so nothing earlier put a
+		// reason on its Status. The failure must still record one, otherwise the PodSet keeps
+		// reporting Fit and the workload ends up with no NoFit reason at all.
+		"a pod set that fit quota but no cluster could ever host reports why it does not fit": {
+			setup:           newMixedModeFixture,
 			wantMode:        NoFit,
 			wantPlan:        false,
 			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
