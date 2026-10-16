@@ -519,6 +519,7 @@ func (s *Scheduler) processEntry(
 
 	// Copy ClusterName from old slice before admission (needed for MultiKueue).
 	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && oldWorkloadSlice != nil {
+		e.Obj = e.Obj.DeepCopy()
 		e.Obj.Status.ClusterName = oldWorkloadSlice.WorkloadInfo.Obj.Status.ClusterName
 	}
 
@@ -1012,7 +1013,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	}
 
 	consideredStr := flavorassigner.FormatFlavorAssignmentAttemptsForEvents(e.assignment)
-	cacheWl, err := s.assumeWorkload(log, e, cq, admission)
+	cacheWl, err := s.assumeWorkload(ctx, log, e, cq, admission)
 	if err != nil {
 		return err
 	}
@@ -1066,7 +1067,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
 		} else {
 			// The workload still holds its reservation, so put back the version this pass read; this is skipped if an event already replaced or removed the entry.
-			s.cache.UpdateWorkloadIfUnchanged(log, e.Obj.DeepCopy())
+			s.cache.UpdateWorkloadIfUnchanged(ctx, log, e.Obj.DeepCopy(), workload.WithEffectivePodSpecs(e.EffectivePodSpecs))
 		}
 		if s.shouldApplyEntryPenalty(e) {
 			s.updateEntryPenalty(log, e, subtract)
@@ -1097,15 +1098,15 @@ func (s *Scheduler) prepareWorkload(log logr.Logger, wl *kueue.Workload, cq *sch
 	}
 }
 
-func (s *Scheduler) assumeWorkload(log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) (*kueue.Workload, error) {
+func (s *Scheduler) assumeWorkload(ctx context.Context, log logr.Logger, e *entry, cq *schdcache.ClusterQueueSnapshot, admission *kueue.Admission) (*kueue.Workload, error) {
 	cacheWl := e.Obj.DeepCopy()
 	s.prepareWorkload(log, cacheWl, cq, admission)
 	if workload.NeedsSecondPass(e.Obj) {
 		// A missing cache entry or another resourceVersion means the cache and this pass saw different versions, so retry the pass instead of overwriting the entry.
-		if !s.cache.UpdateWorkloadIfUnchanged(log, cacheWl) {
+		if !s.cache.UpdateWorkloadIfUnchanged(ctx, log, cacheWl, workload.WithEffectivePodSpecs(e.EffectivePodSpecs)) {
 			return nil, errors.New("the workload changed while it was being scheduled")
 		}
-	} else if added := s.cache.AddOrUpdateWorkload(log, cacheWl); !added {
+	} else if added := s.cache.AddOrUpdateWorkload(ctx, log, cacheWl, workload.WithEffectivePodSpecs(e.EffectivePodSpecs)); !added {
 		return nil, fmt.Errorf("workload %s/%s could not be added to the cache", cacheWl.Namespace, cacheWl.Name)
 	}
 

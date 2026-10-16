@@ -893,7 +893,7 @@ func TestResyncCohortGaugeMetrics_ZeroWeightBorrowingReportsNaN(t *testing.T) {
 			Obj(), now).
 		AdmittedAt(true, now).
 		Obj()
-	if !cache.AddOrUpdateWorkload(log, wl) {
+	if !cache.AddOrUpdateWorkload(ctx, log, wl) {
 		t.Fatal("expected workload to be added to cache")
 	}
 
@@ -1276,7 +1276,7 @@ func TestCohortAdmittedWorkloadsFollowHierarchyChanges(t *testing.T) {
 				}
 			}
 			for _, wl := range tc.workloads {
-				if !cache.AddOrUpdateWorkload(log, wl) {
+				if !cache.AddOrUpdateWorkload(ctx, log, wl) {
 					t.Fatalf("workload %s not added", wl.Name)
 				}
 			}
@@ -1338,7 +1338,7 @@ func TestCohortAdmittedWorkloadsDropsSeriesOfMovedClusterQueueCustomLabels(t *te
 				Obj(), now).
 			AdmittedAt(true, now).
 			Obj()
-		if !cache.AddOrUpdateWorkload(log, wl) {
+		if !cache.AddOrUpdateWorkload(ctx, log, wl) {
 			t.Fatalf("workload %s not added", wl.Name)
 		}
 	}

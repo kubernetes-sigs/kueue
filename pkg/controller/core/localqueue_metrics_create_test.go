@@ -61,7 +61,7 @@ func TestLocalQueueCreateReportsPendingWorkloadsWithCustomLabels(t *testing.T) {
 		t.Fatalf("Creating LocalQueue: %v", err)
 	}
 	// Workload events can arrive before the LocalQueue event during startup.
-	if err := qManager.AddOrUpdateWorkload(log, wl); !errors.Is(err, qcache.ErrLocalQueueDoesNotExistOrInactive) {
+	if err := qManager.AddOrUpdateWorkload(ctx, log, wl); !errors.Is(err, qcache.ErrLocalQueueDoesNotExistOrInactive) {
 		t.Fatalf("Adding Workload before LocalQueue: got %v, want %v", err, qcache.ErrLocalQueueDoesNotExistOrInactive)
 	}
 	reconciler := NewLocalQueueReconciler(cl, qManager, cqCache, WithCustomLabels(customLabels))

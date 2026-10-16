@@ -38,7 +38,8 @@ import (
 // NeedsDRAReconcile returns true if the workload needs DRA processing in Reconcile.
 // For extended resources, checks the provided cache to confirm the resource
 // is backed by a DeviceClass before triggering DRA reconciliation.
-func NeedsDRAReconcile(wl *kueue.Workload, erCache *ExtendedResourceCache) bool {
+func NeedsDRAReconcile(wi *workload.Info, erCache *ExtendedResourceCache) bool {
+	wl := wi.Obj
 	if workload.IsOnHold(wl) {
 		return false
 	}
@@ -54,8 +55,8 @@ func NeedsDRAReconcile(wl *kueue.Workload, erCache *ExtendedResourceCache) bool 
 		return false
 	}
 	for i := range wl.Spec.PodSets {
-		ps := &wl.Spec.PodSets[i]
-		for _, containers := range [][]corev1.Container{ps.Template.Spec.InitContainers, ps.Template.Spec.Containers} {
+		spec := wi.PodSpec(i)
+		for _, containers := range [][]corev1.Container{spec.InitContainers, spec.Containers} {
 			for _, c := range containers {
 				for name, qty := range c.Resources.Requests {
 					if !qty.IsZero() && utilresource.IsExtendedResourceName(name) && erCache.Has(name) {
@@ -235,11 +236,12 @@ func containersForPodRequests(entries []containerExtendedResourceRequests, first
 // `resourcehelpers.PodRequests` (overhead excluded; sidecars add to the app-container
 // total, they are not maxed as ordinary inits), and its quota key is resolved from that
 // name's own total, so two names sharing a key cannot collapse into each other.
-func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper *ResourceMapper, wl *kueue.Workload) (
+func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper *ResourceMapper, wi *workload.Info) (
 	map[kueue.PodSetReference]corev1.ResourceList,
 	map[kueue.PodSetReference]sets.Set[corev1.ResourceName],
 	field.ErrorList,
 ) {
+	wl := wi.Obj
 	if cl == nil {
 		return nil, nil, nil
 	}
@@ -253,8 +255,8 @@ func ResolveExtendedResourceQuota(ctx context.Context, cl client.Client, mapper 
 		ps := &wl.Spec.PodSets[i]
 		podSetPath := field.NewPath("spec", "podSets").Index(i).Child("template", "spec")
 
-		initEntries := collectContainerExtendedResourceRequests(ps.Template.Spec.InitContainers, podSetPath.Child("initContainers"))
-		regularEntries := collectContainerExtendedResourceRequests(ps.Template.Spec.Containers, podSetPath.Child("containers"))
+		initEntries := collectContainerExtendedResourceRequests(wi.PodSpec(i).InitContainers, podSetPath.Child("initContainers"))
+		regularEntries := collectContainerExtendedResourceRequests(wi.PodSpec(i).Containers, podSetPath.Child("containers"))
 
 		// The field path of the first container an original resource name is seen in,
 		// for error reporting once that name is resolved below.

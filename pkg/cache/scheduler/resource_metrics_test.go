@@ -106,7 +106,7 @@ func TestClusterQueueResourceMetricsReportZeroWeightBorrowingAsNaN(t *testing.T)
 			Obj(), now).
 		AdmittedAt(true, now).
 		Obj()
-	if !cache.AddOrUpdateWorkload(log, wl) {
+	if !cache.AddOrUpdateWorkload(ctx, log, wl) {
 		t.Fatal("expected workload to be added to cache")
 	}
 

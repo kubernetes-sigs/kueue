@@ -141,7 +141,7 @@ func (a *Assignment) ComputeTASNetUsage(log logr.Logger, cq *schdcache.ClusterQu
 			log.Error(err, "Failed to find TAS flavor while computing TAS net usage", "podSet", psa.Name)
 			continue
 		}
-		singlePodRequests := resources.NewRequestsFromPodSpec(&podSet.Template.Spec)
+		singlePodRequests := resources.NewRequestsFromPodSpec(wl.PodSpecByName(psa.Name))
 		for _, domain := range psa.TopologyAssignment.Domains {
 			count := domain.Count - accounted[tas.DomainID(domain.Values)]
 			if count <= 0 {

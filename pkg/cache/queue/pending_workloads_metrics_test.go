@@ -84,7 +84,7 @@ func TestPendingWorkloadsMetricsOnClusterQueueStopResume(t *testing.T) {
 				t.Fatal(err)
 			}
 			requeuer.ProcessRequeues(ctx)
-			if err := m.AddOrUpdateWorkload(log, wl); err != nil {
+			if err := m.AddOrUpdateWorkload(ctx, log, wl); err != nil {
 				t.Fatal(err)
 			}
 

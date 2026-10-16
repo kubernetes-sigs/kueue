@@ -35,7 +35,6 @@ import (
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
-	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 func TestLimitRangeSchedulingFieldsChanged(t *testing.T) {
@@ -150,8 +149,7 @@ func TestLimitRangeUpdateRetriesWorkloadPoppedWithStaleDefaults(t *testing.T) {
 	if err := cl.Create(ctx, wl); err != nil {
 		t.Fatal(err)
 	}
-	workload.AdjustResources(ctx, cl, wl)
-	if err := queues.AddOrUpdateWorkload(log, wl); err != nil {
+	if err := queues.AddOrUpdateWorkload(ctx, log, wl); err != nil {
 		t.Fatal(err)
 	}
 

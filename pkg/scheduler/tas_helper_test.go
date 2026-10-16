@@ -211,7 +211,7 @@ func runScheduleForTASCases(t *testing.T, queues []kueue.LocalQueue, now time.Ti
 					// Reserved workloads must contribute their usage to the snapshot, mirroring production.
 					for i := range testWls {
 						if workload.HasQuotaReservation(&testWls[i]) {
-							cqCache.AddOrUpdateWorkload(log, &testWls[i])
+							cqCache.AddOrUpdateWorkload(t.Context(), log, &testWls[i])
 						}
 					}
 					for _, w := range testWls {

@@ -11134,7 +11134,7 @@ func TestSecondPassSkipsWaitForPodsReadyBlock(t *testing.T) {
 			if err := cl.Get(ctx, client.ObjectKeyFromObject(tc.workload), storedWl); err != nil {
 				t.Fatalf("Getting workload: %v", err)
 			}
-			cqCache.AddOrUpdateWorkload(log, storedWl)
+			cqCache.AddOrUpdateWorkload(t.Context(), log, storedWl)
 			if !qManager.QueueSecondPassIfNeeded(ctx, tc.workload, 0) {
 				t.Fatal("expected the workload to be queued for a second pass")
 			}
@@ -11513,7 +11513,7 @@ func TestSecondPassAdmissionWriteFailureKeepsReservation(t *testing.T) {
 				if err := qManager.AddLocalQueue(ctx, lq.DeepCopy()); err != nil {
 					t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
 				}
-				cqCache.AddOrUpdateWorkload(log, storedWl.DeepCopy())
+				cqCache.AddOrUpdateWorkload(t.Context(), log, storedWl.DeepCopy())
 				if !qManager.QueueSecondPassIfNeeded(ctx, storedWl, 0) {
 					t.Fatal("expected the workload to be queued for a second pass")
 				}
@@ -11661,7 +11661,7 @@ func TestSecondPassAdmissionWriteNotFoundDropsWorkload(t *testing.T) {
 			if err := qManager.AddLocalQueue(ctx, lq.DeepCopy()); err != nil {
 				t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
 			}
-			cqCache.AddOrUpdateWorkload(log, storedWl.DeepCopy())
+			cqCache.AddOrUpdateWorkload(t.Context(), log, storedWl.DeepCopy())
 			if !qManager.QueueSecondPassIfNeeded(ctx, storedWl, 0) {
 				t.Fatal("expected the workload to be queued for a second pass")
 			}
@@ -11779,7 +11779,7 @@ func TestSecondPassRestoreKeepsNewerCacheState(t *testing.T) {
 				newer := stored.DeepCopy()
 				newer.ResourceVersion = newerRV
 				newer.Status.UnhealthyNodes = nil
-				if !cqCache.AddOrUpdateWorkload(log, newer) {
+				if !cqCache.AddOrUpdateWorkload(ctx, log, newer) {
 					t.Error("Failed to update the workload in the cache")
 				}
 			},
@@ -11850,7 +11850,7 @@ func TestSecondPassRestoreKeepsNewerCacheState(t *testing.T) {
 			if err := qManager.AddLocalQueue(ctx, lq.DeepCopy()); err != nil {
 				t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
 			}
-			cqCache.AddOrUpdateWorkload(log, storedWl.DeepCopy())
+			cqCache.AddOrUpdateWorkload(t.Context(), log, storedWl.DeepCopy())
 			if !qManager.QueueSecondPassIfNeeded(ctx, storedWl, 0) {
 				t.Fatal("expected the workload to be queued for a second pass")
 			}
@@ -12000,7 +12000,7 @@ func TestSecondPassSkipsAssumeWhenWorkloadChangedInCache(t *testing.T) {
 				if err := cl.Status().Update(ctx, recovered); err != nil {
 					t.Fatalf("Clearing the unhealthy nodes: %v", err)
 				}
-				cqCache.AddOrUpdateWorkload(log, recovered)
+				cqCache.AddOrUpdateWorkload(ctx, log, recovered)
 			},
 			verify: func(t *testing.T, ctx context.Context, cqCache *schdcache.Cache, stored *kueue.Workload) {
 				snapshot, err := cqCache.Snapshot(ctx)
@@ -12040,7 +12040,7 @@ func TestSecondPassSkipsAssumeWhenWorkloadChangedInCache(t *testing.T) {
 				if !workload.NeedsSecondPass(updated) {
 					t.Fatal("expected the updated workload to still need its delayed second pass")
 				}
-				cqCache.AddOrUpdateWorkload(log, updated)
+				cqCache.AddOrUpdateWorkload(ctx, log, updated)
 			},
 			verify: func(t *testing.T, ctx context.Context, cqCache *schdcache.Cache, stored *kueue.Workload) {
 				snapshot, err := cqCache.Snapshot(ctx)
@@ -12112,7 +12112,7 @@ func TestSecondPassSkipsAssumeWhenWorkloadChangedInCache(t *testing.T) {
 			if err := qManager.AddLocalQueue(ctx, lq.DeepCopy()); err != nil {
 				t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
 			}
-			cqCache.AddOrUpdateWorkload(log, storedWl.DeepCopy())
+			cqCache.AddOrUpdateWorkload(t.Context(), log, storedWl.DeepCopy())
 			if !qManager.QueueSecondPassIfNeeded(ctx, storedWl, 0) {
 				t.Fatal("expected the workload to be queued for a second pass")
 			}
