@@ -73,6 +73,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	stringsutils "sigs.k8s.io/kueue/pkg/util/strings"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utilwfpr "sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -1512,6 +1513,9 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 		})
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),
 		features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)),
+		features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(e.ObjectNew) &&
+			workload.IsAdmittedByTAS(e.ObjectOld) && workload.IsAdmitted(e.ObjectNew) && e.ObjectNew.Status.Admission != nil &&
+			topologyAssignmentShrank(e.ObjectOld, e.ObjectNew),
 		workload.PriorityChanged(log, e.ObjectOld, e.ObjectNew):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
@@ -1529,6 +1533,19 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 	r.reconcileAfsPenaltiesOnUpdate(log, e, wl, active, status, prevStatus, prevQueue)
 	r.queues.QueueSecondPassIfNeeded(ctx, wl, 0)
 	return true
+}
+
+func topologyAssignmentShrank(oldWl, newWl *kueue.Workload) bool {
+	oldCounts := make(map[kueue.PodSetReference]int32, len(oldWl.Status.Admission.PodSetAssignments))
+	for _, psa := range oldWl.Status.Admission.PodSetAssignments {
+		oldCounts[psa.Name] = utiltas.CountPodsInAssignment(utiltas.InternalFrom(psa.TopologyAssignment))
+	}
+	for _, psa := range newWl.Status.Admission.PodSetAssignments {
+		if utiltas.CountPodsInAssignment(utiltas.InternalFrom(psa.TopologyAssignment)) < oldCounts[psa.Name] {
+			return true
+		}
+	}
+	return false
 }
 
 // reconcileAfsPenaltiesOnUpdate advances the AFS entry-penalty lifecycle against
