@@ -165,10 +165,11 @@ func TestBuildVirtualPodGroups(t *testing.T) {
 			workload: utiltesting.MakeWorkload("wl-depth", "default").
 				PodSets(
 					*utiltesting.MakePodSet("workers", 8).
+						RequiredTopologyRequest("cloud.com/datacenter").
+						PodSetGroup("group-a").
 						SliceRequiredTopologyConstraints(
-							kueue.PodsetSliceRequiredTopologyConstraint{Topology: "cloud.com/block", Size: 8},
-							kueue.PodsetSliceRequiredTopologyConstraint{Topology: "cloud.com/rack", Size: 4},
-							kueue.PodsetSliceRequiredTopologyConstraint{Topology: "cloud.com/row", Size: 2},
+							kueue.PodsetSliceRequiredTopologyConstraint{Topology: "cloud.com/block", Size: 4},
+							kueue.PodsetSliceRequiredTopologyConstraint{Topology: "cloud.com/rack", Size: 2},
 							kueue.PodsetSliceRequiredTopologyConstraint{Topology: "kubernetes.io/hostname", Size: 1},
 						).
 						Obj(),
