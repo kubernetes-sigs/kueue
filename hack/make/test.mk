@@ -376,6 +376,11 @@ test-e2e-was-tas-extended-helm: test-tas-e2e-extended-helm
 test-e2e-was-deep-tas-baseline: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
 test-e2e-was-deep-tas-baseline: test-tas-e2e-baseline
 
+.PHONY: test-e2e-was-deep-tas-baseline-basic-fit
+test-e2e-was-deep-tas-baseline-basic-fit: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
+test-e2e-was-deep-tas-baseline-basic-fit: GINKGO_ARGS=--label-filter="feature:tas-basic-fit"
+test-e2e-was-deep-tas-baseline-basic-fit: test-tas-e2e-baseline
+
 .PHONY: test-e2e-was-deep-tas-extended
 test-e2e-was-deep-tas-extended: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
 test-e2e-was-deep-tas-extended: test-tas-e2e-extended
@@ -758,15 +763,15 @@ performance-multikueue-runner:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(MULTIKUEUE_PERFORMANCE_RUNNER) ./test/performance/multikueue
 
 ifdef SCALABILITY_CPU_PROFILE
-SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
+override SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
 endif
 
 ifdef SCALABILITY_MEM_PROFILE
-SCALABILITY_EXTRA_ARGS += --withMemProfile=true
+override SCALABILITY_EXTRA_ARGS += --withMemProfile=true
 endif
 
 ifndef NO_SCALABILITY_KUEUE_LOGS
-SCALABILITY_EXTRA_ARGS +=  --withLogs=true --logToFile=true
+override SCALABILITY_EXTRA_ARGS += --withLogs=true --logToFile=true
 endif
 
 SCALABILITY_SCRAPE_INTERVAL ?= 5s

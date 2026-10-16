@@ -52,7 +52,7 @@ func TestFetchEmptyResourceLists(t *testing.T) {
 		},
 		"cohorts": {
 			fetch: func(h *Handlers) (any, error) {
-				return h.fetchCohorts(t.Context())
+				return h.fetchCohorts(t.Context(), middleware.Identity{})
 			},
 		},
 		"resource flavors": {

@@ -97,6 +97,7 @@ func TestFetchWorkloadDetails(t *testing.T) {
 
 	tests := map[string]struct {
 		objs                 []ctrlclient.Object
+		funcs                *interceptor.Funcs
 		workloadName         string
 		wantClusterQueueName string
 		wantPreemption       map[string]any
@@ -135,8 +136,32 @@ func TestFetchWorkloadDetails(t *testing.T) {
 			wantClusterQueueName: "Unknown",
 			wantPreemption:       map[string]any{},
 		},
-		"missing local queue returns error": {
-			objs:         []ctrlclient.Object{makeWorkloadObj("ns-1", "wl-1", "lq-1")},
+		"missing local queue has unknown cluster queue": {
+			objs:                 []ctrlclient.Object{makeWorkloadObj("ns-1", "wl-1", "lq-1")},
+			workloadName:         "wl-1",
+			wantClusterQueueName: "Unknown",
+			wantPreemption:       map[string]any{},
+		},
+		"missing local queue falls back to the admission": {
+			objs: []ctrlclient.Object{func() ctrlclient.Object {
+				wl := makeWorkloadObj("ns-1", "wl-1", "lq-1")
+				wl.Status.Admission = &kueueapi.Admission{ClusterQueue: "cq-a"}
+				return wl
+			}()},
+			workloadName:         "wl-1",
+			wantClusterQueueName: "cq-a",
+			wantPreemption:       map[string]any{},
+		},
+		"local queue get error is returned": {
+			objs: []ctrlclient.Object{makeWorkloadObj("ns-1", "wl-1", "lq-1")},
+			funcs: &interceptor.Funcs{
+				Get: func(ctx context.Context, c ctrlclient.WithWatch, key ctrlclient.ObjectKey, obj ctrlclient.Object, opts ...ctrlclient.GetOption) error {
+					if _, ok := obj.(*kueueapi.LocalQueue); ok {
+						return errors.New("boom")
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			},
 			workloadName: "wl-1",
 			wantErr:      true,
 		},
@@ -148,7 +173,7 @@ func TestFetchWorkloadDetails(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			h := New(newFakeClient(t, nil, tc.objs...), nil, nil)
+			h := New(newFakeClient(t, tc.funcs, tc.objs...), nil, nil)
 
 			got, err := h.fetchWorkloadDetails(t.Context(), "ns-1", tc.workloadName)
 			if (err != nil) != tc.wantErr {

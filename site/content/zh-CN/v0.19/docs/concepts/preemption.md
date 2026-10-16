@@ -62,7 +62,8 @@ Kueue 提供了两种抢占算法。它们的主要区别在于：当抢占 Clus
 
 当一个新 Workload 无法适配未使用配额时，只有在以下任一条件为真时才有资格发起抢占：
 - 该 Workload 的请求低于 flavor 的名义配额，或
-- 启用了 `borrowWithinCohort`。
+- 启用了 `borrowWithinCohort`，或
+- 启用了 `withinClusterQueue` 抢占，并且存在属于与抢占者相同 ClusterQueue 的抢占候选者。
 
 ### 候选者
 

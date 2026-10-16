@@ -1608,6 +1608,9 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
 		fullAssignment.ResolveNoFitReason(cq)
 	}
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		fullAssignment.ResolveNoFitReason(cq)
+	}
 	return
 }
 

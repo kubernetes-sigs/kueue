@@ -909,7 +909,8 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			wRec := WorkloadReconciler{waitForPodsReady: tc.waitForPodsReady, clock: fakeClock}
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
-			underlyingCause, recheckAfter := wRec.admittedNotReadyWorkload(&tc.workload)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			underlyingCause, recheckAfter := wRec.admittedNotReadyWorkload(ctx, &tc.workload)
 
 			if tc.wantRecheckAfter != recheckAfter {
 				t.Errorf("Unexpected recheckAfter, want=%v, got=%v", tc.wantRecheckAfter, recheckAfter)
@@ -2048,6 +2049,14 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonSuspended,
+					Message:   "ClusterQueue cq is inactive",
+				},
+			},
 			wantResult: reconcile.Result{},
 		},
 		"workload that is deactivated should set QuotaReserved condition to Deactivated (observability enabled)": {
@@ -2248,6 +2257,14 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadInadmissible,
+					Message:   "LocalQueue lq doesn't exist",
+				},
+			},
 		},
 		"workload with AdmissionGatedBy annotation removed should clear the gate and emit event": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -2391,6 +2408,14 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonSuspended,
+					Message:   "ClusterQueue cq is inactive",
+				},
+			},
 			reconcilerOpts: []Option{},
 		},
 		"workload with existing controller owner should not be finished": {
@@ -2422,6 +2447,14 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:   "LocalQueue  doesn't exist",
+				},
+			},
 		},
 		"inadmissible workload due to missing LocalQueue (observability enabled)": {
 			featureGates: map[featuregate.Feature]bool{
@@ -2445,6 +2478,14 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:   "LocalQueue non-existent-lq doesn't exist",
+				},
+			},
 		},
 		"inadmissible workload due to stopped ClusterQueue (observability enabled)": {
 			featureGates: map[featuregate.Feature]bool{
@@ -2470,6 +2511,14 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonSuspended,
+					Message:   "ClusterQueue cq is inactive",
+				},
+			},
 		},
 		"inadmissible workload due to broken ClusterQueue namespace selector (observability enabled)": {
 			featureGates: map[featuregate.Feature]bool{
@@ -2512,6 +2561,14 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:   "invalid namespace selector: \"InvalOp\" is not a valid label selector operator",
+				},
+			},
 		},
 		"newly created workload (initial reconcile, ExplicitStatus enabled)": {
 			featureGates: map[featuregate.Feature]bool{
@@ -2747,6 +2804,12 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				features.SetFeatureGateDuringTest(t, features.AdmissionGatedBy, true)
 
 				testWl := tc.workload.DeepCopy()
+				if _, ok := tc.featureGates[features.UnadmittedWorkloadsObservability]; !ok && !features.Enabled(features.UnadmittedWorkloadsObservability) {
+					testWl.Status.Conditions = utiltesting.AdjustConditionsForDisabledObservabilityInWorkloadController(
+						testWl.Status.Conditions,
+						apimeta.IsStatusConditionTrue(tc.workload.Status.Conditions, kueue.WorkloadAdmitted),
+					)
+				}
 				objs := []client.Object{testWl}
 				if testWl.Namespace != "" {
 					objs = append(objs, &corev1.Namespace{
@@ -2864,20 +2927,15 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 
 				gotResult, gotError := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(testWl)})
 
-				switch {
-				case tc.wantError != nil:
-					if gotError == nil {
-						t.Errorf("expected error %v, got nil", tc.wantError)
-					} else if !stderrors.Is(gotError, tc.wantError) {
-						t.Errorf("unexpected error type: want %v, got %v", tc.wantError, gotError)
-					}
-				case tc.wantErrorMsg != "":
-					if gotError == nil {
-						t.Errorf("expected error containing %q, got nil", tc.wantErrorMsg)
-					} else if !strings.Contains(gotError.Error(), tc.wantErrorMsg) {
-						t.Errorf("expected error containing %q, got %v", tc.wantErrorMsg, gotError)
-					}
-				case gotError != nil:
+				// wantError and wantErrorMsg are checked independently, so a case can
+				// assert both causes of a joined error.
+				if tc.wantError != nil && !stderrors.Is(gotError, tc.wantError) {
+					t.Errorf("unexpected error: want %v, got %v", tc.wantError, gotError)
+				}
+				if tc.wantErrorMsg != "" && (gotError == nil || !strings.Contains(gotError.Error(), tc.wantErrorMsg)) {
+					t.Errorf("expected error containing %q, got %v", tc.wantErrorMsg, gotError)
+				}
+				if tc.wantError == nil && tc.wantErrorMsg == "" && gotError != nil {
 					t.Errorf("unexpected error: %v", gotError)
 				}
 
@@ -2912,7 +2970,11 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 						t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 					}
 				}
-				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
+				wantEvents := tc.wantEvents
+				if !features.Enabled(features.UnadmittedWorkloadsObservability) {
+					wantEvents = utiltesting.AdjustEventsForDisabledObservabilityInWorkloadController(wantEvents)
+				}
+				if diff := cmp.Diff(wantEvents, recorder.RecordedEvents); diff != "" {
 					t.Errorf("unexpected events (-want/+got):\n%s", diff)
 				}
 
@@ -3000,7 +3062,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 								t.Errorf("Expected workload in inadmissible=%v, got %v", *tc.wantWorkloadInadmissible, inInadmissible)
 							}
 						}
-					} else {
+					} else if tc.lq != nil {
 						t.Errorf("LocalQueue not found in queue manager - DRA workload should have been queued")
 					}
 				}
