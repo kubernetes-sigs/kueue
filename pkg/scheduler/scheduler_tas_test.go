@@ -948,6 +948,51 @@ func TestScheduleForTAS(t *testing.T) {
 					Obj(),
 			},
 		},
+		"workload with unhealthyNode annotation; second pass; reclaimable pods keep the admitted count and usage": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					UnhealthyNodes("x3").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 3).
+						PreferredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "tas-default", "3000m").
+								Count(3).
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					ReclaimablePods(kueue.ReclaimablePod{Name: "one", Count: 2}).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "3000m").
+						Count(3).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x4"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+		},
 		"workload with unhealthyNode annotation; second pass; preferred; fit in different rack": {
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
