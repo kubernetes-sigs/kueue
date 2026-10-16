@@ -169,22 +169,22 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 	allErrs = append(allErrs, jobframework.ValidateElasticJobAnnotation(newStatefulSet.Object(), newStatefulSet.GVK())...)
 
 	isSuspended := oldStatefulSet.Status.ReadyReplicas == 0
-	queueNameImmutable := !isSuspended || newQueueName == ""
-	if !queueNameImmutable && newQueueName != oldQueueName {
+	queueErrs, err := jobframework.ValidateQueueNameUpdate(oldQueueName, newQueueName, isSuspended, func() (bool, error) {
 		wlName, err := findWorkloadName(ctx, wh.client, oldSTSObj)
 		if err != nil {
-			return nil, err
+			return false, err
 		}
 		var wl kueue.Workload
 		err = wh.client.Get(ctx, client.ObjectKey{Namespace: oldSTSObj.Namespace, Name: wlName}, &wl)
 		if client.IgnoreNotFound(err) != nil {
-			return nil, err
+			return false, err
 		}
-		queueNameImmutable = err == nil && workload.HasQuotaReservation(&wl)
+		return err == nil && workload.HasQuotaReservation(&wl), nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if queueNameImmutable {
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
-	}
+	allErrs = append(allErrs, queueErrs...)
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
 		isSuspended,
 		oldStatefulSet.Object(),
