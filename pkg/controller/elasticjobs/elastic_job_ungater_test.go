@@ -296,7 +296,7 @@ func TestReconcile(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					ControllerReference(batchJobGVK, "job", "job-uid").
-					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").Obj()).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).Request(corev1.ResourceCPU, "1").PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).Obj()).
 					ReserveQuotaAt(
 						utiltestingapi.MakeAdmission("cq").
 							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
@@ -361,7 +361,7 @@ func TestReconcile(t *testing.T) {
 					Obj(),
 			},
 		},
-		"ungates indexed pods before un-indexed pods even when names sort the other way": {
+		"falls back to name order when any pod is missing the completion index": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("wl", "ns").
 					Finalizers(kueue.ResourceInUseFinalizerName).
@@ -379,8 +379,8 @@ func TestReconcile(t *testing.T) {
 					AdmittedAt(true, now).
 					Obj(),
 			},
-			// pod-a has no completion-index label and would win a name-only comparison
-			// against pod-z, but indexed Pods must still be ungated first.
+			// pod-a has no completion-index label, so the whole PodSet is ordered by
+			// name and pod-a is ungated even though pod-z carries an index.
 			pods: []corev1.Pod{
 				*testingpod.MakePod("pod-a", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
@@ -390,7 +390,7 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod-z", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					Label(batchv1.JobCompletionIndexAnnotation, "5").
+					Label(batchv1.JobCompletionIndexAnnotation, "2").
 					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
 			},
@@ -398,12 +398,12 @@ func TestReconcile(t *testing.T) {
 				*testingpod.MakePod("pod-a", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
 				*testingpod.MakePod("pod-z", "ns").
 					Annotation(kueue.WorkloadAnnotation, "wl").
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
-					Label(batchv1.JobCompletionIndexAnnotation, "5").
+					Label(batchv1.JobCompletionIndexAnnotation, "2").
+					Gate(kueue.ElasticJobSchedulingGate).
 					Obj(),
 			},
 		},
