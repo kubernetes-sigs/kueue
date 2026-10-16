@@ -102,6 +102,10 @@ type PodPlacement struct {
 	Reasons []string
 }
 
+func (p *PodPlacement) IsSuccess() bool {
+	return p.Node != "" && p.Error == nil && len(p.Reasons) == 0
+}
+
 type NodeExclusionType int
 
 const (

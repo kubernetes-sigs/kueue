@@ -641,6 +641,22 @@ func (r TASAssignmentsResult) Failure() *FailureInfo {
 	return nil
 }
 
+func (r TASAssignmentsResult) Failures() iter.Seq[*FailureInfo] {
+	return func(yield func(*FailureInfo) bool) {
+		for psName, psAssignment := range r {
+			if psAssignment.FailureReason != "" {
+				if !yield(&FailureInfo{
+					PodSetName: psName,
+					Reason:     psAssignment.FailureReason,
+					Flavor:     psAssignment.Flavor,
+				}) {
+					return
+				}
+			}
+		}
+	}
+}
+
 type tasPodSetAssignmentResult struct {
 	TopologyAssignment *utiltas.TopologyAssignment
 	FailureReason      string
@@ -974,6 +990,61 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 	}
 
 	return result
+}
+
+// BuildTopologyAssignmentsForPodSet returns TAS assignment based on the registered
+// spread of the PodSet's Pods across specific Nodes.
+func (s *TASFlavorSnapshot) BuildTopologyAssignmentsForPodSet(
+	ctx context.Context,
+	podSet *kueue.PodSet,
+	flavor kueue.ResourceFlavorReference,
+	podsPerNode map[types.NodeName]int32,
+) (result *tasPodSetAssignmentResult) {
+	result = &tasPodSetAssignmentResult{}
+	result.Flavor = flavor
+
+	domainCounts := map[*domain]int32{}
+	for nodeName, count := range podsPerNode {
+		leafID, ok := s.nodeToDomain[string(nodeName)]
+		if !ok {
+			result.FailureReason = fmt.Sprintf("node %s is not defined in the known topology", nodeName)
+			return
+		}
+
+		domain := &s.leaves[leafID].domain
+		if s.virtualHostname {
+			// The domain we read is not published.
+			// Using parent as the first published domain.
+			domain = domain.parent
+		}
+		domainCounts[domain] += count
+	}
+
+	levelsTotal := len(s.levelKeys)
+	var levelsSliceStart, levelsSliceEnd int
+	switch {
+	case s.virtualHostname:
+		levelsSliceStart = 0
+		levelsSliceEnd = levelsTotal - 1
+	case s.declaresHostnameLevel():
+		levelsSliceStart = levelsTotal - 1
+		levelsSliceEnd = levelsTotal
+	default:
+		levelsSliceStart = 0
+		levelsSliceEnd = levelsTotal
+	}
+
+	tasAssignment := &utiltas.TopologyAssignment{}
+	tasAssignment.Levels = s.levelKeys[levelsSliceStart:levelsSliceEnd]
+	domains := maps.Keys(domainCounts)
+	for _, domain := range slices.SortedFunc(domains, s.compareDomainLevelValues) {
+		tasAssignment.Domains = append(tasAssignment.Domains, utiltas.TopologyDomainAssignment{
+			Values: domain.levelValues[levelsSliceStart:levelsSliceEnd],
+			Count:  domainCounts[domain],
+		})
+	}
+	result.TopologyAssignment = tasAssignment
+	return
 }
 
 func shouldKeepExistingAssignment(wl *kueue.Workload, psa *kueue.PodSetAssignment) bool {
