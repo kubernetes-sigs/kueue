@@ -30,6 +30,11 @@ import (
 	_ "net/http/pprof"
 )
 
+const (
+	AuthModeDisabled    = "Disabled"
+	AuthModeTokenReview = "TokenReview"
+)
+
 // ServerConfig holds server configuration
 type ServerConfig struct {
 	Port       string
@@ -38,12 +43,17 @@ type ServerConfig struct {
 }
 
 // NewServerConfig creates a new server configuration
-func NewServerConfig() *ServerConfig {
+func NewServerConfig() (*ServerConfig, error) {
 	viper.AutomaticEnv()
 	viper.SetDefault("KUEUEVIZ_PORT", "8080")
-	viper.SetDefault("KUEUEVIZ_AUTH_MODE", "Disabled")
+	viper.SetDefault("KUEUEVIZ_AUTH_MODE", AuthModeDisabled)
 	viper.SetDefault("KUEUEVIZ_AUTH_TOKEN_REVIEW_CACHE_TTL", "60s")
 	viper.SetDefault("KUEUEVIZ_AUTH_TOKEN_REVIEW_NEGATIVE_CACHE_TTL", "5s")
+
+	authMode := viper.GetString("KUEUEVIZ_AUTH_MODE")
+	if err := validateAuthMode(authMode); err != nil {
+		return nil, err
+	}
 
 	var audiences []string
 	if raw := viper.GetString("KUEUEVIZ_AUTH_TOKEN_REVIEW_AUDIENCES"); raw != "" {
@@ -63,13 +73,13 @@ func NewServerConfig() *ServerConfig {
 
 	return &ServerConfig{
 		Port:     viper.GetString("KUEUEVIZ_PORT"),
-		AuthMode: viper.GetString("KUEUEVIZ_AUTH_MODE"),
+		AuthMode: authMode,
 		AuthConfig: middleware.AuthConfig{
 			Audiences:        audiences,
 			CacheTTL:         cacheTTL,
 			NegativeCacheTTL: negativeCacheTTL,
 		},
-	}
+	}, nil
 }
 
 // SetupPprof starts the pprof server in development mode
@@ -115,4 +125,13 @@ func parseDurationWithDefault(raw string, fallback time.Duration, envName string
 		return fallback
 	}
 	return d
+}
+
+func validateAuthMode(authMode string) error {
+	switch authMode {
+	case AuthModeDisabled, AuthModeTokenReview:
+		return nil
+	default:
+		return fmt.Errorf("unsupported KUEUEVIZ_AUTH_MODE %q, must be one of %q or %q", authMode, AuthModeDisabled, AuthModeTokenReview)
+	}
 }
