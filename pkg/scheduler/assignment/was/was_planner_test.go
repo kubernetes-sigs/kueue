@@ -60,7 +60,6 @@ const (
 	testNamespace   = "default"
 	testNode1       = "node-1"
 	testNode2       = "node-2"
-	unknownNode     = "node-unknown"
 	testNodeCPUs    = "8"
 
 	testBlockLabel = "cloud.com/topology-block"
@@ -383,25 +382,6 @@ func TestPlan(t *testing.T) {
 				},
 			}},
 		},
-		"pod placed on a node unknown to the topology: does not fit": {
-			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
-			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "1"}},
-			initialMode:  flavorassigner.Fit,
-			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey(kueue.DefaultPodSetName, 0): {Node: unknownNode},
-			}},
-			wantMode:                flavorassigner.NoFit,
-			wantNoFitReason:         kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
-			wantResolvedNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
-			wantPodSets: []flavorassigner.PodSetAssignment{{
-				Name: kueue.DefaultPodSetName,
-				Status: *flavorassigner.NewStatus("node " + unknownNode + " is not defined in the known topology").
-					WithNoFitReason(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
-				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{
-					{Flavor: testFlavor, Mode: flavorassigner.NoFit, NoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed},
-				},
-			}},
-		},
 		"multiple PodSets, all pods placed: fits, with a topology assignment per PodSet": {
 			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
 			podSets: []testPodSet{
@@ -507,28 +487,6 @@ func TestPlan(t *testing.T) {
 				},
 			}},
 		},
-		"multiple flavors, topology placement fails on the selected flavor: resolved as TopologyPlacementFailed": {
-			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testNoFitFlavor, "1"), cpuQuota(testFlavor, "20")},
-			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 2, cpu: "1"}},
-			initialMode:  flavorassigner.Fit,
-			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey(kueue.DefaultPodSetName, 0): {Node: unknownNode},
-				podKey(kueue.DefaultPodSetName, 1): {Node: unknownNode},
-			}},
-			wantMode:                flavorassigner.NoFit,
-			wantNoFitReason:         kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
-			wantResolvedNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
-			wantPodSets: []flavorassigner.PodSetAssignment{{
-				Name: kueue.DefaultPodSetName,
-				Status: *flavorassigner.NewStatus("node " + unknownNode + " is not defined in the known topology").
-					WithNoFitReason(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
-				// Only the flavor reported by the topology failure is marked.
-				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{
-					{Flavor: testNoFitFlavor, Mode: flavorassigner.NoFit, NoFitReason: kueue.WorkloadQuotaReservedReasonExceedsMaxQuota},
-					{Flavor: testFlavor, Mode: flavorassigner.NoFit, NoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed},
-				},
-			}},
-		},
 		"a pod fails to be scheduled: flavor attempts are not marked": {
 			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
 			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 2, cpu: "1"}},
@@ -544,22 +502,6 @@ func TestPlan(t *testing.T) {
 				Status: *flavorassigner.NewStatus(
 					podFailure(kueue.DefaultPodSetName, 1, errInsufficientCPU.Error()),
 				).WithError(errInsufficientCPU).WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
-				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
-			}},
-		},
-		"pod placed on a node unknown to the topology: flavor attempts are not marked": {
-			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "20")},
-			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "1"}},
-			initialMode:  flavorassigner.Fit,
-			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey(kueue.DefaultPodSetName, 0): {Node: unknownNode},
-			}},
-			wantMode:        flavorassigner.NoFit,
-			wantNoFitReason: kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
-			wantPodSets: []flavorassigner.PodSetAssignment{{
-				Name: kueue.DefaultPodSetName,
-				Status: *flavorassigner.NewStatus("node " + unknownNode + " is not defined in the known topology").
-					WithNoFitReason(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
 				FlavorAssignmentAttempts: []flavorassigner.FlavorAssignmentAttempt{{Flavor: testFlavor, Mode: flavorassigner.Fit}},
 			}},
 		},

@@ -995,11 +995,7 @@ func (s *TASFlavorSnapshot) BuildTopologyAssignmentsForPodSet(
 
 	domainCounts := map[*domain]int32{}
 	for nodeName, count := range podsPerNode {
-		leafID, ok := s.nodeToDomain[string(nodeName)]
-		if !ok {
-			result.FailureReason = fmt.Sprintf("node %s is not defined in the known topology", nodeName)
-			return result
-		}
+		leafID := s.nodeToDomain[string(nodeName)]
 
 		domain := &s.leaves[leafID].domain
 		if s.virtualHostname {

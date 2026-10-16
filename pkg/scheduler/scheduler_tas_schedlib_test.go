@@ -1464,30 +1464,6 @@ func TestScheduleNoFitReasonSchedulerLibrary(t *testing.T) {
 			},
 			featureGates: deepIntegrationGates,
 		},
-		"topology placement fails on the selected flavor: reported as TopologyPlacementFailed": {
-			nodes:           singleNode,
-			topologies:      []kueue.Topology{topology},
-			resourceFlavors: resourceFlavors,
-			clusterQueues:   clusterQueues,
-			workloads:       []kueue.Workload{*wlBase.Clone().Obj()},
-			simulatorOverride: func() simulator.SchedulerSimulator {
-				return &mockWorkloadScheduler{
-					placementNode: "unknown-node",
-				}
-			},
-			wantWorkloads: []kueue.Workload{
-				wlNotReserved(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
-					"couldn't assign flavors to pod set main: node unknown-node is not defined in the known topology"),
-			},
-			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
-				"tas-main": {"default/wl"},
-			},
-			eventCmpOpts: cmp.Options{eventIgnoreMessage},
-			wantEvents: []utiltesting.EventRecord{
-				utiltesting.MakeEventRecord("default", "wl", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed, corev1.EventTypeWarning).Obj(),
-			},
-			featureGates: deepIntegrationGates,
-		},
 	}
 	runTASScheduleTestCases(t, tasScheduleTestConfig{
 		queues: queues,

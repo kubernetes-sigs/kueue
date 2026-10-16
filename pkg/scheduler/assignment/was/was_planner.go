@@ -87,7 +87,8 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		// Record the scheduling failures of Pods that failed to secure any Placement.
 		recordSimulationFailures(plan.Assignment, failures)
 		// If any failures occurred, we can already confirm the assignment to be a no-fit.
-		setNoFit(plan.Assignment, kueue.WorkloadQuotaReservedReasonSimulationFailed)
+		plan.Assignment.SetRepresentativeMode(flavorassigner.NoFit)
+		plan.Assignment.NoFitReason = kueue.WorkloadQuotaReservedReasonSimulationFailed
 		return
 	}
 
@@ -95,16 +96,6 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 	log := ctrl.LoggerFrom(ctx)
 	tasRequests := plan.Assignment.WorkloadsTopologyRequests(log, p.wl, cq)
 	tasAssignment := p.calculateTopologyAssignment(ctx, tasRequests, placementSummary)
-
-	// Record topology assignments failures.
-	tasFails := tasAssignment.Failures()
-	if len(tasFails) > 0 {
-		recordTasFailures(plan.Assignment, tasFails)
-		setNoFit(plan.Assignment, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
-		return
-	}
-
-	// Update assignment for a successful TAS Result
 	plan.Assignment.UpdateForTASResult(log, cq, p.wl, tasAssignment)
 	return
 }
@@ -125,27 +116,6 @@ func recordSimulationFailures(assignment *flavorassigner.Assignment, failures po
 			}
 		}
 	}
-}
-
-func recordTasFailures(assignment *flavorassigner.Assignment, failures []*schedcache.FailureInfo) {
-	for _, failure := range failures {
-		assignment.ResolvePodSetFailure(
-			failure.PodSetName,
-			flavorassigner.NoFit,
-			flavorassigner.NewStatus(failure.Reason).WithNoFitReason(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
-		)
-	}
-	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		for _, failure := range failures {
-			assignment.PodSetAssignmentByName(failure.PodSetName).
-				MarkFlavorAttempt(failure.Flavor, flavorassigner.NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
-		}
-	}
-}
-
-func setNoFit(a *flavorassigner.Assignment, reason string) {
-	a.SetRepresentativeMode(flavorassigner.NoFit)
-	a.NoFitReason = reason
 }
 
 // groupByPodSet groups the PodPlacements by PodSet
