@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -175,6 +176,26 @@ func ValidateQueueName(obj client.Object) field.ErrorList {
 	var allErrs field.ErrorList
 	allErrs = append(allErrs, ValidateLabelAsCRDName(obj, constants.QueueLabel)...)
 	return allErrs
+}
+
+// ValidateQueueNameUpdate checks whether a queue change is allowed for a job with existing Workloads.
+// hasQuotaReservation is called only when the queue changes to a nonempty value while the job is suspended.
+// This check is not atomic with quota reservation or subsequent Workload updates.
+func ValidateQueueNameUpdate(oldQueueName, newQueueName kueue.LocalQueueName, isSuspended bool, hasQuotaReservation func() (bool, error)) (field.ErrorList, error) {
+	if newQueueName == oldQueueName {
+		return nil, nil
+	}
+	if !isSuspended || newQueueName == "" {
+		return apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath), nil
+	}
+	reserved, err := hasQuotaReservation()
+	if err != nil {
+		return nil, err
+	}
+	if reserved {
+		return apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath), nil
+	}
+	return nil, nil
 }
 
 func validateUpdateForQueueName(oldJob, newJob GenericJob, defaultQueueExist func(string) bool) field.ErrorList {
