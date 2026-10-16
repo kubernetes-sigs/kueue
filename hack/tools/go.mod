@@ -525,7 +525,7 @@ require (
 	mvdan.cc/unparam v0.0.0-20260823230713-2fa3d841b0c8 // indirect
 	oras.land/oras-go/v2 v2.6.2 // indirect
 	rsc.io/qr v0.2.0 // indirect
-	sigs.k8s.io/cluster-inventory-api v0.1.3 // indirect
+	sigs.k8s.io/cluster-inventory-api v0.2.0 // indirect
 	sigs.k8s.io/controller-runtime v0.25.0 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/kustomize/api v0.21.2 // indirect
