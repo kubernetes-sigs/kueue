@@ -88,7 +88,7 @@ While declarative preemption systems (such as Configurable Preemptions via `Pree
 - **PreemptedClusterQueue**: Constrains the eviction rate targeting workloads running in specific ClusterQueues, including blocking preemptions entirely (`limit: 0`) to protect mission-critical "hero" queues.
 - **PreemptedWorkload**: Limits how frequently an individual workload can be preempted within the window to prevent workload bullying and eviction thrashing loops.
 
-Limits can target a specific subset of preemptions using label selectors (`configSelector` and `clusterQueueSelector`).
+Limits can target a specific subset of preemptions using label selectors (`configSelector`, `preemptorClusterQueueSelector`, and `preemptedClusterQueueSelector`).
 In Alpha, this capability is introduced specifically for Configurable Preemptions under the `ConfigurablePreemptionLimits` feature gate, with possible extensions to classical and fair-sharing preemption in future iterations.
 
 ## Motivation
@@ -169,7 +169,7 @@ Ensure that workloads running in the `hero-cq` ClusterQueue can never be preempt
 ```yaml
 spec:
   scope: "PreemptedClusterQueue"
-  clusterQueueSelector:
+  preemptedClusterQueueSelector:
     matchLabels:
       example.com/cluster-queue-name: "hero-cq"
   limit: 0
@@ -185,7 +185,7 @@ spec:
 2. **Reset on controller restarts**: Preemption events are tracked strictly in-memory within the controller cache and are not persisted in etcd. Consequently, if the Kueue controller restarts (e.g. due to pod restart, failover, or upgrade), preemption limits will be reset, temporarily allowing preemption events up to the configured limit immediately following the restart.
 3. **Increasing time window**: Because expired preemption timestamps are periodically trimmed from the in-memory map based on the active sliding window, if a user updates a `PreemptionLimit` to increase `limitWindowSeconds`, events that occurred prior to the previously configured window will have already been pruned and will not be retroactively taken into account.
 4. **Deleted and recreated objects**: Preemption events are tracked in-memory by entity key (`namespace/name` for Workloads, or name for ClusterQueues) rather than by UID. Consequently, objects in the same namespace and with the same name will be treated as the same object, and preemption limits for them will not be reset if an object is deleted and recreated within the active time window.
-5. **Reset on spec changes to scope or configSelector**: If a `PreemptionLimit` is modified such that its `scope` or `configSelector` changes, its limits are reset by clearing all recorded in-memory preemption event timestamps for that limit.
+5. **Reset on spec changes to scope or selectors**: If a `PreemptionLimit` is modified such that its `scope`, `configSelector`, `preemptorClusterQueueSelector`, or `preemptedClusterQueueSelector` changes, its limits are reset by clearing all recorded in-memory preemption event timestamps for that limit.
 
 ### Risks and Mitigations
 
@@ -272,11 +272,17 @@ type PreemptionLimitSpec struct {
 	// +optional
 	ConfigSelector *metav1.LabelSelector `json:"configSelector,omitempty"`
 
-	// clusterQueueSelector selects ClusterQueues to which this limit applies.
-	// If not set, it applies to all ClusterQueues under the configured scope.
+	// preemptorClusterQueueSelector selects ClusterQueues of preempting workloads to which this limit applies.
+	// If not set, this limit applies to preempting workloads from all ClusterQueues.
 	//
 	// +optional
-	ClusterQueueSelector *metav1.LabelSelector `json:"clusterQueueSelector,omitempty"`
+	PreemptorClusterQueueSelector *metav1.LabelSelector `json:"preemptorClusterQueueSelector,omitempty"`
+
+	// preemptedClusterQueueSelector selects ClusterQueues of preempted workloads to which this limit applies.
+	// If not set, this limit applies to preempted workloads from all ClusterQueues.
+	//
+	// +optional
+	PreemptedClusterQueueSelector *metav1.LabelSelector `json:"preemptedClusterQueueSelector,omitempty"`
 
 	// limit defines how many preemption events can occur within the given time window.
 	// An event is defined as a confirmed (preemptor, preemptee) eviction pair.
@@ -336,18 +342,18 @@ A `PreemptionLimit` limits the number of preemptions that can occur within its c
 
 ### In-Memory State Management
 
-To manage this data, Kueue stores a comprehensive preemption map in memory, isolated per `PreemptionLimit`. This map tracks all preemption event timestamps indexed by entity key (ClusterQueue or Workload), recording events that occurred within the designated `limitWindowSeconds`. Moreover, it records only events that match the scope and selectors of the specific limit; if a preemption does not match the configured `configSelector` or `clusterQueueSelector`, it is not tracked in that limit's preemption map. Expired timestamps are periodically trimmed from the map.
+To manage this data, Kueue stores a comprehensive preemption map in memory, isolated per `PreemptionLimit`. This map tracks all preemption event timestamps indexed by entity key (ClusterQueue or Workload), recording events that occurred within the designated `limitWindowSeconds`. Moreover, it records only events that match the scope and selectors of the specific limit; if a preemption does not match the configured `configSelector`, `preemptorClusterQueueSelector`, or `preemptedClusterQueueSelector`, it is not tracked in that limit's preemption map. These selectors filter candidate events independently of the configured `scope`. Expired timestamps are periodically trimmed from the map.
 
 Because tracking is strictly maintained in-memory and periodically trimmed:
 
 - **Reset on controller restarts**: Events are not persisted in etcd; restarting the Kueue controller resets the in-memory map, so preemption limit counters start fresh from zero.
-- **Reset on spec changes to scope or configSelector**: If a `PreemptionLimit`'s `spec` is modified to change its `scope` or `configSelector`, the in-memory limit counters are reset by clearing all recorded preemption event timestamps for that limit.
+- **Reset on spec changes to scope or selectors**: If a `PreemptionLimit`'s `spec` is modified to change its `scope`, `configSelector`, `preemptorClusterQueueSelector`, or `preemptedClusterQueueSelector`, the in-memory limit counters are reset by clearing all recorded preemption event timestamps for that limit.
 - **Increasing time window**: If `LimitWindowSeconds` is increased, previous preemption events that occurred before the previously active window have already been discarded and will not be taken into account.
 - **Deleted and recreated objects**: Entity keys in the in-memory tracking map are based on `namespace/name` (or name for ClusterQueues) rather than UID; objects in the same namespace with the same name will be treated as the same object, and their limits will not be reset upon deletion and recreation within the sliding window.
 
 Furthermore, the status of the PreemptionLimit is refreshed periodically by a dedicated `PreemptionLimitReconciler` — approximately every minute — to update `lastUpdateTimestamp` and write the aggregated totals into the count map (restricted to the top 1000 counts to fit within CRD size limits).
 
-`PreemptionLimitReconciler` will be responsible for updating an in-memory representation of limits — removing no longer needed recorded preemption limit timestamps from memory when a particular `PreemptionLimit` is deleted, and resetting the in-memory limits when a `PreemptionLimit`'s `spec.scope` or `spec.configSelector` changes.
+`PreemptionLimitReconciler` will be responsible for updating an in-memory representation of limits — removing no longer needed recorded preemption limit timestamps from memory when a particular `PreemptionLimit` is deleted, and resetting the in-memory limits when a `PreemptionLimit`'s `spec.scope`, `spec.configSelector`, `spec.preemptorClusterQueueSelector`, or `spec.preemptedClusterQueueSelector` changes.
 
 ### Observability
 
@@ -421,7 +427,7 @@ Apart from the new subpackage, the following existing components will receive ad
 #### Alpha
 
 - `PreemptionLimit` CRD is implemented, allowing administrators to declare preemption rate limits for Configurable Preemptions.
-- `PreemptionLimit` supports targeting specific `PreemptionConfig`s and `ClusterQueue`s via label selectors.
+- `PreemptionLimit` supports targeting specific `PreemptionConfig`s and preemptor/preempted `ClusterQueue`s via label selectors (`configSelector`, `preemptorClusterQueueSelector`, and `preemptedClusterQueueSelector`).
 - Existing behavior for classical and fair-sharing preemptions remains unaffected - they are not limited by `PreemptionLimit` resources.
 - Candidates from Configurable Preemptions are not selected if evicting them would violate active `PreemptionLimit`s.
 - The feature is guarded by the `ConfigurablePreemptionLimits` feature gate (Alpha, disabled by default).
