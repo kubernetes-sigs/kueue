@@ -24,6 +24,7 @@ import (
 	"strings"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
+	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
@@ -68,6 +69,7 @@ var (
 		rayv1.GroupVersion.WithKind("RayCluster").String(),
 		rayv1.GroupVersion.WithKind("RayJob").String(),
 		rayv1.GroupVersion.WithKind("RayService").String(),
+		sparkv1beta2.GroupVersion.WithKind("SparkApplication").String(),
 	)
 	supportedPrebuiltWlJobGVKs = sets.New(
 		batchv1.SchemeGroupVersion.WithKind("Job").String(),

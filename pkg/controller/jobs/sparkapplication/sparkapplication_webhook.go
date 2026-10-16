@@ -18,8 +18,10 @@ package sparkapplication
 
 import (
 	"context"
+	"slices"
 
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -28,10 +30,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
@@ -97,6 +101,15 @@ func (w *SparkApplicationWebhook) Default(ctx context.Context, obj *sparkv1beta2
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
 
+	if isAnElasticJob(obj) {
+		// The Spark driver creates executors on its own, so they must wait for
+		// the workload slice that accounts for them to be admitted.
+		if obj.Spec.Executor.Template == nil {
+			obj.Spec.Executor.Template = emptyExecutorPodTemplateSpec.DeepCopy()
+		}
+		utilpod.GateTemplate(obj.Spec.Executor.Template, kueue.ElasticJobSchedulingGate)
+	}
+
 	return nil
 }
 
@@ -131,6 +144,10 @@ func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *spark
 			allErrors = append(allErrors, field.Invalid(specPath.Child("mode"), spec.Mode, "only Cluster mode is supported for a kueue managed job"))
 		}
 
+		if isAnElasticJob(job) {
+			allErrors = append(allErrors, validateElasticJob(job)...)
+		}
+
 		if !isAnElasticJob(job) && ptr.Deref(spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
 			allErrors = append(allErrors,
 				field.Invalid(dynamicAllocationEnabledPath,
@@ -151,6 +168,31 @@ func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *spark
 	}
 
 	return allErrors, nil
+}
+
+func validateElasticJob(job *sparkv1beta2.SparkApplication) field.ErrorList {
+	allErrors := field.ErrorList{}
+
+	workloadSliceSchedulingGate := corev1.PodSchedulingGate{
+		Name: kueue.ElasticJobSchedulingGate,
+	}
+
+	var schedulingGates []corev1.PodSchedulingGate
+	if job.Spec.Executor.Template != nil {
+		schedulingGates = job.Spec.Executor.Template.Spec.SchedulingGates
+	}
+	if !slices.Contains(schedulingGates, workloadSliceSchedulingGate) {
+		allErrors = append(
+			allErrors,
+			field.Invalid(
+				executorSpecPath.Child("template").Child("spec").Child("schedulingGates"),
+				schedulingGates,
+				"an elastic job must have the ElasticJobSchedulingGate",
+			),
+		)
+	}
+
+	return allErrors
 }
 
 func (w *SparkApplicationWebhook) validateTopologyRequest(ctx context.Context, sparkApp *SparkApplication) (field.ErrorList, error) {

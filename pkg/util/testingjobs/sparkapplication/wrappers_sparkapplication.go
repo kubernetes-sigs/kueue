@@ -227,6 +227,30 @@ func (w *SparkApplicationWrapper) ExecutorTemplate(t *corev1.PodTemplateSpec) *S
 	return w
 }
 
+// ExecutorSchedulingGates sets scheduling gates on the executor pod template.
+func (w *SparkApplicationWrapper) ExecutorSchedulingGates(gates ...corev1.PodSchedulingGate) *SparkApplicationWrapper {
+	if w.Spec.Executor.Template == nil {
+		w.Spec.Executor.Template = &corev1.PodTemplateSpec{}
+	}
+	w.Spec.Executor.Template.Spec.SchedulingGates = gates
+	return w
+}
+
+// AppState sets the application state in the status.
+func (w *SparkApplicationWrapper) AppState(state sparkappv1beta2.ApplicationStateType) *SparkApplicationWrapper {
+	w.Status.AppState.State = state
+	return w
+}
+
+// ExecutorState sets the state of an executor in the status.
+func (w *SparkApplicationWrapper) ExecutorState(name string, state sparkappv1beta2.ExecutorState) *SparkApplicationWrapper {
+	if w.Status.ExecutorState == nil {
+		w.Status.ExecutorState = make(map[string]sparkappv1beta2.ExecutorState)
+	}
+	w.Status.ExecutorState[name] = state
+	return w
+}
+
 // Queue sets the local queue name in the annotations.
 func (w *SparkApplicationWrapper) Queue(lq string) *SparkApplicationWrapper {
 	return w.Label(controllerconstants.QueueLabel, lq)

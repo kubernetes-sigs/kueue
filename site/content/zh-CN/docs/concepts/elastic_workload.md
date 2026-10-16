@@ -64,6 +64,10 @@ description: >
 
 参见[运行 RayService](/zh-cn/docs/tasks/run/rayservices)
 
+## SparkApplication
+
+参见[运行 SparkApplication](/zh-cn/docs/tasks/run/kubeflow/sparkapplications)
+
 ## 特性门控
 
 通过工作负载切片实现的弹性工作负载由以下特性门控控制：
@@ -87,6 +91,7 @@ metadata:
     * `ray.io/v1.RayJob`
     * `ray.io/v1.RayCluster`
     * `ray.io/v1.RayService`
+    * `sparkoperator.k8s.io/v1beta2.SparkApplication`
 * 对于启用了部分准入的 Job，不支持弹性工作负载。
 
     * 尝试扩缩启用了部分准入的 Job 将导致准入验证错误，类似于以下内容：
