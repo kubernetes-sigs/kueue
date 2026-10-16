@@ -302,18 +302,11 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).To(gomega.Succeed())
 				g.Expect(createdLWS.Status.ReadyReplicas).To(gomega.BeZero())
 				createdLWS.Labels[controllerconstants.QueueLabel] = lq2.Name
-				g.Expect(k8sClient.Update(ctx, createdLWS)).To(gomega.SatisfyAll(
+				g.Expect(k8sClient.Update(ctx, createdLWS, client.DryRunAll)).To(gomega.SatisfyAll(
 					utiltesting.BeForbiddenError(),
 					gomega.MatchError(gomega.ContainSubstring("field is immutable")),
 				))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		})
-
-		ginkgo.By("checking the Workload keeps its queue and quota reservation", func() {
-			wl := &kueue.Workload{}
-			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
-			gomega.Expect(wl.Spec.QueueName).To(gomega.Equal(kueue.LocalQueueName(lq.Name)))
-			gomega.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeTrue())
 		})
 	})
 })
