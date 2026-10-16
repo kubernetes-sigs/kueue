@@ -484,7 +484,7 @@ func TestUpdateSkipsRequeueForOnHoldWorkload(t *testing.T) {
 	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Obj(), false)
 	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
 
-	if got := reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+	if got := reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
 		ObjectOld: oldWl,
 		ObjectNew: newWl,
 	}); !got {
@@ -540,14 +540,14 @@ func TestUpdateRemovesStaleQueueEntryForOnHoldWorkload(t *testing.T) {
 	setupClusterQueue(ctx, t, cl, qManager, cqCache, utiltestingapi.MakeClusterQueue("cq").Obj(), false)
 	setupLocalQueue(ctx, t, cl, qManager, utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(), false)
 
-	if err := qManager.AddOrUpdateWorkload(log, oldWl); err != nil {
+	if err := qManager.AddOrUpdateWorkload(ctx, log, oldWl); err != nil {
 		t.Fatalf("AddOrUpdateWorkload() error = %v", err)
 	}
 	if pending := qManager.PendingWorkloadsInfo("cq"); len(pending) != 1 {
 		t.Fatalf("expected one pending workload before update, got %d", len(pending))
 	}
 
-	if got := reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+	if got := reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
 		ObjectOld: oldWl,
 		ObjectNew: newWl,
 	}); !got {
@@ -660,7 +660,7 @@ func TestUpdateSettlesAfsEntryPenalty(t *testing.T) {
 			}
 			qManager.AfsUsageLedger.PushPenalty(lqKey, queueafs.WorkloadReference(workload.Key(tc.newWl)), seeded, time.Now())
 
-			reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+			reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{
 				ObjectOld: tc.oldWl.DeepCopy(),
 				ObjectNew: tc.newWl.DeepCopy(),
 			})
@@ -1981,6 +1981,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				clientBuilder := utiltesting.NewClientBuilder().
 					WithObjects(objs...).
 					WithStatusSubresource(objs...).
+					WithIndex(&corev1.LimitRange{}, utilindexer.LimitRangeHasContainerOrPodType, utilindexer.IndexLimitRangeHasContainerOrPodType).
 					WithInterceptorFuncs(interceptor.Funcs{
 						SubResourcePatch: func(ctx context.Context, client client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
 							if tc.patchErr != nil {
@@ -2593,7 +2594,7 @@ func TestDeleteSubtractsPendingAfsEntryPenalty(t *testing.T) {
 	qManager.AfsUsageLedger.PushPenalty(lqKey, queueafs.WorkloadReference(workload.Key(wl)),
 		corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}, now)
 
-	reconciler.Delete(event.TypedDeleteEvent[*kueue.Workload]{Object: wl})
+	reconciler.handleDelete(t.Context(), event.TypedDeleteEvent[*kueue.Workload]{Object: wl})
 
 	if qManager.AfsUsageLedger.HasPendingPenalty(lqKey) {
 		t.Errorf("deleting a quota-reserved workload left its entry penalty pending: %v",
@@ -2661,7 +2662,7 @@ func TestUpdateDropsUnsettleableAfsEntryPenalty(t *testing.T) {
 			qManager.AfsUsageLedger.PushPenalty("ns/lq", queueafs.WorkloadReference(workload.Key(tc.oldWl)),
 				corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}, now)
 
-			reconciler.Update(event.TypedUpdateEvent[*kueue.Workload]{
+			reconciler.handleUpdate(t.Context(), event.TypedUpdateEvent[*kueue.Workload]{
 				ObjectOld: tc.oldWl.DeepCopy(),
 				ObjectNew: tc.newWl.DeepCopy(),
 			})

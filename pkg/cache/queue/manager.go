@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -518,16 +519,14 @@ func (m *Manager) addLocalQueueLocked(ctx context.Context, q *kueue.LocalQueue) 
 			continue
 		}
 
-		log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(&w))
-		if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
+		wInfo := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
+		if dra.NeedsDRAReconcile(wInfo, m.draBackedResources) {
 			// Collect DRA workloads to send outside the lock; DeepCopy keeps a
 			// stable pointer since the range variable is reused each iteration.
 			draWorkloads = append(draWorkloads, w.DeepCopy())
 			continue
 		}
 
-		workload.AdjustResources(ctx, m.client, &w)
-		wInfo := workload.NewInfo(log, &w, m.workloadInfoOptions...)
 		qImpl.AddOrUpdate(wInfo)
 	}
 
@@ -698,16 +697,16 @@ func (m *Manager) GetNoFitReason(wl *kueue.Workload) (string, bool) {
 
 // AddOrUpdateWorkload adds or updates workload to the corresponding queue.
 // Returns whether the queue existed.
-func (m *Manager) AddOrUpdateWorkload(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
+func (m *Manager) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	m.Lock()
 	defer m.Unlock()
 	if features.Enabled(features.ConcurrentAdmission) && m.IsConcurrentAdmissionParentWithoutLock(w) {
 		return nil
 	}
-	return m.AddOrUpdateWorkloadWithoutLock(log, w, opts...)
+	return m.AddOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
 }
 
-func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
+func (m *Manager) AddOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) error {
 	if !workload.IsAdmissible(w) {
 		return errWorkloadIsInadmissible
 	}
@@ -725,7 +724,7 @@ func (m *Manager) AddOrUpdateWorkloadWithoutLock(log logr.Logger, w *kueue.Workl
 		return ErrLocalQueueDoesNotExistOrInactive
 	}
 	allOptions := append(m.workloadInfoOptions, opts...)
-	wInfo := workload.NewInfo(log, w, allOptions...)
+	wInfo := workload.NewInfoFromClient(ctrl.LoggerInto(ctx, log), m.client, w, allOptions...)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
 	// Rebuilding the Info would drop the flavor scan progress an earlier cycle recorded, so
@@ -798,9 +797,9 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 	if q == nil {
 		return false, nil
 	}
-	log := ctrl.LoggerFrom(ctx)
-	workload.AdjustResources(ctx, m.client, &w)
-	if dra.NeedsDRAReconcile(&w, m.draBackedResources) {
+	fresh := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
+	options := append(slices.Clone(m.workloadInfoOptions), workload.WithEffectivePodSpecs(fresh.EffectivePodSpecs))
+	if dra.NeedsDRAReconcile(fresh, m.draBackedResources) {
 		// DRA quota charges are resolved by the workload controller and cannot be
 		// rebuilt here, because the spec carries resourceClaims rather than the quota
 		// keys they translate to. Charges preprocessed for an older generation would
@@ -812,10 +811,9 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 		if features.Enabled(features.KueueDRAIntegration) && info.Obj.Generation != w.Generation {
 			return false, w.DeepCopy()
 		}
-		info.Update(log, &w, workload.WithPreserveTotalRequests())
-	} else {
-		info.Update(log, &w, m.workloadInfoOptions...)
+		options = append(options, workload.WithPreserveTotalRequests())
 	}
+	info.Update(ctrl.LoggerFrom(ctx), &w, options...)
 	m.addWorkload(info, q)
 
 	cq := m.hm.ClusterQueue(q.ClusterQueue)
@@ -1059,9 +1057,9 @@ func (m *Manager) QueueSecondPassIfNeeded(ctx context.Context, w *kueue.Workload
 		delay := m.secondPassQueue.nextDelay(iteration)
 		log.V(3).Info("Workload pre-queued for second pass (with backoff)", "workload", wlKey, "delay", delay)
 		nsName := client.ObjectKeyFromObject(w)
-		// The delayed pass outlives the caller's context (it does a client read).
+		// Callers pass the controller or scheduler lifetime, which also owns delayed reads.
 		m.clock.AfterFunc(delay, func() {
-			m.queueSecondPass(context.WithoutCancel(ctx), nsName, iteration)
+			m.queueSecondPass(ctx, nsName, iteration)
 		})
 		return true
 	} else if iteration > 0 {
@@ -1094,16 +1092,16 @@ func (m *Manager) queueSecondPass(ctx context.Context, nsName client.ObjectKey, 
 			m.secondPassQueue.deleteByKeyLocked(wlKey)
 			return
 		}
+		if ctx.Err() != nil {
+			m.secondPassQueue.deleteByKeyLocked(wlKey)
+			return
+		}
 		// Keep ownership of the pass: a transient read error retries after backoff.
 		log.Error(err, "Failed to re-read workload for second pass; will retry", "workload", wlKey)
 		m.retrySecondPassRead(ctx, nsName, iteration+1)
 		return
 	}
-	// DeepCopy before AdjustResources; never normalize a shared or persistable object in place.
-	w = *w.DeepCopy()
-	// Normalize like every other queue entry point (limits-to-requests, overhead, LimitRanges).
-	workload.AdjustResources(ctx, m.client, &w)
-	wInfo := workload.NewInfo(log, &w, m.workloadInfoOptions...)
+	wInfo := workload.NewInfoFromClient(ctx, m.client, &w, m.workloadInfoOptions...)
 	wInfo.SecondPassIteration = iteration
 	if m.secondPassQueue.queueLocked(wInfo) {
 		log.V(3).Info("Workload queued for second pass of scheduling", "workload", wlKey)
@@ -1116,7 +1114,7 @@ func (m *Manager) retrySecondPassRead(ctx context.Context, nsName client.ObjectK
 	delay := m.secondPassQueue.nextDelay(iteration)
 	// Clock callbacks may not support registering a timer from inside a callback.
 	go m.clock.AfterFunc(delay, func() {
-		m.queueSecondPass(context.WithoutCancel(ctx), nsName, iteration)
+		m.queueSecondPass(ctx, nsName, iteration)
 	})
 }
 

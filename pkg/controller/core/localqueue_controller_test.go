@@ -924,7 +924,7 @@ func TestLocalQueueReconcile(t *testing.T) {
 			}
 			_ = cqCache.AddLocalQueue(tc.localQueue)
 			for _, wl := range tc.runningWls {
-				cqCache.AddOrUpdateWorkload(log, &wl)
+				cqCache.AddOrUpdateWorkload(t.Context(), log, &wl)
 			}
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
 			if err := qManager.AddClusterQueue(ctxWithLogger, tc.clusterQueue); err != nil {
@@ -1263,7 +1263,7 @@ func TestLocalQueueCustomLabelUpdateMetricRefresh(t *testing.T) {
 			}
 			r.Create(event.TypedCreateEvent[*kueue.LocalQueue]{Object: lq})
 			wl := utiltestingapi.MakeWorkload("wl", "default").Queue(kueue.LocalQueueName(lq.Name)).Obj()
-			if err := qManager.AddOrUpdateWorkload(log, wl); err != nil {
+			if err := qManager.AddOrUpdateWorkload(ctx, log, wl); err != nil {
 				t.Fatalf("Adding workload to manager: %v", err)
 			}
 

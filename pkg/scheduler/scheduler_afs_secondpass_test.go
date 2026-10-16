@@ -154,7 +154,7 @@ func TestSecondPassDoesNotRepushEntryPenalty(t *testing.T) {
 	if err := cl.Get(ctx, client.ObjectKeyFromObject(&wl), storedWl); err != nil {
 		t.Fatalf("getting workload: %v", err)
 	}
-	cqCache.AddOrUpdateWorkload(log, storedWl)
+	cqCache.AddOrUpdateWorkload(t.Context(), log, storedWl)
 	if !qManager.QueueSecondPassIfNeeded(ctx, &wl, 0) {
 		t.Fatal("expected the workload to be queued for a second pass")
 	}

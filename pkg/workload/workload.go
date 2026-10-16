@@ -117,6 +117,8 @@ type dra struct {
 }
 
 type InfoOptions struct {
+	adjustmentInputs         AdjustmentInputs
+	effectivePodSpecs        *[]corev1.PodSpec
 	excludedResourcePrefixes []string
 	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation
 	preserveTotalRequests    bool
@@ -169,7 +171,12 @@ type PodSetResourcesToFlavors map[kueue.PodSetReference]ResourceToFlavor
 
 // Info holds a Workload object and some pre-processing.
 type Info struct {
+	// Obj is the read-only API representation. Copy it before making any changes.
 	Obj *kueue.Workload
+	// EffectivePodSpecs contains the defaulted resource view, in Obj.Spec.PodSets order.
+	// It is nil when the effective specs equal the original specs.
+	// Consumers must treat these specs as read-only. Obj retains the API representation.
+	EffectivePodSpecs []corev1.PodSpec
 	// list of total resources requested by the podsets.
 	TotalRequests []PodSetResources
 	// Populated from the queue during admission or from the admission field if
@@ -289,7 +296,7 @@ func NewInfo(log logr.Logger, w *kueue.Workload, opts ...InfoOption) *Info {
 // updateSchedulingHash computes and sets the scheduling hash using the
 // provided contextual logger. Called internally by Update.
 func (i *Info) updateSchedulingHash(log logr.Logger) {
-	i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests)
+	i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests, i.EffectivePodSpecs)
 }
 
 // Update refreshes the object reference, rebuilds TotalRequests, and
@@ -310,10 +317,11 @@ type schedulingHashInputs struct {
 	hash     EquivalenceHash
 	obj      *kueue.Workload
 	requests []PodSetResources
+	specs    []corev1.PodSpec
 }
 
 func (i *Info) snapshotHashInputs() schedulingHashInputs {
-	return schedulingHashInputs{hash: i.SchedulingHash, obj: i.Obj, requests: i.TotalRequests}
+	return schedulingHashInputs{hash: i.SchedulingHash, obj: i.Obj, requests: i.TotalRequests, specs: i.EffectivePodSpecs}
 }
 
 // shouldUpdateSchedulingHash reports whether prev's hash is missing or no longer
@@ -322,7 +330,8 @@ func (i *Info) snapshotHashInputs() schedulingHashInputs {
 func (i *Info) shouldUpdateSchedulingHash(prev schedulingHashInputs) bool {
 	return prev.hash == "" ||
 		!prev.sameWorkloadVersion(i.Obj) ||
-		!sameHashedRequests(prev.requests, i.TotalRequests)
+		!sameHashedRequests(prev.requests, i.TotalRequests) ||
+		!equality.Semantic.DeepEqual(prev.specs, i.EffectivePodSpecs)
 }
 
 // sameWorkloadVersion reports whether wl is the version the hash was computed
@@ -359,6 +368,11 @@ func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
 	for _, opt := range opts {
 		opt(&options)
 	}
+	if options.effectivePodSpecs != nil {
+		i.EffectivePodSpecs = *options.effectivePodSpecs
+	} else {
+		i.EffectivePodSpecs = effectivePodSpecs(i.Obj, options.adjustmentInputs)
+	}
 	admitted := i.Obj.Status.Admission != nil
 	if admitted {
 		i.ClusterQueue = i.Obj.Status.Admission.ClusterQueue
@@ -367,9 +381,9 @@ func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
 	}
 	if !options.preserveTotalRequests {
 		if admitted {
-			i.TotalRequests = totalRequestsFromAdmission(i.Obj)
+			i.TotalRequests = totalRequestsFromAdmission(i)
 		} else {
-			i.TotalRequests = totalRequestsFromPodSets(i.Obj, &options)
+			i.TotalRequests = totalRequestsFromPodSets(i, &options)
 		}
 	}
 }
@@ -378,7 +392,7 @@ func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
 // scheduling-relevant shape: effective workload priority, pod spec (via
 // SpecShape), effective count, total and per-Pod requests, minCount, and
 // topologyRequest per PodSet.
-func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []PodSetResources) EquivalenceHash {
+func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []PodSetResources, specs []corev1.PodSpec) EquivalenceHash {
 	if !features.Enabled(features.SchedulingEquivalenceHashing) {
 		return SchedulingHashUnknown
 	}
@@ -392,8 +406,12 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 			effectiveRequests = totalRequests[i].Requests
 			perPodRequests = totalRequests[i].PerPodRequests
 		}
+		spec := &ps.Template.Spec
+		if i < len(specs) {
+			spec = &specs[i]
+		}
 		podSetShape := map[string]any{
-			"spec":            utilpod.SpecShape(&ps.Template.Spec),
+			"spec":            utilpod.SpecShape(spec),
 			"count":           effectiveCount,
 			"requests":        resources.ToMap(effectiveRequests),
 			"perPodRequests":  resources.ToMap(perPodRequests),
@@ -689,24 +707,25 @@ func subtractReplacedRequestsFrom(retained corev1.ResourceList, spec *corev1.Pod
 	}
 }
 
-func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetResources {
+func totalRequestsFromPodSets(wi *Info, info *InfoOptions) []PodSetResources {
+	wl := wi.Obj
 	if len(wl.Spec.PodSets) == 0 {
 		return nil
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
 	currentCounts := podSetsCountsAfterReclaim(wl)
-	for _, ps := range wl.Spec.PodSets {
+	for i, ps := range wl.Spec.PodSets {
 		count := currentCounts[ps.Name]
 		setRes := PodSetResources{
 			Name:  ps.Name,
 			Count: count,
 		}
-		specRequests := resources.PodRequests(&ps.Template.Spec)
+		specRequests := resources.PodRequests(wi.PodSpec(i))
 		retained, generated := applyResourceTransformations(specRequests, info.resourceTransformations)
 		retained = dropExcludedResources(retained, info.excludedResourcePrefixes)
 		if features.Enabled(features.KueueDRAIntegration) && info.preprocessedDRAResources != nil {
 			if replacedRes, exists := info.replacedExtendedResources[ps.Name]; exists {
-				subtractReplacedRequestsFrom(retained, &ps.Template.Spec, replacedRes)
+				subtractReplacedRequestsFrom(retained, wi.PodSpec(i), replacedRes)
 			}
 			// Then, add the DRA logical resources
 			//
@@ -729,7 +748,8 @@ func totalRequestsFromPodSets(wl *kueue.Workload, info *InfoOptions) []PodSetRes
 	return res
 }
 
-func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
+func totalRequestsFromAdmission(wi *Info) []PodSetResources {
+	wl := wi.Obj
 	if wl.Status.Admission == nil {
 		return nil
 	}
@@ -748,8 +768,8 @@ func totalRequestsFromAdmission(wl *kueue.Workload) []PodSetResources {
 				Levels: psa.TopologyAssignment.Levels,
 			}
 			singlePodRequests := setRes.SinglePodRequests()
-			if ps := podset.FindPodSetByName(wl.Spec.PodSets, psa.Name); ps != nil {
-				singlePodRequests = resources.NewRequestsFromPodSpec(&ps.Template.Spec)
+			if spec := wi.PodSpecByName(psa.Name); spec != nil {
+				singlePodRequests = resources.NewRequestsFromPodSpec(spec)
 			}
 			for req := range tas.InternalSeqFrom(psa.TopologyAssignment) {
 				setRes.TopologyRequest.DomainRequests = append(setRes.TopologyRequest.DomainRequests, TopologyDomainRequests{
