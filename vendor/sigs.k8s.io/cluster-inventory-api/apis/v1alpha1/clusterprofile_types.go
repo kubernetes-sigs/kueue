@@ -77,8 +77,7 @@ type ClusterProfileStatus struct {
 
 	// CredentialProviders is a list of cluster access providers that can provide access
 	// information for clusters.
-	// Deprecated: Use AccessProviders instead. If both AccessProviders and CredentialProviders are provided,
-	// both are used. In case they specify a provider with the same name, the one in AccessProviders is preferred.
+	// Deprecated: Use AccessProviders instead. This field is kept for v1alpha1 compatibility.
 	// +optional
 	// +deprecated
 	// +listType=map
@@ -155,6 +154,13 @@ const (
 	// The purpose of this label is to make filter clusters from different cluster managers easier.
 	LabelClusterManagerKey = "x-k8s.io/cluster-manager"
 
+	// LabelInventoryMemberIDKey correlates ClusterProfiles that represent the same member cluster.
+	// When set, the value MUST be non-empty. The platform administrator SHOULD coordinate values
+	// on a hub so that the same member cluster uses the same value and different member clusters
+	// use different values. Cluster managers SHOULD keep the value unchanged while a ClusterProfile
+	// continues to represent the same member cluster.
+	LabelInventoryMemberIDKey = "multicluster.x-k8s.io/inventory-member-id"
+
 	// LabelClusterSetKey is used on a namespace to indicate the clusterset that a ClusterProfile belongs to.
 	// If a cluster inventory represents a ClusterSet,
 	// all its ClusterProfile objects MUST be part of the same clusterSet
@@ -166,7 +172,9 @@ const (
 //+genclient
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
-//+kubebuilder:resource:scope=Namespaced
+//+kubebuilder:resource:scope=Namespaced,categories=multicluster
+//+kubebuilder:storageversion
+//+kubebuilder:deprecatedversion:warning="multicluster.x-k8s.io/v1alpha1 ClusterProfile is deprecated; use multicluster.x-k8s.io/v1alpha2"
 
 // ClusterProfile represents a single cluster in a multi-cluster deployment.
 type ClusterProfile struct {

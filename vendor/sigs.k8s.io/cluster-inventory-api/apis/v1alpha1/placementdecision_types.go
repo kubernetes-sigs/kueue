@@ -66,7 +66,9 @@ type ClusterDecision struct {
 
 //+genclient
 //+kubebuilder:object:root=true
-//+kubebuilder:resource:scope=Namespaced
+//+kubebuilder:resource:scope=Namespaced,categories=multicluster
+//+kubebuilder:storageversion
+//+kubebuilder:deprecatedversion:warning="multicluster.x-k8s.io/v1alpha1 PlacementDecision is deprecated; use multicluster.x-k8s.io/v1alpha2"
 
 // PlacementDecision publishes the set of clusters chosen by a scheduler at a point in time.
 // It is a data-only resource that acts as the interface between schedulers and consumers.
