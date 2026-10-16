@@ -1696,7 +1696,7 @@ k8s.io/kube-openapi/pkg/validation/errors
 k8s.io/kube-openapi/pkg/validation/spec
 k8s.io/kube-openapi/pkg/validation/strfmt
 k8s.io/kube-openapi/pkg/validation/strfmt/bson
-# k8s.io/kube-scheduler v0.37.0
+# k8s.io/kube-scheduler v0.37.1
 ## explicit; go 1.26.0
 k8s.io/kube-scheduler/config/v1
 k8s.io/kube-scheduler/extender/v1

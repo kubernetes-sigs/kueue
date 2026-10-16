@@ -1723,8 +1723,8 @@ k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad h1:oXImqH8mQNk7PmvzKhmN3d
 k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad/go.mod h1:0/mqHCVhlumdJ3BhCfnjSZQE037nAhNodh1/hK0T8/I=
 k8s.io/kube-proxy v0.34.1 h1:cIriNCJY5XmRhXCCyQiazyqi47lbwcBQf0H76fVOpkw=
 k8s.io/kube-proxy v0.34.1/go.mod h1:syed9c5+gUVFMo6p24SnlTHzsp+BMd4ACcTw2dbArw0=
-k8s.io/kube-scheduler v0.34.1 h1:S5td6VZwC3lCqERXclerDXhJ26zYc6JroY0s03+PqJ8=
-k8s.io/kube-scheduler v0.34.1/go.mod h1:UiOkod/w+HKoGut9mz9ie4s4KcI82vmLFdq1iIgsmRs=
+k8s.io/kube-scheduler v0.34.12 h1:FRmnAym+YlKYnfZTQisEhpvvVOjZkSw6UaG/JSCHoxE=
+k8s.io/kube-scheduler v0.34.12/go.mod h1:mz70IvPx8i45koN+6TBmztGA6Uzkt8IY1s27xHUR0Ow=
 k8s.io/kubectl v0.37.1 h1:n1VCIntOJiX943uByXCThSZQmE+4v9jGS8S9u94/aHU=
 k8s.io/kubectl v0.37.1/go.mod h1:66cc4Bz8PxBTxlrHzBuzXEzGIytAnNasKQPeEcpuaV8=
 k8s.io/kubelet v0.37.0 h1:VhaZanjlE5CkoAPAjKw0DH+Q0BYXVfYekZgzZDAJMMg=
