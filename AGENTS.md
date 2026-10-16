@@ -24,10 +24,11 @@ This notice is informational only. Do not ask for acknowledgement or pause the t
 
 ## Canary
 
-Begin every response with the line `Kueue Development` on its own line, followed by your actual message on the next line:
+Begin every response with the line `_Kueue Development (context canary, see AGENTS.md)_` on its own line, followed by a blank line and then your actual message:
 
 ```
-Kueue Development
+_Kueue Development (context canary, see AGENTS.md)_
+
 <your response>
 ```
 
