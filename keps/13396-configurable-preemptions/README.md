@@ -377,7 +377,7 @@ And then to make sure that the hero job is never preempted, one may:
 
 1. Make the hero job's priority higher than any other workload's priority and do not allow preemption of workloads with higher or equal priority.
 2. Define in candidate selectors subfield `ClusterQueueSelector` of other preemption configs that they cannot preempt from the hero job's CQ.
-3. In future, use a `PreemptionLimit` with 0 allowed preemptions from the hero job's CQ (see [Preemption Limits](/keps/16925-preemption-limits/README.md)).
+3. In the future, use a `PreemptionLimit` with a limit of 0 for preemptions of workloads in the hero job's CQ, ensuring that hero jobs will not be preempted (see [Preemption Limits](/keps/16925-preemption-limits/README.md)).
 
 Thanks to the elevated preemption privileges, the hero job will be able to preempt any workload and borrow quota from other CQs in the cohort tree (this job will still be affected by lending limits — so they have to be set appropriately to allow for gathering quota). It will also effectively lock this quota, as no other workload will be able to preempt it.
 
