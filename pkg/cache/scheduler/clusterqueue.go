@@ -23,6 +23,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -116,6 +117,13 @@ type clusterQueue struct {
 	customLabels *metrics.CustomLabels
 
 	lqMetrics *metrics.LocalQueueMetricsConfig
+
+	// lqAdmittedActiveResync serializes the rebuilds of the LocalQueue admitted
+	// active workloads series. The resyncs that rebuild them hold only the cache
+	// read lock, so two rebuilds could otherwise interleave their clears and adds
+	// and count some workloads twice. A LocalQueue is always rebuilt through its
+	// ClusterQueue, so one mutex per ClusterQueue is enough.
+	lqAdmittedActiveResync sync.Mutex
 }
 
 func (c *clusterQueue) GetName() kueue.ClusterQueueReference {
@@ -595,6 +603,8 @@ func (c *clusterQueue) resyncLocalQueueAdmittedActiveWorkloads(lqKeys sets.Set[q
 	if !c.lqMetrics.IsEnabled() {
 		return
 	}
+	c.lqAdmittedActiveResync.Lock()
+	defer c.lqAdmittedActiveResync.Unlock()
 	for lqKey := range lqKeys {
 		namespace, lqName := queue.MustParseLocalQueueReference(lqKey)
 		metrics.ClearLocalQueueAdmittedActiveWorkloadsSeries(metrics.LocalQueueReference{Name: lqName, Namespace: namespace})
