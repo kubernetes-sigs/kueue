@@ -1361,13 +1361,151 @@ func TestScheduleErrorHandling(t *testing.T) {
 	}, cases)
 }
 
+// TestScheduleNoFitReasonSchedulerLibrary verifies that, when the WAS planner
+// fails to place the Workload on the selected flavor, the reported
+// QuotaReserved reason reflects that failure instead of a more severe quota
+// failure of a previously attempted flavor.
+func TestScheduleNoFitReasonSchedulerLibrary(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	singleNode := []corev1.Node{
+		*testingnode.MakeNode("x1").
+			Label("tas-node", "true").
+			Label(corev1.LabelHostname, "x1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("1"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+	}
+	topology := *utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
+	// The no-fit flavor is attempted first and does not fit the quota,
+	// so the tas-main test flavor is selected by the flavor assigner.
+	resourceFlavors := []kueue.ResourceFlavor{
+		*utiltestingapi.MakeResourceFlavor("tas-no-fit").
+			NodeLabel("tas-node", "no-fit").
+			TopologyName("tas-single-level").
+			Obj(),
+		*utiltestingapi.MakeResourceFlavor("tas-default").
+			NodeLabel("tas-node", "true").
+			TopologyName("tas-single-level").
+			Obj(),
+	}
+	clusterQueues := []kueue.ClusterQueue{
+		*utiltestingapi.MakeClusterQueue("tas-main").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("tas-no-fit").Resource(corev1.ResourceCPU, "0").Obj(),
+				*utiltestingapi.MakeFlavorQuotas("tas-default").Resource(corev1.ResourceCPU, "1").Obj(),
+			).
+			Obj(),
+	}
+	queues := []kueue.LocalQueue{
+		*utiltestingapi.MakeLocalQueue("tas-main", "default").ClusterQueue("tas-main").Obj(),
+	}
+	deepIntegrationGates := map[featuregate.Feature]bool{
+		features.SchedulerLibraryIntegration:     true,
+		features.SchedulerLibraryDeepIntegration: true,
+	}
+	eventIgnoreMessage := cmpopts.IgnoreFields(utiltesting.EventRecord{}, "Message")
+
+	wlBase := utiltestingapi.MakeWorkload("wl", "default").
+		Queue("tas-main").
+		PodSets(*utiltestingapi.MakePodSet("main", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "1").
+			Obj())
+	wlNotReserved := func(reason, message string) kueue.Workload {
+		return *wlBase.Clone().
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadQuotaReserved,
+				Status:             metav1.ConditionFalse,
+				Reason:             reason,
+				Message:            message,
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			Condition(metav1.Condition{
+				Type:               kueue.WorkloadAdmitted,
+				Status:             metav1.ConditionFalse,
+				Reason:             kueue.WorkloadAdmittedReasonNoReservation,
+				Message:            "The workload has no reservation",
+				LastTransitionTime: metav1.NewTime(now),
+			}).
+			ResourceRequests(kueue.PodSetRequest{
+				Name: "main",
+				Resources: corev1.ResourceList{
+					corev1.ResourceCPU: resource.MustParse("1"),
+				},
+			}).
+			Obj()
+	}
+
+	cases := map[string]tasScheduleTestCase{
+		"simulation fails on the selected flavor: reported as SimulationFailed": {
+			nodes:           singleNode,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: resourceFlavors,
+			clusterQueues:   clusterQueues,
+			workloads:       []kueue.Workload{*wlBase.Clone().Obj()},
+			simulatorOverride: func() simulator.SchedulerSimulator {
+				return &mockWorkloadScheduler{
+					placementErr: errors.New("Insufficient cpu"),
+				}
+			},
+			wantWorkloads: []kueue.Workload{
+				wlNotReserved(kueue.WorkloadQuotaReservedReasonSimulationFailed,
+					"failed to assign flavors to pod set main: pod: default/virtual-wl-main-0-98764, error: Insufficient cpu"),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-main": {"default/wl"},
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl", kueue.WorkloadQuotaReservedReasonSimulationFailed, corev1.EventTypeWarning).Obj(),
+			},
+			featureGates: deepIntegrationGates,
+		},
+		"topology placement fails on the selected flavor: reported as TopologyPlacementFailed": {
+			nodes:           singleNode,
+			topologies:      []kueue.Topology{topology},
+			resourceFlavors: resourceFlavors,
+			clusterQueues:   clusterQueues,
+			workloads:       []kueue.Workload{*wlBase.Clone().Obj()},
+			simulatorOverride: func() simulator.SchedulerSimulator {
+				return &mockWorkloadScheduler{
+					placementNode: "unknown-node",
+				}
+			},
+			wantWorkloads: []kueue.Workload{
+				wlNotReserved(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+					"couldn't assign flavors to pod set main: node unknown-node is not defined in the known topology"),
+			},
+			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+				"tas-main": {"default/wl"},
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "wl", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed, corev1.EventTypeWarning).Obj(),
+			},
+			featureGates: deepIntegrationGates,
+		},
+	}
+	runTASScheduleTestCases(t, tasScheduleTestConfig{
+		queues: queues,
+		now:    now,
+	}, cases)
+}
+
 type mockWorkloadScheduler struct {
 	simulator.SchedulerSimulator
 
 	placementNode types.NodeName
+	// placementErr, when set, makes every Pod fail to be placed with this error.
+	placementErr error
 
 	injectError error
-	swFailAt    int
+	// swFailAt marks at and after which call should the ShceduleWorkload
+	// method return an error. When not set, ShceduleWorkload will awlays succeed.
+	swFailAt int
 
 	swCallsCount int
 }
@@ -1391,11 +1529,18 @@ func (s *mockWorkloadScheduler) FindFeasibleNodes(
 
 func (s *mockWorkloadScheduler) ScheduleWorkload(_ context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
 	s.swCallsCount++
-	if s.swCallsCount >= s.swFailAt {
+	if s.swFailAt != 0 && s.swCallsCount >= s.swFailAt {
 		return simulator.SchedulingResult{Error: s.injectError}
 	}
 	placements := make(simulator.PodPlacements, len(workloadPods))
 	for _, pod := range workloadPods {
+		if s.placementErr != nil {
+			placements[client.ObjectKeyFromObject(pod)] = &simulator.PodPlacement{
+				Error:   s.placementErr,
+				Reasons: []string{s.placementErr.Error()},
+			}
+			continue
+		}
 		placements[client.ObjectKeyFromObject(pod)] = &simulator.PodPlacement{Node: s.placementNode}
 	}
 	return simulator.SchedulingResult{PodPlacements: placements}

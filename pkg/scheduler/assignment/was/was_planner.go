@@ -29,6 +29,7 @@ import (
 	schedcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/constants"
+	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -82,16 +83,10 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 
 	placementSummary, failures := groupByPodSet(pods, schedulingResult.PodPlacements)
 
-	// Record the scheduling failures of Pods that failed to secure any Placement.
-	for psRef, summary := range failures {
-		plan.Assignment.ResolvePodSetFailure(
-			psRef,
-			flavorassigner.NoFit,
-			summary.asStatus().WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
-		)
-	}
-	// If any failures occurred, we can already confirm the assignment to be a no-fit.
 	if len(failures) > 0 {
+		// Record the scheduling failures of Pods that failed to secure any Placement.
+		recordSimulationFailures(plan.Assignment, failures)
+		// If any failures occurred, we can already confirm the assignment to be a no-fit.
 		setNoFit(plan.Assignment, kueue.WorkloadQuotaReservedReasonSimulationFailed)
 		return
 	}
@@ -103,14 +98,8 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 
 	// Record topology assignments failures.
 	tasFails := tasAssignment.Failures()
-	for _, failure := range tasFails {
-		plan.Assignment.ResolvePodSetFailure(
-			failure.PodSetName,
-			flavorassigner.NoFit,
-			flavorassigner.NewStatus(failure.Reason).WithNoFitReason(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
-		)
-	}
 	if len(tasFails) > 0 {
+		recordTasFailures(plan.Assignment, tasFails)
 		setNoFit(plan.Assignment, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
 		return
 	}
@@ -118,6 +107,40 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 	// Update assignment for a successful TAS Result
 	plan.Assignment.UpdateForTASResult(log, cq, p.wl, tasAssignment)
 	return
+}
+
+func recordSimulationFailures(assignment *flavorassigner.Assignment, failures podSetFailureSummary) {
+	for psRef, summary := range failures {
+		assignment.ResolvePodSetFailure(
+			psRef,
+			flavorassigner.NoFit,
+			summary.asStatus().WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
+		)
+	}
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		for psRef := range failures {
+			psa := assignment.PodSetAssignmentByName(psRef)
+			for _, flv := range psa.Flavors {
+				psa.MarkFlavorAttempt(flv.Name, flavorassigner.NoFit, kueue.WorkloadQuotaReservedReasonSimulationFailed)
+			}
+		}
+	}
+}
+
+func recordTasFailures(assignment *flavorassigner.Assignment, failures []*schedcache.FailureInfo) {
+	for _, failure := range failures {
+		assignment.ResolvePodSetFailure(
+			failure.PodSetName,
+			flavorassigner.NoFit,
+			flavorassigner.NewStatus(failure.Reason).WithNoFitReason(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
+		)
+	}
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		for _, failure := range failures {
+			assignment.PodSetAssignmentByName(failure.PodSetName).
+				MarkFlavorAttempt(failure.Flavor, flavorassigner.NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
+		}
+	}
 }
 
 func setNoFit(a *flavorassigner.Assignment, reason string) {
