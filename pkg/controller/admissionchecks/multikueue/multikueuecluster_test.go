@@ -690,7 +690,7 @@ func TestUpdateConfig(t *testing.T) {
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpAccessProvider, nil, recorder, nil)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, tc.cpAccessProvider, nil, recorder, nil, false)
 
 			reconciler.rootContext = ctx
 
@@ -855,7 +855,7 @@ func TestReconnectBackoff(t *testing.T) {
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, recorder, nil)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, recorder, nil, false)
 			reconciler.rootContext = ctx
 
 			var buildCalls int
@@ -912,7 +912,7 @@ func TestDisconnectedClientReconnectsWithSameConfig(t *testing.T) {
 
 	adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
 	recorder := &utiltesting.EventRecorder{}
-	reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, recorder, nil)
+	reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &testClusterProfileAccessProvider{}, nil, recorder, nil, false)
 	reconciler.rootContext = ctx
 
 	var buildCalls int
@@ -989,7 +989,7 @@ func TestUpdateStatusRefreshesObservedGeneration(t *testing.T) {
 
 	cluster := utiltestingapi.MakeMultiKueueCluster("worker1").Obj()
 	managerClient := getClientBuilder(ctx).WithObjects(cluster).WithStatusSubresource(cluster).Build()
-	reconciler := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, nil, nil, nil, nil, nil)
+	reconciler := newClustersReconciler(managerClient, TestNamespace, 0, defaultOrigin, nil, nil, nil, nil, nil, nil, false)
 
 	if err := reconciler.updateStatus(ctx, cluster, true, "Active", "Connected"); err != nil {
 		t.Fatalf("initial updateStatus: %v", err)
@@ -1307,7 +1307,7 @@ func TestClustersReconcilerEventFilters(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 			c := getClientBuilder(ctx).Build()
 			recorder := &utiltesting.EventRecorder{}
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, newKubeConfigFSWatcher(), nil, &NoOpClusterProfileAccessProvider{}, nil, recorder, nil)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, newKubeConfigFSWatcher(), nil, &NoOpClusterProfileAccessProvider{}, nil, recorder, nil, false)
 			reconciler.rootContext = ctx
 
 			if got := tc.invoke(reconciler); got != tc.wantReconcile {
@@ -1557,7 +1557,7 @@ func TestSetRemoteClientConfigDoesNotBlockOtherClusters(t *testing.T) {
 		Build()
 
 	recorder := &utiltesting.EventRecorder{}
-	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileAccessProvider{}, nil, recorder, nil)
+	reconciler := newClustersReconciler(localClient, TestNamespace, 0, defaultOrigin, nil, nil, &NoOpClusterProfileAccessProvider{}, nil, recorder, nil, false)
 	reconciler.rootContext = ctx
 	reconciler.builderOverride = gatedBuilder
 	t.Cleanup(func() {
@@ -2001,7 +2001,7 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 				Build()
 
 			adapters, _ := jobframework.GetMultiKueueAdapters(sets.New("batch/job"))
-			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &NoOpClusterProfileAccessProvider{}, nil, &utiltesting.EventRecorder{}, tc.clientConn)
+			reconciler := newClustersReconciler(c, TestNamespace, 0, defaultOrigin, nil, adapters, &NoOpClusterProfileAccessProvider{}, nil, &utiltesting.EventRecorder{}, tc.clientConn, false)
 			reconciler.rootContext = ctx
 
 			var constructedRESTConfig *rest.Config
@@ -2032,6 +2032,30 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 			}
 			if got := constructedRESTConfig.RateLimiter != nil; got != tc.wantRateLimiter {
 				t.Errorf("unexpected constructed client RateLimiter presence: want %t, got %t", tc.wantRateLimiter, got)
+			}
+		})
+	}
+}
+
+func TestShouldWatchClusterProfiles(t *testing.T) {
+	cases := map[string]struct {
+		gateEnabled bool
+		crdPresent  bool
+		want        bool
+	}{
+		"gate off, crd absent":  {gateEnabled: false, crdPresent: false, want: false},
+		"gate off, crd present": {gateEnabled: false, crdPresent: true, want: false},
+		// Regression for issue 17133: gate on without the CRD must not register
+		// the watch, otherwise cache sync fails and the manager exits.
+		"gate on, crd absent":  {gateEnabled: true, crdPresent: false, want: false},
+		"gate on, crd present": {gateEnabled: true, crdPresent: true, want: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.MultiKueueClusterProfile, tc.gateEnabled)
+			c := &clustersReconciler{clusterProfileCRDPresent: tc.crdPresent}
+			if got := c.shouldWatchClusterProfiles(); got != tc.want {
+				t.Errorf("shouldWatchClusterProfiles() = %v, want %v", got, tc.want)
 			}
 		})
 	}

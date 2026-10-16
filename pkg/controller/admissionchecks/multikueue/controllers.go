@@ -37,15 +37,16 @@ const (
 )
 
 type SetupOptions struct {
-	gcInterval           time.Duration
-	origin               string
-	workerLostTimeout    time.Duration
-	eventsBatchPeriod    time.Duration
-	adapters             map[string]jobframework.MultiKueueAdapter
-	dispatcherName       string
-	clusterProfileConfig *configapi.ClusterProfile
-	roleTracker          *roletracker.RoleTracker
-	clientConnection     *configapi.ClientConnection
+	gcInterval               time.Duration
+	origin                   string
+	workerLostTimeout        time.Duration
+	eventsBatchPeriod        time.Duration
+	adapters                 map[string]jobframework.MultiKueueAdapter
+	dispatcherName           string
+	clusterProfileConfig     *configapi.ClusterProfile
+	clusterProfileCRDPresent bool
+	roleTracker              *roletracker.RoleTracker
+	clientConnection         *configapi.ClientConnection
 }
 
 type SetupOption func(o *SetupOptions)
@@ -99,6 +100,16 @@ func WithDispatcherName(dispatcherName string) SetupOption {
 func WithClusterProfiles(clusterProfiles *configapi.ClusterProfile) SetupOption {
 	return func(o *SetupOptions) {
 		o.clusterProfileConfig = clusterProfiles
+	}
+}
+
+// WithClusterProfileCRDPresent records whether the ClusterProfile CRD is
+// installed. The ClusterProfile watch is only registered when the CRD exists,
+// otherwise the watch would sync against a cache entry that was never
+// configured and the manager would exit.
+func WithClusterProfileCRDPresent(present bool) SetupOption {
+	return func(o *SetupOptions) {
+		o.clusterProfileCRDPresent = present
 	}
 }
 
@@ -164,6 +175,7 @@ func SetupControllers(mgr ctrl.Manager, namespace string, opts ...SetupOption) e
 		options.adapters, cpAccessProvider, options.roleTracker,
 		mgr.GetEventRecorder("multikueue-cluster"),
 		options.clientConnection,
+		options.clusterProfileCRDPresent,
 	)
 	err = cRec.setupWithManager(mgr)
 	if err != nil {
