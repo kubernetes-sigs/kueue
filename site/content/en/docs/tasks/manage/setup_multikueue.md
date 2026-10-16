@@ -190,6 +190,16 @@ Kueue itself does not manage the `ClusterProfile` resources, which is the respon
 The `MultiKueueClusterProfile` feature gate has to be enabled for Kueue to consider `ClusterProfile` objects when connecting to clusters.
 Refer to the [Installation guide](/docs/installation/#change-the-feature-gates-configuration) for instructions on configuring feature gates.
 
+{{% alert title="Note" color="primary" %}}
+
+Kueue reads `ClusterProfile` objects as `multicluster.x-k8s.io/v1alpha2`.
+The `clusterprofiles.multicluster.x-k8s.io` CRD must serve `v1alpha2`, which requires cluster-inventory-api v0.2.0 or later.
+If your cluster has an older CRD, upgrade it before you upgrade Kueue.
+To list the served versions, run:
+`kubectl get crd clusterprofiles.multicluster.x-k8s.io -o jsonpath='{.spec.versions[?(@.served==true)].name}'`
+
+{{% /alert %}}
+
 ### Provision the `ClusterProfile` objects for your clusters
 
 #### Cloud provider managed cluster inventory
