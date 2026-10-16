@@ -336,6 +336,7 @@ function push_and_create_pr() {
   read -p "+++ Proceed (anything other than 'y' aborts it)? [y/n] " -r
   if ! [[ "${REPLY}" =~ ^[yY]$ ]]; then
     echo "Aborting." >&2
+    exit 1
   else
     git push "${FORK_REMOTE}" -f "${3}:${2}"
     make_pr "$1" "$2" "$4"

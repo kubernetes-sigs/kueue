@@ -1599,6 +1599,9 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	if assignmentPlan.CanFit() {
 		targets = append(slicePreemptTargets, targets...)
 	}
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		fullAssignment.ResolveNoFitReason(cq)
+	}
 	return
 }
 

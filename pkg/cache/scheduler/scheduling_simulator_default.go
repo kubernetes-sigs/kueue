@@ -18,6 +18,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 
@@ -128,4 +129,8 @@ func (s *defaultSimulator) Simulate(_ context.Context, fn func()) error {
 	// we can safely run the function immediately.
 	fn()
 	return nil
+}
+
+func (s *defaultSimulator) ScheduleWorkload(_ context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
+	return simulator.SchedulingResult{Error: errors.ErrUnsupported}
 }

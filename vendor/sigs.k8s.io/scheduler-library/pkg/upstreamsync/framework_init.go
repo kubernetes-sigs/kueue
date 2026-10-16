@@ -328,13 +328,20 @@ func (p *ProfileMap) FrameworkForPodGroup(podGroupInfo *framework.PodGroupInfo) 
 // snapshot is injected into every framework profile as its SharedLister and PodGroupManager.
 //
 // UPSTREAM-DIFF: returns *ProfileMap embedding profile.Map and omits unused upstream options
-// (componentConfigVersion, kubeConfig, captureProfile, maxBatchAge).
+// (componentConfigVersion, kubeConfig, captureProfile, maxBatchAge). mapOpts configure this map
+// only, see FrameworkMapOption.
 func NewFrameworkMap(
 	ctx context.Context,
 	c *FrameworkComponents,
 	recorderFactory profile.RecorderFactory,
 	snapshot *internalcache.Snapshot,
+	mapOpts ...FrameworkMapOption,
 ) (*ProfileMap, error) {
+	var mapOptions frameworkMapOptions
+	for _, opt := range mapOpts {
+		opt(&mapOptions)
+	}
+
 	// UPSTREAM-DIFF: ensure metrics are initialized before constructing profiles.
 	InitMetricsOnce()
 	registry := frameworkplugins.NewInTreeRegistry()
@@ -346,9 +353,10 @@ func NewFrameworkMap(
 
 	// UPSTREAM-DIFF: construct a per-ProfileMap draManager (to isolate claimTracker.inFlightAllocations
 	// across concurrent snapshots and states) backed by the shared read-only resourceClaimCache,
-	// resourceSliceTracker, and extendedResourceCache initialized in FrameworkComponents.
-	var draManager fwk.SharedDRAManager
-	if feature.DefaultFeatureGate.Enabled(features.DynamicResourceAllocation) {
+	// resourceSliceTracker, and extendedResourceCache initialized in FrameworkComponents, unless
+	// the caller supplied one with WithSharedDRAManager.
+	draManager := mapOptions.sharedDRAManager
+	if draManager == nil && feature.DefaultFeatureGate.Enabled(features.DynamicResourceAllocation) {
 		baseDRAManager := dynamicresources.NewDRAManager(ctx, c.resourceClaimCache, c.resourceSliceTracker, c.informerFactory)
 		draManager = &sharedResolverDRAManager{
 			DefaultDRAManager: baseDRAManager,

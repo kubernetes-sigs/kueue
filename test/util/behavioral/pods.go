@@ -33,11 +33,6 @@ import (
 
 func DeleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
 	ginkgo.GinkgoHelper()
-	return deleteAllPodsInNamespace(ctx, c, ns)
-}
-
-func deleteAllPodsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-	ginkgo.GinkgoHelper()
 	if err := client.IgnoreNotFound(c.DeleteAllOf(ctx, &corev1.Pod{}, client.InNamespace(ns.Name))); err != nil {
 		return fmt.Errorf("deleting all Pods in namespace %q: %w", ns.Name, err)
 	}

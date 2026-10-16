@@ -214,6 +214,9 @@ const (
 	// post-eviction requeue) for Workloads owned by a single Pod; the pod
 	// cannot relocate and the Workload cannot outlive it, so a recomputed
 	// topologyAssignment only diverges from the node the pod runs on.
+	// The post-eviction skip applies only once the pod is no longer suspended
+	// (its scheduling gate was removed); a pod that is still gated has nothing
+	// placed, and its Workload is requeued.
 	SkipReassignmentForPodOwnedWorkloads featuregate.Feature = "SkipReassignmentForPodOwnedWorkloads"
 
 	// owner: @yakticus
@@ -645,6 +648,14 @@ const (
 	// replacing map lookups for higher performance during scheduling and preemption.
 	VectorizedResourceRequests featuregate.Feature = "VectorizedResourceRequests"
 
+	// owner: @zhengchenyu
+	//
+	// Enables caching and reusing the per-ClusterQueue candidate ordering across
+	// preemptors within a single scheduling cycle in classical preemption, and the
+	// lazy segment/bucket merge iterator that consumes it, instead of re-sorting a
+	// flat candidate list for every preemptor.
+	ClassicalPreemptionCandidateOrderCache featuregate.Feature = "ClassicalPreemptionCandidateOrderCache"
+
 	// owner: @vladikkuzn
 	//
 	// When an existing PodTemplate at the deterministic name differs from the Kueue-derived
@@ -793,9 +804,6 @@ const (
 	// Runs the first strategy again for fair preemption algorithm if DRS was decreased
 	// during processing. This allows to preempt more workloads if first run missed some
 	// candidates because of previously high DRS, preemptions are still fair.
-	//
-	// Note: This feature can be promoted to "beta" once https://github.com/kubernetes-sigs/kueue/issues/14543
-	// is fixed because it might boost chances for issue #14543 to appear.
 	FairSharingReevaluatePreemptionCandidates featuregate.Feature = "FairSharingReevaluatePreemptionCandidates"
 
 	// owner: @j-skiba
@@ -1254,6 +1262,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 	},
 
+	ClassicalPreemptionCandidateOrderCache: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
 	EnforceProvisioningPodTemplateContents: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -1263,7 +1275,8 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	TASValidateWorkloadSliceSize: {
-		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.21
+		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},                    // GA in 0.21
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.GA, LockToDefault: true}, // remove in 0.22
 	},
 
 	TASRejectFalseUnconstrainedTopology: {
@@ -1312,6 +1325,7 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	FairSharingReevaluatePreemptionCandidates: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	DynamicQuotaOrchestration: {
