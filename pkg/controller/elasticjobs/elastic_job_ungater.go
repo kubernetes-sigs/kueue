@@ -20,9 +20,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
@@ -43,6 +45,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core"
+	"sigs.k8s.io/kueue/pkg/controller/tas"
 	"sigs.k8s.io/kueue/pkg/metrics"
 	utilclient "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/expectations"
@@ -50,6 +53,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/parallelize"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
@@ -308,11 +313,9 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		room := granted[ps] - ungatedPerPodSet[ps]
 		var toUngate []*corev1.Pod
 		if room > 0 {
-			// Ungate the lowest-named pods first for deterministic behavior.
-			slices.SortFunc(candidates, func(a, b *corev1.Pod) int { return strings.Compare(a.Name, b.Name) })
-			toUngate = candidates
+			toUngate = sortCandidates(log, candidates, wl, ps)
 			if int32(len(candidates)) > room {
-				toUngate = candidates[:room]
+				toUngate = toUngate[:room]
 			}
 		}
 		log.V(4).Info("elastic ungating quota accounting for PodSet",
@@ -325,6 +328,58 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		gated = append(gated, toUngate...)
 	}
 	return gated, nil
+}
+
+// sortCandidates orders by completion index, or by name if any Pod lacks a valid index.
+func sortCandidates(log logr.Logger, candidates []*corev1.Pod, wl *kueue.Workload, ps kueue.PodSetReference) []*corev1.Pod {
+	if rankToPod, ok := readRanksFromCandidatesIfAvailable(log, candidates, wl, ps); ok {
+		return sortCandidatesByRanks(rankToPod)
+	}
+	return sortCandidatesByName(candidates)
+}
+
+func sortCandidatesByRanks(rankToPod map[int]*corev1.Pod) []*corev1.Pod {
+	ranks := slices.Sorted(maps.Keys(rankToPod))
+	return utilslices.Map(ranks, func(rank *int) *corev1.Pod { return rankToPod[*rank] })
+}
+
+func sortCandidatesByName(candidates []*corev1.Pod) []*corev1.Pod {
+	slices.SortFunc(candidates, func(a, b *corev1.Pod) int { return strings.Compare(a.Name, b.Name) })
+	return candidates
+}
+
+func readRanksFromCandidatesIfAvailable(log logr.Logger, candidates []*corev1.Pod, wl *kueue.Workload, ps kueue.PodSetReference) (map[int]*corev1.Pod, bool) {
+	psNameToTopologyRequest := workload.PodSetNameToTopologyRequest(wl)
+	psReq := psNameToTopologyRequest[ps]
+	if psReq == nil || psReq.PodIndexLabel == nil {
+		return nil, false
+	}
+
+	psas := podSetAssignmentsWithSpecCounts(wl)
+	psaIdx := slices.IndexFunc(psas, func(psa kueue.PodSetAssignment) bool { return psa.Name == ps })
+	if psaIdx < 0 {
+		return nil, false
+	}
+
+	maxRank, rankOffsets := utiltas.PodSetRankBounds(psas, psNameToTopologyRequest)
+	rankToPod, err := tas.ReadRanksForLabels(&psas[psaIdx], candidates, psReq, rankOffsets[ps], maxRank[ps])
+	if err != nil {
+		log.Error(err, "failed to read rank information from pods")
+		return nil, false
+	}
+	return rankToPod, true
+}
+
+// podSetAssignmentsWithSpecCounts returns copies of the assignments with Count set to the
+// PodSet's spec count: pod indexes span the whole Job, not just the admitted part.
+func podSetAssignmentsWithSpecCounts(wl *kueue.Workload) []kueue.PodSetAssignment {
+	specCounts := workload.ExtractPodSetCounts(wl.Spec.PodSets)
+	psas := make([]kueue.PodSetAssignment, len(wl.Status.Admission.PodSetAssignments))
+	for i, psa := range wl.Status.Admission.PodSetAssignments {
+		psa.Count = new(specCounts[psa.Name])
+		psas[i] = psa
+	}
+	return psas
 }
 
 // Workload predicates
