@@ -554,6 +554,11 @@ func TestReconcile(t *testing.T) {
 		State: kueue.CheckStateReady,
 	}, fakeClock)
 
+	elasticProvisioningGates := map[featuregate.Feature]bool{
+		features.ElasticJobsViaWorkloadSlices:                        true,
+		features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: true,
+	}
+
 	baseFlavor1 := utiltestingapi.MakeResourceFlavor("flv1").NodeLabel("f1l1", "v1").
 		Toleration(corev1.Toleration{
 			Key:      "f1t1k",
@@ -596,6 +601,9 @@ func TestReconcile(t *testing.T) {
 			},
 		},
 	}
+
+	baseRequestAttempt2 := baseRequest.DeepCopy()
+	baseRequestAttempt2.Name = "wl-check1-2"
 
 	baseTemplate1 := utiltesting.MakePodTemplate("ppt-wl-check1-1-ps1", TestNamespace).
 		Label(constants.ManagedByKueueLabelKey, constants.ManagedByKueueLabelValue).
@@ -1498,6 +1506,148 @@ func TestReconcile(t *testing.T) {
 			flavors:              []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
 			configs:              []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
 			requests:             []autoscaling.ProvisioningRequest{*baseRequest.DeepCopy()},
+			templates:            []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantRequestsNotFound: []string{baseRequest.Name},
+		},
+		"only the request with a live booking is kept on replaced workload slice": {
+			featureGates: elasticProvisioningGates,
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadSliceReplaced,
+				}).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithConditions(baseRequest, []metav1.Condition{
+					{Type: autoscaling.Provisioned, Status: metav1.ConditionTrue},
+					{Type: autoscaling.BookingExpired, Status: metav1.ConditionTrue},
+				}),
+				*requestWithCondition(baseRequestAttempt2, autoscaling.Provisioned, metav1.ConditionTrue),
+			},
+			templates: []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantRequests: map[string]*autoscaling.ProvisioningRequest{
+				baseRequestAttempt2.Name: requestWithCondition(baseRequestAttempt2, autoscaling.Provisioned, metav1.ConditionTrue),
+			},
+			wantRequestsNotFound: []string{baseRequest.Name},
+		},
+		"booked request removed on replaced workload slice that was never admitted": {
+			// Quota was reserved and the request provisioned, but another check
+			// kept the slice from being admitted before a bigger slice replaced
+			// it. The next slice's increment is computed from the last admitted
+			// slice, so keeping this booking would request the capacity twice.
+			featureGates: elasticProvisioningGates,
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				AdmittedAt(false, now).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadSliceReplaced,
+				}).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithCondition(baseRequest, autoscaling.Provisioned, metav1.ConditionTrue),
+			},
+			templates:            []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantRequestsNotFound: []string{baseRequest.Name},
+		},
+		"booked request removed on replaced workload slice when elastic provisioning is disabled": {
+			// Without ElasticJobsViaWorkloadSlicesForProvisioningRequests no pod
+			// is bound to the request, so there is nothing to keep the booking for.
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                        true,
+				features.ElasticJobsViaWorkloadSlicesForProvisioningRequests: false,
+			},
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadSliceReplaced,
+				}).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithCondition(baseRequest, autoscaling.Provisioned, metav1.ConditionTrue),
+			},
+			templates:            []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantRequestsNotFound: []string{baseRequest.Name},
+		},
+		"unprovisioned request removed on replaced workload slice": {
+			featureGates: elasticProvisioningGates,
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadSliceReplaced,
+				}).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithCondition(baseRequest, autoscaling.Accepted, metav1.ConditionTrue),
+			},
+			templates:            []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantRequestsNotFound: []string{baseRequest.Name},
+		},
+		"request with revoked capacity removed on replaced workload slice": {
+			featureGates: elasticProvisioningGates,
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadSliceReplaced,
+				}).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithConditions(baseRequest, []metav1.Condition{
+					{Type: autoscaling.Provisioned, Status: metav1.ConditionTrue},
+					{Type: autoscaling.CapacityRevoked, Status: metav1.ConditionTrue},
+				}),
+			},
+			templates:            []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
+			wantRequestsNotFound: []string{baseRequest.Name},
+		},
+		"booked request removed on admitted elastic slice finished for another reason": {
+			// Same admitted elastic slice and live booking as the kept case above;
+			// only the Finished reason differs, so this pins the keep to
+			// WorkloadSliceReplaced.
+			featureGates: elasticProvisioningGates,
+			workload: (&utiltestingapi.WorkloadWrapper{Workload: *baseWorkload.DeepCopy()}).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				AdmittedAt(true, now).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadFinished,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadFinishedReasonSucceeded,
+				}).
+				Obj(),
+			checks:  []kueue.AdmissionCheck{*baseCheck.DeepCopy()},
+			flavors: []kueue.ResourceFlavor{*baseFlavor1.DeepCopy(), *baseFlavor2.DeepCopy()},
+			configs: []kueue.ProvisioningRequestConfig{*baseConfigWithRetryStrategy.DeepCopy()},
+			requests: []autoscaling.ProvisioningRequest{
+				*requestWithCondition(baseRequest, autoscaling.Provisioned, metav1.ConditionTrue),
+			},
 			templates:            []corev1.PodTemplate{*baseTemplate1.DeepCopy(), *baseTemplate2.DeepCopy()},
 			wantRequestsNotFound: []string{baseRequest.Name},
 		},
