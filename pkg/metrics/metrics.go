@@ -250,6 +250,10 @@ The label 'stage' reports the maturity of the gate at the running version and ca
 	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue",replica_role="one of `leader`, `follower`, or `standalone`"
 	ReplacedWorkloadSlicesTotal *prometheus.CounterVec
 
+	// +metricsdoc:group=clusterqueue
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue, or empty when the LocalQueue of the pod group is not found",replica_role="one of `leader`, `follower`, or `standalone`"
+	ExcessPodsDeletedTotal *prometheus.CounterVec
+
 	// +metricsdoc:group=localqueue
 	// +metricsdoc:labels=name="the name of the LocalQueue",namespace="the namespace of the LocalQueue",reason="eviction or preemption reason",underlying_cause="root cause for eviction",priority_class="the priority class name",replica_role="one of `leader`, `follower`, or `standalone`"
 	LocalQueueEvictedWorkloadsTotal *prometheus.CounterVec
@@ -804,6 +808,14 @@ The label 'underlying_cause' can have the following values:
 		}, append([]string{"cluster_queue", "replica_role"}, clusterQueueMetricsLabels...),
 	)
 
+	ExcessPodsDeletedTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: constants.KueueName,
+			Name:      "excess_pods_deleted_total",
+			Help:      `The number of Pods deleted per 'cluster_queue' because their pod group had more Pods than its declared size`,
+		}, append([]string{"cluster_queue", "replica_role"}, clusterQueueMetricsLabels...),
+	)
+
 	LocalQueueEvictedWorkloadsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
@@ -1330,6 +1342,11 @@ func ReportReplacedWorkloadSlices(cqName kueue.ClusterQueueReference, customLabe
 	ReplacedWorkloadSlicesTotal.WithLabelValues(labels...).Inc()
 }
 
+func ReportExcessPodDeleted(cqName kueue.ClusterQueueReference, customLabelValues []string, tracker *roletracker.RoleTracker) {
+	labels := append([]string{string(cqName), roletracker.GetRole(tracker)}, customLabelValues...)
+	ExcessPodsDeletedTotal.WithLabelValues(labels...).Inc()
+}
+
 func ReportLocalQueueEvictedWorkloads(lq LocalQueueReference, reason, underlyingCause string, priorityClass string, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(lq.Name), lq.Namespace, reason, underlyingCause, priorityClass, roletracker.GetRole(tracker)}, customLabelValues...)
 	LocalQueueEvictedWorkloadsTotal.WithLabelValues(labels...).Inc()
@@ -1388,6 +1405,7 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
 	PreemptionTargetRecomputationsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	ReplacedWorkloadSlicesTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	ExcessPodsDeletedTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	// Histogram vec, not cleared by gauge cleanup above.
 	WorkloadEvictionLatencySeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PodSchedulingGateRemovalSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
@@ -1772,6 +1790,7 @@ func Register() {
 		AdmittedUntilReadyWaitTime,
 		EvictedWorkloadsTotal,
 		ReplacedWorkloadSlicesTotal,
+		ExcessPodsDeletedTotal,
 		EvictedWorkloadsOnceTotal,
 		PreemptedWorkloadsTotal,
 		WorkloadEvictionLatencySeconds,

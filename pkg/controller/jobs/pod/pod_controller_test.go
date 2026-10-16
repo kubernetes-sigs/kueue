@@ -62,6 +62,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -1870,10 +1871,11 @@ func TestReconciler(t *testing.T) {
 		workloadCmpOpts        cmp.Options
 		excessPodsExpectations []keyUIDs
 		// If true, the test will delete workloads before running reconcile
-		deleteWorkloads   bool
-		wantEvents        []utiltesting.EventRecord
-		reconcilerOptions []jobframework.Option
-		featureGates      map[featuregate.Feature]bool
+		deleteWorkloads       bool
+		wantEvents            []utiltesting.EventRecord
+		wantExcessPodsDeleted []testingmetrics.MetricDataPoint
+		reconcilerOptions     []jobframework.Option
+		featureGates          map[featuregate.Feature]bool
 	}{
 		"scheduling gate is removed and node selector is added if workload is admitted": {
 			initObjects: []client.Object{
@@ -6619,6 +6621,10 @@ func TestReconciler(t *testing.T) {
 					Message:   "Excess pod deleted",
 				},
 			},
+			wantExcessPodsDeleted: []testingmetrics.MetricDataPoint{{
+				Labels: map[string]string{"cluster_queue": "", "replica_role": roletracker.RoleStandalone},
+				Value:  1,
+			}},
 		},
 		"excess pods before admission, youngest pods are deleted": {
 			pods: []corev1.Pod{
@@ -6708,10 +6714,17 @@ func TestReconciler(t *testing.T) {
 					Message:   "Excess pod deleted",
 				},
 			},
+			wantExcessPodsDeleted: []testingmetrics.MetricDataPoint{{
+				Labels: map[string]string{"cluster_queue": "", "replica_role": roletracker.RoleStandalone},
+				Value:  1,
+			}},
 		},
 		// In this case, group-total-count is equal to the number of pods in the cluster.
 		// But one of the roles is missing, and another role has an excess pod.
 		"excess pods in pod set after admission, youngest pods are deleted": {
+			initObjects: []client.Object{
+				utiltestingapi.MakeLocalQueue(localUserQueueName, "ns").ClusterQueue(clusterQueueName).Obj(),
+			},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -6799,6 +6812,10 @@ func TestReconciler(t *testing.T) {
 					Message:   "Excess pod deleted",
 				},
 			},
+			wantExcessPodsDeleted: []testingmetrics.MetricDataPoint{{
+				Labels: map[string]string{"cluster_queue": clusterQueueName, "replica_role": roletracker.RoleStandalone},
+				Value:  1,
+			}},
 		},
 		"waiting to observe previous deletion of excess pod, no pods are deleted": {
 			pods: []corev1.Pod{
@@ -6983,6 +7000,10 @@ func TestReconciler(t *testing.T) {
 					Message:   "Excess pod deleted",
 				},
 			},
+			wantExcessPodsDeleted: []testingmetrics.MetricDataPoint{{
+				Labels: map[string]string{"cluster_queue": "", "replica_role": roletracker.RoleStandalone},
+				Value:  1,
+			}},
 		},
 		// If an excess pod is already deleted and finalized, but an external finalizer blocks
 		// pod deletion, kueue should ignore such a pod, when creating a workload.
@@ -10047,6 +10068,7 @@ func TestReconciler(t *testing.T) {
 				} else {
 					reconcileRequest = reconcileRequestForPod(&tc.pods[0])
 				}
+				metrics.ExcessPodsDeletedTotal.Reset()
 				_, err = reconciler.Reconcile(ctx, reconcileRequest)
 
 				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
@@ -10088,6 +10110,11 @@ func TestReconciler(t *testing.T) {
 
 				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.SortSlices(utiltesting.SortEvents)); diff != "" {
 					t.Errorf("unexpected events (-want/+got):\n%s", diff)
+				}
+
+				gotExcessPodsDeleted := testingmetrics.CollectFilteredGaugeVec(metrics.ExcessPodsDeletedTotal, nil)
+				if diff := cmp.Diff(tc.wantExcessPodsDeleted, gotExcessPodsDeleted, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Unexpected kueue_excess_pods_deleted_total (-want,+got):\n%s", diff)
 				}
 			})
 		}
