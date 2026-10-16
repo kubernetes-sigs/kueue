@@ -211,36 +211,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 
 	psNameToTopologyRequest := workload.PodSetNameToTopologyRequest(wl)
 	allToUngate := make([]podWithUngateInfo, 0)
-	groupedPodSetAssignments := make(map[string][]*kueue.PodSetAssignment)
-
-	for i, psa := range wl.Status.Admission.PodSetAssignments {
-		groupName := strconv.Itoa(i)
-		if psNameToTopologyRequest[psa.Name] != nil && psNameToTopologyRequest[psa.Name].PodSetGroupName != nil {
-			groupName = *psNameToTopologyRequest[psa.Name].PodSetGroupName
-		}
-		groupedPodSetAssignments[groupName] = append(groupedPodSetAssignments[groupName], &psa)
-	}
-
-	rankOffsets := make(map[kueue.PodSetReference]int32)
-
-	for _, psas := range groupedPodSetAssignments {
-		if len(psas) > 1 {
-			// In case of LeaderWorkerSet, in each Workload there will be
-			// 1 leader and N workers. Leader will get rank 0 and workers
-			// 1, 2, ..., N. To detect the leader we are selecting PodSet
-			// which is smaller.
-			smallerPsa := psas[0]
-			largerPsa := psas[1]
-			if *smallerPsa.Count > *largerPsa.Count {
-				smallerPsa = psas[1]
-				largerPsa = psas[0]
-			}
-			rankOffsets[smallerPsa.Name] = 0
-			rankOffsets[largerPsa.Name] = *smallerPsa.Count
-		} else {
-			rankOffsets[psas[0].Name] = 0
-		}
-	}
+	rankOffsets := utiltas.PodSetRankOffsets(wl.Status.Admission.PodSetAssignments, psNameToTopologyRequest)
 	lendFreeCapacity := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(wl)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		if psa.TopologyAssignment != nil {
@@ -553,7 +524,7 @@ func readRanksIfAvailable(log logr.Logger,
 	if psReq == nil || psReq.PodIndexLabel == nil {
 		return nil, false
 	}
-	result, err := readRanksForLabels(psa, pods, psReq, offset)
+	result, err := ReadRanksForLabels(psa, pods, psReq, offset)
 	if err != nil {
 		switch {
 		case errors.Is(err, utilpod.ErrLabelNotFound):
@@ -602,7 +573,7 @@ func readRanksIfAvailable(log logr.Logger,
 // readRanksForLabels does not check the ranks against the PodSet count or the
 // number of pods the topology assignment covers; the caller does that, because
 // whether a rank without a domain is allowed depends on the workload.
-func readRanksForLabels(
+func ReadRanksForLabels(
 	psa *kueue.PodSetAssignment,
 	pods []*corev1.Pod,
 	psReq *kueue.PodSetTopologyRequest,
