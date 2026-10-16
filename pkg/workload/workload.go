@@ -408,6 +408,9 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	if !features.Enabled(features.SchedulingEquivalenceHashing) {
 		return SchedulingHashUnknown
 	}
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && metav1.HasAnnotation(wl.ObjectMeta, constants.WorkloadSliceReplacementForAnnotation) {
+		return SchedulingHashUnknown
+	}
 	effectivePriority := priority.EffectivePriority(log, wl)
 	podSetShapes := make([]map[string]any, 0, len(wl.Spec.PodSets))
 	for i, ps := range wl.Spec.PodSets {
