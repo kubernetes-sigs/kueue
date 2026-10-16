@@ -17,6 +17,8 @@ limitations under the License.
 package scheduler
 
 import (
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -105,8 +107,11 @@ func TestResyncClusterQueueGaugeMetricsUsesUpdatedCustomLabels(t *testing.T) {
 
 func TestResyncLocalQueueAdmittedActiveWorkloads(t *testing.T) {
 	testCases := map[string]struct {
-		resync func(logr.Logger, *Cache, *metrics.CustomLabels) error
-		want   []testingmetrics.MetricDataPoint
+		// queueSelector selects the LocalQueues that expose metrics. Nil selects
+		// all of them.
+		queueSelector labels.Selector
+		resync        func(logr.Logger, *Cache, *metrics.CustomLabels) error
+		want          []testingmetrics.MetricDataPoint
 	}{
 		// As after a ClusterQueue custom label change.
 		"ClusterQueue resync": {
@@ -172,6 +177,30 @@ func TestResyncLocalQueueAdmittedActiveWorkloads(t *testing.T) {
 				},
 			},
 		},
+		"LocalQueue resync after the LocalQueue starts to match the metrics selector": {
+			queueSelector: labels.SelectorFromSet(labels.Set{"metrics": "on"}),
+			resync: func(_ logr.Logger, cache *Cache, customLabels *metrics.CustomLabels) error {
+				oldLQ := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq1").Label("team", "alpha").Obj()
+				newLQ := utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq1").Label("team", "alpha").Label("metrics", "on").Obj()
+				customLabels.LQStore(queue.Key(newLQ), newLQ.GetLabels(), newLQ.GetAnnotations())
+				if err := cache.UpdateLocalQueue(oldLQ, newLQ); err != nil {
+					return err
+				}
+				lqRef := metrics.LocalQueueReference{Name: "lq", Namespace: "ns"}
+				metrics.ClearLocalQueueMetrics(lqRef)
+				metrics.ClearLocalQueueCacheMetrics(lqRef)
+				metrics.ClearLocalQueueResourceMetrics(lqRef)
+				cache.ResyncLocalQueueGaugeMetrics("cq1", queue.Key(newLQ))
+				return nil
+			},
+			// lq2 still does not match the selector, so it has no series.
+			want: []testingmetrics.MetricDataPoint{
+				{
+					Labels: map[string]string{"name": "lq", "namespace": "ns", "replica_role": roletracker.RoleStandalone, "custom_team": "alpha"},
+					Value:  1,
+				},
+			},
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -180,13 +209,17 @@ func TestResyncLocalQueueAdmittedActiveWorkloads(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
 			features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
 
+			queueSelector := tc.queueSelector
+			if queueSelector == nil {
+				queueSelector = labels.Everything()
+			}
 			customLabels := metrics.NewCustomLabels([]configapi.ControllerMetricsCustomLabel{{Name: "team", SourceKind: new(configapi.SourceKindLocalQueue)}})
 			cache := New(
 				utiltesting.NewFakeClient(),
 				WithCustomLabels(customLabels),
 				WithLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{
 					Enabled:       true,
-					QueueSelector: labels.Everything(),
+					QueueSelector: queueSelector,
 				}),
 			)
 
@@ -238,6 +271,77 @@ func TestResyncLocalQueueAdmittedActiveWorkloads(t *testing.T) {
 				t.Errorf("Unexpected local queue admitted active workloads (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// The ClusterQueue and LocalQueue resyncs hold only the cache read lock, so
+// they can rebuild the same LocalQueue series at the same time. Their rebuilds
+// overlap only when they run on separate CPUs, so this needs GOMAXPROCS >= 2
+// to catch a regression.
+func TestResyncLocalQueueAdmittedActiveWorkloadsConcurrently(t *testing.T) {
+	ctx, log := utiltesting.ContextWithLog(t)
+	defer metrics.InitMetricVectors(nil)
+	features.SetFeatureGateDuringTest(t, features.LocalQueueMetrics, true)
+
+	cache := New(
+		utiltesting.NewFakeClient(),
+		WithLocalQueueMetrics(&metrics.LocalQueueMetricsConfig{
+			Enabled:       true,
+			QueueSelector: labels.Everything(),
+		}),
+	)
+
+	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("default").Obj())
+	cq := utiltestingapi.MakeClusterQueue("cq1").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("default").
+				Resource(corev1.ResourceCPU, "100").
+				Obj(),
+		).Obj()
+	if err := cache.AddClusterQueue(ctx, cq); err != nil {
+		t.Fatalf("Failed to add cluster queue: %v", err)
+	}
+	if err := cache.AddLocalQueue(utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq1").Obj()); err != nil {
+		t.Fatalf("Failed to add local queue: %v", err)
+	}
+
+	const workloads = 100
+	now := time.Now().Truncate(time.Second)
+	admission := utiltestingapi.MakeAdmission("cq1").
+		PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+			Assignment(corev1.ResourceCPU, "default", "1").
+			Obj()).
+		Obj()
+	for i := range workloads {
+		wl := utiltestingapi.MakeWorkload(fmt.Sprintf("wl-%d", i), "ns").Queue("lq").Request(corev1.ResourceCPU, "1").
+			ReserveQuotaAt(admission.DeepCopy(), now).AdmittedAt(true, now).Obj()
+		if added := cache.AddOrUpdateWorkload(ctx, log, wl); !added {
+			t.Fatalf("Workload %q was not added", wl.Name)
+		}
+	}
+
+	want := []testingmetrics.MetricDataPoint{{
+		Labels: map[string]string{"name": "lq", "namespace": "ns", "replica_role": roletracker.RoleStandalone},
+		Value:  workloads,
+	}}
+	for i := range 50 {
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			<-start
+			cache.ResyncClusterQueueGaugeMetrics("cq1")
+		})
+		wg.Go(func() {
+			<-start
+			cache.ResyncLocalQueueGaugeMetrics("cq1", "ns/lq")
+		})
+		close(start)
+		wg.Wait()
+
+		got := testingmetrics.CollectFilteredGaugeVec(metrics.LocalQueueAdmittedActiveWorkloads, map[string]string{"name": "lq", "namespace": "ns"})
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Fatalf("Unexpected local queue admitted active workloads after %d concurrent resyncs (-want,+got):\n%s", i+1, diff)
+		}
 	}
 }
 
