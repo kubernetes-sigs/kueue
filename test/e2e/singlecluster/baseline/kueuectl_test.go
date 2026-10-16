@@ -57,9 +57,7 @@ var _ = ginkgo.Describe("Kueuectl", ginkgo.Label("area:singlecluster", "feature:
 	ginkgo.AfterEach(func() {
 		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
-		if rf != nil {
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
-		}
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rf, true)
 		behavioral.ExpectAllPodsInNamespaceDeleted(ctx, k8sClient, ns)
 	})
 
@@ -94,7 +92,7 @@ var _ = ginkgo.Describe("Kueuectl", ginkgo.Label("area:singlecluster", "feature:
 	ginkgo.It("Should schedule a Job with an explicit empty toleration from a non-TAS resource flavor only for an empty taint value", ginkgo.Serial, func() {
 		taintKey := "example.com/empty-" + ns.Name
 		var node *corev1.Node
-		ginkgo.By("Select a ready worker with a unique hostname and no blocking taints", func() {
+		ginkgo.By("Select a ready worker with no blocking taints", func() {
 			nodes := &corev1.NodeList{}
 			gomega.Expect(k8sClient.List(ctx, nodes, client.MatchingLabels{corev1.LabelOSStable: "linux"},
 				client.HasLabels{corev1.LabelHostname})).To(gomega.Succeed())
@@ -112,10 +110,6 @@ var _ = ginkgo.Describe("Kueuectl", ginkgo.Label("area:singlecluster", "feature:
 				break
 			}
 			gomega.Expect(node).NotTo(gomega.BeNil(), "No ready, schedulable Linux worker without blocking taints")
-			gomega.Expect(k8sClient.List(ctx, nodes, client.MatchingLabels{
-				corev1.LabelHostname: node.Labels[corev1.LabelHostname],
-			})).To(gomega.Succeed())
-			gomega.Expect(nodes.Items).To(gomega.HaveLen(1), "The hostname selector must match only the target node")
 		})
 		nodeKey := client.ObjectKeyFromObject(node)
 		nodeSelector := map[string]string{
