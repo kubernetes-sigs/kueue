@@ -56,7 +56,9 @@ metadata:
 ```
 
 {{% alert title="Note" color="primary" %}}
-SparkApplication integration does not support dynamic allocation. If you set `spec.dynamicAllocation.enabled=true` in SparkApplication, Kueue will reject such resources in the webhook.
+Kueue supports dynamic allocation only for SparkApplications with the `kueue.x-k8s.io/elastic-job: "true"` annotation,
+see [Dynamic allocation](#d-dynamic-allocation).
+If you set `spec.dynamicAllocation.enabled=true` in any other SparkApplication, Kueue will reject it in the webhook.
 {{% /alert %}}
 
 ### b. Optionally set Suspend field in SparkOperation
@@ -94,6 +96,56 @@ default memory overhead factor reserved by Kueue will differ from the one Spark 
 Resources set through Spark Pod template files (`spark.kubernetes.driver.podTemplateFile` and
 `spark.kubernetes.executor.podTemplateFile`) are not taken into account.
 {{% /alert %}}
+
+### d. Dynamic allocation
+
+Kueue supports [Spark dynamic allocation](https://spark.apache.org/docs/latest/job-scheduling.html#dynamic-resource-allocation)
+by running the SparkApplication as an [elastic workload](/docs/concepts/elastic_workload). To enable it:
+
+1. Activate the `ElasticJobsViaWorkloadSlices` feature gate.
+2. Annotate the SparkApplication with:
+
+   ```yaml
+   metadata:
+     annotations:
+       kueue.x-k8s.io/elastic-job: "true"
+   ```
+3. Enable dynamic allocation in the SparkApplication:
+
+   ```yaml
+   spec:
+     executor:
+       instances: 1
+     dynamicAllocation:
+       enabled: true
+       minExecutors: 0
+       maxExecutors: 4
+   ```
+
+Kueue then admits the executors that the Spark driver adds or removes while the driver keeps running:
+
+- Kueue adds the `kueue.x-k8s.io/elastic-job` scheduling gate to the executor Pod template, so the executors
+  that the driver creates stay gated until a Workload slice that includes them is admitted.
+  The webhook rejects a SparkApplication that removes this gate.
+- Before the driver starts, the Workload requests the driver and the larger of `spec.executor.instances`
+  and `spec.dynamicAllocation.minExecutors` executors.
+  Once the driver runs, the executor count follows the executors that the Spark Operator reports as `PENDING`
+  or `RUNNING` in `status.executorState`, kept between `spec.dynamicAllocation.minExecutors`
+  and `spec.dynamicAllocation.maxExecutors`.
+- When the driver adds executors, Kueue creates a new Workload slice for the larger count and removes the
+  scheduling gate from the new executors once that slice is admitted.
+  When the driver removes executors, Kueue lowers the count of the admitted Workload and releases their quota.
+- Scale-up is atomic: the new executors stay gated until all of them fit in the quota.
+
+Dynamic allocation with Kueue has the following limitations:
+
+- The first admission does not take `spec.dynamicAllocation.initialExecutors` into account. When it is higher,
+  the additional executors stay gated until the next Workload slice is admitted.
+- The Spark Operator tracks at most `--max-tracked-executor-per-app` executors per application (1000 by default).
+  Executors beyond that limit are not counted, so they stay gated.
+- The driver may delete and recreate executors that stay gated for longer than `spark.kubernetes.allocation.executor.timeout`.
+  The new executors are gated too.
+- Kueue reads the dynamic allocation settings from `spec.dynamicAllocation` only, not from `spec.sparkConf`.
 
 ## Sample SparkApplication
 
