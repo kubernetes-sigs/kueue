@@ -1341,7 +1341,7 @@ func TestWaitForPodsReadyIsEnabled(t *testing.T) {
 	}
 }
 
-func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
+func TestClusterProfileCRDPresentWithClient(t *testing.T) {
 	multiclusterCRD := &apiextensionsv1.CustomResourceDefinition{
 		Name: "clusterprofiles.multicluster.x-k8s.io",
 		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
@@ -1361,25 +1361,15 @@ func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 	}
 
 	testCases := map[string]struct {
-		crd              *apiextensionsv1.CustomResourceDefinition
-		failedGetCRD     bool
-		wantError        bool
-		wantOptionsCache func(string) ctrlcache.Options
+		crd          *apiextensionsv1.CustomResourceDefinition
+		crdPresent   bool
+		failedGetCRD bool
+		wantError    bool
 	}{
-		"clusterProfile CRD not present": {
-			wantOptionsCache: defaultControlCacheOptions,
-		},
-		"clusterProfile cache added to ByObject": {
-			crd: multiclusterCRD,
-			wantOptionsCache: func(namespace string) ctrlcache.Options {
-				cOpts := defaultControlOptions(namespace)
-				cOpts.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
-					Namespaces: map[string]ctrlcache.Config{
-						namespace: {},
-					},
-				}
-				return cOpts.Cache
-			},
+		"clusterProfile CRD not present": {},
+		"clusterProfile CRD present": {
+			crd:        multiclusterCRD,
+			crdPresent: true,
 		},
 		"error failed loading the ClusterProfile CRD": {
 			crd:          multiclusterCRD,
@@ -1394,13 +1384,7 @@ func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			ctx, log := utiltesting.ContextWithLog(t)
-			opts := &ctrl.Options{
-				Cache: defaultControlCacheOptions(configapi.DefaultNamespace),
-			}
-			cfg := &configapi.Configuration{
-				Namespace: new(configapi.DefaultNamespace),
-			}
+			ctx, _ := utiltesting.ContextWithLog(t)
 
 			var objects []runtime.Object
 			if tc.crd != nil {
@@ -1416,7 +1400,7 @@ func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 				return false, nil, nil
 			})
 
-			err := configureClusterProfileCacheWithClient(ctx, log, opts, fake, *cfg)
+			gotPresent, err := clusterProfileCRDPresentWithClient(ctx, fake)
 			if tc.wantError {
 				if err == nil {
 					t.Error("Expected error but got none")
@@ -1425,8 +1409,8 @@ func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 				if err != nil {
 					t.Errorf("Unexpected error:%s", err)
 				}
-				if diff := cmp.Diff(tc.wantOptionsCache(configapi.DefaultNamespace), opts.Cache); diff != "" {
-					t.Errorf("Unexpected options cache (-want +got):\n%s", diff)
+				if gotPresent != tc.crdPresent {
+					t.Errorf("Unexpected CRD presence: got %v, want %v", gotPresent, tc.crdPresent)
 				}
 			}
 		})
@@ -1434,6 +1418,25 @@ func TestConfigureClusterProfileCacheWithClient(t *testing.T) {
 }
 
 func TestConfigureClusterProfileCache(t *testing.T) {
+	opts := &ctrl.Options{
+		Cache: defaultControlCacheOptions(configapi.DefaultNamespace),
+	}
+	cfg := configapi.Configuration{Namespace: new(configapi.DefaultNamespace)}
+
+	ConfigureClusterProfileCache(opts, cfg)
+
+	want := defaultControlOptions(configapi.DefaultNamespace)
+	want.Cache.ByObject[objectKeyClusterProfile] = ctrlcache.ByObject{
+		Namespaces: map[string]ctrlcache.Config{
+			configapi.DefaultNamespace: {},
+		},
+	}
+	if diff := cmp.Diff(want.Cache, opts.Cache); diff != "" {
+		t.Errorf("Unexpected options cache (-want +got):\n%s", diff)
+	}
+}
+
+func TestClusterProfileCRDPresent(t *testing.T) {
 	testCases := map[string]struct {
 		kubeConfig *rest.Config
 	}{
@@ -1454,12 +1457,8 @@ func TestConfigureClusterProfileCache(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
-			ctx, log := utiltesting.ContextWithLog(t)
-			opts := &ctrl.Options{
-				Cache: ctrlcache.Options{},
-			}
-			cfg := configapi.Configuration{Namespace: new(configapi.DefaultNamespace)}
-			err := ConfigureClusterProfileCache(ctx, log, opts, tc.kubeConfig, cfg)
+			ctx, _ := utiltesting.ContextWithLog(t)
+			_, err := ClusterProfileCRDPresent(ctx, tc.kubeConfig)
 
 			if err == nil {
 				t.Error("Expected error but got none")

@@ -282,10 +282,17 @@ func main() {
 		}
 	}
 
+	var clusterProfileCRDPresent bool
 	if features.Enabled(features.MultiKueueClusterProfile) {
-		if err := config.ConfigureClusterProfileCache(ctx, setupLog, &options, kubeConfig, cfg); err != nil {
-			setupLog.Error(err, "Unable to configure cluster profile")
+		var err error
+		if clusterProfileCRDPresent, err = config.ClusterProfileCRDPresent(ctx, kubeConfig); err != nil {
+			setupLog.Error(err, "Unable to check ClusterProfile CRD")
 			os.Exit(1)
+		}
+		if clusterProfileCRDPresent {
+			config.ConfigureClusterProfileCache(&options, cfg)
+		} else {
+			setupLog.Info("Skipping MultiKueue ClusterProfile setup as the ClusterProfile CRD is not installed")
 		}
 	}
 
@@ -440,6 +447,7 @@ func main() {
 		DRABackedResources:        draBackedResources,
 		ResourceFormatter:         resourceFormatter,
 		ResourceSliceAPIAvailable: resourceSliceAPIAvailable,
+		ClusterProfileCRDPresent:  clusterProfileCRDPresent,
 	}
 	if err := setupControllers(ctx, mgr, cCache, queues, &cfg, serverVersionFetcher, integrationManager, controllerOpts); err != nil {
 		setupLog.Error(err, "Unable to setup controllers")
@@ -589,6 +597,7 @@ func setupControllers(
 			multikueue.WithAdapters(adapters),
 			multikueue.WithDispatcherName(ptr.Deref(cfg.MultiKueue.DispatcherName, configapi.MultiKueueDispatcherModeAllAtOnce)),
 			multikueue.WithClusterProfiles(cfg.MultiKueue.ClusterProfile),
+			multikueue.WithClusterProfileCRDPresent(opts.ClusterProfileCRDPresent),
 			multikueue.WithRoleTracker(opts.RoleTracker),
 			multikueue.WithClientConnection(cfg.ClientConnection),
 		); err != nil {
