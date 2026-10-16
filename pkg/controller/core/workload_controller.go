@@ -232,7 +232,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	}
 
 	if conditionsChanged {
-		r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, kueue.WorkloadDRAResourcesResolved, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking")
+		log.V(3).Info("Updated previous inadmissible conditions after successful DRA processing")
 	}
 
 	queueOptions = []workload.InfoOption{workload.WithEffectivePodSpecs(wi.EffectivePodSpecs)}

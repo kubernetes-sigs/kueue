@@ -323,12 +323,6 @@ func TestReconcileDRA(t *testing.T) {
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Namespace: "ns", Name: "wlStaleInadmissibleDRA"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    kueue.WorkloadDRAResourcesResolved,
-					Message:   "DRA resources were resolved after a previous inadmissible marking",
-				},
-				{
-					Key:       types.NamespacedName{Namespace: "ns", Name: "wlStaleInadmissibleDRA"},
 					EventType: corev1.EventTypeWarning,
 					Reason:    kueue.WorkloadQuotaReservedReasonSuspended,
 					Message:   "ClusterQueue cq is inactive",
@@ -398,12 +392,6 @@ func TestReconcileDRA(t *testing.T) {
 				}).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "ns", Name: "wlStaleDRANotResolved"},
-					EventType: corev1.EventTypeNormal,
-					Reason:    kueue.WorkloadDRAResourcesResolved,
-					Message:   "DRA resources were resolved after a previous inadmissible marking",
-				},
 				{
 					Key:       types.NamespacedName{Namespace: "ns", Name: "wlStaleDRANotResolved"},
 					EventType: corev1.EventTypeWarning,
