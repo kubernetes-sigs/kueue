@@ -89,8 +89,15 @@ func (wh *Webhook) Default(ctx context.Context, stsObj *appsv1.StatefulSet) erro
 	if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, ss.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, ss.Object(), wh.managedJobsNamespaceSelector); err != nil {
+	oldSTSObj, err := webhook.OldObjectFromContext[appsv1.StatefulSet](ctx)
+	if err != nil {
 		return err
+	}
+	// ValidateUpdate rejects adding the label to a running StatefulSet that did not have it.
+	if oldSTSObj == nil || jobframework.CanSetWorkloadPriorityClassName(oldSTSObj.Status.ReadyReplicas == 0, oldSTSObj) {
+		if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, ss.Object(), wh.managedJobsNamespaceSelector); err != nil {
+			return err
+		}
 	}
 	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(
 		ctx,
