@@ -108,7 +108,7 @@ While `PreemptionConfig` provides declarative candidate selection policies, clus
 
 ## Proposal
 
-This KEP proposes a new preemption rate-limiting mechanism — initially supported only in Configurable Preemptions, with the potential to extend to classical or fair-sharing preemptions in the future. The new mechanism is gated by `ConfigurablePreemptionLimits` feature gate, when disabled Configurable Preemptions will not be limited according to the limits defined in the system.
+This KEP proposes a new preemption rate-limiting mechanism — initially supported only in Configurable Preemptions, with the potential to extend to classical or fair-sharing preemptions in the future. The new mechanism is guarded by the `ConfigurablePreemptionLimits` feature gate, which requires the `ConfigurablePreemptions` feature gate to be enabled. When `ConfigurablePreemptionLimits` is disabled, Configurable Preemptions will not be limited according to the limits defined in the system.
 
 Relevant capabilities include:
 
