@@ -1008,9 +1008,13 @@ func simulateOtherPreemptions(ctx context.Context, log logr.Logger, snapshot *sc
 // Note: this does not necessarily make the workload "admitted".
 func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQueueSnapshot, oldWorkloadSlice *preemption.Target) error {
 	log := ctrl.LoggerFrom(ctx)
+	podSetAssignments := e.assignment.ToAPI(log)
+	if workload.NeedsSecondPass(e.Obj) {
+		podSetAssignments = withAdmittedQuota(e.Obj.Status.Admission.PodSetAssignments, podSetAssignments)
+	}
 	admission := &kueue.Admission{
 		ClusterQueue:      e.ClusterQueue,
-		PodSetAssignments: e.assignment.ToAPI(log),
+		PodSetAssignments: podSetAssignments,
 	}
 
 	consideredStr := flavorassigner.FormatFlavorAssignmentAttemptsForEvents(e.assignment)
@@ -1071,6 +1075,24 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	})
 
 	return nil
+}
+
+// withAdmittedQuota keeps the admitted PodSet assignments and takes only the topology
+// fields from the second pass. The second pass starts from requests scaled down by
+// reclaimable Pods, so it can report fewer Pods than were admitted, while the
+// Workload webhook allows only the topology fields of an admission to change.
+func withAdmittedQuota(admitted, secondPass []kueue.PodSetAssignment) []kueue.PodSetAssignment {
+	result := make([]kueue.PodSetAssignment, len(admitted))
+	for i := range admitted {
+		result[i] = *admitted[i].DeepCopy()
+		idx := slices.IndexFunc(secondPass, func(psa kueue.PodSetAssignment) bool { return psa.Name == admitted[i].Name })
+		if idx == -1 {
+			continue
+		}
+		result[i].TopologyAssignment = secondPass[idx].TopologyAssignment
+		result[i].DelayedTopologyRequest = secondPass[idx].DelayedTopologyRequest
+	}
+	return result
 }
 
 func (s *Scheduler) patchWorkloadAdmission(
