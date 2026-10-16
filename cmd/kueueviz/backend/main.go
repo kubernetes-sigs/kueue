@@ -39,12 +39,16 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
-	// Initialize server configuration
+	// Parse CLI flags (--listen, --port, --log-level) before reading config.
+	config.ParseFlags(os.Args[1:])
+
+	// Initialize server configuration (env + flags)
 	serverConfig, err := config.NewServerConfig()
 	if err != nil {
 		slog.Error("Error loading server configuration", "error", err)
 		os.Exit(1)
 	}
+	config.SetupLogging(serverConfig.LogLevel)
 
 	// Setup pprof for development
 	config.SetupPprof()

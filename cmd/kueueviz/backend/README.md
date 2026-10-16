@@ -32,20 +32,37 @@ CGO_ENABLED=0 go build -o kueue_ws_app
 Run the application:
 
 ```bash
-# Start with default value
+# Start with default value (listen on :8080)
 ./kueue_ws_app
 
-# Start on port 8181
-KUEUE_VIZ_PORT=8181 ./kueue_ws_app
+# Start on a custom listen address (host:port)
+./kueue_ws_app --listen=0.0.0.0:8181
+
+# Equivalent using environment variables
+KUEUEVIZ_LISTEN=0.0.0.0:8181 ./kueue_ws_app
+
+# Port-only (legacy / backward compatible)
+./kueue_ws_app --port=8181
+KUEUEVIZ_PORT=8181 ./kueue_ws_app
+
+# Adjust log verbosity
+./kueue_ws_app --log-level=debug
+KUEUEVIZ_LOG_LEVEL=debug ./kueue_ws_app
 ```
 
-## Variables
+## Flags and variables
 
-| Environment variables      | Description                          | Default value |
-| -------------------------- | ------------------------------------ | ------------- |
-| `KUEUE_VIZ_PORT`           | Default application port             | 8080          |
-| `GIN_MODE`                 | Gin mode                             | debug         |
-| `KUEUEVIZ_ALLOWED_ORIGINS` | Comma-separated list of CORS origins | `*` (dev only)|
+CLI flags take precedence over environment variables.
+
+| Flag          | Environment variable     | Description                                      | Default value  |
+| ------------- | ------------------------ | ------------------------------------------------ | -------------- |
+| `--listen`    | `KUEUEVIZ_LISTEN`        | Listen address (`host:port`), e.g. `0.0.0.0:8181` | _(use --port)_ |
+| `--port`      | `KUEUEVIZ_PORT`          | TCP port when `--listen` is unset                | `8080`         |
+| `--log-level` | `KUEUEVIZ_LOG_LEVEL`     | Log level: `debug`, `info`, `warn`, `error`      | `info`         |
+|               | `GIN_MODE`               | Gin mode                                         | `debug`        |
+|               | `KUEUEVIZ_ALLOWED_ORIGINS` | Comma-separated list of CORS origins           | `*` (dev only) |
+
+`--listen` is preferred when co-locating the frontend and backend in the same pod so each container can bind a distinct address/port.
 
 ## Endpoints
 
