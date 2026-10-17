@@ -4592,6 +4592,7 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 				Type:   corev1.NodeReady,
 				Status: corev1.ConditionFalse,
 			})
+			integration.TaintNodeNotReady(ctx, k8sClient, nodeToUpdate)
 		})
 
 		ginkgo.By("terminating a pod", func() {
@@ -4688,6 +4689,7 @@ var _ = ginkgo.Describe("Pod controller with TASReplaceNodeOnPodTermination", gi
 				Type:   corev1.NodeReady,
 				Status: corev1.ConditionFalse,
 			})
+			integration.TaintNodeNotReady(ctx, k8sClient, nodeToUpdate)
 		})
 
 		ginkgo.By("verify the workload is assigned a new node", func() {
