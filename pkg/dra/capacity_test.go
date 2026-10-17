@@ -227,6 +227,13 @@ func TestComputeCapacityCharge(t *testing.T) {
 			wantCharge:      "20Gi",
 		},
 		{
+			name:            "node-allocatable resources do not change capacity charge",
+			matched:         []resourcev1.Device{withNodeAllocatableResources(makeDevice("gpu-0", "80Gi", nil))},
+			count:           1,
+			explicitRequest: ptrQty("20Gi"),
+			wantCharge:      "20Gi",
+		},
+		{
 			name: "no request uses device Default",
 			matched: []resourcev1.Device{
 				makeDevice("gpu-0", "80Gi", &resourcev1.CapacityRequestPolicy{Default: ptrQty("40Gi")}),

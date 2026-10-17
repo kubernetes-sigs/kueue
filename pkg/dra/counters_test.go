@@ -101,6 +101,18 @@ func TestComputeCounterCharges(t *testing.T) {
 			},
 		},
 		{
+			name:          "node-allocatable resources do not change counter charge",
+			cc:            defaultCC,
+			quotaResource: "gpu.memory",
+			matched: []resourcev1.Device{
+				withNodeAllocatableResources(makeDevice("mig-1g10gb-0", "1g.10gb", "9856Mi")),
+			},
+			count: 1,
+			want: corev1.ResourceList{
+				"gpu.memory": resource.MustParse("9856Mi"),
+			},
+		},
+		{
 			name:          "single device, count=3",
 			cc:            defaultCC,
 			quotaResource: "gpu.memory",
