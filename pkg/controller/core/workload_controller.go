@@ -852,7 +852,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
-		if updated, err := r.reconcileOnClusterQueueActiveState(ctx, &wl, cqName); updated || err != nil {
+		if updated, err := r.reconcileOnClusterQueueActiveState(ctx, &wl, ptr.Deref(wl.Status.Admission, kueue.Admission{}).ClusterQueue); updated || err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
@@ -2065,6 +2065,16 @@ func (w *workloadQueueHandler) queueReconcileForWorkloadsOfClusterQueue(ctx cont
 		log := log.WithValues("localQueue", klog.KObj(&lq))
 		ctx := ctrl.LoggerInto(ctx, log)
 		w.queueReconcileForWorkloadsOfLocalQueue(ctx, &lq, wq)
+	}
+
+	// A Workload whose LocalQueue was deleted is only reachable through the
+	// ClusterQueue it reserved quota in.
+	wlList := kueue.WorkloadList{}
+	if err := w.r.client.List(ctx, &wlList, client.MatchingFields{indexer.WorkloadClusterQueueKey: cqName}); err != nil {
+		log.Error(err, "Could not list workloads with quota reserved in the cluster queue")
+	}
+	for _, wl := range wlList.Items {
+		wq.Add(reconcile.Request{Name: wl.Name, Namespace: wl.Namespace})
 	}
 }
 
