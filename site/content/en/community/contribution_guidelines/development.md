@@ -121,3 +121,14 @@ go tool cover -html=artifacts/cover.out
 # Print a per-function summary
 go tool cover -func=artifacts/cover.out
 ```
+
+### Filtered unit coverage report
+
+`make test` also writes a filtered profile and a text summary under `artifacts/`:
+
+- `artifacts/cover.filtered.out` (or `artifacts/cover-shard-N.filtered.out` when unit tests are sharded)
+- `artifacts/cover.filtered.txt` (or `artifacts/cover-shard-N.filtered.txt`)
+
+The summary includes an overall statement percentage. A low percentage does not fail `make test`.
+
+The filter drops generated and non-product paths (`vendor/`, `zz_generated.` files, `.pb.go`, and generated client code under `client-go/`) and keeps product code such as `pkg/`. This mirrors the filter step of the Kubernetes coverage-unit job. A prow periodic in [kubernetes/test-infra](https://github.com/kubernetes/test-infra) can call the same `make test` target later. That periodic is not part of this repository and is not configured today.
