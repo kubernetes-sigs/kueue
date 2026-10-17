@@ -261,6 +261,48 @@ does for node taints. To requeue such workloads, enable
 For setup instructions, see
 [Use Topology-Aware Scheduling with DRA](/docs/tasks/manage/setup_dra/#use-topology-aware-scheduling-with-dra).
 
+## Node-allocatable resources supplied by DRA
+
+Kubernetes KEP-5517 targets the `DRANodeAllocatableResources` feature for beta
+in Kubernetes 1.38. With the v1.38 default `MinCompatibilityVersion` of 1.37,
+the gate remains disabled by default. Operators can enable it on all
+participating components or set `MinCompatibilityVersion` to 1.38. The KEP
+targets default enablement for Kubernetes 1.39. The feature lets DRA devices
+supply node resources such as CPU, memory, ephemeral storage, or hugepages. The
+scheduler resolves the exact amount for the selected device and records it
+in the Pod status field defined by Kubernetes KEP-5517 during PreBind.
+
+Kueue does not add that translated amount to the Workload's CPU, memory, or
+other native-resource `ClusterQueue` quota. For ResourceClaimTemplates, it
+charges the claim through the `deviceClassMappings` entry and its selected
+accounting source: device count, counter value, or consumable capacity. The
+extended-resource path continues to charge the extended resource name or its
+configured logical mapping. Ordinary resource requests in the Pod template are
+charged normally.
+
+This policy keeps quota admission deterministic because Kueue admits the
+Workload before the scheduler selects and allocates a specific device. It also
+avoids charging both the device and the node-allocatable resource supplied by
+the same allocation. Consequently, native-resource quota does not represent
+the complete post-allocation footprint of Pods that use this Kubernetes
+feature.
+
+KEP-5517's beta design calls for Kubernetes namespace `ResourceQuota` to account
+for the translated native resource during PreBind when the Kubernetes version
+supports quota evaluation for the scheduler's Pod status update. Where
+supported, Kueue can admit a Workload whose Pod later remains Pending or enters
+scheduler backoff because its namespace lacks native-resource quota for the
+selected device. Where it is not supported, namespace `ResourceQuota` does not
+cover the translated amount; administrators must rely on the DRA logical quota
+or other controls.
+
+Administrators should use a distinct logical quota resource, such as
+`example.com/cpu-device`, for these DeviceClasses and size that quota to reflect
+the capacity represented by each unit. Naming the logical resource `cpu` or
+`memory` is discouraged because device-count units are not CPU cores or bytes.
+
+This Kueue accounting behavior does not require a separate Kueue feature gate.
+
 ## MultiKueue
 
 DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue),
