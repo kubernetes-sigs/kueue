@@ -383,66 +383,128 @@ func TestCohortReconcileLifecycle(t *testing.T) {
 // WithLeadingManager does not call Reconcile, so this is what a warm
 // follower holds when it takes the lease.
 func TestCohortEventHandlersUpdateCacheWithoutReconcile(t *testing.T) {
-	ctx, _ := utiltesting.ContextWithLog(t)
-	cl := utiltesting.NewClientBuilder().Build()
-	cache := schdcache.New(cl)
-	qManager := qcache.NewManagerForUnitTests(cl, cache)
-	reconciler := NewCohortReconciler(cl, cache, qManager)
-
-	borrower := utiltestingapi.MakeClusterQueue("borrower").
-		Cohort("root").
-		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "0").Obj()).
-		Obj()
-	if err := cache.AddClusterQueue(ctx, borrower); err != nil {
-		t.Fatalf("AddClusterQueue() = %v", err)
-	}
-
-	subtreeQuota := func() resources.FlavorResourceQuantities {
-		t.Helper()
-		snapshot, err := cache.Snapshot(ctx)
-		if err != nil {
-			t.Fatalf("Snapshot() = %v", err)
-		}
-		cohortSnap := snapshot.Cohort("root")
-		if cohortSnap == nil {
-			t.Fatal("expected Cohort root in snapshot")
-		}
-		return cohortSnap.ResourceNode.SubtreeQuota
-	}
 	red := resources.FlavorResource{Flavor: "red", Resource: "cpu"}
+	quota := func(cpu string) kueue.FlavorQuotas {
+		return *utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", cpu).Obj()
+	}
+	root10 := utiltestingapi.MakeCohort("root").ResourceGroup(quota("10")).Obj()
+	root5 := utiltestingapi.MakeCohort("root").ResourceGroup(quota("5")).Obj()
+	rootToA := utiltestingapi.MakeCohort("root").Parent("cohort-a").Obj()
+	aToRoot := utiltestingapi.MakeCohort("cohort-a").Parent("root").Obj()
+	aNoParent := utiltestingapi.MakeCohort("cohort-a").Obj()
 
-	root := utiltestingapi.MakeCohort("root").ResourceGroup(
-		*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "10").Obj(),
-	).Obj()
-	reconciler.Create(event.TypedCreateEvent[*kueue.Cohort]{Object: root})
-	if got, want := subtreeQuota()[red], resources.NewAmount(10_000); !got.Equal(want) {
-		t.Fatalf("after create, subtree quota = %v, want %v", got, want)
+	type cohortEvent struct {
+		create *kueue.Cohort
+		old    *kueue.Cohort
+		update *kueue.Cohort
+		delete *kueue.Cohort
+	}
+	tests := []struct {
+		name   string
+		events []cohortEvent
+		// reconcile runs the leader's Reconcile for root after the events.
+		reconcile bool
+		// wantSubtreeQuota is the red cpu quota of root in the snapshot, nil
+		// when root is not in the snapshot.
+		wantSubtreeQuota *resources.Amount
+		wantCQActive     bool
+	}{
+		{
+			name:             "create adds the quota of an explicit Cohort",
+			events:           []cohortEvent{{create: root10}},
+			wantSubtreeQuota: new(resources.NewAmount(10_000)),
+			wantCQActive:     true,
+		},
+		{
+			name:             "update replaces the quota",
+			events:           []cohortEvent{{create: root10}, {old: root10, update: root5}},
+			wantSubtreeQuota: new(resources.NewAmount(5_000)),
+			wantCQActive:     true,
+		},
+		{
+			name:             "delete keeps an implicit Cohort without quota",
+			events:           []cohortEvent{{create: root10}, {delete: root10}},
+			wantSubtreeQuota: new(resources.NewAmount(0)),
+			wantCQActive:     true,
+		},
+		{
+			name:             "delete followed by the leader's Reconcile",
+			events:           []cohortEvent{{create: root10}, {delete: root10}},
+			reconcile:        true,
+			wantSubtreeQuota: new(resources.NewAmount(0)),
+			wantCQActive:     true,
+		},
+		{
+			name:         "a cycle deactivates the ClusterQueue",
+			events:       []cohortEvent{{create: rootToA}, {create: aToRoot}},
+			wantCQActive: false,
+		},
+		{
+			name: "breaking the cycle reactivates the ClusterQueue",
+			events: []cohortEvent{
+				{create: rootToA},
+				{create: aToRoot},
+				{old: aToRoot, update: aNoParent},
+			},
+			wantSubtreeQuota: new(resources.NewAmount(0)),
+			wantCQActive:     true,
+		},
 	}
 
-	updated := root.DeepCopy()
-	updated.Spec.ResourceGroups[0] = utiltestingapi.ResourceGroup(
-		*utiltestingapi.MakeFlavorQuotas("red").Resource("cpu", "5").Obj(),
-	)
-	if !reconciler.Update(event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: root, ObjectNew: updated}) {
-		t.Fatal("expected the quota update to be processed")
-	}
-	if got, want := subtreeQuota()[red], resources.NewAmount(5_000); !got.Equal(want) {
-		t.Fatalf("after update, subtree quota = %v, want %v", got, want)
-	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder().Build()
+			cache := schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cache)
+			reconciler := NewCohortReconciler(cl, cache, qManager)
 
-	reconciler.Delete(event.TypedDeleteEvent[*kueue.Cohort]{Object: updated})
-	// The ClusterQueue still names the Cohort, so it stays as an implicit
-	// Cohort without quota of its own.
-	if got := subtreeQuota()[red]; got.CmpInt64(0) != 0 {
-		t.Fatalf("after delete, subtree quota = %v, want 0", got)
-	}
+			cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor("red").Obj())
+			borrower := utiltestingapi.MakeClusterQueue("borrower").
+				Cohort("root").
+				ResourceGroup(quota("0")).
+				Obj()
+			if err := cache.AddClusterQueue(ctx, borrower); err != nil {
+				t.Fatalf("AddClusterQueue() = %v", err)
+			}
 
-	// The leader's Reconcile runs after the handler for the same delete.
-	if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(root)}); err != nil {
-		t.Fatalf("Reconcile() after delete = %v", err)
-	}
-	if got := subtreeQuota()[red]; got.CmpInt64(0) != 0 {
-		t.Fatalf("after Reconcile, subtree quota = %v, want 0", got)
+			for _, e := range tc.events {
+				switch {
+				case e.create != nil:
+					reconciler.Create(event.TypedCreateEvent[*kueue.Cohort]{Object: e.create.DeepCopy()})
+				case e.update != nil:
+					reconciler.Update(event.TypedUpdateEvent[*kueue.Cohort]{ObjectOld: e.old.DeepCopy(), ObjectNew: e.update.DeepCopy()})
+				case e.delete != nil:
+					reconciler.Delete(event.TypedDeleteEvent[*kueue.Cohort]{Object: e.delete.DeepCopy()})
+				}
+			}
+			if tc.reconcile {
+				if _, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(root10)}); err != nil {
+					t.Fatalf("Reconcile() = %v", err)
+				}
+			}
+
+			if got := cache.ClusterQueueActive("borrower"); got != tc.wantCQActive {
+				t.Errorf("ClusterQueueActive() = %v, want %v", got, tc.wantCQActive)
+			}
+			snapshot, err := cache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("Snapshot() = %v", err)
+			}
+			cohortSnap := snapshot.Cohort("root")
+			if tc.wantSubtreeQuota == nil {
+				if cohortSnap != nil {
+					t.Errorf("Cohort root in snapshot, want it excluded")
+				}
+				return
+			}
+			if cohortSnap == nil {
+				t.Fatal("Cohort root missing from snapshot")
+			}
+			if got := cohortSnap.ResourceNode.SubtreeQuota[red]; !got.Equal(*tc.wantSubtreeQuota) {
+				t.Errorf("subtree quota = %v, want %v", got, *tc.wantSubtreeQuota)
+			}
+		})
 	}
 }
 
