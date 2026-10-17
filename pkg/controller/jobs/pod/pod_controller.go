@@ -241,7 +241,7 @@ func WithRoleTracker(tracker *roletracker.RoleTracker) PodOption {
 	}
 }
 
-// WithCustomLabels sets the labels the Pod's scheduling-gate-removal metric is recorded with.
+// WithCustomLabels sets the custom labels the Pod's metrics are recorded with.
 func WithCustomLabels(cl *metrics.CustomLabels) PodOption {
 	return func(pod *Pod) {
 		pod.customLabels = cl

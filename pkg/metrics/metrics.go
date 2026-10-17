@@ -792,7 +792,7 @@ The label 'underlying_cause' can have the following values:
 		prometheus.CounterOpts{
 			Subsystem: constants.KueueName,
 			Name:      "excess_pods_deleted_total",
-			Help:      `The number of Pods deleted per 'cluster_queue' because their pod group had more Pods than its declared size`,
+			Help:      `The number of Pods deleted per 'cluster_queue' because their pod group, or one of its PodSets, had more Pods than declared`,
 		}, append([]string{"cluster_queue", "replica_role"}, clusterQueueMetricsLabels...),
 	)
 
