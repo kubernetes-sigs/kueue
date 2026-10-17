@@ -52,7 +52,7 @@ const (
 const (
 	driverPodSetIndex   = 0
 	executorPodSetIndex = 1
-	sparkPodSetCount    = 2
+	podSetsCount        = 2
 )
 
 func RegisterIntegration(m *jobframework.IntegrationManager) error {
@@ -104,7 +104,7 @@ func (j *SparkApplication) PodLabelSelector() string {
 }
 
 func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, error) {
-	podSets := make([]kueue.PodSet, sparkPodSetCount)
+	podSets := make([]kueue.PodSet, podSetsCount)
 
 	setTopologyRequestToPodSetIfEnabled := func(podSet *kueue.PodSet, podTemplateSpec *corev1.PodTemplateSpec) error {
 		if features.Enabled(features.TopologyAwareScheduling) {
@@ -156,8 +156,8 @@ func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueu
 }
 
 func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
-	if len(podSetsInfo) != sparkPodSetCount {
-		return podset.BadPodSetsInfoLenError(sparkPodSetCount, len(podSetsInfo))
+	if len(podSetsInfo) != podSetsCount {
+		return podset.BadPodSetsInfoLenError(podSetsCount, len(podSetsInfo))
 	}
 
 	j.Spec.Suspend = new(false)
@@ -229,10 +229,10 @@ func (j *SparkApplication) RunWithPodSetsInfo(ctx context.Context, _ client.Clie
 }
 
 func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
-	if len(podSetsInfo) != sparkPodSetCount {
+	if len(podSetsInfo) != podSetsCount {
 		ctrl.LoggerFrom(ctx).V(2).Info(
 			"Skipping pod set info restore because the pod set count does not match the admitted workload",
-			"expectedCount", sparkPodSetCount,
+			"expectedCount", podSetsCount,
 			"gotCount", len(podSetsInfo),
 		)
 		return false
