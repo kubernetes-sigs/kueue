@@ -429,8 +429,16 @@ const (
 	// 63 characters, making them compatible with Kubernetes label value limits.
 	ShortWorkloadNames featuregate.Feature = "ShortWorkloadNames"
 
+	// owner: @vic-comm
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/10076-quota-release-strategy
+	//
+	// Enables configurable QuotaReleaseStrategy per integration framework.
+	QuotaReleaseStrategy featuregate.Feature = "QuotaReleaseStrategy"
+
 	// owner: @tkillian
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/6143-quota-release-strategy
+	//
+	// Deprecated: superseded by QuotaReleaseStrategy in v0.20.
 	//
 	// When enabled, pods with a DeletionTimestamp are treated as inactive in the
 	// Pod integration's IsActive() check, allowing quota to be released immediately
@@ -1350,6 +1358,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	PodIntegrationCountSucceededPodsAsReady: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
+	QuotaReleaseStrategy: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
 	WorkloadLevelWaitForPodsReady: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},

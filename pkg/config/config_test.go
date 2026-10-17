@@ -42,6 +42,7 @@ import (
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/component-base/featuregate"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	ctrlcache "sigs.k8s.io/controller-runtime/pkg/cache"
 	ctrlclient "sigs.k8s.io/controller-runtime/pkg/client"
@@ -373,6 +374,21 @@ resources:
     strategy: Retain
     outputs:
       example.com/credits: 1
+`), os.FileMode(0600)); err != nil {
+		t.Fatal(err)
+	}
+
+	frameworkConfigsConfig := filepath.Join(tmpDir, "frameworkConfigs.yaml")
+	if err := os.WriteFile(frameworkConfigsConfig, []byte(`
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+namespace: kueue-system
+integrations:
+  frameworks:
+  - "batch/job"
+  frameworkConfigs:
+  - name: "batch/job"
+    quotaReleaseStrategy: OnTerminal
 `), os.FileMode(0600)); err != nil {
 		t.Fatal(err)
 	}
@@ -948,6 +964,34 @@ objectRetentionPolicies:
 			},
 			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
 		},
+		{
+			name:       "integrations with frameworkConfigs",
+			configFile: frameworkConfigsConfig,
+			wantConfiguration: configapi.Configuration{
+				TypeMeta: metav1.TypeMeta{
+					APIVersion: configapi.SchemeGroupVersion.String(),
+					Kind:       "Configuration",
+				},
+				Namespace:                  new(configapi.DefaultNamespace),
+				ManageJobsWithoutQueueName: false,
+				InternalCertManagement:     enableDefaultInternalCertManagement,
+				ClientConnection:           defaultClientConnection,
+				Integrations: &configapi.Integrations{
+					Frameworks: []string{"batch/job"},
+					FrameworkConfigs: []configapi.FrameworkConfig{
+						{
+							Name:                 "batch/job",
+							QuotaReleaseStrategy: ptr.To(configapi.QuotaReleaseOnTerminal),
+						},
+					},
+				},
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibility,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+			},
+			wantOptions: defaultControlOptions(configapi.DefaultNamespace),
+		},
 	}
 
 	for _, tc := range testcases {
@@ -1094,7 +1138,6 @@ webhook:
 					WebhookSecretName:  new(configapi.DefaultWebhookSecretName),
 				},
 				WaitForPodsReady: defaultWaitForPodsReady,
-
 				ClientConnection: &configapi.ClientConnection{
 					QPS:   new(configapi.DefaultClientConnectionQPS),
 					Burst: new(configapi.DefaultClientConnectionBurst),

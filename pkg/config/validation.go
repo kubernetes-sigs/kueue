@@ -62,6 +62,7 @@ var (
 	integrationsPath                      = field.NewPath("integrations")
 	integrationsFrameworksPath            = integrationsPath.Child("frameworks")
 	integrationsExternalFrameworkPath     = integrationsPath.Child("externalFrameworks")
+	integrationsFrameworkConfigsPath      = integrationsPath.Child("frameworkConfigs")
 	managedJobsNamespaceSelectorPath      = field.NewPath("managedJobsNamespaceSelector")
 	waitForPodsReadyPath                  = field.NewPath("waitForPodsReady")
 	requeuingStrategyPath                 = waitForPodsReadyPath.Child("requeuingStrategy")
@@ -134,6 +135,59 @@ func validateQuotaCheckStrategy(c *configapi.Configuration) field.ErrorList {
 					configapi.QuotaCheckBlockUndeclared,
 				},
 			))
+		}
+	}
+	return allErrs
+}
+
+var (
+	supportedOnTerminalFrameworks = sets.New(podworkload.FrameworkName)
+)
+
+func validateFrameworkConfigs(c *configapi.Configuration) field.ErrorList {
+	if !features.Enabled(features.QuotaReleaseStrategy) {
+		return nil
+	}
+	var allErrs field.ErrorList
+	if c.Integrations == nil {
+		return allErrs
+	}
+	seenFrameworks := sets.New[string]()
+	for idx, fc := range c.Integrations.FrameworkConfigs {
+		fcPath := integrationsFrameworkConfigsPath.Index(idx)
+		namePath := fcPath.Child("name")
+		if len(fc.Name) == 0 {
+			allErrs = append(allErrs, field.Required(namePath, "must be specified"))
+		} else {
+			if seenFrameworks.Has(fc.Name) {
+				allErrs = append(allErrs, field.Duplicate(namePath, fc.Name))
+			} else {
+				seenFrameworks.Insert(fc.Name)
+			}
+			if !slices.Contains(c.Integrations.Frameworks, fc.Name) {
+				allErrs = append(allErrs, field.NotSupported(namePath, fc.Name, c.Integrations.Frameworks))
+			}
+		}
+
+		if fc.QuotaReleaseStrategy != nil {
+			strategyPath := fcPath.Child("quotaReleaseStrategy")
+			strategy := *fc.QuotaReleaseStrategy
+			if strategy != configapi.QuotaReleaseOnQuotaReleased && strategy != configapi.QuotaReleaseOnTerminal {
+				allErrs = append(allErrs, field.NotSupported(
+					strategyPath,
+					strategy,
+					[]configapi.QuotaReleaseStrategy{
+						configapi.QuotaReleaseOnQuotaReleased,
+						configapi.QuotaReleaseOnTerminal,
+					},
+				))
+			} else if len(fc.Name) > 0 && strategy == configapi.QuotaReleaseOnTerminal && !supportedOnTerminalFrameworks.Has(fc.Name) {
+				allErrs = append(allErrs, field.Forbidden(
+					strategyPath,
+					fmt.Sprintf("%s is only supported for %q integration",
+						configapi.QuotaReleaseOnTerminal, podworkload.FrameworkName),
+				))
+			}
 		}
 	}
 	return allErrs
@@ -373,6 +427,7 @@ func validateIntegrations(c *configapi.Configuration, scheme *runtime.Scheme, in
 	}
 
 	allErrs = append(allErrs, validatePodIntegrationOptions(c)...)
+	allErrs = append(allErrs, validateFrameworkConfigs(c)...)
 	return allErrs
 }
 

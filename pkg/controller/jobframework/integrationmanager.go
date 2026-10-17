@@ -35,6 +35,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 )
 
 var (
@@ -86,6 +88,8 @@ type IntegrationCallbacks struct {
 	DependencyList []string
 	// The list of integrations implicitly enabled as dependencies of the integration.
 	ImplicitlyEnabledFrameworkNames []string
+	// QuotaReleaseStrategy holds the quota release strategy configured for the framework.
+	QuotaReleaseStrategy *configapi.QuotaReleaseStrategy
 }
 
 func (i *IntegrationCallbacks) getGVK() schema.GroupVersionKind {
@@ -122,6 +126,19 @@ func NewIntegrationManager() *IntegrationManager {
 // RegisterIntegration registers a framework with this manager.
 func (m *IntegrationManager) RegisterIntegration(name string, cb IntegrationCallbacks) error {
 	return m.register(name, cb)
+}
+
+// RegisterQuotaReleaseStrategy registers the quota release strategy for a framework.
+func (m *IntegrationManager) RegisterQuotaReleaseStrategy(name string, strategy *configapi.QuotaReleaseStrategy) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cb, exists := m.integrations[name]
+	if !exists {
+		return fmt.Errorf("%w: %q", errIntegrationNotFound, name)
+	}
+	cb.QuotaReleaseStrategy = strategy
+	m.integrations[name] = cb
+	return nil
 }
 
 // RegisterExternalJobType registers an externally managed job type with this manager.
