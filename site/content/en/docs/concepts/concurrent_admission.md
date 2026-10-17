@@ -111,7 +111,9 @@ spec:
 
 When Concurrent Admission is enabled for the `ClusterQueue`, Kueue marks the
 original Workload as a Parent and creates Variant Workloads owned by that Parent.
-Each Variant is constrained to one ResourceFlavor.
+Each Variant is constrained to one ResourceFlavor. All pod sets of a Variant are
+admitted to that single ResourceFlavor, so a Workload whose pod sets require
+different flavors cannot be admitted.
 
 Parent Workloads are labeled with `kueue.x-k8s.io/concurrent-admission-parent`
 set to `"true"`. A Parent Workload can have metadata like this:
@@ -168,6 +170,10 @@ Concurrent Admission currently has the following constraints:
 - The `concurrentAdmissionPolicy` field is immutable after the `ClusterQueue` is
   created.
 - `TryPreferredFlavors` is the only supported migration mode.
+- Each Variant admits all pod sets of the Workload to the same single
+  ResourceFlavor. Workloads whose pod sets require different flavors at the same
+  time (heterogeneous pod sets), such as a RayJob with a CPU head pod and GPU
+  worker pods, cannot be admitted under Concurrent Admission.
 
 ## What's next?
 
