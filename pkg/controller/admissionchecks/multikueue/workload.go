@@ -291,13 +291,29 @@ func (w *wlReconciler) admittingWorkerLostSince(clusterName string) time.Time {
 	return w.clock.Now()
 }
 
-func (w *wlReconciler) remoteClientsForAC(ctx context.Context, acName kueue.AdmissionCheckReference) (availableClients map[string]*remoteClient, unavailableClusters []string, err error) {
+// remoteClientsForWorkload returns the clients of the clusters in the admission check's MultiKueueConfig,
+// plus the cluster that admitted the workload if it was removed from the config since.
+// Removing a cluster from the config only stops new dispatches to it, so the workload keeps
+// running there instead of being dispatched again while its remote objects are left behind.
+func (w *wlReconciler) remoteClientsForWorkload(
+	ctx context.Context,
+	acName kueue.AdmissionCheckReference,
+	local *kueue.Workload,
+) (availableClients map[string]*remoteClient, unavailableClusters []string, err error) {
 	cfg, err := w.helper.ConfigForAdmissionCheck(ctx, acName)
 	if err != nil {
 		return nil, nil, err
 	}
-	availableClients = make(map[string]*remoteClient, len(cfg.Spec.Clusters))
-	for _, clusterName := range cfg.Spec.Clusters {
+	clusterNames := cfg.Spec.Clusters
+	if admitting := workload.ClusterName(local); admitting != "" && !slices.Contains(clusterNames, admitting) {
+		// Without a MultiKueueCluster the admitting cluster cannot be reached,
+		// so leave it out and let the workload be retried right away.
+		if _, found := w.clusters.controllerFor(admitting); found {
+			clusterNames = append(clusterNames, admitting)
+		}
+	}
+	availableClients = make(map[string]*remoteClient, len(clusterNames))
+	for _, clusterName := range clusterNames {
 		if client, found := w.clusters.controllerFor(clusterName); found && client.connState.isConnected() {
 			availableClients[clusterName] = client
 		} else {
@@ -333,7 +349,7 @@ func (w *wlReconciler) adapter(local *kueue.Workload) (jobframework.MultiKueueAd
 }
 
 func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acName kueue.AdmissionCheckReference, adapter jobframework.MultiKueueAdapter, controllerName string) (*wlGroup, error) {
-	rClients, unavailable, err := w.remoteClientsForAC(ctx, acName)
+	rClients, unavailable, err := w.remoteClientsForWorkload(ctx, acName, local)
 	if err != nil {
 		return nil, fmt.Errorf("admission check %q: %w", acName, err)
 	}
