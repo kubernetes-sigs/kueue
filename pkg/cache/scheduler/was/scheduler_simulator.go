@@ -20,6 +20,7 @@ package was
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"sync"
@@ -72,6 +73,9 @@ func (s *wasSimulator) FindFeasibleNodes(
 	requirements *simulator.PodRequirements,
 	stats *simulator.NodeExclusionStats,
 ) ([]simulator.MatchedCandidate, error) {
+	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		return nil, errors.New("FindFeasibleNodes() not allowed when SchedulerLibraryDeepIntegration enabled")
+	}
 	var candidateLeaves = make(map[string]simulator.MatchedCandidate)
 	var candidateNodeNames []string
 	var feasibleCandidates []simulator.MatchedCandidate
@@ -146,6 +150,12 @@ func (s *wasSimulator) Simulate(ctx context.Context, fn func()) error {
 }
 
 func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
+	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		return simulator.SchedulingResult{
+			Error: errors.New("ScheduleWorkload() not allowed when SchedulerLibraryDeepIntegration disabled"),
+		}
+	}
+
 	workloadPods = copyWithDefaultScheduler(workloadPods...)
 	wasResults, err := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, schedlib.ScheduleWorkloadOptions{DryRun: true})
 	if err != nil {
