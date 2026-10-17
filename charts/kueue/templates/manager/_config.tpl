@@ -1,0 +1,112 @@
+{{- /*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/ -}}
+
+{{/*
+Manager configuration defaults for this chart version, separate from user values.
+*/}}
+{{- define "kueue.managerConfigDefaults" -}}
+apiVersion: config.kueue.x-k8s.io/v1beta2
+kind: Configuration
+health:
+  healthProbeBindAddress: :8081
+metrics:
+  bindAddress: :8443
+# enableClusterQueueResources: true
+webhook:
+  port: 9443
+leaderElection:
+  leaderElect: true
+  resourceName: c1f6bfd2.kueue.x-k8s.io
+controller:
+  groupKindConcurrency:
+    Job.batch: 5
+    Pod: 5
+    Workload.kueue.x-k8s.io: 10
+    LocalQueue.kueue.x-k8s.io: 5
+    Cohort.kueue.x-k8s.io: 1
+    ClusterQueue.kueue.x-k8s.io: 5
+    ResourceFlavor.kueue.x-k8s.io: 1
+clientConnection:
+  qps: 300
+  burst: 500
+#pprofBindAddress: :8083
+#waitForPodsReady:
+#  timeout: 30m
+#  recoveryTimeout: 5m
+#  unscheduledTimeout: 5m
+#  blockAdmission: false
+#  requeuingStrategy:
+#    timestamp: Eviction
+#    backoffLimitCount: null # null indicates infinite requeuing
+#    backoffBaseSeconds: 60
+#    backoffMaxSeconds: 3600
+#manageJobsWithoutQueueName: true
+# See "Opt-in Namespace Management" for guidance on namespace management:
+# https://kueue.sigs.k8s.io/docs/tasks/manage/enforce_job_management/opt_in_namespace_management/
+#managedJobsNamespaceSelector:
+#  matchExpressions:
+#    - key: kubernetes.io/metadata.name
+#      operator: NotIn
+#      values: [ kube-system, kueue-system ]
+#internalCertManagement:
+#  enable: false
+#  webhookServiceName: ""
+#  webhookSecretName: ""
+integrations:
+  frameworks:
+  - "batch/job"
+  - "kubeflow.org/mpijob"
+  - "ray.io/rayjob"
+  - "ray.io/rayservice"
+  - "ray.io/raycluster"
+  - "jobset.x-k8s.io/jobset"
+#  - "kubeflow.org/paddlejob"
+#  - "kubeflow.org/pytorchjob"
+#  - "kubeflow.org/tfjob"
+#  - "kubeflow.org/xgboostjob"
+#  - "kubeflow.org/jaxjob"
+  - "workload.codeflare.dev/appwrapper"
+  - "trainer.kubeflow.org/trainjob"
+#  - "sparkoperator.k8s.io/sparkapplication"
+  - "pod"
+  - "deployment"
+  - "statefulset"
+  - "leaderworkerset.x-k8s.io/leaderworkerset"
+#  externalFrameworks:
+#  - "Foo.v1.example.com"
+#fairSharing:
+#  preemptionStrategies: [LessThanOrEqualToFinalShare, LessThanInitialShare]
+#admissionFairSharing:
+#  usageHalfLifeTime: "168h" # 7 days
+#  usageSamplingInterval: "5m"
+#  resourceWeights: # optional, defaults to 1 for all resources if not specified
+#    cpu: 0    # if you want to completely ignore cpu usage
+#    memory: 0 # ignore completely memory usage
+#    example.com/gpu: 100 # and you care only about GPUs usage
+#resources:
+#  excludeResourcePrefixes: []
+#  quotaCheckStrategy: "BlockUndeclared"
+# transformations:
+# - input: nvidia.com/mig-4g.5gb
+#   strategy: Replace | Retain
+#   outputs:
+#     example.com/accelerator-memory: 5Gi
+#     example.com/accelerator-gpc: 4
+#objectRetentionPolicies:
+#  workloads:
+#    afterFinished: null # null indicates infinite retention, 0s means no retention at all
+#    afterDeactivatedByKueue: null # null indicates infinite retention, 0s means no retention at all
+{{- end -}}
