@@ -131,33 +131,27 @@ func TestParseResourceQuotas(t *testing.T) {
 				},
 			},
 		},
-		"should create one resource group with one flavor and borrowingLimit set": {
-			borrowingArgs: []string{"alpha:cpu=1;memory=1"},
-			wantResourceGroups: []kueue.ResourceGroup{
-				{
-					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
-					Flavors: []kueue.FlavorQuotas{
-						*utiltestingapi.MakeFlavorQuotas("alpha").
-							Resource("cpu", "0", "1").
-							Resource("memory", "0", "1").
-							Obj(),
-					},
-				},
-			},
+		"should fail when a flavor is set in borrowingLimit without nominalQuota": {
+			borrowingArgs:  []string{"alpha:cpu=1;memory=1"},
+			wantErr:        errMisconfiguredFlavor,
+			wantErrMessage: `misconfigured flavor "alpha": flavor is set in --borrowing-limit but has no matching --nominal-quota`,
 		},
-		"should create one resource group with one flavor and lendingLimit set": {
-			lendingArgs: []string{"alpha:cpu=1;memory=1"},
-			wantResourceGroups: []kueue.ResourceGroup{
-				{
-					CoveredResources: []corev1.ResourceName{"cpu", "memory"},
-					Flavors: []kueue.FlavorQuotas{
-						*utiltestingapi.MakeFlavorQuotas("alpha").
-							Resource("cpu", "0", "", "1").
-							Resource("memory", "0", "", "1").
-							Obj(),
-					},
-				},
-			},
+		"should fail when a flavor is set in lendingLimit without nominalQuota": {
+			lendingArgs:    []string{"alpha:cpu=1;memory=1"},
+			wantErr:        errMisconfiguredFlavor,
+			wantErrMessage: `misconfigured flavor "alpha": flavor is set in --lending-limit but has no matching --nominal-quota`,
+		},
+		"should fail when a flavor is set in both borrowingLimit and lendingLimit without nominalQuota": {
+			borrowingArgs:  []string{"alpha:cpu=1"},
+			lendingArgs:    []string{"alpha:cpu=1;memory=1"},
+			wantErr:        errMisconfiguredFlavor,
+			wantErrMessage: `misconfigured flavor "alpha": flavor is set in --borrowing-limit but has no matching --nominal-quota`,
+		},
+		"should fail when a flavor in borrowingLimit does not match any flavor in nominalQuota": {
+			quotaArgs:      []string{"alpha:cpu=1"},
+			borrowingArgs:  []string{"beta:cpu=1"},
+			wantErr:        errMisconfiguredFlavor,
+			wantErrMessage: `misconfigured flavor "beta": flavor is set in --borrowing-limit but has no matching --nominal-quota`,
 		},
 		"should create one resource group with two flavors and nominalQuota set": {
 			quotaArgs: []string{"alpha:example.com/gpu=1", "beta:example.com/gpu=2"},
