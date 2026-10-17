@@ -18,9 +18,12 @@ package configurablepreemptions
 
 import (
 	"slices"
+	"strings"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -36,6 +39,14 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
+
+func isExpectedInvalidSelectorPreemptionLog(le observer.LoggedEntry) bool {
+	if le.Message != "Failed to get candidates for preemption" {
+		return false
+	}
+	errLog, ok := le.ContextMap()["error"].(string)
+	return ok && strings.Contains(errLog, "building LabelSelector filter (InvalidSelector)")
+}
 
 var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configurablepreemptions"), func() {
 	var (
@@ -355,8 +366,15 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 			wlC := newPreemptor()
 			behavioral.MustCreate(ctx, k8sClient, wlC)
 			gomega.Eventually(func() int {
-				return len(fwk.ObservedLogs.FilterMessage("Failed to get candidates for preemption").All())
+				return len(fwk.ObservedLogs.Filter(isExpectedInvalidSelectorPreemptionLog).All())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.BeNumerically(">", 0))
+
+			errorOrMoreSevereLogs := slices.DeleteFunc(fwk.ObservedLogs.TakeAll(), func(le observer.LoggedEntry) bool {
+				return le.Level < zapcore.ErrorLevel ||
+					behavioral.IsLoggedEntryAConcurrentModification(le) ||
+					isExpectedInvalidSelectorPreemptionLog(le)
+			})
+			gomega.Expect(errorOrMoreSevereLogs).To(gomega.BeEmpty())
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlC)
 			gomega.Consistently(func(g gomega.Gomega) {
 				for _, wl := range []*kueue.Workload{wlA, wlB} {
