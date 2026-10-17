@@ -21,6 +21,7 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -88,6 +89,8 @@ type SchedulerSimulator interface {
 	//   (including failed placements), OR
 	// - an error and an empty placements mapping, if the call fails completely.
 	ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...ScheduleOption) SchedulingResult
+	// AddPodGroup adds a PodGroup to the snapshot
+	AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {

@@ -22,6 +22,7 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/dynamic-resource-allocation/structured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -143,4 +144,8 @@ func (c *Checker) filterByDevices(
 
 func (c *Checker) ScheduleWorkload(ctx context.Context, wlPods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
 	return c.inner.ScheduleWorkload(ctx, wlPods, opts...)
+}
+
+func (c *Checker) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	return c.inner.AddPodGroup(ctx, pg)
 }

@@ -25,6 +25,7 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
@@ -176,6 +177,10 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 	}
 
 	return simulator.SchedulingResult{PodPlacements: placements}
+}
+
+func (s *wasSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	return s.wasSnapshot.AddPodGroup(ctx, pg)
 }
 
 func copyWithDefaultScheduler(pods ...*corev1.Pod) []*corev1.Pod {
