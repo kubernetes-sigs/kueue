@@ -179,6 +179,36 @@ Because `PreemptionConfig` now manages both quota acquisition and topology defra
 
 ---
 
+### Scenario 3: Priority Threshold for Within-ClusterQueue Preemption
+
+In a shared `ClusterQueue` with multiple priority tiers (e.g., `production-high`, `production-standard`, `batch-low`, and `dev-preemptible`), you can restrict within-queue preemption so higher-priority workloads only preempt specific low-priority classes while protecting intermediate tiers such as `production-standard`:
+
+```yaml
+apiVersion: kueue.x-k8s.io/v1alpha1
+kind: PreemptionConfig
+metadata:
+  name: "preempt-same-cq-low-priority"
+spec:
+  rules:
+  - name: "preempt-same-cq-low-priority"
+    activationPolicy:
+      trigger: "InsufficientQuota"
+    candidateSelectors:
+    - scope: "WithinClusterQueue"
+      priority:
+        mode: "Base"
+        comparison: "LessThan"
+        matchNames:
+        - "batch-low"
+        - "dev-preemptible"
+```
+
+**How it works:**
+- **Priority Class Allowlist (`priority.matchNames`)**: Combined with `mode: Base` and `comparison: LessThan`, only candidates in the same `ClusterQueue` (`WithinClusterQueue`) that have strictly lower priority **and** belong to `batch-low` or `dev-preemptible` are eligible for preemption. Running `production-standard` workloads are protected even when a `production-high` workload arrives.
+- **ClusterQueue Setup**: Attach this config via `kueue.x-k8s.io/preemption-config-name: "preempt-same-cq-low-priority"` and set `spec.preemption.withinClusterQueue: Never` on the `ClusterQueue` so classical preemption does not bypass `matchNames`.
+
+---
+
 ## Common Pitfalls
 
 - **Classical Preemption Bypassing Custom Guardrails**: In Alpha, candidate sets from `spec.preemption` and `PreemptionConfig` are merged. If your custom rules protect specific workloads using `labelSelector` or `clusterQueueSelector`, classical preemption in `spec.preemption` will still evaluate and evict those workloads unless you set `spec.preemption.reclaimWithinCohort: Never` and `spec.preemption.withinClusterQueue: Never`.
