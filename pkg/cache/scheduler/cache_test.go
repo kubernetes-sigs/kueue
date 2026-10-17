@@ -1438,7 +1438,7 @@ func TestCacheWorkloadOperations(t *testing.T) {
 			},
 		},
 		{
-			name: "delete error clusterQueue doesn't exist",
+			name: "delete workload after its clusterQueue is deleted",
 			operation: func(log logr.Logger, cache *Cache) error {
 				cq := utiltestingapi.MakeClusterQueue("three").
 					ResourceGroup(
@@ -1461,7 +1461,6 @@ func TestCacheWorkloadOperations(t *testing.T) {
 
 				return cache.DeleteWorkload(log, workload.Key(w))
 			},
-			wantError: "cluster queue not found",
 			wantResults: map[kueue.ClusterQueueReference]result{
 				"one": {
 					Workloads: sets.New[workload.Reference]("/a", "/b"),
@@ -1478,7 +1477,6 @@ func TestCacheWorkloadOperations(t *testing.T) {
 				"/a": "one",
 				"/b": "one",
 				"/c": "two",
-				"/d": "three",
 			},
 		},
 		{
@@ -3228,15 +3226,17 @@ func TestUpdateWorkloadIfUnchanged(t *testing.T) {
 
 	cases := map[string]struct {
 		cached *kueue.Workload
-		// deleteClusterQueue removes the ClusterQueue after seeding, leaving the workload assigned to it.
+		// deleteClusterQueue removes the ClusterQueue and its workload assignment after seeding.
 		deleteClusterQueue bool
 		// recreateClusterQueue adds the removed ClusterQueue back, which lists no workloads from the empty client.
 		recreateClusterQueue bool
-		update               *kueue.Workload
-		wantUpdated          bool
-		wantRemoved          bool
-		wantRV               string
-		wantUsage            resources.FlavorResourceQuantities
+		// staleAssignment seeds an inconsistent mapping to exercise defensive update guards.
+		staleAssignment bool
+		update          *kueue.Workload
+		wantUpdated     bool
+		wantRemoved     bool
+		wantRV          string
+		wantUsage       resources.FlavorResourceQuantities
 	}{
 		"same resourceVersion replaces the cached workload": {
 			cached:      makeWorkload("1", "on-demand"),
@@ -3260,16 +3260,31 @@ func TestUpdateWorkloadIfUnchanged(t *testing.T) {
 			update:      makeWorkload("1", "spot"),
 			wantUpdated: false,
 		},
-		"workload assigned to a removed ClusterQueue is left unchanged": {
+		"workload from a removed ClusterQueue is not re-added": {
 			cached:             makeWorkload("1", "on-demand"),
 			deleteClusterQueue: true,
 			update:             makeWorkload("1", "spot"),
 			wantUpdated:        false,
 		},
-		"workload assigned to a re-created ClusterQueue that misses it is not added": {
+		"workload from a re-created ClusterQueue that misses it is not added": {
 			cached:               makeWorkload("1", "on-demand"),
 			deleteClusterQueue:   true,
 			recreateClusterQueue: true,
+			update:               makeWorkload("1", "spot"),
+			wantUpdated:          false,
+		},
+		"stale assignment to a removed ClusterQueue is left unchanged": {
+			cached:             makeWorkload("1", "on-demand"),
+			deleteClusterQueue: true,
+			staleAssignment:    true,
+			update:             makeWorkload("1", "spot"),
+			wantUpdated:        false,
+		},
+		"stale assignment to a re-created ClusterQueue that misses it is left unchanged": {
+			cached:               makeWorkload("1", "on-demand"),
+			deleteClusterQueue:   true,
+			recreateClusterQueue: true,
+			staleAssignment:      true,
 			update:               makeWorkload("1", "spot"),
 			wantUpdated:          false,
 		},
@@ -3314,6 +3329,9 @@ func TestUpdateWorkloadIfUnchanged(t *testing.T) {
 					t.Fatalf("Re-inserting clusterQueue %s in cache: %v", cq.Name, err)
 				}
 			}
+			if tc.staleAssignment {
+				cache.workloadAssignedQueues[workload.Key(tc.update)] = kueue.ClusterQueueReference(cq.Name)
+			}
 
 			if got := cache.UpdateWorkloadIfUnchanged(ctx, log, tc.update); got != tc.wantUpdated {
 				t.Errorf("UpdateWorkloadIfUnchanged() = %t, want %t", got, tc.wantUpdated)
@@ -3323,14 +3341,14 @@ func TestUpdateWorkloadIfUnchanged(t *testing.T) {
 				if _, found := cache.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name)).Workloads[workload.Key(tc.update)]; found {
 					t.Error("The workload is in the ClusterQueue cache, want it absent")
 				}
-				if got := cache.workloadAssignedQueues[workload.Key(tc.update)]; got != kueue.ClusterQueueReference(cq.Name) {
-					t.Errorf("The workload is assigned to ClusterQueue %q, want %q", got, cq.Name)
+				if got, assigned := cache.workloadAssignedQueues[workload.Key(tc.update)]; assigned != tc.staleAssignment || assigned && got != kueue.ClusterQueueReference(cq.Name) {
+					t.Errorf("The workload assignment is %q (present=%t), want present=%t", got, assigned, tc.staleAssignment)
 				}
 				return
 			}
 			if tc.deleteClusterQueue {
-				if got := cache.workloadAssignedQueues[workload.Key(tc.update)]; got != kueue.ClusterQueueReference(cq.Name) {
-					t.Errorf("The workload is assigned to ClusterQueue %q, want %q", got, cq.Name)
+				if got, assigned := cache.workloadAssignedQueues[workload.Key(tc.update)]; assigned != tc.staleAssignment || assigned && got != kueue.ClusterQueueReference(cq.Name) {
+					t.Errorf("The workload assignment is %q (present=%t), want present=%t", got, assigned, tc.staleAssignment)
 				}
 				if cache.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name)) != nil {
 					t.Error("UpdateWorkloadIfUnchanged added back the removed ClusterQueue")

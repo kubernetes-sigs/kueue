@@ -18,6 +18,7 @@ package tas
 
 import (
 	"context"
+	"reflect"
 	"sync"
 	"time"
 
@@ -92,10 +93,9 @@ func (p *pendingRequeue) drain() sets.Set[string] {
 	return nodes
 }
 
-// PodUsageReconciler monitors all scheduled pods to update the TAS cache
-// with non-TAS resource usage, to feed the scheduling simulator with pod
-// state for feasibility checks, and to requeue inadmissible workloads when
-// capacity is freed.
+// PodUsageReconciler monitors bound Pods to update physical node usage in the
+// TAS cache, feed the scheduling simulator, and requeue inadmissible workloads
+// when capacity is freed.
 type PodUsageReconciler struct {
 	k8sClient   client.Client
 	cache       *schdcache.Cache
@@ -130,6 +130,9 @@ func (r *PodUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		if removedNode := r.cache.TASCache().DeleteNonTASUsageByKey(req.NamespacedName, log); removedNode != "" {
 			r.notifyFreedNode(removedNode)
 		}
+		if removedNode := r.cache.TASCache().DeleteTASPodUsageByKey(req.NamespacedName, log); removedNode != "" {
+			r.notifyFreedNode(removedNode)
+		}
 		r.cache.TASCache().UntrackPod(ctx, req.NamespacedName)
 		return ctrl.Result{}, nil
 	}
@@ -140,6 +143,18 @@ func (r *PodUsageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (c
 		r.cache.TASCache().UntrackPod(ctx, req.NamespacedName)
 	}
 
+	if isScheduledAndRunning(&pod) && utiltas.IsTAS(&pod) {
+		if removedNode := r.cache.TASCache().DeleteNonTASUsageByKey(req.NamespacedName, log); removedNode != "" {
+			r.notifyFreedNode(removedNode)
+		}
+		if freedNode := r.cache.TASCache().UpdateTASPodUsage(&pod, log); freedNode != "" {
+			r.notifyFreedNode(freedNode)
+		}
+		return ctrl.Result{}, nil
+	}
+	if removedNode := r.cache.TASCache().DeleteTASPodUsageByKey(req.NamespacedName, log); removedNode != "" {
+		r.notifyFreedNode(removedNode)
+	}
 	if belongsToNonTASCache(&pod) {
 		if freedNode := r.cache.TASCache().UpdateNonTASUsage(&pod, log); freedNode != "" {
 			r.notifyFreedNode(freedNode)
@@ -249,10 +264,17 @@ func (r *PodUsageReconciler) Update(e event.TypedUpdateEvent[*corev1.Pod]) bool 
 }
 
 func podUsageChanged(oldPod, newPod *corev1.Pod) bool {
-	if !belongsToNonTASCache(oldPod) || !belongsToNonTASCache(newPod) {
+	if !isScheduledAndRunning(oldPod) || !isScheduledAndRunning(newPod) {
 		return false
 	}
-	if oldPod.Spec.NodeName != newPod.Spec.NodeName {
+	if oldPod.UID != newPod.UID || oldPod.Spec.NodeName != newPod.Spec.NodeName ||
+		utiltas.IsTAS(oldPod) != utiltas.IsTAS(newPod) {
+		return true
+	}
+	if utiltas.IsTAS(newPod) && (oldPod.Annotations[kueue.WorkloadAnnotation] != newPod.Annotations[kueue.WorkloadAnnotation] ||
+		oldPod.Annotations[kueue.WorkloadSliceNameAnnotation] != newPod.Annotations[kueue.WorkloadSliceNameAnnotation] ||
+		!reflect.DeepEqual(oldPod.DeletionTimestamp, newPod.DeletionTimestamp) ||
+		!reflect.DeepEqual(oldPod.OwnerReferences, newPod.OwnerReferences)) {
 		return true
 	}
 	if oldPod.Generation == newPod.Generation {

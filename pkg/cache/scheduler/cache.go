@@ -638,6 +638,17 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 	if curCq == nil {
 		return
 	}
+	// Remove Workload reservations before removing their ClusterQueue. Otherwise
+	// TAS usage can outlive the queue and double-count still-bound Pods when
+	// their physical usage is added to the next snapshot.
+	log := ctrl.Log.WithName("cache")
+	for wlKey := range curCq.Workloads {
+		curCq.forgetWorkload(log, wlKey)
+		delete(c.workloadAssignedQueues, wlKey)
+		// Keep the cleanup unconditional: forgetWorkload only clears this
+		// shared label cache when its feature gate is enabled.
+		c.customLabels.Delete(config.SourceKindWorkload, string(wlKey))
+	}
 	if c.lqMetrics.IsEnabled() {
 		for _, q := range curCq.localQueues {
 			namespace, lqName := queue.MustParseLocalQueueReference(q.key)
@@ -646,14 +657,6 @@ func (c *Cache) DeleteClusterQueue(cq *kueue.ClusterQueue) {
 				Namespace: namespace,
 			})
 		}
-	}
-
-	// The custom label value cache is keyed by Workload and shared by every
-	// ClusterQueue, so entries for the Workloads this ClusterQueue still holds
-	// would outlive it and never be reclaimed: once the ClusterQueue is gone,
-	// DeleteWorkload can no longer reach them.
-	for wlKey := range curCq.Workloads {
-		c.customLabels.Delete(config.SourceKindWorkload, string(wlKey))
 	}
 
 	parent := curCq.Parent()
@@ -843,6 +846,30 @@ func (c *Cache) concurrentAdmissionEnabledForWithoutLock(wl *kueue.Workload) boo
 	return cq.ConcurrentAdmissionEnabled()
 }
 
+// ObserveTASWorkloadIntent refreshes residual-Pod eviction intent without changing
+// reservations. A pending informer event may lag behind a scheduler assumption.
+func (c *Cache) ObserveTASWorkloadIntent(wl *kueue.Workload) {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return
+	}
+	c.Lock()
+	defer c.Unlock()
+	c.observeTASWorkloadIntentWithoutLock(wl)
+}
+
+func (c *Cache) observeTASWorkloadIntentWithoutLock(wl *kueue.Workload) {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return
+	}
+	// Concurrent-admission parents aggregate variant status; they don't own a
+	// reservation, including while pending with no Admission to identify a CQ.
+	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsParent(wl) ||
+		c.concurrentAdmissionEnabledForWithoutLock(wl) && !concurrentadmission.IsVariant(wl) {
+		return
+	}
+	c.tasCache.nonTasUsageCache.observeWorkload(wl)
+}
+
 func (c *Cache) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) bool {
 	c.Lock()
 	defer c.Unlock()
@@ -889,6 +916,7 @@ func (c *Cache) UpdateWorkloadIfUnchanged(ctx context.Context, log logr.Logger, 
 }
 
 func (c *Cache) addOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Logger, wl *kueue.Workload, opts ...workload.InfoOption) (bool, error) {
+	c.observeTASWorkloadIntentWithoutLock(wl)
 	if c.concurrentAdmissionEnabledForWithoutLock(wl) && !concurrentadmission.IsVariant(wl) {
 		return false, nil
 	}
@@ -930,10 +958,29 @@ func (c *Cache) deleteFromQueueIfPresent(log logr.Logger, wlKey workload.Referen
 	}
 }
 
-func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference) error {
+// DeleteWorkload removes a reservation. When updated is supplied, the
+// Workload still exists and its eviction intent must survive quota release.
+func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference, updated ...*kueue.Workload) error {
 	c.Lock()
 	defer c.Unlock()
+	if len(updated) != 0 {
+		c.observeTASWorkloadIntentWithoutLock(updated[0])
+	}
+	return c.deleteWorkloadWithoutLock(log, wlKey)
+}
 
+// ForgetWorkload also drops the deleted object's residual-Pod intent without
+// modifying intent belonging to a same-name Workload with a different UID.
+func (c *Cache) ForgetWorkload(log logr.Logger, wl *kueue.Workload) error {
+	c.Lock()
+	defer c.Unlock()
+	if features.Enabled(features.TopologyAwareScheduling) {
+		c.tasCache.nonTasUsageCache.deleteWorkload(workload.Key(wl), wl.UID)
+	}
+	return c.deleteWorkloadWithoutLock(log, workload.Key(wl))
+}
+
+func (c *Cache) deleteWorkloadWithoutLock(log logr.Logger, wlKey workload.Reference) error {
 	cqName, assigned := c.workloadAssignedQueues[wlKey]
 	if !assigned {
 		return nil

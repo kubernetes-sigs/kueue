@@ -21,6 +21,7 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -88,6 +89,20 @@ type SchedulerSimulator interface {
 	//   (including failed placements), OR
 	// - an error and an empty placements mapping, if the call fails completely.
 	ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...ScheduleOption) SchedulingResult
+}
+
+// PodPreemptingSimulator optionally supports temporary removal of individual
+// bound Pods. It is used by residual-TAS capacity probes; removing an entire
+// Workload could release unrelated Pods and produce a false fit.
+type PodPreemptingSimulator interface {
+	PreemptPods(ctx context.Context, pods []PodRef) (revert func() error, err error)
+}
+
+// PodRef includes the UID so a same-name Pod replacement cannot be mistaken
+// for the residual Pod whose capacity is being probed.
+type PodRef struct {
+	Key client.ObjectKey
+	UID types.UID
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {
