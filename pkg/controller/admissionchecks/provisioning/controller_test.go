@@ -425,6 +425,84 @@ func TestMergePodSetsSkipsZeroCounts(t *testing.T) {
 	}
 }
 
+func TestMergePodSetsKeepsDifferentFlavorsApart(t *testing.T) {
+	makeWorkload := func(flavors ...kueue.ResourceFlavorReference) *kueue.Workload {
+		podSets := make([]kueue.PodSet, len(flavors))
+		assignments := make([]kueue.PodSetAssignment, len(flavors))
+		for i, flavor := range flavors {
+			name := kueue.PodSetReference(fmt.Sprintf("ps%d", i))
+			podSets[i] = *utiltestingapi.MakePodSet(name, 2).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			assignments[i] = kueue.PodSetAssignment{
+				Name:    name,
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{corev1.ResourceCPU: flavor},
+				Count:   new(int32(2)),
+			}
+		}
+		return utiltestingapi.MakeWorkload("wl", TestNamespace).
+			PodSets(podSets...).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("q").PodSets(assignments...).Obj(), time.Now()).
+			Obj()
+	}
+
+	type mergedPodSet struct {
+		Name   kueue.PodSetReference
+		Count  int32
+		Flavor kueue.ResourceFlavorReference
+	}
+
+	cases := map[string]struct {
+		workload    *kueue.Workload
+		mergePolicy kueue.ProvisioningRequestConfigPodSetMergePolicy
+		want        []mergedPodSet
+	}{
+		"IdenticalPodTemplates, same flavor": {
+			workload:    makeWorkload("flv1", "flv1"),
+			mergePolicy: kueue.IdenticalPodTemplates,
+			want:        []mergedPodSet{{Name: "ps0", Count: 4, Flavor: "flv1"}},
+		},
+		"IdenticalPodTemplates, different flavors": {
+			workload:    makeWorkload("flv1", "flv2"),
+			mergePolicy: kueue.IdenticalPodTemplates,
+			want: []mergedPodSet{
+				{Name: "ps0", Count: 2, Flavor: "flv1"},
+				{Name: "ps1", Count: 2, Flavor: "flv2"},
+			},
+		},
+		"IdenticalWorkloadSchedulingRequirements, different flavors": {
+			workload:    makeWorkload("flv1", "flv2"),
+			mergePolicy: kueue.IdenticalWorkloadSchedulingRequirements,
+			want: []mergedPodSet{
+				{Name: "ps0", Count: 2, Flavor: "flv1"},
+				{Name: "ps1", Count: 2, Flavor: "flv2"},
+			},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := mergePodSets(t.Context(), tc.workload, &kueue.ProvisioningRequestConfigSpec{
+				PodSetMergePolicy: &tc.mergePolicy,
+			}, nil)
+			if err != nil {
+				t.Fatalf("mergePodSets() error = %v", err)
+			}
+			gotMerged := make([]mergedPodSet, len(got))
+			for i := range got {
+				gotMerged[i] = mergedPodSet{
+					Name:   got[i].Name,
+					Count:  got[i].Count,
+					Flavor: got[i].PodSetAssignment.Flavors[corev1.ResourceCPU],
+				}
+			}
+			if diff := cmp.Diff(tc.want, gotMerged); diff != "" {
+				t.Errorf("unexpected merged PodSets (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestReqIsNeeded(t *testing.T) {
 	makeWorkload := func(specCount int32, admissionCount *int32, includeAssignment bool) *kueue.Workload {
 		builder := utiltestingapi.MakeWorkload("wl", TestNamespace).
