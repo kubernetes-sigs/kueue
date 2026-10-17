@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	sparkcommon "github.com/kubeflow/spark-operator/v2/pkg/common"
@@ -36,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -71,6 +73,7 @@ var NewReconciler = jobframework.NewGenericReconcilerFactory(NewJob)
 type SparkApplication sparkv1beta2.SparkApplication
 
 var _ jobframework.GenericJob = (*SparkApplication)(nil)
+var _ jobframework.ElasticWorkloadNameProvider = (*SparkApplication)(nil)
 
 func (j *SparkApplication) Object() client.Object {
 	return (*sparkv1beta2.SparkApplication)(j)
@@ -137,7 +140,7 @@ func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueu
 	podSets[1] = kueue.PodSet{
 		Name:     executorPodSetName,
 		Template: *executorPodTemplateSpec,
-		Count:    j.numInitialExecutors(),
+		Count:    j.numExecutors(),
 	}
 
 	if err := setTopologyRequestToPodSetIfEnabled(
@@ -279,7 +282,10 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 			changed = true
 		}
 
-		if role == sparkcommon.SparkRoleExecutor {
+		// An elastic job's executor count follows the running executors, not
+		// spec.executor.instances, and Kueue never changes instances when it
+		// starts the job, so there is nothing to restore.
+		if role == sparkcommon.SparkRoleExecutor && !isAnElasticJob((*sparkv1beta2.SparkApplication)(j)) {
 			// An unset spec.executor.instances is counted as 0 executors, while the
 			// CRD requires the field to be at least 1 when set. Restore 0 as unset,
 			// otherwise the API server rejects the patch that suspends the job.
@@ -344,6 +350,62 @@ func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client) bool 
 		}
 	}
 	return ready >= expected
+}
+
+// numExecutors returns the executor count to request quota for. With dynamic
+// allocation, an elastic job follows the executors the driver keeps (pending or
+// running), so terminating executors hold quota until they stop.
+func (j *SparkApplication) numExecutors() int32 {
+	if !workloadslicing.Enabled(j.Object()) || !ptr.Deref(j.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
+		return j.numInitialExecutors()
+	}
+	if !j.driverStarted() || len(j.Status.ExecutorState) == 0 {
+		minExecutors := ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, 0)
+		return max(j.numInitialExecutors(), minExecutors)
+	}
+	var count int32
+	for _, st := range j.Status.ExecutorState {
+		if st == sparkv1beta2.ExecutorStatePending || st == sparkv1beta2.ExecutorStateRunning {
+			count++
+		}
+	}
+	// cap the upper and lower bounds
+	if minExecutors := j.Spec.DynamicAllocation.MinExecutors; minExecutors != nil {
+		count = max(count, *minExecutors)
+	}
+	if maxExecutors := j.Spec.DynamicAllocation.MaxExecutors; maxExecutors != nil {
+		count = min(count, *maxExecutors)
+	}
+	return count
+}
+
+// driverStarted reports whether status.executorState belongs to the current
+// submission. It includes the states after RUNNING: falling back to the initial
+// executors there would look like a scale-up, and the job reconciler would then
+// not find the active workload slice to finish it.
+func (j *SparkApplication) driverStarted() bool {
+	switch j.Status.AppState.State {
+	case sparkv1beta2.ApplicationStateRunning,
+		sparkv1beta2.ApplicationStateSucceeding, sparkv1beta2.ApplicationStateCompleted,
+		sparkv1beta2.ApplicationStateFailing, sparkv1beta2.ApplicationStateFailed:
+		return true
+	}
+	return false
+}
+
+// GetWorkloadNameExtraPart folds the submission attempt and the number of
+// tracked executors into the elastic workload-slice name. The Spark driver
+// scales executors without bumping metadata.generation; without this the slice
+// name would key on that generation alone, so a second scale-up would recompute
+// an already-existing slice name and fail to mint its replacement. The operator
+// only adds entries to status.executorState within a submission attempt, so the
+// count grows with every scale-up.
+func (j *SparkApplication) GetWorkloadNameExtraPart() string {
+	extra := strconv.FormatInt(j.Generation, 10)
+	if j.Status.SubmissionAttempts > 0 {
+		extra += fmt.Sprintf("_%d_%d", j.Status.SubmissionAttempts, len(j.Status.ExecutorState))
+	}
+	return extra
 }
 
 func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
