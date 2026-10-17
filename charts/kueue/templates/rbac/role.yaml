@@ -287,6 +287,7 @@ rules:
       - kueue.x-k8s.io
     resources:
       - admissionchecks/status
+      - capacityproviders/status
       - clusterqueues/status
       - cohorts/status
       - dynamicquotaorchestrators/status
