@@ -1,0 +1,60 @@
+suite: test visibility server TLS
+templates:
+  - visibility/apiservice_v1beta2.yaml
+  - internalcert/visibility_secret.yaml
+  - manager/manager.yaml
+  # This is required for the annotation `charts.kueue.x-k8s.io/config-checksum`
+  - manager/manager-config.yaml
+tests:
+  - it: should verify the visibility server certificate with internal cert management
+    template: visibility/apiservice_v1beta2.yaml
+    asserts:
+      - notExists:
+          path: spec.insecureSkipTLSVerify
+      - notExists:
+          path: metadata.annotations
+
+  - it: should verify the visibility server certificate with cert-manager
+    template: visibility/apiservice_v1beta2.yaml
+    set:
+      enableCertManager: true
+    asserts:
+      - notExists:
+          path: spec.insecureSkipTLSVerify
+      - equal:
+          path: metadata.annotations["cert-manager.io/inject-ca-from"]
+          value: NAMESPACE/RELEASE-NAME-kueue-visibility-server-cert
+
+  - it: should create the visibility server Secret for internal cert management
+    template: internalcert/visibility_secret.yaml
+    asserts:
+      - isKind:
+          of: Secret
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-kueue-visibility-server-cert
+
+  - it: should leave the visibility server Secret to cert-manager
+    template: internalcert/visibility_secret.yaml
+    set:
+      enableCertManager: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: should mount the whole visibility server Secret for internal cert management
+    template: manager/manager.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: visibility
+            secret:
+              defaultMode: 420
+              secretName: RELEASE-NAME-kueue-visibility-server-cert
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
+            mountPath: /visibility
+            name: visibility
+            readOnly: true
