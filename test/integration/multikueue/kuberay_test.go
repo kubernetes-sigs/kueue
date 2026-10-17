@@ -23,7 +23,9 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	admissionregistrationv1 "k8s.io/api/admissionregistration/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -39,10 +41,12 @@ import (
 	workloadrayjob "sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	workloadrayservice "sigs.k8s.io/kueue/pkg/controller/jobs/rayservice"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	testingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
@@ -396,6 +400,155 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayJob), &rayv1.RayJob{})).To(gomega.Succeed())
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, childKey, &rayv1.RayCluster{})).To(gomega.Succeed())
 			}, behavioral.ShortConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should keep the worker RayJob until it reports stopped when another admission check retries it", func() {
+		startupCheck := utiltestingapi.MakeAdmissionCheck("rayjob-startup-check").ControllerName("example.com/startup-check").Obj()
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, startupCheck)
+		behavioral.SetAdmissionCheckActive(managerTestCluster.ctx, managerTestCluster.client, startupCheck, metav1.ConditionTrue)
+		ginkgo.DeferCleanup(func() {
+			gomega.Expect(client.IgnoreNotFound(behavioral.DeleteObject(managerTestCluster.ctx, managerTestCluster.client, startupCheck))).To(gomega.Succeed())
+		})
+		gomega.Eventually(func(g gomega.Gomega) {
+			cq := &kueue.ClusterQueue{}
+			g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(f.managerCq), cq)).To(gomega.Succeed())
+			cq.Spec.AdmissionChecksStrategy.AdmissionChecks = append(cq.Spec.AdmissionChecksStrategy.AdmissionChecks,
+				kueue.AdmissionCheckStrategyRule{Name: kueue.AdmissionCheckReference(startupCheck.Name)})
+			g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, cq)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		behavioral.ExpectClusterQueuesToBeActive(managerTestCluster.ctx, managerTestCluster.client, f.managerCq)
+
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).PodSets(
+			utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+			utiltestingapi.MakePodSetAssignment("workers-group-0").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+		)
+		rayjob := testingrayjob.MakeJob("rayjob-retried", f.managerNs.Name).
+			WithSubmissionMode(rayv1.InteractiveMode).
+			Queue(f.managerLq.Name).
+			Obj()
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayjob)
+		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(rayjob.Name, rayjob.UID), Namespace: f.managerNs.Name}
+		managerWl := &kueue.Workload{Name: wlLookupKey.Name, Namespace: wlLookupKey.Namespace}
+
+		ginkgo.By("admitting the workload on worker2 with the startup check Ready", func() {
+			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission.Obj())
+			behavioral.SetWorkloadsAdmissionCheck(managerTestCluster.ctx, managerTestCluster.client, managerWl, kueue.AdmissionCheckReference(startupCheck.Name), kueue.CheckStateReady, false)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			integration.SetQuotaReservation(worker2TestCluster.ctx, worker2TestCluster.client, wlLookupKey, admission.Obj())
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, wl)).To(gomega.Succeed())
+				g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("mirroring an Initializing status from the worker RayJob", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workerRayJob := rayv1.RayJob{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayjob), &workerRayJob)).To(gomega.Succeed())
+				workerRayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusInitializing
+				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &workerRayJob)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerRayJob := rayv1.RayJob{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(rayjob), &managerRayJob)).To(gomega.Succeed())
+				g.Expect(managerRayJob.Status.JobDeploymentStatus).To(gomega.Equal(rayv1.JobDeploymentStatusInitializing))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		// Hold the worker Workload between the two writes worker2 Kueue makes for a
+		// deactivation target: it may set spec.active=false, but not report Evicted.
+		holdEviction := &admissionregistrationv1.ValidatingAdmissionPolicy{
+			Name: "hold-workload-eviction",
+			Spec: admissionregistrationv1.ValidatingAdmissionPolicySpec{
+				FailurePolicy: new(admissionregistrationv1.Fail),
+				MatchConstraints: &admissionregistrationv1.MatchResources{
+					ResourceRules: []admissionregistrationv1.NamedRuleWithOperations{{
+						Operations:  []admissionregistrationv1.OperationType{admissionregistrationv1.Update},
+						APIGroups:   []string{kueue.SchemeGroupVersion.Group},
+						APIVersions: []string{"*"},
+						Resources:   []string{"workloads/status"},
+					}},
+				},
+				Validations: []admissionregistrationv1.Validation{{
+					Expression: "!has(object.status.conditions) || !object.status.conditions.exists(c, c.type == 'Evicted' && c.status == 'True')",
+				}},
+			},
+		}
+		holdEvictionBinding := &admissionregistrationv1.ValidatingAdmissionPolicyBinding{
+			Name: holdEviction.Name,
+			Spec: admissionregistrationv1.ValidatingAdmissionPolicyBindingSpec{
+				PolicyName:        holdEviction.Name,
+				ValidationActions: []admissionregistrationv1.ValidationAction{admissionregistrationv1.Deny},
+				MatchResources: &admissionregistrationv1.MatchResources{
+					NamespaceSelector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{corev1.LabelMetadataName: f.worker2Ns.Name},
+					},
+				},
+			},
+		}
+		releaseEviction := func() {
+			behavioral.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, holdEvictionBinding, true)
+			behavioral.ExpectObjectToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, holdEviction, true)
+		}
+		ginkgo.DeferCleanup(releaseEviction)
+		ginkgo.By("holding eviction of the worker Workload", func() {
+			behavioral.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, holdEviction)
+			behavioral.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, holdEvictionBinding)
+			// The policy applies asynchronously; wait until it rejects an Evicted condition.
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteWl := &kueue.Workload{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, remoteWl)).To(gomega.Succeed())
+				apimeta.SetStatusCondition(&remoteWl.Status.Conditions, metav1.Condition{
+					Type: kueue.WorkloadEvicted, Status: metav1.ConditionTrue, Reason: "Probe", Message: "probe",
+				})
+				err := worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, remoteWl, client.DryRunAll)
+				g.Expect(apierrors.IsInvalid(err) || apierrors.IsForbidden(err)).To(gomega.BeTrue(), "got %v", err)
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("setting the startup check to Retry", func() {
+			behavioral.SetWorkloadsAdmissionCheck(managerTestCluster.ctx, managerTestCluster.client, managerWl, kueue.AdmissionCheckReference(startupCheck.Name), kueue.CheckStateRetry, true)
+		})
+
+		ginkgo.By("waiting for worker2 Kueue to deactivate the worker Workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				remoteWl := &kueue.Workload{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, remoteWl)).To(gomega.Succeed())
+				g.Expect(remoteWl.Spec.Active).To(gomega.Equal(new(false)))
+				g.Expect(apimeta.IsStatusConditionTrue(remoteWl.Status.Conditions, kueue.WorkloadEvicted)).To(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking the worker Workload and RayJob are kept", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(gomega.Succeed())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayjob), &rayv1.RayJob{})).To(gomega.Succeed())
+			}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("letting worker2 Kueue evict the worker Workload", releaseEviction)
+
+		ginkgo.By("suspending the worker RayJob, as the KubeRay operator would", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workerRayJob := rayv1.RayJob{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(rayjob), &workerRayJob)).To(gomega.Succeed())
+				g.Expect(workerRayJob.Spec.Suspend).To(gomega.BeTrue())
+				workerRayJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusSuspended
+				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, &workerRayJob)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("releasing the manager quota and removing the worker Workload", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, wl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(wl)).To(gomega.BeFalse())
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(utiltesting.BeNotFoundError())
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
