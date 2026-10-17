@@ -19,9 +19,11 @@ package jobframework
 import (
 	"fmt"
 	"maps"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
 	kftrainer "github.com/kubeflow/trainer/v2/pkg/apis/trainer/v1alpha1"
@@ -351,6 +353,16 @@ func ValidateWaitForPodsReadyAnnotation(obj client.Object, maxTimeoutOnWorkload 
 	if err != nil {
 		return field.ErrorList{field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, fmt.Sprintf("must be a valid JSON object: %v", err))}
 	}
+	if cfg != nil {
+		// ParseAnnotation saturates on overflow, so a clamped duration means the
+		// seconds value did not fit in a time.Duration.
+		if isSaturatedDuration(cfg.Timeout) {
+			return field.ErrorList{field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "timeoutSeconds overflows the maximum supported duration")}
+		}
+		if cfg.RecoveryTimeout != nil && isSaturatedDuration(*cfg.RecoveryTimeout) {
+			return field.ErrorList{field.Invalid(waitForPodsReadyAnnotationPath, annotationValue, "recoveryTimeoutSeconds overflows the maximum supported duration")}
+		}
+	}
 	var allErrs field.ErrorList
 	if cfg != nil {
 		if cfg.Timeout <= 0 {
@@ -370,6 +382,13 @@ func ValidateWaitForPodsReadyAnnotation(obj client.Object, maxTimeoutOnWorkload 
 	}
 
 	return allErrs
+}
+
+// isSaturatedDuration reports whether d was clamped by waitforpodsready.ParseAnnotation.
+// A seconds value converts exactly to math.MaxInt64 or math.MinInt64 nanoseconds
+// only when it is clamped, since neither is a multiple of time.Second.
+func isSaturatedDuration(d time.Duration) bool {
+	return d == math.MaxInt64 || d == math.MinInt64
 }
 
 func validateImmutablePodGroupPodSpecPath(newShape, oldShape map[string]any, fieldPath *field.Path) field.ErrorList {

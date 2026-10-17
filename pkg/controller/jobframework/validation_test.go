@@ -720,6 +720,37 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 				},
 			},
 		},
+		// 36028797018963969 is 2^55+1: it used to wrap around to 1s and pass validation.
+		"timeout that would wrap around to a small duration is rejected": {
+			annotation: `{"timeoutSeconds": 36028797018963969}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "timeoutSeconds overflows the maximum supported duration",
+				},
+			},
+		},
+		"max int64 timeout is rejected as overflowing": {
+			annotation: `{"timeoutSeconds": 9223372036854775807}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "timeoutSeconds overflows the maximum supported duration",
+				},
+			},
+		},
+		"recoveryTimeout that would wrap around to a small duration is rejected": {
+			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 36028797018963969}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "recoveryTimeoutSeconds overflows the maximum supported duration",
+				},
+			},
+		},
 		"timeoutSeconds set to string is rejected at admission time": {
 			annotation: `{"timeoutSeconds": "foo"}`,
 			wantErr: field.ErrorList{
@@ -751,5 +782,28 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestValidateWaitForPodsReadyAnnotationOverflowReportsRawValue(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.WorkloadLevelWaitForPodsReady: true,
+	})
+	maxTimeout := &metav1.Duration{Duration: configapi.DefaultMaxTimeoutOnWorkload}
+	annotationPath := field.NewPath("metadata", "annotations").Key(constants.WaitForPodsReadyAnnotation)
+
+	for _, annotation := range []string{
+		`{"timeoutSeconds": 36028797018963969}`,
+		`{"timeoutSeconds": 9223372036854775807}`,
+		`{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 36028797018963969}`,
+	} {
+		job := utiltestingjob.MakeJob("test-job", "ns1").
+			SetAnnotation(constants.WaitForPodsReadyAnnotation, annotation).
+			Obj()
+		gotErr := jobframework.ValidateWaitForPodsReadyAnnotation(job, maxTimeout)
+		wantErr := field.ErrorList{field.Invalid(annotationPath, annotation, "")}
+		if diff := cmp.Diff(wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail")); diff != "" {
+			t.Errorf("Unexpected error for %s (-want,+got):\n%s", annotation, diff)
+		}
 	}
 }
