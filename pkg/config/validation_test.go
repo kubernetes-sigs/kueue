@@ -1094,6 +1094,48 @@ func TestValidate(t *testing.T) {
 				},
 			},
 		},
+		"zero clientConnection.qps": {
+			cfg: &configapi.Configuration{
+				Integrations:     defaultIntegrations,
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(0)), Burst: new(int32(100))},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "clientConnection.qps",
+				},
+			},
+		},
+		"zero clientConnection.burst": {
+			cfg: &configapi.Configuration{
+				Integrations:     defaultIntegrations,
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(100)), Burst: new(int32(0))},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "clientConnection.burst",
+				},
+			},
+		},
+		"negative clientConnection.burst": {
+			cfg: &configapi.Configuration{
+				Integrations:     defaultIntegrations,
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(100)), Burst: new(int32(-1))},
+			},
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: "clientConnection.burst",
+				},
+			},
+		},
+		"negative clientConnection.qps turns the burst check off": {
+			cfg: &configapi.Configuration{
+				Integrations:     defaultIntegrations,
+				ClientConnection: &configapi.ClientConnection{QPS: new(float32(-1)), Burst: new(int32(0))},
+			},
+		},
 		"invalid .internalCertManagement.webhookSecretName": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,

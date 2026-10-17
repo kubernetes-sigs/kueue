@@ -365,6 +365,33 @@ func TestSetDefaults_Configuration(t *testing.T) {
 				WaitForPodsReady:             defaultWaitForPodsReady,
 			},
 		},
+		"should not default zero values in custom ClientConnection": {
+			original: &Configuration{
+				ClientConnection: &ClientConnection{
+					QPS:   new(float32(0)),
+					Burst: new(int32(0)),
+				},
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+			},
+			want: &Configuration{
+				Namespace:         new(DefaultNamespace),
+				ControllerManager: defaultCtrlManagerConfigurationSpec,
+				InternalCertManagement: &InternalCertManagement{
+					Enable: new(false),
+				},
+				ClientConnection: &ClientConnection{
+					QPS:   new(float32(0)),
+					Burst: new(int32(0)),
+				},
+				Integrations:                 defaultIntegrations,
+				MultiKueue:                   defaultMultiKueue,
+				ManagedJobsNamespaceSelector: defaultManagedJobsNamespaceSelector,
+				VisibilityServer:             defaultVisibilityServer,
+				WaitForPodsReady:             defaultWaitForPodsReady,
+			},
+		},
 		"should default empty custom ClientConnection": {
 			original: &Configuration{
 				Namespace: new(overwriteNamespace),
