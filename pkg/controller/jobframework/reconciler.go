@@ -1497,7 +1497,7 @@ func UpdateWorkloadPriority(ctx context.Context, c client.Client, r events.Event
 		wl.Spec.PriorityClassRef = priorityClassRef.DeepCopy()
 		wl.Spec.Priority = new(priority)
 		if err := c.Update(ctx, wl); err != nil {
-			return fmt.Errorf("updating existing workload: %w", err)
+			return fmt.Errorf("updating priority of workload %s: %w", klog.KObj(wl), err)
 		}
 		r.Eventf(obj,
 			nil,
