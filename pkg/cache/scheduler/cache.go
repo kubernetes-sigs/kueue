@@ -191,6 +191,10 @@ type Cache struct {
 	lqMetrics    *metrics.LocalQueueMetricsConfig
 
 	simulatorFactory simulator.Factory
+
+	// initialSync tracks the event sources that fill this cache, so the
+	// scheduler can wait until they have processed their initial lists.
+	initialSync initialSync
 }
 
 func New(client client.Client, options ...Option) *Cache {
