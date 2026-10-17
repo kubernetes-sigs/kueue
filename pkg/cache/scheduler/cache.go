@@ -954,6 +954,36 @@ func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference) error 
 	return nil
 }
 
+// DeleteWorkloadIfUnchanged removes w like DeleteWorkload, but only if the cache holds it with the same resourceVersion.
+// It returns true if it removed w.
+func (c *Cache) DeleteWorkloadIfUnchanged(log logr.Logger, w *kueue.Workload) bool {
+	c.Lock()
+	defer c.Unlock()
+
+	wlKey := workload.Key(w)
+	cqName, assigned := c.workloadAssignedQueues[wlKey]
+	if !assigned {
+		return false
+	}
+	cq := c.hm.ClusterQueue(cqName)
+	if cq == nil {
+		return false
+	}
+	if cached, found := cq.Workloads[wlKey]; !found || cached.Obj.ResourceVersion != w.ResourceVersion {
+		log.V(3).Info("Not deleting workload from cache as the cache does not hold this version of it")
+		return false
+	}
+
+	cq.forgetWorkload(log, wlKey)
+	delete(c.workloadAssignedQueues, wlKey)
+
+	if c.podsReadyTracking {
+		c.podsReadyCond.Broadcast()
+	}
+
+	return true
+}
+
 func (c *Cache) IsAdded(w workload.Info) bool {
 	c.RLock()
 	defer c.RUnlock()
