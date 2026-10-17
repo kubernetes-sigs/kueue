@@ -279,6 +279,12 @@ func (j *ClusterWrapper) FirstWorkerGroupReplicas(replicas, minReplicas, maxRepl
 	return j
 }
 
+// FirstWorkerGroupMinReplicas sets minReplicas of the first worker group; nil clears it.
+func (j *ClusterWrapper) FirstWorkerGroupMinReplicas(minReplicas *int32) *ClusterWrapper {
+	j.Spec.WorkerGroupSpecs[0].MinReplicas = minReplicas
+	return j
+}
+
 func (j *ClusterWrapper) WithWorkerGroups(workers ...rayv1.WorkerGroupSpec) *ClusterWrapper {
 	j.Spec.WorkerGroupSpecs = workers
 	return j
