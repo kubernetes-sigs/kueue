@@ -10089,7 +10089,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: true,
 		},
 		"FastQuotaRelease_Disabled_PodPastDeletionTimestamp_Inactive": {
-			enableFastQuotaRelease: false,
+			enableLegacyFastQuotaRelease: false,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -10105,7 +10105,7 @@ func TestPod_IsActive(t *testing.T) {
 			want: false,
 		},
 		"FastQuotaRelease_Disabled_PodAtDeletionTimestamp_Active": {
-			enableFastQuotaRelease: false,
+			enableLegacyFastQuotaRelease: false,
 			fields: fields{
 				list: corev1.PodList{
 					Items: []corev1.Pod{
@@ -10189,7 +10189,7 @@ func TestPod_IsActive(t *testing.T) {
 					Items: []corev1.Pod{
 						{
 							Name:                       "terminating-within-grace",
-							DeletionTimestamp:          new(metav1.NewTime(now.Add(-10 * time.Second))),
+							DeletionTimestamp:          new(metav1.NewTime(now.Add(30 * time.Second))),
 							DeletionGracePeriodSeconds: new(int64(90)),
 							Status:                     corev1.PodStatus{Phase: corev1.PodRunning},
 						},

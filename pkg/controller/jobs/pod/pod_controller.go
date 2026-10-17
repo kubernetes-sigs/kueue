@@ -513,7 +513,6 @@ func (p *Pod) IsActive() bool {
 			continue
 		}
 
-
 		// At this point, the pod is Running and not stuck terminating — count as active.
 		return true
 	}
@@ -533,9 +532,7 @@ func (p *Pod) considerTerminatingPodAsActive(pod *corev1.Pod) bool {
 	// If a pod is stuck terminating (e.g., due to a lost node), we should avoid
 	// counting as Active, as doing so could block the workload to release acquired quota.
 	if pod.DeletionGracePeriodSeconds != nil {
-		now := p.clock.Now()
-		gracePeriod := time.Duration(*pod.DeletionGracePeriodSeconds) * time.Second
-		if now.After(pod.DeletionTimestamp.Add(gracePeriod)) {
+		if p.clock.Now().After(pod.DeletionTimestamp.Time) {
 			return false
 		}
 	}
