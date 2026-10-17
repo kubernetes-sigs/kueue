@@ -64,9 +64,9 @@ updates.
 [documentation style guide]: https://github.com/kubernetes/community/blob/master/contributors/guide/style-guide.md
 -->
 
-This KEP introduces **Configurable Preemptions** in Kueue through the `PreemptionConfig` cluster-scoped CRD (with rate-limiting guardrails via `PreemptionLimit` deferred to future work).
+This KEP introduces **Configurable Preemptions** in Kueue through the `PreemptionConfig` cluster-scoped CRD (with rate-limiting guardrails via `PreemptionLimit` moved to [KEP-16925](/keps/16925-preemption-limits/README.md)).
 This enables declarative preemption policies for scenarios unsupported by existing heuristics, including topology defragmentation, mission-critical "hero" workloads, and business SLA constraints.
-With `PreemptionConfig`, administrators can configure explicit triggers (quota or topology constraints) and candidate selectors (such as priority relations, queue relations, workload label selectors, and custom numeric labels, with quota-based candidate selectors, minimal trigger duration, time-based candidate duration selectors, custom ordering, per-selector per-CQ priority queues, and `PreemptionLimit` deferred to future work). In the initial iteration, candidate evaluation reuses the default ordering rules from classical/fair sharing preemption. In Alpha, `PreemptionConfig` is referenced via an annotation on the `ClusterQueue` (`kueue.x-k8s.io/preemption-config-name`), keeping the defaulting of `spec.preemption` intact; configurable preemption candidates are appended after the classical/fair sharing preemption candidates. For Beta+, as `PreemptionConfig` achieves full feature parity with classical/fair sharing preemption, both strategies will become mutually exclusive via a formal API field, and the annotation will be retired.
+With `PreemptionConfig`, administrators can configure explicit triggers (quota or topology constraints) and candidate selectors (such as priority relations, queue relations, workload label selectors, and custom numeric labels, with quota-based candidate selectors, minimal trigger duration, time-based candidate duration selectors, custom ordering, per-selector per-CQ priority queues deferred to future work). In the initial iteration, candidate evaluation reuses the default ordering rules from classical/fair sharing preemption. In Alpha, `PreemptionConfig` is referenced via an annotation on the `ClusterQueue` (`kueue.x-k8s.io/preemption-config-name`), keeping the defaulting of `spec.preemption` intact; configurable preemption candidates are appended after the classical/fair sharing preemption candidates. For Beta+, as `PreemptionConfig` achieves full feature parity with classical/fair sharing preemption, both strategies will become mutually exclusive via a formal API field, and the annotation will be retired.
 
 ## Motivation
 
@@ -299,8 +299,6 @@ spec:
   # ... other ClusterQueue fields ...
 ```
 
-Rate-limiting guardrails via a separate **PreemptionLimit** cluster-scoped CRD across global, queue, and workload scopes are deferred to [Future Work](FUTURE_WORK.md#preemptionlimit-rate-limiting-guardrails) to focus the initial iteration on `PreemptionConfig`.
-
 Success criteria:
 
 1. Cluster administrators are able to configure preemptions in the cluster in a way that satisfies their organization's needs.
@@ -379,7 +377,7 @@ And then to make sure that the hero job is never preempted, one may:
 
 1. Make the hero job's priority higher than any other workload's priority and do not allow preemption of workloads with higher or equal priority.
 2. Define in candidate selectors subfield `ClusterQueueSelector` of other preemption configs that they cannot preempt from the hero job's CQ.
-3. In future milestones, use a `PreemptionLimit` with 0 allowed preemptions from the hero job's CQ (see [Future Work](FUTURE_WORK.md#preemptionlimit-rate-limiting-guardrails)).
+3. In the future, use a `PreemptionLimit` with a limit of 0 for preemptions of workloads in the hero job's CQ, ensuring that hero jobs will not be preempted (see [Preemption Limits](/keps/16925-preemption-limits/README.md)).
 
 Thanks to the elevated preemption privileges, the hero job will be able to preempt any workload and borrow quota from other CQs in the cohort tree (this job will still be affected by lending limits — so they have to be set appropriately to allow for gathering quota). It will also effectively lock this quota, as no other workload will be able to preempt it.
 
@@ -424,6 +422,7 @@ Requested functionalities from the community can be satisfied with the following
 
 > [!NOTE]
 > Better support for this use case is planned for the future (see [Future Work](FUTURE_WORK.md#priority-selectors)). Current usage of `labelSelector` for this purpose has several requirements and limitations:
+>
 > - The `kueue.x-k8s.io/priority-class` label must be added to the list of copied labels in the Kueue configuration.
 > - Only `WorkloadPriorityClass` is supported under `kueue.x-k8s.io/priority-class`. Kueue does not populate this label for pod `PriorityClass`; to filter by pod `PriorityClass`, a custom label must be used and included in `labelKeysToCopy`, Kueue will not support Pod `PriorityClass` in `kueue.x-k8s.io/priority-class` label.
 >
@@ -516,7 +515,7 @@ This KEP also introduces an alternative approach to hero job handling compared t
 - **Backward Compatibility & Combined Strategies (Alpha):** `ClusterQueue.spec.preemption` remains fully backward-compatible, retaining its declarative kubebuilder defaulting (`+kubebuilder:default={}`). No new field is added to `ClusterQueueSpec` in Alpha; instead, `PreemptionConfig` is referenced via the `kueue.x-k8s.io/preemption-config-name` annotation. Configurable preemption candidates are appended after the classical/fair sharing preemption candidates. For Beta+, the two strategies will become mutually exclusive via a formal API field once `PreemptionConfig` provides full feature parity with classical/fair sharing preemption.
 - **Deterministic Scheduling:** Candidate selection, victim evaluation, and tie-breaking must remain strictly deterministic across scheduling cycles (guaranteed by multi-key comparison chains and Workload UID tie-breaking).
 - **Non-mutating Evaluation:** Preemption evaluation operates strictly on cluster snapshot state and simulated usage without mutating workload specs or priorities during preemption simulation.
-- **Resource Scope:** `PreemptionConfig` is a cluster-scoped CRD subject to standard Kubernetes RBAC and controller-runtime caching mechanisms (`PreemptionLimit` is deferred to future work).
+- **Resource Scope:** `PreemptionConfig` is a cluster-scoped CRD subject to standard Kubernetes RBAC and controller-runtime caching mechanisms.
 
 ### Caveats
 
@@ -534,7 +533,7 @@ One inherent risk is users deploying ill-defined preemption configs that could l
 
 1. **Restrictive default preemption config** — By default, an empty config does not lead to any preemptions as candidate selection rules will be empty.
 2. **Documentation** — Comprehensive documentation will be provided to help users understand the risks and benefits of each configuration option, including examples of common preemption scenarios and how to configure them.
-3. **Rate-limiting guardrails** — Cluster administrators can define preemption limits to roll out new configs or rules gradually (deferred to future work as `PreemptionLimit`).
+3. **Rate-limiting guardrails** — Cluster administrators can define preemption limits to roll out new configs or rules gradually. See [Preemption Limits](/keps/16925-preemption-limits/README.md).
 
 #### Performance degradation
 
@@ -665,6 +664,7 @@ type PreemptionConfigActivationPolicy struct {
 }
 
 ```
+
 Rules extend the pool of preemption candidates incrementally in tiers based on their trigger value, evaluated in the following order:
 
 1. **Baseline**: classical/fair sharing preemption candidates, with candidates from rules with the `Always` trigger appended after them.
@@ -908,7 +908,6 @@ In case of multiple selectors which are triggered within one rule, they will be 
 Example message:
 `Preempted by <preemptor> because of preemption config <preemptionConfig> rule <ruleName_1>/<selectorIndex_1>,<selectorIndex_2>,...,<selectorIndex_n>; <ruleName_2>/<selectorIndex_1>,<selectorIndex_2>,...,<selectorIndex_n>; ...`
 
-
 ### Test Plan
 
 <!--
@@ -925,8 +924,6 @@ when drafting this test plan.
 [x] I/we understand the owners of the involved components may require updates to
 existing tests to make this code solid enough prior to committing the changes necessary
 to implement this enhancement.
-
-The test plan is focused on `PreemptionConfig` (`PreemptionLimit` is deferred to future work).
 
 #### Unit tests
 
@@ -1025,8 +1022,6 @@ Create performance test suite for preemptions to validate current implementation
 
 **Step 4.** Implement additional candidate selectors (time-based execution and creation duration selectors) and minimum trigger duration (`minTriggerRequiredDuration`).
 
-**Step 5.** Future design and implementation of preemption rate limiting (`PreemptionLimit`).
-
 <!--
 Major milestones in the lifecycle of a KEP should be tracked in this section.
 Major milestones might include:
@@ -1067,7 +1062,7 @@ Why should this KEP _not_ be implemented?
    - It will make preemption rules maintenance harder.
    - It will not allow defining fine-grained global preemption limits.
 
-4. Consolidation of **PreemptionConfig** and **PreemptionLimit** into a single CRD.
+4. Consolidation of **PreemptionConfig** and **PreemptionLimit** ([KEP-16925](/keps/16925-preemption-limits/README.md)) into a single CRD.
    Ruled out because:
    - It will not allow limiting preemptions globally across ClusterQueues.
    - It will make configurations like "this ClusterQueue should never be preempted" unintuitive.
