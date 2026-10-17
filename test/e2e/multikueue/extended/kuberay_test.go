@@ -110,8 +110,8 @@ func registerKubeRayTests(contextProvider func() kubeRayTestContext) {
 					Name:      wlLookupKey.Name,
 					Namespace: wlLookupKey.Namespace,
 				}
-				behavioral.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
-				behavioral.ExpectObjectToBeDeletedOnClusters(ctx, rayjob, k8sWorker1Client, k8sWorker2Client)
+				e2e.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
+				e2e.ExpectObjectToBeDeletedOnClusters(ctx, rayjob, k8sWorker1Client, k8sWorker2Client)
 			})
 		})
 
@@ -337,7 +337,7 @@ app = HelloWorld.bind()`,
 				gomega.Eventually(func(g gomega.Gomega) {
 					createdRayService := &rayv1.RayService{}
 					g.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(rayService), createdRayService)).To(gomega.Succeed())
-					g.Expect(createdRayService.Spec.RayClusterSpec.Suspend).To(gomega.Equal(new(false)))
+					g.Expect(createdRayService.Spec.Suspend).To(gomega.BeFalse())
 					g.Expect(apimeta.IsStatusConditionTrue(createdRayService.Status.Conditions, string(rayv1.RayServiceReady))).To(gomega.BeTrue())
 				}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})

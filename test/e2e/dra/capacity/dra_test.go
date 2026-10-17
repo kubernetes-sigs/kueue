@@ -95,10 +95,10 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 			}
 
 			ginkgo.By("Verifying workload is admitted with capacity charge of 20Gi")
-			behavioral.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "20Gi")
+			e2e.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "20Gi")
 
 			ginkgo.By("Verifying job completes successfully")
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job)
 			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 		})
 
@@ -124,9 +124,9 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 			}
 
 			ginkgo.By("Verifying workload charges RequestPolicy.Default (80Gi)")
-			behavioral.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "80Gi")
+			e2e.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "80Gi")
 
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job)
 			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 		})
 
@@ -153,9 +153,9 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 			}
 
 			ginkgo.By("Verifying charge is 16Gi (15500Mi rounded up to next 1Gi step)")
-			behavioral.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "16Gi")
+			e2e.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "16Gi")
 
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job)
 			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 		})
 
@@ -182,7 +182,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 			}
 
 			ginkgo.By("Verifying capacity charge is 40Gi (20Gi x 2)")
-			behavioral.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "40Gi")
+			e2e.ExpectWorkloadResourceUsage(ctx, k8sClient, wlLookupKey, "gpu.memory", "40Gi")
 
 			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
 		})
@@ -258,7 +258,7 @@ var _ = ginkgo.Describe("DRA Consumable Capacity", func() {
 			}
 
 			for _, wlKey := range []types.NamespacedName{wlLookupKey1, wlLookupKey2} {
-				behavioral.ExpectWorkloadResourceUsage(ctx, k8sClient, wlKey, "gpu.memory", "20Gi")
+				e2e.ExpectWorkloadResourceUsage(ctx, k8sClient, wlKey, "gpu.memory", "20Gi")
 			}
 
 			ginkgo.By("Verifying both jobs complete")

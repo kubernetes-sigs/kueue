@@ -96,8 +96,8 @@ func registerPyTorchJobTests(contextProvider func() pyTorchJobTestContext) {
 				Name:      wlLookupKey.Name,
 				Namespace: wlLookupKey.Namespace,
 			}
-			behavioral.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
-			behavioral.ExpectObjectToBeDeletedOnClusters(ctx, pyTorchJob, k8sWorker1Client, k8sWorker2Client)
+			e2e.ExpectObjectToBeDeletedOnClusters(ctx, wl, k8sWorker1Client, k8sWorker2Client)
+			e2e.ExpectObjectToBeDeletedOnClusters(ctx, pyTorchJob, k8sWorker1Client, k8sWorker2Client)
 		})
 	})
 }

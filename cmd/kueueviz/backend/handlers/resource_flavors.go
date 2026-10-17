@@ -67,7 +67,7 @@ func (h *Handlers) fetchResourceFlavors(ctx context.Context) (any, error) {
 		Details any    `json:"details"`
 	}
 
-	var flavors []rfResult
+	flavors := make([]rfResult, 0)
 	for _, item := range rfl.Items {
 		flavors = append(flavors, rfResult{
 			ResourceFlavor: item,
@@ -153,9 +153,11 @@ func (h *Handlers) fetchResourceFlavorDetails(ctx context.Context, flavorName st
 		}
 	}
 
+	// Keys match the fields the ResourceFlavor detail page reads.
 	details := map[string]any{
+		"nodeLabels":  flavor.Spec.NodeLabels,
+		"nodeTaints":  flavor.Spec.NodeTaints,
 		"tolerations": flavor.Spec.Tolerations,
-		"taints":      flavor.Spec.NodeTaints,
 	}
 
 	omittedPanels := []string{}

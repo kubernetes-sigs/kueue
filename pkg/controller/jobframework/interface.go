@@ -30,6 +30,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 )
 
 // GenericJob is a required interface that must be implemented by all jobs
@@ -188,6 +189,13 @@ type ComposableJob interface {
 type JobWithCustomWorkloadConditions interface {
 	// CustomWorkloadConditions returns custom workload conditions and whether the status changed.
 	CustomWorkloadConditions(wl *kueue.Workload) ([]metav1.Condition, bool)
+}
+
+// JobWithCustomEquivalenceOptions is an optional interface that should be implemented
+// by generic jobs when custom ComparePodSetsOption need to be passed to EquivalentToWorkload.
+type JobWithCustomEquivalenceOptions interface {
+	// CustomEquivalenceOptions returns custom ComparePodSetsOption for checking job equivalency.
+	CustomEquivalenceOptions(ctx context.Context, c client.Client, wl *kueue.Workload) []equality.ComparePodSetsOption
 }
 
 // JobWithCustomWorkloadActivation is an optional interface that should be implemented

@@ -39,6 +39,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 )
 
@@ -124,13 +125,24 @@ var _ jobframework.JobWithCustomAnnotations = (*RayService)(nil)
 var _ jobframework.JobWithManagedBy = (*RayService)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayService)(nil)
 var _ jobframework.JobWithSkip = (*RayService)(nil)
+var _ jobframework.JobWithCustomEquivalenceOptions = (*RayService)(nil)
+
+func (j *RayService) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
+	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
+		return []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}
+	}
+	return nil
+}
 
 func (j *RayService) Object() client.Object {
 	return (*rayv1.RayService)(j)
 }
 
 func (j *RayService) IsSuspended() bool {
-	return j.Spec.RayClusterSpec.Suspend != nil && *j.Spec.RayClusterSpec.Suspend
+	if !features.Enabled(features.KubeRayServiceUsingTopLevelSuspend) {
+		return j.Spec.RayClusterSpec.Suspend != nil && *j.Spec.RayClusterSpec.Suspend
+	}
+	return j.Spec.Suspend
 }
 
 func (j *RayService) IsActive() bool {
@@ -138,7 +150,11 @@ func (j *RayService) IsActive() bool {
 }
 
 func (j *RayService) Suspend() {
-	j.Spec.RayClusterSpec.Suspend = new(true)
+	if !features.Enabled(features.KubeRayServiceUsingTopLevelSuspend) {
+		j.Spec.RayClusterSpec.Suspend = new(true)
+		return
+	}
+	j.Spec.Suspend = true
 }
 
 // If GCS fault tolerance is enabled, a Redis cleanup K8s Job may be created to clean up the RayCluster's Redis namespace.
@@ -185,7 +201,11 @@ func (j *RayService) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 		return podset.BadPodSetsInfoLenError(expectedLen, len(podSetsInfo))
 	}
 
-	j.Spec.RayClusterSpec.Suspend = new(false)
+	if features.Enabled(features.KubeRayServiceUsingTopLevelSuspend) {
+		j.Spec.Suspend = false
+	} else {
+		j.Spec.RayClusterSpec.Suspend = new(false)
+	}
 
 	rayClusterSpec := &j.Spec.RayClusterSpec
 	err := raycluster.UpdateRayClusterSpecToRunWithPodSetsInfo(ctrl.LoggerFrom(ctx), rayClusterSpec, podSetsInfo)

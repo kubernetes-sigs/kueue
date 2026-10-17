@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -69,6 +70,7 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		preemptionExpectations := preemptexpectations.New()
 		controllersSetup(ctx, mgr, preemptionExpectations, opts...)
@@ -76,6 +78,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 }
 
 func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		preemptionExpectations := preemptexpectations.New()
 		cCache, queues, configuration := controllersSetup(ctx, mgr, preemptionExpectations, opts...)
@@ -102,9 +105,10 @@ func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Opt
 func controllersSetup(
 	ctx context.Context, mgr manager.Manager, preemptionExpectations *expectations.Store, opts ...jobframework.Option,
 ) (*schdcache.Cache, *qcache.Manager, *config.Configuration) {
+	ginkgo.GinkgoHelper()
 	cCache := schdcache.New(mgr.GetClient())
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-	queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+	queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 	opts = append(opts, jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 

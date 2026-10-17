@@ -25,7 +25,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
@@ -47,7 +47,7 @@ func getClientBuilder(ctx context.Context) *fake.ClientBuilder {
 	scheme := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	utilruntime.Must(kueue.AddToScheme(scheme))
-	utilruntime.Must(inventoryv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(inventoryv1alpha2.AddToScheme(scheme))
 
 	utilruntime.Must(jobs.NewIntegrationManager().ForEachIntegration(func(_ string, cb jobframework.IntegrationCallbacks) error {
 		if cb.MultiKueueAdapter != nil && cb.AddToScheme != nil {

@@ -37,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -361,7 +362,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 
 			ginkgo.By("Waiting for PodsReady timeout eviction and finishing backoff")
 			behavioral.AwaitWorkloadEvictionByPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(wl), behavioral.TinyTimeout)
-			behavioral.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(wl))
+			integration.SetRequeuedConditionWithPodsReadyTimeout(ctx, k8sClient, client.ObjectKeyFromObject(wl))
 			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wl)
 
 			ginkgo.By("Verifying workload is re-admitted with DRA resources after backoff")
@@ -1586,7 +1587,7 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
 
 			ginkgo.By("Evicting admitted workload to trigger requeue with stale TotalRequests")
-			behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), nil)
+			integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), nil)
 
 			ginkgo.By("Verifying requeued workload uses raw ER name, not stale DRA translation")
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1597,6 +1598,119 @@ var _ = ginkgo.Describe("DRA Integration", ginkgo.Ordered, ginkgo.ContinueOnFail
 				g.Expect(cond).NotTo(gomega.BeNil())
 				g.Expect(cond.Message).To(gomega.ContainSubstring(string(extendedResourceName)),
 					"requeued workload should reference raw ER %q, not stale DRA logical name", extendedResourceName)
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should admit a requeued workload with the DRA-translated requests of its updated spec", func() {
+			ginkgo.By("Creating DeviceClass")
+			deviceClass := testingdra.MakeDeviceClass(deviceClassName).
+				ExtendedResourceName(extendedResourceName).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+			}()
+
+			ginkgo.By("Admitting a workload that takes most of the quota")
+			wl1 := utiltestingapi.MakeWorkload("updated-dra-wl1", ns.Name).
+				Queue("dc-tracking-lq").
+				Request(corev1.ResourceName(extendedResourceName), "6").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating a second workload that does not fit, so the scheduler keeps requeuing it")
+			wl2 := utiltestingapi.MakeWorkload("updated-dra-wl2", ns.Name).
+				Queue("dc-tracking-lq").
+				Request(corev1.ResourceName(extendedResourceName), "6").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("Shrinking its request so it fits, bumping the generation while it is being requeued")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &updatedWl)).To(gomega.Succeed())
+				updatedWl.Spec.PodSets[0].Template.Spec.Containers[0].Resources.Requests[corev1.ResourceName(extendedResourceName)] =
+					resource.MustParse("2")
+				g.Expect(k8sClient.Update(ctx, &updatedWl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Verifying it is admitted with the updated charge, not the one it was requeued with")
+			// The workload only fits under the updated request, so pairing the new
+			// generation with the charge preprocessed for the old one would leave it
+			// pending forever. Whether the update lands while the scheduler holds the
+			// workload inflight (handed back to the workload controller at requeue) or
+			// while it is back in the queue, the admitted charge has to describe the
+			// current spec.
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKeyWithValue(
+					corev1.ResourceName(logicalName), resource.MustParse("2")),
+					"admitted charge should match the updated spec under the DRA logical name %q", logicalName)
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.It("Should keep DRA-translated requests when a workload is requeued after failing admission", func() {
+			ginkgo.By("Creating DeviceClass")
+			deviceClass := testingdra.MakeDeviceClass(deviceClassName).
+				ExtendedResourceName(extendedResourceName).
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, deviceClass)).To(gomega.Succeed())
+			defer func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, deviceClass, true)
+			}()
+
+			ginkgo.By("Admitting a workload that takes most of the quota")
+			wl1 := utiltestingapi.MakeWorkload("requeue-dra-wl1", ns.Name).
+				Queue("dc-tracking-lq").
+				Request(corev1.ResourceName(extendedResourceName), "6").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl1)).To(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Creating a second workload that does not fit, so the scheduler requeues it")
+			wl2 := utiltestingapi.MakeWorkload("requeue-dra-wl2", ns.Name).
+				Queue("dc-tracking-lq").
+				Request(corev1.ResourceName(extendedResourceName), "6").
+				Obj()
+			gomega.Expect(k8sClient.Create(ctx, wl2)).To(gomega.Succeed())
+			gomega.Consistently(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeFalse())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+
+			ginkgo.By("Freeing the quota")
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl1, true)
+
+			ginkgo.By("Verifying the requeued workload is admitted with its DRA-translated requests")
+			gomega.Eventually(func(g gomega.Gomega) {
+				var updatedWl kueue.Workload
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl2), &updatedWl)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(&updatedWl)).To(gomega.BeTrue())
+				assignment := updatedWl.Status.Admission.PodSetAssignments[0]
+				// Requeue must not rebuild the requests from the spec: that would
+				// charge the raw extended resource, which the ClusterQueue does not
+				// even declare quota for.
+				g.Expect(assignment.ResourceUsage).To(gomega.HaveKeyWithValue(
+					corev1.ResourceName(logicalName), resource.MustParse("6")),
+					"requeued workload should still be charged under the DRA logical name %q", logicalName)
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 

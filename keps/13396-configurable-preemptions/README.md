@@ -66,7 +66,7 @@ updates.
 
 This KEP introduces **Configurable Preemptions** in Kueue through the `PreemptionConfig` cluster-scoped CRD (with rate-limiting guardrails via `PreemptionLimit` deferred to future work).
 This enables declarative preemption policies for scenarios unsupported by existing heuristics, including topology defragmentation, mission-critical "hero" workloads, and business SLA constraints.
-With `PreemptionConfig`, administrators can configure explicit triggers (quota or topology constraints) and candidate selectors (such as priority relations, queue relations, workload label selectors, and custom numeric labels, with quota-based candidate selectors, minimal trigger duration, time-based candidate duration selectors, custom ordering, per-selector per-CQ priority queues, and `PreemptionLimit` deferred to future work). In the initial iteration, candidate evaluation reuses the default ordering rules from classical/fair sharing preemption. In Alpha, `PreemptionConfig` is referenced via an annotation on the `ClusterQueue` (`kueue.x-k8s.io/preemption-config-name`), keeping the defaulting of `spec.preemption` intact and merging the candidate outputs of both classical/fair sharing and configurable preemption strategies. For Beta+, as `PreemptionConfig` achieves full feature parity with classical/fair sharing preemption, both strategies will become mutually exclusive via a formal API field, and the annotation will be retired.
+With `PreemptionConfig`, administrators can configure explicit triggers (quota or topology constraints) and candidate selectors (such as priority relations, queue relations, workload label selectors, and custom numeric labels, with quota-based candidate selectors, minimal trigger duration, time-based candidate duration selectors, custom ordering, per-selector per-CQ priority queues, and `PreemptionLimit` deferred to future work). In the initial iteration, candidate evaluation reuses the default ordering rules from classical/fair sharing preemption. In Alpha, `PreemptionConfig` is referenced via an annotation on the `ClusterQueue` (`kueue.x-k8s.io/preemption-config-name`), keeping the defaulting of `spec.preemption` intact; configurable preemption candidates are appended after the classical/fair sharing preemption candidates. For Beta+, as `PreemptionConfig` achieves full feature parity with classical/fair sharing preemption, both strategies will become mutually exclusive via a formal API field, and the annotation will be retired.
 
 ## Motivation
 
@@ -248,7 +248,7 @@ Introduce a new CRD **PreemptionConfig** that will be used to define:
 - triggers for when preemption should occur (e.g. insufficient topology to schedule the workload),
 - rules defining which workloads should be considered for preemption.
 
-In the initial iteration, candidate workloads are gathered from both strategies into two separate sets, merged, deduplicated, and ordered using the default ordering rules from classical preemption and fair sharing (reusing the existing preemption ordering logic in `pkg/scheduler/preemption/common/ordering.go`) to change existing logic as little as possible. Configurable candidate ordering and advanced candidate organization (such as Per-Selector, Per-ClusterQueue priority queues) are deferred to [Future Work](FUTURE_WORK.md).
+In the initial iteration, to allow seamless integration with existing logic, configurable preemption candidates are appended after the classical/fair sharing preemption candidates (see [Integration](#integration)). Configurable candidates use the default ordering rules for classical preemption and fair sharing. Configurable candidate ordering and advanced candidate organization (such as Per-Selector, Per-ClusterQueue priority queues) are deferred to [Future Work](FUTURE_WORK.md).
 
 The **PreemptionConfig** object is a cluster-wide resource that can be referenced by multiple ClusterQueues.
 
@@ -260,7 +260,7 @@ Furthermore, introducing a formal field on `ClusterQueueSpec` (e.g. `preemptionC
 
 Therefore, the integration is designed with a two-phase evolution:
 
-1. **Alpha: Reference via Annotation & Merged Candidate Outputs**
+1. **Alpha: Reference via Annotation & Appended Configurable Candidates**
    - **No new field in `ClusterQueueSpec`**: To avoid introducing field-level semantics that would break when transitioning to mutual exclusivity in Beta, `PreemptionConfig` is referenced in Alpha using a dedicated ClusterQueue annotation:
      ```yaml
      metadata:
@@ -269,13 +269,11 @@ Therefore, the integration is designed with a two-phase evolution:
      ```
      This annotation will be retired when moving to Beta.
    - **Preserve `spec.preemption` defaulting**: `ClusterQueue.spec.preemption` remains fully intact, retaining its standard kubebuilder defaulting (`+kubebuilder:default={}`) and allowing any value as currently.
-   - **Merge outputs of both strategies**: During preemption evaluation in the scheduler, if the annotation is set, the candidate outputs of **both** mechanisms are merged:
-     - Candidates selected by classical/fair sharing preemption rules (configured via `spec.preemption`, such as borrowing reclaim and within-ClusterQueue preemption).
-     - Candidates selected by `PreemptionConfig` rules (such as topology defragmentation or custom label constraints).
-   - **Maximum flexibility and backwards compatibility**: This merged approach allows existing preemption behavior to function uninterrupted while layering new capabilities (like defragmentation). Furthermore, users can fully stop candidates from either mechanism if desired:
+   - **Append configurable candidates**: If the annotation is set, candidates selected by `PreemptionConfig` rules (such as topology defragmentation or custom label constraints) are appended after the candidates selected by classical/fair sharing preemption rules (configured via `spec.preemption`, such as borrowing reclaim and within-ClusterQueue preemption).
+   - **Maximum flexibility and backwards compatibility**: This approach allows existing preemption behavior to function uninterrupted while layering new capabilities (like defragmentation). Furthermore, users can fully stop candidates from either mechanism if desired:
      - To stop classical/fair sharing preemption candidates, set `spec.preemption` policies to `Never` (for example, `reclaimWithinCohort: Never` and `withinClusterQueue: Never`).
      - To stop configurable preemption candidates, omit the annotation or specify rules with empty candidate selectors.
-   - Candidates from both mechanisms are gathered in two separate sets, merged, deduplicated, and ordered using the default ordering rules to satisfy preemptor quota and topology requirements with minimal changes to existing logic.
+   - A workload already selected by classical/fair sharing preemption is never selected again by `PreemptionConfig` rules. See [Integration](#integration) for details.
 
 2. **Beta+: Mutual Exclusivity & Feature Parity via Formal API Field**
    - In Beta+, `PreemptionConfig` and classical/fair sharing preemption will become **mutually exclusive**, with `PreemptionConfig` providing full **feature parity** with classical/fair sharing preemption (including borrowing reclaim, within-ClusterQueue preemption, and fair sharing).
@@ -306,7 +304,7 @@ Rate-limiting guardrails via a separate **PreemptionLimit** cluster-scoped CRD a
 Success criteria:
 
 1. Cluster administrators are able to configure preemptions in the cluster in a way that satisfies their organization's needs.
-2. Workloads are preempted only if allowed by the appropriate preemption config and/or classical `preemption` field (whose candidate outputs are merged in Alpha).
+2. Workloads are preempted only if allowed by the appropriate preemption config and/or classical `preemption` field (in Alpha, configurable preemption candidates are appended after the classical/fair sharing preemption candidates).
 3. Most popular setups are possible, tested, and covered by documentation:
    - Defragmentation
    - Hero jobs
@@ -345,6 +343,11 @@ spec:
 As it has an `AnyClusterQueue` relation, it can preempt workloads even if they are not related in any way to the preemptor ClusterQueue.
 In combination with a custom numeric label selector using strict `LessThan`, this guarantees asymmetry: a larger-topology workload can preempt smaller workloads blocking the required topology domain, but smaller or equal-sized workloads cannot preempt the larger workload in return, preventing mutual preemption loops.
 Effectively, when the smaller workloads are re-admitted, they can be placed in smaller fragmented domains (where the larger workload cannot fit), thereby defragmenting the cluster.
+
+> [!NOTE]
+> With the `TASHandleOverlappingFlavors` feature gate, TAS flavors with a hostname lowest level account for the usage of each other on the nodes they share.
+> Then, candidates also include the workloads holding capacity on nodes of those flavors, whichever flavor and resource they use,
+> as preempting them frees capacity in the topology of the preemptor. This applies to every trigger, as triggers only define when the rules apply.
 
 #### Story 2 - Hero job
 
@@ -510,7 +513,7 @@ This KEP also introduces an alternative approach to hero job handling compared t
 
 ### Constraints
 
-- **Backward Compatibility & Strategy Merging (Alpha):** `ClusterQueue.spec.preemption` remains fully backward-compatible, retaining its declarative kubebuilder defaulting (`+kubebuilder:default={}`). No new field is added to `ClusterQueueSpec` in Alpha; instead, `PreemptionConfig` is referenced via the `kueue.x-k8s.io/preemption-config-name` annotation. The scheduler merges candidate outputs from both classical/fair sharing preemption and `PreemptionConfig`. For Beta+, the two strategies will become mutually exclusive via a formal API field once `PreemptionConfig` provides full feature parity with classical/fair sharing preemption.
+- **Backward Compatibility & Combined Strategies (Alpha):** `ClusterQueue.spec.preemption` remains fully backward-compatible, retaining its declarative kubebuilder defaulting (`+kubebuilder:default={}`). No new field is added to `ClusterQueueSpec` in Alpha; instead, `PreemptionConfig` is referenced via the `kueue.x-k8s.io/preemption-config-name` annotation. Configurable preemption candidates are appended after the classical/fair sharing preemption candidates. For Beta+, the two strategies will become mutually exclusive via a formal API field once `PreemptionConfig` provides full feature parity with classical/fair sharing preemption.
 - **Deterministic Scheduling:** Candidate selection, victim evaluation, and tie-breaking must remain strictly deterministic across scheduling cycles (guaranteed by multi-key comparison chains and Workload UID tie-breaking).
 - **Non-mutating Evaluation:** Preemption evaluation operates strictly on cluster snapshot state and simulated usage without mutating workload specs or priorities during preemption simulation.
 - **Resource Scope:** `PreemptionConfig` is a cluster-scoped CRD subject to standard Kubernetes RBAC and controller-runtime caching mechanisms (`PreemptionLimit` is deferred to future work).
@@ -664,7 +667,7 @@ type PreemptionConfigActivationPolicy struct {
 ```
 Rules extend the pool of preemption candidates incrementally in tiers based on their trigger value, evaluated in the following order:
 
-1. **Baseline**: rules with the `Always` trigger and classical/fair sharing preemption candidates.
+1. **Baseline**: classical/fair sharing preemption candidates, with candidates from rules with the `Always` trigger appended after them.
 2. **`InsufficientQuota`**: rules evaluated only if baseline candidates cannot free sufficient quota to admit the preemptor.
 3. **`QuotaFeasibleAndInsufficientTopology`**: rules evaluated only if quota is feasible after the previous tiers, but the workload cannot be placed due to unsatisfied topology requirements.
 
@@ -860,7 +863,15 @@ Configurable candidate ordering via an `Ordering` field is deferred to [Future W
 
 ### Integration
 
-To minimize modifications to existing scheduling and preemption logic in the initial iteration, candidates from configurable preemptions will be added to the existing candidate selection process as a separate source of candidates. Then candidates will be deduplicated by UID and ordered using existing logic.
+To minimize modifications to existing scheduling and preemption logic in the initial iteration, configurable preemption candidates are appended after the classical/fair sharing preemption candidates:
+
+1. **Classical/fair sharing candidates first**: The existing classical or fair sharing algorithm (selected by the global Kueue configuration) yields its candidates in its usual order, unchanged.
+2. **Configurable candidates appended at the end**: Candidates from `PreemptionConfig` rules are appended tier by tier (`Always`, then `InsufficientQuota`, then `QuotaFeasibleAndInsufficientTopology`; see [Proposed API PreemptionConfig](#proposed-api-preemptionconfig)). Within each tier, candidates are deduplicated by UID and ordered using the default ordering rules.
+3. **No double selection**: Each yielded candidate is removed from the scheduling snapshot, so workloads already selected by classical/fair sharing preemption are never selected again by `PreemptionConfig` rules.
+4. **Per attempt**: For classical preemption, which may run separate attempts with and without borrowing, configurable candidates are appended at the end of each attempt. For fair sharing, they are appended after all fair sharing strategies have been tried.
+5. **Minimal set**: Once the preemptor fits, the usual reverse-order backfilling runs over the full sequence of selected candidates to keep the set of preempted workloads minimal.
+
+As a result, `PreemptionConfig` candidates complement classical/fair sharing preemption instead of competing with it: a configurable candidate is never preferred over a classical/fair sharing candidate, even if the default ordering would place it earlier.
 
 This approach changes the existing preemption and scheduling codebase as little as possible during Alpha. More advanced candidate data structures—specifically organizing candidates into **Per-Selector, Per-ClusterQueue Priority Queues**—are deferred to [Future Work](FUTURE_WORK.md#optimized-dynamically-adjusted-candidate-generation).
 
@@ -924,7 +935,7 @@ The test plan is focused on `PreemptionConfig` (`PreemptionLimit` is deferred to
    - Collects candidates from multiple rules and deduplicates.
    - Tests for each candidate selector.
 2. New preemptions are only considered when the feature gate is enabled.
-3. New preemption candidates are merged with candidates from pre-existing preemption mechanisms and finally ordered using the default preemption ordering rules (reusing classical preemption and fair sharing ordering logic).
+3. New preemption candidates are appended after candidates from pre-existing preemption mechanisms, are ordered using the default preemption ordering rules (reusing classical preemption and fair sharing ordering logic), and never include workloads already selected by pre-existing preemption mechanisms.
 4. Triggers are extended incrementally in tiers until workload is schedulable, first `Always` then `InsufficientQuota`, and finally `QuotaFeasibleAndInsufficientTopology`.
 
 The majority of the code will be in the `pkg/scheduler/preemption` package; a new subpackage with configurable preemptions will be created there.
@@ -951,7 +962,7 @@ Small parts of the implementation like integration with the scheduler itself wil
 - `PreemptionConfig` CRD is implemented with preemption rules.
 - `ClusterQueue` references `PreemptionConfig` via the `kueue.x-k8s.io/preemption-config-name` annotation, without introducing a new field to `ClusterQueueSpec`.
 - `ClusterQueue.spec.preemption` declarative defaulting (`+kubebuilder:default={}`) is preserved intact.
-- Preemption evaluator merges candidate outputs from classical/fair sharing preemption (`spec.preemption`) and configurable preemption (`PreemptionConfig`), allowing users to combine or selectively stop candidates from either mechanism.
+- Configurable preemption candidates (`PreemptionConfig`) are appended after the classical/fair sharing preemption candidates (`spec.preemption`), allowing users to use both or selectively stop candidates from either mechanism.
 - Workloads can be preempted according to rules defined in the preemption config.
 - Workloads that are preempted have the rule that triggered the preemption added in the eviction condition.
 - Lazy defragmentation use case is covered by available configuration rules.
@@ -959,7 +970,7 @@ Small parts of the implementation like integration with the scheduler itself wil
 #### Beta
 
 - Feature parity: `PreemptionConfig` covers all existing classical and fair sharing preemption use cases (reclaim within cohort, within ClusterQueue, borrowing preemption, fair sharing), alongside defragmentation and hero jobs.
-- Mutual exclusivity: `PreemptionConfig` and classical `preemption` become mutually exclusive; candidate merging is removed in favor of exclusive strategy execution.
+- Mutual exclusivity: `PreemptionConfig` and classical `preemption` become mutually exclusive; appending configurable candidates after classical/fair sharing candidates is replaced by exclusive strategy execution.
 - API promotion: `PreemptionConfig` reference is promoted to a formal field in `ClusterQueueSpec`, and the Alpha annotation is deprecated and designated for removal.
 - No significant performance regression for existing preemptions translated to new preemption configs.
 - All of the [Open Challenges](FUTURE_WORK.md#open-challenges) regarding dynamic DRS state re-evaluation and backfilling fairness are addressed.
@@ -995,9 +1006,8 @@ Implementation of the foundations of PreemptionConfig:
 
 - candidate ordering reusing classical/fair sharing preemption ordering logic
 - triggers
-- candidate gathering from both strategies into two separate sets, merging, deduplication, and ordering
+- configurable preemption candidates appended after the classical/fair sharing preemption candidates (deduplicated and ordered within each trigger tier)
 - ClusterQueue integration via `kueue.x-k8s.io/preemption-config-name` annotation
-- preemption evaluator support for merging candidate outputs from classical/fair sharing preemption (`spec.preemption`) and `PreemptionConfig`
 
 Implementation of the following candidate selector fields and constraints to have an MVP of defrag:
 
@@ -1067,7 +1077,7 @@ Why should this KEP _not_ be implemented?
    Ruled out because:
    - `ClusterQueue.spec.preemption` has declarative defaulting (`+kubebuilder:default={}`). Setting it to `null` or altering declarative defaulting in a mutating webhook is a breaking change for existing clients and manifests.
    - If a formal field `spec.preemptionConfigName` were added in Alpha with merged behavior alongside `spec.preemption`, changing it to mutually exclusive in Beta would be a breaking change to the field's semantics.
-   - Using an annotation (`kueue.x-k8s.io/preemption-config-name`) avoids creating a premature field contract while allowing the outputs of both strategies to be merged cleanly for Alpha. When `PreemptionConfig` reaches full feature parity in Beta, both strategies can be made mutually exclusive via a formal API field without breaking backward compatibility.
+   - Using an annotation (`kueue.x-k8s.io/preemption-config-name`) avoids creating a premature field contract while allowing configurable preemption candidates to be appended after the classical/fair sharing preemption candidates for Alpha. When `PreemptionConfig` reaches full feature parity in Beta, both strategies can be made mutually exclusive via a formal API field without breaking backward compatibility.
 
 ## Future Work Ideas
 

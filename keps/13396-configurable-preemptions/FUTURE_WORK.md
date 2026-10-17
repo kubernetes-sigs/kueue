@@ -45,7 +45,7 @@
 
 ## Configurable Candidate Ordering
 
-In the initial iteration of `PreemptionConfig`, candidate workloads are ordered strictly by reusing the default ordering rules from classical preemption and fair sharing (as defined in `pkg/scheduler/preemption/common/ordering.go`):
+In the initial iteration of `PreemptionConfig`, candidate workloads are ordered strictly by reusing the default ordering rules from classical preemption and fair sharing (as defined in `pkg/scheduler/preemption/policy/ordering.go`):
 
 0. Workloads already marked for preemption first (`isEvicted`).
 1. Workloads from other ClusterQueues in the cohort before the ones in the same ClusterQueue as the preemptor.
@@ -240,7 +240,7 @@ spec:
 
 ## [Optimized] Dynamically Adjusted Candidate Generation
 
-In the initial iteration, candidate workloads are gathered from both strategies into two separate sets, merged, deduplicated, and sorted in a single flat list (as detailed in [Integration](README.md#integration)). This minimizes modifications to the existing codebase during Alpha.
+In the initial iteration, classical/fair sharing candidates are evaluated first, and configurable preemption candidates are appended afterwards as a separate source, deduplicated and sorted in a flat list per trigger tier (as detailed in [Integration](README.md#integration)). This minimizes modifications to the existing codebase during Alpha.
 
 However, when configurable candidate ordering or quota based selectors are introduced in future the candidate generatio has to be dynamically adjusted to take into account changes of DRS or borrowing due to previous candidates preemption. Generatio of such candidates for large clusters will benefit from a more sophisticated candidate organization: **Per-Selector, Per-ClusterQueue Priority Queues** paired with iteration through priority queue heads.
 

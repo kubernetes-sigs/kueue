@@ -240,7 +240,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for Pod group", ginkgo.Label(e2
 			})
 
 			ginkgo.By("Verify each pod group lands in a single block, and each block holds exactly 2 of the 4 groups", func() {
-				blockOfNode := behavioral.GetTopologyDomainByNode(ctx, k8sClient, utiltesting.DefaultBlockTopologyLevel)
+				blockOfNode := e2e.GetTopologyDomainByNode(ctx, k8sClient, utiltesting.DefaultBlockTopologyLevel)
 				blockByGroup := make(map[string]string, numGroups)
 				for _, pod := range pods.Items {
 					group := pod.Labels[podconstants.GroupNameLabel]

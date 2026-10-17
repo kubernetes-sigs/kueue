@@ -69,14 +69,19 @@ var (
 	metricsScrapeURL      = flag.String("metricsScrapeURL", "", "the URL to scrape metrics from, ignored when minimal kueue is used")
 
 	// related to minimalkueue
-	minimalKueuePath = flag.String("minimalKueue", "", "path to minimalkueue, run in the hosts default cluster if empty")
-	withCPUProfile   = flag.Bool("withCPUProfile", false, "generate a CPU profile for minimalkueue")
-	withMemProfile   = flag.Bool("withMemProfile", false, "generate a memory profile for minimalkueue")
-	withLogs         = flag.Bool("withLogs", false, "capture minimalkueue logs")
-	logLevel         = flag.Int("withLogsLevel", 2, "set minimalkueue logs level")
-	logToFile        = flag.Bool("logToFile", false, "capture minimalkueue logs to files")
-	enableTAS        = flag.Bool("enableTAS", false, "enable TAS controllers and indexers in minimalkueue")
-	enableDRA        = flag.Bool("enableDRA", false, "enable the DRA device feasibility check in minimalkueue")
+	minimalKueuePath     = flag.String("minimalKueue", "", "path to minimalkueue, run in the hosts default cluster if empty")
+	withCPUProfile       = flag.Bool("withCPUProfile", false, "generate a CPU profile for minimalkueue")
+	withMemProfile       = flag.Bool("withMemProfile", false, "generate a memory profile for minimalkueue")
+	withLogs             = flag.Bool("withLogs", false, "capture minimalkueue logs")
+	logLevel             = flag.Int("withLogsLevel", 2, "set minimalkueue logs level")
+	logToFile            = flag.Bool("logToFile", false, "capture minimalkueue logs to files")
+	enableTAS            = flag.Bool("enableTAS", false, "enable TAS controllers and indexers in minimalkueue")
+	enableDRA            = flag.Bool("enableDRA", false, "enable the DRA device feasibility check in minimalkueue")
+	workloadConcurrency  = flag.Int("workloadConcurrency", 5, "maximum number of concurrent Workload reconciles in minimalkueue")
+	cpuProfileStartDelay = flag.Duration("cpuProfileStartDelay", 0, "delay before the first scheduled CPU profile")
+	cpuProfileCount      = flag.Int("cpuProfileCount", 0, "number of scheduled CPU profiles")
+	cpuProfileDuration   = flag.Duration("cpuProfileDuration", 10*time.Second, "duration of each scheduled CPU profile")
+	cpuProfileInterval   = flag.Duration("cpuProfileInterval", 0, "sleep between scheduled CPU profiles")
 )
 
 var (
@@ -168,7 +173,27 @@ func main() {
 		}
 
 		// start the minimal kueue manager process
-		err = runCommand(ctx, *outputDir, *minimalKueuePath, "kubeconfig", *withCPUProfile, *withMemProfile, *withLogs, *logToFile, *logLevel, *enableTAS, *enableDRA, errCh, wg, metricsPort)
+		cfg := minimalKueueConfig{
+			workDir:              *outputDir,
+			cmdPath:              *minimalKueuePath,
+			kubeconfig:           "kubeconfig",
+			withCPUProf:          *withCPUProfile,
+			withMemProfile:       *withMemProfile,
+			withLogs:             *withLogs,
+			logToFile:            *logToFile,
+			cpuProfileStartDelay: *cpuProfileStartDelay,
+			cpuProfileCount:      *cpuProfileCount,
+			cpuProfileDuration:   *cpuProfileDuration,
+			cpuProfileInterval:   *cpuProfileInterval,
+			logLevel:             *logLevel,
+			enableTAS:            *enableTAS,
+			enableDRA:            *enableDRA,
+			qps:                  *qps,
+			burst:                *burst,
+			workloadConcurrency:  *workloadConcurrency,
+			metricsPort:          metricsPort,
+		}
+		err = runCommand(ctx, cfg, errCh, wg)
 		if err != nil {
 			log.Error(err, "MinimalKueue start")
 			os.Exit(1)
@@ -263,46 +288,53 @@ func main() {
 	}
 }
 
-func runCommand(
-	ctx context.Context,
-	workDir, cmdPath, kubeconfig string,
-	withCPUProf, withMemProfile, withLogs, logToFile bool,
-	logLevel int,
-	enableTAS, enableDRA bool,
-	errCh chan<- error,
-	wg *sync.WaitGroup,
-	metricsPort int,
-) error {
+type minimalKueueConfig struct {
+	workDir, cmdPath, kubeconfig                                 string
+	withCPUProf, withMemProfile, withLogs, logToFile             bool
+	cpuProfileStartDelay, cpuProfileDuration, cpuProfileInterval time.Duration
+	cpuProfileCount, logLevel                                    int
+	enableTAS, enableDRA                                         bool
+	qps                                                          float64
+	burst, workloadConcurrency, metricsPort                      int
+}
+
+func runCommand(ctx context.Context, cfg minimalKueueConfig, errCh chan<- error, wg *sync.WaitGroup) error {
 	log := ctrl.LoggerFrom(ctx).WithName("Run command")
 
-	cmd := exec.CommandContext(ctx, cmdPath, "--kubeconfig", filepath.Join(workDir, kubeconfig))
+	cmd := exec.CommandContext(ctx, cfg.cmdPath, "--kubeconfig", filepath.Join(cfg.workDir, cfg.kubeconfig))
 	cmd.Cancel = func() error {
 		log.Info("Stop the command")
 		return cmd.Process.Signal(syscall.SIGINT)
 	}
 
-	exe := path.Base(cmdPath)
+	exe := path.Base(cfg.cmdPath)
 
-	if withCPUProf {
-		cmd.Args = append(cmd.Args, "--cpuprofile", filepath.Join(workDir, fmt.Sprintf("%s.cpu.prof", exe)))
+	if cfg.withCPUProf {
+		cmd.Args = append(cmd.Args, "--cpuprofile", filepath.Join(cfg.workDir, fmt.Sprintf("%s.cpu.prof", exe)))
+		cmd.Args = append(cmd.Args,
+			"--cpuProfileStartDelay", cfg.cpuProfileStartDelay.String(),
+			"--cpuProfileCount", strconv.Itoa(cfg.cpuProfileCount),
+			"--cpuProfileDuration", cfg.cpuProfileDuration.String(),
+			"--cpuProfileInterval", cfg.cpuProfileInterval.String(),
+		)
 	}
 
-	if withMemProfile {
-		cmd.Args = append(cmd.Args, "--memprofile", filepath.Join(workDir, fmt.Sprintf("%s.mem.prof", exe)))
+	if cfg.withMemProfile {
+		cmd.Args = append(cmd.Args, "--memprofile", filepath.Join(cfg.workDir, fmt.Sprintf("%s.mem.prof", exe)))
 	}
 
 	outWriter := os.Stdout
 	errWriter := os.Stderr
-	if withLogs {
-		cmd.Args = append(cmd.Args, fmt.Sprintf("--zap-log-level=%d", logLevel))
-		if logToFile {
+	if cfg.withLogs {
+		cmd.Args = append(cmd.Args, fmt.Sprintf("--zap-log-level=%d", cfg.logLevel))
+		if cfg.logToFile {
 			var err error
-			outWriter, err = os.Create(filepath.Join(workDir, fmt.Sprintf("%s.out.log", exe)))
+			outWriter, err = os.Create(filepath.Join(cfg.workDir, fmt.Sprintf("%s.out.log", exe)))
 			if err != nil {
 				return err
 			}
 
-			errWriter, err = os.Create(filepath.Join(workDir, fmt.Sprintf("%s.err.log", exe)))
+			errWriter, err = os.Create(filepath.Join(cfg.workDir, fmt.Sprintf("%s.err.log", exe)))
 			if err != nil {
 				return err
 			}
@@ -311,16 +343,25 @@ func runCommand(
 		cmd.Stderr = errWriter
 	}
 
-	if metricsPort != 0 {
-		cmd.Args = append(cmd.Args, "--metricsPort", strconv.Itoa(metricsPort))
+	if cfg.metricsPort != 0 {
+		cmd.Args = append(cmd.Args, "--metricsPort", strconv.Itoa(cfg.metricsPort))
 	}
 
-	if enableTAS {
+	if cfg.enableTAS {
 		cmd.Args = append(cmd.Args, "--enableTAS")
 	}
 
-	if enableDRA {
+	if cfg.enableDRA {
 		cmd.Args = append(cmd.Args, "--enableDRA")
+	}
+	if cfg.qps > 0 {
+		cmd.Args = append(cmd.Args, "--qps", strconv.FormatFloat(cfg.qps, 'f', -1, 64))
+	}
+	if cfg.burst > 0 {
+		cmd.Args = append(cmd.Args, "--burst", strconv.Itoa(cfg.burst))
+	}
+	if cfg.workloadConcurrency > 0 {
+		cmd.Args = append(cmd.Args, "--workloadConcurrency", strconv.Itoa(cfg.workloadConcurrency))
 	}
 
 	log.Info("Starting process", "path", cmd.Path, "args", cmd.Args)
@@ -331,7 +372,7 @@ func runCommand(
 	startTime := time.Now()
 
 	wg.Go(func() {
-		if logToFile {
+		if cfg.logToFile {
 			defer outWriter.Close()
 			defer errWriter.Close()
 		}
@@ -361,7 +402,7 @@ func runCommand(
 			return
 		}
 
-		err = os.WriteFile(filepath.Join(workDir, fmt.Sprintf("%s.stats.yaml", exe)), csBytes, 0666)
+		err = os.WriteFile(filepath.Join(cfg.workDir, fmt.Sprintf("%s.stats.yaml", exe)), csBytes, 0666)
 		if err != nil {
 			log.Error(err, "Writing cmd stats")
 		}

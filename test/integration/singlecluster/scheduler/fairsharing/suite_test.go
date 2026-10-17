@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -80,6 +81,7 @@ func managerAndSchedulerSetup(
 	admissionFairSharing *config.AdmissionFairSharing,
 	mappings ...[]config.DeviceClassMapping,
 ) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		fairSharing := &config.FairSharing{}
 
@@ -104,7 +106,7 @@ func managerAndSchedulerSetup(
 		queueOptions := []qcache.Option{}
 		queueOptions = append(queueOptions, qcache.WithAdmissionFairSharing(admissionFairSharing))
 		queueOptions = append(queueOptions, qcache.WithPreemptionExpectations(preemptionExpectations))
-		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 		qManager = queues
 
 		configuration := &config.Configuration{

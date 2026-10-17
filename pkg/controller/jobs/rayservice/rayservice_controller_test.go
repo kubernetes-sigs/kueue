@@ -91,6 +91,7 @@ func TestPodSets(t *testing.T) {
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 							{
 								GroupName: "group1",
+								Replicas:  new(int32(1)),
 								Template: corev1.PodTemplateSpec{
 									Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}},
 								},
@@ -168,6 +169,7 @@ func TestPodSets(t *testing.T) {
 						WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
 							{
 								GroupName: "group1",
+								Replicas:  new(int32(1)),
 								Template: corev1.PodTemplateSpec{
 									ObjectMeta: metav1.ObjectMeta{
 										Annotations: map[string]string{
@@ -191,6 +193,7 @@ func TestPodSets(t *testing.T) {
 					PodSpec(corev1.PodSpec{Containers: []corev1.Container{{Name: "group1_c"}}}).
 					Annotations(map[string]string{kueue.PodSetRequiredTopologyAnnotation: "cloud.com/block"}).
 					RequiredTopologyRequest("cloud.com/block").
+					SubGroupCount(new(int32(1))).
 					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
@@ -529,34 +532,54 @@ func TestPodSets(t *testing.T) {
 
 func TestIsSuspended(t *testing.T) {
 	testCases := map[string]struct {
-		rayService *RayService
-		want       bool
+		rayService      *RayService
+		useTopLevelGate bool
+		want            bool
 	}{
-		"not suspended": {
+		"top-level field is false": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Spec: rayv1.RayServiceSpec{
-					RayClusterSpec: rayv1.RayClusterSpec{
-						Suspend: new(false),
-					},
+					Suspend: false,
+				},
+			}),
+			useTopLevelGate: true,
+			want:            false,
+		},
+		"top-level field is true": {
+			rayService: (*RayService)(&rayv1.RayService{
+				Spec: rayv1.RayServiceSpec{
+					Suspend: true,
+				},
+			}),
+			useTopLevelGate: true,
+			want:            true,
+		},
+		"top-level field defaults to false": {
+			rayService: (*RayService)(&rayv1.RayService{
+				Spec: rayv1.RayServiceSpec{},
+			}),
+			useTopLevelGate: true,
+			want:            false,
+		},
+		"legacy nested field is false": {
+			rayService: (*RayService)(&rayv1.RayService{
+				Spec: rayv1.RayServiceSpec{
+					RayClusterSpec: rayv1.RayClusterSpec{Suspend: new(false)},
 				},
 			}),
 			want: false,
 		},
-		"suspended": {
+		"legacy nested field is true": {
 			rayService: (*RayService)(&rayv1.RayService{
 				Spec: rayv1.RayServiceSpec{
-					RayClusterSpec: rayv1.RayClusterSpec{
-						Suspend: new(true),
-					},
+					RayClusterSpec: rayv1.RayClusterSpec{Suspend: new(true)},
 				},
 			}),
 			want: true,
 		},
-		"suspend is nil": {
+		"legacy nested field defaults to false": {
 			rayService: (*RayService)(&rayv1.RayService{
-				Spec: rayv1.RayServiceSpec{
-					RayClusterSpec: rayv1.RayClusterSpec{},
-				},
+				Spec: rayv1.RayServiceSpec{},
 			}),
 			want: false,
 		},
@@ -564,6 +587,7 @@ func TestIsSuspended(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.KubeRayServiceUsingTopLevelSuspend, tc.useTopLevelGate)
 			got := tc.rayService.IsSuspended()
 			if got != tc.want {
 				t.Errorf("IsSuspended() = %v, want %v", got, tc.want)

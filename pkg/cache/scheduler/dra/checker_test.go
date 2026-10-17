@@ -77,6 +77,10 @@ func (p *passthroughChecker) FindFeasibleNodes(
 	return result, nil
 }
 
+func (p *passthroughChecker) ScheduleWorkload(_ context.Context, _ []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
+	return simulator.SchedulingResult{}
+}
+
 func TestCheckerFindFeasibleNodes(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
 	scheme := runtime.NewScheme()

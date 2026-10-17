@@ -24,6 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
 
+	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -191,11 +192,15 @@ func (c *Cache) ReportCohortSubtreeAdmittedWorkload(log logr.Logger, wl *kueue.W
 		return
 	}
 
+	wlLabelVals := c.customLabels.MakeValsSet(configapi.SourceKindWorkload, wl.Labels, wl.Annotations)
 	for _, ancestor := range ancestors {
 		metrics.ReportCohortSubtreeAdmittedWorkload(
 			ancestor,
 			workloadpatching.PriorityClassName(wl),
-			c.customLabels.CohortGet(ancestor),
+			c.customLabels.CombineLabelValues(map[configapi.SourceKind][]string{
+				configapi.SourceKindCohort:   c.customLabels.CohortGet(ancestor),
+				configapi.SourceKindWorkload: wlLabelVals.OrderedList(),
+			}),
 			c.roleTracker,
 		)
 	}

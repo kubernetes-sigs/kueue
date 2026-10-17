@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -75,10 +76,12 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerSetup(setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return managerSetupWithConfiguration(nil, setupJobManager, opts...)
 }
 
 func managerSetupWithConfiguration(configuration *config.Configuration, setupJobManager bool, opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		preemptionExpectations := preemptexpectations.New()
 		controllersSetup(ctx, mgr, setupJobManager, preemptionExpectations, configuration, opts...)
@@ -86,6 +89,7 @@ func managerSetupWithConfiguration(configuration *config.Configuration, setupJob
 }
 
 func managerAndSchedulerSetup(setupTASControllers bool, opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		preemptionExpectations := preemptexpectations.New()
 		cCache, queues, configuration := controllersSetup(ctx, mgr, true, preemptionExpectations, nil, opts...)
@@ -117,6 +121,7 @@ func controllersSetup(
 	configuration *config.Configuration,
 	opts ...jobframework.Option,
 ) (*schdcache.Cache, *qcache.Manager, *config.Configuration) {
+	ginkgo.GinkgoHelper()
 	if configuration == nil {
 		configuration = &config.Configuration{}
 	}
@@ -125,7 +130,7 @@ func controllersSetup(
 	integrationManager := jobcontrollers.NewIntegrationManager()
 	cCache := schdcache.New(mgr.GetClient())
 	queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-	queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+	queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 	opts = append(opts, jobframework.WithIntegrationManager(integrationManager), jobframework.WithCache(cCache), jobframework.WithQueues(queues))
 

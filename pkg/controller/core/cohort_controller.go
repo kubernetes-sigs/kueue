@@ -19,6 +19,7 @@ package core
 import (
 	"context"
 	"errors"
+	"math"
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/api/equality"
@@ -221,18 +222,20 @@ func (r *CohortReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		"usesEffectiveQuotas", features.Enabled(features.DynamicQuotaOrchestration) && cohort.Status.EffectiveQuotas != nil,
 	)
 	addErr := r.cache.AddOrUpdateCohort(&cohort)
-	if errors.Is(addErr, schdcache.ErrCohortHasCycle) {
-		// Skip consumers that require a valid tree, but notify ClusterQueues so they
-		// can report the cycle as their inactive reason.
-		r.notifyWatchers(nil, &cohort)
-		return ctrl.Result{}, nil
-	}
-	if addErr != nil {
+	if addErr != nil && !errors.Is(addErr, schdcache.ErrCohortHasCycle) {
 		log.V(2).Error(addErr, "Error adding or updating cohort in the cache")
 		return ctrl.Result{}, addErr
 	}
+	// Record the new parent in the queue manager even when it creates a cycle: the
+	// queue manager tolerates cycles, so its hierarchy still matches the cache when
+	// another Cohort resolves the cycle. Notified ClusterQueues report a cycle as
+	// their inactive reason.
 	r.qManager.AddOrUpdateCohort(ctx, &cohort)
 	r.notifyWatchers(nil, &cohort)
+	if errors.Is(addErr, schdcache.ErrCohortHasCycle) {
+		// Skip consumers that require a valid tree.
+		return ctrl.Result{}, nil
+	}
 	if labelsUpdated {
 		metrics.ClearCohortMetrics(kueue.CohortReference(req.Name))
 		r.cache.ResyncCohortGaugeMetrics(log, kueue.CohortReference(req.Name))
@@ -258,7 +261,11 @@ func (r *CohortReconciler) updateCohortStatusIfChanged(ctx context.Context, coho
 	}
 
 	if r.fairSharingEnabled {
-		metrics.ReportCohortWeightedShare(kueue.CohortReference(cohort.Name), stats.WeightedShare, r.customLabels.CohortGet(kueue.CohortReference(cohort.Name)), r.roleTracker)
+		weightedShare := stats.WeightedShare
+		if stats.ZeroWeightBorrows {
+			weightedShare = math.NaN()
+		}
+		metrics.ReportCohortWeightedShare(kueue.CohortReference(cohort.Name), weightedShare, r.customLabels.CohortGet(kueue.CohortReference(cohort.Name)), r.roleTracker)
 		if cohort.Status.FairSharing == nil {
 			cohort.Status.FairSharing = &kueue.FairSharingStatus{}
 		}

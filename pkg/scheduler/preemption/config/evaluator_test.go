@@ -26,10 +26,11 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
-	"k8s.io/utils/clock"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -38,12 +39,13 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
-	"sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/config/filters"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -540,17 +542,16 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 
-			evaluator := NewPreemptionEvaluator(ctx, log, clock.RealClock{}, tc.config, candidatesByName)
-
 			wlInfo := workload.NewInfo(log, tc.preemptorWl)
 			wlInfo.ClusterQueue = tc.preemptorCq
+			evaluator := NewPreemptionEvaluator(ctx, log, tc.config, wlInfo, candidatesByName)
 
 			trigger := tc.trigger
 			if trigger == "" {
 				trigger = kueuealpha.Always
 			}
 			frsNeedPreemption := sets.New(resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU})
-			candidates, err := evaluator.candidatesFor(snapshot, wlInfo, frsNeedPreemption, trigger)
+			candidates, err := evaluator.candidatesFor(snapshot, frsNeedPreemption, trigger)
 			if len(tc.wantErrs) > 0 {
 				if err == nil {
 					t.Fatalf("candidatesFor() expected error, got nil")
@@ -578,6 +579,158 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 	}
 }
 
+func TestPreemptionEvaluatorOverlappingTASCandidates(t *testing.T) {
+	now := time.Now()
+
+	// tas-default and tas-overlap select the same nodes x1 and x2, while
+	// tas-disjoint selects the node y1.
+	topology := utiltestingapi.MakeDefaultOneLevelTopology("hostname")
+	flavors := []*kueue.ResourceFlavor{
+		utiltestingapi.MakeResourceFlavor("tas-default").TopologyName("hostname").NodeLabel("tas-node", "true").Obj(),
+		utiltestingapi.MakeResourceFlavor("tas-overlap").TopologyName("hostname").NodeLabel("tas-node", "true").Obj(),
+		utiltestingapi.MakeResourceFlavor("tas-disjoint").TopologyName("hostname").NodeLabel("tas-other", "true").Obj(),
+	}
+	makeNode := func(name, label string) *corev1.Node {
+		return testingnode.MakeNode(name).
+			Label(corev1.LabelHostname, name).
+			Label(label, "true").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("4"),
+				corev1.ResourceMemory: resource.MustParse("4Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().
+			Obj()
+	}
+	nodes := []*corev1.Node{
+		makeNode("x1", "tas-node"),
+		makeNode("x2", "tas-node"),
+		makeNode("y1", "tas-other"),
+	}
+	makeClusterQueue := func(name, flavor string) *kueue.ClusterQueue {
+		return utiltestingapi.MakeClusterQueue(name).
+			Cohort("all").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor).
+				Resource(corev1.ResourceCPU, "10").
+				Resource(corev1.ResourceMemory, "10Gi").
+				Obj()).
+			Obj()
+	}
+	clusterQueues := []*kueue.ClusterQueue{
+		makeClusterQueue("a", "tas-default"),
+		makeClusterQueue("b", "tas-overlap"),
+		makeClusterQueue("c", "tas-disjoint"),
+	}
+	admittedWl := func(name string, cq kueue.ClusterQueueReference, flavor kueue.ResourceFlavorReference, res corev1.ResourceName, qty, node string) *kueue.Workload {
+		return utiltestingapi.MakeWorkload(name, "").
+			UID(types.UID(name)).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Request(res, qty).
+				Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission(cq).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(res, flavor, qty).
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{node}, 1).Obj()).
+						Obj()).
+					Obj()).
+				Obj(), now).
+			AdmittedAt(true, now).
+			Obj()
+	}
+	// The workload using memory only doesn't use the flavor resource needing
+	// preemption, but still holds capacity on the nodes of its flavor.
+	admitted := []*kueue.Workload{
+		admittedWl("a1", "a", "tas-default", corev1.ResourceCPU, "1", "x2"),
+		admittedWl("a-mem", "a", "tas-default", corev1.ResourceMemory, "1Gi", "x1"),
+		admittedWl("b1", "b", "tas-overlap", corev1.ResourceCPU, "1", "x1"),
+		admittedWl("c1", "c", "tas-disjoint", corev1.ResourceCPU, "1", "y1"),
+	}
+
+	tests := map[string]struct {
+		disableOverlappingFlavors bool
+		wantCandidates            []string
+	}{
+		"workloads on the nodes of the flavor are selected, whatever flavor and resource they use": {
+			wantCandidates: []string{"a-mem", "a1", "b1"},
+		},
+		"only workloads using the flavor resource are selected when TASHandleOverlappingFlavors is disabled": {
+			disableOverlappingFlavors: true,
+			wantCandidates:            []string{"a1"},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+				features.ConfigurablePreemptions:     true,
+				features.TopologyAwareScheduling:     true,
+				features.TASHandleOverlappingFlavors: !tc.disableOverlappingFlavors,
+			})
+			ctx, log := utiltesting.ContextWithLog(t)
+			cqCache := schdcache.New(utiltesting.NewFakeClient())
+			for _, cq := range clusterQueues {
+				if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+					t.Fatalf("Couldn't add ClusterQueue to cache: %v", err)
+				}
+			}
+			for _, rf := range flavors {
+				cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
+			}
+			cqCache.AddOrUpdateTopology(log, topology.DeepCopy())
+			for _, wl := range admitted {
+				cqCache.AddOrUpdateWorkload(ctx, log, wl.DeepCopy())
+			}
+			for _, n := range nodes {
+				cqCache.TASCache().SyncNode(n.DeepCopy())
+			}
+			snapshot, err := cqCache.Snapshot(ctx)
+			if err != nil {
+				t.Fatalf("unexpected error while building snapshot: %v", err)
+			}
+
+			preemptor := workload.NewInfo(log, utiltestingapi.MakeWorkload("a-incoming", "").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					RequiredTopologyRequest(corev1.LabelHostname).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				Obj())
+			preemptor.ClusterQueue = "a"
+
+			frsNeedPreemption := sets.New(resources.FlavorResource{Flavor: "tas-default", Resource: corev1.ResourceCPU})
+
+			// The trigger only defines when the rule applies, so any trigger
+			// selects the same candidates.
+			triggers := []kueuealpha.PreemptionConfigActivationTrigger{
+				kueuealpha.Always,
+				kueuealpha.InsufficientQuota,
+				kueuealpha.QuotaFeasibleAndInsufficientTopology,
+			}
+			for _, trigger := range triggers {
+				config := *utiltestingalpha.MakePreemptionConfig("test").
+					Rule("test", trigger,
+						utiltestingalpha.MakeCandidateSelector(kueuealpha.AnyClusterQueue).Obj(),
+					).Obj()
+				evaluator := NewPreemptionEvaluator(ctx, log, config, preemptor, candidatesByName)
+
+				candidates, err := evaluator.candidatesFor(snapshot, frsNeedPreemption, trigger)
+				if err != nil {
+					t.Fatalf("candidatesFor() unexpected error: %v", err)
+				}
+
+				// Candidates are not ordered, so compare them as sorted lists.
+				gotCandidates := slices.Sorted(slices.Values(utilslices.Map(candidates, func(candidate **configurableCandidate) string {
+					return (*candidate).WlInfo.Obj.Name
+				})))
+				if diff := cmp.Diff(tc.wantCandidates, gotCandidates, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Selected candidates (-want,+got) for trigger %s:\n%s", trigger, diff)
+				}
+			}
+		})
+	}
+}
+
 func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 	const configName = "test-config"
 
@@ -597,7 +750,7 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 	}
 
 	unitWl := *utiltestingapi.MakeWorkload("unit", "").Request(corev1.ResourceCPU, "1")
-	candidate := func(name string, indexes map[common.PreemptionConfigRuleReference][]int) *configurableCandidate {
+	candidate := func(name string, indexes map[policy.PreemptionConfigRuleReference][]int) *configurableCandidate {
 		return &configurableCandidate{
 			WlInfo:                    wlInfoWithName(name),
 			ConfigName:                configName,
@@ -628,8 +781,8 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
 			wantCandidates: []*configurableCandidate{
-				candidate("a1", map[common.PreemptionConfigRuleReference][]int{"test": {0}}),
-				candidate("a2", map[common.PreemptionConfigRuleReference][]int{"test": {0}}),
+				candidate("a1", map[policy.PreemptionConfigRuleReference][]int{"test": {0}}),
+				candidate("a2", map[policy.PreemptionConfigRuleReference][]int{"test": {0}}),
 			},
 		},
 		"Candidate match multiple rules": {
@@ -648,8 +801,8 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
 			wantCandidates: []*configurableCandidate{
-				candidate("a1", map[common.PreemptionConfigRuleReference][]int{"test1": {0}, "test2": {0}}),
-				candidate("a2", map[common.PreemptionConfigRuleReference][]int{"test1": {0}, "test2": {0}}),
+				candidate("a1", map[policy.PreemptionConfigRuleReference][]int{"test1": {0}, "test2": {0}}),
+				candidate("a2", map[policy.PreemptionConfigRuleReference][]int{"test1": {0}, "test2": {0}}),
 			},
 		},
 		"Candidate match multiple rules related to the trigger": {
@@ -672,8 +825,8 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			preemptorCq: "a",
 			trigger:     kueuealpha.InsufficientQuota,
 			wantCandidates: []*configurableCandidate{
-				candidate("a1", map[common.PreemptionConfigRuleReference][]int{"test2": {0}, "test3": {0}}),
-				candidate("a2", map[common.PreemptionConfigRuleReference][]int{"test2": {0}, "test3": {0}}),
+				candidate("a1", map[policy.PreemptionConfigRuleReference][]int{"test2": {0}, "test3": {0}}),
+				candidate("a2", map[policy.PreemptionConfigRuleReference][]int{"test2": {0}, "test3": {0}}),
 			},
 		},
 		"Candidates match multiple selectors": {
@@ -690,8 +843,8 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
 			wantCandidates: []*configurableCandidate{
-				candidate("a1", map[common.PreemptionConfigRuleReference][]int{"test": {0, 1}}),
-				candidate("a2", map[common.PreemptionConfigRuleReference][]int{"test": {0, 1}}),
+				candidate("a1", map[policy.PreemptionConfigRuleReference][]int{"test": {0, 1}}),
+				candidate("a2", map[policy.PreemptionConfigRuleReference][]int{"test": {0, 1}}),
 			},
 		},
 		"Candidate matches only the second selector": {
@@ -711,7 +864,7 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
 			preemptorCq: "a",
 			wantCandidates: []*configurableCandidate{
-				candidate("a1", map[common.PreemptionConfigRuleReference][]int{"test": {1}}),
+				candidate("a1", map[policy.PreemptionConfigRuleReference][]int{"test": {1}}),
 			},
 		},
 	}
@@ -742,10 +895,9 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 
-			evaluator := NewPreemptionEvaluator(ctx, log, clock.RealClock{}, tc.config, candidatesByName)
-
 			wlInfo := workload.NewInfo(log, tc.preemptorWl)
 			wlInfo.ClusterQueue = tc.preemptorCq
+			evaluator := NewPreemptionEvaluator(ctx, log, tc.config, wlInfo, candidatesByName)
 
 			trigger := tc.trigger
 			if trigger == "" {
@@ -753,7 +905,7 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			}
 
 			frsNeedPreemption := sets.New(resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU})
-			candidates, err := evaluator.candidatesFor(snapshot, wlInfo, frsNeedPreemption, trigger)
+			candidates, err := evaluator.candidatesFor(snapshot, frsNeedPreemption, trigger)
 			if err != nil {
 				t.Errorf("candidatesFor() error: %v", err)
 				return
@@ -949,12 +1101,12 @@ func TestPreemptionEvaluatorFindCandidates(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 
-			var evaluator *PreemptionEvaluator
-			if tc.config != nil {
-				evaluator = NewPreemptionEvaluator(ctx, log, clock.RealClock{}, *tc.config, candidatesByName)
-			}
 			preemptor := workload.NewInfo(log, tc.preemptor)
 			preemptor.ClusterQueue = "a"
+			var evaluator *PreemptionEvaluator
+			if tc.config != nil {
+				evaluator = NewPreemptionEvaluator(ctx, log, *tc.config, preemptor, candidatesByName)
+			}
 			requestedCPU := preemptor.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU)
 			quotaFits := func() bool {
 				return snapshot.ClusterQueue("a").Available(fr).Cmp(requestedCPU) >= 0
@@ -963,7 +1115,7 @@ func TestPreemptionEvaluatorFindCandidates(t *testing.T) {
 			// When
 			// The yield interrupts FindCandidates once the preemptor fits.
 			var gotTargets []string
-			gotInterrupted := evaluator.FindCandidates(snapshot, preemptor, sets.New(fr), quotaFits, func(target *common.Target) bool {
+			gotInterrupted := evaluator.FindCandidates(snapshot, sets.New(fr), quotaFits, func(target *policy.Target) bool {
 				gotTargets = append(gotTargets, string(workload.Key(target.WorkloadInfo.Obj)))
 				return tc.neverFits || !quotaFits()
 			})

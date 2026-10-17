@@ -19,8 +19,12 @@ CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2
 SKILLSAW_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/skillsaw/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
 SKILLSAW_IMAGE := "ghcr.io/stbenjam/skillsaw:${SKILLSAW_VERSION}"
 VERIFY_NPROCS ?= 8
-# Number of modules to lint concurrently in ci-lint (xargs -P). 0 = as many as possible.
-CI_LINT_NPROCS ?= 0
+# Bound each Go process as well as the number of concurrent build/lint processes.
+# These limits apply to verify; standalone artifact builds retain their defaults.
+VERIFY_GOMAXPROCS ?= 2
+VERIFY_CLI_BUILD_NPROCS ?= 2
+# Share CPU capacity with platform builds and documentation generation; 0 is unlimited.
+CI_LINT_NPROCS ?= 2
 # Output sync mode for parallel verification. Set to empty to disable.
 # Requires GNU Make 4.0+. Values: target, line, recurse, or empty.
 ifeq ($(shell uname),Darwin)
@@ -44,7 +48,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 ##
 ## What it does:
 ## - Phase 1: regenerate everything that is checked into git (Go code, docs site data, Helm docs/manifests)
-## - Phase 2: run verification checks (linters, formatting checks, helm rendering/unit tests, npm dep checks)
+## - Phase 2: run checks once their required generated inputs are ready
 ## - Phase 3: assert the repo is clean for $(PATHS_TO_VERIFY)
 ##
 ## Why it matters:
@@ -54,13 +58,16 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 ##
 ## Notes:
 ## - The work is parallelized. Override parallelism with `VERIFY_NPROCS=<n> make verify`.
+## - `VERIFY_GOMAXPROCS` sets Go runtime concurrency and Go's default build -p.
+## - Verify builds `VERIFY_CLI_BUILD_NPROCS` CLI platforms and lints `CI_LINT_NPROCS` modules concurrently.
+## - These per-process limits reduce contention; they are not a global CPU semaphore.
 ## - Output is grouped by target to make failures easier to find. Disable with `VERIFY_OUTPUT_SYNC= make verify`.
 ##
 ## How to extend `make verify`
 ##
-## `make verify` is intentionally split into two broad phases:
+## `make verify` tracks generation prerequisites for each check:
 ## - `verify-tree-prereqs`: targets that *may write to the working tree* (codegen, docs generation, helm docs, etc.)
-## - `verify-checks`: targets that should be *read-only* (linters, formatting verification, template rendering, unit tests)
+## - `verify-checks`: checks that wait for the generators of their inputs; Go lint and artifact builds can overlap site generation
 ##
 ## To add a new step:
 ## - If it GENERATES/UPDATES files checked into git: add it under one of the `verify-*-prereqs` targets.
@@ -73,7 +80,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 verify: ## Ensure repo is clean after generation/formatting.
 	$(MAKE) -j $(VERIFY_NPROCS) $(if $(VERIFY_OUTPUT_SYNC),--output-sync=$(VERIFY_OUTPUT_SYNC)) verify-checks
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
-	if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then \
+	@if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then \
 		echo "ERROR: untracked files found under: $(PATHS_TO_VERIFY)" >&2; \
 		git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) >&2; \
 		exit 1; \
@@ -89,17 +96,21 @@ verify-docs-prereqs: generate-apiref generate-kueuectl-docs generate-metrics-tab
 
 .PHONY: verify-helm-prereqs
 verify-helm-prereqs: ## Prerequisites for Helm checks.
-verify-helm-prereqs: compile-crd-manifests update-helm generate-helm-docs prepare-release-branch
+# Release preparation renders Helm docs after updating chart versions and values.
+verify-helm-prereqs: compile-crd-manifests update-helm prepare-release-branch
 
 .PHONY: verify-tree-prereqs
 verify-tree-prereqs: ## Prerequisites to ensure repo is fully regenerated.
 verify-tree-prereqs: verify-go-prereqs verify-docs-prereqs verify-helm-prereqs
 
 .PHONY: verify-checks
+# Propagate the budget to generators, tools, builds, and linter subprocesses.
+# The unit/race jobs and standalone build targets keep their existing settings.
+verify-checks: export GOMAXPROCS = $(VERIFY_GOMAXPROCS)
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
-verify-checks: ## Phase 2 (parallel): checks that should run after generation completes.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-test-performance-multikueue-runner verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
+verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint verify-ray-version
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -107,7 +118,7 @@ verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify
 # the exact same commands.  Only the prerequisites differ:
 #
 #   standalone  →  tool binary only          (fast, for local use)
-#   verify-*    →  verify-tree-prereqs + …   (full generation first)
+#   verify-*    →  required generation prerequisites + …
 #
 # A recipe-less wrapper like
 #
@@ -121,19 +132,23 @@ verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify
 # Lint each module in parallel; drop generated packages (client-go/, internal/mocks/)
 # from the target list — golangci-lint's path/generated exclusions only filter reported
 # issues, not the analysis work, so they must be excluded before the linter runs.
+# Label module totals and command timings so parallel workers remain distinguishable.
 define _ci_lint_recipe
+@echo "Module lint concurrency: processes=$(CI_LINT_NPROCS), GOMAXPROCS=$${GOMAXPROCS:-default}"
 @find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; \
 	| xargs -P $(CI_LINT_NPROCS) -n 1 sh -c ' \
+		MAKE_TIMING_LABEL="lint module=$$2" MAKE_TIMING_COMMANDS=1 \
+			exec "$(PROJECT_DIR)/hack/make-timed-shell.sh" -c "$$1" sh "$$2"' sh ' \
 		cd "$$1" || exit 1; \
 		dirs=$$($(GO_CMD) list -f "{{.Dir}}" ./... \
 			| grep -vE "/(client-go|internal/mocks)(/|$$)" \
 			| sed "s|^$$(pwd)/|./|"); \
 		[ -n "$$dirs" ] || exit 0; \
-		$(GOLANGCI_LINT) run $(GOLANGCI_LINT_FIX) \
+		$(GOLANGCI_LINT) run -v $(GOLANGCI_LINT_FIX) \
 			--allow-parallel-runners \
 			--timeout 15m0s \
 			--config "$(PROJECT_DIR)/.golangci.yaml" \
-			$$dirs' sh
+			$$dirs'
 endef
 
 define _lint_api_recipe
@@ -237,13 +252,17 @@ endef
 
 .PHONY: verify-artifacts
 verify-artifacts: DEST_CHART_DIR="$(ARTIFACTS)"
-verify-artifacts: verify-tree-prereqs verify-git-tag clean-artifacts kustomize helm yq ## Build artifacts after ensuring generated code is up to date.
+verify-artifacts: CLI_BUILD_NPROCS = $(VERIFY_CLI_BUILD_NPROCS)
+# Artifacts consume Go code and Helm manifests, but not generated site pages.
+verify-artifacts: verify-go-prereqs verify-helm-prereqs gomod-verify verify-git-tag clean-artifacts kustomize helm yq ## Build artifacts after their generated inputs are ready.
+	@echo "Artifact build concurrency: platforms=$(CLI_BUILD_NPROCS), GOMAXPROCS=$${GOMAXPROCS:-default}"
 	$(_helm_chart_package_recipe)
 	$(_prepare_manifests_recipe)
 	$(_artifacts_recipe)
 
 .PHONY: verify-ci-lint
-verify-ci-lint: verify-tree-prereqs gomod-verify golangci-lint ## CI-style golangci-lint (includes generation + go.mod checks)
+# Site and manifest generators do not rewrite the Go sources that lint reads.
+verify-ci-lint: verify-go-prereqs gomod-verify golangci-lint ## CI-style golangci-lint (includes generation + go.mod checks)
 	$(_ci_lint_recipe)
 
 .PHONY: verify-lint-api
@@ -270,9 +289,13 @@ verify-release-utils-test: verify-tree-prereqs ## Release utility Python unit te
 verify-milestone-pull-test: verify-tree-prereqs ## milestone_pull shell tests after generation
 	$(_milestone_pull_test_recipe)
 
-.PHONY: verify-test-performance-multikueue-runner
-verify-test-performance-multikueue-runner: verify-tree-prereqs ## MultiKueue performance runner unit tests after generation
-	$(MAKE) test-performance-multikueue-runner
+.PHONY: verify-unit-test-selection
+verify-unit-test-selection: ## Validate unit-test selection and sharding without compiling Go.
+	bash $(PROJECT_DIR)/hack/testing/unit-test-selection_test.sh
+
+.PHONY: verify-generation-order
+verify-generation-order: ## Validate generation barriers and overlap without compiling Go.
+	bash $(PROJECT_DIR)/hack/testing/verify-generation-order_test.sh
 
 .PHONY: verify-helm-verify
 verify-helm-verify: verify-tree-prereqs helm ## Helm verification after generation

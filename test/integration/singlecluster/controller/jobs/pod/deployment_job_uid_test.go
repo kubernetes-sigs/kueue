@@ -48,11 +48,13 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 // deploymentJobUIDManagerSetup enables the Deployment integration, which the shared
 // managerSetup does not, so that the ancestor walk can resolve a Deployment.
 func deploymentJobUIDManagerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		integrationManager := jobcontrollers.NewIntegrationManager()
 		integrationManager.EnableIntegration(deployment.FrameworkName)
@@ -64,7 +66,7 @@ func deploymentJobUIDManagerSetup(opts ...jobframework.Option) framework.Manager
 		preemptionExpectations := preemptexpectations.New()
 		customLabels := metrics.NewCustomLabels(nil)
 		cCache := schdcache.New(mgr.GetClient(), schdcache.WithCustomLabels(customLabels))
-		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache,
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache,
 			qcache.WithPreemptionExpectations(preemptionExpectations),
 			qcache.WithCustomLabels(customLabels),
 		)

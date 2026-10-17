@@ -54,6 +54,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -85,6 +86,7 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		// Production wiring: the RayCluster (defaulting/validating) webhooks need
 		// the full jobframework options (integration manager, queues, cache) to
@@ -98,7 +100,7 @@ func managerAndSchedulerSetup(opts ...jobframework.Option) framework.ManagerSetu
 		cCache := schdcache.New(mgr.GetClient())
 		preemptionExpectations := preemptexpectations.New()
 		queueOptions := []qcache.Option{qcache.WithPreemptionExpectations(preemptionExpectations)}
-		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 		opts = append(opts, jobframework.WithQueues(queues), jobframework.WithCache(cCache))
 
 		failedCtrl, err := core.SetupControllers(

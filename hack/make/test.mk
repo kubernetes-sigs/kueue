@@ -82,12 +82,13 @@ GO_TEST_TARGET ?= .
 # UNIT_SHARD_INDEX selects which shard this job runs (0-based).
 # When UNIT_TOTAL_SHARDS is not set, all packages run in a single job (existing behaviour).
 ifdef UNIT_TOTAL_SHARDS
-UNIT_TEST_PACKAGES := $(shell ./hack/testing/shard-unit-tests.sh $(UNIT_SHARD_INDEX) $(UNIT_TOTAL_SHARDS))
+UNIT_TEST_PACKAGES := $(shell ./hack/testing/shard-unit-tests.sh $(UNIT_SHARD_INDEX) $(UNIT_TOTAL_SHARDS) $(GO_TEST_TARGET))
 ifeq ($(UNIT_TEST_PACKAGES),)
 $(error Aborting: shard-unit-tests.sh returned no packages. Check UNIT_SHARD_INDEX / UNIT_TOTAL_SHARDS.)
 endif
 else
-UNIT_TEST_PACKAGES := $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | grep -v '/test/')
+# Enumerate packages only when unit tests need them, avoiding scans during verify.
+UNIT_TEST_PACKAGES = $(shell $(GO_CMD) list $(GO_TEST_TARGET)/... | $(PROJECT_DIR)/hack/testing/filter-unit-test-packages.sh)
 endif
 
 OPTIONAL_SHARD_SUFFIX = $(if $(UNIT_TOTAL_SHARDS),-shard-$(UNIT_SHARD_INDEX))
@@ -370,6 +371,28 @@ test-e2e-was-tas-baseline-helm: test-tas-e2e-baseline-helm
 test-e2e-was-tas-extended-helm: WAS_ENABLED=true
 test-e2e-was-tas-extended-helm: test-tas-e2e-extended-helm
 
+# WAS deep integration version of TAS e2e tests
+.PHONY: test-e2e-was-deep-tas-baseline
+test-e2e-was-deep-tas-baseline: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
+test-e2e-was-deep-tas-baseline: test-tas-e2e-baseline
+
+.PHONY: test-e2e-was-deep-tas-baseline-basic-fit
+test-e2e-was-deep-tas-baseline-basic-fit: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
+test-e2e-was-deep-tas-baseline-basic-fit: GINKGO_ARGS=--label-filter="feature:tas-basic-fit"
+test-e2e-was-deep-tas-baseline-basic-fit: test-tas-e2e-baseline
+
+.PHONY: test-e2e-was-deep-tas-extended
+test-e2e-was-deep-tas-extended: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
+test-e2e-was-deep-tas-extended: test-tas-e2e-extended
+
+.PHONY: test-e2e-was-deep-tas-extended-shard-0
+test-e2e-was-deep-tas-extended-shard-0: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
+test-e2e-was-deep-tas-extended-shard-0: test-tas-e2e-extended-shard-0
+
+.PHONY: test-e2e-was-deep-tas-extended-shard-1
+test-e2e-was-deep-tas-extended-shard-1: E2E_EXTRA_KUEUE_FEATURE_GATES=SchedulerLibraryIntegration=true,SchedulerLibraryDeepIntegration=true
+test-e2e-was-deep-tas-extended-shard-1: test-tas-e2e-extended-shard-1
+
 # Backwards compatibility aliases for CI/Prow
 .PHONY: test-tas-was-e2e-baseline
 test-tas-was-e2e-baseline: test-e2e-was-tas-baseline
@@ -520,6 +543,7 @@ run-test-tas-e2e-baseline-%:
 		E2E_CONFIG_FOLDER="baseline" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
+		E2E_EXTRA_KUEUE_FEATURE_GATES="$(E2E_EXTRA_KUEUE_FEATURE_GATES)" \
 		./hack/testing/e2e-test.sh
 
 run-test-tas-e2e-extended-%: K8S_VERSION = $(@:run-test-tas-e2e-extended-%=%)
@@ -535,6 +559,7 @@ run-test-tas-e2e-extended-%:
 		E2E_CONFIG_FOLDER="extended" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \
+		E2E_EXTRA_KUEUE_FEATURE_GATES="$(E2E_EXTRA_KUEUE_FEATURE_GATES)" \
 		./hack/testing/e2e-test.sh
 
 run-test-e2e-sequential-baseline-%: K8S_VERSION = $(@:run-test-e2e-sequential-baseline-%=%)
@@ -738,15 +763,15 @@ performance-multikueue-runner:
 	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(MULTIKUEUE_PERFORMANCE_RUNNER) ./test/performance/multikueue
 
 ifdef SCALABILITY_CPU_PROFILE
-SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
+override SCALABILITY_EXTRA_ARGS += --withCPUProfile=true
 endif
 
 ifdef SCALABILITY_MEM_PROFILE
-SCALABILITY_EXTRA_ARGS += --withMemProfile=true
+override SCALABILITY_EXTRA_ARGS += --withMemProfile=true
 endif
 
 ifndef NO_SCALABILITY_KUEUE_LOGS
-SCALABILITY_EXTRA_ARGS +=  --withLogs=true --logToFile=true
+override SCALABILITY_EXTRA_ARGS += --withLogs=true --logToFile=true
 endif
 
 SCALABILITY_SCRAPE_INTERVAL ?= 5s
@@ -796,8 +821,7 @@ run-performance-scheduler-in-cluster: envtest performance-scheduler-runner
 MULTIKUEUE_PERFORMANCE_CONFIG ?= $(PROJECT_DIR)/test/performance/multikueue/configs/baseline/configuration.yaml
 MULTIKUEUE_PERFORMANCE_EXPECTATIONS ?= $(PROJECT_DIR)/test/performance/multikueue/configs/baseline/expectations.yaml
 
-# The runner lives under ./test/, which 'make test' excludes, so its unit tests need their own
-# target to run anywhere.
+# These tests also run in unit CI; retain a focused target for performance workflows.
 .PHONY: test-performance-multikueue-runner
 test-performance-multikueue-runner: gotestsum
 	mkdir -p $(ARTIFACTS)

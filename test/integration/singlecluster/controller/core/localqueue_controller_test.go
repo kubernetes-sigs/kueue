@@ -31,6 +31,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue", "area:core"), func() {
@@ -265,7 +266,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 
 		ginkgo.By("Setting the workloads quota reservation")
 		for i, w := range workloads {
-			behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(w), admissions[i])
+			integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(w), admissions[i])
 		}
 
 		fullUsage := []kueue.LocalQueueFlavorUsage{
@@ -351,7 +352,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 		behavioral.ExpectLQPendingWorkloadsMetric(queue, 0, 0)
 
 		ginkgo.By("Finishing workloads")
-		behavioral.FinishWorkloads(ctx, k8sClient, workloads...)
+		integration.FinishWorkloads(ctx, k8sClient, workloads...)
 
 		gomega.Eventually(func(g gomega.Gomega) {
 			var updatedQueue kueue.LocalQueue
@@ -462,7 +463,7 @@ var _ = ginkgo.Describe("Queue controller", ginkgo.Label("controller:localqueue"
 
 		ginkgo.By("Setting the workloads quota reservation", func() {
 			for i, w := range workloads {
-				behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(w), admissions[i])
+				integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(w), admissions[i])
 			}
 
 			gomega.Eventually(func(g gomega.Gomega) {

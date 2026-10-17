@@ -28,10 +28,12 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	jsoniter "github.com/json-iterator/go"
 	kftraining "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
+	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -122,7 +124,93 @@ func TestReconcile(t *testing.T) {
 		return result
 	}
 
+	// rankedWorkload and rankedWorkloadR1 have a PodSet of 2 ranked by the completion index,
+	// admitted to the racks r1 and r2, or to r1 only.
+	// rankedPod is a Pod of that PodSet.
+	// The fake client lists Pods by name, so the cases name the Pods in an order
+	// different from their completion indexes, or greedy assignment would give the
+	// same result.
+	domainR1 := utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj()
+	domainR2 := utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r2"}, 1).Obj()
+	rankedWorkload := utiltestingapi.MakeWorkload("unit-test", "ns").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(
+			*utiltestingapi.MakePodSet("worker", 2).
+				Request(corev1.ResourceCPU, "1").
+				PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+				Obj(),
+		).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(
+					utiltestingapi.MakePodSetAssignment("worker").
+						Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+						Count(2).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+							Domains(domainR1, domainR2).
+							Obj()).
+						Obj(),
+				).
+				Obj(), now,
+		).
+		AdmittedAt(true, now)
+	rankedWorkloadR1 := utiltestingapi.MakeWorkload("unit-test", "ns").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(
+			*utiltestingapi.MakePodSet("worker", 2).
+				Request(corev1.ResourceCPU, "1").
+				PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+				Obj(),
+		).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(
+					utiltestingapi.MakePodSetAssignment("worker").
+						Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+						Count(2).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+							Domains(domainR1).
+							Obj()).
+						Obj(),
+				).
+				Obj(), now,
+		).
+		AdmittedAt(true, now)
+	rankedPod := testingpod.MakePod("", "ns").
+		Annotation(kueue.WorkloadAnnotation, "unit-test").
+		Label(constants.PodSetLabel, "worker")
+	elasticJobsWithTAS := map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithTAS: true}
+	countsR1 := counts{NodeSelector: map[string]string{tasBlockLabel: "b1", tasRackLabel: "r1"}, Count: 1}
+	countsR2 := counts{NodeSelector: map[string]string{tasBlockLabel: "b1", tasRackLabel: "r2"}, Count: 1}
+	// rankedWorkloadR1R2R3 has a PodSet of 3 ranked by the completion index,
+	// admitted to the racks r1, r2 and r3.
+	domainR3 := utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r3"}, 1).Obj()
+	rankedWorkloadR1R2R3 := utiltestingapi.MakeWorkload("unit-test", "ns").
+		Finalizers(kueue.ResourceInUseFinalizerName).
+		PodSets(
+			*utiltestingapi.MakePodSet("worker", 3).
+				Request(corev1.ResourceCPU, "1").
+				PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+				Obj(),
+		).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("cq").
+				PodSets(
+					utiltestingapi.MakePodSetAssignment("worker").
+						Assignment(corev1.ResourceCPU, "unit-test-flavor", "3").
+						Count(3).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+							Domains(domainR1, domainR2, domainR3).
+							Obj()).
+						Obj(),
+				).
+				Obj(), now,
+		).
+		AdmittedAt(true, now)
+	countsR3 := counts{NodeSelector: map[string]string{tasBlockLabel: "b1", tasRackLabel: "r3"}, Count: 1}
+
 	testCases := map[string]struct {
+		featureGates           map[featuregate.Feature]bool
 		expectUIDs             []types.UID
 		workloads              []kueue.Workload
 		pods                   []corev1.Pod
@@ -1044,6 +1132,108 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"ranks: ignore ungated pod outside TopologyAssignment and preserve rank-based ordering": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(new(batchv1.JobCompletionIndexAnnotation)).
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "2").
+								Count(2).
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+									// Rank 0 -> b1/r1, Rank 1 -> b1/r2
+									Domains(
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 1).Obj(),
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r2"}, 1).Obj(),
+									).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				// Rank 1 is named first so greedy fallback would assign it to b1/r1 instead of b1/r2.
+				*testingpod.MakePod("a-p1-new", "ns").UID("p1-new").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("b-p0-new", "ns").UID("p0-new").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+				// Stuck terminating pod from a previous assignment on a domain outside the current TopologyAssignment.
+				*testingpod.MakePod("c-p0-stuck", "ns").UID("p0-stuck").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					DeletionTimestamp(now).
+					KueueFinalizer().
+					StatusPhase(corev1.PodRunning).
+					NodeSelector(tasBlockLabel, "b0").
+					NodeSelector(tasRackLabel, "r0").
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("a-p1-new", "ns").UID("p1-new").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "1").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r2").
+					Obj(),
+				*testingpod.MakePod("b-p0-new", "ns").UID("p0-new").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("c-p0-stuck", "ns").UID("p0-stuck").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(batchv1.JobCompletionIndexAnnotation, "0").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					DeletionTimestamp(now).
+					KueueFinalizer().
+					StatusPhase(corev1.PodRunning).
+					NodeSelector(tasBlockLabel, "b0").
+					NodeSelector(tasRackLabel, "r0").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b0",
+						tasRackLabel:  "r0",
+					},
+					Count: 1,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r2",
+					},
+					Count: 1,
+				},
+			},
+		},
 		"ungate single pod; while there are pending expectations": {
 			expectUIDs: []types.UID{"x"},
 			workloads: []kueue.Workload{
@@ -1900,6 +2090,122 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"ranks: support rank-based ordering for RayCluster - for multi-host and multi-replica": {
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 4).
+						Request(corev1.ResourceCPU, "1").
+						PodIndexLabel(new(rayutils.RayHostIndexKey)).
+						SubGroupIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+						SubGroupCount(new(int32(2))).
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("cq").
+							PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+								Assignment(corev1.ResourceCPU, "unit-test-flavor", "4").
+								Count(4).
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(defaultTestLevels).
+									Domains(
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r1"}, 2).Obj(),
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"b1", "r2"}, 1).Obj(),
+										utiltestingapi.MakeTopologyDomainAssignment([]string{"b2", "r1"}, 1).Obj(),
+									).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					Obj(),
+			},
+			pods: []corev1.Pod{
+				*testingpod.MakePod("p0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(rayutils.RayHostIndexKey, "0").
+					Label(rayutils.RayWorkerReplicaIndexKey, "0").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("p1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(rayutils.RayHostIndexKey, "1").
+					Label(rayutils.RayWorkerReplicaIndexKey, "0").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("p2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(rayutils.RayHostIndexKey, "0").
+					Label(rayutils.RayWorkerReplicaIndexKey, "1").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+				*testingpod.MakePod("p3", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(rayutils.RayHostIndexKey, "1").
+					Label(rayutils.RayWorkerReplicaIndexKey, "1").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					TopologySchedulingGate().
+					Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*testingpod.MakePod("p0", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(rayutils.RayHostIndexKey, "0").
+					Label(rayutils.RayWorkerReplicaIndexKey, "0").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("p1", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(rayutils.RayHostIndexKey, "1").
+					Label(rayutils.RayWorkerReplicaIndexKey, "0").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+				*testingpod.MakePod("p2", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(rayutils.RayHostIndexKey, "0").
+					Label(rayutils.RayWorkerReplicaIndexKey, "1").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b1").
+					NodeSelector(tasRackLabel, "r2").
+					Obj(),
+				*testingpod.MakePod("p3", "ns").
+					Annotation(kueue.WorkloadAnnotation, "unit-test").
+					Label(rayutils.RayHostIndexKey, "1").
+					Label(rayutils.RayWorkerReplicaIndexKey, "1").
+					Label(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+					NodeSelector(tasBlockLabel, "b2").
+					NodeSelector(tasRackLabel, "r1").
+					Obj(),
+			},
+			wantCounts: []counts{
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r1",
+					},
+					Count: 2,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b1",
+						tasRackLabel:  "r2",
+					},
+					Count: 1,
+				},
+				{
+					NodeSelector: map[string]string{
+						tasBlockLabel: "b2",
+						tasRackLabel:  "r1",
+					},
+					Count: 1,
+				},
+			},
+		},
 		"ranks: support rank-based ordering for JobSet - some Pods already scheduled": {
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("unit-test", "ns").Finalizers(kueue.ResourceInUseFinalizerName).
@@ -2428,6 +2734,284 @@ func TestReconcile(t *testing.T) {
 					Count: 1,
 				},
 			},
+		},
+		"ranks: completions > parallelism, Pod at index 2 is ungated into the domain freed by succeeded index 0": {
+			workloads: []kueue.Workload{*rankedWorkload.Clone().Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "2").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "2").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2},
+		},
+		"ranks: elastic Job scale-down falls back to greedy assignment while ElasticJobsViaWorkloadSlicesWithTAS is disabled": {
+			// A scale-down from 4 to 2 truncates the TopologyAssignment to the 2
+			// lowest ranks, while the Pods at completion index 2 and 3 still exist
+			// until the Job controller deletes them.
+			workloads: []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "2").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "3").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "0").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "1").TopologySchedulingGate().Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "2").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "3").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "0").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "1").TopologySchedulingGate().Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2},
+		},
+		"ranks: elastic Job scale-down keeps rank-based ordering for the remaining Pods": {
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "2").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "3").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "0").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "1").TopologySchedulingGate().Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "2").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "3").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "0").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "1").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2},
+		},
+		"ranks: elastic Job scale-down ungates the Pod into its rank's domain and leaves the Pods without a domain gated": {
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "2").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "3").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "1").TopologySchedulingGate().Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "2").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "3").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "1").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2},
+		},
+		"ranks: elastic Job scale-down leaves the Pod gated while a Pod without a domain still occupies its rank's domain": {
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "1").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "3").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "1").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "3").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2},
+		},
+		"ranks: elastic Job scale-down keeps rank-based ordering while an ungated Pod without a domain still runs": {
+			// After a scale-down from 3 to 2, index 2 still runs in r2 until it is deleted.
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "1").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "0").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "2").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "1").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "0").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "2").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2},
+		},
+		"ranks: elastic Job with completions > parallelism, Pod at index 2 is ungated into the domain freed by succeeded index 0": {
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "2").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "2").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2},
+		},
+		"ranks: elastic Job with completions > parallelism, Pod at index 3 is ungated into the domain freed by succeeded index 1": {
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "3").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "2").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "3").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "2").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2},
+		},
+		"ranks: elastic Job with completions > parallelism lends the free domains to the Pods without a domain in rank order": {
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "3").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "2").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "3").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "2").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2},
+		},
+		"ranks: non-elastic Job with completions > parallelism falls back to greedy assignment while ElasticJobsViaWorkloadSlicesWithTAS is enabled": {
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkload.Clone().Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "3").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "2").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "3").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "2").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2},
+		},
+		"ranks: elastic Job with a TopologyAssignment shorter than the PodSet count ungates the Pod with a domain": {
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkloadR1.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "1").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "0").TopologySchedulingGate().Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "1").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "0").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			wantCounts: []counts{countsR1},
+		},
+		"ranks: elastic Job with a TopologyAssignment shorter than the PodSet count lends the free domain to the Pod without a domain": {
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkloadR1.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "1").TopologySchedulingGate().Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "1").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			wantCounts: []counts{countsR1},
+		},
+		"ranks: elastic Job with backoffLimitPerIndex lends the free domain to the recreated Pod whose rank's domain is full": {
+			// Index 0 failed, and index 1 succeeded during index 0's per-index backoff.
+			// The Job controller created index 2 first, which was lent r1, so the
+			// recreated index 0 finds r1 full while r2 is free.
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "0").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "2").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodFailed).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "0").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "2").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodFailed).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2},
+		},
+		"ranks: elastic Job with backoffLimitPerIndex lends the free domains to the recreated Pod before the Pod without a domain": {
+			// Index 3 was lent r1 during index 0's per-index backoff, so the recreated index 0 finds r1 full.
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkloadR1R2R3.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "4").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "0").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "3").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "2").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r3").Obj(),
+				*rankedPod.Clone().Name("pod-e").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-f").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodFailed).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "4").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r3").Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "0").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "3").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "2").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r3").Obj(),
+				*rankedPod.Clone().Name("pod-e").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-f").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodFailed).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2, countsR3},
+		},
+		"ranks: elastic Job keeps rank-based ordering after a Pod was lent the domain of another rank": {
+			// Index 0 was lent r2 while a Pod without a domain held r1, which has finished since.
+			featureGates: elasticJobsWithTAS,
+			workloads:    []kueue.Workload{*rankedWorkloadR1R2R3.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "2").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").TopologySchedulingGate().Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "2").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r3").Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2, countsR3},
+		},
+		"ranks: elastic Job with backoffLimitPerIndex falls back to greedy assignment while ElasticJobsViaWorkloadSlicesWithTAS is disabled": {
+			workloads: []kueue.Workload{*rankedWorkload.Clone().Annotation(constants.ElasticJobAnnotation, "true").Obj()},
+			pods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "0").TopologySchedulingGate().Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "2").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodFailed).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			nodeSelectorAssertMode: nodeSelectorAssertExact,
+			wantPods: []corev1.Pod{
+				*rankedPod.Clone().Name("pod-a").Label(batchv1.JobCompletionIndexAnnotation, "0").NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-b").Label(batchv1.JobCompletionIndexAnnotation, "2").StatusPhase(corev1.PodRunning).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+				*rankedPod.Clone().Name("pod-c").Label(batchv1.JobCompletionIndexAnnotation, "1").StatusPhase(corev1.PodSucceeded).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r2").Obj(),
+				*rankedPod.Clone().Name("pod-d").Label(batchv1.JobCompletionIndexAnnotation, "0").StatusPhase(corev1.PodFailed).NodeSelector(tasBlockLabel, "b1").NodeSelector(tasRackLabel, "r1").Obj(),
+			},
+			wantCounts: []counts{countsR1, countsR2},
 		},
 		"ranks: support rank-based ordering for kubeflow with invalid offset annotation - for all Pods": {
 			workloads: []kueue.Workload{
@@ -2984,6 +3568,7 @@ func TestReconcile(t *testing.T) {
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, log := utiltesting.ContextWithLog(t)
 			clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
 				SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
@@ -2994,6 +3579,10 @@ func TestReconcile(t *testing.T) {
 			// Register WorkloadSliceNameKey index used by ListPodsForWorkloadSlice.
 			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &corev1.Pod{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexPodWorkloadSliceName); err != nil {
 				t.Fatalf("Could not setup WorkloadSliceNameKey index: %v", err)
+			}
+			// FindActiveWorkload lists elastic Workloads by the same index name.
+			if err := utiltesting.AsIndexer(clientBuilder).IndexField(ctx, &kueue.Workload{}, coreindexer.WorkloadSliceNameKey, coreindexer.IndexWorkloadSliceName); err != nil {
+				t.Fatalf("Could not setup WorkloadSliceNameKey index for Workloads: %v", err)
 			}
 
 			kcBuilder := clientBuilder.WithObjects()

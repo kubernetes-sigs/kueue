@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -68,6 +69,7 @@ func managerAndSchedulerSetup(
 	quotaCheckStrategy config.QuotaCheckStrategy,
 	admissionFairSharing *config.AdmissionFairSharing,
 ) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -78,7 +80,7 @@ func managerAndSchedulerSetup(
 			qcache.WithPreemptionExpectations(preemptionExpectations),
 			qcache.WithAdmissionFairSharing(admissionFairSharing),
 		}
-		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 		qManager = queues
 
 		configuration := &config.Configuration{

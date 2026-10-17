@@ -3,8 +3,8 @@
 # cannot silently change the calibrated scenario.
 workloadCount: 1000
 workerClusters: 3
-# A single generator avoids overflowing cold API-server watch buffers while
-# still building an admission backlog well before MultiKueue finishes.
+# Keep the single generator used for CI calibration. Parallel generation changes
+# API-server load and can overflow cold watch buffers; recalibrate after changing it.
 creationWorkers: 1
 cpuRequest: 1m
 localClientQPS: 1000

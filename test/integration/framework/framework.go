@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	kfmpi "github.com/kubeflow/mpi-operator/pkg/apis/kubeflow/v2beta1"
@@ -35,13 +36,14 @@ import (
 	"github.com/onsi/gomega"
 	awv1beta2 "github.com/project-codeflare/appwrapper/api/v1beta2"
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
+	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 	resourcev1 "k8s.io/api/resource/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -92,8 +94,15 @@ type Framework struct {
 	ObservedLogs *observer.ObservedLogs
 }
 
+var setupLoggerGetObservedLogs = sync.OnceValue(func() *observer.ObservedLogs {
+	logger, observedLogs := behavioral.NewTestingLoggerAndObservedLogs(ginkgo.GinkgoWriter)
+	ctrl.SetLogger(logger)
+	return observedLogs
+})
+
 func (f *Framework) Init() *rest.Config {
-	f.ObservedLogs = behavioral.SetupLoggerGetObservedLogs()
+	ginkgo.GinkgoHelper()
+	f.ObservedLogs = setupLoggerGetObservedLogs()
 
 	var cfg *rest.Config
 	ginkgo.By("bootstrapping test environment", func() {
@@ -106,10 +115,10 @@ func (f *Framework) Init() *rest.Config {
 		var err error
 		f.testEnv.Scheme = scheme.Scheme
 		err = kueue.AddToScheme(f.testEnv.Scheme)
-		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		err = kueuealpha.AddToScheme(f.testEnv.Scheme)
-		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		if len(f.WebhookPath) > 0 {
 			f.testEnv.WebhookInstallOptions.Paths = []string{f.WebhookPath}
@@ -134,60 +143,61 @@ func (f *Framework) Init() *rest.Config {
 		}
 
 		cfg, err = f.testEnv.Start()
-		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
-		gomega.ExpectWithOffset(1, cfg).NotTo(gomega.BeNil())
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(cfg).NotTo(gomega.BeNil())
 	})
 	f.scheme = runtime.NewScheme()
-	gomega.ExpectWithOffset(1, clientgoscheme.AddToScheme(f.scheme)).NotTo(gomega.HaveOccurred())
+	gomega.Expect(clientgoscheme.AddToScheme(f.scheme)).NotTo(gomega.HaveOccurred())
 	return cfg
 }
 
 func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithWatch) {
+	ginkgo.GinkgoHelper()
 	err := config.AddToScheme(f.scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = kueue.AddToScheme(f.scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = kueuealpha.AddToScheme(f.scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = awv1beta2.AddToScheme(f.scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = kfmpi.AddToScheme(f.scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = rayv1.AddToScheme(f.scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = jobsetapi.AddToScheme(f.scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = kftraining.AddToScheme(f.scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = autoscaling.AddToScheme(f.scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = kftrainer.AddToScheme(f.scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = resourcev1.AddToScheme(f.scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = inventoryv1alpha1.AddToScheme(f.scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	err = inventoryv1alpha2.AddToScheme(f.scheme)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = leaderworkersetv1.AddToScheme(f.scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = sparkv1beta2.AddToScheme(f.scheme)
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	k8sClient, err := client.NewWithWatch(cfg, client.Options{Scheme: f.scheme})
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
-	gomega.ExpectWithOffset(1, k8sClient).NotTo(gomega.BeNil())
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(k8sClient).NotTo(gomega.BeNil())
 
 	ctx, cancel := context.WithCancel(ginkgo.GinkgoT().Context())
 	f.cancel = cancel
@@ -196,6 +206,7 @@ func (f *Framework) SetupClient(cfg *rest.Config) (context.Context, client.WithW
 }
 
 func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerSetup ManagerSetup, opts ...ManagerOption) {
+	ginkgo.GinkgoHelper()
 	ginkgo.By("starting the manager", func() {
 		webhookInstallOptions := &f.testEnv.WebhookInstallOptions
 		mgrOptions := manager.Options{
@@ -217,7 +228,7 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 			opt(&mgrOptions)
 		}
 		mgr, err := ctrl.NewManager(cfg, mgrOptions)
-		gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to create manager")
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to create manager")
 
 		managerCtx, managerCancel := context.WithCancel(ctx)
 		managerSetup(managerCtx, mgr)
@@ -231,7 +242,7 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 			defer close(done)
 			defer ginkgo.GinkgoRecover()
 			err := mgr.Start(managerCtx)
-			gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred(), "failed to run manager")
+			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "failed to run manager")
 		}()
 
 		// wait for the webhook server to get ready
@@ -246,6 +257,7 @@ func (f *Framework) StartManager(ctx context.Context, cfg *rest.Config, managerS
 }
 
 func (f *Framework) StopManager(ctx context.Context) {
+	ginkgo.GinkgoHelper()
 	ginkgo.By("stopping the manager", func() {
 		if f.managerCancel == nil {
 			return
@@ -261,14 +273,26 @@ func (f *Framework) StopManager(ctx context.Context) {
 	})
 }
 
+func verifyLogs(observedLogs *observer.ObservedLogs) {
+	ginkgo.GinkgoHelper()
+	errorOrMoreSevereLogs := observedLogs.Filter(func(le observer.LoggedEntry) bool {
+		return le.Level >= zapcore.ErrorLevel
+	})
+
+	concurrentModificationErrorLogs := errorOrMoreSevereLogs.Filter(behavioral.IsLoggedEntryAConcurrentModification)
+
+	gomega.Expect(concurrentModificationErrorLogs.TakeAll()).To(gomega.BeEmpty())
+}
+
 func (f *Framework) Teardown() {
+	ginkgo.GinkgoHelper()
 	ginkgo.By("tearing down the test environment")
 	if f.cancel != nil {
 		f.cancel()
 	}
 	err := f.testEnv.Stop()
-	gomega.ExpectWithOffset(1, err).NotTo(gomega.HaveOccurred())
-	behavioral.VerifyLogs(f.ObservedLogs)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	verifyLogs(f.ObservedLogs)
 }
 
 var (

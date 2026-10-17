@@ -58,10 +58,9 @@ linters:
         - name: empty-lines
         - name: increment-decrement
         - name: var-naming
+        - name: package-naming
           arguments:
-            - []
-            - []
-            - - skip-package-name-collision-with-go-std: true
+            - skip-collision-with-common-std: true
         - name: package-directory-mismatch
         - name: redundant-import-alias
         - name: use-any

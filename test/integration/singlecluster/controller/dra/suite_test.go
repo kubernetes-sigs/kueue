@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var (
@@ -83,6 +84,7 @@ var _ = ginkgo.AfterSuite(func() {
 
 // Manager setup used by tests to start controllers with DRA ConfigMap configuration
 func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		// Indexes
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
@@ -138,7 +140,7 @@ func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSet
 			qcache.WithDRABackedResources(draBackedResources),
 			qcache.WithResourceFormatter(resourceFormatter),
 		}
-		queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+		queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 
 		// Core controllers
 		failedCtrl, err := core.SetupControllers(
