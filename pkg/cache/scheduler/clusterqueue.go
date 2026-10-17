@@ -606,6 +606,12 @@ func (c *clusterQueue) reportResourceMetrics(fairSharingEnabled bool) {
 		metrics.ReportClusterQueueQuotas(cohort, cqName, fName, rName, nominal, borrowing, lending, clVals, c.roleTracker)
 		metrics.ReportClusterQueueResourceReservations(cohort, cqName, fName, rName, c.resourceNode.Usage[fr].AsApproximateFloat64(fr.Resource), clVals, c.roleTracker)
 		metrics.ReportClusterQueueResourceUsage(cohort, cqName, fName, rName, c.AdmittedUsage[fr].AsApproximateFloat64(fr.Resource), clVals, c.roleTracker)
+
+		var lendable float64
+		if c.Active() {
+			lendable = c.resourceNode.currentLendable(fr).AsApproximateFloat64(fr.Resource)
+		}
+		metrics.ReportClusterQueueLendableResources(cohort, cqName, fName, rName, lendable, clVals, c.roleTracker)
 	}
 	if fairSharingEnabled {
 		c.reportWeightedShare(cohort)

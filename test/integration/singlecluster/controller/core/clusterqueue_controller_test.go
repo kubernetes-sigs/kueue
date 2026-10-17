@@ -1442,3 +1442,129 @@ var _ = ginkgo.Describe("ClusterQueue controller with RoleTracker", ginkgo.Label
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 })
+
+var _ = ginkgo.Describe("ClusterQueue lendable resource metric", ginkgo.Label("controller:clusterqueue", "area:core"), func() {
+	var (
+		ns           *corev1.Namespace
+		flavor       *kueue.ResourceFlavor
+		clusterQueue *kueue.ClusterQueue
+		localQueue   *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeEach(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MetricsForCohorts, true)
+		fwk.StartManager(ctx, cfg, managerSetup)
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "core-clusterqueue-lendable-")
+
+		flavor = utiltestingapi.MakeResourceFlavor("lendable-flavor").Obj()
+		behavioral.MustCreate(ctx, k8sClient, flavor)
+
+		clusterQueue = utiltestingapi.MakeClusterQueue("lendable-cq").
+			Cohort("lendable-cohort").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("lendable-flavor").Resource(corev1.ResourceCPU, "10", "", "6").Obj()).
+			Obj()
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, clusterQueue)
+
+		localQueue = utiltestingapi.MakeLocalQueue("lendable-lq", ns.Name).ClusterQueue(clusterQueue.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, localQueue)
+	})
+
+	ginkgo.AfterEach(func() {
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, localQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, clusterQueue, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		fwk.StopManager(ctx)
+	})
+
+	ginkgo.It("tracks lendable resources across reservation and stop", framework.SlowSpec, func() {
+		ginkgo.By("Expecting initial lendable resources to match lendingLimit")
+		behavioral.ExpectCQResourceLendable(clusterQueue, "lendable-flavor", string(corev1.ResourceCPU), 6)
+
+		wl := utiltestingapi.MakeWorkload("lendable-wl", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "7").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl)
+
+		ginkgo.By("Admitting workload that reserves 7 CPU, 3 of it past the non-lendable 4")
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, "lendable-flavor", "7").Obj()).Obj()
+		integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
+
+		behavioral.ExpectCQResourceLendable(clusterQueue, "lendable-flavor", string(corev1.ResourceCPU), 3)
+
+		ginkgo.By("Stopping the ClusterQueue should force lendable to zero", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var cq kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &cq)).To(gomega.Succeed())
+				cq.Spec.StopPolicy = new(kueue.Hold)
+				g.Expect(k8sClient.Update(ctx, &cq)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			behavioral.ExpectCQResourceLendable(clusterQueue, "lendable-flavor", string(corev1.ResourceCPU), 0)
+		})
+
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl, true)
+	})
+
+	ginkgo.It("tracks cohort lendable resources across multiple clusterqueues", framework.SlowSpec, func() {
+		secondCQ := utiltestingapi.MakeClusterQueue("lendable-cq-2").
+			Cohort("lendable-cohort").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas("lendable-flavor").Resource(corev1.ResourceCPU, "8", "", "5").Obj()).
+			Obj()
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, secondCQ)
+
+		secondLQ := utiltestingapi.MakeLocalQueue("lendable-lq-2", ns.Name).ClusterQueue(secondCQ.Name).Obj()
+		behavioral.MustCreate(ctx, k8sClient, secondLQ)
+
+		ginkgo.By("Expecting cohort lendable metric to aggregate both clusterqueues", func() {
+			behavioral.ExpectCohortLendableResource("lendable-cohort", "lendable-flavor", string(corev1.ResourceCPU), 11)
+		})
+
+		wl1 := utiltestingapi.MakeWorkload("lendable-wl-1", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "7").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl1)
+
+		wl2 := utiltestingapi.MakeWorkload("lendable-wl-2", ns.Name).
+			Queue(kueue.LocalQueueName(secondLQ.Name)).
+			Request(corev1.ResourceCPU, "6").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl2)
+
+		ginkgo.By("Admitting workloads in both clusterqueues updates the cohort lendable total", func() {
+			admission1 := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(clusterQueue.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "lendable-flavor", "7").Obj()).Obj()
+			integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl1), admission1)
+
+			admission2 := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(secondCQ.Name)).
+				PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+					Assignment(corev1.ResourceCPU, "lendable-flavor", "6").Obj()).Obj()
+			integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl2), admission2)
+
+			behavioral.ExpectCQResourceLendable(clusterQueue, "lendable-flavor", string(corev1.ResourceCPU), 3)
+			behavioral.ExpectCQResourceLendable(secondCQ, "lendable-flavor", string(corev1.ResourceCPU), 2)
+
+			behavioral.ExpectCohortLendableResource("lendable-cohort", "lendable-flavor", string(corev1.ResourceCPU), 5)
+		})
+
+		ginkgo.By("Stopping one clusterqueue removes its lendable contribution from the cohort", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				var cq2 kueue.ClusterQueue
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(secondCQ), &cq2)).To(gomega.Succeed())
+				cq2.Spec.StopPolicy = new(kueue.Hold)
+				g.Expect(k8sClient.Update(ctx, &cq2)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectCohortLendableResource("lendable-cohort", "lendable-flavor", string(corev1.ResourceCPU), 3)
+		})
+
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl1, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl2, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, secondLQ, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, secondCQ, true)
+	})
+})
