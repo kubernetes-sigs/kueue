@@ -80,6 +80,7 @@ GO_TEST_TARGET ?= .
 
 # Unit test sharding: set UNIT_TOTAL_SHARDS to split packages across parallel CI jobs.
 # UNIT_SHARD_INDEX selects which shard this job runs (0-based).
+# Packages are balanced by measured runtime in hack/testing/unit_test_package_durations.txt.
 # When UNIT_TOTAL_SHARDS is not set, all packages run in a single job (existing behaviour).
 ifdef UNIT_TOTAL_SHARDS
 UNIT_TEST_PACKAGES := $(shell ./hack/testing/shard-unit-tests.sh $(UNIT_SHARD_INDEX) $(UNIT_TOTAL_SHARDS) $(GO_TEST_TARGET))
