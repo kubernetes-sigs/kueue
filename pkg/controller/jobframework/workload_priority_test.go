@@ -70,17 +70,17 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 		wantWorkloadWrites *int
 		wantDistinctRefs   bool
 	}{
-		// The workloads of one job are written one after another, so a class edited
-		// in between could otherwise give each of them a different value, and later
-		// reconciles would not repair that because they compare the class name only.
+		// The workloads of one job are written one after another, so resolving per
+		// workload inside the update loop would let a class edit between the two
+		// lookups give each workload a different value.
 		"resolves the class once for the whole set": {
 			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(100).Obj(),
 			workloads: []*kueue.Workload{
 				utiltestingapi.MakeWorkload("first", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
 				utiltestingapi.MakeWorkload("second", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
 			},
-			// Every read reports a different value, standing in for an administrator
-			// editing the class while the workloads are being written.
+			// A read between the two workload updates reports a different value,
+			// so resolving per workload inside the loop leaves the set split.
 			interceptors: func(s *priorityStats) interceptor.Funcs {
 				return interceptor.Funcs{
 					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
@@ -89,9 +89,17 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 						}
 						if class, ok := obj.(*kueue.WorkloadPriorityClass); ok && class.Name == "high" {
 							s.classReads++
-							class.Value = int32(100 * s.classReads)
+							if s.workloadWrites > 0 && s.workloadWrites < 2 {
+								class.Value = 200
+							}
 						}
 						return nil
+					},
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						if _, ok := obj.(*kueue.Workload); ok {
+							s.workloadWrites++
+						}
+						return c.Update(ctx, obj, opts...)
 					},
 				}
 			},
@@ -100,7 +108,7 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 				"first":  {refName: new("high"), priority: new(int32(100))},
 				"second": {refName: new("high"), priority: new(int32(100))},
 			},
-			wantClassReads:   new(1),
+			wantClassReads:   new(2),
 			wantDistinctRefs: true,
 		},
 
@@ -259,7 +267,7 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 				"first":  {refName: new("high"), priority: new(int32(200))},
 				"second": {refName: new("high"), priority: new(int32(200))},
 			},
-			wantClassReads: new(1),
+			wantClassReads: new(2),
 		},
 
 		// The split state is reachable from a real partial write: the first workload
@@ -322,6 +330,133 @@ func TestUpdateWorkloadPriority(t *testing.T) {
 			want: map[string]wantWorkload{
 				"stale":         {priority: new(int32(200))},
 				"transitioning": {priority: new(int32(200))},
+			},
+		},
+
+		// If the class value changes after ExtractPriority and the class controller
+		// reconciles before the workload updates land, the class controller skips the
+		// same-class workload (which still holds the new value in the store) and misses
+		// the transitioning one (which still names the old class). Re-reading the class
+		// after the writes and merge-patching spec.priority repairs the batch in place,
+		// even if an unrelated update bumped a written workload's ResourceVersion.
+		"rewrites the batch when the class value changes while a workload is written": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("same-class", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("transitioning", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			interceptors: func(s *priorityStats) interceptor.Funcs {
+				changedOnce := false
+				return interceptor.Funcs{
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						wl, isWorkload := obj.(*kueue.Workload)
+						if isWorkload && wl.Name == "same-class" && !changedOnce {
+							changedOnce = true
+							wpc := &kueue.WorkloadPriorityClass{}
+							if err := c.Get(ctx, types.NamespacedName{Name: "high"}, wpc); err != nil {
+								return err
+							}
+							wpc.Value = 100
+							if err := c.Update(ctx, wpc); err != nil {
+								return err
+							}
+						}
+						if err := c.Update(ctx, obj, opts...); err != nil {
+							return err
+						}
+						if isWorkload && wl.Name == "transitioning" {
+							// Simulate a concurrent write to same-class after its Update
+							// landed so a second full Update would conflict on ResourceVersion.
+							stored := &kueue.Workload{}
+							if err := c.Get(ctx, types.NamespacedName{Namespace: "ns", Name: "same-class"}, stored); err != nil {
+								return err
+							}
+							if stored.Annotations == nil {
+								stored.Annotations = map[string]string{}
+							}
+							stored.Annotations["concurrent"] = "true"
+							if err := c.Update(ctx, stored); err != nil {
+								return err
+							}
+						}
+						return nil
+					},
+				}
+			},
+			steps: []step{{}},
+			want: map[string]wantWorkload{
+				"same-class":    {refName: new("high"), priority: new(int32(100))},
+				"transitioning": {refName: new("high"), priority: new(int32(100))},
+			},
+		},
+
+		"writes once when a mutating webhook stores another priority but the class is unchanged": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("first", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			interceptors: func(s *priorityStats) interceptor.Funcs {
+				return interceptor.Funcs{
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						if wl, ok := obj.(*kueue.Workload); ok {
+							s.workloadWrites++
+							wl.Spec.Priority = new(int32(500))
+						}
+						return c.Update(ctx, obj, opts...)
+					},
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if _, ok := obj.(*kueue.Workload); ok {
+							s.workloadWrites++
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}
+			},
+			steps: []step{{}},
+			want: map[string]wantWorkload{
+				"first": {refName: new("high"), priority: new(int32(500))},
+			},
+			wantWorkloadWrites: new(1),
+		},
+
+		"converges on retry when a follow-up priority patch fails": {
+			class: utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(200).Obj(),
+			workloads: []*kueue.Workload{
+				utiltestingapi.MakeWorkload("same-class", "ns").WorkloadPriorityClassRef("high").Priority(100).Obj(),
+				utiltestingapi.MakeWorkload("transitioning", "ns").WorkloadPriorityClassRef("low").Priority(10).Obj(),
+			},
+			interceptors: func(s *priorityStats) interceptor.Funcs {
+				changedOnce := false
+				failPatchOnce := true
+				return interceptor.Funcs{
+					Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+						wl, isWorkload := obj.(*kueue.Workload)
+						if isWorkload && wl.Name == "same-class" && !changedOnce {
+							changedOnce = true
+							wpc := &kueue.WorkloadPriorityClass{}
+							if err := c.Get(ctx, types.NamespacedName{Name: "high"}, wpc); err != nil {
+								return err
+							}
+							wpc.Value = 100
+							if err := c.Update(ctx, wpc); err != nil {
+								return err
+							}
+						}
+						return c.Update(ctx, obj, opts...)
+					},
+					Patch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+						if _, ok := obj.(*kueue.Workload); ok && failPatchOnce {
+							failPatchOnce = false
+							return errors.New("simulated patch failure")
+						}
+						return c.Patch(ctx, obj, patch, opts...)
+					},
+				}
+			},
+			steps: []step{{wantErr: true}, {}},
+			want: map[string]wantWorkload{
+				"same-class":    {refName: new("high"), priority: new(int32(100))},
+				"transitioning": {refName: new("high"), priority: new(int32(100))},
 			},
 		},
 	}
