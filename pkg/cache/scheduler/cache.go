@@ -1016,7 +1016,7 @@ func (c *Cache) CohortStats(cohortObj *kueue.Cohort) (*CohortUsageStats, error) 
 	}
 
 	stats := &CohortUsageStats{}
-	if c.fairSharingEnabled {
+	if c.fairSharingEnabled && !hierarchy.HasCycle(cohort) {
 		drs := dominantResourceShare(cohort, nil)
 		stats.WeightedShare = drs.PreciseWeightedShare()
 		stats.ZeroWeightBorrows = drs.ZeroWeightBorrows()
