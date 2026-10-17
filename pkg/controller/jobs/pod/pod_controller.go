@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strconv"
 	"strings"
@@ -1748,6 +1749,18 @@ func (p *Pod) equivalentToWorkload(wl *kueue.Workload, jobPodSets []kueue.PodSet
 		}
 		// Check counts for found pod sets
 		if !workloadFinished && wl.Spec.PodSets[j].Count < jobPodSets[i].Count {
+			return false
+		}
+		// The Workload must state at least the per-Pod requests the group's Pods
+		// carry, since quota is charged from the Workload. Compare only the
+		// computed requests rather than the whole template: the group builds its
+		// PodSets from the live, API-defaulted Pods, so a full template comparison
+		// would reject the group's own Workload over defaulted fields such as
+		// imagePullPolicy, while the requests are stable across defaulting.
+		if !workloadFinished && !maps.Equal(
+			resources.ToMap(resources.NewRequestsFromPodSpec(&jobPodSets[i].Template.Spec)),
+			resources.ToMap(resources.NewRequestsFromPodSpec(&wl.Spec.PodSets[j].Template.Spec)),
+		) {
 			return false
 		}
 	}
