@@ -6559,6 +6559,9 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"excess pods before wl creation, youngest pods are deleted": {
+			initObjects: []client.Object{
+				utiltestingapi.MakeLocalQueue(localUserQueueName, "ns").ClusterQueue("nonexistent-cq").Obj(),
+			},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -6724,6 +6727,7 @@ func TestReconciler(t *testing.T) {
 		"excess pods in pod set after admission, youngest pods are deleted": {
 			initObjects: []client.Object{
 				utiltestingapi.MakeLocalQueue(localUserQueueName, "ns").ClusterQueue(clusterQueueName).Obj(),
+				utiltestingapi.MakeClusterQueue(clusterQueueName).Obj(),
 			},
 			pods: []corev1.Pod{
 				*basePodWrapper.
