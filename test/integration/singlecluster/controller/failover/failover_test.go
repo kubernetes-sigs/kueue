@@ -60,13 +60,13 @@ type replica struct {
 	done   chan struct{}
 }
 
-func startReplica(name string) *replica {
+func startReplica(name, leaderElectionID string) *replica {
 	mgr, err := ctrl.NewManager(cfg, manager.Options{
 		Scheme:                        k8sClient.Scheme(),
 		Metrics:                       metricsserver.Options{BindAddress: "0"},
 		HealthProbeBindAddress:        "0",
 		LeaderElection:                true,
-		LeaderElectionID:              "kueue-failover-test",
+		LeaderElectionID:              leaderElectionID,
 		LeaderElectionNamespace:       metav1.NamespaceDefault,
 		LeaderElectionReleaseOnCancel: true,
 		LeaseDuration:                 new(leaseDuration),
@@ -148,9 +148,9 @@ var _ = ginkgo.Describe("Leader failover", ginkgo.Ordered, func() {
 	// has to know the explicit Cohort and its quota when it takes the lease,
 	// or a ClusterQueue that only borrows from it cannot admit anything.
 	ginkgo.It("should admit from the quota of an explicit Cohort right after a takeover", func() {
-		leader = startReplica("first")
+		leader = startReplica("first", "kueue-failover-test")
 		gomega.Eventually(leader.elected, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.BeTrue())
-		follower = startReplica("second")
+		follower = startReplica("second", "kueue-failover-test")
 
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "failover-")
 		flavor = utiltestingapi.MakeResourceFlavor("failover-flavor").Obj()
@@ -199,6 +199,83 @@ var _ = ginkgo.Describe("Leader failover", ginkgo.Ordered, func() {
 			wl := utiltestingapi.MakeWorkload("too-big", ns.Name).Queue(kueue.LocalQueueName(lq.Name)).Request(corev1.ResourceCPU, "3").Obj()
 			behavioral.MustCreate(ctx, k8sClient, wl)
 			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl)
+		})
+	})
+})
+
+var _ = ginkgo.Describe("Cohort cycle on a follower", ginkgo.Ordered, func() {
+	var (
+		leader, follower *replica
+		flavor           *kueue.ResourceFlavor
+		cohortA, cohortB *kueue.Cohort
+		cq               *kueue.ClusterQueue
+	)
+
+	ginkgo.BeforeAll(func() {
+		leader = startReplica("first", "kueue-failover-cycle-test")
+		gomega.Eventually(leader.elected, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.BeTrue())
+		follower = startReplica("second", "kueue-failover-cycle-test")
+	})
+
+	ginkgo.AfterAll(func() {
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohortA, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohortB, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, flavor, true)
+		follower.stop()
+		leader.stop()
+	})
+
+	// The suite runs without webhooks, so the API accepts a Cohort cycle. The
+	// follower has to learn about the cycle, and about its resolution, from
+	// the Cohort events alone, because only the leader runs Reconcile.
+	ginkgo.It("should track a Cohort cycle and its resolution without the leader's Reconcile", func() {
+		flavor = utiltestingapi.MakeResourceFlavor("cycle-flavor").Obj()
+		behavioral.MustCreate(ctx, k8sClient, flavor)
+		cq = utiltestingapi.MakeClusterQueue("cycle-cq").
+			Cohort("cycle-a").
+			ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).Resource(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, cq)
+
+		ginkgo.By("waiting until the follower has the ClusterQueue active in its cache", func() {
+			gomega.Expect(follower.elected()).To(gomega.BeFalse())
+			gomega.Eventually(func() bool {
+				return follower.cache.ClusterQueueActive(kueue.ClusterQueueReference(cq.Name))
+			}, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.BeTrue())
+		})
+
+		ginkgo.By("creating a Cohort cycle above the ClusterQueue", func() {
+			cohortA = utiltestingapi.MakeCohort("cycle-a").Parent("cycle-b").Obj()
+			behavioral.MustCreate(ctx, k8sClient, cohortA)
+			cohortB = utiltestingapi.MakeCohort("cycle-b").Parent("cycle-a").Obj()
+			behavioral.MustCreate(ctx, k8sClient, cohortB)
+		})
+
+		ginkgo.By("checking that both replicas deactivate the ClusterQueue", func() {
+			gomega.Expect(follower.elected()).To(gomega.BeFalse())
+			for _, r := range []*replica{follower, leader} {
+				gomega.Eventually(func() bool {
+					return r.cache.ClusterQueueActive(kueue.ClusterQueueReference(cq.Name))
+				}, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.BeFalse())
+			}
+		})
+
+		ginkgo.By("breaking the cycle", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohortB), cohortB)).To(gomega.Succeed())
+				cohortB.Spec.ParentName = ""
+				g.Expect(k8sClient.Update(ctx, cohortB)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking that both replicas reactivate the ClusterQueue", func() {
+			gomega.Expect(follower.elected()).To(gomega.BeFalse())
+			for _, r := range []*replica{follower, leader} {
+				gomega.Eventually(func() bool {
+					return r.cache.ClusterQueueActive(kueue.ClusterQueueReference(cq.Name))
+				}, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.BeTrue())
+			}
 		})
 	})
 })
