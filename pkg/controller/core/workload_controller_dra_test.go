@@ -17,6 +17,7 @@ limitations under the License.
 package core
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"strings"
@@ -28,6 +29,7 @@ import (
 	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1276,5 +1278,90 @@ func TestDeviceClassHandler_Generic(t *testing.T) {
 				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
 			}
 		})
+	}
+}
+
+func TestResourceUpdatesHandler(t *testing.T) {
+	podSet := func(runtimeClass string) kueue.PodSet {
+		ps := utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).ResourceClaimTemplate("gpu", "tmpl")
+		if runtimeClass != "" {
+			ps = ps.RuntimeClass(runtimeClass)
+		}
+		return *ps.Obj()
+	}
+	workloads := []client.Object{
+		utiltestingapi.MakeWorkload("kata-pending", "ns1").Queue("lq").PodSets(podSet("kata")).Obj(),
+		utiltestingapi.MakeWorkload("kata-pending", "ns2").Queue("lq").PodSets(podSet("kata")).Obj(),
+		utiltestingapi.MakeWorkload("kata-reserved", "ns1").Queue("lq").PodSets(podSet("kata")).
+			SimpleReserveQuota("cq", "default", time.Now()).Obj(),
+		utiltestingapi.MakeWorkload("gvisor-pending", "ns1").Queue("lq").PodSets(podSet("gvisor")).Obj(),
+		utiltestingapi.MakeWorkload("no-runtimeclass-pending", "ns1").Queue("lq").PodSets(podSet("")).Obj(),
+	}
+
+	events := map[string]func(context.Context, *resourceUpdatesHandler, client.Object, workqueue.TypedRateLimitingInterface[reconcile.Request]){
+		"create": func(ctx context.Context, h *resourceUpdatesHandler, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			h.Create(ctx, event.CreateEvent{Object: obj}, q)
+		},
+		"update": func(ctx context.Context, h *resourceUpdatesHandler, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			h.Update(ctx, event.UpdateEvent{ObjectOld: obj, ObjectNew: obj}, q)
+		},
+		"delete": func(ctx context.Context, h *resourceUpdatesHandler, obj client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
+			h.Delete(ctx, event.DeleteEvent{Object: obj}, q)
+		},
+	}
+
+	testCases := map[string]struct {
+		obj          client.Object
+		wantRequests []reconcile.Request
+	}{
+		"RuntimeClass requeues only pending workloads that use it, in every namespace": {
+			obj: utiltesting.MakeRuntimeClass("kata", "kata").Obj(),
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns1", Name: "kata-pending"},
+				{Namespace: "ns2", Name: "kata-pending"},
+			},
+		},
+		"RuntimeClass not used by any workload requeues nothing": {
+			obj: utiltesting.MakeRuntimeClass("runc", "runc").Obj(),
+		},
+		"LimitRange requeues only pending workloads in its namespace": {
+			obj: utiltesting.MakeLimitRange("limits", "ns1").Obj(),
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns1", Name: "gvisor-pending"},
+				{Namespace: "ns1", Name: "kata-pending"},
+				{Namespace: "ns1", Name: "no-runtimeclass-pending"},
+			},
+		},
+	}
+
+	for name, tc := range testCases {
+		for eventName, trigger := range events {
+			t.Run(name+"/"+eventName, func(t *testing.T) {
+				// DRA workloads are requeued as reconcile requests, which makes the listed workloads observable.
+				features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, true)
+				ctx, _ := utiltesting.ContextWithLog(t)
+				cl := utiltesting.NewClientBuilder().
+					WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).
+					WithIndex(&kueue.Workload{}, indexer.WorkloadRuntimeClassKey, indexer.IndexWorkloadRuntimeClass).
+					WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
+					WithObjects(utiltesting.MakeRuntimeClass("kata", "kata").Obj(), utiltesting.MakeRuntimeClass("gvisor", "runsc").Obj()).
+					WithObjects(workloads...).
+					Build()
+				cqCache := schdcache.New(cl)
+				qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+				h := &resourceUpdatesHandler{r: NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{})}
+				q := &utiltesting.MockTypedRateLimitingInterface{}
+
+				trigger(ctx, h, tc.obj, q)
+
+				gotRequests := q.Items
+				slices.SortFunc(gotRequests, func(a, b reconcile.Request) int {
+					return strings.Compare(a.String(), b.String())
+				})
+				if diff := cmp.Diff(tc.wantRequests, gotRequests); diff != "" {
+					t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
+				}
+			})
+		}
 	}
 }
