@@ -36,6 +36,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/core"
 	"sigs.k8s.io/kueue/pkg/features"
+	"sigs.k8s.io/kueue/pkg/metrics"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utilmaps "sigs.k8s.io/kueue/pkg/util/maps"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
@@ -162,6 +163,10 @@ func (r *IncrementalDispatcherReconciler) nominateWorkers(ctx context.Context, w
 	}
 	// only update the round start time if we successfully nominated workers
 	r.setRoundStartTime(key, now)
+	// Reconcile only nominates workloads with reserved quota, so Admission is set here.
+	if wl.Status.Admission != nil {
+		metrics.ReportMultiKueueDispatchRound(wl.Status.Admission.ClusterQueue, r.roleTracker)
+	}
 
 	return reconcile.Result{}, nil
 }

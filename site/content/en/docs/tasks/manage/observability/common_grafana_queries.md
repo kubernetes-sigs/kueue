@@ -278,6 +278,21 @@ sum by (cluster) (rate(multikueue_workloads_admitted_total{cluster_queue="team-a
 sum by (cluster) (rate(multikueue_workloads_dispatched_total{cluster_queue="team-a-cq"}[5m]))
 ```
 
+## MultiKueue incremental dispatch rounds
+
+When the Incremental dispatcher is configured, `multikueue_dispatch_rounds_total`
+counts the nomination rounds it opens. A workload that waits through several rounds
+before a worker admits it spends most of that time waiting for the next round, not
+for a worker.
+
+To see how many rounds each ClusterQueue opens per hour:
+
+```promql
+sum by (cluster_queue) (
+  increase(multikueue_dispatch_rounds_total[1h])
+)
+```
+
 ## What's next
 
 - See [Pending Workloads in Grafana](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_in_grafana) for visibility dashboards using the on-demand API.
