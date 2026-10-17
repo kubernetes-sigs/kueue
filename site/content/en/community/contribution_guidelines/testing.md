@@ -115,6 +115,7 @@ make test-e2e-extended
 make test-e2e-sequential-baseline
 make test-e2e-sequential-extended
 make test-e2e-certmanager
+make test-e2e-networkpolicy
 make test-e2e-kueueviz
 make test-tas-e2e-baseline
 make test-tas-e2e-extended
@@ -122,6 +123,13 @@ make test-multikueue-e2e-baseline
 make test-multikueue-e2e-extended
 make test-multikueue-e2e-sequential
 ```
+
+The baseline and baseline sequential targets install the NetworkPolicy enforcement
+agent before Kueue, so admission, metrics, and visibility tests exercise the default
+ingress policies. Baseline jobs also run the policy connectivity and denial tests,
+regardless of their main suite's label filter.
+
+`test-e2e-networkpolicy` covers the policies themselves and can be run on its own.
 
 You can specify the Kubernetes version:
 ```shell

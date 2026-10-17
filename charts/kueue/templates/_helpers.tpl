@@ -153,3 +153,28 @@ kind: Issuer
 name: '{{ include "kueue.fullname" . }}-selfsigned-issuer'
 {{- end }}
 {{- end }}
+
+{{/* ControllerManager ingress ports follow its configuration rather than chart defaults. */}}
+{{- define "kueue.networkPolicy.managerIngress" -}}
+{{- $config := fromYaml .Values.managerConfig.controllerManagerConfigYaml -}}
+{{- $metricsAddress := dig "metrics" "bindAddress" ":8443" $config | default ":8443" -}}
+{{- $healthAddress := dig "health" "healthProbeBindAddress" ":8081" $config | default ":8081" -}}
+{{- with .Values.networkPolicy.extraIngress }}
+{{ toYaml . }}
+{{- end }}
+- ports:
+    - protocol: TCP
+      port: {{ dig "webhook" "port" 9443 $config }}
+    - protocol: TCP
+      port: {{ dig "visibilityServer" "bindPort" 8082 $config }}
+{{- if ne $metricsAddress "0" }}
+- ports:
+    - protocol: TCP
+      port: {{ last (splitList ":" $metricsAddress) | int }}
+{{- end }}
+{{- if ne $healthAddress "0" }}
+- ports:
+    - protocol: TCP
+      port: {{ last (splitList ":" $healthAddress) | int }}
+{{- end }}
+{{- end }}
