@@ -76,24 +76,27 @@ var (
 	errUnmarshalPodSetReplicaSizes = fmt.Errorf("failed to unmarshal %s annotation", RayClusterPodsetReplicaSizesAnnotation)
 )
 
-// effectiveWorkerCount returns the effective worker pod count for a worker
-// group, respecting KubeRay's min/max replica bounds and NumOfHosts.
-// BuildPodSets, UpdatePodSets, and the MultiKueue elastic replica sync
-// all call this so the per-group count derivation stays in one place.
-func effectiveWorkerCount(wgs *rayv1.WorkerGroupSpec) int32 {
-	var replicas int32
+// effectiveWorkerReplicas returns the replica count KubeRay runs for a worker
+// group: Replicas clamped to [MinReplicas, MaxReplicas], or MinReplicas when
+// Replicas is unset.
+func effectiveWorkerReplicas(wgs *rayv1.WorkerGroupSpec) int32 {
 	minReplicas := ptr.Deref(wgs.MinReplicas, int32(0))
 	maxReplicas := ptr.Deref(wgs.MaxReplicas, int32(math.MaxInt32))
 	// Replicas is defaulted by the CRD, but may be nil before admission.
 	switch {
 	case wgs.Replicas == nil || *wgs.Replicas < minReplicas:
-		replicas = minReplicas
+		return minReplicas
 	case *wgs.Replicas > maxReplicas:
-		replicas = maxReplicas
+		return maxReplicas
 	default:
-		replicas = *wgs.Replicas
+		return *wgs.Replicas
 	}
-	return replicas * max(wgs.NumOfHosts, 1)
+}
+
+// effectiveWorkerCount returns the worker pod count for a group: effectiveWorkerReplicas
+// scaled by NumOfHosts. BuildPodSets, UpdatePodSets and the MultiKueue count comparison use it.
+func effectiveWorkerCount(wgs *rayv1.WorkerGroupSpec) int32 {
+	return effectiveWorkerReplicas(wgs) * max(wgs.NumOfHosts, 1)
 }
 
 // BuildPodSets builds PodSets from RayClusterSpec.
@@ -172,25 +175,27 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 }
 
 func buildWorkerTopologyRequest(wgs *rayv1.WorkerGroupSpec) (*kueue.PodSetTopologyRequest, error) {
-	podIndexLabel, subGroupIndexLabel := workerTopologyIndexLabels(wgs.Replicas, wgs.NumOfHosts)
+	// The subgroups must describe the same replicas that effectiveWorkerCount counts pods for.
+	replicas := effectiveWorkerReplicas(wgs)
+	podIndexLabel, subGroupIndexLabel := workerTopologyIndexLabels(replicas, wgs.NumOfHosts)
 	return jobframework.NewPodSetTopologyRequest(&wgs.Template.ObjectMeta).
-		SubGroupCount(wgs.Replicas).
+		SubGroupCount(&replicas).
 		PodIndexLabel(podIndexLabel).
 		SubGroupIndexLabel(subGroupIndexLabel).
 		Build()
 }
 
-func workerTopologyIndexLabels(replicas *int32, numOfHosts int32) (podIndexLabel, subGroupIndexLabel *string) {
+func workerTopologyIndexLabels(replicas, numOfHosts int32) (podIndexLabel, subGroupIndexLabel *string) {
 	if numOfHosts > 1 {
 		// For multi-host replicas, kuberay sets both a host index and
 		// replica index label, where the replica index denotes a
 		// subgroup that should schedule together (e.g. on a single TPU
 		// slice).
 		podIndexLabel = new(rayutils.RayHostIndexKey)
-		if ptr.Deref(replicas, 1) > 1 {
+		if replicas > 1 {
 			subGroupIndexLabel = new(rayutils.RayWorkerReplicaIndexKey)
 		}
-	} else if ptr.Deref(replicas, 1) > 1 {
+	} else if replicas > 1 {
 		// In the more common single-host case, kuberay only sets a
 		// replica index.
 		podIndexLabel = new(rayutils.RayWorkerReplicaIndexKey)
@@ -599,7 +604,7 @@ func applyRuntimeCountsAnnotation(log logr.Logger, podSets []kueue.PodSet, objec
 				if podSets[i].TopologyRequest == nil {
 					podSets[i].TopologyRequest = &kueue.PodSetTopologyRequest{}
 				}
-				podIndexLabel, subGroupIndexLabel := workerTopologyIndexLabels(new(replicas), numOfHosts)
+				podIndexLabel, subGroupIndexLabel := workerTopologyIndexLabels(replicas, numOfHosts)
 				podSets[i].TopologyRequest.PodIndexLabel = podIndexLabel
 				podSets[i].TopologyRequest.SubGroupIndexLabel = subGroupIndexLabel
 				podSets[i].TopologyRequest.SubGroupCount = new(replicas)

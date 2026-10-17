@@ -1438,6 +1438,96 @@ var _ = ginkgo.Describe("RayCluster controller with TopologyAwareScheduling", gi
 		})
 	})
 
+	ginkgo.It("should derive topology requests from the bounded worker replica count", framework.SlowSpec, func() {
+		// Replicas sits below MinReplicas, so KubeRay runs MinReplicas replicas.
+		singleHostGroup := testingraycluster.MakeWorkerGroup("workers-group-0", 1).
+			MinReplicas(2).
+			MaxReplicas(2).
+			Request(corev1.ResourceCPU, "100m").
+			PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+			Obj()
+
+		multiHostGroup := testingraycluster.MakeWorkerGroup("multi-host-workers", 1).
+			MinReplicas(2).
+			MaxReplicas(2).
+			Request(corev1.ResourceCPU, "100m").
+			NumOfHosts(2).
+			PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, utiltesting.DefaultRackTopologyLevel).
+			Obj()
+
+		rayCluster := testingraycluster.MakeCluster(jobName, ns.Name).
+			Queue(localQueue.Name).
+			RequestHead(corev1.ResourceCPU, "100m").
+			NodeAnnotation(rayv1.HeadNode, kueue.PodSetRequiredTopologyAnnotation, utiltesting.DefaultBlockTopologyLevel).
+			WithWorkerGroups(*singleHostGroup, *multiHostGroup).
+			Obj()
+
+		ginkgo.By("creating a RayCluster", func() {
+			behavioral.MustCreate(ctx, k8sClient, rayCluster)
+		})
+
+		wl := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{
+			Name:      workloadraycluster.GetWorkloadNameForRayCluster(rayCluster.Name, rayCluster.UID),
+			Namespace: ns.Name,
+		}
+
+		ginkgo.By("verifying the workload counts and topology requests follow MinReplicas", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Spec.PodSets).Should(gomega.BeComparableTo([]kueue.PodSet{
+					{
+						Name:  "head",
+						Count: 1,
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							Required: new(utiltesting.DefaultBlockTopologyLevel),
+						},
+					},
+					{
+						Name:  "workers-group-0",
+						Count: 2,
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							Required:      new(utiltesting.DefaultBlockTopologyLevel),
+							PodIndexLabel: new(rayutils.RayWorkerReplicaIndexKey),
+							SubGroupCount: new(int32(2)),
+						},
+					},
+					{
+						Name:  "multi-host-workers",
+						Count: 4,
+						TopologyRequest: &kueue.PodSetTopologyRequest{
+							Preferred:          new(utiltesting.DefaultRackTopologyLevel),
+							PodIndexLabel:      new(rayutils.RayHostIndexKey),
+							SubGroupIndexLabel: new(rayutils.RayWorkerReplicaIndexKey),
+							SubGroupCount:      new(int32(2)),
+						},
+					},
+				}, cmpopts.IgnoreFields(kueue.PodSet{}, "Template")))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verifying the workload is admitted with topology assignments for all worker pods", func() {
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+				g.Expect(wl.Status.Admission.PodSetAssignments).Should(gomega.HaveLen(3))
+				g.Expect(wl.Status.Admission.PodSetAssignments[1].TopologyAssignment).Should(gomega.BeComparableTo(
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
+						Domains: []tas.TopologyDomainAssignment{{Count: 2, Values: []string{"b1", "r1"}}},
+					}),
+				))
+				g.Expect(wl.Status.Admission.PodSetAssignments[2].TopologyAssignment).Should(gomega.BeComparableTo(
+					tas.V1Beta2From(&tas.TopologyAssignment{
+						Levels:  []string{utiltesting.DefaultBlockTopologyLevel, utiltesting.DefaultRackTopologyLevel},
+						Domains: []tas.TopologyDomainAssignment{{Count: 4, Values: []string{"b1", "r1"}}},
+					}),
+				))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("should not replace or evict pre-existing admitted RayCluster workload after Kueue restart when KubeRayEvictOnInconsistentTopologyRequest is disabled", framework.SlowSpec, func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.KubeRayEvictOnInconsistentTopologyRequest, false)
 

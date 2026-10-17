@@ -464,38 +464,37 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 		})
 	})
 
+	// Shared by the RayCluster specs below.
+	rayGVK := rayv1.GroupVersion.WithKind("RayCluster")
+	admission := func(workerCount int32) *utiltestingapi.AdmissionWrapper {
+		return utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+			PodSets(
+				utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+				utiltestingapi.MakePodSetAssignment("workers-group-0").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Count(workerCount).Obj(),
+			)
+	}
+	getRayCluster := func(ctx context.Context, clnt client.Client, rc *rayv1.RayCluster) {
+		ginkgo.GinkgoHelper()
+		gomega.Expect(clnt.Get(ctx, client.ObjectKeyFromObject(rc), rc)).To(gomega.Succeed())
+	}
+	getWorkloadKey := func(rc *rayv1.RayCluster) types.NamespacedName {
+		ginkgo.GinkgoHelper()
+		getRayCluster(managerTestCluster.ctx, managerTestCluster.client, rc)
+		return types.NamespacedName{Name: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(rc.Name, rc.UID, rayGVK, rc.GetGeneration()), Namespace: rc.Namespace}
+	}
+	getWorkload := func(g gomega.Gomega, ctx context.Context, clnt client.Client, key types.NamespacedName) *kueue.Workload {
+		ginkgo.GinkgoHelper()
+		wl := &kueue.Workload{}
+		g.Expect(clnt.Get(ctx, key, wl)).To(gomega.Succeed())
+		return wl
+	}
+
 	ginkgo.It("Should scale an elastic RayCluster on the worker if admitted", func() {
 		manager := managerTestCluster
 		worker1 := worker1TestCluster
 		worker2 := worker2TestCluster
 
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
-
-		rayGVK := rayv1.GroupVersion.WithKind("RayCluster")
-		headPodSet := utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()
-		admission := func(workerCount int32) *utiltestingapi.AdmissionWrapper {
-			return utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
-				PodSets(
-					headPodSet,
-					utiltestingapi.MakePodSetAssignment("workers-group-0").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Count(workerCount).Obj(),
-				)
-		}
-
-		getRayCluster := func(ctx context.Context, clnt client.Client, rc *rayv1.RayCluster) {
-			ginkgo.GinkgoHelper()
-			gomega.Expect(clnt.Get(ctx, client.ObjectKeyFromObject(rc), rc)).To(gomega.Succeed())
-		}
-		getWorkloadKey := func(rc *rayv1.RayCluster) types.NamespacedName {
-			ginkgo.GinkgoHelper()
-			getRayCluster(manager.ctx, manager.client, rc)
-			return types.NamespacedName{Name: jobframework.GetWorkloadNameForOwnerWithGVKAndGeneration(rc.Name, rc.UID, rayGVK, rc.GetGeneration()), Namespace: rc.Namespace}
-		}
-		getWorkload := func(g gomega.Gomega, ctx context.Context, clnt client.Client, key types.NamespacedName) *kueue.Workload {
-			ginkgo.GinkgoHelper()
-			wl := &kueue.Workload{}
-			g.Expect(clnt.Get(ctx, key, wl)).To(gomega.Succeed())
-			return wl
-		}
 
 		raycluster := testingraycluster.MakeCluster("raycluster1", f.managerNs.Name).
 			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
@@ -637,6 +636,107 @@ var _ = ginkgo.Describe("MultiKueue ElasticJob", ginkgo.Label("area:multikueue",
 			workloads := &kueue.WorkloadList{}
 			gomega.Expect(worker2.client.List(worker2.ctx, workloads, client.InNamespace(raycluster.Namespace))).To(gomega.Succeed())
 			gomega.Expect(workloads.Items).To(gomega.BeEmpty())
+		})
+	})
+
+	ginkgo.It("Should propagate a MinReplicas-only change of an elastic RayCluster to the worker", func() {
+		manager := managerTestCluster
+		worker1 := worker1TestCluster
+		worker2 := worker2TestCluster
+
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+
+		// Replicas stays 1 throughout; only MinReplicas moves from 1 to 2.
+		raycluster := testingraycluster.MakeCluster("raycluster1", f.managerNs.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(f.managerLq.Name).
+			FirstWorkerGroupReplicas(1, 1, 3).
+			Obj()
+		behavioral.MustCreate(manager.ctx, manager.client, raycluster)
+
+		ginkgo.By("observe: a workload is created in the manager cluster")
+		workloadKey := getWorkloadKey(raycluster)
+		gomega.Eventually(func(g gomega.Gomega) {
+			getWorkload(g, manager.ctx, manager.client, workloadKey)
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("admit the workload on the manager cluster")
+		integration.SetQuotaReservation(manager.ctx, manager.client, workloadKey, admission(1).Obj())
+
+		ginkgo.By("observe: the workload is created on all worker clusters", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				getWorkload(g, worker1.ctx, worker1.client, workloadKey)
+				getWorkload(g, worker2.ctx, worker2.client, workloadKey)
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("admit the workload on the worker1 cluster")
+		integration.SetQuotaReservation(worker1.ctx, worker1.client, workloadKey, admission(1).Obj())
+
+		ginkgo.By("observe: the local admission check reflects the admission on the worker1 cluster")
+		behavioral.ExpectAdmissionCheckStateWithMessage(
+			manager.ctx, manager.client, workloadKey,
+			f.multiKueueAC.Name,
+			kueue.CheckStateReady,
+			`The workload was admitted on "worker1"`,
+		)
+
+		ginkgo.By("observe: the RayCluster is synced to the worker1 cluster with the initial bounds", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				remote := raycluster.DeepCopy()
+				g.Expect(worker1.client.Get(worker1.ctx, client.ObjectKeyFromObject(remote), remote)).To(gomega.Succeed())
+				g.Expect(remote.Spec.Suspend).To(gomega.Equal(new(false)))
+				g.Expect(remote.Spec.WorkerGroupSpecs[0].MinReplicas).To(gomega.BeEquivalentTo(new(int32(1))))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("raise only MinReplicas of the RayCluster's first worker group to 2", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(manager.client.Get(manager.ctx, client.ObjectKeyFromObject(raycluster), raycluster)).To(gomega.Succeed())
+				raycluster.Spec.WorkerGroupSpecs[0].MinReplicas = new(int32(2))
+				g.Expect(manager.client.Update(manager.ctx, raycluster)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("observe: a new workload slice with the bounded count is created in the manager cluster")
+		boundWorkloadKey := getWorkloadKey(raycluster)
+		gomega.Eventually(func(g gomega.Gomega) {
+			wl := getWorkload(g, manager.ctx, manager.client, boundWorkloadKey)
+			g.Expect(wl.Spec.PodSets[1].Count).To(gomega.BeEquivalentTo(int32(2)))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("emulate the scheduler: copy clusterName from the initial slice to the new slice", func() {
+			oldWorkload := getWorkload(gomega.Default, manager.ctx, manager.client, workloadKey)
+			gomega.Eventually(func(g gomega.Gomega) {
+				boundWorkload := getWorkload(g, manager.ctx, manager.client, boundWorkloadKey)
+				boundWorkload.Status.ClusterName = oldWorkload.Status.ClusterName
+				g.Expect(manager.client.Status().Update(manager.ctx, boundWorkload)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("emulate the scheduler: admit the new slice and finish the initial slice in the manager cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				oldWorkload := getWorkload(g, manager.ctx, manager.client, workloadKey)
+				g.Expect(workloadfinish.Finish(manager.ctx, manager.client, oldWorkload, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new slice", behavioral.RealClock)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			integration.SetQuotaReservation(manager.ctx, manager.client, boundWorkloadKey, admission(2).Obj())
+		})
+
+		ginkgo.By("emulate the scheduler: admit the new slice and finish the initial slice in the worker1 cluster", func() {
+			integration.SetQuotaReservation(worker1.ctx, worker1.client, boundWorkloadKey, admission(2).Obj())
+			gomega.Eventually(func(g gomega.Gomega) {
+				wl := getWorkload(g, worker1.ctx, worker1.client, workloadKey)
+				g.Expect(workloadfinish.Finish(worker1.ctx, worker1.client, wl, kueue.WorkloadSliceReplaced, "Replaced to accommodate a new slice", behavioral.RealClock)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("observe: the raised MinReplicas is synced to the worker1 cluster", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				remote := raycluster.DeepCopy()
+				g.Expect(worker1.client.Get(worker1.ctx, client.ObjectKeyFromObject(remote), remote)).To(gomega.Succeed())
+				g.Expect(remote.Spec.WorkerGroupSpecs[0].Replicas).To(gomega.BeEquivalentTo(new(int32(1))))
+				g.Expect(remote.Spec.WorkerGroupSpecs[0].MinReplicas).To(gomega.BeEquivalentTo(new(int32(2))))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })

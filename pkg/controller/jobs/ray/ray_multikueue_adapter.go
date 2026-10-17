@@ -82,8 +82,8 @@ type RemoteSpecSyncer[PtrT any] interface {
 // type may wire the forward hooks, Runtime, or both. RayService wires neither
 // and keeps the create-once behavior.
 type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
-	// SyncReplicas copies the worker replica counts from src into dst, returning
-	// whether dst changed.
+	// SyncReplicas copies the worker group sizing fields (replicas, bounds, hosts)
+	// from src into dst and reports whether dst changed.
 	SyncReplicas func(dst, src PtrT) bool
 	// WorkerReplicas returns the per-worker-group replica counts keyed by PodSet
 	// reference. Used to detect a replica change and its direction.

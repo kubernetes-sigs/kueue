@@ -84,42 +84,43 @@ func fetchOwnWorkerState(_ context.Context, _ client.Client, remoteCluster *rayv
 	}, nil
 }
 
-// syncWorkerReplicas copies each worker group's Replicas and NumOfHosts from
-// src into dst, matching groups by name, and returns whether dst changed. Both
-// fields feed the effective per-group pod count that needElasticSync compares
-// (see WorkerGroupPodCounts), so both must be propagated to keep the remote in
-// sync when either changes.
+// syncWorkerReplicas copies Replicas, MinReplicas, MaxReplicas and NumOfHosts of each
+// worker group from src into dst by group name and returns whether dst changed. They
+// are the inputs of the per-group count that needElasticSync compares.
 func syncWorkerReplicas(dst, src *rayv1.RayCluster) bool {
-	type groupSize struct {
-		replicas   *int32
-		numOfHosts int32
-	}
-	srcSizes := make(map[string]groupSize, len(src.Spec.WorkerGroupSpecs))
+	srcGroups := make(map[string]*rayv1.WorkerGroupSpec, len(src.Spec.WorkerGroupSpecs))
 	for i := range src.Spec.WorkerGroupSpecs {
-		wgs := &src.Spec.WorkerGroupSpecs[i]
-		srcSizes[wgs.GroupName] = groupSize{replicas: wgs.Replicas, numOfHosts: wgs.NumOfHosts}
+		srcGroups[src.Spec.WorkerGroupSpecs[i].GroupName] = &src.Spec.WorkerGroupSpecs[i]
 	}
 	changed := false
 	for i := range dst.Spec.WorkerGroupSpecs {
 		wgs := &dst.Spec.WorkerGroupSpecs[i]
-		want, ok := srcSizes[wgs.GroupName]
+		want, ok := srcGroups[wgs.GroupName]
 		if !ok {
 			continue
 		}
-		if !ptr.Equal(wgs.Replicas, want.replicas) {
-			if want.replicas == nil {
-				wgs.Replicas = nil
-			} else {
-				wgs.Replicas = new(*want.replicas)
-			}
-			changed = true
-		}
-		if wgs.NumOfHosts != want.numOfHosts {
-			wgs.NumOfHosts = want.numOfHosts
+		changed = syncInt32Ptr(&wgs.Replicas, want.Replicas) || changed
+		changed = syncInt32Ptr(&wgs.MinReplicas, want.MinReplicas) || changed
+		changed = syncInt32Ptr(&wgs.MaxReplicas, want.MaxReplicas) || changed
+		if wgs.NumOfHosts != want.NumOfHosts {
+			wgs.NumOfHosts = want.NumOfHosts
 			changed = true
 		}
 	}
 	return changed
+}
+
+// syncInt32Ptr sets *dst to a copy of want when they differ and reports whether it did.
+func syncInt32Ptr(dst **int32, want *int32) bool {
+	if ptr.Equal(*dst, want) {
+		return false
+	}
+	if want == nil {
+		*dst = nil
+	} else {
+		*dst = new(*want)
+	}
+	return true
 }
 
 func getEmptyList() client.ObjectList {

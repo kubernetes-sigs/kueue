@@ -56,7 +56,9 @@ func TestBuildPodSets(t *testing.T) {
 		annotations                 map[string]string
 		enablePartialScaleUpFeature bool
 		wantPodSets                 []kueue.PodSet
-		wantErr                     error
+		// wantTopologyRequests is checked per PodSet name when set.
+		wantTopologyRequests map[kueue.PodSetReference]*kueue.PodSetTopologyRequest
+		wantErr              error
 	}{
 		"basic spec with head and single worker group": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -650,6 +652,13 @@ func TestBuildPodSets(t *testing.T) {
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).PodSpec(corev1.PodSpec{}).Obj(),
 				*utiltestingapi.MakePodSet("workers", 2).PodSpec(corev1.PodSpec{}).Obj(),
 			},
+			wantTopologyRequests: map[kueue.PodSetReference]*kueue.PodSetTopologyRequest{
+				headGroupPodSetName: nil,
+				"workers": {
+					PodIndexLabel: new(rayutils.RayWorkerReplicaIndexKey),
+					SubGroupCount: new(int32(2)),
+				},
+			},
 		},
 		"replicas above maximum": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -660,6 +669,13 @@ func TestBuildPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).PodSpec(corev1.PodSpec{}).Obj(),
 				*utiltestingapi.MakePodSet("workers", 2).PodSpec(corev1.PodSpec{}).Obj(),
+			},
+			wantTopologyRequests: map[kueue.PodSetReference]*kueue.PodSetTopologyRequest{
+				headGroupPodSetName: nil,
+				"workers": {
+					PodIndexLabel: new(rayutils.RayWorkerReplicaIndexKey),
+					SubGroupCount: new(int32(2)),
+				},
 			},
 		},
 		"replicas within bounds": {
@@ -672,6 +688,13 @@ func TestBuildPodSets(t *testing.T) {
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).PodSpec(corev1.PodSpec{}).Obj(),
 				*utiltestingapi.MakePodSet("workers", 3).PodSpec(corev1.PodSpec{}).Obj(),
 			},
+			wantTopologyRequests: map[kueue.PodSetReference]*kueue.PodSetTopologyRequest{
+				headGroupPodSetName: nil,
+				"workers": {
+					PodIndexLabel: new(rayutils.RayWorkerReplicaIndexKey),
+					SubGroupCount: new(int32(3)),
+				},
+			},
 		},
 		"multi-host replicas below minimum": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -682,6 +705,14 @@ func TestBuildPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).PodSpec(corev1.PodSpec{}).Obj(),
 				*utiltestingapi.MakePodSet("workers", 8).PodSpec(corev1.PodSpec{}).Obj(),
+			},
+			wantTopologyRequests: map[kueue.PodSetReference]*kueue.PodSetTopologyRequest{
+				headGroupPodSetName: nil,
+				"workers": {
+					PodIndexLabel:      new(rayutils.RayHostIndexKey),
+					SubGroupIndexLabel: new(rayutils.RayWorkerReplicaIndexKey),
+					SubGroupCount:      new(int32(2)),
+				},
 			},
 		},
 		"multi-host replicas above maximum": {
@@ -694,6 +725,14 @@ func TestBuildPodSets(t *testing.T) {
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).PodSpec(corev1.PodSpec{}).Obj(),
 				*utiltestingapi.MakePodSet("workers", 8).PodSpec(corev1.PodSpec{}).Obj(),
 			},
+			wantTopologyRequests: map[kueue.PodSetReference]*kueue.PodSetTopologyRequest{
+				headGroupPodSetName: nil,
+				"workers": {
+					PodIndexLabel:      new(rayutils.RayHostIndexKey),
+					SubGroupIndexLabel: new(rayutils.RayWorkerReplicaIndexKey),
+					SubGroupCount:      new(int32(2)),
+				},
+			},
 		},
 		"absent replicas with minimum": {
 			rayClusterSpec: &rayv1.RayClusterSpec{
@@ -704,6 +743,13 @@ func TestBuildPodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).PodSpec(corev1.PodSpec{}).Obj(),
 				*utiltestingapi.MakePodSet("workers", 2).PodSpec(corev1.PodSpec{}).Obj(),
+			},
+			wantTopologyRequests: map[kueue.PodSetReference]*kueue.PodSetTopologyRequest{
+				headGroupPodSetName: nil,
+				"workers": {
+					PodIndexLabel: new(rayutils.RayWorkerReplicaIndexKey),
+					SubGroupCount: new(int32(2)),
+				},
 			},
 		},
 		"zero replicas and zero minimum": {
@@ -716,12 +762,17 @@ func TestBuildPodSets(t *testing.T) {
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).PodSpec(corev1.PodSpec{}).Obj(),
 				*utiltestingapi.MakePodSet("workers", 0).PodSpec(corev1.PodSpec{}).Obj(),
 			},
+			wantTopologyRequests: map[kueue.PodSetReference]*kueue.PodSetTopologyRequest{
+				headGroupPodSetName: nil,
+				"workers":           {SubGroupCount: new(int32(0))},
+			},
 		},
 	}
 
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, tc.enablePartialScaleUpFeature)
+			features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
 			before := tc.rayClusterSpec.DeepCopy()
 			gotPodSets, err := BuildPodSets(tc.rayClusterSpec, tc.annotations)
 
@@ -731,6 +782,16 @@ func TestBuildPodSets(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantPodSets, gotPodSets, cmpopts.IgnoreFields(kueue.PodSet{}, "TopologyRequest")); diff != "" {
 				t.Errorf("Unexpected podSets (-want +got):\n%s", diff)
+			}
+
+			if tc.wantTopologyRequests != nil {
+				gotTopologyRequests := make(map[kueue.PodSetReference]*kueue.PodSetTopologyRequest, len(gotPodSets))
+				for _, ps := range gotPodSets {
+					gotTopologyRequests[ps.Name] = ps.TopologyRequest
+				}
+				if diff := cmp.Diff(tc.wantTopologyRequests, gotTopologyRequests); diff != "" {
+					t.Errorf("Unexpected topology requests (-want +got):\n%s", diff)
+				}
 			}
 
 			if err == nil {
@@ -944,7 +1005,8 @@ func TestUpdatePodSets(t *testing.T) {
 			wantPodSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
 				*utiltestingapi.MakePodSet("workers", 2).
-					SubGroupCount(new(int32(1))).
+					PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+					SubGroupCount(new(int32(2))).
 					Obj(),
 			},
 		},
