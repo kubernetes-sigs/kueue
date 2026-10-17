@@ -2120,12 +2120,17 @@ type deviceClassHandler struct {
 
 func (h *deviceClassHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	dc := e.Object.(*resourcev1.DeviceClass)
-	if ern := extendedResourceName(dc); ern != "" {
+	implicitERN := implicitExtendedResourceName(dc)
+	h.r.draBackedResources.Add(corev1.ResourceName(implicitERN), dc.Name)
+	ern := extendedResourceName(dc)
+	if ern != "" {
 		h.r.draBackedResources.Add(corev1.ResourceName(ern), dc.Name)
-		h.reconcileWorkloads(ctx, q, ern)
 	}
+	h.reconcileWorkloads(ctx, q, ern, implicitERN)
 }
 
+// Update leaves the implicit extended resource name alone, since it derives from
+// the DeviceClass name, which cannot change.
 func (h *deviceClassHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	oldDC := e.ObjectOld.(*resourcev1.DeviceClass)
 	newDC := e.ObjectNew.(*resourcev1.DeviceClass)
@@ -2140,10 +2145,13 @@ func (h *deviceClassHandler) Update(ctx context.Context, e event.UpdateEvent, q 
 
 func (h *deviceClassHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	dc := e.Object.(*resourcev1.DeviceClass)
-	if ern := extendedResourceName(dc); ern != "" {
+	implicitERN := implicitExtendedResourceName(dc)
+	h.r.draBackedResources.Remove(corev1.ResourceName(implicitERN), dc.Name)
+	ern := extendedResourceName(dc)
+	if ern != "" {
 		h.r.draBackedResources.Remove(corev1.ResourceName(ern), dc.Name)
-		h.reconcileWorkloads(ctx, q, ern)
 	}
+	h.reconcileWorkloads(ctx, q, ern, implicitERN)
 }
 
 func (h *deviceClassHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -2154,6 +2162,12 @@ func extendedResourceName(dc *resourcev1.DeviceClass) string {
 		return *dc.Spec.ExtendedResourceName
 	}
 	return ""
+}
+
+// implicitExtendedResourceName returns the name every DeviceClass can be requested
+// by, whether or not it sets spec.extendedResourceName.
+func implicitExtendedResourceName(dc *resourcev1.DeviceClass) string {
+	return resourcev1.ResourceDeviceClassPrefix + dc.Name
 }
 
 func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request], resourceNames ...string) {

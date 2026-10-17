@@ -28,6 +28,7 @@ import (
 	resourcev1 "k8s.io/api/resource/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1049,30 +1050,45 @@ func TestReconcileDRA(t *testing.T) {
 // Workload is deliberately skipped on a DeviceClass event (#14563).
 
 func TestDeviceClassHandler_Create(t *testing.T) {
-	const extResource = "example.com/gpu"
+	const (
+		extResource      = "example.com/gpu"
+		implicitResource = corev1.ResourceName(resourcev1.ResourceDeviceClassPrefix + "dc1")
+	)
 
 	pending := utiltestingapi.MakeWorkload("wl-pending", "ns").
 		Queue("lq").
 		Request(corev1.ResourceName(extResource), "1").
 		Obj()
+	implicitPending := utiltestingapi.MakeWorkload("wl-implicit-pending", "ns").
+		Queue("lq").
+		Request(implicitResource, "1").
+		Obj()
 	reserved := utiltestingapi.MakeWorkload("wl-reserved", "ns").
 		Queue("lq").
 		Request(corev1.ResourceName(extResource), "1").
+		Request(implicitResource, "1").
 		SimpleReserveQuota("cq", "default", time.Now()).
 		Obj()
 
 	testCases := map[string]struct {
-		dc           *resourcev1.DeviceClass
-		wantRequests []reconcile.Request
+		dc                     *resourcev1.DeviceClass
+		wantRequests           []reconcile.Request
+		wantDRABackedResources sets.Set[corev1.ResourceName]
 	}{
-		"create of a DeviceClass with an extended resource name requeues pending workloads and skips reserved workloads": {
+		"create of a DeviceClass with an extended resource name requeues pending workloads for both of its names and skips reserved workloads": {
 			dc: testingdra.MakeDeviceClass("dc1").ExtendedResourceName(extResource).Obj(),
 			wantRequests: []reconcile.Request{
+				{Namespace: "ns", Name: "wl-implicit-pending"},
 				{Namespace: "ns", Name: "wl-pending"},
 			},
+			wantDRABackedResources: sets.New[corev1.ResourceName](extResource, implicitResource),
 		},
-		"create of a DeviceClass without an extended resource name is ignored": {
+		"create of a DeviceClass without an extended resource name requeues pending workloads for its implicit name": {
 			dc: testingdra.MakeDeviceClass("dc1").Obj(),
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns", Name: "wl-implicit-pending"},
+			},
+			wantDRABackedResources: sets.New[corev1.ResourceName](implicitResource),
 		},
 	}
 
@@ -1083,11 +1099,12 @@ func TestDeviceClassHandler_Create(t *testing.T) {
 				WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).
 				WithIndex(&kueue.Workload{}, indexer.WorkloadExtendedResourceKey, indexer.IndexWorkloadExtendedResources).
 				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
-				WithObjects(pending, reserved).
+				WithObjects(pending, implicitPending, reserved).
 				Build()
 			cqCache := schdcache.New(cl)
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-			r := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{}, WithDRABackedResources(dra.NewExtendedResourceCache()))
+			erCache := dra.NewExtendedResourceCache()
+			r := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{}, WithDRABackedResources(erCache))
 			h := &deviceClassHandler{r: r}
 			q := &utiltesting.MockTypedRateLimitingInterface{}
 
@@ -1100,6 +1117,11 @@ func TestDeviceClassHandler_Create(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantRequests, gotRequests); diff != "" {
 				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
+			}
+			for _, name := range []corev1.ResourceName{extResource, implicitResource} {
+				if got, want := erCache.Has(name), tc.wantDRABackedResources.Has(name); got != want {
+					t.Errorf("Unexpected DRA backing for %q: got %v, want %v", name, got, want)
+				}
 			}
 		})
 	}
@@ -1183,15 +1205,23 @@ func TestDeviceClassHandler_Update(t *testing.T) {
 }
 
 func TestDeviceClassHandler_Delete(t *testing.T) {
-	const extResource = "example.com/gpu"
+	const (
+		extResource      = "example.com/gpu"
+		implicitResource = corev1.ResourceName(resourcev1.ResourceDeviceClassPrefix + "dc1")
+	)
 
 	pending := utiltestingapi.MakeWorkload("wl-pending", "ns").
 		Queue("lq").
 		Request(corev1.ResourceName(extResource), "1").
 		Obj()
+	implicitPending := utiltestingapi.MakeWorkload("wl-implicit-pending", "ns").
+		Queue("lq").
+		Request(implicitResource, "1").
+		Obj()
 	reserved := utiltestingapi.MakeWorkload("wl-reserved", "ns").
 		Queue("lq").
 		Request(corev1.ResourceName(extResource), "1").
+		Request(implicitResource, "1").
 		SimpleReserveQuota("cq", "default", time.Now()).
 		Obj()
 
@@ -1199,14 +1229,18 @@ func TestDeviceClassHandler_Delete(t *testing.T) {
 		dc           *resourcev1.DeviceClass
 		wantRequests []reconcile.Request
 	}{
-		"delete of a DeviceClass with an extended resource name requeues pending workloads and skips reserved workloads": {
+		"delete of a DeviceClass with an extended resource name requeues pending workloads for both of its names and skips reserved workloads": {
 			dc: testingdra.MakeDeviceClass("dc1").ExtendedResourceName(extResource).Obj(),
 			wantRequests: []reconcile.Request{
+				{Namespace: "ns", Name: "wl-implicit-pending"},
 				{Namespace: "ns", Name: "wl-pending"},
 			},
 		},
-		"delete of a DeviceClass without an extended resource name is ignored": {
+		"delete of a DeviceClass without an extended resource name requeues pending workloads for its implicit name": {
 			dc: testingdra.MakeDeviceClass("dc1").Obj(),
+			wantRequests: []reconcile.Request{
+				{Namespace: "ns", Name: "wl-implicit-pending"},
+			},
 		},
 	}
 
@@ -1217,12 +1251,15 @@ func TestDeviceClassHandler_Delete(t *testing.T) {
 				WithIndex(&kueue.Workload{}, indexer.WorkloadQuotaReservedKey, indexer.IndexWorkloadQuotaReserved).
 				WithIndex(&kueue.Workload{}, indexer.WorkloadExtendedResourceKey, indexer.IndexWorkloadExtendedResources).
 				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
-				WithObjects(pending, reserved).
+				WithObjects(pending, implicitPending, reserved).
 				Build()
 			cqCache := schdcache.New(cl)
 			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-			r := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{}, WithDRABackedResources(dra.NewExtendedResourceCache()))
+			erCache := dra.NewExtendedResourceCache()
+			r := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{}, WithDRABackedResources(erCache))
 			h := &deviceClassHandler{r: r}
+			// A DeviceClass is deleted only after it was created, which registered its names.
+			h.Create(ctx, event.CreateEvent{Object: tc.dc}, &utiltesting.MockTypedRateLimitingInterface{})
 			q := &utiltesting.MockTypedRateLimitingInterface{}
 
 			h.Delete(ctx, event.DeleteEvent{Object: tc.dc}, q)
@@ -1234,6 +1271,11 @@ func TestDeviceClassHandler_Delete(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantRequests, gotRequests); diff != "" {
 				t.Errorf("Unexpected requests (-want,+got):\n%s", diff)
+			}
+			for _, name := range []corev1.ResourceName{extResource, implicitResource} {
+				if erCache.Has(name) {
+					t.Errorf("%q is still DRA-backed after its DeviceClass was deleted", name)
+				}
 			}
 		})
 	}
