@@ -45,6 +45,35 @@ class ParseReleaseNoteTest(unittest.TestCase):
                 "/set-release-note   \nA useful change",
                 "A useful change",
             ),
+            "trailing commands are excluded": (
+                "/set-release-note\nCLI: Example release note.\n/remove-kind cleanup\n/kind bug",
+                "CLI: Example release note.",
+            ),
+            "trailing commands after a multiline note": (
+                "/set-release-note\nFirst line\nSecond line\n\n/lgtm\n/approve\n",
+                "First line\nSecond line",
+            ),
+            "repeated command uses the last note": (
+                "/set-release-note\nFirst note\n/set-release-note\nSecond note\n/kind bug",
+                "Second note",
+            ),
+            "command after another command": (
+                "/kind bug\n/set-release-note\nTEST2\n/kind cleanup",
+                "TEST2",
+            ),
+            "command after other text": (
+                "Please update this.\n/set-release-note\nA useful change",
+                "A useful change",
+            ),
+            "note ends at the next command": (
+                "/set-release-note\nFirst line\n/kind bug\nNot part of the note",
+                "First line",
+            ),
+            "commands are matched case-insensitively": (
+                "/set-release-note\nCLI: Example release note.\n\nExample release note.\n\n"
+                "/remove-kind cleanup\n/kind bug\n\n/Set-release-note\nCLI: Example release note.\n\n",
+                "CLI: Example release note.",
+            ),
         }
 
         for name, (comment, want) in test_cases.items():
@@ -55,15 +84,11 @@ class ParseReleaseNoteTest(unittest.TestCase):
         test_cases = {
             "empty comment": (
                 "",
-                "/set-release-note must be the first line of the comment.",
-            ),
-            "command after other text": (
-                "Please update this.\n/set-release-note\nA useful change",
-                "/set-release-note must be the first line of the comment.",
+                "/set-release-note must be on a line of its own.",
             ),
             "command with surrounding whitespace": (
                 "  /set-release-note  \nA useful change",
-                "/set-release-note must be the first line of the comment.",
+                "/set-release-note must be on a line of its own.",
             ),
             "missing note": (
                 "/set-release-note",
@@ -71,6 +96,14 @@ class ParseReleaseNoteTest(unittest.TestCase):
             ),
             "whitespace-only note": (
                 "/set-release-note\n \t\n",
+                "/set-release-note must be followed by a non-empty release note.",
+            ),
+            "repeated command with an empty last note": (
+                "/set-release-note\nFirst note\n/set-release-note\n",
+                "/set-release-note must be followed by a non-empty release note.",
+            ),
+            "only commands after the command": (
+                "/set-release-note\n/kind bug\n/lgtm",
                 "/set-release-note must be followed by a non-empty release note.",
             ),
             "fenced block in note": (

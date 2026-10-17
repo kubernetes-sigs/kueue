@@ -21,6 +21,9 @@ from pathlib import Path
 
 COMMAND = "/set-release-note"
 MAX_PR_BODY_LENGTH = 65_536
+# A line holding a single Prow-style command, such as "/kind bug" or "/lgtm".
+# Prow matches command names case-insensitively, so this does too.
+COMMAND_LINE_RE = re.compile(r"^/[a-z][a-z0-9-]*(?:[ \t]+\S.*)?$", re.IGNORECASE)
 FENCE_RE = re.compile(
     r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>[^\r\n]*?)[ \t]*(?:\r?\n)?$"
 )
@@ -38,13 +41,29 @@ def _match_fence(line: str) -> re.Match[str] | None:
     return match
 
 
-def parse_release_note(comment: str) -> str:
-    """Parse and validate the release note from a ChatOps comment."""
-    lines = comment.replace("\r\n", "\n").splitlines()
-    if not lines or lines[0].rstrip() != COMMAND:
-        raise ValueError(f"{COMMAND} must be the first line of the comment.")
+def _is_set_release_note_line(line: str) -> bool:
+    """Report whether the line is the /set-release-note command."""
+    return line.rstrip().lower() == COMMAND
 
-    release_note = "\n".join(lines[1:]).strip()
+
+def parse_release_note(comment: str) -> str:
+    """Parse and validate the release note from a ChatOps comment.
+
+    The note is the text after the last /set-release-note line, up to the next
+    command line such as "/kind bug". Other commands in the same comment are
+    handled by Prow and must not end up in the release note.
+    """
+    lines = comment.replace("\r\n", "\n").splitlines()
+    commands = [i for i, line in enumerate(lines) if _is_set_release_note_line(line)]
+    if not commands:
+        raise ValueError(f"{COMMAND} must be on a line of its own.")
+
+    note_lines = []
+    for line in lines[commands[-1] + 1 :]:
+        if COMMAND_LINE_RE.match(line.strip()):
+            break
+        note_lines.append(line)
+    release_note = "\n".join(note_lines).strip()
     if not release_note:
         raise ValueError(f"{COMMAND} must be followed by a non-empty release note.")
     if any(_match_fence(line) for line in release_note.splitlines()):
