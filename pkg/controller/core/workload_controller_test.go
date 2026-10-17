@@ -1952,7 +1952,7 @@ func TestReconcile(t *testing.T) {
 			},
 			wantError: nil,
 		},
-		"should synchronize the status of preemption gates": {
+		"should remove orphaned preemption gate states": {
 			featureGates: map[featuregate.Feature]bool{
 				features.KueueDRAIntegration:              false,
 				features.MultiKueueOrchestratedPreemption: true,
