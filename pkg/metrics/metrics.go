@@ -232,7 +232,7 @@ var (
 	ReplacedWorkloadSlicesTotal *prometheus.CounterVec
 
 	// +metricsdoc:group=clusterqueue
-	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue, or empty when the LocalQueue of the pod group is not found",replica_role="one of `leader`, `follower`, or `standalone`"
+	// +metricsdoc:labels=cluster_queue="the name of the ClusterQueue, or empty when the LocalQueue of the pod group or its ClusterQueue is not found",replica_role="one of `leader`, `follower`, or `standalone`"
 	ExcessPodsDeletedTotal *prometheus.CounterVec
 
 	// +metricsdoc:group=localqueue

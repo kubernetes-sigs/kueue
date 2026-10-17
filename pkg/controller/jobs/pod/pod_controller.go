@@ -1360,8 +1360,10 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.Ev
 }
 
 // localQueueClusterQueue returns the ClusterQueue of the pod group's LocalQueue.
-// It returns an empty name when the LocalQueue cannot be read, for example
-// before it is created.
+// It returns an empty name when the LocalQueue or its ClusterQueue cannot be
+// read, for example before they are created. Returning only existing
+// ClusterQueues bounds the label values, because deleting a ClusterQueue
+// clears its series.
 func (p *Pod) localQueueClusterQueue(ctx context.Context, c client.Client) kueue.ClusterQueueReference {
 	queueName := jobframework.QueueName(p)
 	if queueName == "" {
@@ -1369,6 +1371,9 @@ func (p *Pod) localQueueClusterQueue(ctx context.Context, c client.Client) kueue
 	}
 	lq := &kueue.LocalQueue{}
 	if err := c.Get(ctx, client.ObjectKey{Namespace: p.pod.Namespace, Name: string(queueName)}, lq); err != nil {
+		return ""
+	}
+	if err := c.Get(ctx, client.ObjectKey{Name: string(lq.Spec.ClusterQueue)}, &kueue.ClusterQueue{}); err != nil {
 		return ""
 	}
 	return lq.Spec.ClusterQueue
