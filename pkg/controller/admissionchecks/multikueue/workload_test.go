@@ -2120,6 +2120,9 @@ func TestWlReconcile(t *testing.T) {
 						Obj(),
 				)
 
+				for _, name := range workerClusters {
+					managerBuilder = managerBuilder.WithObjects(utiltestingapi.MakeMultiKueueCluster(name).Obj())
+				}
 				managerClient := managerBuilder.Build()
 				adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
 				recorder := &utiltesting.EventRecorder{}

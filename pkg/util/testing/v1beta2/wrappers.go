@@ -1712,6 +1712,12 @@ func (mkc *MultiKueueClusterWrapper) Obj() *kueue.MultiKueueCluster {
 	return &mkc.MultiKueueCluster
 }
 
+// Unschedulable sets whether the cluster accepts new workloads.
+func (mkc *MultiKueueClusterWrapper) Unschedulable(value bool) *MultiKueueClusterWrapper {
+	mkc.Spec.Unschedulable = new(value)
+	return mkc
+}
+
 func (mkc *MultiKueueClusterWrapper) KubeConfig(locationType kueue.LocationType, location string) *MultiKueueClusterWrapper {
 	mkc.Spec.ClusterSource.KubeConfig = &kueue.KubeConfig{
 		Location:     location,

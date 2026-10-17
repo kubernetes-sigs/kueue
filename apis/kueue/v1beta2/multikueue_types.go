@@ -74,6 +74,14 @@ type KubeConfig struct {
 }
 
 type MultiKueueClusterSpec struct {
+	// unschedulable prevents MultiKueue from dispatching new workloads to this cluster.
+	// Workloads already dispatched to the cluster continue to be managed and may
+	// be admitted. This does not affect the cluster's Active condition.
+	// Requires the MultiKueueClusterCordon feature gate. Defaults to false.
+	// +optional
+	// +kubebuilder:default=false
+	Unschedulable *bool `json:"unschedulable,omitempty"`
+
 	// clusterSource is the source to connect to the cluster.
 	// +required
 	ClusterSource ClusterSource `json:"clusterSource,omitempty"`
@@ -118,6 +126,7 @@ type MultiKueueClusterStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Cluster,shortName={mkc}
 
+// +kubebuilder:printcolumn:name="Unschedulable",JSONPath=".spec.unschedulable",type="boolean",description="New workload dispatch is disabled"
 // +kubebuilder:printcolumn:name="Connected",JSONPath=".status.conditions[?(@.type=='Active')].status",type="string",description="MultiKueueCluster is connected"
 // +kubebuilder:printcolumn:name="Age",JSONPath=".metadata.creationTimestamp",type="date",description="Time this workload was created"
 // MultiKueueCluster is the Schema for the multikueue API

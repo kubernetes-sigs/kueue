@@ -106,14 +106,15 @@ type wlReconciler struct {
 var _ reconcile.Reconciler = (*wlReconciler)(nil)
 
 type wlGroup struct {
-	local               *kueue.Workload
-	localClient         client.Client
-	remotes             map[string]*kueue.Workload
-	remoteClients       map[string]*remoteClient
-	acName              kueue.AdmissionCheckReference
-	jobAdapter          jobframework.MultiKueueAdapter
-	controllerKey       types.NamespacedName
-	unavailableClusters []string
+	local                 *kueue.Workload
+	localClient           client.Client
+	remotes               map[string]*kueue.Workload
+	remoteClients         map[string]*remoteClient
+	acName                kueue.AdmissionCheckReference
+	jobAdapter            jobframework.MultiKueueAdapter
+	controllerKey         types.NamespacedName
+	unavailableClusters   []string
+	unschedulableClusters sets.Set[string]
 }
 
 type Option func(reconciler *wlReconciler)
@@ -339,17 +340,32 @@ func (w *wlReconciler) readGroup(ctx context.Context, local *kueue.Workload, acN
 	}
 
 	grp := wlGroup{
-		local:               local,
-		localClient:         w.client,
-		remotes:             make(map[string]*kueue.Workload, len(rClients)),
-		remoteClients:       rClients,
-		acName:              acName,
-		jobAdapter:          adapter,
-		controllerKey:       types.NamespacedName{Name: controllerName, Namespace: local.Namespace},
-		unavailableClusters: unavailable,
+		local:                 local,
+		localClient:           w.client,
+		remotes:               make(map[string]*kueue.Workload, len(rClients)),
+		remoteClients:         rClients,
+		acName:                acName,
+		jobAdapter:            adapter,
+		controllerKey:         types.NamespacedName{Name: controllerName, Namespace: local.Namespace},
+		unavailableClusters:   unavailable,
+		unschedulableClusters: sets.New[string](),
 	}
 
 	for remote, rClient := range rClients {
+		if features.Enabled(features.MultiKueueClusterCordon) {
+			cluster := &kueue.MultiKueueCluster{}
+			if err := w.client.Get(ctx, types.NamespacedName{Name: remote}, cluster); err != nil {
+				if client.IgnoreNotFound(err) != nil {
+					return nil, err
+				}
+				// Continue managing remote objects while cluster deletion is reconciled,
+				// but do not dispatch new workloads to a missing cluster.
+				grp.unschedulableClusters.Insert(remote)
+			} else if ptr.Deref(cluster.Spec.Unschedulable, false) {
+				grp.unschedulableClusters.Insert(remote)
+			}
+		}
+
 		wl := &kueue.Workload{}
 		err := rClient.getClient().Get(ctx, client.ObjectKeyFromObject(local), wl)
 		if client.IgnoreNotFound(err) != nil {
@@ -820,17 +836,29 @@ func admittedClusterQueue(wl *kueue.Workload) kueue.ClusterQueueReference {
 	return wl.Status.Admission.ClusterQueue
 }
 
+// createRemoteWorkload applies the cordon policy to all dispatchers, including
+// externally nominated clusters and workloads pinned by component placement.
+func (g *wlGroup) createRemoteWorkload(ctx context.Context, cluster string, preemptionGated bool) (bool, error) {
+	if g.unschedulableClusters.Has(cluster) {
+		return false, nil
+	}
+	clone := cloneForCreate(g.local, g.remoteClients[cluster].origin, preemptionGated)
+	if err := g.remoteClients[cluster].getClient().Create(ctx, clone); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 func (w *wlReconciler) syncToSingleCluster(ctx context.Context, log klog.Logger, group *wlGroup, targetCluster string) (reconcile.Result, error) {
 	var errs []error
 
 	for clusterName, remoteWl := range group.remotes {
 		if clusterName == targetCluster {
 			if remoteWl == nil {
-				clone := cloneForCreate(group.local, group.remoteClients[clusterName].origin, false)
-				if err := group.remoteClients[clusterName].getClient().Create(ctx, clone); err != nil {
+				if created, err := group.createRemoteWorkload(ctx, clusterName, false); err != nil {
 					log.V(2).Error(err, "creating remote workload", "cluster", clusterName)
 					errs = append(errs, err)
-				} else {
+				} else if created {
 					metrics.ReportMultiKueueWorkloadDispatched(admittedClusterQueue(group.local), clusterName, w.roleTracker)
 				}
 			}
@@ -913,8 +941,11 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	if clusterName := workload.ClusterName(group.local); group.IsElasticWorkload() && clusterName != "" {
 		nominatedWorkers = []string{clusterName}
 	} else if w.dispatcherName == config.MultiKueueDispatcherModeAllAtOnce {
-		for workerName := range group.remotes {
-			nominatedWorkers = append(nominatedWorkers, workerName)
+		for workerName, remoteWl := range group.remotes {
+			// Preserve existing dispatches when the worker is cordoned.
+			if remoteWl != nil || !group.unschedulableClusters.Has(workerName) {
+				nominatedWorkers = append(nominatedWorkers, workerName)
+			}
 		}
 
 		// group.remotes is a map, so iteration order is non-deterministic; sort only
@@ -948,11 +979,10 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	for rem, remoteWl := range group.remotes {
 		if slices.Contains(nominatedWorkers, rem) {
 			if remoteWl == nil {
-				clone := cloneForCreate(group.local, group.remoteClients[rem].origin, true)
-				if err := group.remoteClients[rem].getClient().Create(ctx, clone); err != nil {
+				if created, err := group.createRemoteWorkload(ctx, rem, true); err != nil {
 					log.V(2).Error(err, "creating remote object", "remote", rem)
 					errs = append(errs, err)
-				} else {
+				} else if created {
 					metrics.ReportMultiKueueWorkloadDispatched(admittedClusterQueue(group.local), rem, w.roleTracker)
 				}
 			}
@@ -1196,6 +1226,7 @@ func (w *wlReconciler) setupWithManager(mgr ctrl.Manager) error {
 		Named("multikueue_workload").
 		For(&kueue.Workload{}).
 		WatchesRawSource(source.Channel(w.clusters.wlUpdateCh, syncHndl)).
+		Watches(&kueue.MultiKueueCluster{}, admissioncheck.NewMultiKueueClusterHandler(w.client, w.eventsBatchPeriod)).
 		Watches(&kueue.MultiKueueConfig{}, &configHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod}).
 		Watches(&kueue.AdmissionCheck{}, &admissionCheckHandler{client: w.client, eventsBatchPeriod: w.eventsBatchPeriod})
 
