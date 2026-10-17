@@ -22,6 +22,7 @@ import (
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	utilmath "sigs.k8s.io/kueue/pkg/util/math"
 )
 
 func Enabled(cfg *configapi.WaitForPodsReady) bool {
@@ -61,13 +62,20 @@ func ParseAnnotation(value string) (*WorkloadLevelConfig, error) {
 		return nil, err
 	}
 	cfg := &WorkloadLevelConfig{
-		Timeout: time.Duration(raw.TimeoutSeconds) * time.Second,
+		Timeout: secondsToDuration(raw.TimeoutSeconds),
 	}
 	if raw.RecoveryTimeoutSeconds != nil {
-		rt := time.Duration(*raw.RecoveryTimeoutSeconds) * time.Second
+		rt := secondsToDuration(*raw.RecoveryTimeoutSeconds)
 		cfg.RecoveryTimeout = &rt
 	}
 	return cfg, nil
+}
+
+// secondsToDuration converts seconds to a time.Duration, saturating instead of
+// wrapping around on overflow. A wrapped value could turn a huge, user-provided
+// number of seconds into a small positive Duration that passes validation.
+func secondsToDuration(seconds int64) time.Duration {
+	return time.Duration(utilmath.SaturatingMul(seconds, int64(time.Second)))
 }
 
 func WorkloadLevelWaitForPodsReadyEnabled() bool {
