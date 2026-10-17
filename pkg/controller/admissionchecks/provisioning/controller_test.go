@@ -425,6 +425,112 @@ func TestMergePodSetsSkipsZeroCounts(t *testing.T) {
 	}
 }
 
+func TestPodSetUpdates(t *testing.T) {
+	refA := getProvisioningRequestPodTemplateName("pr", "worker-a")
+	refB := getProvisioningRequestPodTemplateName("pr", "worker-b")
+	refC := getProvisioningRequestPodTemplateName("pr", "worker-c")
+	annotations := map[string]string{
+		autoscaling.ProvisioningRequestPodAnnotationKey: "pr",
+		autoscaling.ProvisioningClassPodAnnotationKey:   "class",
+	}
+
+	cases := map[string]struct {
+		// groups is the recorded annotation; empty means the request predates it.
+		groups  string
+		refs    []string
+		want    []kueue.PodSetUpdate
+		wantErr error
+	}{
+		"one podSet each": {
+			groups: `{"` + refA + `":["worker-a"],"` + refB + `":["worker-b"]}`,
+			refs:   []string{refA, refB},
+			want: []kueue.PodSetUpdate{
+				{Name: "worker-a", Annotations: annotations},
+				{Name: "worker-b", Annotations: annotations},
+			},
+		},
+		"both members of a merged group": {
+			groups: `{"` + refA + `":["worker-a","worker-b"]}`,
+			refs:   []string{refA},
+			want: []kueue.PodSetUpdate{
+				{Name: "worker-a", Annotations: annotations},
+				{Name: "worker-b", Annotations: annotations},
+			},
+		},
+		"a merged group beside a podSet of its own": {
+			groups: `{"` + refA + `":["worker-a","worker-b"],"` + refC + `":["worker-c"]}`,
+			refs:   []string{refA, refC},
+			want: []kueue.PodSetUpdate{
+				{Name: "worker-a", Annotations: annotations},
+				{Name: "worker-b", Annotations: annotations},
+				{Name: "worker-c", Annotations: annotations},
+			},
+		},
+		"nothing recorded reads one podSet per podTemplate": {
+			refs: []string{refA},
+			want: []kueue.PodSetUpdate{
+				{Name: "worker-a", Annotations: annotations},
+			},
+		},
+		"a podTemplate the grouping does not know": {
+			groups:  `{"` + refB + `":["worker-b"]}`,
+			refs:    []string{refA},
+			wantErr: errInconsistentPodSetGroups,
+		},
+		"a recorded group with no podSets": {
+			groups:  `{"` + refA + `":[]}`,
+			refs:    []string{refA},
+			wantErr: errInconsistentPodSetGroups,
+		},
+		"a podSet claimed twice": {
+			groups:  `{"` + refA + `":["worker-a"],"` + refB + `":["worker-a"]}`,
+			refs:    []string{refA, refB},
+			wantErr: errInconsistentPodSetGroups,
+		},
+		"a grouping that cannot be read": {
+			groups:  "not json",
+			refs:    []string{refA},
+			wantErr: errInconsistentPodSetGroups,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, log := utiltesting.ContextWithLog(t)
+			wl := utiltestingapi.MakeWorkload("wl", TestNamespace).
+				PodSets(
+					*utiltestingapi.MakePodSet("worker-a", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("worker-b", 1).Request(corev1.ResourceCPU, "1").Obj(),
+					*utiltestingapi.MakePodSet("worker-c", 1).Request(corev1.ResourceCPU, "1").Obj(),
+				).
+				Obj()
+
+			pr := &autoscaling.ProvisioningRequest{
+				Name: "pr",
+				Spec: autoscaling.ProvisioningRequestSpec{ProvisioningClassName: "class"},
+			}
+			if tc.groups != "" {
+				pr.Annotations = map[string]string{podSetGroupsAnnotation: tc.groups}
+			}
+			for _, ref := range tc.refs {
+				pr.Spec.PodSets = append(pr.Spec.PodSets, autoscaling.PodSet{
+					PodTemplateRef: autoscaling.Reference{Name: ref},
+					Count:          1,
+				})
+			}
+			prc := utiltestingapi.MakeProvisioningRequestConfig("config").Obj()
+
+			got, err := podSetUpdates(log, wl, pr, prc)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("unexpected error (-want/+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.want, got); diff != "" {
+				t.Errorf("unexpected podSetUpdates (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestReqIsNeeded(t *testing.T) {
 	makeWorkload := func(specCount int32, admissionCount *int32, includeAssignment bool) *kueue.Workload {
 		builder := utiltestingapi.MakeWorkload("wl", TestNamespace).
