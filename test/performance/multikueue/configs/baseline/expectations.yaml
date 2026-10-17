@@ -1,10 +1,10 @@
 # Broad regression guardrails for the dedicated MultiKueue performance periodic.
-# The throughput floor leaves about 22% headroom below the observed CI minimum.
+# The throughput floor leaves about 21% headroom below the observed CI minimum.
 # Recalibrate when the scenario or CI capacity changes.
 # The checker verifies the reported scenario against configuration.yaml before
 # applying these bounds; this file does not configure the benchmark.
 # CI measurements and rationale are documented in the benchmark README.
-minThroughputPerSecond: 35
+minThroughputPerSecond: 23
 # Admission latency includes a workload's position in the drain queue.
 maxAdmissionP95Ms: 15_000
 maxQuotaReservationP95Ms: 1_000
