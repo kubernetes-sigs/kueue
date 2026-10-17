@@ -52,7 +52,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			CertDir: DefaultWebhookCertDir,
 		},
 		Metrics: ControllerMetrics{
-			BindAddress: DefaultMetricsBindAddress,
+			AccessControlMode: new(MetricsAccessControlModeDelegated),
+			BindAddress:       DefaultMetricsBindAddress,
 			LocalQueueMetrics: &LocalQueueMetrics{
 				Enable: true,
 			},
@@ -163,7 +164,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					CertDir: DefaultWebhookCertDir,
 				},
 				Metrics: ControllerMetrics{
-					BindAddress: DefaultMetricsBindAddress,
+					AccessControlMode: new(MetricsAccessControlModeDelegated),
+					BindAddress:       DefaultMetricsBindAddress,
 					LocalQueueMetrics: &LocalQueueMetrics{
 						Enable: true,
 					},
@@ -197,7 +199,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					CertDir: overwriteWebhookCertDir,
 				},
 				Metrics: ControllerMetrics{
-					BindAddress: overwriteMetricBindAddress,
+					AccessControlMode: new(MetricsAccessControlModeNone),
+					BindAddress:       overwriteMetricBindAddress,
 					LocalQueueMetrics: &LocalQueueMetrics{
 						Enable: false,
 					},
@@ -226,7 +229,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					CertDir: overwriteWebhookCertDir,
 				},
 				Metrics: ControllerMetrics{
-					BindAddress: overwriteMetricBindAddress,
+					AccessControlMode: new(MetricsAccessControlModeNone),
+					BindAddress:       overwriteMetricBindAddress,
 					LocalQueueMetrics: &LocalQueueMetrics{
 						Enable: false,
 					},
@@ -269,7 +273,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					CertDir: DefaultWebhookCertDir,
 				},
 				Metrics: ControllerMetrics{
-					BindAddress: DefaultMetricsBindAddress,
+					AccessControlMode: new(MetricsAccessControlModeDelegated),
+					BindAddress:       DefaultMetricsBindAddress,
 					LocalQueueMetrics: &LocalQueueMetrics{
 						Enable: true,
 					},

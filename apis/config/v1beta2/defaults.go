@@ -72,6 +72,9 @@ func SetDefaults_Configuration(cfg *Configuration) {
 	cfg.Namespace = cmp.Or(cfg.Namespace, new(getOperatorNamespace()))
 	cfg.Webhook.Port = cmp.Or(cfg.Webhook.Port, new(DefaultWebhookPort))
 	cfg.Webhook.CertDir = cmp.Or(cfg.Webhook.CertDir, DefaultWebhookCertDir)
+	if cfg.Metrics.AccessControlMode == nil {
+		cfg.Metrics.AccessControlMode = new(MetricsAccessControlModeDelegated)
+	}
 	cfg.Metrics.BindAddress = cmp.Or(cfg.Metrics.BindAddress, DefaultMetricsBindAddress)
 	cfg.Health.HealthProbeBindAddress = cmp.Or(cfg.Health.HealthProbeBindAddress, DefaultHealthProbeBindAddress)
 	cfg.LeaderElection = cmp.Or(cfg.LeaderElection, &configv1alpha1.LeaderElectionConfiguration{})
