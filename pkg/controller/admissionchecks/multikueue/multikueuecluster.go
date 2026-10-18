@@ -80,8 +80,9 @@ const (
 	eventChBufferSize = 10
 
 	// this set will provide waiting time between 0 to 5m20s
-	retryIncrement = 5 * time.Second
-	retryMaxSteps  = 7
+	retryIncrement      = 5 * time.Second
+	retryMaxSteps       = 7
+	resyncRetryInterval = 5 * time.Second
 
 	// Bounds how long establishWatch waits for client.Watch(). The schedule
 	// (1m, 2m, 4m, 8m, 10m, ...) catches hung remotes quickly while the cap
@@ -434,7 +435,7 @@ func (rc *remoteClient) requeueWorkloadsForCluster(ctx context.Context) *time.Du
 	wls := &kueue.WorkloadList{}
 	if err := rc.localClient.List(ctx, wls); err != nil {
 		ctrl.LoggerFrom(ctx).Error(err, "listing manager workloads for resync after reconnect")
-		retryAfter := retryIncrement
+		retryAfter := resyncRetryInterval
 		return &retryAfter
 	}
 	for i := range wls.Items {
@@ -951,8 +952,8 @@ func (c *clustersReconciler) setRemoteClientConfig(ctx context.Context, clusterN
 
 	shouldResync := hadClientBefore && refreshed
 	if shouldResync || client.resyncPending {
+		client.resyncPending = true
 		if retryAfter := client.requeueWorkloadsForCluster(clientCtx); retryAfter != nil {
-			client.resyncPending = true
 			return retryAfter, nil
 		}
 		client.resyncPending = false
