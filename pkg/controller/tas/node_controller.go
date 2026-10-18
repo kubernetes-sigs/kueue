@@ -84,7 +84,8 @@ type workloadStatus int
 
 const (
 	// workloadHealthy indicates that the workload does not need to be replaced on the node.
-	// This happens if the node is healthy, or if the workload has permanent tolerations for the node's taints.
+	// This happens if the node is healthy, if the workload has permanent tolerations for the node's taints,
+	// or if all of the workload's pods assigned to the node have succeeded.
 	workloadHealthy workloadStatus = iota
 
 	// workloadUnhealthy indicates that the workload needs to be replaced or evicted from the node,
@@ -501,7 +502,55 @@ func (r *nodeReconciler) checkPodsOnNode(
 		return workloadHealthCheck{status: workloadHealthy, podsToTerminate: podsToTerminate}, nil
 	}
 
+	allSucceeded, err := r.allAssignedPodsSucceeded(ctx, wl, nodeName, nodeSelectorAssignedPods)
+	if err != nil {
+		return workloadHealthCheck{status: workloadHealthUnknown}, fmt.Errorf("failed to check succeeded pods for node %s: %w", nodeName, err)
+	}
+	if allSucceeded {
+		return workloadHealthCheck{status: workloadHealthy, podsToTerminate: podsToTerminate}, nil
+	}
+
 	return workloadHealthCheck{status: workloadUnhealthy, podsToTerminate: podsToTerminate}, nil
+}
+
+// allAssignedPodsSucceeded reports whether every pod that the workload's
+// TopologyAssignment places on the node has succeeded, so no pod of the
+// workload needs to run on the node again.
+func (r *nodeReconciler) allAssignedPodsSucceeded(ctx context.Context, wl *kueue.Workload, nodeName string, nodeSelectorAssignedPods []*corev1.Pod) (bool, error) {
+	if len(nodeSelectorAssignedPods) > 0 {
+		return false, nil
+	}
+	pods, err := r.listPodsOnNode(ctx, wl, nodeName)
+	if err != nil {
+		return false, err
+	}
+	if slices.ContainsFunc(pods, func(pod *corev1.Pod) bool {
+		return pod.Status.Phase != corev1.PodSucceeded
+	}) {
+		return false, nil
+	}
+	// Pods that are not created yet still need the node.
+	return int32(len(pods)) >= podCountOnNode(wl.Status.Admission, nodeName), nil
+}
+
+// podCountOnNode returns the number of pods that the admission assigns to nodeName.
+func podCountOnNode(admission *kueue.Admission, nodeName string) int32 {
+	if admission == nil {
+		return 0
+	}
+	var count int32
+	for i := range admission.PodSetAssignments {
+		ta := admission.PodSetAssignments[i].TopologyAssignment
+		if ta == nil || !utiltas.IsLowestLevelHostname(ta.Levels) {
+			continue
+		}
+		for domain := range utiltas.InternalSeqFrom(ta) {
+			if len(domain.Values) > 0 && domain.Values[len(domain.Values)-1] == nodeName {
+				count += domain.Count
+			}
+		}
+	}
+	return count
 }
 
 // evictWorkloadIfNeeded idempotently evicts the workload when the node has failed.
@@ -738,10 +787,7 @@ func (r *nodeReconciler) getPodsToTerminate(ctx context.Context, wl *kueue.Workl
 }
 
 func (r *nodeReconciler) hasProgressingPods(ctx context.Context, wl *kueue.Workload, nodeName string) (bool, error) {
-	sliceName := workloadslicing.SliceName(wl)
-	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, sliceName, client.MatchingFields{
-		indexer.PodNodeNameKey: nodeName,
-	})
+	pods, err := r.listPodsOnNode(ctx, wl, nodeName)
 	if err != nil {
 		return false, err
 	}
@@ -749,6 +795,13 @@ func (r *nodeReconciler) hasProgressingPods(ctx context.Context, wl *kueue.Workl
 		return pod.DeletionTimestamp.IsZero() && !utilpod.IsTerminated(pod)
 	})
 	return hasProgressingPods, nil
+}
+
+// listPodsOnNode returns the pods of the workload slice that are bound to the node.
+func (r *nodeReconciler) listPodsOnNode(ctx context.Context, wl *kueue.Workload, nodeName string) ([]*corev1.Pod, error) {
+	return workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl), client.MatchingFields{
+		indexer.PodNodeNameKey: nodeName,
+	})
 }
 
 func checkTaintTolerations(logger logr.Logger, taint *corev1.Taint, podSets []kueue.PodSet) taintToleration {
