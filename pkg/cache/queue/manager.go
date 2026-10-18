@@ -828,6 +828,15 @@ func (m *Manager) requeueWorkloadLocked(ctx context.Context, info *workload.Info
 		if features.Enabled(features.KueueDRAIntegration) && info.Obj.Generation != w.Generation {
 			return false, w.DeepCopy()
 		}
+		// AddOrUpdateWorkload updates the LocalQueue's copy even while the
+		// ClusterQueue keeps the workload checked out. DRA preprocessing can
+		// therefore refresh TotalRequests during the checkout without changing
+		// metadata.generation (for example, after a DeviceClass update). Keep
+		// those newer charges when putting the checked-out Info back in the queue.
+		if queuedInfo := q.items[wlKey]; queuedInfo != nil && queuedInfo != info {
+			info.TotalRequests = queuedInfo.TotalRequests
+			info.SchedulingHash = ""
+		}
 		options = append(options, workload.WithPreserveTotalRequests())
 	}
 	info.Update(log, &w, options...)
