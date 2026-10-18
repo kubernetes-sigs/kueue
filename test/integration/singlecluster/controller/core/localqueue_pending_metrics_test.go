@@ -104,6 +104,7 @@ var _ = ginkgo.Describe("LocalQueue pending metrics", ginkgo.Label("controller:l
 					lq.Spec.StopPolicy = ptr.To(kueue.Hold)
 					return k8sClient.Patch(ctx, lq, client.MergeFrom(before))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, kueue.Hold)
 			})
 
 			ginkgo.By("checking pending metrics after stopping LocalQueue "+lq.Name+" with Hold", func() {
@@ -130,6 +131,7 @@ var _ = ginkgo.Describe("LocalQueue pending metrics", ginkgo.Label("controller:l
 					lq.Spec.StopPolicy = ptr.To(kueue.HoldAndDrain)
 					return k8sClient.Patch(ctx, lq, client.MergeFrom(before))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, kueue.HoldAndDrain)
 			})
 
 			ginkgo.By("checking pending metrics after stopping LocalQueue "+lq.Name+" with HoldAndDrain", func() {
