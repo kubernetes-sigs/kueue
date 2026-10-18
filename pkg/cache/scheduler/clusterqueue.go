@@ -373,10 +373,10 @@ func (c *clusterQueue) inactiveReason() (string, string) {
 		}
 
 		if features.Enabled(features.TopologyAwareScheduling) && len(c.tasFlavors) > 0 {
-			for tasFlavor, topology := range c.tasFlavors {
+			for _, tasFlavor := range slices.Sorted(maps.Keys(c.tasFlavors)) {
 				if c.tasCache.Get(tasFlavor) == nil {
 					reasons = append(reasons, kueue.ClusterQueueActiveReasonTopologyNotFound)
-					messages = append(messages, fmt.Sprintf("there is no Topology %q for TAS flavor %q", topology, tasFlavor))
+					messages = append(messages, fmt.Sprintf("there is no Topology %q for TAS flavor %q", c.tasFlavors[tasFlavor], tasFlavor))
 				}
 			}
 		}
