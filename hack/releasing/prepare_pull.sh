@@ -100,7 +100,7 @@ if [[ "$#" -lt 1 ]]; then
   echo "    $0 --target release v0.13.2         # Create only release branch PR"
   echo "    $0 --target main v0.13.2            # Create only main branch PR"
   echo
-  echo "  Set the DRY_RUN environment var to skip git push and creating PR."
+  echo "  Set the DRY_RUN environment var to skip git push, PR creation and the release issue update."
   echo "  This is useful for creating patches to a release branch without making a PR."
   echo "  When DRY_RUN is set the script will leave you in a branch containing the commits."
   echo
@@ -354,6 +354,7 @@ if [[ "$TARGET" == "all" || "$TARGET" == "release" ]]; then
 
   prepare_local_branch "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH_UNIQUE}" "${PREPARE_RELEASE_PR_NAME}"
 
+  # A dry run with --target all must still prepare the main branch below.
   if [[ -z "${DRY_RUN}" ]]; then
     push_and_create_pr "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH_UNIQUE}" "${PREPARE_RELEASE_PR_NAME}"
     PREPARE_RELEASE_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${PREPARE_RELEASE_PR_NAME}" | awk '{print $1}' || true)
@@ -378,16 +379,17 @@ if [[ "$TARGET" == "all" || "$TARGET" == "main" ]]; then
 
   prepare_local_branch main "${UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE}" "${UPDATE_MAIN_WITH_LATEST_PR_NAME}"
 
-  if [[ -z "${DRY_RUN}" ]]; then
-    push_and_create_pr main "${UPDATE_MAIN_WITH_LATEST_BRANCH}" "${UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE}" "${UPDATE_MAIN_WITH_LATEST_PR_NAME}"
-    PREPARE_MAIN_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${UPDATE_MAIN_WITH_LATEST_PR_NAME}" | awk '{print $1}' || true)
-    if [ -n "$PREPARE_MAIN_PR_NUMBER" ]; then
-      RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL_MAIN -->/#${PREPARE_MAIN_PR_NUMBER}}
-      gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
-        echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
-      }
-    fi
-  else
+  if [[ -n "${DRY_RUN}" ]]; then
     echo "!!! Skipping git push, PR creation and issue update because you set DRY_RUN."
+    exit 0
+  fi
+
+  push_and_create_pr main "${UPDATE_MAIN_WITH_LATEST_BRANCH}" "${UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE}" "${UPDATE_MAIN_WITH_LATEST_PR_NAME}"
+  PREPARE_MAIN_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${UPDATE_MAIN_WITH_LATEST_PR_NAME}" | awk '{print $1}' || true)
+  if [ -n "$PREPARE_MAIN_PR_NUMBER" ]; then
+    RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL_MAIN -->/#${PREPARE_MAIN_PR_NUMBER}}
+    gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${RELEASE_ISSUE_BODY}" --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" || {
+      echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
+    }
   fi
 fi
