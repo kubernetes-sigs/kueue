@@ -14,7 +14,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Check submission control flow without preparing branches or contacting GitHub."""
+"""Check submission and dry-run control flow without contacting GitHub."""
 
 import os
 import re
@@ -27,35 +27,57 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class ManualReleaseSubmissionTest(unittest.TestCase):
-    def test_declining_submission_stops_before_issue_updates(self):
+    def test_submission_and_dry_run_control_flow(self):
+        harness = '''
+set -o errexit
+set -o nounset
+set -o pipefail
+function prepare_local_branch() { echo "prepare" >> "$CALLS"; }
+function git() { echo "git $1" >> "$CALLS"; return "$PUSH_STATUS"; }
+function make_pr() { gh pr create; }
+function gh() {
+  echo "$1 $2" >> "$CALLS"
+  if [[ "$1 $2" == "pr create" ]]; then return "$CREATE_STATUS"; fi
+  if [[ "$1 $2" == "pr list" ]]; then
+    printf '42\t%s\n' "Prepare release v0.20.0" "Update main with the latest v0.20.0" "Kueue: Promote v0.20.0" "Kueue: CI for 0.20"
+  fi
+}
+'''
         scripts = {
-            "prepare_pull.sh": ('if [[ "$TARGET" == "all"', 2),
-            "promote_pull.sh": ('K8S_IO_BRANCH="', 1),
-            "ci_pull.sh": ('CI_BRANCH="', 1),
+            "prepare all": ("prepare_pull.sh", 'if [[ "$TARGET" == "all"', "all", 2),
+            "prepare release": ("prepare_pull.sh", 'if [[ "$TARGET" == "all"', "release", 1),
+            "prepare main": ("prepare_pull.sh", 'if [[ "$TARGET" == "all"', "main", 1),
+            "promote": ("promote_pull.sh", 'K8S_IO_BRANCH="', "", 1),
+            "CI": ("ci_pull.sh", 'CI_BRANCH="', "", 1),
         }
-        submitted = ["git push", "pr create", "pr list", "issue edit"]
+        prepared = ["prepare", "submit"]
+        submitted = prepared + ["git push", "pr create", "pr list", "issue edit"]
         cases = {
-            "confirmed": ("y\ny\n", "0", "0", 0, submitted),
-            "uppercase confirmation": ("Y\nY\n", "0", "0", 0, submitted),
-            "declined": ("n\n", "0", "0", 1, []),
-            "uppercase decline": ("N\n", "0", "0", 1, []),
-            "default answer": ("\n", "0", "0", 1, []),
-            "invalid answer": ("yes\n", "0", "0", 1, []),
-            "push failed": ("y\n", "1", "0", 1, ["git push"]),
-            "PR creation failed": ("y\n", "0", "1", 1, ["git push", "pr create"]),
+            "confirmed": ("y\ny\n", "0", "0", "", 0, submitted),
+            "uppercase confirmation": ("Y\nY\n", "0", "0", "", 0, submitted),
+            "declined": ("n\n", "0", "0", "", 1, prepared),
+            "uppercase decline": ("N\n", "0", "0", "", 1, prepared),
+            "default answer": ("\n", "0", "0", "", 1, prepared),
+            "invalid answer": ("yes\n", "0", "0", "", 1, prepared),
+            "push failed": ("y\n", "1", "0", "", 1, prepared + ["git push"]),
+            "PR creation failed": ("y\n", "0", "1", "", 1, prepared + ["git push", "pr create"]),
+            "dry run": ("", "0", "0", "1", 0, ["prepare"]),
         }
-        for script_name, (start, phases) in scripts.items():
+        for script_case, (script_name, start, target, phases) in scripts.items():
             source = (REPO_ROOT / "hack/releasing" / script_name).read_text()
-            push = re.search(r"^function push_and_create_pr\(\) \{.*?^\}",
-                             source, re.MULTILINE | re.DOTALL).group()
+            match = re.search(r"^function push_and_create_pr\(\) \{.*?^\}",
+                              source, re.MULTILINE | re.DOTALL)
+            self.assertIsNotNone(match, f"push_and_create_pr not found in {script_name}")
+            # Record entry into the real submission helper.
+            push = match.group().replace("{\n", '{\n  echo "submit" >> "$CALLS"\n', 1)
             script = push + "\n" + source[source.index(start):]
-            for name, (answers, push_status, create_status, want_status, want_calls) in cases.items():
-                with self.subTest(script=script_name, case=name), tempfile.TemporaryDirectory() as directory:
+            for name, (answers, push_status, create_status, dry_run, want_status, want_calls) in cases.items():
+                with self.subTest(script=script_case, case=name), tempfile.TemporaryDirectory() as directory:
                     calls = Path(directory) / "calls"
                     env = {
                         **os.environ,
                         "CALLS": str(calls), "PUSH_STATUS": push_status, "CREATE_STATUS": create_status,
-                        "DRY_RUN": "", "TARGET": "all", "FORK_REMOTE": "origin",
+                        "DRY_RUN": dry_run, "TARGET": target, "FORK_REMOTE": "origin",
                         "RELEASE_VERSION": "v0.20.0", "RELEASE_BRANCH": "release-0.20", "MAJOR_MINOR": "0.20",
                         "RELEASE_ISSUE_NUMBER": "1", "RELEASE_ISSUE_NAME": "Release v0.20.0",
                         "RELEASE_ISSUE_BODY": "<!-- PREPARE_PULL_RELEASE -->\n<!-- PREPARE_PULL_MAIN -->\n<!-- K8S_IO_PULL -->\n<!-- CI_PULL -->",
@@ -69,24 +91,10 @@ class ManualReleaseSubmissionTest(unittest.TestCase):
                         "KUBERNETES_K8S_IO_MAIN_REPO": "kubernetes/k8s.io",
                         "KUBERNETES_K8S_IO_FORK_REMOTE": "origin",
                     }
-                    harness = '''
-set -o errexit
-set -o nounset
-set -o pipefail
-function prepare_local_branch() { :; }
-function git() { echo "git push" >> "$CALLS"; return "$PUSH_STATUS"; }
-function make_pr() { gh pr create; }
-function gh() {
-  echo "$1 $2" >> "$CALLS"
-  if [[ "$1 $2" == "pr create" ]]; then return "$CREATE_STATUS"; fi
-  if [[ "$1 $2" == "pr list" ]]; then
-    printf '42\t%s\n' "Prepare release v0.20.0" "Update main with the latest v0.20.0" "Kueue: Promote v0.20.0" "Kueue: CI for 0.20"
-  fi
-}
-'''
                     result = subprocess.run(["bash", "-c", harness + script], env=env, cwd=directory,
                                             input=answers, capture_output=True, text=True, check=False)
                     self.assertEqual(result.returncode, want_status, result.stdout + result.stderr)
+                    self.assertEqual(result.stdout.count("Skipping git push"), phases if dry_run else 0)
                     recorded = calls.read_text().splitlines() if calls.exists() else []
                     expected = want_calls * phases if want_status == 0 else want_calls
                     self.assertEqual(recorded, expected)

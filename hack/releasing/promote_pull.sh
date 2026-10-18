@@ -97,7 +97,7 @@ if [[ "$#" -ne 1 ]]; then
   echo "  Example:"
   echo "    $0 v0.13.2"
   echo
-  echo "  Set the DRY_RUN environment var to skip git push and creating PR."
+  echo "  Set the DRY_RUN environment var to skip git push, PR creation and the release issue update."
   echo "  When DRY_RUN is set the script will leave you in a branch containing the commits."
   echo
   echo "  Set KUBERNETES_K8S_IO_UPSTREAM_REMOTE (default: upstream) and KUBERNETES_K8S_IO_FORK_REMOTE (default: origin)"
@@ -393,16 +393,17 @@ declare -r K8S_IO_PR_NAME
 
 prepare_local_branch main "${K8S_IO_BRANCH_UNIQUE}" "${K8S_IO_PR_NAME}"
 
-if [[ -z "${DRY_RUN}" ]]; then
-  push_and_create_pr main "${K8S_IO_BRANCH}" "${K8S_IO_BRANCH_UNIQUE}" "${K8S_IO_PR_NAME}"
-  K8S_IO_PR_NUMBER=$(gh pr list --repo="${KUBERNETES_K8S_IO_MAIN_REPO}" | grep "${K8S_IO_PR_NAME}" | awk '{print $1}' || true)
-  if [ -n "$K8S_IO_PR_NUMBER" ]; then
-    NEW_RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- K8S_IO_PULL -->/${KUBERNETES_K8S_IO_MAIN_REPO}#${K8S_IO_PR_NUMBER}}
-    echo "+++ Editing release issue ${RELEASE_ISSUE_NUMBER} on GitHub repo ${KUBERNETES_SIGS_KUEUE_MAIN_REPO}"
-    gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO}" || {
-      echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
-    }
-  fi
-else
+if [[ -n "${DRY_RUN}" ]]; then
   echo "!!! Skipping git push, PR creation and issue update because you set DRY_RUN."
+  exit 0
+fi
+
+push_and_create_pr main "${K8S_IO_BRANCH}" "${K8S_IO_BRANCH_UNIQUE}" "${K8S_IO_PR_NAME}"
+K8S_IO_PR_NUMBER=$(gh pr list --repo="${KUBERNETES_K8S_IO_MAIN_REPO}" | grep "${K8S_IO_PR_NAME}" | awk '{print $1}' || true)
+if [ -n "$K8S_IO_PR_NUMBER" ]; then
+  NEW_RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- K8S_IO_PULL -->/${KUBERNETES_K8S_IO_MAIN_REPO}#${K8S_IO_PR_NUMBER}}
+  echo "+++ Editing release issue ${RELEASE_ISSUE_NUMBER} on GitHub repo ${KUBERNETES_SIGS_KUEUE_MAIN_REPO}"
+  gh issue edit "${RELEASE_ISSUE_NUMBER}" --body "${NEW_RELEASE_ISSUE_BODY}" --repo="${KUBERNETES_SIGS_KUEUE_MAIN_REPO}" || {
+    echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
+  }
 fi
