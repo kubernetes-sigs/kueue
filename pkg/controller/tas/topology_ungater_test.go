@@ -4081,6 +4081,7 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 		pods                    []corev1.Pod
 		nodes                   []corev1.Node
 		elasticTAS              bool
+		disableReclaimable      bool
 		wantTopologyAssignments map[string]*kueue.TopologyAssignment
 		// requestName is the Workload name the reconcile request is keyed by.
 		// Defaults to the slice chain name.
@@ -4095,6 +4096,35 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 			nodes:                   shrinkNodes,
 			elasticTAS:              true,
 			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": survivorAssignment},
+		},
+		"shrink releases capacity after a survivor is reclaimed": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				ReclaimablePods(kueue.ReclaimablePod{Name: "workers", Count: 1}).Obj()},
+			pods:       []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			wantPods:   []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			nodes:      shrinkNodes,
+			elasticTAS: true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+				Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"n2"}, 1).Obj()).Obj()},
+		},
+		"shrink retains capacity when reclaiming is disabled": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				ReclaimablePods(kueue.ReclaimablePod{Name: "workers", Count: 1}).Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().StatusPhase(corev1.PodSucceeded).Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			disableReclaimable:      true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": originalAssignment},
+		},
+		"shrink clamps reclaimable count above the current size": {
+			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
+				ReclaimablePods(kueue.ReclaimablePod{Name: "workers", Count: 4}).Obj()},
+			pods:                    []corev1.Pod{},
+			wantPods:                []corev1.Pod{},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": nil},
 		},
 		"shrink retains capacity while excess Pods are terminating": {
 			workloads:               []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().Obj()},
@@ -4296,6 +4326,7 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, tc.elasticTAS)
+			features.SetFeatureGateDuringTest(t, features.ReclaimablePods, !tc.disableReclaimable)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			clientBuilder := utiltesting.NewClientBuilder().WithStatusSubresource(&kueue.Workload{}).

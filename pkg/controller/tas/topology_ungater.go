@@ -58,6 +58,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -336,11 +337,16 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 }
 
 // reconcileElasticShrink releases domains only after the remaining Pods account
-// for the entire requested size.
+// for the requested size after reclaim.
 func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.Workload) (bool, error) {
 	before := wl
 	wl = wl.DeepCopy()
 	counts := workload.ExtractPodSetCountsFromWorkload(wl)
+	if features.Enabled(features.ReclaimablePods) {
+		for name, reclaimed := range workload.ReclaimableCounts(wl) {
+			counts[name] -= min(reclaimed, counts[name])
+		}
+	}
 	changed := false
 	for i := range wl.Status.Admission.PodSetAssignments {
 		psa := &wl.Status.Admission.PodSetAssignments[i]
@@ -403,7 +409,10 @@ func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.
 		return false, nil
 	}
 	// A concurrent resize or readmission invalidates the Pod observation.
-	err := r.client.Status().Patch(ctx, wl, client.MergeFromWithOptions(before, client.MergeFromWithOptimisticLock{}))
+	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, before, r.clock, func(current *kueue.Workload) (bool, error) {
+		current.Status.Admission = wl.Status.Admission
+		return true, nil
+	})
 	return err == nil, err
 }
 

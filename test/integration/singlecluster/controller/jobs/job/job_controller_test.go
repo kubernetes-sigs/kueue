@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"maps"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -4954,6 +4955,43 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 		gomega.Expect(assigned).To(gomega.Equal(int32(2)))
 		gomega.Expect(assignment.ResourceUsage["nvidia.com/gpu"]).To(gomega.Equal(resource.MustParse("2")))
 		gomega.Expect(assignment.ResourceUsage[corev1.ResourceMemory]).To(gomega.Equal(resource.MustParse("1Gi")))
+
+		ginkgo.By("keeping admission fields owned by the admission status writer")
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
+		for _, manager := range origin.ManagedFields {
+			if manager.Subresource == "status" && manager.FieldsV1 != nil && strings.Contains(manager.FieldsV1.GetRawString(), `"f:admission"`) {
+				gomega.Expect(manager.Manager).To(gomega.Equal(string(pkgconstants.AdmissionName)))
+			}
+		}
+
+		ginkgo.By("evicting the shrunken workload before releasing its Pods")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
+			g.Expect(workload.SetConditionAndUpdate(ctx, k8sClient, &origin, kueue.WorkloadEvicted,
+				metav1.ConditionTrue, kueue.WorkloadEvictedByPreemption, "By test", "evict", behavioral.RealClock)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			g.Expect(ptr.Deref(job.Spec.Suspend, false)).To(gomega.BeTrue())
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
+			origin.Spec.Active = new(false)
+			g.Expect(k8sClient.Update(ctx, &origin)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		for _, p := range survivors {
+			gomega.Expect(k8sClient.Patch(ctx, p, client.RawPatch(types.MergePatchType, []byte(`{"metadata":{"finalizers":null}}`)))).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, p, true)
+		}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			job.Status.Active = 0
+			g.Expect(k8sClient.Status().Update(ctx, job)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
+			g.Expect(origin.Status.Admission).To(gomega.BeNil())
+			g.Expect(workload.HasQuotaReservation(&origin)).To(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, blockedWL)
 	})
 
 	ginkgo.It("should release topology capacity at zero and readmit an elastic job on regrowth", func() {
