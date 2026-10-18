@@ -1128,8 +1128,8 @@ func TestReconnectResyncListFailureRequeues(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected reconnect error: %v", err)
 	}
-	if res.RequeueAfter != retryIncrement {
-		t.Fatalf("reconnect list failure requeue: got %v, want %v", res.RequeueAfter, retryIncrement)
+	if res.RequeueAfter != resyncRetryInterval {
+		t.Fatalf("reconnect list failure requeue: got %v, want %v", res.RequeueAfter, resyncRetryInterval)
 	}
 	if !rc.connState.isConnected() {
 		t.Fatal("worker client became disconnected after manager list failure")
