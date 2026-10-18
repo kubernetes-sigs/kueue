@@ -4956,6 +4956,101 @@ var _ = ginkgo.Describe("Job controller with TAS and ElasticJobsViaWorkloadSlice
 		gomega.Expect(assignment.ResourceUsage[corev1.ResourceMemory]).To(gomega.Equal(resource.MustParse("1Gi")))
 	})
 
+	ginkgo.It("should release topology capacity at zero and readmit an elastic job on regrowth", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+		job := testingjob.MakeJob("scale-to-zero", ns.Name).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			Queue(kueue.LocalQueueName(localQueue.Name)).Parallelism(1).Completions(2).
+			NodeSelector(tasBlockLabel, "b1").
+			PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+			Request(corev1.ResourceCPU, "1").Obj()
+		behavioral.MustCreate(ctx, k8sClient, job)
+		origin := behavioral.ExpectWorkloadsInNamespace(ctx, k8sClient, ns.Name, 1)[0]
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &origin)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			g.Expect(ptr.Deref(job.Spec.Suspend, true)).To(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("running a Pod that fills the requested topology domain")
+		// envtest has no Job controller or kubelet, so create and bind its Pod.
+		pod := &corev1.Pod{ObjectMeta: *job.Spec.Template.ObjectMeta.DeepCopy(), Spec: *job.Spec.Template.Spec.DeepCopy()}
+		pod.Name, pod.Namespace = "before-zero", ns.Name
+		pod.Spec.TerminationGracePeriodSeconds = new(int64(0))
+		pod.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(job, batchv1.SchemeGroupVersion.WithKind("Job"))}
+		behavioral.MustCreate(ctx, k8sClient, pod)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pod, true)
+		})
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(gomega.Succeed())
+			g.Expect(pod.Spec.SchedulingGates).To(gomega.BeEmpty())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		integration.BindPodWithNode(ctx, k8sClient, "b1", pod)
+		integration.SetPodsPhase(ctx, k8sClient, corev1.PodRunning, pod)
+
+		ginkgo.By("queuing a competitor that fits quota but not the occupied domain")
+		waiting := testingjob.MakeJob("waiting", ns.Name).Queue(kueue.LocalQueueName(localQueue.Name)).
+			NodeSelector(tasBlockLabel, "b1").PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+			Request(corev1.ResourceCPU, "1").Obj()
+		behavioral.MustCreate(ctx, k8sClient, waiting)
+		waitingWL := behavioral.AwaitAndVerifyCreatedWorkload(ctx, k8sClient,
+			types.NamespacedName{Namespace: ns.Name, Name: workloadjob.GetWorkloadNameForJob(waiting.Name, waiting.UID)}, waiting)
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, waitingWL)
+
+		ginkgo.By("shrinking to zero and removing the last Pod")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			job.Spec.Parallelism = new(int32(0))
+			g.Expect(k8sClient.Update(ctx, job)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, pod, true)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(&origin), &origin)).To(gomega.Succeed())
+			g.Expect(origin.Spec.PodSets[0].Count).To(gomega.BeZero())
+			g.Expect(origin.Status.Admission).NotTo(gomega.BeNil())
+			g.Expect(origin.Status.Admission.PodSetAssignments[0].TopologyAssignment).To(gomega.BeNil())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, waitingWL)
+
+		ginkgo.By("growing again while the competitor holds the released capacity")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			job.Spec.Parallelism = new(int32(1))
+			g.Expect(k8sClient.Update(ctx, job)).To(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		replacement := behavioral.ExpectNewWorkloadSlice(ctx, k8sClient, &origin)
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, replacement)
+
+		ginkgo.By("finishing the competitor and admitting the replacement slice")
+		integration.FinishWorkloads(ctx, k8sClient, waitingWL)
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, replacement)
+		behavioral.ExpectWorkloadToFinish(ctx, k8sClient, client.ObjectKeyFromObject(&origin))
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(replacement), replacement)).To(gomega.Succeed())
+			assignment := replacement.Status.Admission.PodSetAssignments[0]
+			g.Expect(assignment.TopologyAssignment).NotTo(gomega.BeNil())
+			g.Expect(tas.InternalFrom(assignment.TopologyAssignment).Domains).To(gomega.Equal([]tas.TopologyDomainAssignment{{Values: []string{"b1"}, Count: 1}}))
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), job)).To(gomega.Succeed())
+			g.Expect(ptr.Deref(job.Spec.Suspend, true)).To(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("ungating a replacement Pod with its fresh topology assignment")
+		recovered := &corev1.Pod{ObjectMeta: *job.Spec.Template.ObjectMeta.DeepCopy(), Spec: *job.Spec.Template.Spec.DeepCopy()}
+		recovered.Name, recovered.Namespace = "after-zero", ns.Name
+		recovered.Spec.TerminationGracePeriodSeconds = new(int64(0))
+		recovered.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(job, batchv1.SchemeGroupVersion.WithKind("Job"))}
+		behavioral.MustCreate(ctx, k8sClient, recovered)
+		ginkgo.DeferCleanup(func() {
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, recovered, true)
+		})
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(recovered), recovered)).To(gomega.Succeed())
+			g.Expect(recovered.Spec.SchedulingGates).To(gomega.BeEmpty())
+			g.Expect(recovered.Spec.NodeSelector).To(gomega.HaveKeyWithValue(tasBlockLabel, "b1"))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
 	ginkgo.It("should scale up an elastic job with TAS unconstrained topology", func() {
 		job := testingjob.MakeJob("elastic-job", ns.Name).
 			Queue(kueue.LocalQueueName(localQueue.Name)).
