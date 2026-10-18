@@ -170,11 +170,18 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 		PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 1}),
 		Count:          1,
 	}}
+	refreshedGPUCharge := []workload.PodSetResources{{
+		Name:           kueue.DefaultPodSetName,
+		Requests:       resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 2}),
+		PerPodRequests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{"gpu": 2}),
+		Count:          1,
+	}}
 
 	cases := map[string]struct {
 		draIntegration bool
 		// clientGeneration is the newest object, the one requeue fetches.
 		clientGeneration  int64
+		refreshCharges    bool
 		wantRequeued      bool
 		wantTotalRequests []workload.PodSetResources
 		// wantSentGeneration is the generation handed back on the reconcile
@@ -186,6 +193,13 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 			clientGeneration:  1,
 			wantRequeued:      true,
 			wantTotalRequests: gpuCharge,
+		},
+		"keeps charges refreshed while the workload is inflight": {
+			draIntegration:    true,
+			clientGeneration:  1,
+			refreshCharges:    true,
+			wantRequeued:      true,
+			wantTotalRequests: refreshedGPUCharge,
 		},
 		"hands the workload to the controller once the object has moved on": {
 			draIntegration:     true,
@@ -259,6 +273,17 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 				t.Fatal("expected to pop workload")
 			}
 			inflight := &head.Info
+			if tc.refreshCharges {
+				refreshedCharges := workload.WithPreprocessedDRAResources(
+					map[kueue.PodSetReference]corev1.ResourceList{
+						kueue.DefaultPodSetName: {"gpu": *resource.NewQuantity(2, resource.DecimalSI)},
+					},
+					nil,
+				)
+				if err := manager.AddOrUpdateWorkload(ctx, log, wl, refreshedCharges); err != nil {
+					t.Fatalf("Failed refreshing workload charges while inflight: %v", err)
+				}
+			}
 
 			if got := manager.RequeueWorkload(ctx, inflight, RequeueReasonGeneric, ""); got != tc.wantRequeued {
 				t.Errorf("RequeueWorkload() = %t, want %t", got, tc.wantRequeued)
