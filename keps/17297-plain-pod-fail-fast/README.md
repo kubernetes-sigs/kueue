@@ -14,17 +14,20 @@
   - [Story 1: Multi-Container Batch Job with Missing Worker Dependency](#story-1-multi-container-batch-job-with-missing-worker-dependency)
   - [Story 2: Standalone Plain Pod with Disabled WaitForPodsReady](#story-2-standalone-plain-pod-with-disabled-waitforpodsready)
 - [Design Details](#design-details)
-  - [API Changes](#api-changes)
-    - [Feature Gate](#feature-gate)
-    - [Pod Annotation](#pod-annotation)
+  - [API](#api)
+  - [Validation](#validation)
+  - [Handling](#handling)
   - [Controller Logic](#controller-logic)
+  - [Interactions with WaitForPodsReady and Other Features](#interactions-with-waitforpodsready-and-other-features)
   - [Test Plan](#test-plan)
     - [Unit Tests](#unit-tests)
     - [Integration Tests](#integration-tests)
+    - [End-to-End (e2e) Tests](#end-to-end-e2e-tests)
 - [Graduation Criteria](#graduation-criteria)
   - [Alpha (v0.20)](#alpha-v020)
   - [Beta (v0.21)](#beta-v021)
   - [Stable (v0.22+)](#stable-v022)
+- [Future Work Ideas](#future-work-ideas)
 - [Alternatives](#alternatives)
   - [Alternative 1: Rely solely on WaitForPodsReady](#alternative-1-rely-solely-on-waitforpodsready)
   - [Alternative 2: Immediately mark Workload Finished without deleting the Pod](#alternative-2-immediately-mark-workload-finished-without-deleting-the-pod)
@@ -35,7 +38,7 @@
 
 This proposal introduces an opt-in fail-fast policy for standalone plain Pods managed by Kueue, gated by the alpha feature gate `PlainPodFailFast` (disabled by default in v0.20) and configured via the Pod annotation `kueue.x-k8s.io/pod-fail-fast: "true"`.
 
-When enabled on a batch Pod with `spec.restartPolicy: Never`, Kueue detects when any regular container in `spec.containers` terminates with a non-zero exit code while other containers remain in a `Waiting` state (keeping the Pod phase in `Pending`). Rather than leaving the Pod stalled and retaining cluster quota indefinitely, Kueue triggers graceful deletion of the Pod, waits for running containers to shut down, marks the Workload failed, and releases reserved quota.
+When enabled on a batch Pod with `spec.restartPolicy: Never`, Kueue detects when any regular container in `spec.containers` terminates with a non-zero exit code. Rather than leaving the Pod stalled and retaining cluster quota indefinitely (such as when other containers remain in a `Waiting` state), Kueue triggers graceful deletion of the Pod, ensures quota remains reserved during `terminationGracePeriodSeconds`, and marks the Workload failed once the Pod reaches a terminal state.
 
 ## Motivation
 
@@ -60,7 +63,7 @@ Under `restartPolicy: Never`, a container that exited with a non-zero code will 
 - Restrict failure detection to regular containers (`spec.containers`), explicitly excluding native restartable sidecars (`initContainers` with `restartPolicy: Always`).
 - Stop remaining Pod execution gracefully through standard Kubernetes deletion, honoring `terminationGracePeriodSeconds` before quota is released.
 - Ensure quota remains reserved while containers are terminating, preventing unreserved resource usage on worker nodes.
-- Emit clear Workload and Pod events/conditions indicating which container failed and its exit code.
+- Emit clear Workload and Pod events and conditions indicating which container failed and its exit code.
 - Ensure MultiKueue worker clusters clean up failed attempts and propagate the finished status back to the manager cluster so quota accounting converges across clusters.
 
 ### Non-Goals
@@ -68,14 +71,14 @@ Under `restartPolicy: Never`, a container that exited with a non-zero code will 
 - Modifying Kubernetes core Pod lifecycle or kubelet behavior.
 - Automatic retries or re-creating failed Pods (retries remain the responsibility of submitting workflow engines such as Argo, Airflow, or Kubeflow).
 - Dependency provisioning or synchronizing missing Secrets/ConfigMaps across clusters.
-- Supporting Pod groups (`kueue.x-k8s.io/pod-group-name`) or serving workloads in Alpha.
-- Supporting containers with restart policy overrides (e.g., `Always` or `OnFailure`) in Alpha.
+- Supporting Pod groups (`kueue.x-k8s.io/pod-group-name`) or serving workloads in Alpha (see [Future work ideas](#future-work-ideas)).
+- Supporting containers with individual restart policies or restart rules in Alpha.
 
 ## Proposal
 
 ### Feature Gate and Annotation
 
-1. **Feature Gate**: Introduce `PlainPodFailFast` as an Alpha feature gate, disabled by default.
+1. **Feature Gate**: Introduce `PlainPodFailFast` as an Alpha feature gate, disabled by default. When the feature gate is disabled, Kueue ignores the annotation and preserves existing plain-Pod behavior.
 2. **Pod Annotation**: Introduce the annotation `kueue.x-k8s.io/pod-fail-fast: "true"` on plain Pods. The fail-fast evaluation only runs when both the feature gate is enabled and the Pod carries this annotation.
 
 ### Failure Detection Semantics
@@ -89,9 +92,9 @@ During Pod reconciliation, Kueue checks whether a Pod qualifies for fail-fast ha
 6. Any regular container in `spec.containers` matches the following condition in `status.containerStatuses`:
    - `state.terminated != nil`
    - `state.terminated.exitCode != 0`
-   - The container does not have an individual `restartPolicy` override (if supported by the cluster runtime).
+   - The matching `spec.containers` entry has no individual `restartPolicy` or `restartPolicyRules`; containers with either setting are outside the Alpha policy.
 
-Native sidecar containers in `spec.initContainers` (defined with `restartPolicy: Always`) are explicitly ignored by this check, as they are expected to restart or serve auxiliary functions throughout the Pod lifecycle. Regular init containers with non-zero exit codes already cause Kubernetes to fail the Pod directly, so they do not require fail-fast intervention.
+Native sidecar containers in `spec.initContainers` (defined with `restartPolicy: Always`) are reported in `initContainerStatuses` and are excluded by this check, as they are expected to restart or serve auxiliary functions throughout the Pod lifecycle. Regular init containers with non-zero exit codes already cause Kubernetes to fail the Pod directly, so they do not require fail-fast intervention.
 
 Containers that terminate with `exitCode == 0` do not trigger fail-fast, allowing helper or setup containers in `spec.containers` to finish successfully while others continue running.
 
@@ -101,124 +104,157 @@ When an unrecoverable failure is detected:
 1. Kueue records a `Normal` event on the Pod:
    - Reason: `FailedFast`
    - Message: `Container "<name>" failed with exit code <exitCode>: unrecoverable failure under restartPolicy Never`
-2. Kueue sets a status condition on the Pod:
+2. Kueue sets a status condition on the Pod using the existing `TerminationTarget` condition mechanism:
    - Type: `TerminationTarget`
    - Status: `True`
-   - Reason: `UnrecoverableContainerFailure`
+   - Reason: `UnrecoverableContainerFailure` (represented as a stop reason)
    - Message: `Container "<name>" terminated with exit code <exitCode>`
-3. Kueue issues a graceful delete request (`client.Delete(ctx, pod)`) against the Pod.
-4. **Quota preservation during teardown**: The Pod retains its `kueue.x-k8s.io/managed` finalizer while deleting. Because the Workload is not marked finished, Kueue keeps quota reserved while any remaining running containers shut down, honoring `pod.Spec.TerminationGracePeriodSeconds`.
-5. Once all containers terminate, kubelet transitions the Pod phase to `Failed`.
-6. On subsequent reconciliation, `utilpod.IsTerminated(pod)` returns true. Kueue's existing `job.Finished()` path marks the Workload `Finished=True, Reason=Failed`, records the failure message, removes the finalizer, and releases quota.
+3. The condition status update is applied first. If the status-apply call fails, the reconciler returns an error to requeue; deletion is not attempted until status is safely applied.
+4. Once the status update succeeds, Kueue issues a graceful delete request (`client.Delete(ctx, pod)`) against the Pod. If the delete call fails, the finalizer remains in place and controller-runtime requeues. Repeated reconciliations safely observe `DeletionTimestamp` and avoid re-issuing duplicate requests.
+5. **Quota preservation during teardown**: The Pod retains its `kueue.x-k8s.io/managed` finalizer while deleting. Because the Workload is not marked finished, Kueue keeps quota reserved while any remaining running containers shut down, honoring `pod.Spec.TerminationGracePeriodSeconds`.
+6. Once all containers terminate, kubelet transitions the Pod phase to `Failed`.
+7. On subsequent reconciliation, `utilpod.IsTerminated(pod)` returns true. Because kubelet may leave `pod.Status.Message` empty on container failure, `Pod.Finished()` falls back to reading the `TerminationTarget` condition message or failed container status, ensuring the Workload condition identifies the failed container name and exit code. Kueue then marks the Workload `Finished=True, Reason=Failed`, removes the finalizer, and releases quota.
 
 ### MultiKueue Convergence
 
 In MultiKueue deployments:
 1. The workload and Pod are dispatched to the worker cluster.
 2. The worker cluster's Kueue pod controller detects the container failure, triggers graceful deletion, and finalizes the worker Workload with `Finished=True, Reason=Failed`.
-3. MultiKueue's `SyncJob` replicates the worker Pod's terminal status to the management cluster Pod.
+3. MultiKueue's `SyncJob` copies the worker Pod's terminal status while the management-cluster Pod is not terminating. If the management-cluster Pod is terminating, status synchronization is skipped.
 4. MultiKueue's workload controller reads the worker Workload's `Finished` condition and marks the management cluster Workload `Finished=True` with matching Reason and Message.
-5. Quota is released on both manager and worker clusters without requiring changes to MultiKueue core logic.
+5. The propagated `Finished` condition releases quota on both clusters even if management-cluster Pod status synchronization is skipped. The management-cluster Pod is finalized and cleaned up normally through its existing lifecycle.
 
 ## User Stories
 
 ### Story 1: Multi-Container Batch Job with Missing Worker Dependency
 
-As a platform engineer dispatching multi-container batch Pods via MultiKueue, my application runs a data processing container alongside logging and sync sidecars. When the primary container fails to start due to a missing Secret on a worker cluster, the sync sidecar exits with code 1. I want Kueue to detect this unrecoverable state, stop the stalled Pod gracefully, mark the Workload failed, and release quota so other jobs in the queue can run.
+As a platform engineer dispatching multi-container batch Pods via MultiKueue, my application runs a data processing container alongside logging and sync helper containers. When the primary container fails to start due to a missing Secret on a worker cluster, the sync helper container exits with code 1. I want Kueue to detect this unrecoverable state, stop the stalled Pod gracefully, mark the Workload failed, and release quota so other jobs in the queue can run.
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: batch-job-multi-container
+  namespace: batch-workloads
+  annotations:
+    kueue.x-k8s.io/pod-fail-fast: "true"
+  labels:
+    kueue.x-k8s.io/queue-name: user-queue
+spec:
+  restartPolicy: Never
+  containers:
+  - name: main-processor
+    image: custom-batch:v1
+    command: ["run-processing"]
+    envFrom:
+    - secretRef:
+        name: worker-dataset-credentials
+  - name: sync-helper
+    image: sync-helper:v1
+    command: ["sh", "-c", "wait-for-main || exit 1"]
+```
 
 ### Story 2: Standalone Plain Pod with Disabled WaitForPodsReady
 
 As a cluster administrator running batch jobs where `DisableWaitForPodsReady=true` is set to avoid timing out large image pulls, I need Kueue to recognize when a container has permanently died with exit code 1 under `restartPolicy: Never`. Rather than holding GPU and CPU reservations until someone manually deletes the Pod, Kueue should fail fast and clear the queue reservation.
 
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: standalone-gpu-task
+  namespace: batch-workloads
+  annotations:
+    kueue.x-k8s.io/pod-fail-fast: "true"
+  labels:
+    kueue.x-k8s.io/queue-name: gpu-queue
+spec:
+  restartPolicy: Never
+  containers:
+  - name: trainer
+    image: gpu-model-trainer:v1
+    resources:
+      requests:
+        nvidia.com/gpu: 2
+  - name: telemetry-exporter
+    image: telemetry:v1
+    command: ["sh", "-c", "sleep 10; exit 1"]
+```
+
 ## Design Details
 
-### API Changes
+### API
 
-#### Feature Gate
-In `pkg/features/kube_features.go`:
-```go
-// PlainPodFailFast enables opt-in fail-fast handling for plain Pods with unrecoverable container failures.
-PlainPodFailFast featuregate.Feature = "PlainPodFailFast"
-```
+- **Feature Gate**: `PlainPodFailFast` in Kueue's feature gate registry (Alpha, disabled by default).
+- **Pod Annotation**: `kueue.x-k8s.io/pod-fail-fast` on plain Pod metadata.
 
-#### Pod Annotation
-In `pkg/controller/jobs/pod/constants/constants.go`:
-```go
-PodFailFastAnnotationKey   = "kueue.x-k8s.io/pod-fail-fast"
-PodFailFastAnnotationValue = "true"
-```
+### Validation
+
+- The annotation accepts only the exact string `"true"`. Values other than `"true"` (such as `"false"` or arbitrary text) are ignored by the controller and treated as disabled.
+- The annotation is immutable after Pod creation. Modifying or adding the annotation to an already-admitted Pod is rejected during validation to maintain deterministic lifecycle guarantees.
+
+### Handling
+
+- When the `PlainPodFailFast` feature gate is disabled, Kueue completely ignores the `kueue.x-k8s.io/pod-fail-fast` annotation, preserving existing plain-Pod behavior without initiating deletion or changing workload completion.
+- If the feature gate is disabled while Pods have an existing `TerminationTarget` condition, ongoing graceful deletion and finalizer cleanup proceed normally without newly triggering fail-fast on other running Pods.
 
 ### Controller Logic
 
-The check is added to the plain Pod reconciler in `pkg/controller/jobs/pod/pod_controller.go`:
+The plain Pod reconciler checks for unrecoverable container failures during standard reconciliation:
+1. Verify the feature gate is enabled and the Pod carries the opt-in annotation.
+2. Confirm the Pod has `spec.restartPolicy: Never`, is not deleting (`deletionTimestamp.IsZero()`), and is not terminal.
+3. For each container status in `status.containerStatuses`, match it to its corresponding entry in `spec.containers`. Exclude containers specifying container-level restart policies or restart rules.
+4. If any matching container status reports `state.terminated` with a non-zero exit code:
+   - Apply the `TerminationTarget` condition to the Pod status with reason `UnrecoverableContainerFailure` and message detailing the failed container.
+   - Issue a graceful delete request against the Pod.
+   - Preserve the finalizer to retain quota reservation during the termination grace period.
 
-```go
-func (p *Pod) checkFailFast(ctx context.Context, c client.Client) (bool, error) {
-    if !features.Enabled(features.PlainPodFailFast) {
-        return false, nil
-    }
-    if p.pod.Annotations[constants.PodFailFastAnnotationKey] != constants.PodFailFastAnnotationValue {
-        return false, nil
-    }
-    if p.pod.Spec.RestartPolicy != corev1.RestartPolicyNever {
-        return false, nil
-    }
-    if !p.pod.DeletionTimestamp.IsZero() {
-        return false, nil
-    }
-    if utilpod.IsTerminated(&p.pod) {
-        return false, nil
-    }
+When the Pod reaches terminal phase, `Pod.Finished()` populates the Workload failure condition from the `TerminationTarget` condition or container status message, removes the finalizer, and releases quota.
 
-    // Find any regular container that failed
-    for _, cs := range p.pod.Status.ContainerStatuses {
-        if cs.State.Terminated != nil && cs.State.Terminated.ExitCode != 0 {
-            // Trigger graceful termination
-            return true, p.stopForFailure(ctx, c, cs.Name, cs.State.Terminated.ExitCode, cs.State.Terminated.Reason)
-        }
-    }
-    return false, nil
-}
-```
+### Interactions with WaitForPodsReady and Other Features
 
-When `stopForFailure` is called:
-- Sets Pod condition `TerminationTarget` with `Reason: "UnrecoverableContainerFailure"`.
-- Issues `client.Delete(ctx, &p.pod)`.
-- Leaves the finalizer intact so the Pod terminates cleanly before `p.Finished()` declares the Workload terminal.
+- **`waitForPodsReady`**: `PlainPodFailFast` functions independently of `waitForPodsReady`. When `waitForPodsReady` is enabled, fail-fast triggers immediately upon container failure without waiting for `timeout` to expire, avoiding unnecessary queue retention. When `waitForPodsReady` is disabled (`DisableWaitForPodsReady=true`), fail-fast acts as the primary safeguard against stuck failed attempts.
+- **`ObjectRetentionPolicies`**: Unaffected. Workload and Pod retention countdowns begin only after the Workload reaches `Finished=True`.
 
 ### Test Plan
 
 #### Unit Tests
-- `TestPodFailFast`:
-  - Plain Pod with `restartPolicy: Never`, one container Waiting (`CreateContainerConfigError`), one container Terminated (`exitCode: 1`) -> triggers stop and deletion.
-  - Plain Pod with `restartPolicy: Never`, one container Terminated (`exitCode: 0`) -> does not trigger fail-fast.
-  - Plain Pod with `restartPolicy: Always` -> does not trigger fail-fast.
-  - Plain Pod without `kueue.x-k8s.io/pod-fail-fast: "true"` annotation -> does not trigger fail-fast.
-  - Feature gate disabled -> does not trigger fail-fast.
-  - Native sidecar in `initContainers` with `restartPolicy: Always` terminating with exit code 1 -> does not trigger fail-fast.
+- Plain Pod with `restartPolicy: Never`, one container Waiting, one container Terminated (`exitCode: 1`) triggers `TerminationTarget` and deletion.
+- Plain Pod with `restartPolicy: Never`, container Terminated with `exitCode: 0` does not trigger fail-fast.
+- Plain Pod with `restartPolicy: Always` does not trigger fail-fast.
+- Plain Pod without `kueue.x-k8s.io/pod-fail-fast: "true"` annotation does not trigger fail-fast.
+- Feature gate disabled does not trigger fail-fast even when annotated.
+- Native sidecar in `initContainers` with `restartPolicy: Always` terminating with exit code 1 does not trigger fail-fast.
+- Status update and delete failure error handling and retry safety.
 
 #### Integration Tests
-- Verify full lifecycle in `test/integration/controller/jobs/pod`:
-  - Create Pod with annotation and `restartPolicy: Never`.
-  - Admit Workload and verify quota reservation.
-  - Simulate container non-zero exit while another container is waiting.
-  - Verify Pod receives `TerminationTarget` and `deletionTimestamp`.
-  - Simulate container shutdown and transition to `PodFailed`.
-  - Verify Workload transitions to `Finished=True, Reason=Failed` and quota is released.
+- **Single-Cluster**: Full lifecycle testing: admit annotated Pod, simulate container failure, verify `TerminationTarget` and `deletionTimestamp`, simulate container shutdown to `PodFailed`, verify Workload `Finished=True, Reason=Failed` and quota release.
+- **MultiKueue**: Multi-cluster integration test: admit Workload via MultiKueue, trigger worker-side fail-fast deletion, verify management-cluster Pod handling, verify management Workload completion, and verify quota release on both manager and worker clusters.
+
+#### End-to-End (e2e) Tests
+Dedicated e2e tests are omitted because the combination of unit tests and integration tests with `envtest` fully validates the controller reconciliation flow, condition transitions, graceful deletion, and MultiKueue synchronization without requiring multi-node cloud clusters.
 
 ## Graduation Criteria
 
 ### Alpha (v0.20)
 - Feature gate `PlainPodFailFast` introduced (disabled by default).
-- Pod annotation `kueue.x-k8s.io/pod-fail-fast` implemented.
-- Unit and integration tests added.
+- Pod annotation `kueue.x-k8s.io/pod-fail-fast` implemented with validation.
+- Unit and integration tests added, including MultiKueue lifecycle verification.
 
 ### Beta (v0.21)
 - Feature gate enabled by default.
-- Evaluation of whether the policy should extend to Pod groups or be configurable at the `frameworkConfigs` level.
+- Review the annotation for promotion to a formal API field in `PodSpec` or `WorkloadSpec`.
+- Concrete decision on whether to support Pod groups based on user feedback.
+- MultiKueue synchronization verified across releases.
 
 ### Stable (v0.22+)
 - Feature gate locked to GA.
+- Annotation fully supported or superseded by formal API field.
+
+## Future Work Ideas
+
+- **Pod Groups**: Evaluate extending fail-fast handling to non-retriable Pod groups (`kueue.x-k8s.io/pod-group-name`), where a failure in one member Pod could optionally fail the entire group attempt.
+- **Cluster-Wide Configuration**: Evaluate adding an opt-in knob under `integrations.frameworkConfigs` for the `pod` integration to allow administrators to enable fail-fast across namespaces by default.
 
 ## Alternatives
 
