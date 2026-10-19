@@ -495,6 +495,32 @@ func TestReportMultiKueueWorkloadEvicted(t *testing.T) {
 	}
 }
 
+func TestReportMultiKueueIncrementalDispatcherRound(t *testing.T) {
+	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
+
+	ReportMultiKueueIncrementalDispatcherRound("rounds-cq1", leaderTracker)
+	ReportMultiKueueIncrementalDispatcherRound("rounds-cq1", leaderTracker)
+	ReportMultiKueueIncrementalDispatcherRound("rounds-cq2", leaderTracker)
+
+	if got := testutil.ToFloat64(MultiKueueIncrementalDispatcherRoundsTotal.WithLabelValues("rounds-cq1", roletracker.RoleLeader)); got != 2 {
+		t.Errorf("expected 2 dispatch rounds for rounds-cq1, got %v", got)
+	}
+	if got := testutil.ToFloat64(MultiKueueIncrementalDispatcherRoundsTotal.WithLabelValues("rounds-cq2", roletracker.RoleLeader)); got != 1 {
+		t.Errorf("expected 1 dispatch round for rounds-cq2, got %v", got)
+	}
+
+	// A nil tracker must be reported as standalone and not panic.
+	ReportMultiKueueIncrementalDispatcherRound("rounds-cq3", nil)
+	if got := testutil.ToFloat64(MultiKueueIncrementalDispatcherRoundsTotal.WithLabelValues("rounds-cq3", roletracker.RoleStandalone)); got != 1 {
+		t.Errorf("expected 1 dispatch round for rounds-cq3 with standalone role, got %v", got)
+	}
+
+	// Deleting the ClusterQueue must clear only its series.
+	ClearClusterQueueMetrics("rounds-cq1")
+	expectFilteredMetricsCount(t, MultiKueueIncrementalDispatcherRoundsTotal, 0, "cluster_queue", "rounds-cq1")
+	expectFilteredMetricsCount(t, MultiKueueIncrementalDispatcherRoundsTotal, 1, "cluster_queue", "rounds-cq2")
+}
+
 func TestReportAndCleanupWorkloadEvictionLatency(t *testing.T) {
 	ReportWorkloadEvictionLatency("cq-preempt-unique", kueue.WorkloadEvictedByPreemption, time.Second, nil, nil)
 	n := testutil.CollectAndCount(WorkloadEvictionLatencySeconds)
