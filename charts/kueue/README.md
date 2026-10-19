@@ -136,16 +136,20 @@ managerConfig:
 ```
 
 Maps merge recursively, lists and scalars replace, and `null` removes fields
-inside `structuredOverrides`. An absent or empty `structuredOverrides` uses chart
-defaults. `structuredOverrides: null` is invalid. The two inputs are never merged together.
+inside `structuredOverrides`. For removals during upgrades, follow
+[Removing overrides during upgrades](#removing-overrides-during-upgrades)
+below. An absent or empty `structuredOverrides` uses chart defaults when no saved
+overrides are reused. `structuredOverrides: null` is invalid. The two inputs are
+never merged together.
 Existing certificate-management defaults still apply when `internalCertManagement`
 is not set.
 
 The active defaults are defined only in
 [templates/manager/_config.tpl](templates/manager/_config.tpl). Both modes use them
 when no complete YAML configuration is selected. They stay separate from saved
-user values so unspecified structured settings follow the selected chart version's
-defaults, including with `--reuse-values`.
+user values so settings without an override in the effective Helm values follow
+the selected chart version's defaults. Reuse flags retain previously saved
+overrides, even when omitted from the new values file.
 
 Tools that read the default YAML string directly from `values.yaml` must instead
 read the rendered manager ConfigMap.
@@ -156,7 +160,7 @@ structured mode ignores it. Keep the mode in your values file for subsequent upg
 
 | Upgrade options | What to supply |
 |---|---|
-| `--reuse-values` or `--reset-then-reuse-values` | The mode and structured customizations; other saved chart settings are retained. |
+| `--reuse-values` or `--reset-then-reuse-values` | The mode and new or changed structured customizations; omitted saved overrides and other chart settings are retained. For removals, follow the instructions below. |
 | `--reset-values`, or new values without a reuse flag | The mode, structured customizations, and all other chart settings you want to retain. |
 
 Resetting values without supplying the mode returns to legacy YAML mode. To
@@ -173,6 +177,29 @@ loads the configuration. Run `helm lint <chart> --values values.yaml` before upg
 
 When upgrading, remove or correct unknown manager input keys and incorrectly typed
 inputs. These values may previously have been ignored.
+
+##### Removing overrides during upgrades
+
+Reuse flags retain saved overrides omitted from your new values file. They can
+also discard `null` removal instructions before the chart sees them.
+
+To remove an override or configuration field:
+
+| Intent | Change in `structuredOverrides` |
+|---|---|
+| Restore the chart default | Omit the override |
+| Remove the rendered field | Set it to `null` |
+
+Supply a values file containing **all customizations you want to retain**,
+including those outside `managerConfig`, then run:
+
+```sh
+helm upgrade kueue <chart> --namespace kueue-system \
+  --reset-values --values values.yaml
+```
+
+Keep `managerConfig.mode: structured` in that file. Resetting values discards
+saved customizations not included in it.
 
 #### Chart values
 
