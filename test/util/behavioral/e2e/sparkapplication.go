@@ -53,3 +53,18 @@ func ExpectSparkApplicationToComplete(ctx context.Context, c client.Client, spar
 	}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed(), behavioral.AssertMsg("SparkApplication did not complete", sparkApp))
 	return sparkApp
 }
+
+// ExpectSparkApplicationExecutorPods waits until the SparkApplication has exactly wantRunning
+// running and wantGated gated executor Pods.
+func ExpectSparkApplicationExecutorPods(ctx context.Context, c client.Client, sparkAppKey client.ObjectKey, wantRunning, wantGated int) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		pods := &corev1.PodList{}
+		g.Expect(c.List(ctx, pods, client.InNamespace(sparkAppKey.Namespace), client.MatchingLabels{
+			sparkcommon.LabelSparkAppName: sparkAppKey.Name,
+			sparkcommon.LabelSparkRole:    sparkcommon.SparkRoleExecutor,
+		})).To(gomega.Succeed())
+		g.Expect(getRunningPods(pods.Items)).To(gomega.HaveLen(wantRunning), "running executor Pods")
+		g.Expect(getGatedPods(pods.Items)).To(gomega.HaveLen(wantGated), "gated executor Pods")
+	}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
+}
