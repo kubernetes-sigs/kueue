@@ -218,6 +218,17 @@ with current or future built-in labels.
 **Stale metrics.** When a queue's label or annotation value changes,
 the old series persists until explicitly deleted. See
 [Value-change cleanup](#implementation-approach) for details.
+When old counter and histogram series are retained, an object has one series of a metric
+for each combination of custom label values it carried when an
+observation was recorded.
+
+In particular, assuming `trackedValues` is used for all custom labels, the validation limits (6 labels of 16
+tracked values each, plus the untracked value) cap this at `17^6` (about
+24 million) series for each combination of the object's other labels.
+This corresponds to about 30 GiB for a counter and 52 GiB for a histogram.
+
+The cap is theoretical: reaching it takes about 24 million label or annotation
+changes on one object, each followed by an observation.
 
 ## Design Details
 
@@ -452,14 +463,25 @@ in `pkg/metrics/metrics.go` at the time of implementation.
    3. If any value differs: perform deletion cleanup of all old series
       from every metric vector scoped to that object type (following
       the rules outlined in pt. 4), then report with the new values.
+      Counters and histograms follow the rule below.
    4. Update the map entry with the new values.
 
    For Cohort specifically, the Cohort reconciler must perform this
    check before calling `ReportCohortWeightedShare`.
 
-   For cumulative metrics (counters and histograms), removing and
-   re-creating a series resets it to zero. This is expected; `rate()`
-   and `increase()` handle counter resets correctly.
+   For counters and histograms keyed by the changed ClusterQueue, LocalQueue
+   or Cohort, when every custom label contributing to a series has a non-empty
+   `trackedValues` list, Kueue keeps the old series even when no objects
+   currently match its label values.
+
+   Otherwise, Kueue follows the same cleanup rules as for gauges: it removes
+   the old series when no objects match its label values. Any observations
+   recorded since the last scrape are lost.
+
+   `kueue_workload_creation_latency_seconds` is the exception: it carries
+   LocalQueue labels but no LocalQueue key, so one series can represent
+   multiple LocalQueues.
+   Series that represent multiple objects follow pt. 4.
 
 ### Metrics Documentation Generator
 
@@ -507,8 +529,12 @@ committing the changes necessary to implement this enhancement.
   annotation.
 - Queue without any of the configured custom labels or annotations:
   empty string values appear in metric series.
-- Label value change on a queue: stale series cleaned up, new series
-  appears.
+- Label value change on a queue: stale gauge series cleaned up, new
+  series appears.
+- Label value change on a ClusterQueue, LocalQueue or Cohort: the
+  counters and histograms keyed by that object keep their old series
+  when every label of that kind has `trackedValues`, and lose them
+  otherwise, including when only some labels have it.
 - Cohort with custom labels: `CohortWeightedShare` carries the custom
   label values read from the Cohort object.
 - `PreemptedWorkloadsTotal` with custom labels: custom label values are
@@ -548,6 +574,7 @@ committing the changes necessary to implement this enhancement.
 - 2026-02-13: Initial KEP draft.
 - 2026-07-02: Added source kind specification parameter to label definition (incompatible with previous alpha feature proposal). Expanded support to include Workload labels.
 - 2026-08-14: Excluded Kueue's internal labels and annotations from copying.
+- 2026-10-19: Defined when a value change keeps counters and histograms.
 
 ## Drawbacks
 
