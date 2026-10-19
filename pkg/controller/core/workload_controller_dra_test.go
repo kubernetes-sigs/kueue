@@ -47,6 +47,7 @@ import (
 
 func TestReconcileDRA(t *testing.T) {
 	errTest := errors.New("test error")
+	errStatus := errors.New("status write failed")
 	fakeClock := testingclock.NewFakeClock(time.Now().Truncate(time.Second))
 	cases := map[string]reconcileTestCase{
 		"reconcile DRA ResourceClaim should be rejected as inadmissible": {
@@ -95,7 +96,14 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "DRA resource claims not supported",
 				}).
 				Obj(),
-			wantEvents: nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlWithDRAResourceClaim"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:   "KueueDRAIntegration feature does not support use of resource claims",
+				},
+			},
 		},
 		"reconcile DRA ResourceClaimTemplate rejected when DRA disabled and KueueDRARejectWorkloadsWhenDRADisabled enabled": {
 			featureGates: map[featuregate.Feature]bool{
@@ -139,7 +147,14 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
 				}).
 				Obj(),
-			wantEvents: nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlWithDRAResourceClaimTemplate"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:   "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				},
+			},
 		},
 		"reconcile DRA ResourceClaim rejected when DRA disabled and KueueDRARejectWorkloadsWhenDRADisabled enabled": {
 			featureGates: map[featuregate.Feature]bool{
@@ -183,7 +198,14 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
 				}).
 				Obj(),
-			wantEvents: nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlWithDRAResourceClaim"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:   "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled",
+				},
+			},
 		},
 		"reconcile DRA ResourceClaimTemplate should be pre-processed and queued": {
 			featureGates: map[featuregate.Feature]bool{
@@ -227,7 +249,14 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
-			wantEvents: nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlWithDRAResourceClaimTemplate"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonSuspended,
+					Message:   "ClusterQueue cq is inactive",
+				},
+			},
 		},
 		"reconcile DRA persists Requeued=True when previously inadmissible workload resources are resolved": {
 			featureGates: map[featuregate.Feature]bool{
@@ -291,7 +320,20 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
-			wantEvents: nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlStaleInadmissibleDRA"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    kueue.WorkloadDRAResourcesResolved,
+					Message:   "DRA resources were resolved after a previous inadmissible marking",
+				},
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlStaleInadmissibleDRA"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonSuspended,
+					Message:   "ClusterQueue cq is inactive",
+				},
+			},
 		},
 		"reconcile DRA workload waiting for backoff should preprocess but not queue": {
 			featureGates: map[featuregate.Feature]bool{
@@ -463,7 +505,64 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
-			wantEvents: nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlMultiPodDRA"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonSuspended,
+					Message:   "ClusterQueue cq is inactive",
+				},
+			},
+		},
+		"reconcile DRA preprocessed workload returns error when LocalQueue is missing": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:              true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			workload: utiltestingapi.MakeWorkload("wlDRAMissingLQ", "ns").
+				Queue("missing-lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Obj(),
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "gpu.example.com", 1).
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpu", "2").Obj(),
+				).Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wlDRAMissingLQ", "ns").
+				Queue("missing-lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "LocalQueue missing-lq doesn't exist",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlDRAMissingLQ"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:   "LocalQueue missing-lq doesn't exist",
+				},
+			},
+			wantError:    qcache.ErrLocalQueueDoesNotExistOrInactive,
+			wantErrorMsg: "failed to add DRA-preprocessed workload to queue",
 		},
 		"reconcile DRA ResourceClaimTemplate with unmapped device class": {
 			featureGates: map[featuregate.Feature]bool{
@@ -520,7 +619,14 @@ func TestReconcileDRA(t *testing.T) {
 				}
 				return wl
 			}(),
-			wantEvents: nil,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wlUnmappedDRA"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:   "spec.podSets[0].template.spec.resourceClaims[0].resourceClaimTemplateName: Not found: \"DeviceClass unmapped.example.com is not mapped in DRA configuration for podset main\"",
+				},
+			},
 		},
 		"reconcile DRA validation fails with KueueDRAIntegrationExtendedResource enabled": {
 			featureGates: map[featuregate.Feature]bool{
@@ -564,6 +670,14 @@ func TestReconcileDRA(t *testing.T) {
 					Message: "spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: \"1500m\": extended resource quantity must be an integer",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl-invalid-extended-resource"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:   "spec.podSets[0].template.spec.containers[0].resources.requests.example.com/gpu: Invalid value: \"1500m\": extended resource quantity must be an integer",
+				},
+			},
 		},
 		"reconcile DRA ResourceClaimTemplate not found should return error": {
 			featureGates: map[featuregate.Feature]bool{
@@ -633,6 +747,35 @@ func TestReconcileDRA(t *testing.T) {
 						Resource("gpu", "2").Obj(),
 				).Obj(),
 			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantErrorMsg: "failed to list ResourceSlices",
+			wantEvents:   nil,
+		},
+		"reconcile DRA keeps the processing cause when the status write also fails": {
+			featureGates: map[featuregate.Feature]bool{
+				features.KueueDRAIntegration:              true,
+				features.MultiKueueOrchestratedPreemption: false,
+			},
+			listErr:  errTest,
+			patchErr: errStatus,
+			workload: utiltestingapi.MakeWorkload("wlListErrDRA", "ns").
+				Queue("lq").
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					ResourceClaimTemplate("gpu", "gpu-template").
+					Obj()).
+				Obj(),
+			resourceClaimTemplates: []*resourcev1.ResourceClaimTemplate{
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "ns").
+					DeviceRequest("gpu-request", "gpu.example.com", 1).
+					WithCELSelectors("device.driver == \"test-driver\"").
+					Obj(),
+			},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("flavor1").
+						Resource("gpu", "2").Obj(),
+				).Obj(),
+			lq:           utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantError:    errStatus,
 			wantErrorMsg: "failed to list ResourceSlices",
 			wantEvents:   nil,
 		},

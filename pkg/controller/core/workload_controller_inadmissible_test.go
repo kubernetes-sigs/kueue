@@ -22,11 +22,13 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
@@ -99,6 +101,14 @@ func TestReconcileInadmissible(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:   "LocalQueue lq is terminating or missing",
+				},
+			},
 		},
 		"should set the Misconfigured reason on QuotaReservation condition when the LocalQueue is terminating": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
@@ -164,6 +174,14 @@ func TestReconcileInadmissible(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:   "LocalQueue lq is terminating or missing",
+				},
+			},
 		},
 		"should set the Suspended reason on QuotaReservation condition when the LocalQueue was Hold": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
@@ -228,6 +246,14 @@ func TestReconcileInadmissible(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonSuspended,
+					Message:   "LocalQueue lq is stopped",
+				},
+			},
 		},
 		"should set the Misconfigured reason on QuotaReservation condition when the ClusterQueue was deleted": {
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
@@ -289,6 +315,14 @@ func TestReconcileInadmissible(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:   "ClusterQueue cq is terminating or missing",
+				},
+			},
 		},
 		"should set the Misconfigured reason on QuotaReservation condition when the ClusterQueue is terminating": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
@@ -356,6 +390,14 @@ func TestReconcileInadmissible(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:   "ClusterQueue cq is terminating or missing",
+				},
+			},
 		},
 		"should set the Suspended reason on QuotaReservation condition when the ClusterQueue was Hold": {
 			cq: utiltestingapi.MakeClusterQueue("cq").
@@ -420,6 +462,14 @@ func TestReconcileInadmissible(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonSuspended,
+					Message:   "ClusterQueue cq is stopped",
+				},
+			},
 		},
 		"should set status QuotaReserved conditions to False with reason Misconfigured if quota not reserved LocalQueue is not created": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -442,6 +492,14 @@ func TestReconcileInadmissible(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:   "LocalQueue lq doesn't exist",
+				},
+			},
 		},
 		"should set status QuotaReserved conditions to False with reason Deactivated if workload is deactivated even if LocalQueue doesn't exist": {
 			featureGates: map[featuregate.Feature]bool{
@@ -718,6 +776,14 @@ func TestReconcileInadmissible(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonSuspended,
+					Message:   "LocalQueue lq is inactive",
+				},
+			},
 		},
 		"should set status QuotaReserved conditions to False with reason Suspended if quota not reserved LocalQueue StopPolicy=HoldAndDrain": {
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").StopPolicy(kueue.HoldAndDrain).Obj(),
@@ -741,6 +807,14 @@ func TestReconcileInadmissible(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonSuspended,
+					Message:   "LocalQueue lq is inactive",
+				},
+			},
 		},
 		"should set status QuotaReserved conditions to False with reason Misconfigured if quota not reserved ClusterQueue is not created": {
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.None).Obj(),
@@ -764,6 +838,14 @@ func TestReconcileInadmissible(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message:   "ClusterQueue cq doesn't exist",
+				},
+			},
 		},
 		"should set status QuotaReserved conditions to False with reason Suspended if quota not reserved ClusterQueue StopPolicy=Hold": {
 			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").StopPolicy(kueue.None).Obj(),
@@ -788,6 +870,49 @@ func TestReconcileInadmissible(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
+					EventType: corev1.EventTypeWarning,
+					Reason:    kueue.WorkloadQuotaReservedReasonSuspended,
+					Message:   "ClusterQueue cq is inactive",
+				},
+			},
+		},
+		"should not emit duplicate event if quota not reserved LocalQueue is not created and QuotaReserved is already Misconfigured": {
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "LocalQueue lq doesn't exist",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Active(true).
+				Queue("lq").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonMisconfigured,
+					Message: "LocalQueue lq doesn't exist",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+			wantEvents: nil,
 		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)
