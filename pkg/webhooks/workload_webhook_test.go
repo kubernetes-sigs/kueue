@@ -480,6 +480,28 @@ func TestValidateWorkload(t *testing.T) {
 				field.NotSupported(firstAdmissionChecksPath.Child("podSetUpdates").Index(1).Child("name"), nil, []string{}),
 			}.ToAggregate(),
 		},
+		"preferred topology is rejected when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			workload: utiltestingapi.MakeWorkload(
+				testWorkloadName,
+				testWorkloadNamespace,
+			).
+				PodSets(
+					*utiltestingapi.MakePodSet("main", 1).
+						PreferredTopologyRequest("topology.example.com/rack").
+						Obj(),
+				).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(
+					podSetsPath.Index(0).Child("topologyRequest", "preferred"),
+					"",
+				),
+			}.ToAggregate(),
+			wantDetail: "preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
+		},
 		"matched names in podSetUpdates with names in podSets": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
 				*utiltestingapi.MakePodSet("first", 1).Obj(),
