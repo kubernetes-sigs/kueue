@@ -17,11 +17,13 @@ limitations under the License.
 package queue
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -1103,6 +1105,145 @@ func TestPendingInLocalQueueCountsInflight(t *testing.T) {
 	activeB, inadmissibleB := cq.PendingInLocalQueue(lqB)
 	if activeB != 1 || inadmissibleB != 0 {
 		t.Fatalf("LocalQueue lq-b pending mismatch: active=%d inadmissible=%d, want active=1 inadmissible=0", activeB, inadmissibleB)
+	}
+}
+
+func TestPendingInLocalQueue(t *testing.T) {
+	now := time.Now()
+	lqA := utilqueue.NewLocalQueueReference(defaultNamespace, "lq-a")
+	lqB := utilqueue.NewLocalQueueReference(defaultNamespace, "lq-b")
+
+	cases := map[string]struct {
+		ops              func(context.Context, logr.Logger, *ClusterQueue)
+		wantActive       map[utilqueue.LocalQueueReference]int
+		wantInadmissible map[utilqueue.LocalQueueReference]int
+	}{
+		"push to two LocalQueues": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Obj()))
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue("lq-a").Obj()))
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl3", defaultNamespace).Queue("lq-b").Obj()))
+			},
+			wantActive: map[utilqueue.LocalQueueReference]int{lqA: 2, lqB: 1},
+		},
+		"update of an active workload": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Obj()))
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Priority(1).Obj()))
+			},
+			wantActive: map[utilqueue.LocalQueueReference]int{lqA: 1},
+		},
+		"update moves an active workload to another LocalQueue": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Obj()))
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-b").Obj()))
+			},
+			wantActive: map[utilqueue.LocalQueueReference]int{lqB: 1},
+		},
+		"popped workload stays active": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Obj()))
+				cq.Pop()
+			},
+			wantActive: map[utilqueue.LocalQueueReference]int{lqA: 1},
+		},
+		"pop replaces the previous inflight workload": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Creation(now).Obj()))
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue("lq-b").Creation(now.Add(time.Second)).Obj()))
+				cq.Pop()
+				cq.Pop()
+			},
+			wantActive: map[utilqueue.LocalQueueReference]int{lqB: 1},
+		},
+		"pop on an empty heap drops the inflight workload": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Obj()))
+				cq.Pop()
+				cq.Pop()
+			},
+		},
+		"requeue after pop": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Obj()))
+				cq.RequeueIfNotPresent(ctx, cq.Pop(), RequeueReasonNoFit, QuotaReservedReason(""))
+			},
+			wantInadmissible: map[utilqueue.LocalQueueReference]int{lqA: 1},
+		},
+		"immediate requeue after pop": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Obj()))
+				cq.requeueIfNotPresent(log, cq.Pop(), true, RequeueReasonGeneric, "")
+			},
+			wantActive: map[utilqueue.LocalQueueReference]int{lqA: 1},
+		},
+		"update of an inadmissible workload": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				wInfo := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Obj())
+				cq.requeueIfNotPresent(log, wInfo, false, RequeueReasonGeneric, "")
+				cq.PushOrUpdate(wInfo)
+			},
+			wantInadmissible: map[utilqueue.LocalQueueReference]int{lqA: 1},
+		},
+		"inadmissible workloads move back to active": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				cq.requeueIfNotPresent(log, workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Obj()), false, RequeueReasonGeneric, "")
+				cq.requeueIfNotPresent(log, workload.NewInfo(log, utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue("lq-b").Obj()), false, RequeueReasonGeneric, "")
+				cq.namespaceSelector = labels.Everything()
+				queueInadmissibleWorkloads(ctx, cq, utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace)))
+			},
+			wantActive: map[utilqueue.LocalQueueReference]int{lqA: 1, lqB: 1},
+		},
+		"bulk move by scheduling hash": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				cq.queueingStrategy = kueue.BestEffortFIFO
+				wl1 := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Obj())
+				wl1.SchedulingHash = "hash-a"
+				wl2 := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue("lq-b").Obj())
+				wl2.SchedulingHash = "hash-a"
+				wl3 := workload.NewInfo(log, utiltestingapi.MakeWorkload("wl3", defaultNamespace).Queue("lq-a").Obj())
+				wl3.SchedulingHash = "hash-b"
+				cq.PushOrUpdate(wl1)
+				cq.PushOrUpdate(wl2)
+				cq.PushOrUpdate(wl3)
+				cq.handleInadmissibleHash("hash-a", "dummy-reason")
+			},
+			wantActive:       map[utilqueue.LocalQueueReference]int{lqA: 1},
+			wantInadmissible: map[utilqueue.LocalQueueReference]int{lqA: 1, lqB: 1},
+		},
+		"delete active, inflight and inadmissible workloads": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				wl1 := utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Creation(now).Obj()
+				wl2 := utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue("lq-a").Creation(now.Add(time.Second)).Obj()
+				wl3 := utiltestingapi.MakeWorkload("wl3", defaultNamespace).Queue("lq-b").Obj()
+				cq.PushOrUpdate(workload.NewInfo(log, wl1))
+				cq.PushOrUpdate(workload.NewInfo(log, wl2))
+				cq.Pop()
+				cq.requeueIfNotPresent(log, workload.NewInfo(log, wl3), false, RequeueReasonGeneric, "")
+				cq.Delete(log, workload.Key(wl1))
+				cq.Delete(log, workload.Key(wl2))
+				cq.Delete(log, workload.Key(wl3))
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cq := newClusterQueueImpl(ctx, defaultOrdering, testingclock.NewFakeClock(now))
+			tc.ops(ctx, log, cq)
+			if diff := cmp.Diff(tc.wantActive, cq.localQueueCounts.active, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected active counts (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantInadmissible, cq.localQueueCounts.inadmissible, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected inadmissible counts (-want,+got):\n%s", diff)
+			}
+			for _, lqRef := range []utilqueue.LocalQueueReference{lqA, lqB} {
+				active, inadmissible := cq.PendingInLocalQueue(lqRef)
+				if active != tc.wantActive[lqRef] || inadmissible != tc.wantInadmissible[lqRef] {
+					t.Errorf("PendingInLocalQueue(%s) = (%d, %d), want (%d, %d)", lqRef, active, inadmissible, tc.wantActive[lqRef], tc.wantInadmissible[lqRef])
+				}
+			}
+		})
 	}
 }
 

@@ -229,6 +229,9 @@ type ClusterQueue struct {
 	// Configured resources are seeded at 0 by Update() so they appear in metrics
 	// even when no workloads are pending; stale zero entries are pruned on Update().
 	pendingResourcesTotal map[corev1.ResourceName]resources.Amount
+
+	// localQueueCounts tracks the pending workloads per LocalQueue.
+	localQueueCounts *localQueueCounts
 }
 
 func (c *ClusterQueue) GetName() kueue.ClusterQueueReference {
@@ -330,6 +333,7 @@ func newClusterQueueImpl(ctx context.Context, wo workload.Ordering, clock clock.
 		lqWeights:              lqWeights,
 		pw:                     &pw,
 		pendingResourcesTotal:  make(map[corev1.ResourceName]resources.Amount),
+		localQueueCounts:       newLocalQueueCounts(),
 	}
 }
 
@@ -441,6 +445,7 @@ func (c *ClusterQueue) PushOrUpdate(wInfo *workload.Info) {
 			workload.HasClosedPreemptionGate(oldInfo.Obj) == workload.HasClosedPreemptionGate(wInfo.Obj) &&
 			!draRequestsChanged(oldInfo, wInfo) {
 			c.inadmissibleWorkloads.insert(key, wInfo)
+			c.localQueueCounts.updateInadmissible(oldInfo, wInfo)
 			return
 		}
 		// Workload is leaving inadmissible; account for its resources before moving.
@@ -542,11 +547,13 @@ func (c *ClusterQueue) subtractPendingResources(wInfo *workload.Info) {
 func (c *ClusterQueue) insertInadmissible(key workload.Reference, wInfo *workload.Info) {
 	c.inadmissibleWorkloads.insert(key, wInfo)
 	c.addPendingResources(wInfo)
+	c.localQueueCounts.addInadmissible(wInfo)
 }
 
 func (c *ClusterQueue) removeFromInadmissible(key workload.Reference, wInfo *workload.Info) {
 	c.subtractPendingResources(wInfo)
 	c.inadmissibleWorkloads.delete(key)
+	c.localQueueCounts.removeInadmissible(wInfo)
 }
 
 // pushToHeapIfNotTracked pushes wInfo onto the heap and accounts for its
@@ -567,6 +574,7 @@ func (c *ClusterQueue) pushToHeapIfNotTracked(wInfo *workload.Info) bool {
 		return false
 	}
 	c.addPendingResources(wInfo)
+	c.localQueueCounts.addActive(wInfo)
 	return true
 }
 
@@ -574,11 +582,13 @@ func (c *ClusterQueue) pushToHeapIfNotTracked(wInfo *workload.Info) bool {
 // The old copy's resources are subtracted before the new copy's are added,
 // because the requests may have changed.
 func (c *ClusterQueue) pushOrUpdateHeap(wInfo *workload.Info) {
-	if old := c.heap.GetByKey(workload.Key(wInfo.Obj)); old != nil {
+	old := c.heap.GetByKey(workload.Key(wInfo.Obj))
+	if old != nil {
 		c.subtractPendingResources(old)
 	}
 	c.heap.PushOrUpdate(wInfo)
 	c.addPendingResources(wInfo)
+	c.localQueueCounts.updateActive(old, wInfo)
 }
 
 // removeFromHeap removes the workload from the heap and subtracts its pending
@@ -587,6 +597,7 @@ func (c *ClusterQueue) removeFromHeap(key workload.Reference) {
 	if old := c.heap.GetByKey(key); old != nil {
 		c.subtractPendingResources(old)
 		c.heap.Delete(key)
+		c.localQueueCounts.removeActive(old)
 	}
 }
 
@@ -601,6 +612,7 @@ func (c *ClusterQueue) moveInadmissibleToHeap(key workload.Reference, wInfo *wor
 		return false
 	}
 	c.inadmissibleWorkloads.delete(key)
+	c.localQueueCounts.moveToActive(wInfo)
 	return true
 }
 
@@ -610,6 +622,7 @@ func (c *ClusterQueue) moveInadmissibleToHeap(key workload.Reference, wInfo *wor
 func (c *ClusterQueue) moveHeapToInadmissible(key workload.Reference, wInfo *workload.Info) {
 	c.heap.Delete(key)
 	c.inadmissibleWorkloads.insert(key, wInfo)
+	c.localQueueCounts.moveToInadmissible(wInfo)
 }
 
 // Delete removes the workload from ClusterQueue.
@@ -731,6 +744,7 @@ func (c *ClusterQueue) requeueIfNotPresent(log logr.Logger, wInfo *workload.Info
 
 func (c *ClusterQueue) forgetInflightByKey(key workload.Reference) {
 	if c.inflight != nil && workload.Key(c.inflight.Obj) == key {
+		c.localQueueCounts.removeActive(c.inflight)
 		c.inflight = nil
 	}
 }
@@ -811,38 +825,10 @@ func (c *ClusterQueue) pendingInadmissible() int {
 }
 
 // PendingInLocalQueue returns the number of active and inadmissible pending workloads in LocalQueue.
+// It only takes the localQueueCounts lock, so metric reports don't contend on the
+// ClusterQueue-wide lock.
 func (c *ClusterQueue) PendingInLocalQueue(lqRef utilqueue.LocalQueueReference) (int, int) {
-	c.rwm.RLock()
-	defer c.rwm.RUnlock()
-	return c.pendingActiveInLocalQueue(lqRef), c.pendingInadmissibleInLocalQueue(lqRef)
-}
-
-// pendingActiveInLocalQueue returns the number of active pending workloads in LocalQueue,
-// workloads that are in the admission queue.
-func (c *ClusterQueue) pendingActiveInLocalQueue(lqRef utilqueue.LocalQueueReference) (active int) {
-	for _, wl := range c.heap.List() {
-		wlLqKey := utilqueue.KeyFromWorkload(wl.Obj)
-		if wlLqKey == lqRef {
-			active++
-		}
-	}
-	if c.inflight != nil && utilqueue.KeyFromWorkload(c.inflight.Obj) == lqRef {
-		active++
-	}
-	return
-}
-
-// pendingInadmissibleInLocalQueue returns the number of inadmissible pending workloads in LocalQueue,
-// workloads that were already tried and are waiting for cluster conditions
-// to change to potentially become admissible.
-func (c *ClusterQueue) pendingInadmissibleInLocalQueue(lqRef utilqueue.LocalQueueReference) (inadmissible int) {
-	for _, wl := range c.inadmissibleWorkloads {
-		wlLqKey := utilqueue.KeyFromWorkload(wl.Obj)
-		if wlLqKey == lqRef {
-			inadmissible++
-		}
-	}
-	return
+	return c.localQueueCounts.pendingInLocalQueue(lqRef)
 }
 
 // Pop removes the head of the queue and returns it. It returns nil if the
@@ -856,6 +842,9 @@ func (c *ClusterQueue) Pop() *workload.Info {
 	}
 
 	c.popCycle++
+	if c.inflight != nil {
+		c.localQueueCounts.removeActive(c.inflight)
+	}
 	if c.heap.Len() == 0 {
 		c.inflight = nil
 		return nil
