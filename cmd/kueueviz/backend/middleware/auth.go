@@ -20,9 +20,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -318,10 +320,7 @@ type sarAuthorizer struct {
 }
 
 type sarCacheKey struct {
-	User        string
-	Groups      string
-	UID         string
-	Extra       string
+	Identity    [sha256.Size]byte
 	Verb        string
 	Group       string
 	Version     string
@@ -331,32 +330,41 @@ type sarCacheKey struct {
 	Name        string
 }
 
-func formatExtra(extra map[string][]string) string {
-	if len(extra) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(extra))
-	for k := range extra {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
+func appendLengthPrefixedString(data []byte, value string) []byte {
+	data = binary.LittleEndian.AppendUint64(data, uint64(len(value)))
+	return append(data, value...)
+}
 
-	var b strings.Builder
-	for _, k := range keys {
-		b.WriteString(k)
-		b.WriteString("=")
-		b.WriteString(strings.Join(extra[k], ","))
-		b.WriteString(";")
+func hashSARIdentity(identity Identity) [sha256.Size]byte {
+	data := appendLengthPrefixedString(nil, identity.Username)
+	data = appendLengthPrefixedString(data, identity.UID)
+
+	groups := slices.Clone(identity.Groups)
+	slices.Sort(groups)
+	groups = slices.Compact(groups)
+	data = binary.LittleEndian.AppendUint64(data, uint64(len(groups)))
+	for _, group := range groups {
+		data = appendLengthPrefixedString(data, group)
 	}
-	return b.String()
+
+	extraKeys := slices.Sorted(maps.Keys(identity.Extra))
+	data = binary.LittleEndian.AppendUint64(data, uint64(len(extraKeys)))
+	for _, key := range extraKeys {
+		data = appendLengthPrefixedString(data, key)
+		values := slices.Clone(identity.Extra[key])
+		slices.Sort(values)
+		data = binary.LittleEndian.AppendUint64(data, uint64(len(values)))
+		for _, value := range values {
+			data = appendLengthPrefixedString(data, value)
+		}
+	}
+
+	return sha256.Sum256(data)
 }
 
 func cacheKeyForSAR(identity Identity, attributes authorizationv1.ResourceAttributes) sarCacheKey {
 	return sarCacheKey{
-		User:        identity.Username,
-		Groups:      strings.Join(identity.Groups, ","),
-		UID:         identity.UID,
-		Extra:       formatExtra(identity.Extra),
+		Identity:    hashSARIdentity(identity),
 		Verb:        attributes.Verb,
 		Group:       attributes.Group,
 		Version:     attributes.Version,
