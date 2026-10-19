@@ -63,6 +63,9 @@ var _ = ginkgo.BeforeSuite(func() {
 	if ginkgo.Label("feature:spark").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
 		e2e.WaitForSparkOperatorAvailability(ctx, k8sClient)
 	}
+	if ginkgo.Label("feature:kuberay").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
+		e2e.WaitForKubeRayOperatorAvailability(ctx, k8sClient)
+	}
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),

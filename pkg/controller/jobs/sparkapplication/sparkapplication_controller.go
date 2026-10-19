@@ -190,6 +190,10 @@ func (j *SparkApplication) PodSets(ctx context.Context, c client.Client) ([]kueu
 	// than requested, but not fewer than the ones already running.
 	if jobframework.ElasticPartialScaleUpEnabled(j) && ptr.Deref(j.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
 		podSets[executorPodSetIndex].MinCount = new(podSets[executorPodSetIndex].Count)
+		// Partial preemption can shrink the executors down to minExecutors.
+		if features.Enabled(features.PartialPreemption) {
+			podSets[executorPodSetIndex].MinCount = new(min(ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, 0), podSets[executorPodSetIndex].Count))
+		}
 	}
 
 	if err := setTopologyRequestToPodSetIfEnabled(

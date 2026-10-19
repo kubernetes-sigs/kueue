@@ -789,6 +789,13 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 	// false before the workloads eviction.
 	if !workload.IsAdmitted(&wl) {
 		if !workload.HasQuotaReservation(&wl) {
+			// The reclaim target counts of partial preemption apply only to the released admission.
+			if workload.IsPartiallyPreempted(&wl) {
+				return ctrl.Result{}, client.IgnoreNotFound(clientutil.Patch(ctx, r.client, &wl, func() (bool, error) {
+					delete(wl.Annotations, constants.ReclaimTargetCountsAnnotation)
+					return true, nil
+				}))
+			}
 			reason, message, err := r.resolveUnadmittedQuotaReservedCondition(ctx, &wl, lqExists, lqActive, cq)
 			if err != nil {
 				return ctrl.Result{}, client.IgnoreNotFound(err)
@@ -1514,6 +1521,8 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 		})
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),
 		features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)),
+		features.Enabled(features.PartialPreemption) && prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted &&
+			workloadslicing.ScaledDown(workload.ExtractGrantedPodSetCounts(e.ObjectOld), workload.ExtractGrantedPodSetCounts(e.ObjectNew)),
 		workload.PriorityChanged(log, e.ObjectOld, e.ObjectNew):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {
