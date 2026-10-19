@@ -19,7 +19,6 @@ package tas
 import (
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
@@ -62,7 +61,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling cold start", ginkgo.Ordered, 
 			releaseHook()
 			releaseHook = nil
 		}
-		core.SetClusterQueueAddedHookForTest(nil)
+		clusterQueueWatchers = nil
 		if ns == nil {
 			return
 		}
@@ -154,7 +153,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling cold start", ginkgo.Ordered, 
 			firstCached atomic.Pointer[string]
 			entered     = make(chan struct{})
 		)
-		core.SetClusterQueueAddedHookForTest(func(cq *kueue.ClusterQueue) {
+		clusterQueueWatchers = []core.ClusterQueueUpdateWatcher{clusterQueueAddedWatcher(func(cq *kueue.ClusterQueue) {
 			if cq.Name != cqs[0].Name && cq.Name != cqs[1].Name {
 				return
 			}
@@ -163,7 +162,7 @@ var _ = ginkgo.Describe("Topology Aware Scheduling cold start", ginkgo.Ordered, 
 			}
 			close(entered)
 			<-releaseCh
-		})
+		})}
 
 		ginkgo.By("restarting the manager and pausing after the first of the two ClusterQueues is cached", func() {
 			fwk.StopManager(ctx)
@@ -175,14 +174,14 @@ var _ = ginkgo.Describe("Topology Aware Scheduling cold start", ginkgo.Ordered, 
 		ginkgo.By("holding the create handler long enough for a scheduler that does not wait to admit", func() {
 			gomega.Consistently(func(g gomega.Gomega) {
 				expectNoPendingWorkloadAdmitted(g, ns.Name, lqs)
-			}, 2*time.Second, behavioral.ShortInterval).Should(gomega.Succeed())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 			releaseHook()
 		})
 
 		ginkgo.By("checking the pending workloads stay pending once the rest of the cache is loaded", func() {
 			gomega.Consistently(func(g gomega.Gomega) {
 				expectNoPendingWorkloadAdmitted(g, ns.Name, lqs)
-			}, 3*time.Second, behavioral.ShortInterval).Should(gomega.Succeed())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("finishing the running workloads and admitting the pending ones", func() {
@@ -202,6 +201,18 @@ var _ = ginkgo.Describe("Topology Aware Scheduling cold start", ginkgo.Ordered, 
 		})
 	})
 })
+
+// clusterQueueAddedWatcher calls f for ClusterQueue create events. The
+// reconciler notifies watchers after the queue is in the scheduler cache and
+// the queue manager, while the create handler is still running, so f can hold
+// later create events out of the cache.
+type clusterQueueAddedWatcher func(*kueue.ClusterQueue)
+
+func (f clusterQueueAddedWatcher) NotifyClusterQueueUpdate(oldCQ, newCQ *kueue.ClusterQueue) {
+	if oldCQ == nil && newCQ != nil {
+		f(newCQ)
+	}
+}
 
 func hostnameWorkload(name, ns, localQueue string) *kueue.Workload {
 	podSet := utiltestingapi.MakePodSet("worker", 1).
