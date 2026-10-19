@@ -118,8 +118,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	})
 
 	if sts != nil {
+		workloadSTS := sts.DeepCopy()
 		eg.Go(func() error {
-			return r.reconcileWorkload(ctx, sts, wl)
+			return r.reconcileWorkload(ctx, workloadSTS, wl)
 		})
 	}
 
