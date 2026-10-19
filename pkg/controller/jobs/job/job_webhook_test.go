@@ -469,6 +469,50 @@ func TestValidateCreate(t *testing.T) {
 			},
 		},
 		{
+			name: "preferred topology is rejected when WAS deep integration is enabled",
+			job: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+					fmt.Sprintf("preferred topology is not supported when the %s feature gate is enabled", features.SchedulerLibraryDeepIntegration)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+		},
+		{
+			name: "preferred topology is accepted when WAS deep integration is disabled",
+			job: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates:       map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+		},
+		{
+			name: "required topology is accepted when WAS deep integration is enabled",
+			job: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+		},
+		{
+			name: "unconstrained topology is accepted when WAS deep integration is enabled",
+			job: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "true").
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+		},
+		{
 			name: "valid AdmissionGatedBy annotation with single gate",
 			job: testingutil.MakeJob("job", "default").
 				Queue("queue").
@@ -1280,6 +1324,53 @@ func TestValidateUpdate(t *testing.T) {
 				),
 			},
 			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: true},
+		},
+		{
+			name: "unchanged preferred topology is accepted on update when WAS deep integration is enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Suspend(false).
+				Obj(),
+			wantValidationErrs: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+		},
+		{
+			name:   "added preferred topology is rejected on update when WAS deep integration is enabled",
+			oldJob: testingutil.MakeJob("job", "default").Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+					fmt.Sprintf("preferred topology is not supported when the %s feature gate is enabled", features.SchedulerLibraryDeepIntegration)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+		},
+		{
+			name: "changed preferred topology is rejected on update when WAS deep integration is enabled",
+			oldJob: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/rack").
+				Obj(),
+			newJob: testingutil.MakeJob("job", "default").
+				PodAnnotation(kueue.PodSetPreferredTopologyAnnotation, "cloud.com/block").
+				Obj(),
+			wantValidationErrs: field.ErrorList{
+				field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+					fmt.Sprintf("preferred topology is not supported when the %s feature gate is enabled", features.SchedulerLibraryDeepIntegration)),
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:         true,
+				features.SchedulerLibraryDeepIntegration: true,
+			},
 		},
 	}
 	for _, tc := range testcases {
