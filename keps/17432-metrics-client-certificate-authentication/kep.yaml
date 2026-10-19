@@ -1,0 +1,25 @@
+title: Client-certificate authentication for metrics
+kep-number: 17432
+authors:
+  - "@AaronLiChen"
+status: provisional
+creation-date: 2026-10-19
+reviewers:
+  - "@sohankunkerkar"
+  - "@tenzen-y"
+approvers:
+  - "@mimowo"
+see-also:
+  - "/keps/4377-metrics-tls"
+  - "/keps/16029-metrics-access-control"
+  - "/keps/8190-tls-security-profiles"
+replaces: []
+stage: alpha
+# No delivery milestone has been agreed with maintainers.
+latest-milestone: "TBD"
+milestone:
+  alpha: "TBD"
+feature-gates:
+  - name: MetricsClientCertificateAuthentication
+disable-supported: true
+metrics: []
