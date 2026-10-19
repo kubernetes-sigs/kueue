@@ -48,7 +48,7 @@ require (
 	sigs.k8s.io/controller-runtime v0.25.2
 	sigs.k8s.io/jobset v0.13.0
 	sigs.k8s.io/lws v0.11.1
-	sigs.k8s.io/scheduler-library v0.2.0-alpha3
+	sigs.k8s.io/scheduler-library v0.2.0-alpha3.0.20261009125358-a854c84b3c77
 	sigs.k8s.io/structured-merge-diff/v6 v6.4.2
 	sigs.k8s.io/yaml v1.6.0
 )
