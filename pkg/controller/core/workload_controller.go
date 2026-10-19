@@ -2236,7 +2236,10 @@ func shouldCheckEquivalenceHash(cond *metav1.Condition) bool {
 
 func (r *WorkloadReconciler) needsDRAReconcile(ctx context.Context, wl *kueue.Workload) bool {
 	wi := &workload.Info{Obj: wl}
-	if features.Enabled(features.KueueDRAIntegration) && features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+	// The effective PodSpecs only matter when a DeviceClass backs an extended
+	// resource. This runs on every Workload event, so skip building the Info otherwise.
+	if features.Enabled(features.KueueDRAIntegration) && features.Enabled(features.KueueDRAIntegrationExtendedResource) &&
+		r.draBackedResources != nil && !r.draBackedResources.IsEmpty() {
 		wi = workload.NewInfoFromClient(ctx, r.client, wl)
 	}
 	return dra.NeedsDRAReconcile(wi, r.draBackedResources)
