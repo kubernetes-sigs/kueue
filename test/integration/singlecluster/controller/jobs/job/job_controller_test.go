@@ -7969,7 +7969,7 @@ var _ = ginkgo.Describe("Job controller with waitForPodsReady unscheduledTimeout
 			gomega.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsScheduled)).To(gomega.BeNil())
 			job := &batchv1.Job{}
 			gomega.Expect(k8sClient.Get(ctx, jobKey, job)).To(gomega.Succeed())
-			gomega.Expect(job.Spec.Template.Annotations).NotTo(gomega.HaveKey(kueue.WorkloadAnnotation))
+			gomega.Expect(job.Spec.Template.Annotations).To(gomega.HaveKeyWithValue(kueue.WorkloadAnnotation, wlKey.Name))
 			behavioral.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
 				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage},
 			)
@@ -8038,7 +8038,7 @@ var _ = ginkgo.Describe("Job controller with waitForPodsReady unscheduledTimeout
 			gomega.Expect(apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsScheduled)).To(gomega.BeNil())
 			job := &batchv1.Job{}
 			gomega.Expect(k8sClient.Get(ctx, jobKey, job)).To(gomega.Succeed())
-			gomega.Expect(job.Spec.Template.Annotations).NotTo(gomega.HaveKey(kueue.WorkloadAnnotation))
+			gomega.Expect(job.Spec.Template.Annotations).To(gomega.HaveKeyWithValue(kueue.WorkloadAnnotation, wlKey.Name))
 			behavioral.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
 				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage},
 			)
@@ -8207,7 +8207,7 @@ var _ = ginkgo.Describe("Job controller with waitForPodsReady unscheduledTimeout
 			behavioral.ExpectJobUnsuspended(ctx, k8sClient, jobKey)
 			job := &batchv1.Job{}
 			gomega.Expect(k8sClient.Get(ctx, jobKey, job)).To(gomega.Succeed())
-			gomega.Expect(job.Spec.Template.Annotations).NotTo(gomega.HaveKey(kueue.WorkloadAnnotation))
+			gomega.Expect(job.Spec.Template.Annotations).To(gomega.HaveKeyWithValue(kueue.WorkloadAnnotation, wlKey.Name))
 			behavioral.ExpectWorkloadToHaveConditions(ctx, k8sClient, wlKey,
 				metav1.Condition{Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse, Reason: kueue.WorkloadWaitForStart, Message: workload.PodsNotReadyMessage},
 			)
