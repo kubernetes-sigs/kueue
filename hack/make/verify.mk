@@ -394,10 +394,6 @@ kustomization-resources-verify: yq ## Validate manifests shipped by the Helm cha
 rbac-verify: ## Verify RBAC subject and roleRef relationships (standalone).
 	$(_rbac_verify_recipe)
 
-.PHONY: skills-lint
-skills-lint: ## Lint agent skills with skillsaw.
-	$(_skills_lint_recipe)
-
 .PHONY: verify-website-links
 verify-website-links: ## Check for broken internal links on the public website.
 	$(PROJECT_DIR)/hack/testing/linkchecker/verify.sh
