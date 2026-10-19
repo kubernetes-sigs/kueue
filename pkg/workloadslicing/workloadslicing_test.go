@@ -2316,6 +2316,7 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 		workloads    []*kueue.Workload
 		wantFinished sets.Set[string]
 	}{
+		"already finished predecessor is left untouched":     {workloads: []*kueue.Workload{old.Clone().FinishedAt(now).Obj(), successor.Obj()}},
 		"intent alone retains predecessor":                   {workloads: []*kueue.Workload{old.Obj(), utiltestingapi.MakeWorkload("new", "ns").Annotation(WorkloadSliceReplacementFor, "ns/old").Obj()}},
 		"evicted successor retains commitment":               {workloads: []*kueue.Workload{old.Obj(), successor.Clone().EvictedAt(now).Obj()}, wantFinished: sets.New("old")},
 		"finished successor retains commitment":              {workloads: []*kueue.Workload{old.Obj(), successor.Clone().FinishedAt(now).Obj()}, wantFinished: sets.New("old")},
@@ -2335,10 +2336,14 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 			if err := cl.List(ctx, list); err != nil {
 				t.Fatal(err)
 			}
-			manager := Manager{Client: cl, Clock: testingclock.NewFakeClock(now), Recorder: events.NewFakeRecorder(20)}
+			recorder := events.NewFakeRecorder(20)
+			manager := Manager{Client: cl, Clock: testingclock.NewFakeClock(now), Recorder: recorder}
 			err := manager.FinishReplacedWorkloadSlices(ctx, list.Items)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if got := len(recorder.Events); got != tc.wantFinished.Len() {
+				t.Errorf("replacement event count = %d, want %d", got, tc.wantFinished.Len())
 			}
 			if err := cl.List(ctx, list); err != nil {
 				t.Fatal(err)
@@ -2356,6 +2361,12 @@ func TestFinishReplacedWorkloadSlices(t *testing.T) {
 				} else if diff := cmp.Diff(before, got.Status, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("%s changed unexpectedly (-want,+got): %s", got.Name, diff)
 				}
+			}
+			if err := manager.FinishReplacedWorkloadSlices(ctx, list.Items); err != nil {
+				t.Fatal(err)
+			}
+			if got := len(recorder.Events); got != tc.wantFinished.Len() {
+				t.Errorf("replacement event count after repeated reconciliation = %d, want %d", got, tc.wantFinished.Len())
 			}
 		})
 	}

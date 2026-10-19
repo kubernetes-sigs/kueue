@@ -1144,6 +1144,9 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 				client.MatchingFields{indexer.WorkloadSliceNameKey: workloadslicing.SliceName(wl)}); err != nil {
 				return nil, err
 			}
+			// TODO(kevin85421): Currently this only handles slices that the scheduler
+			// failed to finish after admitting the replacement. More cases may need
+			// to be handled in the future.
 			if err := r.workloadSlices.FinishReplacedWorkloadSlices(ctx, list.Items); err != nil {
 				return nil, err
 			}
