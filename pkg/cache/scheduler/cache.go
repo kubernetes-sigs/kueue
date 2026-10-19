@@ -571,6 +571,9 @@ func (c *Cache) resyncClusterQueueGaugeMetricsLocked(cq *clusterQueue) {
 	c.recordCQInfo(cq, parentCohort, rootCohort)
 	cq.reportActiveWorkloads()
 	cq.resyncAdmittedActiveWorkloads()
+	// All LocalQueues in one pass, instead of scanning the workloads once per
+	// LocalQueue in resyncLocalQueueGaugeMetricsLocked.
+	cq.resyncLocalQueueAdmittedActiveWorkloads(sets.KeySet(cq.localQueues))
 	if c.resourceMetricsEnabled {
 		cq.reportResourceMetrics(c.fairSharingEnabled)
 	}
@@ -605,6 +608,7 @@ func (c *Cache) ResyncLocalQueueGaugeMetrics(cqName kueue.ClusterQueueReference,
 		return
 	}
 	c.resyncLocalQueueGaugeMetricsLocked(cq, lq)
+	cq.resyncLocalQueueAdmittedActiveWorkloads(sets.New(lqRef))
 }
 
 func (c *Cache) ResyncCohortGaugeMetrics(log logr.Logger, cohortName kueue.CohortReference) {
