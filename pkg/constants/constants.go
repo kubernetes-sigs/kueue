@@ -87,6 +87,12 @@ const (
 	// ElasticJobAnnotation is an annotation set on the Job to indicate that it is an elastic job.
 	ElasticJobAnnotation = "kueue.x-k8s.io/elastic-job"
 
+	// ReclaimTargetCountsAnnotation is set by Kueue on a workload slice that partial
+	// preemption shrinks. Its value lists the pod count that each shrunk PodSet goes
+	// down to, as "<podSet>=<count>[,<podSet>=<count>]". The Pods above it are deleted,
+	// and once they are gone, the admitted count is lowered to it, which releases their quota.
+	ReclaimTargetCountsAnnotation = "kueue.x-k8s.io/reclaim-target-counts"
+
 	// ElasticJobScaleUpAnnotationKey refers to the annotation key present on Jobs that support
 	// partial scale up.
 	// This annotation is alpha-level.

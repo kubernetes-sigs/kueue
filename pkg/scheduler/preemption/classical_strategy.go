@@ -19,12 +19,15 @@ package preemption
 import (
 	"context"
 	"iter"
+	"slices"
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/classical"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
+	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -110,17 +113,72 @@ func iterateOverCandidates(
 	allowBorrowing bool,
 	yield func(*Target) bool,
 ) (cont bool) {
-	yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
+	yieldFromSnapshot := policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
+	// With partial preemption, the candidates shrunk to their minCount come
+	// first, then the whole candidates.
+	partial := make(map[workload.Reference]*Target)
+	if features.Enabled(features.PartialPreemption) {
+		iterator.Reset()
+		for candidateWl, reason := iterator.Next(allowBorrowing); candidateWl != nil; candidateWl, reason = iterator.Next(allowBorrowing) {
+			remaining := shrunkToMinCount(candidateWl)
+			if remaining == nil {
+				continue
+			}
+			candidate := &Target{
+				WorkloadInfo: candidateWl,
+				Reason:       reason,
+				WorkloadCq:   preemptionCtx.snapshot.ClusterQueue(candidateWl.ClusterQueue),
+				Remaining:    remaining,
+			}
+			partial[workload.Key(candidateWl.Obj)] = candidate
+			if !yieldFromSnapshot(candidate) {
+				return
+			}
+		}
+	}
 	iterator.Reset()
 	for candidateWl, reason := iterator.Next(allowBorrowing); candidateWl != nil; candidateWl, reason = iterator.Next(allowBorrowing) {
+		if candidate, found := partial[workload.Key(candidateWl.Obj)]; found {
+			// Shrinking was not enough, so the whole workload is preempted.
+			preemptionCtx.snapshot.RemoveWorkload(candidate.Remaining)
+			candidate.Remaining = nil
+			candidate.Reason = reason
+			if !yield(candidate) {
+				return
+			}
+			continue
+		}
 		candidate := &Target{
 			WorkloadInfo: candidateWl,
 			Reason:       reason,
 			WorkloadCq:   preemptionCtx.snapshot.ClusterQueue(candidateWl.ClusterQueue),
 		}
-		if !yield(candidate) {
+		if !yieldFromSnapshot(candidate) {
 			return
 		}
 	}
 	return true
+}
+
+// shrunkToMinCount returns the admitted elastic workload with its PodSets
+// shrunk to their minCount, or nil when no PodSet can shrink.
+func shrunkToMinCount(wl *workload.Info) *workload.Info {
+	if wl.Obj.Annotations[constants.ElasticJobAnnotation] != "true" || wl.IsUsingTAS() {
+		return nil
+	}
+	remaining := *wl
+	remaining.TotalRequests = slices.Clone(wl.TotalRequests)
+	shrunk := false
+	for i := range remaining.TotalRequests {
+		psr := &remaining.TotalRequests[i]
+		ps := podset.FindPodSetByName(wl.Obj.Spec.PodSets, psr.Name)
+		if ps != nil && ps.MinCount != nil && psr.Count > *ps.MinCount {
+			*psr = *psr.ScaledTo(*ps.MinCount)
+			shrunk = true
+		}
+	}
+	if !shrunk {
+		return nil
+	}
+	return &remaining
 }

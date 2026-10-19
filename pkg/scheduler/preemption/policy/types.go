@@ -37,6 +37,27 @@ type Target struct {
 	// ConfigurablePreemptionReasonData stores data which resulted in eviction.
 	// Specified only when eviction is due to configurable preemption.
 	ConfigurablePreemptionReasonData *ConfigurablePreemptionReasonData
+
+	// Remaining is set when the workload is preempted partially. It is the
+	// shrunk workload, which stays admitted.
+	Remaining *workload.Info
+}
+
+// RemoveFrom removes the target from the snapshot, keeping what remains of a
+// partially preempted workload.
+func (t *Target) RemoveFrom(snapshot *scheduler.Snapshot) {
+	snapshot.RemoveWorkload(t.WorkloadInfo)
+	if t.Remaining != nil {
+		snapshot.AddWorkload(t.Remaining)
+	}
+}
+
+// AddTo reverts RemoveFrom.
+func (t *Target) AddTo(snapshot *scheduler.Snapshot) {
+	if t.Remaining != nil {
+		snapshot.RemoveWorkload(t.Remaining)
+	}
+	snapshot.AddWorkload(t.WorkloadInfo)
 }
 
 type ConfigurablePreemptionReasonData struct {
@@ -65,7 +86,7 @@ type yieldCandidate = func(*Target) bool
 // logic removing the candidate from the provided snapshot.
 func YieldFromSnapshot(snapshot *scheduler.Snapshot, yield yieldCandidate) yieldCandidate {
 	return func(t *Target) bool {
-		snapshot.RemoveWorkload(t.WorkloadInfo)
+		t.RemoveFrom(snapshot)
 		return yield(t)
 	}
 }
