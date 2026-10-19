@@ -34,6 +34,7 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeunschedulable"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/queuesort"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/tainttoleration"
@@ -46,6 +47,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 var _ simulator.Factory = (*wasSimulatorFactory)(nil)
@@ -103,6 +105,27 @@ func newWASSimulatorFactory(ctx context.Context, client kubernetes.Interface) (*
 }
 
 func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
+	nodeFilters := []schedulerconfig.Plugin{
+		{Name: nodeaffinity.Name},
+		{Name: nodeports.Name},
+	}
+	config := []schedulerconfig.PluginConfig{
+		{
+			Name: nodeaffinity.Name,
+			Args: &schedulerconfig.NodeAffinityArgs{},
+		},
+	}
+	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		nodeFilters = append(nodeFilters, schedulerconfig.Plugin{Name: noderesources.Name})
+		config = append(config, schedulerconfig.PluginConfig{
+			Name: noderesources.Name,
+			Args: &schedulerconfig.NodeResourcesFitArgs{
+				ScoringStrategy: &schedulerconfig.ScoringStrategy{
+					Type: schedulerconfig.LeastAllocated,
+				},
+			},
+		})
+	}
 	return &schedulerconfig.KubeSchedulerConfiguration{
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
 			{
@@ -116,26 +139,16 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 						Enabled: []schedulerconfig.Plugin{{Name: defaultbinder.Name}},
 					},
 					Filter: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{
+						Enabled: append([]schedulerconfig.Plugin{
 							{Name: nodeunschedulable.Name},
 							{Name: tainttoleration.Name},
-							{Name: nodeaffinity.Name},
-							{Name: nodeports.Name},
-						},
+						}, nodeFilters...),
 					},
 					PreFilter: schedulerconfig.PluginSet{
-						Enabled: []schedulerconfig.Plugin{
-							{Name: nodeaffinity.Name},
-							{Name: nodeports.Name},
-						},
+						Enabled: nodeFilters,
 					},
 				},
-				PluginConfig: []schedulerconfig.PluginConfig{
-					{
-						Name: nodeaffinity.Name,
-						Args: &schedulerconfig.NodeAffinityArgs{},
-					},
-				},
+				PluginConfig: config,
 			},
 		},
 	}
