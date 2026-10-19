@@ -1,0 +1,7 @@
+kueue:
+  managerConfig:
+    config:
+      managedJobsNamespaceSelector:
+        matchLabels:
+          queueing: enabled
+          team: research

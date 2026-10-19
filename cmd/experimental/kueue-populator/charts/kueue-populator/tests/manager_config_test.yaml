@@ -1,0 +1,189 @@
+suite: test manager configuration null removal
+templates:
+  - manager.yaml
+set:
+  kueue.enabled: false
+release:
+  namespace: custom-system
+tests:
+  - it: should remove an overridden label and retain siblings with the subchart disabled
+    documentIndex: 3
+    values: &labelOverrides
+      - fixtures/manager-config-base.yaml
+      - fixtures/manager-config-remove-label.yaml
+    asserts: &remainingLabel
+      - equal:
+          path: data["controller_manager_config.yaml"]
+          value: |
+            localQueueName: default
+            managedJobsNamespaceSelector:
+              matchLabels:
+                queueing: enabled
+
+  - it: should remove an overridden label and retain siblings with the subchart enabled
+    documentIndex: 3
+    values: *labelOverrides
+    set:
+      kueue.enabled: true
+    asserts: *remainingLabel
+
+  - it: should preserve string label values while removing a null sibling
+    documentIndex: 3
+    set:
+      kueue.managerConfig.config.managedJobsNamespaceSelector.matchLabels:
+        empty: ""
+        flag: "false"
+        literal: "null"
+        zero: "0"
+        removed: null
+    asserts:
+      - equal:
+          path: data["controller_manager_config.yaml"]
+          value: |
+            localQueueName: default
+            managedJobsNamespaceSelector:
+              matchLabels:
+                empty: ""
+                flag: "false"
+                literal: "null"
+                zero: "0"
+
+  - it: should preserve an empty label map after its last label is removed
+    documentIndex: 3
+    set:
+      kueue.managerConfig.config.managedJobsNamespaceSelector.matchLabels:
+        team: null
+    asserts:
+      - equal:
+          path: data["controller_manager_config.yaml"]
+          value: |
+            localQueueName: default
+            managedJobsNamespaceSelector:
+              matchLabels: {}
+
+  - it: should remove a whole label map without changing sibling expressions
+    documentIndex: 3
+    set:
+      kueue.managerConfig.config.managedJobsNamespaceSelector:
+        matchLabels: null
+        matchExpressions:
+          - key: team
+            operator: In
+            values: [research, platform]
+    asserts:
+      - equal:
+          path: data["controller_manager_config.yaml"]
+          value: |
+            localQueueName: default
+            managedJobsNamespaceSelector:
+              matchExpressions:
+              - key: team
+                operator: In
+                values:
+                - research
+                - platform
+
+  - it: should use the release namespace when structured namespace and selector are removed
+    documentIndex: 3
+    set:
+      kueue.managerConfig.config:
+        namespace: null
+        managedJobsNamespaceSelector: null
+    asserts: &defaultSelector
+      - equal:
+          path: data["controller_manager_config.yaml"]
+          value: |
+            localQueueName: default
+            managedJobsNamespaceSelector:
+              matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: NotIn
+                values:
+                - kube-system
+                - custom-system
+
+  - it: should use the configured namespace when the structured selector is removed
+    documentIndex: 3
+    set:
+      kueue.managerConfig.config:
+        namespace: external-kueue
+        managedJobsNamespaceSelector: null
+    asserts:
+      - equal:
+          path: data["controller_manager_config.yaml"]
+          value: |
+            localQueueName: default
+            managedJobsNamespaceSelector:
+              matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: NotIn
+                values:
+                - kube-system
+                - external-kueue
+
+  - it: should use the same fallback with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.config:
+        namespace: null
+        managedJobsNamespaceSelector: null
+    asserts: *defaultSelector
+
+  - it: should keep null fields inside replacement lists
+    documentIndex: 3
+    set:
+      kueue.managerConfig.config.managedJobsNamespaceSelector:
+        matchExpressions:
+          - key: team
+            operator: Exists
+            values: null
+    asserts: &expressionWithNull
+      - equal:
+          path: data["controller_manager_config.yaml"]
+          value: |
+            localQueueName: default
+            managedJobsNamespaceSelector:
+              matchExpressions:
+              - key: team
+                operator: Exists
+                values: null
+
+  - it: should keep the same replacement list with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.config.managedJobsNamespaceSelector:
+        matchExpressions:
+          - key: team
+            operator: Exists
+            values: null
+    asserts: *expressionWithNull
+
+  - it: should preserve legacy YAML nulls and precedence over structured configuration
+    documentIndex: 3
+    set:
+      kueue.managerConfig.config.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.controllerManagerConfigYaml: |
+        managedJobsNamespaceSelector:
+          matchLabels: null
+    asserts:
+      - equal:
+          path: data["controller_manager_config.yaml"]
+          value: |
+            localQueueName: default
+            managedJobsNamespaceSelector:
+              matchLabels: null
+
+  - it: should preserve an explicit empty populator selector over the removed Kueue selector
+    documentIndex: 3
+    set:
+      kueue.managerConfig.config.managedJobsNamespaceSelector: null
+      kueuePopulator.config.managedJobsNamespaceSelector: {}
+    asserts:
+      - equal:
+          path: data["controller_manager_config.yaml"]
+          value: |
+            localQueueName: default
+            managedJobsNamespaceSelector:
+              {}

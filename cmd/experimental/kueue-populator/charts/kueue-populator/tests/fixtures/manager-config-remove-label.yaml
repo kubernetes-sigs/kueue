@@ -1,0 +1,6 @@
+kueue:
+  managerConfig:
+    config:
+      managedJobsNamespaceSelector:
+        matchLabels:
+          team: null

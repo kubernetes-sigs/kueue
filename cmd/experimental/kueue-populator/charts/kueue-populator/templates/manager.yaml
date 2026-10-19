@@ -17,7 +17,7 @@
 {{- if .controllerManagerConfigYaml }}
 {{- $kueueConfig = .controllerManagerConfigYaml | fromYaml -}}
 {{- else if hasKey . "config" }}
-{{- $kueueConfig = .config -}}
+{{- $kueueConfig = include "kueue-populator.withoutNullKeys" .config | fromYaml -}}
 {{- end }}
 {{- end }}
 {{- end }}
