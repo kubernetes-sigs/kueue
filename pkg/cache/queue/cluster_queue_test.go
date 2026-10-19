@@ -1243,10 +1243,18 @@ func TestPendingInLocalQueue(t *testing.T) {
 			ctx, log := utiltesting.ContextWithLog(t)
 			cq := newClusterQueueImpl(ctx, nil, defaultOrdering, testingclock.NewFakeClock(now))
 			tc.ops(ctx, log, cq)
-			if diff := cmp.Diff(tc.wantActive, cq.workloads.localQueueCounts.active, cmpopts.EquateEmpty()); diff != "" {
+			gotActive := make(map[utilqueue.LocalQueueReference]int)
+			for lqRef, tracker := range cq.workloads.localQueueCounts.active {
+				gotActive[lqRef] = tracker.Total()
+			}
+			if diff := cmp.Diff(tc.wantActive, gotActive, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected active counts (-want,+got):\n%s", diff)
 			}
-			if diff := cmp.Diff(tc.wantInadmissible, cq.workloads.localQueueCounts.inadmissible, cmpopts.EquateEmpty()); diff != "" {
+			gotInadmissible := make(map[utilqueue.LocalQueueReference]int)
+			for lqRef, tracker := range cq.workloads.localQueueCounts.inadmissible {
+				gotInadmissible[lqRef] = tracker.Total()
+			}
+			if diff := cmp.Diff(tc.wantInadmissible, gotInadmissible, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("Unexpected inadmissible counts (-want,+got):\n%s", diff)
 			}
 			for _, lqRef := range []utilqueue.LocalQueueReference{lqA, lqB} {
@@ -2453,6 +2461,148 @@ func TestGetNoFitReason(t *testing.T) {
 			}
 			if ok && reason != tc.wantReason {
 				t.Errorf("GetNoFitReason() reason = %q, want %q", reason, tc.wantReason)
+			}
+		})
+	}
+}
+
+func TestPendingBreakdownInLocalQueue(t *testing.T) {
+	projectLabel := config.ControllerMetricsCustomLabel{
+		Name:           "workload-project",
+		SourceLabelKey: "project",
+		SourceKind:     new(config.SourceKindWorkload),
+		TrackedValues:  []string{"project-a", "project-b"},
+	}
+	projectA := [6]string{"project-a"}
+	projectB := [6]string{"project-b"}
+	untracked := [6]string{config.UntrackedCustomLabelValue}
+	lqA := utilqueue.NewLocalQueueReference(defaultNamespace, "lq-a")
+	lqB := utilqueue.NewLocalQueueReference(defaultNamespace, "lq-b")
+
+	cases := map[string]struct {
+		ops              func(context.Context, logr.Logger, *ClusterQueue)
+		wantActive       map[utilqueue.LocalQueueReference]map[[6]string]int
+		wantInadmissible map[utilqueue.LocalQueueReference]map[[6]string]int
+	}{
+		"push to two LocalQueues": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Label("project", "project-a").Obj()))
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue("lq-a").Label("project", "project-a").Obj()))
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl3", defaultNamespace).Queue("lq-b").Label("project", "project-b").Obj()))
+			},
+			wantActive: map[utilqueue.LocalQueueReference]map[[6]string]int{
+				lqA: {projectA: 2},
+				lqB: {projectB: 1},
+			},
+		},
+		"untracked label value": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Label("project", "project-c").Obj()))
+			},
+			wantActive: map[utilqueue.LocalQueueReference]map[[6]string]int{
+				lqA: {untracked: 1},
+			},
+		},
+		"update changes the label value": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Label("project", "project-a").Obj()))
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Label("project", "project-b").Obj()))
+			},
+			wantActive: map[utilqueue.LocalQueueReference]map[[6]string]int{
+				lqA: {projectB: 1},
+			},
+		},
+		"popped workload stays active": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Label("project", "project-a").Obj()))
+				cq.Pop()
+			},
+			wantActive: map[utilqueue.LocalQueueReference]map[[6]string]int{
+				lqA: {projectA: 1},
+			},
+		},
+		"requeue after pop": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Label("project", "project-a").Obj()))
+				cq.RequeueIfNotPresent(ctx, cq.Pop(), RequeueReasonNoFit, QuotaReservedReason(""))
+			},
+			wantInadmissible: map[utilqueue.LocalQueueReference]map[[6]string]int{
+				lqA: {projectA: 1},
+			},
+		},
+		"inadmissible workloads move back to active": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				wl1 := utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Label("project", "project-a").Obj()
+				wl2 := utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue("lq-b").Label("project", "project-b").Obj()
+				cq.requeueIfNotPresent(log, workload.NewInfo(log, wl1), false, RequeueReasonGeneric, "")
+				cq.requeueIfNotPresent(log, workload.NewInfo(log, wl2), false, RequeueReasonGeneric, "")
+				queueInadmissibleWorkloads(ctx, cq, utiltesting.NewFakeClient(utiltesting.MakeNamespace(defaultNamespace)))
+			},
+			wantActive: map[utilqueue.LocalQueueReference]map[[6]string]int{
+				lqA: {projectA: 1},
+				lqB: {projectB: 1},
+			},
+		},
+		"delete one of two workloads with the same label value": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				wl1 := utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Label("project", "project-a").Obj()
+				cq.PushOrUpdate(workload.NewInfo(log, wl1))
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue("lq-a").Label("project", "project-a").Obj()))
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl3", defaultNamespace).Queue("lq-a").Label("project", "project-b").Obj()))
+				cq.Delete(log, workload.Key(wl1))
+			},
+			wantActive: map[utilqueue.LocalQueueReference]map[[6]string]int{
+				lqA: {projectA: 1, projectB: 1},
+			},
+		},
+		"delete the last workload of a label value": {
+			ops: func(ctx context.Context, log logr.Logger, cq *ClusterQueue) {
+				wl1 := utiltestingapi.MakeWorkload("wl1", defaultNamespace).Queue("lq-a").Label("project", "project-a").Obj()
+				cq.PushOrUpdate(workload.NewInfo(log, wl1))
+				cq.PushOrUpdate(workload.NewInfo(log, utiltestingapi.MakeWorkload("wl2", defaultNamespace).Queue("lq-a").Label("project", "project-b").Obj()))
+				cq.Delete(log, workload.Key(wl1))
+			},
+			wantActive: map[utilqueue.LocalQueueReference]map[[6]string]int{
+				lqA: {projectB: 1},
+			},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Cleanup(func() { metrics.InitMetricVectors(nil) })
+			features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+			ctx, log := utiltesting.ContextWithLog(t)
+			cl := metrics.NewCustomLabels([]config.ControllerMetricsCustomLabel{projectLabel})
+			cq := newClusterQueueImpl(ctx, cl, defaultOrdering, testingclock.NewFakeClock(time.Now()))
+			cq.namespaceSelector = labels.Everything()
+			tc.ops(ctx, log, cq)
+
+			gotActive := make(map[utilqueue.LocalQueueReference]map[[6]string]int)
+			gotInadmissible := make(map[utilqueue.LocalQueueReference]map[[6]string]int)
+			for _, lqRef := range []utilqueue.LocalQueueReference{lqA, lqB} {
+				active, inadmissible := cq.PendingBreakdownInLocalQueue(lqRef)
+				for vals, count := range active.Iter() {
+					if gotActive[lqRef] == nil {
+						gotActive[lqRef] = make(map[[6]string]int)
+					}
+					key := [6]string{}
+					copy(key[:], vals.OrderedList())
+					gotActive[lqRef][key] = count
+				}
+				for vals, count := range inadmissible.Iter() {
+					if gotInadmissible[lqRef] == nil {
+						gotInadmissible[lqRef] = make(map[[6]string]int)
+					}
+					key := [6]string{}
+					copy(key[:], vals.OrderedList())
+					gotInadmissible[lqRef][key] = count
+				}
+			}
+			if diff := cmp.Diff(tc.wantActive, gotActive, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected active breakdown (-want,+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantInadmissible, gotInadmissible, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("Unexpected inadmissible breakdown (-want,+got):\n%s", diff)
 			}
 		})
 	}
