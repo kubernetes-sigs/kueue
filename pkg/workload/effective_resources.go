@@ -194,11 +194,32 @@ func (i *Info) PodSpecByName(name kueue.PodSetReference) *corev1.PodSpec {
 func effectivePodSpecs(wl *kueue.Workload, in AdjustmentInputs) []corev1.PodSpec {
 	specs := EffectivePodSpecs(wl, in)
 	for i := range specs {
-		if !equality.Semantic.DeepEqual(specs[i], wl.Spec.PodSets[i].Template.Spec) {
+		if adjustedFieldsDiffer(&specs[i], &wl.Spec.PodSets[i].Template.Spec) {
 			return specs
 		}
 	}
 	return nil
+}
+
+// adjustedFieldsDiffer reports whether applyAdjustmentsToPodSpec changed
+// anything between a and b. It compares only the fields that function writes,
+// because comparing whole PodSpecs dominated the cost of building an Info.
+// Keep it in sync with applyAdjustmentsToPodSpec.
+func adjustedFieldsDiffer(a, b *corev1.PodSpec) bool {
+	if !equality.Semantic.DeepEqual(a.Overhead, b.Overhead) || !equality.Semantic.DeepEqual(a.Resources, b.Resources) {
+		return true
+	}
+	for i := range a.InitContainers {
+		if !equality.Semantic.DeepEqual(a.InitContainers[i].Resources, b.InitContainers[i].Resources) {
+			return true
+		}
+	}
+	for i := range a.Containers {
+		if !equality.Semantic.DeepEqual(a.Containers[i].Resources, b.Containers[i].Resources) {
+			return true
+		}
+	}
+	return false
 }
 
 // WithEffectivePodSpecs carries an existing read-only resource snapshot into a
