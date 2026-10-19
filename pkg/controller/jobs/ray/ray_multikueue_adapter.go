@@ -79,8 +79,7 @@ type RemoteSpecSyncer[PtrT any] interface {
 // cluster. The forward direction (SyncReplicas/WorkerReplicas) pushes
 // manager-driven replica edits onto the worker copy; the reverse direction
 // (Runtime) reflects worker-side autoscaler resizes back onto the manager. A
-// type may wire the forward hooks, Runtime, or both. RayService wires neither
-// and keeps the create-once behavior.
+// type may wire the forward hooks, Runtime, or both.
 type ElasticReplicaSync[PtrT objAsPtr[T], T any] struct {
 	// SyncReplicas copies the worker replica counts from src into dst, returning
 	// whether dst changed.
