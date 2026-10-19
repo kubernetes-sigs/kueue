@@ -2,6 +2,7 @@ title: Metrics access control
 kep-number: 16029
 authors:
   - "@ankushbbbr"
+  - "@AaronLiChen"
 status: implementable
 creation-date: 2026-10-01
 reviewers:
@@ -16,6 +17,8 @@ see-also:
   - "/keps/4377-metrics-tls"
   - "/keps/8190-tls-security-profiles"
 replaces: []
+# Stage/milestone below apply to the initial loopback opt-out.
+# The proposed client-certificate mode has no agreed delivery or gate staging.
 stage: alpha
 latest-milestone: "v0.21"
 milestone:

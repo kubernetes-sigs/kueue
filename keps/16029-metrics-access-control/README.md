@@ -9,17 +9,24 @@
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
     - [Story 1: Scraping metrics from a sidecar container without a bearer token](#story-1-scraping-metrics-from-a-sidecar-container-without-a-bearer-token)
+    - [Story 2: A remote scraper already has a client certificate](#story-2-a-remote-scraper-already-has-a-client-certificate)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Metrics may become visible beyond their intended audience](#metrics-may-become-visible-beyond-their-intended-audience)
+    - [A shared client CA can authenticate unintended identities](#a-shared-client-ca-can-authenticate-unintended-identities)
 - [Design Details](#design-details)
   - [API](#api)
   - [Validation](#validation)
   - [AccessControlMode handling](#accesscontrolmode-handling)
+  - [Proposed follow-up: certificate-authenticated mode](#proposed-follow-up-certificate-authenticated-mode)
+    - [API](#api-1)
+    - [Validation](#validation-1)
+    - [Handling](#handling)
   - [Test Plan](#test-plan)
     - [Prerequisite testing updates](#prerequisite-testing-updates)
     - [Unit tests](#unit-tests)
     - [Integration tests](#integration-tests)
     - [e2e tests](#e2e-tests)
+    - [Proposed follow-up tests](#proposed-follow-up-tests)
   - [Graduation Criteria](#graduation-criteria)
     - [Alpha](#alpha)
     - [Beta](#beta)
@@ -43,6 +50,10 @@ by making authentication and authorization optional for loopback listeners,
 while retaining its TLS requirement. HTTP and non-loopback unauthenticated
 access are outside its scope.
 
+A proposed authenticated follow-up lets remote scrapers reuse existing client
+certificates while retaining metrics authorization. Its delivery and staging are
+separate from the initial loopback-only implementation.
+
 ## Motivation
 
 Some platforms add a metrics scraper container to the Kueue controller manager
@@ -52,6 +63,10 @@ namespace and reaches the metrics endpoint through loopback.
 Currently, Kueue's metrics endpoint accepts only bearer tokens that pass
 TokenReview and SubjectAccessReview, with no client-certificate option for
 metrics requests.
+
+Remote collectors cannot reach the pod-local loopback listener. Some already
+have platform-issued client certificates and want to reuse those identities
+without another bearer credential or disabling metrics authorization.
 
 ### Why existing authentication cannot simply be configured
 
@@ -67,6 +82,8 @@ accepts. Client-certificate metrics authentication is not supported today (see
   or metrics TokenReview/SubjectAccessReview calls.
 - Retain authenticated HTTPS by default and reject unsafe opt-out addresses.
 - Preserve verified HTTPS, serving-certificate rotation, and webhook behavior.
+- Define a client-certificate-authenticated follow-up for remote scrapers,
+  retaining metrics authorization and existing bearer-only compatibility.
 
 ### Non-Goals
 
@@ -77,7 +94,7 @@ accepts. Client-certificate metrics authentication is not supported today (see
   pod-only boundary.
 - Changes to controller-to-API-server authentication, ServiceAccount lifecycle,
   webhooks, job integrations, or metrics contents.
-- Adding mTLS, custom authentication providers, or a proxy implementation.
+- New certificate issuance, custom authentication providers, or a proxy.
 - Automatically removing upstream RBAC or reconfiguring external scrapers.
 
 ## Proposal
@@ -98,6 +115,14 @@ to collect metrics over verified HTTPS without provisioning a bearer token, whil
 keeping the metrics listener bound to loopback. The deployment supplies external
 serving certificates, and the scraper trusts their CA and verifies a
 certificate-matching server name.
+
+#### Story 2: A remote scraper already has a client certificate
+
+An administrator trusts the issuer of a remote collector's client certificate.
+The collector cannot use pod loopback and should not receive an extra bearer
+secret. The proposed authenticated mode accepts that certificate identity and
+checks its metrics-reader permission. Other bearer-only collectors remain usable.
+The configuration example is in the follow-up design below.
 
 ### Risks and Mitigations
 
@@ -128,6 +153,18 @@ Add a task page under Observability covering the setup, the external certificate
 requirement, and the trust boundary: other containers in the pod, `hostNetwork`,
 and `kubectl port-forward`. Document service-mesh forwarding behavior as it is
 verified.
+
+#### A shared client CA can authenticate unintended identities
+
+Client-CA trust establishes identity, not permission. Retain metrics authorization
+and bind only intended identities to the metrics-reader role. Protect CA-bundle
+write access as authentication-policy administration. The API-server serving CA
+is not necessarily the CA that signed the scraper certificate.
+
+Certificate identity takes precedence when both credentials are presented;
+invalid or denied certificates must not fall back to a more privileged token.
+Client authentication does not make Kueue's serving certificate trusted by the
+scraper; serving CA/SAN verification remains a separate responsibility.
 
 ## Design Details
 
@@ -206,6 +243,78 @@ warning with the bind address stating that authentication and authorization are
 disabled and metrics may expose tenant information to other processes sharing
 the network namespace.
 
+### Proposed follow-up: certificate-authenticated mode
+
+This extension is proposed for maintainer discussion, not part of the initial
+`Delegated`/`None` Alpha or a requirement for its implementation. The mode name,
+feature-gate staging, and delivery milestone must be agreed separately.
+
+#### API
+
+Extend the existing mode enum, rather than introduce a separate access-control
+API. Proposed additions to the Configuration API `v1beta2`:
+
+```go
+// MetricsAccessControlModeClientCertificateOrBearer uses a trusted client
+// certificate, or a bearer token when no certificate is presented, and retains
+// Kubernetes authorization. Proposed follow-up, not initial Alpha.
+const MetricsAccessControlModeClientCertificateOrBearer MetricsAccessControlMode = "ClientCertificateOrBearer"
+
+type ControllerMetrics struct {
+    // ClientCAFile identifies a public PEM bundle for metrics client certificates.
+    // Required only in ClientCertificateOrBearer; unset/null preserves the existing
+    // mode contract. The path is startup-only; valid contents reload on change.
+    // +optional
+    ClientCAFile *string `json:"clientCAFile,omitempty"`
+}
+```
+
+Example after that extension is implemented and its gate is enabled:
+
+```yaml
+metrics:
+  accessControlMode: ClientCertificateOrBearer
+  bindAddress: ":8443"
+  clientCAFile: /etc/kueue/metrics-client-ca/ca.crt
+```
+
+#### Validation
+
+- Initial Alpha rejects the new mode/field. The follow-up requires agreed
+  feature-gate staging; gate-off with the mode configured must fail startup,
+  not fall back to weaker access controls.
+- Require `clientCAFile` in this mode and reject it in `Delegated` or `None`.
+  Reject empty, whitespace-only, or non-absolute paths. Enabled metrics fail
+  startup for unreadable, empty, or malformed bundles. Disabled metrics perform
+  no bundle I/O or watcher setup.
+- This authenticated mode does not require loopback. The existing `None` address
+  restrictions remain unchanged.
+
+#### Handling
+
+Keep HTTPS and request an optional client certificate. Verify its chain,
+validity, and clientAuth usage against the supplied bundle. Authenticate the TLS
+peer using Kubernetes X.509 username/group mapping, then authorize non-resource
+`GET /metrics` through SubjectAccessReview. Do not trust identity headers, infer
+permission from certificate validity, or issue new certificates.
+
+| Presented credentials | Authentication and authorization |
+|---|---|
+| None | HTTP 401 |
+| Bearer only | Existing TokenReview and SubjectAccessReview |
+| Trusted certificate | Certificate identity; SubjectAccessReview allows 200 or denies 403 |
+| Trusted certificate and token | Certificate identity; no token retry after denial |
+| Invalid/expired/wrong-usage certificate | Rejected; no metrics or token fallback |
+
+Reject unusable certificate identities rather than reinterpreting them as bearer
+requests. Certificate requests avoid TokenReview, not SubjectAccessReview.
+Changing the CA path requires a restart; reload valid bundle contents for TLS
+and request authentication, including CA removal on reused connections. Malformed
+updates retain the last valid bundle and warn, never enabling trust-all or
+anonymous access. Use overlapping bundles for CA migration. Existing serving
+certificate loading/rotation, TLS profiles, and scraper reload responsibilities
+remain independent.
+
 ### Test Plan
 
 - [x] The owners of the involved components may require updates to existing tests
@@ -262,7 +371,22 @@ matching TLS server name. Assert that the sidecar can scrape metrics over verifi
 token and that a direct connection to the metrics port on the manager pod IP is
 refused. Keep existing authenticated HTTPS and certificate coverage unchanged.
 
+#### Proposed follow-up tests
+
+Extend configuration tests for the mode/CA field, gate-off rollback, invalid
+bundles, disabled metrics, and cross-mode rejection. Real TLS tests with controlled
+review APIs must cover the credential table, prove certificate identity reaches
+SubjectAccessReview with no TokenReview call, and test leaf/CA rotation, reused
+connections, and malformed bundle updates. Extend the certificate-management E2E
+job with remote certificate/no-token scraping, denied identities, rotation, and
+bearer-only compatibility; restore shared configuration afterward. These are
+follow-up tests, not prerequisites for initial `None`.
+
 ### Graduation Criteria
+
+The stages below describe the initial loopback opt-out. Delivery and maturity of
+the authenticated follow-up must be agreed separately.
+
 
 #### Alpha
 
@@ -278,7 +402,8 @@ refused. Keep existing authenticated HTTPS and certificate coverage unchanged.
 - Positive feedback from users, and no open security issues against the opt-out.
 - Behavior with a service mesh sidecar that forwards inbound traffic to
   localhost is verified.
-- Re-evaluate client-certificate authentication (Alternative 1).
+- Review the certificate-authenticated follow-up's API, credential precedence,
+  CA rollover, gate staging, and delivery target before treating it as supported.
 - Re-evaluate an Event or a metric for the access-control mode based on user
   feedback.
 
@@ -290,6 +415,8 @@ refused. Keep existing authenticated HTTPS and certificate coverage unchanged.
 ## Implementation History
 
 - 2026-10-01: Initial KEP draft.
+- 2026-10-19: Proposed client-certificate-authenticated follow-up after maintainer
+  feedback to align enhancement 17432 with this KEP; not implemented or approved.
 
 ## Drawbacks
 
@@ -302,11 +429,10 @@ serving-certificate dependency.
 ## Alternatives
 
 1. **Client-certificate metrics authentication.** Maintainers have prototyped
-   this with controller-runtime and RBAC checks. It may fit platforms that can
-   configure the scraper's client certificate, server client-CA trust, rotation,
-   identity mapping, and authorization. This remains a viable authenticated
-   alternative; the proposed opt-out serves administrators who intentionally
-   choose the shared network namespace as their access boundary.
+   certificate identity with RBAC checks. It is now described as a proposed
+   authenticated follow-up mode above, not a replacement for the loopback opt-out:
+   administrators who intentionally use the shared network namespace as their
+   access boundary still have the separate `None` use case.
 2. **Authentication proxy or local exporter.** Can centralize policy, but a
    proxy that simply forwards requests still needs an upstream credential or an
    accepted alternative authentication mode. It adds another component to run.
