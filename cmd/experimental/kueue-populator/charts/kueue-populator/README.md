@@ -162,6 +162,11 @@ This chart includes the official `kueue` chart as a dependency. You can configur
 -   `kueue.controllerManager.featureGates`: Enables `TopologyAwareScheduling`.
 -   `kueue.managerConfig.mode`: Omit or set to `yaml` to retain legacy YAML behavior. Set to `structured` to select `kueue.managerConfig.structuredOverrides`, ignoring any saved YAML string. The populator inherits `managedJobsNamespaceSelector` unless its own selector is explicitly set. The two inputs are not merged. This selection applies with the Kueue subchart enabled or disabled; structured null-valued map keys are removed in either case.
 
+Both modes reject unknown keys directly under `kueue.managerConfig`. When supplied,
+`structuredOverrides` must be a map and `controllerManagerConfigYaml` must be a
+string, even when that input is not selected. Correct unknown keys or incorrectly
+typed inputs before upgrading.
+
 See the [Kueue chart README](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md) for all possible Kueue configuration options.
 
 ## Testing

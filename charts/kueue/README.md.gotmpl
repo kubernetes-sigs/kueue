@@ -163,11 +163,15 @@ switch back deliberately, set `mode: yaml` and supply the desired YAML string.
 When Kueue is a dependency, nest these values under its dependency name or alias.
 Review the rendered configuration when upgrading.
 
-In structured mode, Helm validates that `structuredOverrides` is a map and rejects
-unknown keys directly under `managerConfig`. It does not validate individual fields
-inside the configuration; Kueue validates those when loading it. Legacy mode
-continues to ignore unrelated values. Run `helm lint <chart> --values values.yaml`
-to check chart values before upgrading.
+Helm rejects unknown keys directly under `managerConfig` in both modes. The only
+allowed keys are `mode`, `structuredOverrides`, and `controllerManagerConfigYaml`.
+Both inputs must have the correct type even when not selected: `structuredOverrides`
+is a map, and `controllerManagerConfigYaml` is a string. Empty maps and empty strings
+are valid. Fields inside the selected configuration are validated by Kueue when it
+loads the configuration. Run `helm lint <chart> --values values.yaml` before upgrading.
+
+When upgrading, remove or correct unknown manager input keys and incorrectly typed
+inputs. These values may previously have been ignored.
 
 #### Chart values
 

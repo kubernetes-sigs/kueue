@@ -6,10 +6,10 @@ set:
 release:
   namespace: custom-system
 tests:
-  - it: should ignore an unused invalid config when mode is absent with the subchart disabled
+  - it: should ignore valid unused structured overrides when mode is absent with the subchart disabled
     documentIndex: 3
     set: &implicitYaml
-      kueue.managerConfig.structuredOverrides: unused
+      kueue.managerConfig.structuredOverrides: {}
       kueue.managerConfig.controllerManagerConfigYaml: &legacyYaml |
         managedJobsNamespaceSelector:
           matchLabels:
@@ -23,7 +23,7 @@ tests:
               matchLabels:
                 team: legacy
 
-  - it: should ignore an unused invalid config when mode is absent with the subchart enabled
+  - it: should ignore valid unused structured overrides when mode is absent with the subchart enabled
     documentIndex: 3
     set:
       <<: *implicitYaml
@@ -148,3 +148,141 @@ tests:
     set:
       kueue.managerConfig: 0
     asserts: *defaultSelector
+
+  - it: should reject an unknown manager input with mode absent and the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.typo: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)managerConfig.*typo.*not allowed"
+
+  - it: should reject non-map overrides with mode absent and the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.structuredOverrides: invalid
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)structuredOverrides.*object"
+
+  - it: should reject non-string YAML with mode absent and the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.controllerManagerConfigYaml: 123
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)controllerManagerConfigYaml.*string"
+
+  - it: should reject an unknown manager input with mode absent and the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.typo: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)managerConfig.*typo.*not allowed"
+
+  - it: should reject non-map overrides with mode absent and the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.structuredOverrides: invalid
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)structuredOverrides.*object"
+
+  - it: should reject non-string YAML with mode absent and the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.controllerManagerConfigYaml: 123
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)controllerManagerConfigYaml.*string"
+
+  - it: should reject an unknown manager input with mode yaml and the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.typo: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)managerConfig.*typo.*not allowed"
+
+  - it: should reject non-map overrides with mode yaml and the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.structuredOverrides: invalid
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)structuredOverrides.*object"
+
+  - it: should reject non-string YAML with mode yaml and the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.controllerManagerConfigYaml: 123
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)controllerManagerConfigYaml.*string"
+
+  - it: should reject an unknown manager input with mode yaml and the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.typo: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)managerConfig.*typo.*not allowed"
+
+  - it: should reject non-map overrides with mode yaml and the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.structuredOverrides: invalid
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)structuredOverrides.*object"
+
+  - it: should reject non-string YAML with mode yaml and the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.controllerManagerConfigYaml: 123
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)controllerManagerConfigYaml.*string"
+
+  - it: should reject non-map overrides with mode structured and the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.structuredOverrides: invalid
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)structuredOverrides.*object"
+
+  - it: should reject non-string YAML with mode structured and the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.controllerManagerConfigYaml: 123
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)controllerManagerConfigYaml.*string"
+
+  - it: should reject non-map overrides with mode structured and the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.structuredOverrides: invalid
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)structuredOverrides.*object"
+
+  - it: should reject non-string YAML with mode structured and the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.controllerManagerConfigYaml: 123
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)controllerManagerConfigYaml.*string"

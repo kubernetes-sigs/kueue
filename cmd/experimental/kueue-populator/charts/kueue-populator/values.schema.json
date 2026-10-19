@@ -14,31 +14,15 @@
                 "yaml",
                 "structured"
               ]
+            },
+            "structuredOverrides": {
+              "type": "object"
+            },
+            "controllerManagerConfigYaml": {
+              "type": "string"
             }
           },
-          "if": {
-            "type": "object",
-            "required": [
-              "mode"
-            ],
-            "properties": {
-              "mode": {
-                "const": "structured"
-              }
-            }
-          },
-          "then": {
-            "additionalProperties": false,
-            "properties": {
-              "mode": {
-              },
-              "structuredOverrides": {
-                "type": "object"
-              },
-              "controllerManagerConfigYaml": {
-              }
-            }
-          }
+          "additionalProperties": false
         }
       }
     }

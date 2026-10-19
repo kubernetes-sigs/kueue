@@ -457,7 +457,7 @@ tests:
       managerConfig.controllerManagerConfigYaml: {}
     asserts:
       - failedTemplate:
-          errorPattern: "expected string"
+          errorPattern: "(?s)controllerManagerConfigYaml.*string"
 
   - it: should reject a null legacy input
     template: webhook/manifests.yaml

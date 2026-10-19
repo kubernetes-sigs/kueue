@@ -27,10 +27,9 @@ tests:
       managerConfig.structuredOverrides.clientConnection.qps: 600
     asserts: *chartDefaults
 
-  - it: should ignore unused configuration types and extra keys in legacy mode
+  - it: should ignore valid unused structured overrides in legacy mode
     set:
-      managerConfig.structuredOverrides: unused
-      managerConfig.oldCustomKey: retained
+      managerConfig.structuredOverrides: {}
     asserts: *chartDefaults
 
   - it: should preserve a supplied YAML string without a mode
@@ -80,11 +79,13 @@ tests:
           path: data["controller_manager_config.yaml"]
           pattern: "clientConnection:\n  burst: 500\n  qps: 600"
 
-  - it: should not validate an unused legacy value in structured mode
+  - it: should reject a non-string legacy value even in structured mode
     set:
       managerConfig.mode: structured
       managerConfig.controllerManagerConfigYaml: 123
-    asserts: *chartDefaults
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)controllerManagerConfigYaml.*string"
 
   - it: should reject an unknown mode
     set:
@@ -107,3 +108,41 @@ tests:
     set:
       managerConfig.mode: true
     asserts: *invalidMode
+
+  - it: should reject an unknown manager input with mode absent
+    set:
+      managerConfig.typo: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)managerConfig.*typo.*not allowed"
+
+  - it: should reject non-map overrides with mode absent
+    set:
+      managerConfig.structuredOverrides: invalid
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)structuredOverrides.*object"
+
+  - it: should reject an unknown manager input with mode yaml
+    set:
+      managerConfig.mode: yaml
+      managerConfig.typo: {}
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)managerConfig.*typo.*not allowed"
+
+  - it: should reject non-map overrides with mode yaml
+    set:
+      managerConfig.mode: yaml
+      managerConfig.structuredOverrides: invalid
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)structuredOverrides.*object"
+
+  - it: should reject non-string YAML in explicit yaml mode
+    set:
+      managerConfig.mode: yaml
+      managerConfig.controllerManagerConfigYaml: 123
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)controllerManagerConfigYaml.*string"
