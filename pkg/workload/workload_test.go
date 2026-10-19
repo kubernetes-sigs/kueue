@@ -4127,9 +4127,9 @@ func TestSchedulingHash(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			info1 := NewInfo(log, tc.wl1, tc.infoOptions1...)
-			info1.updateDerivedFields(log)
+			info1.updateDerivedFields(log, false)
 			info2 := NewInfo(log, tc.wl2, tc.infoOptions2...)
-			info2.updateDerivedFields(log)
+			info2.updateDerivedFields(log, false)
 			if info1.SchedulingHash == "" {
 				t.Error("SchedulingHash should not be empty")
 			}
@@ -4150,7 +4150,7 @@ func TestSchedulingHash(t *testing.T) {
 		wl := utiltestingapi.MakeWorkload("wl", "ns").
 			Request("example.com/gpu", "1").Obj()
 		before := NewInfo(log, wl)
-		before.updateDerivedFields(log)
+		before.updateDerivedFields(log, false)
 
 		after := NewInfo(log, wl, WithPreprocessedDRAResources(
 			map[kueue.PodSetReference]corev1.ResourceList{
@@ -4162,7 +4162,7 @@ func TestSchedulingHash(t *testing.T) {
 				kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		))
-		after.updateDerivedFields(log)
+		after.updateDerivedFields(log, false)
 
 		if diff := cmp.Diff(before.TotalRequests, after.TotalRequests, cmp.Comparer(resources.Equal)); diff == "" {
 			t.Fatal("precondition failed: TotalRequests should differ after DRA translation")
@@ -4284,6 +4284,38 @@ func TestUpdateSchedulingHashReuse(t *testing.T) {
 		info.Update(log, workload("uid", "1", 2))
 		if info.SchedulingHash != SchedulingHashUnknown {
 			t.Errorf("SchedulingHash = %q, want %q", info.SchedulingHash, SchedulingHashUnknown)
+		}
+	})
+
+	t.Run("WithSkipSchedulingHash leaves the hash empty and keeps topology spreading", func(t *testing.T) {
+		_, log := utiltesting.ContextWithLog(t)
+		features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+			features.SchedulingEquivalenceHashing: true,
+			features.TASTopologySpreading:         true,
+		})
+		wl := utiltestingapi.MakeWorkload("wl", "ns").UID("uid").ResourceVersion("1").
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: `{"rules":[{"topologyKey":"topology.kubernetes.io/zone","maxShareAllowingPlacement":"0.45"}]}`}).
+				Request(corev1.ResourceCPU, "1").Obj()).
+			Obj()
+		hashed := NewInfo(log, wl)
+		if hashed.SchedulingHash == "" || len(hashed.TopologySpreading) == 0 {
+			t.Fatalf("precondition failed: hash %q, topology spreading %v", hashed.SchedulingHash, hashed.TopologySpreading)
+		}
+
+		skipped := NewInfo(log, wl, WithSkipSchedulingHash())
+		if skipped.SchedulingHash != "" {
+			t.Errorf("SchedulingHash = %q, want empty", skipped.SchedulingHash)
+		}
+		if len(skipped.TopologySpreading) != len(hashed.TopologySpreading) {
+			t.Errorf("TopologySpreading has %d groups, want %d", len(skipped.TopologySpreading), len(hashed.TopologySpreading))
+		}
+
+		// An Info that already holds a hash must not keep it once the inputs change.
+		hashed.Update(log, utiltestingapi.MakeWorkload("wl", "ns").UID("uid").ResourceVersion("2").
+			Request(corev1.ResourceCPU, "2").Obj(), WithSkipSchedulingHash())
+		if hashed.SchedulingHash != "" {
+			t.Errorf("SchedulingHash after Update = %q, want empty", hashed.SchedulingHash)
 		}
 	})
 }
