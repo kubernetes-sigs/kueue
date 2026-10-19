@@ -459,6 +459,17 @@
     of the admitted [Workload](/docs/concepts/workload/) corresponding to the Job.
     The annotation is set when starting the Job, and removed on stopping the Job.
 
+- key: kueue.x-k8s.io/workload-allowed-resource-flavors
+  type: Annotation
+  example: '`kueue.x-k8s.io/workload-allowed-resource-flavors: "reservation,spot"`'
+  used_on: |
+    [Workload](/docs/concepts/workload/).
+  description: |
+    The annotation defines a comma-separated list of [ResourceFlavor](/docs/concepts/resource_flavor/)
+    names that can be assigned to the Workload by the Kueue scheduler.
+
+    This annotation is alpha-level for the `ConcurrentAdmission` feature gate.
+
 - key: kueue.x-k8s.io/workload-slice-name
   type: Annotation
   example: '`kueue.x-k8s.io/workload-slice-name: "my-workload-original"`'
