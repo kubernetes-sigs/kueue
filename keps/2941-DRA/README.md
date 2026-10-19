@@ -540,7 +540,7 @@ Feature gates controlling DRA support in Kueue:
   partitionable devices. Enables the `counter` source type on `deviceClassMappings` entries.
   Requires `KueueDRAIntegration`. Also requires the Kubernetes `DRAPartitionableDevices`
   feature gate (beta in K8s 1.36).
-- `KueueDRAIntegrationConsumableCapacity` (Alpha): gates capacity-based quota for devices
+- `KueueDRAIntegrationConsumableCapacity` (Beta, default on since v0.21): gates capacity-based quota for devices
   that allow multiple allocations. Enables the `capacity` source type on
   `deviceClassMappings` entries. Requires `KueueDRAIntegration`. Also requires the
   Kubernetes `DRAConsumableCapacity` feature gate (beta in K8s 1.36).
@@ -2569,6 +2569,7 @@ each. It asserts that each alternative is allocated once and that the Workload i
 - Skip DRA CEL availability check on MultiKueue manager: October 2026 by @ekam-walia —
   skip `ResourceSlice` CEL availability check for ClusterQueues with a MultiKueue admission check
   (see [#17769](https://github.com/kubernetes-sigs/kueue/issues/17769))
+- Promoted KueueDRAIntegrationConsumableCapacity to Beta: October 2026 by @sohankunkerkar
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution

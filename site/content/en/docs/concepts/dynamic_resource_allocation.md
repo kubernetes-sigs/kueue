@@ -342,7 +342,7 @@ mapping.
 
 ## Capacity-based quota for shared devices (consumable capacity)
 
-{{< feature-state state="alpha" for_version="v0.19" >}}
+{{< feature-state state="beta" for_version="v0.21" >}}
 
 Some devices allow multiple workloads to share them simultaneously using
 software-level sharing mechanisms such as GPU time-slicing or MPS. These
@@ -356,7 +356,7 @@ consumed capacity across all sharing workloads does not exceed the device's
 published capacity.
 
 This behavior is controlled by the `KueueDRAIntegrationConsumableCapacity`
-feature gate (Alpha, disabled by default in v0.19).
+feature gate, which is enabled by default since v0.21.
 
 A `DeviceClass` uses either device-count quota (no `sources`), counter-based
 quota (with `counter` sources), or capacity-based quota (with `capacity`
@@ -385,14 +385,19 @@ sources). Counter and capacity sources cannot be mixed in the same mapping.
 5. The `ClusterQueue` quota is set in capacity units (e.g., `800Gi` for GPU
    memory) instead of device count.
 
+Quota is a sum across all devices, so it does not show whether a request fits
+on one device. Free capacity split across several GPUs can admit a workload
+that no single GPU can hold, and its Pods then stay Pending. To check this
+before admission, use a topology-aware flavor with the alpha
+`KueueDRADeviceFeasibility` feature gate. See
+[Topology-Aware Scheduling with DRA](#topology-aware-scheduling-with-dra).
+
 ### Prerequisites
 
 - Kubernetes 1.36 or later with the `DRAConsumableCapacity` feature gate
   enabled (beta, enabled by default in Kubernetes 1.36).
 - A DRA driver that publishes `Capacity` and `AllowMultipleAllocations` on
   devices in `ResourceSlice` objects.
-- The `KueueDRAIntegrationConsumableCapacity` feature gate enabled in Kueue
-  Configuration.
 
 For setup instructions, see
 [Set Up Dynamic Resource Allocation](/docs/tasks/manage/setup_dra/#set-up-capacity-based-quota-consumable-capacity).
