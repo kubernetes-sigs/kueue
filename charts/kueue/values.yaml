@@ -126,6 +126,10 @@ managerConfig: {}
 #   structuredOverrides:
 #     clientConnection:
 #       qps: 600
+# Alternatively, supply the manager configuration as YAML; chart defaults are not merged.
+#   mode: yaml
+#   controllerManagerConfigYaml: |-
+#     <manager configuration YAML>
 
 metricsService:
   # -- metricsService's ports
