@@ -305,6 +305,7 @@ func newClusterQueueImpl(ctx context.Context, cl *metrics.CustomLabels, wo workl
 			pendingResourcesTotal: make(map[corev1.ResourceName]resources.Amount),
 			schedulingHashes:      newSchedulingHashCounts(),
 			inflight:              make(map[workload.Reference]*workload.Info),
+			localQueueCounts:      newLocalQueueCounts(),
 		},
 		hashToBulkMoveReason:   make(map[workload.EquivalenceHash]QuotaReservedReason),
 		finishedWorkloads:      sets.New[workload.Reference](),
