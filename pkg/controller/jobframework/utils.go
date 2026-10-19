@@ -34,7 +34,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -44,6 +43,7 @@ import (
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 // PodSetReplicaSize is a minimal representation of a PodSet for the
@@ -347,7 +347,5 @@ func DeleteRemoteObjectIfOwned(ctx context.Context, localClient client.Client, r
 // ElasticPartialScaleUpEnabled reports whether the job takes the partial
 // replica scale-up path for its workload slices.
 func ElasticPartialScaleUpEnabled(job GenericJob) bool {
-	return features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
-		WorkloadSliceEnabled(job) &&
-		job.Object().GetAnnotations()[constants.ElasticJobScaleUpStrategyAnnotationKey] == constants.ElasticJobScaleUpStrategyPartial
+	return workloadslicing.PartialScaleUpEnabled(job.Object())
 }

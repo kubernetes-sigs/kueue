@@ -90,6 +90,17 @@ type JobWithReclaimablePods interface {
 	ReclaimablePods(ctx context.Context, c client.Client) ([]kueue.ReclaimablePod, error)
 }
 
+// JobWithPartialPreemption is an optional interface that should be implemented by generic jobs
+// that can shrink at runtime to honor a partial-preemption reclaim target.
+type JobWithPartialPreemption interface {
+	// ApplyReclaimTargets lowers the job's replicas to the Workload's reclaimTargetCount, or to
+	// the admitted count when there is no target; it never raises them. The scheduler keeps
+	// both at or above the PodSet minCount. The reconciler calls it only for a running,
+	// workload-slicing job whose Workload is opted into partial preemption. It returns whether
+	// the job changed.
+	ApplyReclaimTargets(wl *kueue.Workload) bool
+}
+
 // JobWithCustomStop is an optional interface that should be implemented by generic jobs
 // when a custom stop procedure is needed.
 type JobWithCustomStop interface {

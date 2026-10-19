@@ -32,6 +32,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -103,6 +104,30 @@ func TestValidateCreate(t *testing.T) {
 				Queue("queue").
 				Obj(),
 			featureGates: map[featuregate.Feature]bool{features.RayServiceValidateUpgradeStrategy: false},
+		},
+		"partial preemption annotation is rejected": {
+			service: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
+				Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			wantErr:      true,
+		},
+		"partial preemption annotation is ignored when the gate is off": {
+			service: testingrayservice.MakeService("rayservice", "ns").
+				Queue("queue").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
+				Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: false},
+		},
+		"partial preemption annotation on an unmanaged service is allowed": {
+			service: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
+				Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
 		},
 		"default strategy allows workload slicing": {
 			service: testingrayservice.MakeService("rayservice", "ns").
@@ -255,6 +280,36 @@ func TestValidateUpdate(t *testing.T) {
 		wantErr              error
 		maxTimeoutOnWorkload *metav1.Duration
 	}{
+		"update is allowed when the old service already has the partial preemption annotation": {
+			oldService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
+				Queue("queue").
+				Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			newService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
+				Queue("queue").
+				Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+		},
+		"adding a queue name to an unmanaged service with the partial preemption annotation is rejected": {
+			oldService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
+				Suspend(true).
+				Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			newService: testingrayservice.MakeService("rayservice", "ns").
+				UpgradeStrategy(rayv1.RayServiceUpgradeNone).
+				Suspend(true).
+				Queue("queue").
+				Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			wantErr: field.ErrorList{
+				field.Forbidden(field.NewPath("metadata", "annotations").Key(kueueconstants.PartialPreemptionAnnotation), "partial preemption is only supported for a standalone RayCluster"),
+			}.ToAggregate(),
+		},
 		"valid update": {
 			oldService: testingrayservice.MakeService("rayservice", "ns").
 				UpgradeStrategy(rayv1.RayServiceUpgradeNone).

@@ -61,6 +61,12 @@ const (
 	// PodSet replica sizes to differ from the original spec. The value is the generation of
 	// the RayCluster.
 	RayClusterGenerationAnnotation = "kueue.x-k8s.io/raycluster-generation"
+	// RayClusterShrunkReplicasAnnotation is set on a partial-preemption RayCluster when Kueue
+	// lowers its worker replicas. The value is "<original>/<set>": the worker replicas before the
+	// first shrink (or the user's value, if they changed replicas between shrinks), and the
+	// replicas Kueue set last. When the cluster is stopped the annotation is
+	// removed and replicas go back to the original, unless the user changed them meanwhile.
+	RayClusterShrunkReplicasAnnotation = "kueue.x-k8s.io/raycluster-shrunk-worker-replicas"
 )
 
 var (
@@ -169,6 +175,24 @@ func BuildPodSets(rayClusterSpec *rayv1.RayClusterSpec, annotations map[string]s
 	}
 
 	return podSets, nil
+}
+
+// setPartialPreemptionMinCount sets the worker PodSet floor to minReplicas for an elastic
+// RayCluster opted into partial preemption. Standalone RayCluster only (not in BuildPodSets, which
+// RayJob/RayService share and which cannot shrink at runtime yet).
+func setPartialPreemptionMinCount(obj *rayv1.RayCluster, podSets []kueue.PodSet) {
+	if !features.Enabled(features.PartialPreemption) || obj.Annotations[constants.PartialPreemptionAnnotation] != "true" ||
+		!workloadslicing.Enabled(obj) {
+		return
+	}
+	// The webhook ratchets the opt-in validation on update, so a cluster created while the gate
+	// was off (or before it got a queue name) may still have several worker groups or a partial
+	// scale-up MinCount. Leave those untouched.
+	if len(obj.Spec.WorkerGroupSpecs) != 1 || podSets[1].MinCount != nil {
+		return
+	}
+	wgs := &obj.Spec.WorkerGroupSpecs[0]
+	podSets[1].MinCount = new(ptr.Deref(wgs.MinReplicas, 0) * max(wgs.NumOfHosts, 1))
 }
 
 func buildWorkerTopologyRequest(wgs *rayv1.WorkerGroupSpec) (*kueue.PodSetTopologyRequest, error) {

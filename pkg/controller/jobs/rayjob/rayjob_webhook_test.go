@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -138,6 +139,27 @@ func TestValidateCreate(t *testing.T) {
 		wantErr      error
 		featureGates map[featuregate.Feature]bool
 	}{
+		"partial preemption annotation is rejected": {
+			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
+				Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			wantErr: field.ErrorList{
+				field.Forbidden(field.NewPath("metadata", "annotations").Key(kueueconstants.PartialPreemptionAnnotation), "partial preemption is only supported for a standalone RayCluster"),
+			}.ToAggregate(),
+		},
+		"partial preemption annotation on an unmanaged job is allowed": {
+			job: testingrayutil.MakeJob("job", "ns").
+				Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+		},
+		"partial preemption annotation is ignored when the gate is off": {
+			job: testingrayutil.MakeJob("job", "ns").Queue("queue").
+				Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: false},
+		},
 		"invalid unmanaged": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			job: testingrayutil.MakeJob("job", "ns").
@@ -692,6 +714,27 @@ func TestValidateUpdate(t *testing.T) {
 		wantErr              error
 		maxTimeoutOnWorkload *metav1.Duration
 	}{
+		"update is allowed when the old job already has the partial preemption annotation": {
+			oldJob: testingrayutil.MakeJob("job", "ns").Queue("queue").
+				Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			newJob: testingrayutil.MakeJob("job", "ns").Queue("queue").
+				Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+		},
+		"adding a queue name to an unmanaged job with the partial preemption annotation is rejected": {
+			oldJob: testingrayutil.MakeJob("job", "ns").Suspend(true).
+				Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			newJob: testingrayutil.MakeJob("job", "ns").Suspend(true).Queue("queue").
+				Annotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			wantErr: field.ErrorList{
+				field.Forbidden(field.NewPath("metadata", "annotations").Key(kueueconstants.PartialPreemptionAnnotation), "partial preemption is only supported for a standalone RayCluster"),
+			}.ToAggregate(),
+		},
 		"invalid unmanaged": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
 				ShutdownAfterJobFinishes(true).

@@ -723,6 +723,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		// unless this job is workload-slicing enabled. In workload-slicing we rely
 		// on pod-scheduling gate(s) to pause workload slice pods during the workload admission process.
 		if WorkloadSliceEnabled(job) {
+			// While a scale-up slice is pending, EnsureWorkloadSlices returns that pending slice
+			// rather than the admitted one, so step 9 below is never reached for it.
+			// shortcut: reclaim targets are not applied while a scale-up slice is pending; upgrade to
+			// applying the admitted slice's target here once a preemptor is observed waiting on a
+			// partially preemptible job that is mid scale-up.
 			return ctrl.Result{}, nil
 		}
 		log.V(2).Info("Running job is not admitted by a cluster queue, suspending")
@@ -731,6 +736,17 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 			log.Error(err, "Suspending job with non admitted workload")
 		}
 		return ctrl.Result{}, err
+	}
+
+	// 9. shrink a running partial-preemption job to its granted count (the reclaim target,
+	// or the admitted count after a partial admission); the next reconcile lowers the
+	// Workload count via EnsureWorkloadSlices.
+	if jobPP, ok := job.(JobWithPartialPreemption); ok && WorkloadSliceEnabled(job) && workload.IsPartialPreemptionJob(wl) {
+		if err := clientutil.Patch(ctx, r.client, object, func() (bool, error) {
+			return jobPP.ApplyReclaimTargets(wl), nil
+		}); err != nil {
+			return ctrl.Result{}, fmt.Errorf("applying reclaim target: %w", err)
+		}
 	}
 
 	// Workload is admitted and job is running, nothing to do. For elastic jobs,

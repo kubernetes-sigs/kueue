@@ -19,6 +19,8 @@ package raycluster
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
@@ -35,6 +37,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/equality"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 var (
@@ -80,6 +83,7 @@ type RayCluster rayv1.RayCluster
 var _ jobframework.GenericJob = (*RayCluster)(nil)
 var _ jobframework.JobWithManagedBy = (*RayCluster)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayCluster)(nil)
+var _ jobframework.JobWithPartialPreemption = (*RayCluster)(nil)
 
 func (j *RayCluster) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
 	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
@@ -117,6 +121,7 @@ func (j *RayCluster) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodS
 	if err != nil {
 		return nil, err
 	}
+	setPartialPreemptionMinCount((*rayv1.RayCluster)(j), podSets)
 	// On a MultiKueue manager an autoscaling RayCluster's worker replicas are
 	// owned by the worker cluster: the manager spec keeps the user-declared
 	// values and the live per-group counts are reflected here as an annotation
@@ -126,6 +131,72 @@ func (j *RayCluster) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodS
 		podSets = applyRuntimeCountsAnnotation(ctrl.LoggerFrom(ctx), podSets, j.Object())
 	}
 	return podSets, nil
+}
+
+// ApplyReclaimTargets lowers the single worker group's replicas to the Workload's reclaim
+// target, or to the admitted count after a partial admission (or a partially admitted scale-up
+// slice). The scheduler keeps both at or above the PodSet minCount. Only replicas changes, and
+// KubeRay deletes the surplus pods itself, so it bails out unless there is exactly one worker
+// group with numOfHosts <= 1 (the PodSet count then equals replicas) and the in-tree autoscaler,
+// which would fight the change, is off.
+func (j *RayCluster) ApplyReclaimTargets(wl *kueue.Workload) bool {
+	if len(j.Spec.WorkerGroupSpecs) != 1 || j.Spec.WorkerGroupSpecs[0].NumOfHosts > 1 ||
+		ptr.Deref(j.Spec.EnableInTreeAutoscaling, false) {
+		return false
+	}
+	wgs := &j.Spec.WorkerGroupSpecs[0]
+	podSet := kueue.NewPodSetReference(wgs.GroupName)
+	target, ok := workload.ReclaimTargetCount(wl, podSet)
+	if !ok {
+		target, ok = workload.ExtractGrantedPodSetCounts(wl)[podSet]
+	}
+	replicas := ptr.Deref(wgs.Replicas, 0)
+	if !ok || target >= replicas {
+		return false
+	}
+	// Keep the original across shrinks, unless the user changed replicas since the last one;
+	// restoreShrunkReplicas goes back to it on stop.
+	original, set, found := parseShrunkReplicas(j.Annotations[RayClusterShrunkReplicasAnnotation])
+	if !found || int64(replicas) != set {
+		original = int64(replicas)
+	}
+	if j.Annotations == nil {
+		j.Annotations = map[string]string{}
+	}
+	j.Annotations[RayClusterShrunkReplicasAnnotation] = fmt.Sprintf("%d/%d", original, target)
+	wgs.Replicas = &target
+	return true
+}
+
+// restoreShrunkReplicas sets the worker replicas lowered by ApplyReclaimTargets back to the
+// original, so a requeued cluster asks for its full size again, unless the user changed them
+// after the last shrink. It always drops the annotation; a malformed value is just dropped.
+func (j *RayCluster) restoreShrunkReplicas() bool {
+	value, found := j.Annotations[RayClusterShrunkReplicasAnnotation]
+	if !found {
+		return false
+	}
+	delete(j.Annotations, RayClusterShrunkReplicasAnnotation)
+	original, set, ok := parseShrunkReplicas(value)
+	if ok && len(j.Spec.WorkerGroupSpecs) == 1 {
+		wgs := &j.Spec.WorkerGroupSpecs[0]
+		if int64(ptr.Deref(wgs.Replicas, 0)) == set {
+			replicas := max(original, 0)
+			if wgs.MaxReplicas != nil {
+				replicas = min(replicas, int64(*wgs.MaxReplicas))
+			}
+			wgs.Replicas = new(int32(replicas))
+		}
+	}
+	return true
+}
+
+// parseShrunkReplicas parses the "<original>/<set>" value of RayClusterShrunkReplicasAnnotation.
+func parseShrunkReplicas(value string) (original, set int64, ok bool) {
+	o, s, found := strings.Cut(value, "/")
+	original, errO := strconv.ParseInt(o, 10, 32)
+	set, errS := strconv.ParseInt(s, 10, 32)
+	return original, set, found && errO == nil && errS == nil
 }
 
 func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSetsInfo []podset.PodSetInfo) error {
@@ -146,6 +217,7 @@ func (j *RayCluster) RunWithPodSetsInfo(ctx context.Context, _ client.Client, po
 
 func (j *RayCluster) RestorePodSetsInfo(ctx context.Context, podSetsInfo []podset.PodSetInfo) bool {
 	changed := RestorePodSetsInfo(ctx, &j.Spec, podSetsInfo)
+	changed = j.restoreShrunkReplicas() || changed
 	return ClearRuntimeWorkerStateAnnotations(j.Object()) || changed
 }
 

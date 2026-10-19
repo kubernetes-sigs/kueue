@@ -86,6 +86,51 @@ Kueue controls the `spec.suspend` field of the RayCluster. When a RayCluster is 
        enableInTreeAutoscaling: true
      ```
 
+## Partial preemption
+
+{{< feature-state state="alpha" for_version="v0.21" >}}
+
+Partial preemption lets Kueue shrink a lower-priority elastic RayCluster instead of evicting it. Kueue lowers the worker group's `replicas` to free quota, and the head Pod keeps running.
+
+This requires the `PartialPreemption` and `ElasticJobsViaWorkloadSlices` feature gates. To opt in, annotate the RayCluster and set a `minReplicas` floor on its worker group:
+
+```yaml
+metadata:
+  annotations:
+    kueue.x-k8s.io/elastic-job: "true"
+    kueue.x-k8s.io/partial-preemption: "true"
+    kueue.x-k8s.io/partial-preemption-max-reclaimed-count: "2" # optional
+spec:
+  workerGroupSpecs:
+    - groupName: workers
+      replicas: 4
+      minReplicas: 1
+      maxReplicas: 4
+```
+
+The optional `kueue.x-k8s.io/partial-preemption-max-reclaimed-count` annotation caps the number of workers reclaimed in one preemption round.
+
+Opting in sets the worker PodSet `minCount` to `minReplicas`. As a result, the RayCluster can also be partially admitted at first admission: Kueue lowers the worker `replicas` to the admitted count, which is never fewer than `minReplicas`. This is consistent with KEP-975, where `minCount` is the floor for both admission and preemption.
+
+Kueue lowers the worker `replicas` to the reclaim target, which the scheduler keeps at or above `minReplicas`. Quota is released as soon as the worker group `replicas` (the spec count) are lowered, before KubeRay finishes deleting the surplus worker Pods.
+
+KubeRay chooses which workers to delete when `replicas` are lowered, and may delete busy ones.
+
+When Kueue shrinks, it records the original worker `replicas` and the value it set. If you change `replicas` between two shrinks, your value becomes the new original. When the RayCluster is evicted or suspended by Kueue, `replicas` go back to the original only if you have not changed them since Kueue's last shrink. Otherwise your value is kept. Kueue tracks this in an annotation on the RayCluster.
+
+Limitations:
+- The RayCluster must have exactly one worker group.
+- `enableInTreeAutoscaling` must be `false`.
+- `numOfHosts` must be at most `1` (unset or `1`).
+- It cannot be combined with `kueue.x-k8s.io/elastic-job-scale-up-strategy: partial`.
+- RayJob and RayService are not supported.
+- While the RayCluster keeps running, reclaimed workers are not added back automatically. Scale `replicas` up again manually.
+- Reclaim targets are not applied while a scale-up (a pending replacement Workload slice) is in progress. Shrinking happens only once the scale-up completes or is abandoned.
+- MultiKueue is not supported: the annotation is rejected for RayClusters managed by MultiKueue (`spec.managedBy`).
+- The `kueue.x-k8s.io/partial-preemption` annotation is immutable. It cannot be added, removed or changed after creation, regardless of suspension.
+- The worker group's `minReplicas` is immutable for opted-in RayClusters.
+- If the Workload is deleted while the RayCluster is shrunk, nothing restores the original worker `replicas`.
+
 ## Example RayCluster
 
 The RayCluster looks like the following:
