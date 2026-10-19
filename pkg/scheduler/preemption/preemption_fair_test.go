@@ -1239,6 +1239,60 @@ func TestFairPreemptions(t *testing.T) {
 			targetCQ:      "preemptor",
 			wantPreempted: sets.New[string](),
 		},
+		"preemptor borrowing another requested resource does not use the nominal shortcut": {
+			clusterQueues: []*kueue.ClusterQueue{
+				utiltestingapi.MakeClusterQueue("p").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "4").
+						Resource(corev1.ResourceMemory, "2Gi").Obj()).
+					Preemption(kueue.ClusterQueuePreemption{
+						ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+					}).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("w").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "0").
+						Resource(corev1.ResourceMemory, "0").Obj()).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("y").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceCPU, "20").Obj()).
+					Obj(),
+				utiltestingapi.MakeClusterQueue("l").
+					Cohort("all").
+					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("default").
+						Resource(corev1.ResourceMemory, "10Gi").Obj()).
+					Obj(),
+			},
+			admitted: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("w1", "").
+					Request(corev1.ResourceCPU, "4").
+					SimpleReserveQuota("w", "default", now).Obj(),
+				*utiltestingapi.MakeWorkload("y1", "").
+					Request(corev1.ResourceCPU, "20").
+					SimpleReserveQuota("y", "default", now).Obj(),
+			},
+			incoming: utiltestingapi.MakeWorkload("in", "").
+				Request(corev1.ResourceCPU, "4").
+				Request(corev1.ResourceMemory, "6Gi").
+				Obj(),
+			targetCQ: "p",
+			assignment: singlePodSetAssignment(flavorassigner.ResourceAssignment{
+				corev1.ResourceCPU: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Preempt,
+				},
+				corev1.ResourceMemory: &flavorassigner.FlavorAssignment{
+					Name: "default",
+					Mode: flavorassigner.Fit,
+				},
+			}),
+			featureGates:  map[featuregate.Feature]bool{features.FairSharingPreemptWithinNominal: true},
+			wantPreempted: sets.New[string](),
+		},
 		"hierarchical cohort borrowing internally does not allow preemption on non-borrowed contested resource (issue #16666)": {
 			cohorts: []*kueue.Cohort{
 				utiltestingapi.MakeCohort("root").Obj(),
