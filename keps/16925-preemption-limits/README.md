@@ -122,6 +122,9 @@ Relevant capabilities include:
 
 ### User Stories
 
+> [!WARNING]
+> In Alpha, this will protect only from preemptions originating from configurable preemptions. Additionally, controller restarts will reset in-memory preemption counting and may lead to preemptions above the defined limits.
+
 #### Story 1 - Safe rollout of experimental PreemptionConfig (or new preemption rule in the future)
 
 Mistakes in `PreemptionConfig` can lead to serious consequences, such as mass evictions or cluster instability. Introducing rate-limiting for preemptions associated with a new `PreemptionConfig` (or a specific rule within an existing config, deferred to future work) limits the blast radius of such misconfigurations. Cluster administrators can initially set a conservative limit on a new config and gradually increase it while observing cluster stability.
@@ -147,9 +150,6 @@ spec:
   limitWindowSeconds: 86400
 ```
 
-> [!WARNING]
-> In Alpha, this will protect only from preemptions originating from configurable preemptions.
-
 #### Story 3 - Global Preemption Rate Limiting
 
 Rate-limit global preemptions to at most 10 evictions across the entire cluster in any 5-minute sliding window to avoid too many disruptions in the cluster:
@@ -160,9 +160,6 @@ spec:
   limit: 10
   limitWindowSeconds: 300
 ```
-
-> [!WARNING]
-> In Alpha, this will protect only from preemptions originating from configurable preemptions.
 
 #### Story 4 - Protecting a Mission-Critical ClusterQueue from Preemption
 
@@ -177,9 +174,6 @@ spec:
   limit: 0
   limitWindowSeconds: 3600
 ```
-
-> [!WARNING]
-> In Alpha, this will protect only from preemptions originating from configurable preemptions.
 
 #### Story 5 - Fair Preemption Budget per Tenant in a Shared Cohort
 
@@ -198,9 +192,6 @@ spec:
   limit: 10
   limitWindowSeconds: 3600
 ```
-
-> [!WARNING]
-> In Alpha, this will protect only from preemptions originating from configurable preemptions.
 
 ### Caveats
 
@@ -308,7 +299,7 @@ type PreemptionLimitSpec struct {
 	PreemptedClusterQueueSelector *metav1.LabelSelector `json:"preemptedClusterQueueSelector,omitempty"`
 
 	// limit defines how many preemption events can occur within the given time window.
-	// An event is defined as a confirmed (preemptor, preemptee) eviction pair.
+	// An event is defined as a confirmed (preemptor, preempted) eviction pair.
 	// Setting limit to 0 blocks all preemptions under this limit's scope.
 	//
 	// +required
@@ -325,10 +316,12 @@ type PreemptionLimitSpec struct {
 
 // PreemptionLimitStatus defines the observed state of PreemptionLimit
 type PreemptionLimitStatus struct {
-	// lastUpdateTimestamp is the time when the status was last updated.
+	// lastUpdateTime is the time when the status was last updated.
 	//
-	// +required
-	LastUpdateTimestamp metav1.Time `json:"lastUpdateTimestamp"`
+	// +kubebuilder:validation:Type=string
+	// +kubebuilder:validation:Format=date-time
+	// +optional
+	LastUpdateTime *metav1.Time `json:"lastUpdateTime,omitempty"`
 
 	// counts is periodically updated, for reference only.
 	// Restricted to the top 1000 counts to fit within CRD size limits.
@@ -365,16 +358,11 @@ A `PreemptionLimit` limits the number of preemptions that can occur within its c
 
 ### In-Memory State Management
 
-To manage this data, Kueue stores a comprehensive preemption map in memory, isolated per `PreemptionLimit`. This map tracks all preemption event timestamps indexed by entity key (ClusterQueue or Workload), recording events that occurred within the designated `limitWindowSeconds`. Moreover, it records only events that match the scope and selectors of the specific limit; if a preemption does not match the configured `configSelector`, `preemptorClusterQueueSelector`, or `preemptedClusterQueueSelector`, it is not tracked in that limit's preemption map. These selectors filter candidate events independently of the configured `scope`. Expired timestamps are periodically trimmed from the map.
+To manage this data, Kueue stores a comprehensive preemption map in memory, isolated per `PreemptionLimit`. This map tracks all preemption event timestamps indexed by entity key (ClusterQueue name, Workload namespace/name or "Global"), recording events that occurred within the designated `limitWindowSeconds`. Moreover, it records only events that match the scope and selectors of the specific limit; if a preemption does not match the configured `configSelector`, `preemptorClusterQueueSelector`, or `preemptedClusterQueueSelector`, it is not tracked in that limit's preemption map. These selectors filter candidate events independently of the configured `scope`. Expired timestamps are periodically trimmed from the map.
 
-Because tracking is strictly maintained in-memory and periodically trimmed:
+Because preemption event tracking is maintained strictly in-memory rather than persisted per-event in etcd, several operational caveats apply regarding controller restarts or `PreemptionLimit.spec` changes (see [Caveats](#caveats) for details).
 
-- **Reset on controller restarts**: Events are not persisted in etcd; restarting the Kueue controller resets the in-memory map, so preemption limit counters start fresh from zero.
-- **Reset on spec changes to scope or selectors**: If a `PreemptionLimit`'s `spec` is modified to change its `scope`, `configSelector`, `preemptorClusterQueueSelector`, or `preemptedClusterQueueSelector`, the in-memory limit counters are reset by clearing all recorded preemption event timestamps for that limit.
-- **Increasing time window**: If `LimitWindowSeconds` is increased, previous preemption events that occurred before the previously active window have already been discarded and will not be taken into account.
-- **Deleted and recreated objects**: Entity keys in the in-memory tracking map are based on `namespace/name` (or name for ClusterQueues) rather than UID; objects in the same namespace with the same name will be treated as the same object, and their limits will not be reset upon deletion and recreation within the sliding window.
-
-Furthermore, the status of the PreemptionLimit is refreshed periodically by a dedicated `PreemptionLimitReconciler` — approximately every minute — to update `lastUpdateTimestamp` and write the aggregated totals into the count map (restricted to the top 1000 counts to fit within CRD size limits).
+Furthermore, the status of the PreemptionLimit is refreshed periodically by a dedicated `PreemptionLimitReconciler` — approximately every minute — to update `lastUpdateTime` and write the aggregated totals into the count map (restricted to the top 1000 counts to fit within CRD size limits).
 
 `PreemptionLimitReconciler` will be responsible for updating an in-memory representation of limits — removing no longer needed recorded preemption limit timestamps from memory when a particular `PreemptionLimit` is deleted, and resetting the in-memory limits when a `PreemptionLimit`'s `spec.scope`, `spec.configSelector`, `spec.preemptorClusterQueueSelector`, or `spec.preemptedClusterQueueSelector` changes.
 
@@ -389,7 +377,7 @@ To requeue the workload, `NotifyRetryInadmissible` will be used with the workloa
 ### Observability
 
 When preemption is throttled or blocked due to an exhausted `PreemptionLimit`, informational and debug log entries are recorded specifying the limit name, scope, and affected entities for operator troubleshooting.
-Additionally, each preemption operation executed within the scope of active limits is recorded and reported in the periodically updated `PreemptionLimit.status.counts` and `PreemptionLimit.status.lastUpdateTimestamp`.
+Additionally, each preemption operation executed within the scope of active limits is recorded and reported in the periodically updated `PreemptionLimit.status.counts` and `PreemptionLimit.status.lastUpdateTime`.
 
 ### Test Plan
 
@@ -449,7 +437,7 @@ Apart from the new subpackage, the following existing components will receive ad
 #### e2e tests
 
 1. Cluster administrators can create, read, update, and delete `PreemptionLimit` resources.
-2. Cluster administrators can observe the reported `status.counts` and `status.lastUpdateTimestamp` of `PreemptionLimit` resources.
+2. Cluster administrators can observe the reported `status.counts` and `status.lastUpdateTime` of `PreemptionLimit` resources.
 3. Unprivileged batch users cannot create or modify `PreemptionLimit` resources (enforced via RBAC).
 4. Extension of Configurable Preemptions e2e tests to validate end-to-end workload scheduling under active Preemption Limits.
 
@@ -480,7 +468,7 @@ TBD
    - CRD and RBAC definitions for `PreemptionLimit`.
    - `PreemptionEvaluator` updates to respect preemption limits.
    - In-memory tracking of preemption events.
-   - Status reporting with `counts` and `lastUpdateTimestamp` via `PreemptionLimitReconciler`.
+   - Status reporting with `counts` and `lastUpdateTime` via `PreemptionLimitReconciler`.
 
 ## Drawbacks
 
@@ -599,17 +587,17 @@ To mitigate this limitation without incurring the performance penalty of persist
 The reconstruction will work as follows:
 
 1. **Status Update Timestamps**:
-   `PreemptionLimitStatus` includes `lastUpdateTimestamp`, which is updated periodically by `PreemptionLimitReconciler` (e.g. approximately every minute) whenever aggregate counts are refreshed and persisted to etcd.
+   `PreemptionLimitStatus` includes `lastUpdateTime`, which is updated periodically by `PreemptionLimitReconciler` (e.g. approximately every minute) whenever aggregate counts are refreshed and persisted to etcd.
 
 2. **Synthesizing Artificial In-Memory Events on Startup**:
    Instead of resetting limit counters entirely to zero upon controller startup:
-   - The controller inspects each `PreemptionLimit`'s `status.counts` and `status.lastUpdateTimestamp`.
+   - The controller inspects each `PreemptionLimit`'s `status.counts` and `status.lastUpdateTime`.
    - For each scoped entity entry present in `status.counts` (e.g. `"Global"`, ClusterQueue name, or `namespace/name`), the controller artificially creates in-memory preemption events matching the persisted count value.
-   - Each synthesized event is assigned a timestamp equal to `lastUpdateTimestamp` from the status for the appropriate limit and connected scope values.
+   - Each synthesized event is assigned a timestamp equal to `lastUpdateTime` from the status for the appropriate limit and connected scope values.
 
 3. **Natural Expiration via Sliding Window**:
    - These synthesized events are inserted into the in-memory tracking map and immediately consume available quota under the limit.
-   - The existing sliding window logic remains unchanged: as time advances past controller startup, these artificial events will naturally age out and be periodically trimmed once `time.Now() - lastUpdateTimestamp >= limitWindowSeconds`.
+   - The existing sliding window logic remains unchanged: as time advances past controller startup, these artificial events will naturally age out and be periodically trimmed once `time.Now() - lastUpdateTime >= limitWindowSeconds`.
    - If the controller was offline longer than `limitWindowSeconds`, all synthesized events will already be expired upon startup and will be pruned immediately, cleanly granting a fresh budget.
 
 #### Advantages
@@ -619,4 +607,4 @@ The reconstruction will work as follows:
 
 #### Trade-offs
 
-- **Conservative approximation**: Because individual event timestamps are not persisted (only the periodic aggregate count and `lastUpdateTimestamp`), all pre-restart events are conservatively treated as having occurred at `lastUpdateTimestamp`. If some events actually occurred earlier within the window, this may slightly over-restrict preemptions for a short interval following startup. However, this prioritizes safety by preventing preemption spikes across controller restarts.
+- **Conservative approximation**: Because individual event timestamps are not persisted (only the periodic aggregate count and `lastUpdateTime`), all pre-restart events are conservatively treated as having occurred at `lastUpdateTime`. If some events actually occurred earlier within the window, this may slightly over-restrict preemptions for a short interval following startup. However, this prioritizes safety by preventing preemption spikes across controller restarts.
