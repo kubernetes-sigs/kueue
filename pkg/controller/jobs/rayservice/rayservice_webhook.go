@@ -106,6 +106,7 @@ func (w *RayServiceWebhook) Default(ctx context.Context, obj *rayv1.RayService) 
 		return err
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
+	raycluster.DefaultPodIndexOffsetForPodSetGroups(&job.Spec.RayClusterSpec)
 
 	if isAnElasticJob(obj) {
 		// Ensure that the PodSchedulingGate is present in the RayService's pod Templates for its Head and all its Workers

@@ -94,6 +94,10 @@ func (w *JobSetWebhook) Default(ctx context.Context, obj *jobsetapi.JobSet) erro
 
 	jobframework.ApplyDefaultForManagedBy(jobSet, w.queues, w.cache, log)
 
+	for i := range jobSet.Spec.ReplicatedJobs {
+		jobframework.DefaultPodIndexOffsetForPodSetGroup(&jobSet.Spec.ReplicatedJobs[i].Template.Spec.Template.ObjectMeta)
+	}
+
 	return nil
 }
 

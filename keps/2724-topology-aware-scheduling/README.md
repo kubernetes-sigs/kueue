@@ -611,9 +611,12 @@ When the above LeaderWorkerSet is submitted, Kueue LeaderWorkerSet integration w
 `kueue.x-k8s.io/pod-index-offset: "1"` annotation to `.spec.leaderWorkerTemplate.workerTemplate.metadata.annotations`
 because Worker pods will get 1-2 index annotation values in `leaderworkerset.sigs.k8s.io/worker-index`.
 
-The annotation is also added when `kueue.x-k8s.io/podset-group-name` is specified,
-because the Worker indexes start from 1 regardless of the PodSet Group.
-The PodSet Group does not change the offset; Pod indexes start from 0 unless the annotation is set.
+On the other hands, `kueue.x-k8s.io/pod-index-offset` annotation is not added and offset management is delegated to the PodSet Group mechanism
+when `kueue.x-k8s.io/podset-group-name` is specified: the larger PodSet of the group is offset by the size of the smaller one.
+
+When `kueue.x-k8s.io/pod-index-offset` is set on a PodSet in a PodSet Group, it replaces the PodSet Group offset.
+The JobSet and Ray integration webhooks set it to `"0"` on the PodSets in a PodSet Group,
+because their Pod indexes start from 0 in each PodSet.
 
 Additionally, if LeaderWorkerSet doesn't have a separate Leader template, the offset management is not added.
 

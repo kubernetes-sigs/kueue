@@ -210,7 +210,7 @@ func TestDefault(t *testing.T) {
 				WorkerTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).
 				Obj(),
 		},
-		"LWS with PodSetGroupName set": {
+		"LWS with PodSetGroupName set, no offset annotation": {
 			defaultLqExist: true,
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "default").
 				LeaderTemplate(corev1.PodTemplateSpec{}).
@@ -221,7 +221,6 @@ func TestDefault(t *testing.T) {
 				Queue("default").
 				WorkerTemplateSpecLabel(constants.QueueLabel, "default").
 				WorkerTemplateSpecAnnotation(kueue.PodSetGroupName, "test-group").
-				WorkerTemplateSpecAnnotation(kueue.PodIndexOffsetAnnotation, "1").
 				LeaderTemplateSpecLabel(constants.QueueLabel, "default").
 				LeaderTemplateSpecAnnotation(podconstants.SuspendedByParentAnnotation, FrameworkName).
 				LeaderTemplateSpecAnnotation(podconstants.GroupServingAnnotationKey, podconstants.GroupServingAnnotationValue).

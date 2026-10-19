@@ -96,6 +96,18 @@ func TestValidateDefault(t *testing.T) {
 			newJob: testingrayutil.MakeCluster("test-job", "").
 				Obj(),
 		},
+		"pod-index-offset 0 is set on Pod templates in a PodSet group": {
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				NodeAnnotation(rayv1.HeadNode, kueue.PodSetGroupName, "group").
+				NodeAnnotation(rayv1.WorkerNode, kueue.PodSetGroupName, "group").
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").
+				NodeAnnotation(rayv1.HeadNode, kueue.PodSetGroupName, "group").
+				NodeAnnotation(rayv1.HeadNode, kueue.PodIndexOffsetAnnotation, "0").
+				NodeAnnotation(rayv1.WorkerNode, kueue.PodSetGroupName, "group").
+				NodeAnnotation(rayv1.WorkerNode, kueue.PodIndexOffsetAnnotation, "0").
+				Obj(),
+		},
 	}
 
 	for name, tc := range testcases {
