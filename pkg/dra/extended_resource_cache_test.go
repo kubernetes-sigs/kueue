@@ -81,11 +81,11 @@ func TestExtendedResourceCache(t *testing.T) {
 			t.Error("expected false for non-existent resource")
 		}
 	})
-}
 
-func TestNilExtendedResourceCache(t *testing.T) {
-	var cache *ExtendedResourceCache
-	// A nil cache means DRA extended resources are not configured, so these must not panic.
-	cache.Add("nvidia.com/gpu", "gpu.nvidia.com")
-	cache.Remove("nvidia.com/gpu", "gpu.nvidia.com")
+	t.Run("nil cache is a no-op", func(t *testing.T) {
+		var nilCache *ExtendedResourceCache
+		// A nil cache means DRA extended resources are not configured, so these must not panic.
+		nilCache.Add("nvidia.com/gpu", "gpu.nvidia.com")
+		nilCache.Remove("nvidia.com/gpu", "gpu.nvidia.com")
+	})
 }
