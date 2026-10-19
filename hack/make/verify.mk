@@ -62,6 +62,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 ## - Verify builds `VERIFY_CLI_BUILD_NPROCS` CLI platforms and lints `CI_LINT_NPROCS` modules concurrently.
 ## - These per-process limits reduce contention; they are not a global CPU semaphore.
 ## - Output is grouped by target to make failures easier to find. Disable with `VERIFY_OUTPUT_SYNC= make verify`.
+## - Failed targets are listed again at the end, since under -j their output can sit far above it.
 ##
 ## How to extend `make verify`
 ##
@@ -78,7 +79,7 @@ PATHS_TO_VERIFY := config/components apis charts/kueue client-go keps site/ netl
 ##   or in another included fragment (`hack/make/test.mk`, etc.) if it logically belongs there.
 ## - Then, wire it into the appropriate aggregator target below.
 verify: ## Ensure repo is clean after generation/formatting.
-	$(MAKE) -j $(VERIFY_NPROCS) $(if $(VERIFY_OUTPUT_SYNC),--output-sync=$(VERIFY_OUTPUT_SYNC)) verify-checks
+	$(PROJECT_DIR)/hack/make-failure-summary.sh $(MAKE) -j $(VERIFY_NPROCS) $(if $(VERIFY_OUTPUT_SYNC),--output-sync=$(VERIFY_OUTPUT_SYNC)) verify-checks
 	git --no-pager diff --exit-code $(PATHS_TO_VERIFY)
 	@if git ls-files --exclude-standard --others $(PATHS_TO_VERIFY) | grep -q . ; then \
 		echo "ERROR: untracked files found under: $(PATHS_TO_VERIFY)" >&2; \
@@ -110,7 +111,7 @@ verify-checks: export GOMAXPROCS = $(VERIFY_GOMAXPROCS)
 ## Read-only verification targets that should not mutate the repo.
 ## Add new check-only targets here.
 verify-checks: ## Phase 2 (parallel): checks that wait for their generated inputs.
-verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint
+verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify verify-e2e-common-test verify-release-utils-test verify-milestone-pull-test verify-unit-test-selection verify-make-failure-summary verify-generation-order verify-shell-lint verify-helm-verify verify-helm-unit-test verify-npm-depcheck verify-kustomize-build verify-rbac-role-coverage verify-kustomization-resources verify-rbac verify-skills-lint
 
 # ---- Shared check recipes -------------------------------------------------
 # Each recipe is stored in a variable so that both the lightweight standalone
@@ -283,6 +284,10 @@ verify-milestone-pull-test: verify-tree-prereqs ## milestone_pull shell tests af
 .PHONY: verify-unit-test-selection
 verify-unit-test-selection: ## Validate unit-test selection and sharding without compiling Go.
 	bash $(PROJECT_DIR)/hack/testing/unit-test-selection_test.sh
+
+.PHONY: verify-make-failure-summary
+verify-make-failure-summary: ## Validate the verify failure summary.
+	bash $(PROJECT_DIR)/hack/testing/make-failure-summary_test.sh
 
 .PHONY: verify-generation-order
 verify-generation-order: ## Validate generation barriers and overlap without compiling Go.
