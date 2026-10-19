@@ -40,6 +40,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingstatefulset "sigs.k8s.io/kueue/pkg/util/testingjobs/statefulset"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("StatefulSet Webhook", func() {
@@ -260,7 +261,7 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 		ginkgo.When("The StatefulSet is admitted", func() {
 			ginkgo.It("Should reject scale out", func() {
 				sts := testingstatefulset.MakeStatefulSet("sts", ns.Name).Replicas(1).Queue("user-queue").Obj()
-				util.MustCreate(ctx, k8sClient, sts)
+				behavioral.MustCreate(ctx, k8sClient, sts)
 
 				// Create the corresponding workload and admit it
 				wlName := statefulset.GetWorkloadName(sts.UID, sts.Name)
@@ -268,8 +269,8 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 					Queue("user-queue").
 					PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 					Obj()
-				util.MustCreate(ctx, k8sClient, wl)
-				util.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), utiltestingapi.MakeAdmission("cluster-queue").Obj())
+				behavioral.MustCreate(ctx, k8sClient, wl)
+				integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), utiltestingapi.MakeAdmission("cluster-queue").Obj())
 
 				// Attempt to scale out, wrapping in Eventually because the webhook's cache might be stale
 				gomega.Eventually(func() error {
@@ -293,7 +294,7 @@ var _ = ginkgo.Describe("StatefulSet Webhook", func() {
 						return err
 					}
 					return nil
-				}, util.Timeout, util.Interval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

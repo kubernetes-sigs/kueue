@@ -362,6 +362,47 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"should not update ReclaimablePods when the feature is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling: false,
+				features.ReclaimablePods:         false,
+			},
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Replicas(3).
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					PodSets(*utiltestingapi.MakePodSet("main", 5).Obj()).
+					Admission(utiltestingapi.MakeAdmission("cluster-queue").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				Replicas(3).
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					PodSets(*utiltestingapi.MakePodSet("main", 5).Obj()).
+					Admission(utiltestingapi.MakeAdmission("cluster-queue").Obj()).
+					Condition(metav1.Condition{
+						Type:   kueue.WorkloadQuotaReserved,
+						Status: metav1.ConditionTrue,
+					}).
+					Obj(),
+			},
+		},
 		"should revert StatefulSet replicas for admitted workload on scale out": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
@@ -1265,6 +1306,7 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").
 					Queue("queue").
+					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Obj()).
 					OwnerReference(gvk, "sts", "sts-uid").
 					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
 					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").

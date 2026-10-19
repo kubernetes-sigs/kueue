@@ -65,7 +65,7 @@ const (
 	podBatchPeriod = time.Second
 )
 
-// +kubebuilder:rbac:groups="apps",resources=statefulsets,verbs=get;list;watch
+// +kubebuilder:rbac:groups="apps",resources=statefulsets,verbs=get;list;update;watch
 
 var (
 	_ jobframework.JobReconcilerInterface = (*Reconciler)(nil)
@@ -590,7 +590,7 @@ func (r *Reconciler) syncReplicas(
 	}
 
 	if wl.Spec.PodSets[0].Count == replicas {
-		if len(wl.Status.ReclaimablePods) > 0 {
+		if features.Enabled(features.ReclaimablePods) && len(wl.Status.ReclaimablePods) > 0 {
 			if err := workload.UpdateReclaimablePods(ctx, r.client, wl, nil); err != nil {
 				return false, false, err
 			}
@@ -604,7 +604,7 @@ func (r *Reconciler) syncReplicas(
 		wl.Spec.PodSets[0].Count = replicas
 		return true, false, nil
 
-	case replicas < wl.Spec.PodSets[0].Count:
+	case features.Enabled(features.ReclaimablePods) && replicas < wl.Spec.PodSets[0].Count:
 		// When scaling down an admitted workload, we record the freed pods as ReclaimablePods
 		// so Kueue can reclaim the quota before the workload finishes.
 		reclaimablePods := []kueue.ReclaimablePod{

@@ -86,8 +86,8 @@ func managerSetup(setup func(ctrl.Manager, ...jobframework.Option) error, opts .
 
 		err := setup(mgr, opts...)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		_, err = webhooks.Setup(mgr, nil)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		failedWebhook, err := webhooks.Setup(mgr, nil)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred(), "webhook", failedWebhook)
 		integrationManager.EnableIntegration(job.FrameworkName)
 	}
 }
