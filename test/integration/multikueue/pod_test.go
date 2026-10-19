@@ -34,10 +34,12 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	workloadpod "sigs.k8s.io/kueue/pkg/controller/jobs/pod"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
+	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
@@ -469,6 +471,87 @@ var _ = ginkgo.Describe("MultiKueue Pod", ginkgo.Label("area:multikueue", "featu
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			}
 			waitForWorkloadToFinishAndRemoteWorkloadToBeDeleted(wlLookupKey, "Pods succeeded: 3/3.")
+		})
+	})
+
+	ginkgo.It("Should reset the manager pod status when the workload is evicted on the worker", func() {
+		pod := testingpod.MakePod("pod1", f.managerNs.Name).
+			Queue(f.managerLq.Name).
+			ManagedByKueueLabel().
+			KueueSchedulingGate().
+			Obj()
+
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, pod)
+
+		wlLookupKey := types.NamespacedName{Name: workloadpod.GetWorkloadNameForPod(pod.Name, pod.UID), Namespace: f.managerNs.Name}
+		podKey := client.ObjectKeyFromObject(pod)
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).
+			Obj()
+
+		ginkgo.By("admitting the workload in worker1", func() {
+			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, &kueue.Workload{})).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			integration.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, wlLookupKey, admission)
+			behavioral.ExpectAdmissionCheckStateWithMessage(
+				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
+				f.multiKueueAC.Name,
+				kueue.CheckStateReady,
+				`The workload was admitted on "worker1"`,
+			)
+		})
+
+		ginkgo.By("running the worker pod, its status is synced to the manager pod", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workerPod := &corev1.Pod{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, podKey, workerPod)).To(gomega.Succeed())
+				workerPod.Status.Phase = corev1.PodRunning
+				workerPod.Status.PodIP = "10.0.0.1"
+				workerPod.Status.Conditions = []corev1.PodCondition{{
+					Type:               corev1.PodScheduled,
+					Status:             corev1.ConditionTrue,
+					LastTransitionTime: metav1.Now(),
+				}}
+				g.Expect(worker1TestCluster.client.Status().Update(worker1TestCluster.ctx, workerPod)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerPod := &corev1.Pod{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, podKey, managerPod)).To(gomega.Succeed())
+				g.Expect(managerPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("evicting the workload in worker1", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				workerWl := &kueue.Workload{}
+				g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, workerWl)).To(gomega.Succeed())
+				g.Expect(workload.SetConditionAndUpdate(worker1TestCluster.ctx, worker1TestCluster.client, workerWl, kueue.WorkloadEvicted, metav1.ConditionTrue, kueue.WorkloadEvictedByPreemption, "By test", "evict", behavioral.RealClock)).
+					To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking the manager workload is requeued and the manager pod is pending again", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerWl := &kueue.Workload{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, wlLookupKey, managerWl)).To(gomega.Succeed())
+				g.Expect(managerWl.Status.ClusterName).To(gomega.BeNil())
+				g.Expect(apimeta.IsStatusConditionTrue(managerWl.Status.Conditions, kueue.WorkloadQuotaReserved)).To(gomega.BeFalse())
+				g.Expect(apimeta.IsStatusConditionTrue(managerWl.Status.Conditions, kueue.WorkloadRequeued)).To(gomega.BeTrue())
+
+				managerPod := &corev1.Pod{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, podKey, managerPod)).To(gomega.Succeed())
+				g.Expect(managerPod.Spec.SchedulingGates).To(gomega.ContainElement(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}))
+				g.Expect(managerPod.Status.Phase).To(gomega.Equal(corev1.PodPending))
+				g.Expect(managerPod.Status.PodIP).To(gomega.BeEmpty())
+				g.Expect(managerPod.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(corev1.PodCondition{
+					Type:   corev1.PodScheduled,
+					Status: corev1.ConditionFalse,
+					Reason: corev1.PodReasonSchedulingGated,
+				}, cmpopts.IgnoreFields(corev1.PodCondition{}, "LastTransitionTime", "Message"))))
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })

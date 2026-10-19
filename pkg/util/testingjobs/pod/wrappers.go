@@ -419,6 +419,18 @@ func (p *PodWrapper) StatusMessage(msg string) *PodWrapper {
 	return p
 }
 
+// StatusPodIP updates status pod IP of the Pod.
+func (p *PodWrapper) StatusPodIP(ip string) *PodWrapper {
+	p.Status.PodIP = ip
+	return p
+}
+
+// StatusContainerStatuses updates status container statuses of the Pod.
+func (p *PodWrapper) StatusContainerStatuses(statuses ...corev1.ContainerStatus) *PodWrapper {
+	p.Status.ContainerStatuses = statuses
+	return p
+}
+
 // CreationTimestamp sets a creation timestamp for the pod object
 func (p *PodWrapper) CreationTimestamp(t time.Time) *PodWrapper {
 	timestamp := metav1.NewTime(t).Rfc3339Copy()

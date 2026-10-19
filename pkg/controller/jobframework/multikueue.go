@@ -78,6 +78,17 @@ type MultiKueueLocalJobWatcher interface {
 	NewEmptyLocalJob() client.Object
 }
 
+// MultiKueueLocalStatusResetter is an optional interface for MultiKueue adapters
+// that copy the remote status onto a local object which stays in place while its
+// workload is requeued (e.g., a gated Pod). Without a reset, the local object keeps
+// reporting the status of a remote object that no longer exists.
+type MultiKueueLocalStatusResetter interface {
+	// ResetLocalStatus resets the status copied from the remote object.
+	// It is called when the local workload no longer has a quota reservation
+	// and is not finished. A missing local object is not an error.
+	ResetLocalStatus(ctx context.Context, localClient client.Client, key types.NamespacedName) error
+}
+
 // MultiKueueMultiWorkloadAdapter is an optional interface for MultiKueue adapters
 // whose jobs create multiple workloads (e.g., LeaderWorkerSet creates one workload per replica).
 type MultiKueueMultiWorkloadAdapter interface {
