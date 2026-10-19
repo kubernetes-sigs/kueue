@@ -142,6 +142,11 @@ func (j *SparkApplication) PodSets(ctx context.Context, _ client.Client) ([]kueu
 		Template: *executorPodTemplateSpec,
 		Count:    j.numExecutors(),
 	}
+	// With partial scale-up, a scale-up slice can be admitted with fewer executors
+	// than requested, but not fewer than the ones already running.
+	if jobframework.ElasticPartialScaleUpEnabled(j) && ptr.Deref(j.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
+		podSets[1].MinCount = new(podSets[1].Count)
+	}
 
 	if err := setTopologyRequestToPodSetIfEnabled(
 		&podSets[1], executorPodTemplateSpec,
