@@ -17,6 +17,8 @@ limitations under the License.
 package queue
 
 import (
+	"sync"
+
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -26,9 +28,11 @@ import (
 // ClusterQueue. The calls sit next to the schedulingHashCounts calls in the
 // PendingWorkloads helpers.
 //
-// Unlike schedulingHashCounts it has no lock of its own: it is read and
-// written only under the PendingWorkloads lock.
+// Like schedulingHashCounts, the struct carries its own lock so it stays
+// consistent without relying on the callers' locks, and the metric read path
+// doesn't take the ClusterQueue-wide lock.
 type localQueueCounts struct {
+	rwm sync.RWMutex
 	// active counts workloads in the heap and inflight workloads, matching
 	// the active pending status of the LocalQueue metrics.
 	active map[utilqueue.LocalQueueReference]int
@@ -56,18 +60,26 @@ func removeLocalQueueCount(counts map[utilqueue.LocalQueueReference]int, wInfo *
 }
 
 func (c *localQueueCounts) addActive(wInfo *workload.Info) {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
 	addLocalQueueCount(c.active, wInfo)
 }
 
 func (c *localQueueCounts) removeActive(wInfo *workload.Info) {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
 	removeLocalQueueCount(c.active, wInfo)
 }
 
 func (c *localQueueCounts) addInadmissible(wInfo *workload.Info) {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
 	addLocalQueueCount(c.inadmissible, wInfo)
 }
 
 func (c *localQueueCounts) removeInadmissible(wInfo *workload.Info) {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
 	removeLocalQueueCount(c.inadmissible, wInfo)
 }
 
@@ -75,6 +87,8 @@ func (c *localQueueCounts) removeInadmissible(wInfo *workload.Info) {
 // be nil when there was no previous heap copy. The LocalQueue of the two
 // copies can differ.
 func (c *localQueueCounts) updateActive(oldInfo, newInfo *workload.Info) {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
 	if oldInfo != nil {
 		removeLocalQueueCount(c.active, oldInfo)
 	}
@@ -83,16 +97,30 @@ func (c *localQueueCounts) updateActive(oldInfo, newInfo *workload.Info) {
 
 // updateInadmissible replaces oldInfo with newInfo in the inadmissible counts.
 func (c *localQueueCounts) updateInadmissible(oldInfo, newInfo *workload.Info) {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
 	removeLocalQueueCount(c.inadmissible, oldInfo)
 	addLocalQueueCount(c.inadmissible, newInfo)
 }
 
 func (c *localQueueCounts) moveToActive(wInfo *workload.Info) {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
 	removeLocalQueueCount(c.inadmissible, wInfo)
 	addLocalQueueCount(c.active, wInfo)
 }
 
 func (c *localQueueCounts) moveToInadmissible(wInfo *workload.Info) {
+	c.rwm.Lock()
+	defer c.rwm.Unlock()
 	removeLocalQueueCount(c.active, wInfo)
 	addLocalQueueCount(c.inadmissible, wInfo)
+}
+
+// pendingInLocalQueue returns the number of active and inadmissible pending
+// workloads in the LocalQueue. Active includes inflight workloads.
+func (c *localQueueCounts) pendingInLocalQueue(lqRef utilqueue.LocalQueueReference) (int, int) {
+	c.rwm.RLock()
+	defer c.rwm.RUnlock()
+	return c.active[lqRef], c.inadmissible[lqRef]
 }
