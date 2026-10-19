@@ -45,7 +45,10 @@ func isExpectedInvalidSelectorPreemptionLog(le observer.LoggedEntry) bool {
 		return false
 	}
 	errLog, ok := le.ContextMap()["error"].(string)
-	return ok && strings.Contains(errLog, "building LabelSelector filter (InvalidSelector)")
+	const invalidSelectorToken = ": building LabelSelector filter (InvalidSelector): "
+	return ok &&
+		strings.Contains(errLog, invalidSelectorToken) &&
+		!strings.Contains(errLog, "\n")
 }
 
 var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configurablepreemptions"), func() {

@@ -288,7 +288,7 @@ func verifyLogs(observedLogs *observer.ObservedLogs) {
 func isExpectedIntegrationErrorLog(le observer.LoggedEntry) bool {
 	errLog := loggedEntryErrorString(le)
 	switch {
-	case le.Message == "Failed to get LocalQueue for metrics" && strings.Contains(errLog, "local queue not found"):
+	case le.Message == "Failed to get LocalQueue for metrics" && strings.Contains(errLog, "queue not found"):
 		return true
 	case le.Message == "Updating workload in cache" && strings.Contains(errLog, "cluster queue not found"):
 		return true
