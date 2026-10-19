@@ -4048,6 +4048,10 @@ func (s *recordingSchedulerSimulator) AddPodGroup(ctx context.Context, pg *sched
 	return s.SchedulerSimulator.AddPodGroup(ctx, pg)
 }
 
+func (s *recordingSchedulerSimulator) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	return s.SchedulerSimulator.RemovePodGroup(ctx, pg)
+}
+
 type tasScheduleTestConfig struct {
 	queues []kueue.LocalQueue
 	now    time.Time
