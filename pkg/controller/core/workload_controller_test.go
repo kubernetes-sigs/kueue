@@ -1246,14 +1246,6 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
-					EventType: corev1.EventTypeWarning,
-					Reason:    kueue.WorkloadQuotaReservedReasonSuspended,
-					Message:   "ClusterQueue cq is inactive",
-				},
-			},
 			wantResult: reconcile.Result{},
 		},
 		"workload that is deactivated should set QuotaReserved condition to Deactivated (observability enabled)": {
@@ -1454,14 +1446,6 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
-					EventType: corev1.EventTypeWarning,
-					Reason:    kueue.WorkloadInadmissible,
-					Message:   "LocalQueue lq doesn't exist",
-				},
-			},
 		},
 		"workload with AdmissionGatedBy annotation removed should clear the gate and emit event": {
 			workload: utiltestingapi.MakeWorkload("wl", "ns").
@@ -1605,14 +1589,6 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
-					EventType: corev1.EventTypeWarning,
-					Reason:    kueue.WorkloadQuotaReservedReasonSuspended,
-					Message:   "ClusterQueue cq is inactive",
-				},
-			},
 			reconcilerOpts: []Option{},
 		},
 		"workload with existing controller owner should not be finished": {
@@ -1646,14 +1622,6 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
-					EventType: corev1.EventTypeWarning,
-					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
-					Message:   "LocalQueue  doesn't exist",
-				},
-			},
 		},
 		"inadmissible workload due to missing LocalQueue (observability enabled)": {
 			featureGates: map[featuregate.Feature]bool{
@@ -1677,14 +1645,6 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
-					EventType: corev1.EventTypeWarning,
-					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
-					Message:   "LocalQueue non-existent-lq doesn't exist",
-				},
-			},
 		},
 		"inadmissible workload due to stopped ClusterQueue (observability enabled)": {
 			featureGates: map[featuregate.Feature]bool{
@@ -1710,14 +1670,6 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
-					EventType: corev1.EventTypeWarning,
-					Reason:    kueue.WorkloadQuotaReservedReasonSuspended,
-					Message:   "ClusterQueue cq is inactive",
-				},
-			},
 		},
 		"inadmissible workload due to broken ClusterQueue namespace selector (observability enabled)": {
 			featureGates: map[featuregate.Feature]bool{
@@ -1760,14 +1712,6 @@ func TestReconcile(t *testing.T) {
 					Message: "The workload has no reservation",
 				}).
 				Obj(),
-			wantEvents: []utiltesting.EventRecord{
-				{
-					Key:       types.NamespacedName{Namespace: "ns", Name: "wl"},
-					EventType: corev1.EventTypeWarning,
-					Reason:    kueue.WorkloadQuotaReservedReasonMisconfigured,
-					Message:   "invalid namespace selector: \"InvalOp\" is not a valid label selector operator",
-				},
-			},
 		},
 		"newly created workload (initial reconcile, ExplicitStatus enabled)": {
 			featureGates: map[featuregate.Feature]bool{
@@ -2167,11 +2111,7 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 						t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 					}
 				}
-				wantEvents := tc.wantEvents
-				if !features.Enabled(features.UnadmittedWorkloadsObservability) {
-					wantEvents = utiltesting.AdjustEventsForDisabledObservabilityInWorkloadController(wantEvents)
-				}
-				if diff := cmp.Diff(wantEvents, recorder.RecordedEvents); diff != "" {
+				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents); diff != "" {
 					t.Errorf("unexpected events (-want/+got):\n%s", diff)
 				}
 
