@@ -17,6 +17,7 @@ limitations under the License.
 package elasticjobs
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -71,7 +72,7 @@ type elasticJobUngater struct {
 var _ reconcile.Reconciler = (*elasticJobUngater)(nil)
 var _ predicate.TypedPredicate[*kueue.Workload] = (*elasticJobUngater)(nil)
 
-// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
 
 func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker, customLabels *metrics.CustomLabels) (string, error) {
@@ -133,6 +134,12 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 	sliceKey := types.NamespacedName{Namespace: active.Namespace, Name: workloadslicing.SliceName(active)}
 	if !r.expectationsStore.Satisfied(log, sliceKey) {
 		return reconcile.Result{}, errPendingUngateOps
+	}
+
+	if active.Annotations[constants.PartiallyPreemptedAnnotation] == "true" {
+		if err := r.deletePodsAboveGranted(ctx, active); err != nil {
+			return reconcile.Result{}, err
+		}
 	}
 
 	pods, err := r.podsToUngate(ctx, active)
@@ -325,6 +332,41 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		gated = append(gated, toUngate...)
 	}
 	return gated, nil
+}
+
+// deletePodsAboveGranted deletes the newest ungated Pods above the granted counts of
+// a partially preempted slice. The job recreates them, and they stay gated until a
+// scale-up slice is admitted.
+func (r *elasticJobUngater) deletePodsAboveGranted(ctx context.Context, wl *kueue.Workload) error {
+	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl))
+	if err != nil {
+		return fmt.Errorf("listing pods for workload slice: %w", err)
+	}
+	livePerPodSet := make(map[kueue.PodSetReference][]*corev1.Pod)
+	for _, p := range pods {
+		if utilpod.IsTerminated(p) || p.DeletionTimestamp != nil || utilpod.HasGate(p, kueue.ElasticJobSchedulingGate) {
+			continue
+		}
+		ps := kueue.PodSetReference(p.Labels[constants.PodSetLabel])
+		livePerPodSet[ps] = append(livePerPodSet[ps], p)
+	}
+	granted := workload.ExtractGrantedPodSetCounts(wl)
+	var toDelete []*corev1.Pod
+	for ps, live := range livePerPodSet {
+		count, found := granted[ps]
+		if !found || int32(len(live)) <= count {
+			continue
+		}
+		slices.SortFunc(live, func(a, b *corev1.Pod) int {
+			return cmp.Or(b.CreationTimestamp.Compare(a.CreationTimestamp.Time), strings.Compare(b.Name, a.Name))
+		})
+		toDelete = append(toDelete, live[:int32(len(live))-count]...)
+	}
+	log := ctrl.LoggerFrom(ctx)
+	return parallelize.Until(ctx, len(toDelete), func(i int) error {
+		log.V(3).Info("deleting elastic pod above the granted count", "pod", klog.KObj(toDelete[i]))
+		return client.IgnoreNotFound(r.client.Delete(ctx, toDelete[i]))
+	})
 }
 
 // Workload predicates

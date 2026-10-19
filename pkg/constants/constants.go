@@ -87,6 +87,10 @@ const (
 	// ElasticJobAnnotation is an annotation set on the Job to indicate that it is an elastic job.
 	ElasticJobAnnotation = "kueue.x-k8s.io/elastic-job"
 
+	// PartiallyPreemptedAnnotation is set on a workload slice that partial preemption shrank,
+	// so that its Pods above the new count are deleted.
+	PartiallyPreemptedAnnotation = "kueue.x-k8s.io/partially-preempted"
+
 	// ElasticJobScaleUpAnnotationKey refers to the annotation key present on Jobs that support
 	// partial scale up.
 	// This annotation is alpha-level.

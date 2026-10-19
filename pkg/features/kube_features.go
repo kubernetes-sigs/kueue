@@ -39,6 +39,13 @@ const (
 	// Enables partial scale up for elastic jobs.
 	ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp featuregate.Feature = "ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp"
 
+	// owner: @reruno
+	// kep: https://github.com/kubernetes-sigs/kueue/pull/14589
+
+	// Enables preemption to shrink elastic workloads down to their minCount
+	// before evicting them.
+	PartialPreemption featuregate.Feature = "PartialPreemption"
+
 	// owner: @KunWuLuan
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/582-preempt-based-on-flavor-order
 	//
@@ -950,6 +957,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+	PartialPreemption: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	FlavorFungibility: {
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
