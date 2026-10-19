@@ -841,6 +841,8 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 		// All group pods are terminating: once no Workload remains, finalize directly - re-creating one would re-adopt the group from admission-mutated specs and wedge finalizer removal (issue #15148).
 		for i := range p.list.Items {
 			if p.list.Items[i].DeletionTimestamp.IsZero() {
+				// A live pod represents the group: the list order is not stable across reconciles, and a terminating pod can carry another queue-name or priority.
+				p.pod = p.list.Items[i]
 				return jobframework.NewLoadResult(false, p.isFound), nil
 			}
 		}
@@ -1525,20 +1527,14 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 // runnable, and returns them. Such a pod never runs again, but its spec carries the placement of
 // its earlier admission, so it must not shape a new Workload.
 func (p *Pod) dropTerminatingPods() []corev1.Pod {
-	isTerminating := func(pod *corev1.Pod) bool {
-		return !pod.DeletionTimestamp.IsZero() && isPodRunnableOrSucceeded(pod)
-	}
 	var terminatingPods []corev1.Pod
 	p.list.Items = slices.DeleteFunc(p.list.Items, func(pod corev1.Pod) bool {
-		if !isTerminating(&pod) {
-			return false
+		terminating := !pod.DeletionTimestamp.IsZero() && isPodRunnableOrSucceeded(&pod)
+		if terminating {
+			terminatingPods = append(terminatingPods, pod)
 		}
-		terminatingPods = append(terminatingPods, pod)
-		return true
+		return terminating
 	})
-	if isTerminating(&p.pod) && len(p.list.Items) > 0 {
-		p.pod = p.list.Items[0]
-	}
 	return terminatingPods
 }
 
