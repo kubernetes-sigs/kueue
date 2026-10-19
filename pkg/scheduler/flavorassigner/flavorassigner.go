@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	"sigs.k8s.io/kueue/pkg/util/podset"
 	"sigs.k8s.io/kueue/pkg/util/resourcegroups"
+	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 	"sigs.k8s.io/kueue/pkg/util/tas"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -58,6 +59,7 @@ func mostSevereReason(a, b string) string {
 
 const (
 	reasonSeverityNone int = iota
+	reasonSeveritySimulationFailed
 	reasonSeverityTopologyPlacementFailed
 	reasonSeverityWaitingForQuota
 	reasonSeverityExceedsMaxQuota
@@ -74,6 +76,8 @@ func reasonSeverity(reason string) int {
 		return reasonSeverityWaitingForQuota
 	case kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed:
 		return reasonSeverityTopologyPlacementFailed
+	case kueue.WorkloadQuotaReservedReasonSimulationFailed:
+		return reasonSeveritySimulationFailed
 	default:
 		return reasonSeverityNone
 	}
@@ -492,7 +496,7 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 			assignment.ResolvePodSetFailure(
 				failure.PodSetName,
 				Preempt,
-				*NewStatus(failure.Reason),
+				NewStatus(failure.Reason),
 			)
 		} else {
 			// All PodSets fit, we just update the TopologyAssignments
@@ -510,9 +514,9 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 		if failure := result.Failure(); failure != nil {
 			// There is at least one PodSet which does not fit even if
 			// all workloads are preempted.
-			psAssignment := assignment.podSetAssignmentByName(failure.PodSetName)
+			psAssignment := assignment.PodSetAssignmentByName(failure.PodSetName)
 			if features.Enabled(features.UnadmittedWorkloadsObservability) {
-				psAssignment.markFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
+				psAssignment.MarkFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
 			}
 			// update the mode for all flavors and the representative mode
 			assignment.updateMode(failure.PodSetName, NoFit)
@@ -862,9 +866,7 @@ func (a *FlavorAssigner) checkFlavorForPodSets(
 			}
 		}
 		podSpec := podSets[psIdx].Template.Spec
-		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(log, flavor.Spec.NodeTaints, append(podSpec.Tolerations, flavor.Spec.Tolerations...), func(t *corev1.Taint) bool {
-			return t.Effect == corev1.TaintEffectNoSchedule || t.Effect == corev1.TaintEffectNoExecute
-		}, true)
+		taint, untolerated := corev1helpers.FindMatchingUntoleratedTaint(log, flavor.Spec.NodeTaints, append(podSpec.Tolerations, flavor.Spec.Tolerations...), utiltaints.IsSchedulingTaint, true)
 		if untolerated {
 			status.appendf("untolerated taint %s in flavor %s", taint, flavorName)
 			return status

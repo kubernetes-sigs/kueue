@@ -416,6 +416,164 @@ func TestReconcile(t *testing.T) {
 				},
 			},
 		},
+		"admitted flavor removed with surviving variant already admitted": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq-spot-only", "on-demand", metav1.Now().Time).
+				AdmittedAt(true, metav1.Now().Time).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				// The admitted variant runs on "on-demand", which cq-spot-only no longer offers.
+				*utiltestingapi.MakeWorkload("wl-variant-on-demand", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("on-demand").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-spot-only", "on-demand", metav1.Now().Time).
+					AdmittedAt(true, metav1.Now().Time).
+					Obj(),
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+					AdmittedAt(true, fakeNow).
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq-spot-only", "on-demand", metav1.Now().Time).
+				AdmittedAt(true, metav1.Now().Time).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  "ConcurrentAdmission",
+					Message: "The admitted flavor is no longer in the ClusterQueue",
+				}).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+					AdmittedAt(true, fakeNow).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Namespace: "default", Name: "wl-12345"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    ReasonDeletedVariant,
+					Message:   "Variant Workload \"default/wl-variant-on-demand\" deleted; flavor \"on-demand\" no longer in ClusterQueue",
+				},
+			},
+		},
+		"admitted flavor removed with stale variant already deleted": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq-spot-only", "on-demand", metav1.Now().Time).
+				AdmittedAt(true, metav1.Now().Time).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+					AdmittedAt(true, fakeNow).
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq-spot-only", "on-demand", metav1.Now().Time).
+				AdmittedAt(true, metav1.Now().Time).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadEvicted,
+					Status:  metav1.ConditionTrue,
+					Reason:  "ConcurrentAdmission",
+					Message: "The admitted flavor is no longer in the ClusterQueue",
+				}).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+					AdmittedAt(true, fakeNow).
+					Obj(),
+			},
+		},
+		"admitted flavor removed preserves existing parent eviction": {
+			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq-spot-only", "on-demand", fakeNow).
+				AdmittedAt(true, fakeNow).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(fakeNow),
+					Reason:             "VariantEvicted",
+					Message:            "Admitted variant was evicted",
+				}).
+				Obj(),
+			variantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+					AdmittedAt(true, fakeNow).
+					Obj(),
+			},
+			wantParentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
+				Queue("lq-spot-only").
+				Label(constants.ConcurrentAdmissionParentLabelKey, "true").
+				Request(corev1.ResourceCPU, "1").
+				SimpleReserveQuota("cq-spot-only", "on-demand", fakeNow).
+				AdmittedAt(true, fakeNow).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(fakeNow),
+					Reason:             "VariantEvicted",
+					Message:            "Admitted variant was evicted",
+				}).
+				Obj(),
+			wantVariantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl-variant-spot", "default").
+					Queue("lq-spot-only").
+					AllowedFlavors("spot").
+					Request(corev1.ResourceCPU, "1").
+					PreemptionGates(caGate()).
+					ControllerReference(kueue.SchemeGroupVersion.WithKind("Workload"), "wl-12345", "").
+					SimpleReserveQuota("cq-spot-only", "spot", fakeNow).
+					AdmittedAt(true, fakeNow).
+					Obj(),
+			},
+		},
 		"deleting the variant holding the open preemption gate opens the next one's gate": {
 			parentWorkload: utiltestingapi.MakeWorkload("wl-12345", "default").
 				Queue("lq-spot-only").

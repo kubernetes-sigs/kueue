@@ -52,7 +52,7 @@ import (
 	"k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/cluster-inventory-api/pkg/access"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -840,6 +840,11 @@ type clustersReconciler struct {
 
 	clusterProfileAccessProvider clusterProfileAccessProvider
 
+	// clusterProfileCRDPresent indicates the ClusterProfile CRD is installed.
+	// The ClusterProfile watch is only registered when both the feature gate is
+	// enabled and the CRD exists.
+	clusterProfileCRDPresent bool
+
 	logName     string
 	roleTracker *roletracker.RoleTracker
 
@@ -847,12 +852,12 @@ type clustersReconciler struct {
 }
 
 type clusterProfileAccessProvider interface {
-	BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error)
+	BuildConfigFromCP(clusterprofile *inventoryv1alpha2.ClusterProfile) (*rest.Config, error)
 }
 
 type NoOpClusterProfileAccessProvider struct{}
 
-func (NoOpClusterProfileAccessProvider) BuildConfigFromCP(clusterprofile *inventoryv1alpha1.ClusterProfile) (*rest.Config, error) {
+func (NoOpClusterProfileAccessProvider) BuildConfigFromCP(clusterprofile *inventoryv1alpha2.ClusterProfile) (*rest.Config, error) {
 	return nil, errors.New("no access provider configured")
 }
 
@@ -1121,7 +1126,7 @@ func (c *clustersReconciler) getKubeConfig(ctx context.Context, ref *kueue.KubeC
 }
 
 func (c *clustersReconciler) getRestConfigFromClusterProfile(ctx context.Context, profileRef *kueue.ClusterProfileReference) (*rest.Config, error) {
-	cp := &inventoryv1alpha1.ClusterProfile{}
+	cp := &inventoryv1alpha2.ClusterProfile{}
 	if err := c.localClient.Get(ctx, types.NamespacedName{Name: profileRef.Name, Namespace: c.configNamespace}, cp); err != nil {
 		return nil, err
 	}
@@ -1282,6 +1287,7 @@ type clustersReconcilerOptions struct {
 	fsWatcher                    *KubeConfigFSWatcher
 	adapters                     map[string]jobframework.MultiKueueAdapter
 	clusterProfileAccessProvider clusterProfileAccessProvider
+	clusterProfileCRDPresent     bool
 	roleTracker                  *roletracker.RoleTracker
 	recorder                     events.EventRecorder
 	clientConnection             *configapi.ClientConnection
@@ -1316,6 +1322,12 @@ func withAdapters(adapters map[string]jobframework.MultiKueueAdapter) clustersRe
 func withClusterProfileAccessProvider(cpAccessProvider clusterProfileAccessProvider) clustersReconcilerOption {
 	return func(o *clustersReconcilerOptions) {
 		o.clusterProfileAccessProvider = cpAccessProvider
+	}
+}
+
+func withClusterProfileCRDPresent(present bool) clustersReconcilerOption {
+	return func(o *clustersReconcilerOptions) {
+		o.clusterProfileCRDPresent = present
 	}
 }
 
@@ -1365,6 +1377,7 @@ func newClustersReconciler(
 		fsWatcher:                    options.fsWatcher,
 		adapters:                     options.adapters,
 		clusterProfileAccessProvider: options.clusterProfileAccessProvider,
+		clusterProfileCRDPresent:     options.clusterProfileCRDPresent,
 		logName:                      "multikueue-multikueuecluster-reconciler",
 		roleTracker:                  options.roleTracker,
 		clientConnection:             options.clientConnection,
@@ -1406,16 +1419,25 @@ func (c *clustersReconciler) setupWithManager(mgr ctrl.Manager) error {
 		WithOptions(controller.Options{
 			LogConstructor: roletracker.NewLogConstructor(c.roleTracker, "multikueue-multikueuecluster-reconciler"),
 		})
-	if features.Enabled(features.MultiKueueClusterProfile) {
+	if c.shouldWatchClusterProfiles() {
 		systemNamespacePredicate := predicate.NewPredicateFuncs(func(obj client.Object) bool {
 			return obj.GetNamespace() == c.configNamespace
 		})
 
 		controllerBuilder = controllerBuilder.
-			Watches(&inventoryv1alpha1.ClusterProfile{}, &clusterProfileHandler{client: c.localClient}, builder.WithPredicates(systemNamespacePredicate))
+			Watches(&inventoryv1alpha2.ClusterProfile{}, &clusterProfileHandler{client: c.localClient}, builder.WithPredicates(systemNamespacePredicate))
 	}
 
 	return controllerBuilder.Complete(c)
+}
+
+// shouldWatchClusterProfiles reports whether the ClusterProfile watch should be
+// registered. Registering the watch without the CRD installed (and therefore
+// without a configured cache entry) makes cache sync fail and the manager exit,
+// which would break kubeconfig-based MultiKueue on clusters lacking the
+// optional CRD.
+func (c *clustersReconciler) shouldWatchClusterProfiles() bool {
+	return features.Enabled(features.MultiKueueClusterProfile) && c.clusterProfileCRDPresent
 }
 
 func (c *clustersReconciler) Generic(e event.GenericEvent) bool {
@@ -1569,7 +1591,7 @@ func (cp *clusterProfileHandler) Generic(ctx context.Context, event event.Generi
 }
 
 func (cp *clusterProfileHandler) handleEvent(ctx context.Context, object client.Object, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	clusterprofile, isClusterProfile := object.(*inventoryv1alpha1.ClusterProfile)
+	clusterprofile, isClusterProfile := object.(*inventoryv1alpha2.ClusterProfile)
 	if !isClusterProfile {
 		ctrl.LoggerFrom(ctx).Error(errors.New("not a clusterprofile"), "Failure on event")
 		return

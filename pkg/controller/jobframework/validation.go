@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -217,6 +218,26 @@ func ValidateQueueName(obj client.Object) field.ErrorList {
 	return allErrs
 }
 
+// ValidateQueueNameUpdate checks whether a queue change is allowed for a job with existing Workloads.
+// hasQuotaReservation is called only when the queue changes to a nonempty value while the job is suspended.
+// This check is not atomic with quota reservation or subsequent Workload updates.
+func ValidateQueueNameUpdate(oldQueueName, newQueueName kueue.LocalQueueName, isSuspended bool, hasQuotaReservation func() (bool, error)) (field.ErrorList, error) {
+	if newQueueName == oldQueueName {
+		return nil, nil
+	}
+	if !isSuspended || newQueueName == "" {
+		return apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath), nil
+	}
+	reserved, err := hasQuotaReservation()
+	if err != nil {
+		return nil, err
+	}
+	if reserved {
+		return apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath), nil
+	}
+	return nil, nil
+}
+
 func validateUpdateForQueueName(oldJob, newJob GenericJob, defaultQueueExist func(string) bool) field.ErrorList {
 	var allErrs field.ErrorList
 	if !newJob.IsSuspended() {
@@ -261,12 +282,16 @@ func validatedUpdateForEnabledWorkloadSlice(oldJob, newJob GenericJob) field.Err
 	return nil
 }
 
+// CanSetWorkloadPriorityClassName reports whether an update can leave the
+// WorkloadPriorityClass label set. The label cannot be added to a non-suspended
+// (running) workload that did not have it before the update.
+func CanSetWorkloadPriorityClassName(isSuspended bool, oldObj client.Object) bool {
+	return isSuspended || !IsWorkloadPriorityClassNameEmpty(oldObj)
+}
+
 func ValidateUpdateForWorkloadPriorityClassName(isSuspended bool, oldObj, newObj client.Object) field.ErrorList {
-	// Cannot ADD a priority class to a NON-suspended (running) workload && wpc is empty
-	if !isSuspended && IsWorkloadPriorityClassNameEmpty(oldObj) {
-		if !IsWorkloadPriorityClassNameEmpty(newObj) {
-			return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be added to a non-suspended workload")}
-		}
+	if !CanSetWorkloadPriorityClassName(isSuspended, oldObj) && !IsWorkloadPriorityClassNameEmpty(newObj) {
+		return field.ErrorList{field.Invalid(workloadPriorityClassNamePath, WorkloadPriorityClassName(newObj), "WorkloadPriorityClass cannot be added to a non-suspended workload")}
 	}
 	// Cannot REMOVE a priority class from a workload (regardless of suspended/running)
 	if IsWorkloadPriorityClassNameEmpty(newObj) {
