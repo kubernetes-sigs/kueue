@@ -3949,7 +3949,6 @@ func TestSchedulingHash(t *testing.T) {
 		infoOptions1 []InfoOption
 		infoOptions2 []InfoOption
 		wantSame     bool
-		wantUnknown  bool
 		featureGates map[featuregate.Feature]bool
 	}{
 		"same spec different identity produces same hash": {
@@ -4049,15 +4048,14 @@ func TestSchedulingHash(t *testing.T) {
 				features.ConcurrentAdmission:          true,
 			},
 		},
-		"replacement workload slices produce unknown hash": {
+		"same spec, replacing different workload slices produces different hash": {
 			wl1: utiltestingapi.MakeWorkload("wl1", "ns").
 				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-1").
 				Request(corev1.ResourceCPU, "1").Obj(),
 			wl2: utiltestingapi.MakeWorkload("wl2", "ns").
 				Annotation(constants.WorkloadSliceReplacementForAnnotation, "ns/old-slice-2").
 				Request(corev1.ResourceCPU, "1").Obj(),
-			wantSame:    true,
-			wantUnknown: true,
+			wantSame: false,
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing: true,
 				features.ElasticJobsViaWorkloadSlices: true,
@@ -4167,9 +4165,6 @@ func TestSchedulingHash(t *testing.T) {
 			}
 			if !tc.wantSame && info1.SchedulingHash == info2.SchedulingHash {
 				t.Errorf("expected different hashes, got same %q", info1.SchedulingHash)
-			}
-			if gotUnknown := info1.SchedulingHash == SchedulingHashUnknown; gotUnknown != tc.wantUnknown {
-				t.Errorf("SchedulingHash = %q, want unknown: %v", info1.SchedulingHash, tc.wantUnknown)
 			}
 		})
 	}

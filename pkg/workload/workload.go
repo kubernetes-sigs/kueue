@@ -408,9 +408,6 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	if !features.Enabled(features.SchedulingEquivalenceHashing) {
 		return SchedulingHashUnknown
 	}
-	if features.Enabled(features.ElasticJobsViaWorkloadSlices) && metav1.HasAnnotation(wl.ObjectMeta, constants.WorkloadSliceReplacementForAnnotation) {
-		return SchedulingHashUnknown
-	}
 	effectivePriority := priority.EffectivePriority(log, wl)
 	podSetShapes := make([]map[string]any, 0, len(wl.Spec.PodSets))
 	for i, ps := range wl.Spec.PodSets {
@@ -449,6 +446,12 @@ func computeSchedulingHash(log logr.Logger, wl *kueue.Workload, totalRequests []
 	if features.Enabled(features.ConcurrentAdmission) {
 		if val, ok := wl.GetAnnotations()[controllerconstants.WorkloadAllowedResourceFlavorAnnotation]; ok {
 			shape["allowedFlavors"] = val
+		}
+	}
+	// The replaced slice key is unique per job, so each replacement gets its own class.
+	if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+		if val, ok := wl.GetAnnotations()[constants.WorkloadSliceReplacementForAnnotation]; ok {
+			shape["replacementFor"] = val
 		}
 	}
 	shapeJSON, err := json.Marshal(shape)
