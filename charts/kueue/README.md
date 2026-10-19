@@ -119,10 +119,9 @@ resolved configuration for the manager and job webhooks.
 | `structured` | Merge `structuredOverrides` with chart defaults. Ignore `controllerManagerConfigYaml`, even when nonempty. |
 | Any other value | Reject the values with a validation error. |
 
-Existing YAML values and explicitly empty YAML strings retain their previous
-behavior. `values.yaml` retains the full legacy YAML example as comments. To edit
-it, replace `managerConfig: {}` with `managerConfig:` and uncomment the YAML block;
-the resulting string becomes a complete replacement for the chart defaults.
+`managerConfig.controllerManagerConfigYaml` remains supported for supplying a
+complete configuration. Existing YAML values and explicitly empty YAML strings
+retain their previous behavior.
 
 For structured configuration, specify the mode and only your customizations:
 
@@ -149,7 +148,7 @@ user values so unspecified structured settings follow the selected chart version
 defaults, including with `--reuse-values`.
 
 Tools that read the default YAML string directly from `values.yaml` must instead
-read the rendered manager ConfigMap. The commented example is not an active value.
+read the rendered manager ConfigMap.
 
 To migrate, set `mode: structured` and copy every intentional customization from
 the old YAML into `structuredOverrides`. There is no need to clear the YAML string:
