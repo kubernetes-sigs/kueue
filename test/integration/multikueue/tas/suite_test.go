@@ -178,7 +178,7 @@ func managerSetup(ctx context.Context, mgr manager.Manager) {
 		mgr.GetEventRecorder(constants.AdmissionName),
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
 	)
-	err = sched.Start(ctx)
+	err = mgr.Add(sched)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 }
 
