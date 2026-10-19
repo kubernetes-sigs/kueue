@@ -132,12 +132,12 @@ func (r *CohortReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Config
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("cohort_controller").
-		WatchesRawSource(source.TypedKind(
+		WatchesRawSource(r.cache.TrackInitialSync(source.TypedKind(
 			mgr.GetCache(),
 			&kueue.Cohort{},
 			&handler.TypedEnqueueRequestForObject[*kueue.Cohort]{},
 			r,
-		)).
+		))).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("Cohort").GroupKind().String()],
