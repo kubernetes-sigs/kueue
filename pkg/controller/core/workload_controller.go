@@ -143,17 +143,15 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 		var changed bool
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			updated := workload.UnsetQuotaReservationWithCondition(wl, reason, message, r.clock.Now())
-			if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, "DRA resource claims not supported", false) {
-				updated = true
-			}
-			changed = updated
-			return updated, nil
+			requeuedChanged := workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, "DRA resource claims not supported", false)
+			changed = updated || requeuedChanged
+			return changed, nil
 		})
 		if err != nil {
 			return true, ctrl.Result{}, nil, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
 		}
 		if changed {
-			r.recorder.Eventf(wl, nil, corev1.EventTypeWarning, reason, reason, "%s", message)
+			log.V(3).Info("Workload status updated", "reason", reason, "message", message)
 		}
 		return true, ctrl.Result{}, nil, nil
 	}
@@ -216,7 +214,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	}
 
 	if conditionsChanged {
-		r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, kueue.WorkloadDRAResourcesResolved, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking")
+		log.V(3).Info("Updated previous inadmissible conditions after successful DRA processing")
 	}
 
 	queueOptions = []workload.InfoOption{workload.WithEffectivePodSpecs(wi.EffectivePodSpecs)}
@@ -233,11 +231,9 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 	var changed bool
 	updateErr := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 		updated := workload.UnsetQuotaReservationWithCondition(wl, quotaReservedReason, processingErr.Error(), r.clock.Now())
-		if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, processingErr.Error(), false) {
-			updated = true
-		}
-		changed = updated
-		return updated, nil
+		requeuedChanged := workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, processingErr.Error(), false)
+		changed = updated || requeuedChanged
+		return changed, nil
 	})
 	if updateErr != nil {
 		return true, ctrl.Result{}, errors.Join(
@@ -249,7 +245,7 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 		return true, ctrl.Result{}, fmt.Errorf("%s: %w", logMsg, processingErr)
 	}
 	if changed {
-		r.recorder.Eventf(wl, nil, corev1.EventTypeWarning, quotaReservedReason, quotaReservedReason, "%s", api.TruncateEventMessage(processingErr.Error()))
+		ctrl.LoggerFrom(ctx).V(3).Info("Workload status updated", "reason", quotaReservedReason, "message", processingErr.Error())
 	}
 	return true, ctrl.Result{}, nil
 }
@@ -519,15 +515,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		message := "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled"
 		var changed bool
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			changed = workload.UnsetQuotaReservationWithCondition(wl, quotaReservedReason, message, r.clock.Now())
+			updated := workload.UnsetQuotaReservationWithCondition(wl, quotaReservedReason, message, r.clock.Now())
 			requeuedChanged := workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, message, false)
-			return changed || requeuedChanged, nil
+			changed = updated || requeuedChanged
+			return changed, nil
 		})
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA rejection: %w", err)
 		}
 		if changed {
-			r.recorder.Eventf(&wl, nil, corev1.EventTypeWarning, quotaReservedReason, quotaReservedReason, "%s", message)
+			log.V(3).Info("Workload status updated", "reason", quotaReservedReason, "message", message)
 		}
 		return ctrl.Result{}, nil
 	}
@@ -1118,23 +1115,15 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 }
 
 // markUnadmitted saves QuotaReserved=False with the given reason and message, and
-// emits a Warning Event when the write changed the QuotaReserved condition to an
-// inadmissible, misconfigured, or suspended state.
+// logs them when the write changed the Workload status.
 func (r *WorkloadReconciler) markUnadmitted(ctx context.Context, wl *kueue.Workload, reason, message string) error {
-	var quotaReservedChanged bool
+	var changed bool
 	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-		prevCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-		quotaReservedChanged = prevCond == nil ||
-			prevCond.Status != metav1.ConditionFalse ||
-			prevCond.Reason != reason ||
-			prevCond.Message != api.TruncateConditionMessage(message)
-		return workload.UnsetQuotaReservationWithCondition(wl, reason, message, r.clock.Now()), nil
+		changed = workload.UnsetQuotaReservationWithCondition(wl, reason, message, r.clock.Now())
+		return changed, nil
 	})
-	if err == nil && quotaReservedChanged {
-		switch reason {
-		case kueue.WorkloadInadmissible, kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadQuotaReservedReasonSuspended:
-			r.recorder.Eventf(wl, nil, corev1.EventTypeWarning, reason, reason, "%s", api.TruncateEventMessage(message))
-		}
+	if err == nil && changed {
+		ctrl.LoggerFrom(ctx).V(3).Info("Workload status updated", "reason", reason, "message", message)
 	}
 	return err
 }
