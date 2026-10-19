@@ -111,7 +111,7 @@ func TestRunComponents(t *testing.T) {
 
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
+			ctx, cancel := context.WithCancel(t.Context())
 			defer cancel()
 			if tc.cancelBeforeRun {
 				cancel()
@@ -175,7 +175,7 @@ func TestRunComponents(t *testing.T) {
 }
 
 func TestWaitForShutdownPrefersCompletedComponents(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
 	componentDone := make(chan struct{}, 2)
