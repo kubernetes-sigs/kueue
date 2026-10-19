@@ -404,3 +404,83 @@ func TestSARAuthorizer(t *testing.T) {
 		})
 	}
 }
+
+func TestSARAuthorizerCacheIdentity(t *testing.T) {
+	tests := map[string]struct {
+		first       Identity
+		second      Identity
+		wantAllowed bool
+		wantCalls   int
+	}{
+		"group delimiter collision": {
+			first:       Identity{Username: "alice", UID: "alice-uid", Groups: []string{"group-a,group-b"}},
+			second:      Identity{Username: "alice", UID: "alice-uid", Groups: []string{"group-a", "group-b"}},
+			wantAllowed: false,
+			wantCalls:   2,
+		},
+		"extra value delimiter collision": {
+			first:       Identity{Username: "alice", UID: "alice-uid", Extra: map[string][]string{"scope": {"read,write"}}},
+			second:      Identity{Username: "alice", UID: "alice-uid", Extra: map[string][]string{"scope": {"read", "write"}}},
+			wantAllowed: false,
+			wantCalls:   2,
+		},
+		"group order": {
+			first:       Identity{Username: "alice", UID: "alice-uid", Groups: []string{"group-a", "group-b"}},
+			second:      Identity{Username: "alice", UID: "alice-uid", Groups: []string{"group-b", "group-a"}},
+			wantAllowed: true,
+			wantCalls:   1,
+		},
+		"duplicate groups": {
+			first:       Identity{Username: "alice", UID: "alice-uid", Groups: []string{"group-a", "group-a", "group-b"}},
+			second:      Identity{Username: "alice", UID: "alice-uid", Groups: []string{"group-a", "group-b"}},
+			wantAllowed: true,
+			wantCalls:   1,
+		},
+		"extra key and value order": {
+			first: Identity{Username: "alice", UID: "alice-uid", Extra: map[string][]string{
+				"scope":  {"read", "write"},
+				"tenant": {"a", "b"},
+			}},
+			second: Identity{Username: "alice", UID: "alice-uid", Extra: map[string][]string{
+				"tenant": {"b", "a"},
+				"scope":  {"write", "read"},
+			}},
+			wantAllowed: true,
+			wantCalls:   1,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			callCount := 0
+			cs := k8sfake.NewSimpleClientset()
+			cs.PrependReactor("create", "subjectaccessreviews", func(action k8stesting.Action) (bool, runtime.Object, error) {
+				callCount++
+				sar := action.(k8stesting.CreateAction).GetObject().(*authorizationv1.SubjectAccessReview)
+				sar.Status.Allowed = callCount == 1
+				return true, sar, nil
+			})
+
+			authorizer := NewSARAuthorizer(cs, AuthConfig{CacheTTL: time.Minute, NegativeCacheTTL: time.Minute})
+			attributes := authorizationv1.ResourceAttributes{Verb: "get", Resource: "workloads"}
+			allowed, err := authorizer.Authorize(t.Context(), tc.first, attributes)
+			if err != nil {
+				t.Fatalf("first Authorize() returned error: %v", err)
+			}
+			if !allowed {
+				t.Fatal("first Authorize() = false, want true")
+			}
+
+			allowed, err = authorizer.Authorize(t.Context(), tc.second, attributes)
+			if err != nil {
+				t.Fatalf("second Authorize() returned error: %v", err)
+			}
+			if allowed != tc.wantAllowed {
+				t.Errorf("second Authorize() = %v, want %v", allowed, tc.wantAllowed)
+			}
+			if callCount != tc.wantCalls {
+				t.Errorf("SubjectAccessReview calls = %d, want %d", callCount, tc.wantCalls)
+			}
+		})
+	}
+}
