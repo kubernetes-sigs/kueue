@@ -22,8 +22,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	nodev1 "k8s.io/api/node/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/workqueue"
 	testingclock "k8s.io/utils/clock/testing"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -297,6 +300,57 @@ func TestWorkloadEventHandlerSecondPassUsesControllerLifetime(t *testing.T) {
 			}
 			if stopController && fakeClock.Waiters() != 0 {
 				t.Fatal("controller shutdown scheduled a second-pass retry")
+			}
+		})
+	}
+}
+
+func TestWorkloadQueueHandlerClusterQueueUpdate(t *testing.T) {
+	now := time.Now()
+	cases := map[string]struct {
+		objs []client.Object
+		want []types.NamespacedName
+	}{
+		"workload reserved in the cluster queue after its local queue was deleted": {
+			objs: []client.Object{
+				utiltestingapi.MakeWorkload("reserved", "ns1").Queue("deleted-lq").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).Obj(),
+				utiltestingapi.MakeWorkload("reserved-elsewhere", "ns2").Queue("other-lq").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("other-cq").Obj(), now).Obj(),
+			},
+			want: []types.NamespacedName{{Namespace: "ns1", Name: "reserved"}},
+		},
+		"pending workload of a local queue in the cluster queue": {
+			objs: []client.Object{
+				utiltestingapi.MakeLocalQueue("lq", "ns1").ClusterQueue("cq").Obj(),
+				utiltestingapi.MakeWorkload("pending", "ns1").Queue("lq").Obj(),
+			},
+			want: []types.NamespacedName{{Namespace: "ns1", Name: "pending"}},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			cl := utiltesting.NewClientBuilder().WithObjects(tc.objs...).Build()
+			cache := schdcache.New(cl)
+			r := NewWorkloadReconciler(cl, qcache.NewManagerForUnitTests(cl, cache), cache, &utiltesting.EventRecorder{})
+			q := workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[reconcile.Request]())
+			defer q.ShutDown()
+
+			h := &workloadQueueHandler{r: r}
+			h.Update(ctx, event.UpdateEvent{
+				ObjectOld: utiltestingapi.MakeClusterQueue("cq").Obj(),
+				ObjectNew: utiltestingapi.MakeClusterQueue("cq").StopPolicy(kueue.HoldAndDrain).Obj(),
+			}, q)
+
+			var got []types.NamespacedName
+			for q.Len() > 0 {
+				req, _ := q.Get()
+				got = append(got, req.NamespacedName)
+				q.Done(req)
+			}
+			if diff := cmp.Diff(tc.want, got, cmpopts.SortSlices(func(a, b types.NamespacedName) bool { return a.String() < b.String() })); diff != "" {
+				t.Errorf("Unexpected reconcile requests (-want,+got):\n%s", diff)
 			}
 		})
 	}
