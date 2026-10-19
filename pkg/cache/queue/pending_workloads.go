@@ -391,23 +391,6 @@ func (p *PendingWorkloads) pendingInadmissible() *metrics.LabelValsTracker {
 	return metrics.Copy(p.inadmissibleTracker)
 }
 
-// PendingActiveInLocalQueue returns the number of active pending workloads in LocalQueue,
-// workloads that are in the admission queue.
-func (p *PendingWorkloads) PendingActiveInLocalQueue(lqRef utilqueue.LocalQueueReference) int {
-	p.RLock()
-	defer p.RUnlock()
-	return p.localQueueCounts.active[lqRef]
-}
-
-// PendingInadmissibleInLocalQueue returns the number of inadmissible pending workloads in LocalQueue,
-// workloads that were already tried and are waiting for cluster conditions
-// to change to potentially become admissible.
-func (p *PendingWorkloads) PendingInadmissibleInLocalQueue(lqRef utilqueue.LocalQueueReference) int {
-	p.RLock()
-	defer p.RUnlock()
-	return p.localQueueCounts.inadmissible[lqRef]
-}
-
 // PendingBreakdownInLocalQueue returns LabelValsTrackers for active and inadmissible
 // pending workloads in the given LocalQueue, keyed by workload custom label values.
 func (p *PendingWorkloads) PendingBreakdownInLocalQueue(lqRef utilqueue.LocalQueueReference) (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {

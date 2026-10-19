@@ -664,10 +664,10 @@ func (c *ClusterQueue) PendingBreakdown() (*metrics.LabelValsTracker, *metrics.L
 }
 
 // PendingInLocalQueue returns the number of active and inadmissible pending workloads in LocalQueue.
+// It only takes the localQueueCounts lock, so metric reports don't contend on the
+// ClusterQueue-wide lock.
 func (c *ClusterQueue) PendingInLocalQueue(lqRef utilqueue.LocalQueueReference) (int, int) {
-	c.rwm.RLock()
-	defer c.rwm.RUnlock()
-	return c.workloads.PendingActiveInLocalQueue(lqRef), c.workloads.PendingInadmissibleInLocalQueue(lqRef)
+	return c.workloads.localQueueCounts.pendingInLocalQueue(lqRef)
 }
 
 // PendingBreakdownInLocalQueue returns LabelValsTrackers for active and inadmissible
