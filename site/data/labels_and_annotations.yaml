@@ -252,6 +252,11 @@
     For example, when an MPIJob uses `runLauncherAsWorker` mode, Worker replica indexes
     start from `1` instead of `0`. This annotation is set by the Kueue webhook and used
     by the TAS topology ungater to correctly map Pod indexes to topology assignments.
+  note: |
+    When `kueue.x-k8s.io/podset-group-name` is specified and this annotation is not set,
+    the larger PodSet of the group is offset by the size of the smaller one.
+    The JobSet and Ray webhooks set this annotation to `0` in that case,
+    because their Pod indexes start from `0` in each PodSet.
 
 - key: kueue.x-k8s.io/pod-suspending-parent
   type: Annotation

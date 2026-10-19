@@ -619,6 +619,61 @@ func TestDefault(t *testing.T) {
 			jobSet:         testingutil.MakeJobSet("test-js", "default").Obj(),
 			want:           testingutil.MakeJobSet("test-js", "default").Obj(),
 		},
+		{
+			name: "pod-index-offset 0 is set on replicated jobs in a PodSet group, unless already set",
+			jobSet: testingutil.MakeJobSet("test-js", "default").ReplicatedJobs(
+				testingutil.ReplicatedJobRequirements{
+					Name:           "leader",
+					PodAnnotations: map[string]string{kueue.PodSetGroupName: "group"},
+				},
+				testingutil.ReplicatedJobRequirements{
+					Name: "workers",
+					PodAnnotations: map[string]string{
+						kueue.PodSetGroupName:          "group",
+						kueue.PodIndexOffsetAnnotation: "2",
+					},
+				},
+				testingutil.ReplicatedJobRequirements{
+					Name: "other",
+				},
+			).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			want: testingutil.MakeJobSet("test-js", "default").ReplicatedJobs(
+				testingutil.ReplicatedJobRequirements{
+					Name: "leader",
+					PodAnnotations: map[string]string{
+						kueue.PodSetGroupName:          "group",
+						kueue.PodIndexOffsetAnnotation: "0",
+					},
+				},
+				testingutil.ReplicatedJobRequirements{
+					Name: "workers",
+					PodAnnotations: map[string]string{
+						kueue.PodSetGroupName:          "group",
+						kueue.PodIndexOffsetAnnotation: "2",
+					},
+				},
+				testingutil.ReplicatedJobRequirements{
+					Name: "other",
+				},
+			).Obj(),
+		},
+		{
+			name: "pod-index-offset is not set in a PodSet group when TopologyAwareScheduling is disabled",
+			jobSet: testingutil.MakeJobSet("test-js", "default").ReplicatedJobs(
+				testingutil.ReplicatedJobRequirements{
+					Name:           "leader",
+					PodAnnotations: map[string]string{kueue.PodSetGroupName: "group"},
+				},
+			).Obj(),
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
+			want: testingutil.MakeJobSet("test-js", "default").ReplicatedJobs(
+				testingutil.ReplicatedJobRequirements{
+					Name:           "leader",
+					PodAnnotations: map[string]string{kueue.PodSetGroupName: "group"},
+				},
+			).Obj(),
+		},
 	}
 
 	for _, tc := range testCases {

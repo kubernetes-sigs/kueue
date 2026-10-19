@@ -129,3 +129,20 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 
 	return &psTopologyReq, nil
 }
+
+// DefaultPodIndexOffsetForPodSetGroup sets the Pod index offset annotation to 0
+// on a Pod template in a PodSet group, unless it is already set. Without it, the
+// topology ungater shifts the ranks of the larger PodSet in the group by the
+// size of the smaller one, which only matches integrations whose Pod indexes
+// continue across the group, such as LeaderWorkerSet.
+func DefaultPodIndexOffsetForPodSetGroup(meta *metav1.ObjectMeta) {
+	if !features.Enabled(features.TopologyAwareScheduling) {
+		return
+	}
+	if _, grouped := meta.Annotations[kueue.PodSetGroupName]; !grouped {
+		return
+	}
+	if _, found := meta.Annotations[kueue.PodIndexOffsetAnnotation]; !found {
+		meta.Annotations[kueue.PodIndexOffsetAnnotation] = "0"
+	}
+}

@@ -211,7 +211,36 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 
 	psNameToTopologyRequest := workload.PodSetNameToTopologyRequest(wl)
 	allToUngate := make([]podWithUngateInfo, 0)
+	groupedPodSetAssignments := make(map[string][]*kueue.PodSetAssignment)
 
+	for i, psa := range wl.Status.Admission.PodSetAssignments {
+		groupName := strconv.Itoa(i)
+		if psNameToTopologyRequest[psa.Name] != nil && psNameToTopologyRequest[psa.Name].PodSetGroupName != nil {
+			groupName = *psNameToTopologyRequest[psa.Name].PodSetGroupName
+		}
+		groupedPodSetAssignments[groupName] = append(groupedPodSetAssignments[groupName], &psa)
+	}
+
+	rankOffsets := make(map[kueue.PodSetReference]int32)
+
+	for _, psas := range groupedPodSetAssignments {
+		if len(psas) > 1 {
+			// In case of LeaderWorkerSet, in each Workload there will be
+			// 1 leader and N workers. Leader will get rank 0 and workers
+			// 1, 2, ..., N. To detect the leader we are selecting PodSet
+			// which is smaller.
+			smallerPsa := psas[0]
+			largerPsa := psas[1]
+			if *smallerPsa.Count > *largerPsa.Count {
+				smallerPsa = psas[1]
+				largerPsa = psas[0]
+			}
+			rankOffsets[smallerPsa.Name] = 0
+			rankOffsets[largerPsa.Name] = *smallerPsa.Count
+		} else {
+			rankOffsets[psas[0].Name] = 0
+		}
+	}
 	lendFreeCapacity := features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(wl)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		if psa.TopologyAssignment != nil {
@@ -220,29 +249,25 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 				log.Error(err, "failed to list Pods for PodSet", "podset", psa.Name, "count", psa.Count)
 				return reconcile.Result{}, err
 			}
-			// Pod indexes start from 0 unless the integration sets the offset
-			// annotation. This also holds within a PodSet group, because the index
-			// layout depends on the integration (e.g. LeaderWorkerSet workers start
-			// from 1, JobSet workers start from 0), not on the group shape.
-			var offset int
-			// Pods created before the integration set the annotation can lack it,
-			// e.g. while a grouped LeaderWorkerSet rolls out after an upgrade,
-			// so take the offset from the first Pod that has it.
-			for _, pod := range pods {
-				offsetVal, found := pod.Annotations[kueue.PodIndexOffsetAnnotation]
-				if !found {
-					continue
+			if len(pods) > 0 {
+				// Assume that same replica all Pods has the same offset value.
+				// The annotation replaces the PodSet group offset, so integrations
+				// whose Pod indexes start from 0 within a PodSet group, such as
+				// JobSet, set it to 0.
+				offsetVal, found := pods[0].Annotations[kueue.PodIndexOffsetAnnotation]
+				if found {
+					var offset int
+					if offset, err = strconv.Atoi(offsetVal); err != nil {
+						log.Error(err, errParseOffsetAnnotation.Error(),
+							kueue.PodIndexOffsetAnnotation, offsetVal,
+							"pod", klog.KObj(pods[0]),
+						)
+						return reconcile.Result{}, errors.Join(err, errParseOffsetAnnotation)
+					}
+					rankOffsets[psa.Name] = int32(offset)
 				}
-				if offset, err = strconv.Atoi(offsetVal); err != nil {
-					log.Error(err, errParseOffsetAnnotation.Error(),
-						kueue.PodIndexOffsetAnnotation, offsetVal,
-						"pod", klog.KObj(pod),
-					)
-					return reconcile.Result{}, errors.Join(err, errParseOffsetAnnotation)
-				}
-				break
 			}
-			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name], int32(offset), lendFreeCapacity)
+			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], lendFreeCapacity)
 			// While a node is recorded in Status.UnhealthyNodes the assignment still
 			// points at it until the scheduler's second pass swaps in a replacement
 			// domain. Gated pods must not be ungated onto such a node in the

@@ -139,8 +139,11 @@ func (wh *Webhook) podTemplateSpecDefault(
 	podTemplateSpec.Annotations[podconstants.GroupServingAnnotationKey] = podconstants.GroupServingAnnotationValue
 
 	if features.Enabled(features.TopologyAwareScheduling) && psName == workerPodSetName && lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
-		// The leader takes worker index 0, so worker indexes start from 1.
-		podTemplateSpec.Annotations[kueue.PodIndexOffsetAnnotation] = "1"
+		// The offset is handled as PodSet group scheduling mechanism separately in topology-unGater
+		// when the LeaderWorkerSet constructs PodSet group across Leaders and Workers.
+		if _, isPodSetGroup := podTemplateSpec.Annotations[kueue.PodSetGroupName]; !isPodSetGroup {
+			podTemplateSpec.Annotations[kueue.PodIndexOffsetAnnotation] = "1"
+		}
 	}
 }
 

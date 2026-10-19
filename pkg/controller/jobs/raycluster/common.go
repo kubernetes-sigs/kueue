@@ -466,6 +466,19 @@ func isRayObjectManagedByMultiKueue(object client.Object) bool {
 	}
 }
 
+// DefaultPodIndexOffsetForPodSetGroups sets the Pod index offset to 0 on the
+// grouped Pod templates, because worker replica indexes start from 0 in each
+// worker group.
+func DefaultPodIndexOffsetForPodSetGroups(rayClusterSpec *rayv1.RayClusterSpec) {
+	if rayClusterSpec == nil {
+		return
+	}
+	jobframework.DefaultPodIndexOffsetForPodSetGroup(&rayClusterSpec.HeadGroupSpec.Template.ObjectMeta)
+	for i := range rayClusterSpec.WorkerGroupSpecs {
+		jobframework.DefaultPodIndexOffsetForPodSetGroup(&rayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta)
+	}
+}
+
 func ValidateTopologyRequest(
 	ctx context.Context,
 	c client.Client,
