@@ -157,7 +157,8 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 			preemption["reason"] = cond.Reason
 		}
 
-		workloadsByUID[workloadUID] = workloadName
+		// The frontend links to /workload/<namespace>/<name>.
+		workloadsByUID[workloadUID] = workload.Namespace + "/" + workloadName
 		processedWorkloads = append(processedWorkloads, workloadResult{
 			Workload:   &workload,
 			Preemption: preemption,
