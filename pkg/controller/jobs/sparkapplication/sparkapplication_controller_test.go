@@ -42,6 +42,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -355,12 +356,21 @@ func TestPodSetsExecutorCount(t *testing.T) {
 		}
 		return ids
 	}
+	// partialSparkApp is running with the partial scale-up strategy, and
+	// partialExecutorPods are its 3 created executors.
+	partialSparkApp := elasticSparkApp.Clone().
+		Annotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+		ExecutorInstances(1).
+		DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(1)), MaxExecutors: new(int32(4))}).
+		AppState(sparkappv1beta2.ApplicationStateRunning)
+	partialExecutorPods := append(executorPods(corev1.PodRunning, 1, 2), executorPods(corev1.PodPending, 3)...)
 
 	testCases := map[string]struct {
 		sparkApp     *sparkappv1beta2.SparkApplication
 		pods         []corev1.Pod
 		featureGates map[featuregate.Feature]bool
 		wantCount    int32
+		wantMinCount *int32
 	}{
 		"not elastic: initial executors": {
 			sparkApp: sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
@@ -557,6 +567,34 @@ func TestPodSetsExecutorCount(t *testing.T) {
 			pods:      executorPods(corev1.PodSucceeded, 1, 2),
 			wantCount: 1,
 		},
+		"elastic, partial scale-up: minCount is the created executors": {
+			sparkApp:     partialSparkApp.Clone().Obj(),
+			pods:         partialExecutorPods,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
+			wantCount:    3,
+			wantMinCount: new(int32(3)),
+		},
+		"elastic, partial scale-up gate disabled: atomic": {
+			sparkApp:  partialSparkApp.Clone().Obj(),
+			pods:      partialExecutorPods,
+			wantCount: 3,
+		},
+		"elastic, default scale-up strategy: atomic": {
+			sparkApp: partialSparkApp.Clone().
+				Annotation(constants.ElasticJobScaleUpStrategyAnnotationKey, "").
+				Obj(),
+			pods:         partialExecutorPods,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
+			wantCount:    3,
+		},
+		"elastic, partial scale-up without dynamic allocation: atomic": {
+			sparkApp: partialSparkApp.Clone().
+				DynamicAllocation(nil).
+				Obj(),
+			pods:         partialExecutorPods,
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true},
+			wantCount:    1,
+		},
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
@@ -571,6 +609,9 @@ func TestPodSetsExecutorCount(t *testing.T) {
 			}
 			if got[1].Count != tc.wantCount {
 				t.Errorf("executor PodSet Count = %d, want %d", got[1].Count, tc.wantCount)
+			}
+			if diff := cmp.Diff(tc.wantMinCount, got[1].MinCount); diff != "" {
+				t.Errorf("executor PodSet MinCount (-want,+got):\n%s", diff)
 			}
 		})
 	}

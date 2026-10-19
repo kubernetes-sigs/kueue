@@ -189,6 +189,11 @@ func (j *SparkApplication) PodSets(ctx context.Context, c client.Client) ([]kueu
 		Template: *executorPodTemplateSpec,
 		Count:    executorCount,
 	}
+	// The first slice is admitted in full. Scale-up slices keep this floor and
+	// can be admitted partially.
+	if jobframework.ElasticPartialScaleUpEnabled(j) && ptr.Deref(j.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
+		podSets[executorPodSetIndex].MinCount = new(podSets[executorPodSetIndex].Count)
+	}
 
 	if err := setTopologyRequestToPodSetIfEnabled(
 		&podSets[executorPodSetIndex], executorPodTemplateSpec,

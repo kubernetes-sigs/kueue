@@ -103,6 +103,14 @@ Kueue 通过将 SparkApplication 作为[弹性工作负载](/zh-cn/docs/concepts
        minExecutors: 0
        maxExecutors: 4
    ```
+4. 可选：如果希望在配额无法容纳全部新 Executor 时部分接纳扩容，
+   请启用 `ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp` 特性门控并添加注解：
+
+   ```yaml
+   metadata:
+     annotations:
+       kueue.x-k8s.io/elastic-job-scale-up-strategy: "partial"
+   ```
 
 之后，在 Driver 持续运行期间，Kueue 会接纳 Spark Driver 添加或移除的 Executor：
 
@@ -116,8 +124,10 @@ Kueue 通过将 SparkApplication 作为[弹性工作负载](/zh-cn/docs/concepts
   并在该切片被接纳后移除新 Executor 的调度门控。
   当 Driver 移除 Executor 时，Kueue 会在这些 Executor 停止后降低已接纳 Workload 的数量并释放它们的配额，
   仍在终止中的 Executor 会继续占用配额。
-- 每个 Workload 切片以原子方式被接纳：其中新的 Executor 会保持门控状态，直到它们全部能放入配额。
+- 默认情况下，每个 Workload 切片以原子方式被接纳：其中新的 Executor 会保持门控状态，直到它们全部能放入配额。
   Driver 逐个创建 Executor，因此较大的扩容可能会分多个切片被接纳。
+  使用 `partial` 扩容策略时，Kueue 会接纳配额能容纳的新 Executor，并仅移除这些 Executor 的调度门控。
+  其余的 Executor 会保持门控状态，直到有更多配额可用。SparkApplication 的首次接纳仍然是原子的。
 
 在 Kueue 中使用动态分配有以下限制：
 
