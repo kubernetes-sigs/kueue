@@ -21,7 +21,6 @@ import (
 	"iter"
 	"math"
 	"slices"
-	"sync/atomic"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
@@ -343,27 +342,6 @@ func (r *ClusterQueueReconciler) NotifyCohortUpdate(oldCohort, newCohort *kueue.
 	}
 }
 
-// clusterQueueAddedHookFunc runs after a ClusterQueue is added to the
-// scheduler cache and the queue manager.
-type clusterQueueAddedHookFunc func(*kueue.ClusterQueue)
-
-// clusterQueueAddedHook is a test-only pause point. Production leaves it nil.
-var clusterQueueAddedHook atomic.Pointer[clusterQueueAddedHookFunc]
-
-// SetClusterQueueAddedHookForTest installs a hook that runs after a
-// ClusterQueue has been added to the scheduler cache and the queue manager,
-// before the create handler returns. Passing nil removes the hook.
-// Production code does not set it. Integration tests use it to hold later
-// ClusterQueue create events so a scheduling cycle can observe a partial cache.
-func SetClusterQueueAddedHookForTest(hook func(*kueue.ClusterQueue)) {
-	if hook == nil {
-		clusterQueueAddedHook.Store(nil)
-		return
-	}
-	typed := clusterQueueAddedHookFunc(hook)
-	clusterQueueAddedHook.Store(&typed)
-}
-
 func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQueue]) bool {
 	defer r.notifyWatchers(nil, e.Object)
 
@@ -381,13 +359,6 @@ func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQ
 
 	if err := r.qManager.AddClusterQueue(ctx, e.Object); err != nil {
 		log.Error(err, "Failed to add clusterQueue to queue manager")
-	}
-
-	// The hook runs after the queue is in both caches, so a test can hold
-	// this handler and keep later ClusterQueue create events out of the
-	// cache. It is nil in production.
-	if hook := clusterQueueAddedHook.Load(); hook != nil {
-		(*hook)(e.Object)
 	}
 
 	if r.reportResourceMetrics {

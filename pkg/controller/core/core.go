@@ -53,6 +53,9 @@ type SetupControllersOpts struct {
 	ResourceFormatter         *resources.ResourceFormatter
 	ResourceSliceAPIAvailable bool
 	ClusterProfileCRDPresent  bool
+	// ClusterQueueWatchers are notified of ClusterQueue changes after the
+	// built in watchers.
+	ClusterQueueWatchers []ClusterQueueUpdateWatcher
 }
 
 // SetupControllers sets up the core controllers. It returns the name of the
@@ -93,6 +96,7 @@ func SetupControllers(mgr ctrl.Manager, qManager *qcache.Manager, cc *schdcache.
 		return "Cohort", err
 	}
 	watchers = append(watchers, cohortRec)
+	watchers = append(watchers, opts.ClusterQueueWatchers...)
 
 	cqRec := NewClusterQueueReconciler(
 		mgr.GetClient(),
