@@ -18,11 +18,11 @@ see-also:
   - "/keps/693-multikueue"
 
 stage: alpha
-latest-milestone: "v0.20"
+latest-milestone: "v0.21"
 
 milestone:
-  alpha: "v0.20"
-  beta: "v0.21"
+  alpha: "v0.21"
+  beta: "v0.22"
   stable:
 
 feature-gates:
