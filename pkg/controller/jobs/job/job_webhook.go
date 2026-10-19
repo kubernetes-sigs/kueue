@@ -218,13 +218,14 @@ func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (f
 	// (that would block eviction from suspending the Job). The bound is still enforced for a
 	// changed annotation by ValidateJobOnUpdate below, via ValidateWaitForPodsReadyAnnotationOnUpdate.
 	allErrs = append(allErrs, jobframework.ValidateJobOnCreate(newJob, nil)...)
-	// Also revalidate the minimum when the Pod count changes while the Job stays suspended, so
-	// it cannot end up at or above the new count. Transitions out of suspension are skipped
-	// because Kueue starts a partially admitted Job with the admitted count, which can be at
-	// or below the minimum. Check spec.suspend rather than IsSuspended(), which a user-set
-	// stopping annotation would turn false.
+	// Also revalidate the minimum when the Pod count drops while the Job stays suspended, so
+	// it cannot end up at or above the new count. A rising count cannot make a valid minimum
+	// invalid, and Stop() raises it back to the original count, which can equal the minimum.
+	// Transitions out of suspension are skipped because Kueue starts a partially admitted Job
+	// with the admitted count, which can be at or below the minimum. Check spec.suspend rather
+	// than IsSuspended(), which a user-set stopping annotation would turn false.
 	if newJob.Annotations[JobMinParallelismAnnotation] != oldJob.Annotations[JobMinParallelismAnnotation] ||
-		(ptr.Deref(oldJob.Spec.Suspend, false) && ptr.Deref(newJob.Spec.Suspend, false) && oldJob.podsCount() != newJob.podsCount()) {
+		(ptr.Deref(oldJob.Spec.Suspend, false) && ptr.Deref(newJob.Spec.Suspend, false) && oldJob.podsCount() > newJob.podsCount()) {
 		allErrs = append(allErrs, w.validatePartialAdmissionCreate(newJob)...)
 	}
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(newJob)...)

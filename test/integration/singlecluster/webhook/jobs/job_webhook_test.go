@@ -263,7 +263,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 			Completions(6).
 			SetAnnotation(job.JobMinParallelismAnnotation, "3").
 			Obj()
-		util.MustCreate(ctx, k8sClient, job)
+		behavioral.MustCreate(ctx, k8sClient, job)
 
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
@@ -279,7 +279,7 @@ var _ = ginkgo.Describe("Job Webhook with manageJobsWithoutQueueName disabled", 
 			Completions(6).
 			SetAnnotation(job.JobMinParallelismAnnotation, "3").
 			Obj()
-		util.MustCreate(ctx, k8sClient, job)
+		behavioral.MustCreate(ctx, k8sClient, job)
 
 		lookupKey := types.NamespacedName{Name: job.Name, Namespace: job.Namespace}
 		createdJob := &batchv1.Job{}
