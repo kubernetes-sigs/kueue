@@ -2718,6 +2718,40 @@ func TestReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"reconcile workload preserving SimulationFailed reason": {
+			featureGates: map[featuregate.Feature]bool{
+				features.UnadmittedWorkloadsObservability:  true,
+				features.UnadmittedWorkloadsExplicitStatus: true,
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Request(corev1.ResourceCPU, "1").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonSimulationFailed,
+					Message: "insufficient capacity to fit workload",
+				}).
+				Obj(),
+			cq: utiltestingapi.MakeClusterQueue("cq").Active(metav1.ConditionTrue).Obj(),
+			lq: utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Queue("lq").
+				Request(corev1.ResourceCPU, "1").
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadQuotaReserved,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadQuotaReservedReasonSimulationFailed,
+					Message: "insufficient capacity to fit workload",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonNoReservation,
+					Message: "The workload has no reservation",
+				}).
+				Obj(),
+		},
 		"reconcile bypassed workload when SchedulingEquivalenceHashing is disabled (stale status remains pending)": {
 			featureGates: map[featuregate.Feature]bool{
 				features.SchedulingEquivalenceHashing:      false,

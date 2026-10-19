@@ -100,6 +100,7 @@ var (
 		kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
 		kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
 		kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+		kueue.WorkloadQuotaReservedReasonSimulationFailed,
 		kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 		kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
 		kueue.WorkloadQuotaReservedReasonPendingEvaluation,
