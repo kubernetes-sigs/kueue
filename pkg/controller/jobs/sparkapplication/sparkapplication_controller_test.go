@@ -40,6 +40,7 @@ import (
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -471,6 +472,71 @@ func TestPodSetsExecutorCount(t *testing.T) {
 			}
 			if got[1].Count != tc.wantCount {
 				t.Errorf("executor PodSet Count = %d, want %d", got[1].Count, tc.wantCount)
+			}
+		})
+	}
+}
+
+func TestPodSetsExecutorMinCount(t *testing.T) {
+	partialSparkApp := sparkapplicationtesting.MakeSparkApplication("sparkapp", "ns").
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		Annotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+		ExecutorInstances(1).
+		SubmissionID("sub-1").
+		DynamicAllocation(&sparkappv1beta2.DynamicAllocation{Enabled: true, MinExecutors: new(int32(1)), MaxExecutors: new(int32(4))}).
+		AppState(sparkappv1beta2.ApplicationStateRunning).
+		ExecutorState("exec-1", sparkappv1beta2.ExecutorStateRunning).
+		ExecutorState("exec-2", sparkappv1beta2.ExecutorStateRunning).
+		ExecutorState("exec-3", sparkappv1beta2.ExecutorStatePending)
+	executorPod := testingpod.MakePod("", "ns").
+		Label(sparkcommon.LabelSparkAppName, "sparkapp").
+		Label(sparkcommon.LabelSparkRole, sparkcommon.SparkRoleExecutor).
+		Label(sparkcommon.LabelSubmissionID, "sub-1")
+	pods := []corev1.Pod{
+		*executorPod.Clone().Name("exec-1").StatusPhase(corev1.PodRunning).Obj(),
+		*executorPod.Clone().Name("exec-2").StatusPhase(corev1.PodRunning).Obj(),
+		*executorPod.Clone().Name("exec-3").StatusPhase(corev1.PodPending).Obj(),
+	}
+
+	testCases := map[string]struct {
+		sparkApp              *sparkappv1beta2.SparkApplication
+		disablePartialScaleUp bool
+		wantMinCount          *int32
+	}{
+		"partial scale-up: the executors already tracked": {
+			sparkApp:     partialSparkApp.Clone().Obj(),
+			wantMinCount: new(int32(3)),
+		},
+		"partial scale-up disabled: atomic": {
+			sparkApp:              partialSparkApp.Clone().Obj(),
+			disablePartialScaleUp: true,
+		},
+		"default scale-up strategy: atomic": {
+			sparkApp: partialSparkApp.Clone().
+				Annotation(constants.ElasticJobScaleUpStrategyAnnotationKey, "").
+				Obj(),
+		},
+		"without dynamic allocation: atomic": {
+			sparkApp: partialSparkApp.Clone().
+				DynamicAllocation(nil).
+				Obj(),
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, !tc.disablePartialScaleUp)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			cl := utiltesting.NewClientBuilder().WithLists(&corev1.PodList{Items: pods}).Build()
+
+			got, err := (*SparkApplication)(tc.sparkApp).PodSets(ctx, cl)
+			if err != nil {
+				t.Fatalf("PodSets() returned error: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantMinCount, got[1].MinCount); diff != "" {
+				t.Errorf("executor PodSet MinCount (-want,+got):\n%s", diff)
 			}
 		})
 	}
