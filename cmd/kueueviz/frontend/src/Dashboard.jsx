@@ -26,6 +26,23 @@ import { AccessTime, Check, CheckBox, CheckCircle } from '@mui/icons-material';
 import ErrorMessage from './ErrorMessage';
 import UsageBar, { aggregateResourceForQueue, discoverResourceNames, formatResourceValue } from './UsageBar';
 
+// Matches the preemptor workload UID in an eviction message, which Kueue
+// writes as "(UID: <workload-uid>, JobUID: <job-uid>)".
+export const PREEMPTOR_UID_PATTERN = /\(UID: ([0-9a-fA-F-]+)/;
+
+// splitPreemptionMessage splits an eviction message into text segments. The
+// preemptor UID segment keeps its "(UID: " prefix and gets a link target when
+// the preemptor is a known workload.
+export const splitPreemptionMessage = (message, workloadsByUid) =>
+  message.split(PREEMPTOR_UID_PATTERN).map((part, index) => {
+    // split puts the captured UID at odd indices.
+    if (index % 2 === 0) {
+      return { text: part };
+    }
+    const target = workloadsByUid[part];
+    return target ? { text: `(UID: ${part}`, to: `/workload/${target}` } : { text: `(UID: ${part}` };
+  });
+
 const Dashboard = () => {
   const [queues, setQueues] = useState([]);
   const [clusterQueues, setClusterQueues] = useState([]);
@@ -103,20 +120,14 @@ const Dashboard = () => {
 
     const preemptedText = `${preemptedCondition.type}: ${preemptedCondition.message || ""}`;
 
-    // Match UID pattern in the message
-    const uidPattern = /\(UID: ([0-9a-fA-F-]+)\)/;
-    const parts = preemptedText.split(uidPattern);
-
     return (
       <Tooltip
         title={
-          parts.map((part, index) => (
-            workloadsByUid[part] ? (
-              <Link key={index} to={`/workload/${workloadsByUid[part]}`}>
-                (UID: {part})
-              </Link>
+          splitPreemptionMessage(preemptedText, workloadsByUid).map((segment, index) => (
+            segment.to ? (
+              <Link key={index} to={segment.to}>{segment.text}</Link>
             ) : (
-              <span key={index}>{part}</span>
+              <span key={index}>{segment.text}</span>
             )
           ))
         }
