@@ -38,9 +38,6 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-// TODO: Replace with kueue.WorkloadQuotaReservedReasonSimulationFailed once #16483 is merged
-const workloadQuotaReservedReasonSimulationFailed = "SchedulingSimulationFailed"
-
 var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.Label(e2e.Shard1, "area:tas", "feature:tas-basic-fit"), func() {
 	var (
 		ns           *corev1.Namespace
@@ -329,7 +326,7 @@ func expectQuotaReservedFailure(g gomega.Gomega, wl *kueue.Workload) {
 	g.Expect(cond).Should(gomega.BeComparableTo(&metav1.Condition{
 		Type:   kueue.WorkloadQuotaReserved,
 		Status: metav1.ConditionFalse,
-		Reason: workloadQuotaReservedReasonSimulationFailed,
+		Reason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
 	}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message", "ObservedGeneration")))
 	g.Expect(cond.Message).Should(gomega.ContainSubstring("Insufficient"))
 }
