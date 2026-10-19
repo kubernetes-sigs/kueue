@@ -86,6 +86,10 @@ func (p *passthroughChecker) AddPodGroup(_ context.Context, _ *schedulingv1beta1
 	return nil
 }
 
+func (p *passthroughChecker) RemovePodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
+	return nil
+}
+
 func TestCheckerFindFeasibleNodes(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.KueueDRAIntegrationExtendedResource, true)
 	scheme := runtime.NewScheme()
