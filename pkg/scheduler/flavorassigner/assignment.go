@@ -262,7 +262,17 @@ func (a *Assignment) Message() string {
 	return builder.String()
 }
 
-func (a *Assignment) ToAPI(log logr.Logger) []kueue.PodSetAssignment {
+func (a *Assignment) ToAPI(log logr.Logger, wl *kueue.Workload) []kueue.PodSetAssignment {
+	if workload.NeedsSecondPass(wl) {
+		result := wl.Status.Admission.DeepCopy().PodSetAssignments
+		for i := range result {
+			if psa := a.PodSetAssignmentByName(result[i].Name); psa != nil {
+				result[i].TopologyAssignment = tas.V1Beta2From(psa.TopologyAssignment, tas.WithLogger(log))
+				result[i].DelayedTopologyRequest = psa.DelayedTopologyRequest
+			}
+		}
+		return result
+	}
 	psFlavors := make([]kueue.PodSetAssignment, len(a.PodSets))
 	for i := range psFlavors {
 		psFlavors[i] = a.PodSets[i].toAPI(log)
