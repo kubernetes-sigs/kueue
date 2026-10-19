@@ -137,26 +137,26 @@ managerConfig:
 
 Maps merge recursively, lists and scalars replace, and `null` removes fields
 inside `structuredOverrides`. For removals during upgrades, follow
-[Removing overrides during upgrades](#removing-overrides-during-upgrades)
-below. An absent or empty `structuredOverrides` uses chart defaults when no saved
+[Removing overrides during upgrades](#removing-overrides-during-upgrades) below.
+An absent or empty `structuredOverrides` uses chart defaults when no saved
 overrides are reused. `structuredOverrides: null` is invalid. The two inputs are
-never merged together.
-Existing certificate-management defaults still apply when `internalCertManagement`
-is not set.
+never merged together. Existing certificate-management defaults still apply when
+`internalCertManagement` is not set.
 
 The active defaults are defined only in
-[templates/manager/_config.tpl](templates/manager/_config.tpl). Both modes use them
-when no complete YAML configuration is selected. They stay separate from saved
-user values so settings without an override in the effective Helm values follow
-the selected chart version's defaults. Reuse flags retain previously saved
-overrides, even when omitted from the new values file.
+[templates/manager/_config.tpl](templates/manager/_config.tpl). Both modes use
+them when no complete YAML configuration is selected. They stay separate from
+saved user values so settings without an override in the effective Helm values
+follow the selected chart version's defaults. Reuse flags retain previously
+saved overrides, even when omitted from the new values file.
 
 Tools that read the default YAML string directly from `values.yaml` must instead
 read the rendered manager ConfigMap.
 
 To migrate, set `mode: structured` and copy every intentional customization from
-the old YAML into `structuredOverrides`. There is no need to clear the YAML string:
-structured mode ignores it. Keep the mode in your values file for subsequent upgrades.
+the old YAML into `structuredOverrides`. There is no need to clear the YAML
+string: structured mode ignores it. Keep the mode in your values file for
+subsequent upgrades.
 
 | Upgrade options | What to supply |
 |---|---|
@@ -165,18 +165,19 @@ structured mode ignores it. Keep the mode in your values file for subsequent upg
 
 Resetting values without supplying the mode returns to legacy YAML mode. To
 switch back deliberately, set `mode: yaml` and supply the desired YAML string.
-When Kueue is a dependency, nest these values under its dependency name or alias.
-Review the rendered configuration when upgrading.
+When Kueue is a dependency, nest these values under its dependency name or
+alias. Review the rendered configuration when upgrading.
 
 Helm rejects unknown keys directly under `managerConfig` in both modes. The only
-allowed keys are `mode`, `structuredOverrides`, and `controllerManagerConfigYaml`.
-Both inputs must have the correct type even when not selected: `structuredOverrides`
-is a map, and `controllerManagerConfigYaml` is a string. Empty maps and empty strings
-are valid. Fields inside the selected configuration are validated by Kueue when it
-loads the configuration. Run `helm lint <chart> --values values.yaml` before upgrading.
+allowed keys are `mode`, `structuredOverrides`, and
+`controllerManagerConfigYaml`. Both inputs must have the correct type even when
+not selected: `structuredOverrides` is a map, and `controllerManagerConfigYaml`
+is a string. Empty maps and empty strings are valid. Fields inside the selected
+configuration are validated by Kueue when it loads the configuration. Run
+`helm lint <chart> --values values.yaml` before upgrading.
 
-When upgrading, remove or correct unknown manager input keys and incorrectly typed
-inputs. These values may previously have been ignored.
+When upgrading, remove or correct unknown manager input keys and incorrectly
+typed inputs. These values may previously have been ignored.
 
 ##### Removing overrides during upgrades
 
