@@ -1313,7 +1313,10 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.Ev
 	}
 
 	log := ctrl.LoggerFrom(ctx)
-	cqName := p.localQueueClusterQueue(ctx, c)
+	cqName, err := p.localQueueClusterQueue(ctx, c)
+	if err != nil {
+		return err
+	}
 	customLabelValues := p.customLabels.CQGet(cqName)
 
 	// Extract all the latest created extra pods
@@ -1321,7 +1324,7 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.Ev
 	p.excessPodExpectations.ExpectUIDs(log, p.key, extraPodsUIDs)
 
 	// Finalize and delete the active pods created last
-	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
+	err = parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := &extraPods[i]
 
 		removed, err := removePodFinalizers(ctx, c, pod)
@@ -1353,23 +1356,23 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.Ev
 }
 
 // localQueueClusterQueue returns the ClusterQueue of the pod group's LocalQueue.
-// It returns an empty name when the LocalQueue or its ClusterQueue cannot be
-// read, for example before they are created. Returning only existing
+// It returns an empty name when the LocalQueue or its ClusterQueue is not
+// found, for example before they are created. Returning only existing
 // ClusterQueues bounds the label values, because deleting a ClusterQueue
 // clears its series.
-func (p *Pod) localQueueClusterQueue(ctx context.Context, c client.Client) kueue.ClusterQueueReference {
+func (p *Pod) localQueueClusterQueue(ctx context.Context, c client.Client) (kueue.ClusterQueueReference, error) {
 	queueName := jobframework.QueueName(p)
 	if queueName == "" {
-		return ""
+		return "", nil
 	}
 	lq := &kueue.LocalQueue{}
 	if err := c.Get(ctx, client.ObjectKey{Namespace: p.pod.Namespace, Name: string(queueName)}, lq); err != nil {
-		return ""
+		return "", client.IgnoreNotFound(err)
 	}
 	if err := c.Get(ctx, client.ObjectKey{Name: string(lq.Spec.ClusterQueue)}, &kueue.ClusterQueue{}); err != nil {
-		return ""
+		return "", client.IgnoreNotFound(err)
 	}
-	return lq.Spec.ClusterQueue
+	return lq.Spec.ClusterQueue, nil
 }
 
 func (p *Pod) finalizePods(ctx context.Context, c client.Client, extraPods []corev1.Pod) error {
