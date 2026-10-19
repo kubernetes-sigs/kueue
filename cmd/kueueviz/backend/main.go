@@ -28,11 +28,12 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/kueue/pkg/util/routine"
+
 	"kueueviz/config"
 	"kueueviz/handlers"
 	"kueueviz/middleware"
-	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/kueue/pkg/util/routine"
 )
 
 const (
