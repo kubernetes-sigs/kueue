@@ -4045,7 +4045,7 @@ func (s *recordingSchedulerSimulator) ScheduleWorkload(ctx context.Context, work
 }
 
 func (s *recordingSchedulerSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
-	return s.schedulerSimulator.AddPodGroup(ctx, pg)
+	return s.SchedulerSimulator.AddPodGroup(ctx, pg)
 }
 
 type tasScheduleTestConfig struct {
