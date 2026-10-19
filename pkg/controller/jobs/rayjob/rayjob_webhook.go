@@ -80,6 +80,12 @@ var _ admission.Defaulter[*rayv1.RayJob] = &RayJobWebhook{}
 
 // Default implements webhook.CustomDefaulter so a webhook will be registered for the type
 func (w *RayJobWebhook) Default(ctx context.Context, obj *rayv1.RayJob) error {
+	// All defaults below are specific to Kueue management. Jobs using an existing
+	// cluster are not managed by Kueue.
+	if len(obj.Spec.ClusterSelector) > 0 {
+		return nil
+	}
+
 	job := fromObject(obj)
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.V(5).Info("Applying defaults")
