@@ -163,6 +163,7 @@ func TestAddLocalQueue_DRAReconcileChannelGuaranteedDelivery(t *testing.T) {
 // generation. DRA charges live only in the Info, they cannot be rebuilt from
 // the spec, so requeue hands such a workload back to the workload controller.
 func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
+	const probe = workload.EquivalenceHash("probe-hash")
 	claimTmpl := "claim-tmpl"
 	gpuCharge := []workload.PodSetResources{{
 		Name:           kueue.DefaultPodSetName,
@@ -223,6 +224,7 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGateDuringTest(t, features.KueueDRAIntegration, tc.draIntegration)
 			features.SetFeatureGateDuringTest(t, features.KueueDRARejectWorkloadsWhenDRADisabled, true)
+			features.SetFeatureGateDuringTest(t, features.SchedulingEquivalenceHashing, true)
 			ctx, log := utiltesting.ContextWithLog(t)
 
 			// The pod spec carries a resourceClaim, so the workload is DRA-backed; the
@@ -283,10 +285,16 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 				if err := manager.AddOrUpdateWorkload(ctx, log, wl, refreshedCharges); err != nil {
 					t.Fatalf("Failed refreshing workload charges while inflight: %v", err)
 				}
+				// Requeue carries these newer requests onto the checked-out Info. The
+				// hash must be invalidated because it still describes the old charges.
+				inflight.SchedulingHash = probe
 			}
 
 			if got := manager.RequeueWorkload(ctx, inflight, RequeueReasonGeneric, ""); got != tc.wantRequeued {
 				t.Errorf("RequeueWorkload() = %t, want %t", got, tc.wantRequeued)
+			}
+			if tc.refreshCharges && inflight.SchedulingHash == probe {
+				t.Errorf("SchedulingHash retained stale probe %q after refreshed DRA charges were copied", probe)
 			}
 
 			var gotTotalRequests []workload.PodSetResources
