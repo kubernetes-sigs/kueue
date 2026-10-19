@@ -518,8 +518,16 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 			if features.Enabled(features.UnadmittedWorkloadsObservability) {
 				psAssignment.MarkFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
 			}
-			// update the mode for all flavors and the representative mode
-			assignment.updateMode(failure.PodSetName, NoFit)
+			// Record the failure on the PodSet Status as well, not only on the flavor
+			// attempt. An empty Status reads as Fit, which would hide this failure both
+			// from ResolveNoFitReason and from the reported message whenever another
+			// PodSet is the one that is short of quota.
+			assignment.ResolvePodSetFailure(
+				failure.PodSetName,
+				NoFit,
+				NewStatus(failure.Reason).
+					WithNoFitReason(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
+			)
 		} else {
 			// Update TAS-related assignments to Preempt because preemptions might be needed
 			// in resources in which total unused quota is sufficient (Fit), but the
