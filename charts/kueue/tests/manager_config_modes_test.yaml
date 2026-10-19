@@ -32,6 +32,12 @@ tests:
       managerConfig.structuredOverrides: {}
     asserts: *chartDefaults
 
+  - it: should use packaged defaults in explicit yaml mode when the YAML key is absent
+    set:
+      managerConfig.mode: yaml
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts: *chartDefaults
+
   - it: should preserve a supplied YAML string without a mode
     set: &legacyValues
       managerConfig.controllerManagerConfigYaml: |

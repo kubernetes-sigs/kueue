@@ -115,12 +115,14 @@ resolved configuration for the manager and job webhooks.
 
 | Mode | Behavior |
 |---|---|
-| Absent or `yaml` | Use `controllerManagerConfigYaml` as the complete configuration. Ignore `structuredOverrides`. |
+| Absent or `yaml` | Use `controllerManagerConfigYaml` when supplied, including `""`; otherwise use chart defaults. Ignore `structuredOverrides`. |
 | `structured` | Merge `structuredOverrides` with chart defaults. Ignore `controllerManagerConfigYaml`, even when nonempty. |
 | Any other value | Reject the values with a validation error. |
 
 Existing YAML values and explicitly empty YAML strings retain their previous
-behavior. The full legacy defaults remain in `values.yaml` for editing.
+behavior. `values.yaml` retains the full legacy YAML example as comments. To edit
+it, replace `managerConfig: {}` with `managerConfig:` and uncomment the YAML block;
+the resulting string becomes a complete replacement for the chart defaults.
 
 For structured configuration, specify the mode and only your customizations:
 
@@ -136,16 +138,18 @@ managerConfig:
 
 Maps merge recursively, lists and scalars replace, and `null` removes fields
 inside `structuredOverrides`. An absent or empty `structuredOverrides` uses chart
-defaults; `structuredOverrides: null`
-is invalid in structured mode. The two inputs are never merged together.
+defaults. `structuredOverrides: null` is invalid. The two inputs are never merged together.
 Existing certificate-management defaults still apply when `internalCertManagement`
 is not set.
 
-Structured defaults are generated from the legacy defaults into
-[templates/manager/_config.tpl](templates/manager/_config.tpl) by
-`make generate-helm-manager-config` (also part of `make update-helm`). They stay
-separate from saved user values so unspecified structured settings follow the
-selected chart version's defaults, including with `--reuse-values`.
+The active defaults are defined only in
+[templates/manager/_config.tpl](templates/manager/_config.tpl). Both modes use them
+when no complete YAML configuration is selected. They stay separate from saved
+user values so unspecified structured settings follow the selected chart version's
+defaults, including with `--reuse-values`.
+
+Tools that read the default YAML string directly from `values.yaml` must instead
+read the rendered manager ConfigMap. The commented example is not an active value.
 
 To migrate, set `mode: structured` and copy every intentional customization from
 the old YAML into `structuredOverrides`. There is no need to clear the YAML string:
@@ -263,7 +267,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.ingress.ingressClassName | string | `nil` | Path-routed ingress class name |
 | kueueViz.ingress.tlsEnabled | string | `nil` | If true, enable tls on the path-routed ingress. Defaults to true if tlsSecretName is set. |
 | kueueViz.ingress.tlsSecretName | string | `""` | Path-routed ingress tls secret name |
-| managerConfig.controllerManagerConfigYaml | string | controllerManagerConfigYaml | controller_manager_config.yaml. ControllerManager utilizes this yaml via manager-config Configmap. |
+| managerConfig | object | `{}` | Manager configuration inputs. Defaults are defined in templates/manager/_config.tpl. |
 | metrics.prometheusNamespace | string | `"monitoring"` | Prometheus namespace |
 | metrics.serviceMonitor.tlsConfig | object | `{}` | ServiceMonitor's tlsConfig. When empty, the chart verifies the metrics certificate issued by cert-manager if `enableCertManager` is true, and skips verification otherwise. When set, it replaces the generated tlsConfig, and `insecureSkipVerify` defaults to true unless set explicitly. |
 | metricsService.annotations | object | `{}` | metricsService's annotations |

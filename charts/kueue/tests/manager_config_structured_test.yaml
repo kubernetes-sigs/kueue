@@ -465,4 +465,4 @@ tests:
       managerConfig.controllerManagerConfigYaml: null
     asserts:
       - failedTemplate:
-          errorPattern: "expected string"
+          errorPattern: "(?s)controllerManagerConfigYaml.*string"
