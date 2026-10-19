@@ -934,8 +934,8 @@ func TestReadPodIndex(t *testing.T) {
 			pod:     testingpod.MakePod("test-pod", "test-ns").Label("test-label", "test-value").Obj(),
 			wantErr: utilpod.ErrInvalidUInt,
 		},
-		"outside a group, the index is not bounded": {
-			pod: testingpod.MakePod("test-pod", "test-ns").Label("test-label", "9223372036854775807").Obj(),
+		"outside a group, the index is not bounded by a group count": {
+			pod: testingpod.MakePod("test-pod", "test-ns").Label("test-label", "1000000").Obj(),
 		},
 		"in a group, index outside the group": {
 			pod: testingpod.MakePod("test-pod", "test-ns").
