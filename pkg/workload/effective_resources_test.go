@@ -21,6 +21,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -28,6 +29,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
+	"sigs.k8s.io/kueue/pkg/util/limitrange"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
@@ -170,6 +172,105 @@ func TestEffectivePodSpecsOwnOverhead(t *testing.T) {
 	}
 	if len(wl.Spec.PodSets[0].Template.Spec.Overhead) != 0 {
 		t.Fatal("raw Workload changed")
+	}
+}
+
+// TestEffectivePodSpecsKeepsOnlyAdjustedSpecs checks that an Info keeps the
+// effective PodSpecs exactly when an adjustment changes the PodSet, and that
+// comparing only the adjusted fields agrees with comparing whole PodSpecs.
+func TestEffectivePodSpecsKeepsOnlyAdjustedSpecs(t *testing.T) {
+	cases := map[string]struct {
+		podSet     *kueue.PodSet
+		inputs     AdjustmentInputs
+		wantChange bool
+	}{
+		"nothing to adjust": {
+			podSet: utiltestingapi.MakePodSet("main", 1).
+				RuntimeClass("runc").
+				NodeSelector(map[string]string{"pool": "a"}).
+				Toleration(corev1.Toleration{Key: "gpu", Operator: corev1.TolerationOpExists}).
+				Request(corev1.ResourceCPU, "1").Limit(corev1.ResourceCPU, "2").
+				Obj(),
+		},
+		"defaults already set": {
+			podSet: utiltestingapi.MakePodSet("main", 1).
+				Request(corev1.ResourceCPU, "1").Limit(corev1.ResourceCPU, "2").
+				Obj(),
+			inputs: AdjustmentInputs{LimitRangeSummary: limitrange.Summarize(*utiltesting.MakeLimitRange("lr", "ns").
+				WithValue("Default", corev1.ResourceCPU, "4").
+				WithValue("DefaultRequest", corev1.ResourceCPU, "2").
+				Obj())},
+		},
+		"own overhead": {
+			podSet: utiltestingapi.MakePodSet("main", 1).
+				RuntimeClass("kata").
+				PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}).
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			inputs: AdjustmentInputs{PodOverheads: map[string]corev1.ResourceList{"kata": {corev1.ResourceCPU: resource.MustParse("2")}}},
+		},
+		"runtime class overhead": {
+			podSet: utiltestingapi.MakePodSet("main", 1).
+				RuntimeClass("kata").
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			inputs:     AdjustmentInputs{PodOverheads: map[string]corev1.ResourceList{"kata": {corev1.ResourceCPU: resource.MustParse("2")}}},
+			wantChange: true,
+		},
+		"container limits as requests": {
+			podSet: utiltestingapi.MakePodSet("main", 1).
+				Limit(corev1.ResourceCPU, "2").
+				Obj(),
+			wantChange: true,
+		},
+		"init container limits as requests": {
+			podSet: utiltestingapi.MakePodSet("main", 1).
+				InitContainers(corev1.Container{Name: "init", Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")},
+				}}).
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			wantChange: true,
+		},
+		"pod-level limits as requests": {
+			podSet: utiltestingapi.MakePodSet("main", 1).
+				Request(corev1.ResourceCPU, "1").
+				PodLevelLimit(corev1.ResourceMemory, "1Gi").
+				Obj(),
+			wantChange: true,
+		},
+		"container LimitRange default": {
+			podSet: utiltestingapi.MakePodSet("main", 1).
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			inputs: AdjustmentInputs{LimitRangeSummary: limitrange.Summarize(*utiltesting.MakeLimitRange("lr", "ns").
+				WithValue("Default", corev1.ResourceCPU, "4").
+				Obj())},
+			wantChange: true,
+		},
+		"pod LimitRange default": {
+			podSet: utiltestingapi.MakePodSet("main", 1).
+				Request(corev1.ResourceCPU, "1").Limit(corev1.ResourceCPU, "1").
+				PodLevelRequest(corev1.ResourceMemory, "1Gi").
+				Obj(),
+			inputs: AdjustmentInputs{LimitRangeSummary: limitrange.Summarize(*utiltesting.MakeLimitRange("lr", "ns").
+				WithType(corev1.LimitTypePod).
+				WithValue("Default", corev1.ResourceMemory, "2Gi").
+				Obj())},
+			wantChange: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			wl := utiltestingapi.MakeWorkload("wl", "ns").PodSets(*tc.podSet).Obj()
+			if got := effectivePodSpecs(wl, tc.inputs) != nil; got != tc.wantChange {
+				t.Errorf("effectivePodSpecs kept the effective PodSpecs: %v, want %v", got, tc.wantChange)
+			}
+			raw := []corev1.PodSpec{wl.Spec.PodSets[0].Template.Spec}
+			if got := !equality.Semantic.DeepEqual(EffectivePodSpecs(wl, tc.inputs), raw); got != tc.wantChange {
+				t.Errorf("whole PodSpec compare reports a change: %v, want %v", got, tc.wantChange)
+			}
+		})
 	}
 }
 
