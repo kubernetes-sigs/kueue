@@ -446,6 +446,12 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				log.V(2).Error(err, "Deleting remote workload", "workerCluster", rem)
 			}
 		}
+		if resetter, ok := group.jobAdapter.(jobframework.MultiKueueLocalStatusResetter); ok && !group.IsFinished() {
+			if err := resetter.ResetLocalStatus(ctx, w.client, group.controllerKey); err != nil {
+				errs = append(errs, err)
+				log.V(2).Error(err, "Resetting local job status")
+			}
+		}
 		if len(group.unavailableClusters) > 0 {
 			log.V(3).Info("Retrying remote workload cleanup, some clusters are unavailable", "unavailableClusters", group.unavailableClusters, "retryAfter", w.workerLostTimeout)
 			return reconcile.Result{RequeueAfter: w.workerLostTimeout}, errors.Join(errs...)
