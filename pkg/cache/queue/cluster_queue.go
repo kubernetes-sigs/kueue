@@ -825,23 +825,10 @@ func (c *ClusterQueue) pendingInadmissible() int {
 }
 
 // PendingInLocalQueue returns the number of active and inadmissible pending workloads in LocalQueue.
+// It only takes the localQueueCounts lock, so metric reports don't contend on the
+// ClusterQueue-wide lock.
 func (c *ClusterQueue) PendingInLocalQueue(lqRef utilqueue.LocalQueueReference) (int, int) {
-	c.rwm.RLock()
-	defer c.rwm.RUnlock()
-	return c.pendingActiveInLocalQueue(lqRef), c.pendingInadmissibleInLocalQueue(lqRef)
-}
-
-// pendingActiveInLocalQueue returns the number of active pending workloads in LocalQueue,
-// workloads that are in the admission queue.
-func (c *ClusterQueue) pendingActiveInLocalQueue(lqRef utilqueue.LocalQueueReference) int {
-	return c.localQueueCounts.active[lqRef]
-}
-
-// pendingInadmissibleInLocalQueue returns the number of inadmissible pending workloads in LocalQueue,
-// workloads that were already tried and are waiting for cluster conditions
-// to change to potentially become admissible.
-func (c *ClusterQueue) pendingInadmissibleInLocalQueue(lqRef utilqueue.LocalQueueReference) int {
-	return c.localQueueCounts.inadmissible[lqRef]
+	return c.localQueueCounts.pendingInLocalQueue(lqRef)
 }
 
 // Pop removes the head of the queue and returns it. It returns nil if the
