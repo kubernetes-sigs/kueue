@@ -122,6 +122,7 @@ type InfoOptions struct {
 	excludedResourcePrefixes []string
 	resourceTransformations  map[corev1.ResourceName]*config.ResourceTransformation
 	preserveTotalRequests    bool
+	skipSchedulingHash       bool
 	dra
 }
 
@@ -149,6 +150,16 @@ func WithResourceTransformations(transforms []config.ResourceTransformation) Inf
 func WithPreserveTotalRequests() InfoOption {
 	return func(o *InfoOptions) {
 		o.preserveTotalRequests = true
+	}
+}
+
+// WithSkipSchedulingHash skips computing the scheduling hash.
+// Use it only for Infos kept in the scheduler cache or for checks that do not
+// need the hash. Before adding an Info to the queue manager, create or update
+// it without this option.
+func WithSkipSchedulingHash() InfoOption {
+	return func(o *InfoOptions) {
+		o.skipSchedulingHash = true
 	}
 }
 
@@ -293,21 +304,30 @@ func NewInfo(log logr.Logger, w *kueue.Workload, opts ...InfoOption) *Info {
 	return info
 }
 
-// updateSchedulingHash computes and sets the scheduling hash using the
-// provided contextual logger. Called internally by Update.
-func (i *Info) updateSchedulingHash(log logr.Logger) {
-	i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests, i.EffectivePodSpecs)
+// updateSchedulingHash computes and sets the scheduling hash, unless
+// skipSchedulingHash is set, using the provided contextual logger. Called
+// internally by Update.
+func (i *Info) updateSchedulingHash(log logr.Logger, skipSchedulingHash bool) {
+	if skipSchedulingHash {
+		i.SchedulingHash = ""
+	} else {
+		i.SchedulingHash = computeSchedulingHash(log, i.Obj, i.TotalRequests, i.EffectivePodSpecs)
+	}
 }
 
 // Update refreshes the object reference, rebuilds TotalRequests, and
 // recomputes the scheduling hash. Pass WithPreserveTotalRequests to skip
 // the TotalRequests rebuild (e.g., to retain DRA preprocessing on requeue).
 func (i *Info) Update(log logr.Logger, wl *kueue.Workload, opts ...InfoOption) {
+	options := defaultOptions
+	for _, opt := range opts {
+		opt(&options)
+	}
 	prev := i.snapshotHashInputs()
 	i.Obj = wl
-	i.rebuildTotalRequests(opts...)
+	i.rebuildTotalRequests(&options)
 	if i.shouldUpdateSchedulingHash(prev) {
-		i.updateSchedulingHash(log)
+		i.updateSchedulingHash(log, options.skipSchedulingHash)
 	}
 }
 
@@ -363,11 +383,7 @@ func sameHashedRequests(prev, current []PodSetResources) bool {
 // rebuildTotalRequests refreshes ClusterQueue and recomputes TotalRequests
 // from the current workload state. When WithPreserveTotalRequests is set,
 // only TotalRequests recomputation is skipped.
-func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
-	options := defaultOptions
-	for _, opt := range opts {
-		opt(&options)
-	}
+func (i *Info) rebuildTotalRequests(options *InfoOptions) {
 	if options.effectivePodSpecs != nil {
 		i.EffectivePodSpecs = *options.effectivePodSpecs
 	} else {
@@ -383,7 +399,7 @@ func (i *Info) rebuildTotalRequests(opts ...InfoOption) {
 		if admitted {
 			i.TotalRequests = totalRequestsFromAdmission(i)
 		} else {
-			i.TotalRequests = totalRequestsFromPodSets(i, &options)
+			i.TotalRequests = totalRequestsFromPodSets(i, options)
 		}
 	}
 }
