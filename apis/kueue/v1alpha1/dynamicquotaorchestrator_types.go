@@ -131,7 +131,10 @@ type DynamicQuotaOrchestratorStatus struct {
 type EffectiveCapacity struct {
 	// flavors contains the total capacity for each flavor and resource.
 	// It includes all flavors listed in spec.orchestratedFlavors of the
-	// referenced providers. The list is never empty.
+	// referenced providers, up to 128 distinct flavors. If the referenced
+	// providers together orchestrate more distinct flavors, the DQO sets
+	// EffectiveCapacityComputed=False with reason AggregationFailed and
+	// clears status.effectiveCapacity.
 	// An empty resources map means zero capacity for all resources of the flavor.
 	//
 	// +required

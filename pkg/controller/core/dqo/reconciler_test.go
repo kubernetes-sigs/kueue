@@ -17,6 +17,7 @@ limitations under the License.
 package dqo
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -36,6 +37,43 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
 )
+
+// makeSynchronizedProvider returns a synchronized CapacityProvider orchestrating
+// n flavors named "<prefix>-00", "<prefix>-01", ..., each reporting 1 CPU.
+func makeSynchronizedProvider(name, prefix string, n int) *kueuealpha.CapacityProvider {
+	flavorNames := make([]string, 0, n)
+	capacityFlavors := make([]kueuealpha.CapacityProviderNormalizedCapacityFlavor, 0, n)
+	for i := range n {
+		flavorName := fmt.Sprintf("%s-%02d", prefix, i)
+		flavorNames = append(flavorNames, flavorName)
+		capacityFlavors = append(capacityFlavors,
+			utiltestingalpha.MakeNormalizedCapacityFlavor(flavorName).
+				Resource(corev1.ResourceCPU, "1").
+				Obj())
+	}
+	return utiltestingalpha.MakeCapacityProvider(name).
+		OrchestratedFlavors(flavorNames...).
+		Condition(metav1.Condition{
+			Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+			Status: metav1.ConditionTrue,
+			Reason: kueuealpha.CapacityProviderReasonSynchronized,
+		}).
+		Capacity(utiltestingalpha.MakeNormalizedCapacity().Flavors(capacityFlavors...).Obj()).
+		Obj()
+}
+
+// makeEffectiveCapacityFlavors returns the expected effective capacity entries
+// for n flavors named "<prefix>-00", ..., each with 1 CPU.
+func makeEffectiveCapacityFlavors(prefix string, n int) []kueuealpha.EffectiveCapacityFlavor {
+	flavors := make([]kueuealpha.EffectiveCapacityFlavor, 0, n)
+	for i := range n {
+		flavors = append(flavors,
+			*utiltestingalpha.MakeEffectiveCapacityFlavor(fmt.Sprintf("%s-%02d", prefix, i)).
+				Resource(corev1.ResourceCPU, "1").
+				Obj())
+	}
+	return flavors
+}
 
 func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.DynamicQuotaOrchestration, true)
@@ -352,6 +390,53 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 					Status:  metav1.ConditionTrue,
 					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
 					Message: "Aggregated capacity successfully computed",
+				}).
+				Obj(),
+		},
+		"discovery-only: exactly 128 distinct flavors is accepted": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-at-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				makeSynchronizedProvider("cp-1", "a", 64),
+				makeSynchronizedProvider("cp-2", "b", 64),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-at-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(append(makeEffectiveCapacityFlavors("a", 64), makeEffectiveCapacityFlavors("b", 64)...)...).
+					Obj(),
+				).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Obj(),
+		},
+		"discovery-only: more than 128 distinct flavors fails aggregation": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-over-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				DiscoveryProvider("cp-3", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				makeSynchronizedProvider("cp-1", "a", 64),
+				makeSynchronizedProvider("cp-2", "b", 64),
+				makeSynchronizedProvider("cp-3", "c", 1),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-over-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				DiscoveryProvider("cp-3", nil).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonAggregationFailed,
+					Message: "Aggregated capacity covers 129 distinct flavors, which exceeds the supported limit of 128",
 				}).
 				Obj(),
 		},
