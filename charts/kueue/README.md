@@ -109,85 +109,63 @@ for more information on installing kueue with metrics using our Helm chart.
 
 #### Manager configuration
 
-The chart resolves manager configuration once, before rendering the manager and
-job webhooks:
+Legacy YAML configuration remains the default. Set `managerConfig.mode` to
+`structured` to opt into structured configuration. Both modes use the same
+resolved configuration for the manager and job webhooks.
 
-| Inputs under `managerConfig` | Behavior |
+| Mode | Behavior |
 |---|---|
-| Nonempty `controllerManagerConfigYaml` | Use the YAML string as the complete configuration. Ignore `config`. |
-| YAML string absent or `""`, with `config` | Merge the structured map with this chart version's defaults. |
-| Both inputs unspecified | Use this chart version's defaults. |
-| YAML string `""`, without `config` | Use this chart version's defaults. |
+| Absent or `yaml` | Use `controllerManagerConfigYaml` as the complete configuration. Ignore `structuredOverrides`. |
+| `structured` | Merge `structuredOverrides` with chart defaults. Ignore `controllerManagerConfigYaml`, even when nonempty. |
+| Any other value | Reject the values with a validation error. |
 
-The two inputs are never merged together. Both must have the correct type when
-supplied: `controllerManagerConfigYaml` is a string and `config` is a map. Values
-schema validation checks these types and rejects unknown keys directly under
-`managerConfig` during `helm lint`, `helm template`, installation, and upgrade.
-Fields inside `config` are validated by Kueue when it loads the configuration.
-To check your chart values before upgrading, run
-`helm lint <chart> --values values.yaml`.
+Existing YAML values and explicitly empty YAML strings retain their previous
+behavior. The full legacy defaults remain in `values.yaml` for editing.
 
-For structured configuration, specify only your customizations:
+For structured configuration, specify the mode and only your customizations:
 
 ```yaml
 managerConfig:
-  config:
+  mode: structured
+  structuredOverrides:
     clientConnection:
       qps: 600
     integrations:
       frameworks: ["batch/job", "pod"]
 ```
 
-The chart merges maps recursively, replaces lists and scalars, and removes fields
-set to `null` inside `config`. This example keeps the default client burst and
-enables only the two listed integrations. Neither input itself accepts `null`;
-use `""` to clear a legacy string.
-
-The defaults are defined in [templates/manager/_config.tpl](templates/manager/_config.tpl),
-separately from user inputs. Unspecified structured settings follow the selected
-chart version's defaults, **including with `--reuse-values`**. Explicitly supplied
-settings remain pinned. Review the rendered configuration when upgrading.
+Maps merge recursively, lists and scalars replace, and `null` removes fields
+inside `structuredOverrides`. An absent or empty `structuredOverrides` uses chart
+defaults; `structuredOverrides: null`
+is invalid in structured mode. The two inputs are never merged together.
 Existing certificate-management defaults still apply when `internalCertManagement`
 is not set.
 
-Nonempty legacy YAML configurations require no migration. A customer-supplied
-YAML string continues to win if a wrapper chart adopts structured defaults.
-**An explicitly empty YAML string now selects structured configuration or chart
-defaults.** Previously it supplied an empty configuration, apart from injected
-certificate settings, and Kueue applied its runtime defaults.
+Structured defaults are generated from the legacy defaults into
+[templates/manager/_config.tpl](templates/manager/_config.tpl) by
+`make generate-helm-manager-config` (also part of `make update-helm`). They stay
+separate from saved user values so unspecified structured settings follow the
+selected chart version's defaults, including with `--reuse-values`.
 
-To migrate to structured configuration, copy every intentional manager
-customization into `config` and explicitly clear the legacy string in the same
-values file:
+To migrate, set `mode: structured` and copy every intentional customization from
+the old YAML into `structuredOverrides`. There is no need to clear the YAML string:
+structured mode ignores it. Keep the mode in your values file for subsequent upgrades.
 
-```yaml
-managerConfig:
-  controllerManagerConfigYaml: ""
-  config:
-    clientConnection:
-      qps: 600
-```
+| Upgrade options | What to supply |
+|---|---|
+| `--reuse-values` or `--reset-then-reuse-values` | The mode and structured customizations; other saved chart settings are retained. |
+| `--reset-values`, or new values without a reuse flag | The mode, structured customizations, and all other chart settings you want to retain. |
 
-For example, retain other saved chart customizations while migrating:
-
-```shell
-helm upgrade kueue <chart> --namespace kueue-system --reuse-values --values migration.yaml
-```
-
-The explicit empty string replaces any retained legacy string. Omitting it can
-leave a nonempty string in place, causing `config` to be ignored. Settings inside
-the old YAML are not converted automatically; fields omitted from `config` use
-the new chart's defaults.
-
-The same migration values work with `--reset-values` or `--reset-then-reuse-values`.
-With `--reset-values`, or an upgrade that supplies new values without a reuse flag,
-include **all other chart customizations you want to retain** in the values file.
-With either reuse flag, other saved customizations are retained unless overridden.
+Resetting values without supplying the mode returns to legacy YAML mode. To
+switch back deliberately, set `mode: yaml` and supply the desired YAML string.
 When Kueue is a dependency, nest these values under its dependency name or alias.
+Review the rendered configuration when upgrading.
 
-The chart no longer exposes its defaults in `controllerManagerConfigYaml` or
-`config`. Tools that previously read the default string directly should consume
-the rendered manager ConfigMap instead.
+In structured mode, Helm validates that `structuredOverrides` is a map and rejects
+unknown keys directly under `managerConfig`. It does not validate individual fields
+inside the configuration; Kueue validates those when loading it. Legacy mode
+continues to ignore unrelated values. Run `helm lint <chart> --values values.yaml`
+to check chart values before upgrading.
 
 #### Chart values
 
@@ -281,7 +259,7 @@ The following table lists the configurable parameters of the kueue chart and the
 | kueueViz.ingress.ingressClassName | string | `nil` | Path-routed ingress class name |
 | kueueViz.ingress.tlsEnabled | string | `nil` | If true, enable tls on the path-routed ingress. Defaults to true if tlsSecretName is set. |
 | kueueViz.ingress.tlsSecretName | string | `""` | Path-routed ingress tls secret name |
-| managerConfig | object | `{}` | Manager configuration inputs. A nonempty controllerManagerConfigYaml string takes precedence as a complete replacement. Otherwise, merge config with the defaults in templates/manager/_config.tpl. To migrate, set the YAML string to "" and supply config. |
+| managerConfig.controllerManagerConfigYaml | string | controllerManagerConfigYaml | controller_manager_config.yaml. ControllerManager utilizes this yaml via manager-config Configmap. |
 | metrics.prometheusNamespace | string | `"monitoring"` | Prometheus namespace |
 | metrics.serviceMonitor.tlsConfig | object | `{}` | ServiceMonitor's tlsConfig. When empty, the chart verifies the metrics certificate issued by cert-manager if `enableCertManager` is true, and skips verification otherwise. When set, it replaces the generated tlsConfig, and `insecureSkipVerify` defaults to true unless set explicitly. |
 | metricsService.annotations | object | `{}` | metricsService's annotations |

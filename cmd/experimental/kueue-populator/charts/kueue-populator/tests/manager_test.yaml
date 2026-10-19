@@ -150,8 +150,9 @@ tests:
   - it: should inherit the structured Kueue namespace selector without enabling the subchart
     documentIndex: 3
     set:
+      kueue.managerConfig.mode: structured
       kueue.enabled: false
-      kueue.managerConfig.config.managedJobsNamespaceSelector:
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector:
         matchLabels:
           team: research
     asserts:
@@ -161,6 +162,7 @@ tests:
 
   - it: should reject an unknown manager configuration input without enabling the subchart
     set:
+      kueue.managerConfig.mode: structured
       kueue.enabled: false
       kueue.managerConfig.confg: {}
     asserts:
@@ -169,6 +171,7 @@ tests:
 
   - it: should reject an unknown manager configuration input with the subchart enabled
     set:
+      kueue.managerConfig.mode: structured
       kueue.enabled: true
       kueue.managerConfig.confg: {}
     asserts:
@@ -178,8 +181,9 @@ tests:
   - it: should prefer nonempty YAML with the Kueue subchart disabled
     documentIndex: 3
     set:
+      kueue.managerConfig.mode: yaml
       kueue.enabled: false
-      kueue.managerConfig.config.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
       kueue.managerConfig.controllerManagerConfigYaml: |
         managedJobsNamespaceSelector:
           matchLabels:
@@ -195,8 +199,9 @@ tests:
   - it: should use structured configuration when the YAML is cleared with the subchart disabled
     documentIndex: 3
     set:
+      kueue.managerConfig.mode: structured
       kueue.enabled: false
-      kueue.managerConfig.config.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
       kueue.managerConfig.controllerManagerConfigYaml: ""
     asserts:
       - matchRegex:
@@ -206,8 +211,9 @@ tests:
   - it: should prefer nonempty YAML through the enabled Kueue subchart
     documentIndex: 3
     set:
+      kueue.managerConfig.mode: yaml
       kueue.enabled: true
-      kueue.managerConfig.config.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
       kueue.managerConfig.controllerManagerConfigYaml: |
         managedJobsNamespaceSelector:
           matchLabels:
@@ -223,7 +229,8 @@ tests:
   - it: should preserve the explicit populator selector over structured Kueue configuration
     documentIndex: 3
     set:
-      kueue.managerConfig.config.managedJobsNamespaceSelector:
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector:
         matchLabels:
           team: research
       kueuePopulator.config.managedJobsNamespaceSelector:
@@ -240,7 +247,8 @@ tests:
   - it: should preserve an explicit empty structured Kueue selector
     documentIndex: 3
     set:
-      kueue.managerConfig.config.managedJobsNamespaceSelector: {}
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector: {}
     asserts:
       - matchRegex:
           path: data["controller_manager_config.yaml"]
@@ -249,7 +257,8 @@ tests:
   - it: should use the structured Kueue namespace in the default selector
     documentIndex: 3
     set:
-      kueue.managerConfig.config.namespace: custom-kueue-system
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.structuredOverrides.namespace: custom-kueue-system
     asserts:
       - matchRegex:
           path: data["controller_manager_config.yaml"]
@@ -258,8 +267,9 @@ tests:
   - it: should resolve structured configuration through the enabled Kueue subchart
     documentIndex: 3
     set:
+      kueue.managerConfig.mode: structured
       kueue.enabled: true
-      kueue.managerConfig.config.managedJobsNamespaceSelector:
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector:
         matchLabels:
           team: research
     asserts:

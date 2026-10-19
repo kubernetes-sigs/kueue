@@ -1,0 +1,150 @@
+suite: test explicit manager configuration modes
+templates:
+  - manager.yaml
+set:
+  kueue.enabled: false
+release:
+  namespace: custom-system
+tests:
+  - it: should ignore an unused invalid config when mode is absent with the subchart disabled
+    documentIndex: 3
+    set: &implicitYaml
+      kueue.managerConfig.structuredOverrides: unused
+      kueue.managerConfig.controllerManagerConfigYaml: &legacyYaml |
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: legacy
+    asserts: &legacySelector
+      - equal:
+          path: data["controller_manager_config.yaml"]
+          value: |
+            localQueueName: default
+            managedJobsNamespaceSelector:
+              matchLabels:
+                team: legacy
+
+  - it: should ignore an unused invalid config when mode is absent with the subchart enabled
+    documentIndex: 3
+    set:
+      <<: *implicitYaml
+      kueue.enabled: true
+    asserts: *legacySelector
+
+  - it: should select YAML again while retaining structured config with the subchart disabled
+    documentIndex: 3
+    set: &explicitYaml
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.controllerManagerConfigYaml: *legacyYaml
+    asserts: *legacySelector
+
+  - it: should select YAML again while retaining structured config with the subchart enabled
+    documentIndex: 3
+    set:
+      <<: *explicitYaml
+      kueue.enabled: true
+    asserts: *legacySelector
+
+  - it: should ignore retained legacy YAML in structured mode with the subchart disabled
+    documentIndex: 3
+    set: &structuredWithLegacy
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.controllerManagerConfigYaml: *legacyYaml
+    asserts: &structuredSelector
+      - equal:
+          path: data["controller_manager_config.yaml"]
+          value: |
+            localQueueName: default
+            managedJobsNamespaceSelector:
+              matchLabels:
+                team: structured
+
+  - it: should ignore retained legacy YAML in structured mode with the subchart enabled
+    documentIndex: 3
+    set:
+      <<: *structuredWithLegacy
+      kueue.enabled: true
+    asserts: *structuredSelector
+
+  - it: should not parse malformed legacy YAML in structured mode with the subchart disabled
+    documentIndex: 3
+    set: &structuredWithMalformedYaml
+      <<: *structuredWithLegacy
+      kueue.managerConfig.controllerManagerConfigYaml: "managedJobsNamespaceSelector: ["
+    asserts: *structuredSelector
+
+  - it: should not parse malformed legacy YAML in structured mode with the subchart enabled
+    documentIndex: 3
+    set:
+      <<: *structuredWithMalformedYaml
+      kueue.enabled: true
+    asserts: *structuredSelector
+
+  - it: should use the default selector when structured config is absent with the subchart disabled
+    documentIndex: 3
+    set: &structuredWithoutConfig
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.controllerManagerConfigYaml: *legacyYaml
+    asserts: &defaultSelector
+      - equal:
+          path: data["controller_manager_config.yaml"]
+          value: |
+            localQueueName: default
+            managedJobsNamespaceSelector:
+              matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: NotIn
+                values:
+                - kube-system
+                - custom-system
+
+  - it: should use the default selector when structured config is absent with the subchart enabled
+    documentIndex: 3
+    set:
+      <<: *structuredWithoutConfig
+      kueue.enabled: true
+    asserts: *defaultSelector
+
+  - it: should reject an unknown mode with the subchart disabled
+    set: &unknownMode
+      kueue.managerConfig.mode: automatic
+    asserts: &invalidMode
+      - failedTemplate:
+          errorPattern: "(?s)mode.*(yaml|structured)"
+
+  - it: should reject an unknown mode with the subchart enabled
+    set:
+      <<: *unknownMode
+      kueue.enabled: true
+    asserts: *invalidMode
+
+  - it: should preserve the standalone fallback for legacy managerConfig null
+    documentIndex: 3
+    set:
+      kueue.managerConfig: null
+    asserts: *defaultSelector
+
+  - it: should preserve the standalone fallback for legacy managerConfig false
+    documentIndex: 3
+    set:
+      kueue.managerConfig: false
+    asserts: *defaultSelector
+
+  - it: should preserve the standalone fallback for legacy managerConfig ""
+    documentIndex: 3
+    set:
+      kueue.managerConfig: ""
+    asserts: *defaultSelector
+
+  - it: should preserve the standalone fallback for legacy managerConfig []
+    documentIndex: 3
+    set:
+      kueue.managerConfig: []
+    asserts: *defaultSelector
+
+  - it: should preserve the standalone fallback for legacy managerConfig 0
+    documentIndex: 3
+    set:
+      kueue.managerConfig: 0
+    asserts: *defaultSelector

@@ -20,8 +20,9 @@ tests:
   - it: should keep sibling defaults when overriding nested fields
     template: manager/manager-config.yaml
     set:
-      managerConfig.config.clientConnection.qps: 600
-      managerConfig.config.controller.groupKindConcurrency:
+      managerConfig.mode: structured
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+      managerConfig.structuredOverrides.controller.groupKindConcurrency:
         Job.batch: 8
     asserts:
       - matchRegex:
@@ -40,8 +41,9 @@ tests:
   - it: should preserve false and zero values
     template: manager/manager-config.yaml
     set:
-      managerConfig.config.leaderElection.leaderElect: false
-      managerConfig.config.controller.groupKindConcurrency:
+      managerConfig.mode: structured
+      managerConfig.structuredOverrides.leaderElection.leaderElect: false
+      managerConfig.structuredOverrides.controller.groupKindConcurrency:
         Job.batch: 0
     asserts:
       - matchRegex:
@@ -54,7 +56,8 @@ tests:
   - it: should remove an inherited field set to null
     template: manager/manager-config.yaml
     set:
-      managerConfig.config.clientConnection.qps: null
+      managerConfig.mode: structured
+      managerConfig.structuredOverrides.clientConnection.qps: null
     asserts:
       - notMatchRegex:
           path: data["controller_manager_config.yaml"]
@@ -66,7 +69,8 @@ tests:
   - it: should replace the frameworks list
     template: manager/manager-config.yaml
     set:
-      managerConfig.config.integrations.frameworks: [batch/job]
+      managerConfig.mode: structured
+      managerConfig.structuredOverrides.integrations.frameworks: [batch/job]
     asserts:
       - matchRegex:
           path: data["controller_manager_config.yaml"]
@@ -78,7 +82,8 @@ tests:
   - it: should allow an empty frameworks list
     template: manager/manager-config.yaml
     set:
-      managerConfig.config.integrations.frameworks: []
+      managerConfig.mode: structured
+      managerConfig.structuredOverrides.integrations.frameworks: []
     asserts:
       - matchRegex:
           path: data["controller_manager_config.yaml"]
@@ -101,8 +106,9 @@ tests:
   - it: should disable internal certificates when cert-manager is enabled with structured config
     template: manager/manager-config.yaml
     set:
+      managerConfig.mode: structured
       enableCertManager: true
-      managerConfig.config.clientConnection.qps: 600
+      managerConfig.structuredOverrides.clientConnection.qps: 600
     asserts:
       - matchRegex:
           path: data["controller_manager_config.yaml"]
@@ -114,8 +120,9 @@ tests:
   - it: should preserve explicit internal certificate settings
     template: manager/manager-config.yaml
     set:
+      managerConfig.mode: structured
       enableCertManager: true
-      managerConfig.config.internalCertManagement:
+      managerConfig.structuredOverrides.internalCertManagement:
         enable: true
         webhookServiceName: custom-service
         webhookSecretName: custom-secret
@@ -127,14 +134,16 @@ tests:
   - it: should reject a non-map structured config
     template: webhook/manifests.yaml
     set:
-      managerConfig.config: invalid
+      managerConfig.mode: structured
+      managerConfig.structuredOverrides: invalid
     asserts:
       - failedTemplate:
-          errorPattern: "(?s)managerConfig[/.]config.*(object|map)"
+          errorPattern: "(?s)managerConfig[/.]structuredOverrides.*(object|map)"
 
   - it: should propagate the structured selector to the manager and both webhook configurations
     set:
-      managerConfig.config.managedJobsNamespaceSelector:
+      managerConfig.mode: structured
+      managerConfig.structuredOverrides.managedJobsNamespaceSelector:
         matchLabels:
           team: research
     asserts:
@@ -164,7 +173,8 @@ tests:
   - it: should derive webhook failure policies from the structured frameworks list
     template: webhook/manifests.yaml
     set:
-      managerConfig.config.integrations.frameworks: [batch/job, pod]
+      managerConfig.mode: structured
+      managerConfig.structuredOverrides.integrations.frameworks: [batch/job, pod]
     asserts:
       - equal:
           path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
@@ -179,9 +189,10 @@ tests:
           value: Ignore
         documentIndex: 0
 
-  - it: should use nonempty YAML instead of structured configuration for every consumer
+  - it: should use YAML mode instead of structured configuration for every consumer
     set:
-      managerConfig.config:
+      managerConfig.mode: yaml
+      managerConfig.structuredOverrides:
         clientConnection:
           qps: 600
         integrations:
@@ -234,7 +245,8 @@ tests:
   - it: should use chart defaults when both inputs are empty
     template: manager/manager-config.yaml
     set:
-      managerConfig.config: {}
+      managerConfig.mode: structured
+      managerConfig.structuredOverrides: {}
       managerConfig.controllerManagerConfigYaml: ""
     asserts:
       - matchRegex:
@@ -244,32 +256,33 @@ tests:
           path: data["controller_manager_config.yaml"]
           pattern: "qps: 300"
 
-  - it: should use chart defaults with an empty legacy string
+  - it: should preserve empty legacy configuration without selecting structured defaults
     template: manager/manager-config.yaml
     set:
       managerConfig.controllerManagerConfigYaml: ""
     asserts:
       - matchRegex:
           path: data["controller_manager_config.yaml"]
-          pattern: "burst: 500"
-      - matchRegex:
+          pattern: "internalCertManagement:"
+      - notMatchRegex:
           path: data["controller_manager_config.yaml"]
-          pattern: "qps: 300"
+          pattern: "apiVersion:|kind:|burst:|qps:"
 
-  - it: should derive webhook policies from chart defaults with an empty string
+  - it: should preserve Ignore webhook policies with an empty legacy string
     template: webhook/manifests.yaml
     set:
       managerConfig.controllerManagerConfigYaml: ""
     asserts:
       - equal:
           path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
-          value: Fail
+          value: Ignore
         documentIndex: 0
 
-  - it: should select structured configuration when the legacy string is cleared
+  - it: should select structured mode without parsing the legacy string
     set:
-      managerConfig.controllerManagerConfigYaml: ""
-      managerConfig.config:
+      managerConfig.mode: structured
+      managerConfig.controllerManagerConfigYaml: "not: [valid YAML"
+      managerConfig.structuredOverrides:
         clientConnection:
           qps: 600
         integrations:
@@ -306,7 +319,7 @@ tests:
     template: manager/manager-config.yaml
     set:
       managerConfig.controllerManagerConfigYaml: "{}"
-      managerConfig.config.clientConnection.qps: 600
+      managerConfig.structuredOverrides.clientConnection.qps: 600
     asserts:
       - matchRegex:
           path: data["controller_manager_config.yaml"]
@@ -348,7 +361,8 @@ tests:
   - it: should ignore optional framework webhooks when integrations are removed
     template: webhook/manifests.yaml
     set:
-      managerConfig.config.integrations: null
+      managerConfig.mode: structured
+      managerConfig.structuredOverrides.integrations: null
     asserts:
       - equal:
           path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
@@ -378,7 +392,8 @@ tests:
   - it: should ignore optional framework webhooks when frameworks are removed
     template: webhook/manifests.yaml
     set:
-      managerConfig.config.integrations.frameworks: null
+      managerConfig.mode: structured
+      managerConfig.structuredOverrides.integrations.frameworks: null
     asserts:
       - equal:
           path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
@@ -408,7 +423,8 @@ tests:
   - it: should use packaged defaults with an empty structured map
     template: manager/manager-config.yaml
     set:
-      managerConfig.config: {}
+      managerConfig.mode: structured
+      managerConfig.structuredOverrides: {}
     asserts:
       - matchRegex:
           path: data["controller_manager_config.yaml"]
@@ -420,14 +436,16 @@ tests:
   - it: should reject a null structured input
     template: webhook/manifests.yaml
     set:
-      managerConfig.config: null
+      managerConfig.mode: structured
+      managerConfig.structuredOverrides: null
     asserts:
       - failedTemplate:
-          errorPattern: "(?s)managerConfig[/.]config.*(object|map)"
+          errorPattern: "(?s)managerConfig[/.]structuredOverrides.*(object|map)"
 
   - it: should reject an unknown manager configuration input
     template: manager/manager-config.yaml
     set:
+      managerConfig.mode: structured
       managerConfig.confg: {}
     asserts:
       - failedTemplate:
@@ -439,7 +457,7 @@ tests:
       managerConfig.controllerManagerConfigYaml: {}
     asserts:
       - failedTemplate:
-          errorPattern: "(?s)managerConfig[/.]controllerManagerConfigYaml.*string"
+          errorPattern: "expected string"
 
   - it: should reject a null legacy input
     template: webhook/manifests.yaml
@@ -447,4 +465,4 @@ tests:
       managerConfig.controllerManagerConfigYaml: null
     asserts:
       - failedTemplate:
-          errorPattern: "(?s)managerConfig[/.]controllerManagerConfigYaml.*string"
+          errorPattern: "expected string"

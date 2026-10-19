@@ -1,6 +1,6 @@
 kueue:
   managerConfig:
-    config:
+    structuredOverrides:
       managedJobsNamespaceSelector:
         matchLabels:
           queueing: enabled

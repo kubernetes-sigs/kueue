@@ -175,8 +175,8 @@ Maps merge recursively, lists and scalars replace, and null removes a key.
 
 {{/*
 Resolve manager configuration once for every consumer.
-A nonempty legacy YAML string takes precedence as a complete replacement.
-Otherwise, structured configuration is merged with this chart's packaged defaults.
+Legacy YAML remains the default. Structured configuration is explicitly selected
+with mode: structured and merged with this chart's packaged defaults.
 */}}
 {{- define "kueue.managerConfig" -}}
 {{- $values := dict }}
@@ -186,22 +186,24 @@ Otherwise, structured configuration is merged with this chart's packaged default
 {{- if not (kindIs "map" $values) }}
 {{- fail "managerConfig must be a map" }}
 {{- end }}
-{{- if hasKey $values "controllerManagerConfigYaml" }}
-{{- if not (kindIs "string" $values.controllerManagerConfigYaml) }}
-{{- fail "managerConfig.controllerManagerConfigYaml must be a string" }}
+{{- $mode := "yaml" }}
+{{- if hasKey $values "mode" }}
+{{- $mode = $values.mode }}
 {{- end }}
+{{- if not (has $mode (list "yaml" "structured")) }}
+{{- fail "managerConfig.mode must be yaml or structured" }}
 {{- end }}
-{{- if hasKey $values "config" }}
-{{- if not (kindIs "map" $values.config) }}
-{{- fail "managerConfig.config must be a map" }}
-{{- end }}
-{{- end }}
-{{- if $values.controllerManagerConfigYaml }}
-{{- $values.controllerManagerConfigYaml }}
+{{- if eq $mode "yaml" }}
+{{- $values.controllerManagerConfigYaml | fromYaml | toYaml }}
 {{- else }}
+{{- if hasKey $values "structuredOverrides" }}
+{{- if not (kindIs "map" $values.structuredOverrides) }}
+{{- fail "managerConfig.structuredOverrides must be a map" }}
+{{- end }}
+{{- end }}
 {{- $config := include "kueue.managerConfigDefaults" . | fromYaml }}
-{{- if hasKey $values "config" }}
-{{- $_ := include "kueue.mergeManagerConfig" (dict "target" $config "source" $values.config) }}
+{{- if hasKey $values "structuredOverrides" }}
+{{- $_ := include "kueue.mergeManagerConfig" (dict "target" $config "source" $values.structuredOverrides) }}
 {{- end }}
 {{- toYaml $config }}
 {{- end }}

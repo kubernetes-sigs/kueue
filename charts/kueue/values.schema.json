@@ -4,14 +4,36 @@
   "properties": {
     "managerConfig": {
       "type": "object",
-      "additionalProperties": false,
-      "description": "A nonempty controllerManagerConfigYaml takes precedence over config. Set the YAML string to an empty string to migrate to structured configuration.",
+      "description": "Omit mode or set it to yaml for legacy configuration. Set mode to structured to use structuredOverrides instead.",
       "properties": {
-        "config": {
-          "type": "object"
-        },
-        "controllerManagerConfigYaml": {
-          "type": "string"
+        "mode": {
+          "type": "string",
+          "enum": [
+            "yaml",
+            "structured"
+          ]
+        }
+      },
+      "if": {
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "const": "structured"
+          }
+        }
+      },
+      "then": {
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+          },
+          "structuredOverrides": {
+            "type": "object"
+          },
+          "controllerManagerConfigYaml": {
+          }
         }
       }
     }

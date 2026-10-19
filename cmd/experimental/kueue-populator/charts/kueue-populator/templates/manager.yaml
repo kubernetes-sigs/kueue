@@ -4,20 +4,24 @@
 {{- else }}
 {{- with .Values.kueue }}
 {{- with .managerConfig }}
-{{- if hasKey . "controllerManagerConfigYaml" }}
-{{- if not (kindIs "string" .controllerManagerConfigYaml) }}
-{{- fail "kueue.managerConfig.controllerManagerConfigYaml must be a string" }}
+{{- $mode := "yaml" -}}
+{{- if hasKey . "mode" }}
+{{- $mode = .mode -}}
 {{- end }}
+{{- if not (has $mode (list "yaml" "structured")) }}
+{{- fail "kueue.managerConfig.mode must be yaml or structured" }}
 {{- end }}
-{{- if hasKey . "config" }}
-{{- if not (kindIs "map" .config) }}
-{{- fail "kueue.managerConfig.config must be a map" }}
+{{- if eq $mode "structured" }}
+{{- if hasKey . "structuredOverrides" }}
+{{- if not (kindIs "map" .structuredOverrides) }}
+{{- fail "kueue.managerConfig.structuredOverrides must be a map" }}
 {{- end }}
+{{- $kueueConfig = include "kueue-populator.withoutNullKeys" .structuredOverrides | fromYaml -}}
 {{- end }}
-{{- if .controllerManagerConfigYaml }}
-{{- $kueueConfig = .controllerManagerConfigYaml | fromYaml -}}
-{{- else if hasKey . "config" }}
-{{- $kueueConfig = include "kueue-populator.withoutNullKeys" .config | fromYaml -}}
+{{- else }}
+{{- with .controllerManagerConfigYaml }}
+{{- $kueueConfig = . | fromYaml -}}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

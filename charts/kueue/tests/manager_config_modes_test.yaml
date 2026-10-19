@@ -1,0 +1,109 @@
+# Copyright The Kubernetes Authors.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+suite: test explicit manager configuration modes
+templates:
+  - manager/manager-config.yaml
+tests:
+  - it: should use legacy chart defaults when mode is absent
+    asserts: &chartDefaults
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "clientConnection:\n  burst: 500\n  qps: 300"
+
+  - it: should ignore structured overrides without opting in
+    set:
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts: *chartDefaults
+
+  - it: should ignore unused configuration types and extra keys in legacy mode
+    set:
+      managerConfig.structuredOverrides: unused
+      managerConfig.oldCustomKey: retained
+    asserts: *chartDefaults
+
+  - it: should preserve a supplied YAML string without a mode
+    set: &legacyValues
+      managerConfig.controllerManagerConfigYaml: |
+        clientConnection:
+          qps: 123
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts: &legacyReplacement
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "qps: 123"
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "burst:|qps: 600"
+
+  - it: should select legacy configuration when switching back to yaml mode
+    set:
+      <<: *legacyValues
+      managerConfig.mode: yaml
+    asserts: *legacyReplacement
+
+  - it: should preserve an empty YAML string in explicit yaml mode
+    set:
+      managerConfig.mode: yaml
+      managerConfig.controllerManagerConfigYaml: ""
+      managerConfig.structuredOverrides.clientConnection.qps: 600
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "internalCertManagement:"
+      - notMatchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "apiVersion:|clientConnection:|integrations:"
+
+  - it: should use structured defaults when only the mode is specified
+    set:
+      managerConfig.mode: structured
+    asserts: *chartDefaults
+
+  - it: should ignore a retained legacy string in structured mode
+    set:
+      <<: *legacyValues
+      managerConfig.mode: structured
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "clientConnection:\n  burst: 500\n  qps: 600"
+
+  - it: should not validate an unused legacy value in structured mode
+    set:
+      managerConfig.mode: structured
+      managerConfig.controllerManagerConfigYaml: 123
+    asserts: *chartDefaults
+
+  - it: should reject an unknown mode
+    set:
+      managerConfig.mode: invalid
+    asserts: &invalidMode
+      - failedTemplate:
+          errorPattern: "(?s)mode.*(yaml|structured|string)"
+
+  - it: should reject an empty mode
+    set:
+      managerConfig.mode: ""
+    asserts: *invalidMode
+
+  - it: should reject a null mode
+    set:
+      managerConfig.mode: null
+    asserts: *invalidMode
+
+  - it: should reject a non-string mode
+    set:
+      managerConfig.mode: true
+    asserts: *invalidMode
