@@ -16,6 +16,12 @@
 
 GO_FMT ?= gofmt
 CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+# Map the host UID/GID even when they exceed Podman's default rootless ID range.
+ifeq ($(notdir $(CONTAINER_ENGINE)),podman)
+ifneq ($(shell id -u),0)
+CONTAINER_USERNS_OPTS ?= --userns=keep-id
+endif
+endif
 SKILLSAW_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/skillsaw/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
 SKILLSAW_IMAGE := "ghcr.io/stbenjam/skillsaw:${SKILLSAW_VERSION}"
 VERIFY_NPROCS ?= 8
@@ -207,7 +213,7 @@ endef
 # Validates skills against https://agentskills.io/specification
 define _skills_lint_recipe
 mkdir -p $(ARTIFACTS)
-$(CONTAINER_ENGINE) run --rm --user "$(shell id -u):$(shell id -g)" $(CONTAINER_SECURITY_OPTS) -v $(PROJECT_DIR):/workspace$(VOLUME_FLAGS) -v $(ARTIFACTS):/out$(VOLUME_FLAGS) $(SKILLSAW_IMAGE) -q --output /out/skillsaw-summary.html
+$(CONTAINER_ENGINE) run --rm $(CONTAINER_USERNS_OPTS) --user "$(shell id -u):$(shell id -g)" $(CONTAINER_SECURITY_OPTS) -v $(PROJECT_DIR):/workspace$(VOLUME_FLAGS) -v $(ARTIFACTS):/out$(VOLUME_FLAGS) $(SKILLSAW_IMAGE) -q --config /workspace/cmd/experimental/skills/.skillsaw.yaml --output /out/skillsaw-summary.html
 endef
 
 
