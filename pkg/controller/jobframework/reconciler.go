@@ -1128,6 +1128,41 @@ func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job Gener
 	return UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), live...)
 }
 
+// workloadOwnedBy reports whether the workload is already associated with the
+// job object. Regular prebuilt workloads are adopted with a controller
+// reference, while composable jobs (pod groups) record plain owner references
+// to their members. Check every member of a composable job so that a workload
+// owned by a non-first pod is still finalized.
+func workloadOwnedBy(wl *kueue.Workload, job GenericJob) bool {
+	owned := false
+	check := func(obj runtime.Object) {
+		object, ok := obj.(metav1.Object)
+		if !ok {
+			return
+		}
+		if metav1.IsControlledBy(wl, object) {
+			owned = true
+			return
+		}
+		uid := object.GetUID()
+		if uid == "" {
+			return
+		}
+		for i := range wl.OwnerReferences {
+			if wl.OwnerReferences[i].UID == uid {
+				owned = true
+				return
+			}
+		}
+	}
+	if cj, implements := job.(ComposableJob); implements {
+		cj.ForEach(check)
+	} else {
+		check(job.Object())
+	}
+	return owned
+}
+
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
 // If there are more than one workload, we should delete the excess ones.
 // The returned workload could be nil.
@@ -1146,6 +1181,20 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 				"WARNING: The workload is already controlled by another object",
 				"workload", klog.KObj(wl),
 				"controlledBy", controlledBy,
+			)
+			return nil, nil
+		}
+
+		// Do not adopt a prebuilt workload that is already finished. It cannot
+		// represent the execution of this job, and adopting it would finalize the
+		// job immediately, leaving it running unmanaged and without a quota
+		// reservation. A finished workload owned by this job is still
+		// returned, so that the job is finalized and the workload finalizer is
+		// removed as usual.
+		if workloadfinish.IsFinished(wl) && !workloadOwnedBy(wl, job) {
+			log.V(2).Info(
+				"WARNING: The prebuilt workload is already finished",
+				"workload", klog.KObj(wl),
 			)
 			return nil, nil
 		}
