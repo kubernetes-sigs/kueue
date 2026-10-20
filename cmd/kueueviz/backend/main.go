@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -31,19 +32,39 @@ import (
 	"kueueviz/handlers"
 	"kueueviz/middleware"
 	ctrllog "sigs.k8s.io/controller-runtime/pkg/log"
+
+	"sigs.k8s.io/kueue/pkg/util/routine"
 )
 
-const shutdownTimeout = 30 * time.Second
+const (
+	shutdownTimeout = 30 * time.Second
+	componentCount  = 2
+)
+
+type managerRunner interface {
+	Start(context.Context) error
+}
+
+type httpServer interface {
+	ListenAndServe() error
+	Shutdown(context.Context) error
+}
 
 func main() {
+	if err := run(); err != nil {
+		slog.Error("Server exited with error", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer cancel()
 
 	// Initialize server configuration
 	serverConfig, err := config.NewServerConfig()
 	if err != nil {
-		slog.Error("Error loading server configuration", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("loading server configuration: %w", err)
 	}
 
 	// Setup pprof for development
@@ -52,15 +73,13 @@ func main() {
 	// Create Kubernetes client
 	dynamicClient, manager, clientset, err := createK8sClient(ctx)
 	if err != nil {
-		slog.Error("Error creating Kubernetes client", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("creating Kubernetes client: %w", err)
 	}
 
 	// Setup Gin engine with base middleware (logger, recovery, CORS)
 	r, err := config.SetupGinEngine()
 	if err != nil {
-		slog.Error("Error setting up Gin engine", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("setting up Gin engine: %w", err)
 	}
 
 	// The timeouts below are configured to prevent Denial-of-Service (DoS) attacks,
@@ -108,33 +127,70 @@ func main() {
 	// Set up controller-runtime logging with slog
 	ctrllog.SetLogger(logr.FromSlogHandler(slog.Default().Handler()))
 
-	// Start manager in a separate goroutine
-	go func() {
-		if err = manager.Start(ctx); err != nil {
-			slog.Error("Failed to start manager", "error", err)
-			cancel()
-			os.Exit(1)
-		}
-	}()
+	slog.Info("Starting server", "address", srv.Addr)
+	return runComponents(ctx, manager, srv, shutdownTimeout)
+}
 
-	// Start HTTP server in a separate goroutine
-	go func() {
-		slog.Info("Starting server", "address", srv.Addr)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			slog.Error("Failed to start HTTP server", "error", err)
-			cancel()
-			os.Exit(1)
+func runComponents(parentCtx context.Context, manager managerRunner, srv httpServer, shutdownTimeout time.Duration) error {
+	ctx, cancel := context.WithCancel(parentCtx)
+	defer cancel()
+
+	managerErrCh := routine.NewErrorChannel()
+	serverErrCh := routine.NewErrorChannel()
+	componentDone := make(chan struct{}, componentCount)
+	wrapper := routine.NewWrapper(nil, func() {
+		componentDone <- struct{}{}
+	})
+
+	wrapper.Run(func() {
+		err := manager.Start(ctx)
+		if err != nil {
+			managerErrCh.SendErrorWithCancel(fmt.Errorf("running manager: %w", err), cancel)
+		} else if ctx.Err() == nil {
+			managerErrCh.SendErrorWithCancel(errors.New("manager stopped unexpectedly"), cancel)
 		}
-	}()
+	})
+
+	wrapper.Run(func() {
+		err := srv.ListenAndServe()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErrCh.SendErrorWithCancel(fmt.Errorf("running HTTP server: %w", err), cancel)
+		} else if ctx.Err() == nil {
+			serverErrCh.SendErrorWithCancel(errors.New("HTTP server stopped unexpectedly"), cancel)
+		}
+	})
 
 	<-ctx.Done()
-
-	// Shutdown the server gracefully
+	var runErr error
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer shutdownCancel()
+
 	if err := srv.Shutdown(shutdownCtx); err != nil {
-		slog.Error("Server forced to shutdown", "error", err)
-		cancel()
-		os.Exit(1)
+		runErr = errors.Join(runErr, fmt.Errorf("shutting down HTTP server: %w", err))
 	}
+
+	if err := waitForShutdown(shutdownCtx, componentDone, componentCount); err != nil {
+		runErr = errors.Join(runErr, err)
+	}
+
+	return errors.Join(runErr, managerErrCh.ReceiveError(), serverErrCh.ReceiveError())
+}
+
+func waitForShutdown(ctx context.Context, componentDone <-chan struct{}, componentCount int) error {
+	for range componentCount {
+		select {
+		case <-componentDone:
+			continue
+		case <-ctx.Done():
+		}
+
+		// The component might have completed at the same time as the deadline.
+		select {
+		case <-componentDone:
+			continue
+		default:
+			return fmt.Errorf("waiting for components to stop: %w", ctx.Err())
+		}
+	}
+	return nil
 }
