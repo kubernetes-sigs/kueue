@@ -967,7 +967,6 @@ func validateCIdentifier(id string, fldPath *field.Path) field.ErrorList {
 }
 
 func validateMetrics(metrics configapi.ControllerMetrics) field.ErrorList {
-	mode := ptr.Deref(metrics.AccessControlMode, configapi.MetricsAccessControlModeDelegated)
 	modePath := field.NewPath("metrics", "accessControlMode")
 	if !features.Enabled(features.MetricsAccessControl) {
 		if metrics.AccessControlMode != nil {
@@ -975,6 +974,7 @@ func validateMetrics(metrics configapi.ControllerMetrics) field.ErrorList {
 		}
 		return nil
 	}
+	mode := ptr.Deref(metrics.AccessControlMode, configapi.MetricsAccessControlModeDelegated)
 	if mode != configapi.MetricsAccessControlModeDelegated && mode != configapi.MetricsAccessControlModeNone {
 		return field.ErrorList{field.NotSupported(modePath, mode, []configapi.MetricsAccessControlMode{
 			configapi.MetricsAccessControlModeDelegated, configapi.MetricsAccessControlModeNone,

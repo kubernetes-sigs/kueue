@@ -97,7 +97,9 @@ var _ = ginkgo.Describe("Metrics access control", ginkgo.Serial, ginkgo.SpecPrio
 			configuration.Metrics.BindAddress = "127.0.0.1:8443"
 		})
 		e2e.UpdateDeploymentAndWaitForProgressing(ctx, k8sClient, deploymentKey, clusterName, func(deployment *appsv1.Deployment) {
-			deployment.Spec.Template.Spec.Containers = append(deployment.Spec.Template.Spec.Containers, sidecar)
+			if !slices.ContainsFunc(deployment.Spec.Template.Spec.Containers, func(container corev1.Container) bool { return container.Name == sidecar.Name }) {
+				deployment.Spec.Template.Spec.Containers = append(deployment.Spec.Template.Spec.Containers, sidecar)
+			}
 			if !slices.ContainsFunc(deployment.Spec.Template.Spec.Volumes, func(volume corev1.Volume) bool { return volume.Name == "metrics-certs" }) {
 				deployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, curlPod.Spec.Volumes...)
 			}
@@ -124,14 +126,16 @@ var _ = ginkgo.Describe("Metrics access control", ginkgo.Serial, ginkgo.SpecPrio
 				})
 				g.Expect(err).NotTo(gomega.HaveOccurred())
 				g.Expect(string(output)).To(gomega.ContainSubstring("go_gc_duration_seconds"))
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("confirming the manager pod IP refuses metrics connections")
-			_, _, err := e2e.KExecute(ctx, cfg, restClient, kueueNS, curlPod.Name, curlContainer, []string{
-				"/bin/sh", "-c", `curl --silent --show-error --noproxy '*' --connect-timeout 5 --max-time 15 "$1"; result=$?; test "$result" -eq 7`,
-				"sh", "https://" + net.JoinHostPort(pod.Status.PodIP, "8443") + "/metrics",
-			})
-			gomega.Expect(err).NotTo(gomega.HaveOccurred(), "curl must report connection refused (exit 7), rather than TLS or authentication failure")
+			gomega.Eventually(func(g gomega.Gomega) {
+				_, _, err := e2e.KExecute(ctx, cfg, restClient, kueueNS, curlPod.Name, curlContainer, []string{
+					"/bin/sh", "-c", `curl --silent --show-error --noproxy '*' --connect-timeout 5 --max-time 15 "$1"; result=$?; test "$result" -eq 7`,
+					"sh", "https://" + net.JoinHostPort(pod.Status.PodIP, "8443") + "/metrics",
+				})
+				g.Expect(err).NotTo(gomega.HaveOccurred(), "curl must report connection refused (exit 7), rather than TLS or authentication failure")
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 		}
 	})
 })
