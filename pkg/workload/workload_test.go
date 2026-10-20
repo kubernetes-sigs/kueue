@@ -4061,9 +4061,9 @@ func TestSchedulingHash(t *testing.T) {
 			_, log := utiltesting.ContextWithLog(t)
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			info1 := NewInfo(log, tc.wl1, tc.infoOptions1...)
-			info1.updateSchedulingHash(log)
+			info1.updateSchedulingHash(log, false)
 			info2 := NewInfo(log, tc.wl2, tc.infoOptions2...)
-			info2.updateSchedulingHash(log)
+			info2.updateSchedulingHash(log, false)
 			if info1.SchedulingHash == "" {
 				t.Error("SchedulingHash should not be empty")
 			}
@@ -4084,7 +4084,7 @@ func TestSchedulingHash(t *testing.T) {
 		wl := utiltestingapi.MakeWorkload("wl", "ns").
 			Request("example.com/gpu", "1").Obj()
 		before := NewInfo(log, wl)
-		before.updateSchedulingHash(log)
+		before.updateSchedulingHash(log, false)
 
 		after := NewInfo(log, wl, WithPreprocessedDRAResources(
 			map[kueue.PodSetReference]corev1.ResourceList{
@@ -4096,7 +4096,7 @@ func TestSchedulingHash(t *testing.T) {
 				kueue.DefaultPodSetName: sets.New[corev1.ResourceName]("example.com/gpu"),
 			},
 		))
-		after.updateSchedulingHash(log)
+		after.updateSchedulingHash(log, false)
 
 		if diff := cmp.Diff(before.TotalRequests, after.TotalRequests, cmp.Comparer(resources.Equal)); diff == "" {
 			t.Fatal("precondition failed: TotalRequests should differ after DRA translation")
@@ -4218,6 +4218,27 @@ func TestUpdateSchedulingHashReuse(t *testing.T) {
 		info.Update(log, workload("uid", "1", 2))
 		if info.SchedulingHash != SchedulingHashUnknown {
 			t.Errorf("SchedulingHash = %q, want %q", info.SchedulingHash, SchedulingHashUnknown)
+		}
+	})
+
+	t.Run("WithSkipSchedulingHash leaves the hash empty", func(t *testing.T) {
+		wl := utiltestingapi.MakeWorkload("wl", "ns").UID("uid").ResourceVersion("1").
+			Request(corev1.ResourceCPU, "1").Obj()
+		hashed := NewInfo(log, wl)
+		if hashed.SchedulingHash == "" {
+			t.Fatal("precondition failed: hash is empty")
+		}
+
+		skipped := NewInfo(log, wl, WithSkipSchedulingHash())
+		if skipped.SchedulingHash != "" {
+			t.Errorf("SchedulingHash = %q, want empty", skipped.SchedulingHash)
+		}
+
+		// An Info that already holds a hash must not keep it once the inputs change.
+		hashed.Update(log, utiltestingapi.MakeWorkload("wl", "ns").UID("uid").ResourceVersion("2").
+			Request(corev1.ResourceCPU, "2").Obj(), WithSkipSchedulingHash())
+		if hashed.SchedulingHash != "" {
+			t.Errorf("SchedulingHash after Update = %q, want empty", hashed.SchedulingHash)
 		}
 	})
 }

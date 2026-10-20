@@ -1534,6 +1534,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					Workloads:     sets.KeySet(cq.Workloads),
 					UsedResources: cq.resourceNode.Usage,
 				}
+				// The cache builds its Infos without the scheduling hash.
+				for wlKey, wi := range cq.Workloads {
+					if wi.SchedulingHash != "" {
+						t.Errorf("Workload %s in ClusterQueue %s has scheduling hash %q, want none", wlKey, name, wi.SchedulingHash)
+					}
+				}
 			}
 			cmpOpts := []cmp.Option{
 				cmpopts.EquateEmpty(),

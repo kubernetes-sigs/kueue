@@ -863,7 +863,8 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Log
 	}
 
 	c.workloadAssignedQueues[wlKey] = cq.Name
-	wi := workload.NewInfoFromClient(ctrl.LoggerInto(ctx, log), c.client, wl, append(slices.Clone(c.workloadInfoOptions), opts...)...)
+	infoOptions := append(slices.Clone(c.workloadInfoOptions), workload.WithSkipSchedulingHash())
+	wi := workload.NewInfoFromClient(ctrl.LoggerInto(ctx, log), c.client, wl, append(infoOptions, opts...)...)
 	cq.addOrUpdateWorkload(log, wi)
 
 	return true, nil
