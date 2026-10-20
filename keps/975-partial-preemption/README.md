@@ -114,6 +114,35 @@ group's PodSet. The Ray driver scales in that worker group and updates the Workl
 Workload controller then releases the quota, and the high-priority job is admitted. The RayCluster,
 including its head and baseline worker group, continues running the entire time.
 
+#### Story 5: Preempting an interactive Ray cluster loses the user's notebook session
+
+As a researcher, I use a RayCluster as an interactive workspace: a Jupyter notebook runs on the head, and I submit Ray tasks to GPU workers from it.
+When a higher-priority job needs GPUs, I want to give back GPU workers, not lose my session.
+Partial preemption must never disrupt the head: it runs my notebook server, and I need it running to save my development work.
+
+The head requests 8 CPUs and 32 GiB of memory and runs the notebook server.
+The GPU worker group uses the Ray autoscaler, and each GPU worker uses a whole 8-GPU node.
+My RayCluster opts in to partial preemption and declares a minimum of 0 GPU workers.
+It runs at a lower priority than production jobs in the same ClusterQueue, `research`; CPU and memory quota are not a constraint in this example:
+
+| `research`              |                                            |
+|-------------------------|--------------------------------------------|
+| GPU `nominalQuota`      | 64                                         |
+| `withinClusterQueue`    | `LowerPriority`                            |
+| WorkloadPriorityClasses | `interactive` (100), `production` (1000)   |
+
+1. My RayCluster runs at priority `interactive` with its head and 4 GPU workers (32 GPUs).
+   A production fine-tuning job uses the other 32 GPUs.
+2. A second production job needs 16 GPUs.
+   Kueue asks my RayCluster to shrink the GPU worker group to 2 workers; the head keeps running.
+3. Two GPU worker Pods terminate.
+   My notebook kernel and the results it has already collected are kept, and Ray recomputes task results that were stored only on the removed workers.
+4. When the fine-tuning job finishes, the autoscaler scales the GPU workers back up as my notebook submits more work.
+
+Currently, Kueue suspends the whole RayCluster in step 2.
+KubeRay deletes the head with the workers, so the notebook server goes down, unsaved work is lost, and so is everything in the kernel's memory.
+The RayCluster is requeued with 4 GPU workers and cannot start again until 32 GPUs are free.
+
 ### Notes/Constraints/Caveats
 
 - The victim must opt in (annotation), have exactly one PodSet with `minCount` set, and currently be
