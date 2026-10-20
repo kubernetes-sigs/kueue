@@ -20,11 +20,13 @@ package was
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
@@ -72,6 +74,9 @@ func (s *wasSimulator) FindFeasibleNodes(
 	requirements *simulator.PodRequirements,
 	stats *simulator.NodeExclusionStats,
 ) ([]simulator.MatchedCandidate, error) {
+	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		return nil, errors.New("FindFeasibleNodes() not allowed when SchedulerLibraryDeepIntegration enabled")
+	}
 	var candidateLeaves = make(map[string]simulator.MatchedCandidate)
 	var candidateNodeNames []string
 	var feasibleCandidates []simulator.MatchedCandidate
@@ -146,6 +151,12 @@ func (s *wasSimulator) Simulate(ctx context.Context, fn func()) error {
 }
 
 func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
+	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		return simulator.SchedulingResult{
+			Error: errors.New("ScheduleWorkload() not allowed when SchedulerLibraryDeepIntegration disabled"),
+		}
+	}
+
 	workloadPods = copyWithDefaultScheduler(workloadPods...)
 	wasResults, err := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, schedlib.ScheduleWorkloadOptions{DryRun: true})
 	if err != nil {
@@ -176,6 +187,14 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 	}
 
 	return simulator.SchedulingResult{PodPlacements: placements}
+}
+
+func (s *wasSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	return s.wasSnapshot.AddPodGroup(ctx, pg)
+}
+
+func (s *wasSimulator) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	return s.wasSnapshot.RemovePodGroup(ctx, pg)
 }
 
 func copyWithDefaultScheduler(pods ...*corev1.Pod) []*corev1.Pod {

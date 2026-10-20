@@ -591,7 +591,11 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	}
 
 	// 4. update reclaimable counts if implemented by the job
-	if jobRecl, implementsReclaimable := job.(JobWithReclaimablePods); implementsReclaimable && features.Enabled(features.ReclaimablePods) {
+	jobRecl, implementsReclaimable := job.(JobWithReclaimablePods)
+	// The webhook rejects lowering reclaimablePods while the workload holds quota,
+	// which would block the eviction handling below, so skip it for an evicted workload.
+	evictedAndHoldingQuota := apimeta.IsStatusConditionTrue(wl.Status.Conditions, kueue.WorkloadEvicted) && workload.HasQuotaReservation(wl)
+	if implementsReclaimable && features.Enabled(features.ReclaimablePods) && !evictedAndHoldingQuota {
 		reclPods, err := jobRecl.ReclaimablePods(ctx, r.client)
 		if err != nil {
 			log.Error(err, "Getting reclaimable pods")
@@ -1682,7 +1686,7 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 	if !workload.HasQuotaReservation(wl) {
 		return nil
 	}
-	info, err := getPodSetsInfoFromStatus(ctx, c, wl, false)
+	info, err := getPodSetsInfoFromStatus(ctx, c, wl)
 	if err != nil {
 		return nil
 	}
@@ -1786,7 +1790,7 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 
 // startJob will unsuspend the job, and also inject the node affinity.
 func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
-	info, err := getPodSetsInfoFromStatus(ctx, r.client, wl, r.podsScheduledTrackingEnabled())
+	info, err := getPodSetsInfoFromStatus(ctx, r.client, wl)
 	if err != nil {
 		return err
 	}
@@ -2172,7 +2176,7 @@ func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
 
 // getPodSetsInfoFromStatus extracts podSetsInfo from workload status, based on
 // admission, and admission checks.
-func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload, annotateWorkload bool) ([]podset.PodSetInfo, error) {
+func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload) ([]podset.PodSetInfo, error) {
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
@@ -2188,10 +2192,7 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 		if err != nil {
 			return nil, err
 		}
-		if (annotateWorkload && features.Enabled(features.WaitForPodsReadyUnscheduledTimeout)) || features.Enabled(features.TopologyAwareScheduling) ||
-			features.Enabled(features.SchedulerLibraryIntegration) {
-			info.Annotations[kueue.WorkloadAnnotation] = w.Name
-		}
+		info.Annotations[kueue.WorkloadAnnotation] = w.Name
 		if workloadslicing.IsElasticWorkload(w) {
 			info.Annotations[kueue.WorkloadSliceNameAnnotation] = workloadslicing.SliceName(w)
 		}

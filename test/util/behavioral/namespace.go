@@ -82,7 +82,7 @@ func DeleteNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace)
 	if err := c.DeleteAllOf(ctx, &corev1.ConfigMap{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
-	if err := deleteAllPodsInNamespace(ctx, c, ns); err != nil {
+	if err := DeleteAllPodsInNamespace(ctx, c, ns); err != nil {
 		return err
 	}
 	if err := deleteWorkloadsInNamespace(ctx, c, ns); err != nil {

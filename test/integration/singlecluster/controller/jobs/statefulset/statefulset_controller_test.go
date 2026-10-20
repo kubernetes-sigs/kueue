@@ -522,7 +522,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("Should not set WorkloadAnnotation on the Pod when both TAS and SchedulerLibraryIntegration are disabled", func() {
+	ginkgo.It("Should set WorkloadAnnotation on the Pod when both TAS and SchedulerLibraryIntegration are disabled", func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TopologyAwareScheduling, false)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.SchedulerLibraryIntegration, false)
 
@@ -555,10 +555,10 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
 			g.Expect(gotPod.Annotations[constants.RoleHashAnnotation]).ShouldNot(gomega.BeEmpty())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		gomega.Consistently(func(g gomega.Gomega) {
+		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(pod), gotPod)).Should(gomega.Succeed())
-			g.Expect(gotPod.Annotations).ShouldNot(gomega.HaveKey(kueue.WorkloadAnnotation))
-		}, behavioral.LongConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			g.Expect(gotPod.Annotations).Should(gomega.HaveKey(kueue.WorkloadAnnotation))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
 	ginkgo.It("Should complete eviction for an empty PodGroup with a live StatefulSet owner", func() {

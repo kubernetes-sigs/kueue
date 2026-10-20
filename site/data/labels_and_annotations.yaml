@@ -356,6 +356,25 @@
     This annotation is required if `kueue.x-k8s.io/podset-slice-required-topology`
     is defined.
 
+- key: kueue.x-k8s.io/podset-topology-spreading
+  type: Annotation
+  example: '`kueue.x-k8s.io/podset-topology-spreading: ''{"workloadLabelSelectors": [{"key": "app", "operator": "In", "values": ["main-inference-service"]}], "rules": [{"topologyKey": "topology.kubernetes.io/zone", "maxShareAllowingPlacement": "0.45", "enforcementMode": "Preferred"}]}''`'
+  used_on: |
+    Kueue-managed Jobs (Job PodTemplate).
+  description: |
+    The annotation contains a JSON-encoded object describing how Workloads
+    matching a label selector should be spread across topology domains.
+    The value carries at most one workload label selector requirement identifying
+    which Workloads are spread against each other, and a list of rules specifying
+    a topology key, maximum share, and enforcement mode. For `Required`, a
+    domain above the maximum share is excluded from placement; for `Preferred`,
+    the domain is only deprioritized.
+
+    Used with [Topology Aware Scheduling](/docs/concepts/topology_aware_scheduling/).
+    This annotation is alpha-level for the `TASTopologySpreading` feature gate.
+  note: |
+    This annotation must be set alongside `kueue.x-k8s.io/podset-required-topology`.
+
 - key: kueue.x-k8s.io/podset-unconstrained-topology
   type: Annotation
   example: '`kueue.x-k8s.io/podset-unconstrained-topology: "true"`'
@@ -499,6 +518,17 @@
     [`waitForPodsReady.unscheduledTimeout`](/docs/tasks/manage/setup_wait_for_pods_ready/)
     is positive, or when the `TopologyAwareScheduling` or `SchedulerLibraryIntegration`
     feature gate is enabled.
+
+- key: kueue.x-k8s.io/workload-allowed-resource-flavors
+  type: Annotation
+  example: '`kueue.x-k8s.io/workload-allowed-resource-flavors: "reservation,spot"`'
+  used_on: |
+    [Workload](/docs/concepts/workload/).
+  description: |
+    The annotation defines a comma-separated list of [ResourceFlavor](/docs/concepts/resource_flavor/)
+    names that can be assigned to the Workload by the Kueue scheduler.
+
+    This annotation is alpha-level for the `ConcurrentAdmission` feature gate.
 
 - key: kueue.x-k8s.io/workload-slice-name
   type: Annotation

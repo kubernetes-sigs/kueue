@@ -14,10 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package v1alpha1 contains API Schema definitions for the multicluster.x-k8s.io v1alpha1 API group
+// Package v1alpha2 contains API Schema definitions for the multicluster.x-k8s.io v1alpha2 API group
 // +kubebuilder:object:generate=true
 // +groupName=multicluster.x-k8s.io
-package v1alpha1
+package v1alpha2
 
 import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -28,7 +28,7 @@ const (
 	// Group is the API group.
 	Group = "multicluster.x-k8s.io"
 	// Version is the API version.
-	Version = "v1alpha1"
+	Version = "v1alpha2"
 
 	// ClusterProfile resource constants.
 	// Kind is the resource kind for ClusterProfile.

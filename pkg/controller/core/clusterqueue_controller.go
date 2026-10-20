@@ -342,9 +342,6 @@ func (r *ClusterQueueReconciler) NotifyCohortUpdate(oldCohort, newCohort *kueue.
 	}
 }
 
-// Event handlers return true to signal the controller to reconcile the
-// ClusterQueue associated with the event.
-
 func (r *ClusterQueueReconciler) Create(e event.TypedCreateEvent[*kueue.ClusterQueue]) bool {
 	defer r.notifyWatchers(nil, e.Object)
 
@@ -514,12 +511,12 @@ func (r *ClusterQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.
 	}
 	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("clusterqueue_controller").
-		WatchesRawSource(source.TypedKind(
+		WatchesRawSource(r.cache.TrackInitialSync(source.TypedKind(
 			mgr.GetCache(),
 			&kueue.ClusterQueue{},
 			&handler.TypedEnqueueRequestForObject[*kueue.ClusterQueue]{},
 			r,
-		)).
+		))).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("ClusterQueue").GroupKind().String()],

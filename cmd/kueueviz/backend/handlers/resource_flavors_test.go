@@ -262,3 +262,40 @@ func toJSONList(t *testing.T, v any) []map[string]any {
 	}
 	return out
 }
+
+func TestFetchResourceFlavorDetailsSpec(t *testing.T) {
+	withSpec := makeResourceFlavor("spot", map[string]string{"capacity": "spot"})
+	withSpec.Spec.NodeTaints = []corev1.Taint{{Key: "spot", Value: "true", Effect: corev1.TaintEffectNoSchedule}}
+	withSpec.Spec.Tolerations = []corev1.Toleration{{Key: "spot", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}}
+
+	tests := map[string]struct {
+		flavor *kueueapi.ResourceFlavor
+	}{
+		"node labels, taints and tolerations are set": {
+			flavor: withSpec,
+		},
+		"node labels, taints and tolerations are unset": {
+			flavor: makeResourceFlavor("spot", nil),
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			h := New(newFakeClient(t, nil, tc.flavor), nil, nil)
+			got, err := h.fetchResourceFlavorDetails(t.Context(), "spot", middleware.Identity{Username: "alice"})
+			if err != nil {
+				t.Fatalf("fetchResourceFlavorDetails() error = %v", err)
+			}
+
+			// The ResourceFlavor detail page reads these keys from details.
+			want := map[string]any{
+				"nodeLabels":  tc.flavor.Spec.NodeLabels,
+				"nodeTaints":  tc.flavor.Spec.NodeTaints,
+				"tolerations": tc.flavor.Spec.Tolerations,
+			}
+			if diff := cmp.Diff(want, got["details"]); diff != "" {
+				t.Errorf("unexpected details (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}

@@ -29,7 +29,7 @@ require (
 	github.com/kubernetes-sigs/reference-docs/genref v0.28.0
 	github.com/mikefarah/yq/v4 v4.54.1
 	github.com/norwoodj/helm-docs v1.14.2
-	github.com/onsi/ginkgo/v2 v2.33.0
+	github.com/onsi/ginkgo/v2 v2.33.1
 	go.uber.org/mock v0.6.0
 	go.uber.org/zap v1.28.0
 	gopkg.in/op/go-logging.v1 v1.0.0-20160211212156-b2cb9fa56473
@@ -217,7 +217,7 @@ require (
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect
 	github.com/fzipp/gocyclo v0.6.0 // indirect
-	github.com/getkin/kin-openapi v0.146.0 // indirect
+	github.com/getkin/kin-openapi v0.149.0 // indirect
 	github.com/ghostiam/protogetter v1.0.1 // indirect
 	github.com/go-critic/go-critic v0.15.0 // indirect
 	github.com/go-errors/errors v1.5.1 // indirect
@@ -516,7 +516,7 @@ require (
 	k8s.io/kube-controller-manager v0.34.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad // indirect
 	k8s.io/kube-proxy v0.34.1 // indirect
-	k8s.io/kube-scheduler v0.34.1 // indirect
+	k8s.io/kube-scheduler v0.34.12 // indirect
 	k8s.io/kubectl v0.37.1 // indirect
 	k8s.io/kubelet v0.37.0 // indirect
 	k8s.io/metrics v0.37.1 // indirect
@@ -525,7 +525,7 @@ require (
 	mvdan.cc/unparam v0.0.0-20260823230713-2fa3d841b0c8 // indirect
 	oras.land/oras-go/v2 v2.6.2 // indirect
 	rsc.io/qr v0.2.0 // indirect
-	sigs.k8s.io/cluster-inventory-api v0.1.3 // indirect
+	sigs.k8s.io/cluster-inventory-api v0.2.0 // indirect
 	sigs.k8s.io/controller-runtime v0.25.0 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/kustomize/api v0.21.2 // indirect

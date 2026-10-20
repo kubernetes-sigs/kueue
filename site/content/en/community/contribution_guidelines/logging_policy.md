@@ -27,8 +27,8 @@ At configured verbosity `n`, informational records at levels `0` through `n` are
 | `Error` | Operational failures that prevent or materially disrupt an operation and may require operator attention. |
 | `V(0)` | Rare anomalies affecting Kueue as a whole, such as invariant violations. Use `Error` if the condition prevents or materially disrupts an operation. |
 | `V(1)` | Infrequent lifecycle and health transitions: startup, configuration, leadership, and connection health. Rare anomalies confined to a controller or the scheduler. |
-| `V(2)` | Concise summaries of component activity: material changes in overall state, and the start and completion of top-level scheduler cycles. |
-| `V(3)` | Main per-object diagnostics: `Reconcile` start, end, and duration; key informer observations; main scheduling and controller decisions, their reasons, and outcomes; useful context for changes saved through the API; and relevant temporary differences between cache and API state. |
+| `V(2)` | Concise summaries of component activity: material changes in overall state. |
+| `V(3)` | Scheduler cycle progress: start, end, duration, and phase summaries. Main per-object diagnostics: `Reconcile` start, end, and duration; key informer observations; main scheduling and controller decisions, their reasons, and outcomes; useful context for changes saved through the API; and relevant temporary differences between cache and API state. |
 | `V(4)` | Selected details that help explain a decision or change: relevant old and new values, aggregated decision context, and brief plans for grouped writes, fan-out, or enqueue activity. |
 | `V(5)` | Implementation traces: individual scheduling calculations and comparisons, heap/cache mechanics, individual API-write attempts and retries, additional informer/webhook metadata, and repeated steps within searches or fan-out. |
 | `V(6+)` | Deep tracing and broad internal-state dumps. |

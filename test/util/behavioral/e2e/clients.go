@@ -35,7 +35,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	jobset "sigs.k8s.io/jobset/api/jobset/v1alpha2"
@@ -98,7 +98,7 @@ func CreateClientUsingCluster(kContext string) (client.WithWatch, *rest.Config, 
 	err = kftrainer.AddToScheme(scheme.Scheme)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	err = inventoryv1alpha1.AddToScheme(scheme.Scheme)
+	err = inventoryv1alpha2.AddToScheme(scheme.Scheme)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	err = sparkv1beta2.AddToScheme(scheme.Scheme)

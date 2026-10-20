@@ -11641,6 +11641,119 @@ func TestSchedulerDropsAssumedWorkloadWhenFirstPassAdmissionWriteFails(t *testin
 	}
 }
 
+func TestSchedulerKeepsAdmittedWorkloadWhenCommittedAdmissionWriteReportsError(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+
+	ns := utiltesting.MakeNamespaceWrapper(metav1.NamespaceDefault).Obj()
+	rf := utiltestingapi.MakeResourceFlavor("rf").Obj()
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas(rf.Name).
+				Resource(corev1.ResourceCPU, "1").
+				Obj(),
+		).Obj()
+	lq := utiltestingapi.MakeLocalQueue("lq", metav1.NamespaceDefault).ClusterQueue(cq.Name).Obj()
+	wl := utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+		ResourceVersion("1").
+		Queue(kueue.LocalQueueName(lq.Name)).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			Request(corev1.ResourceCPU, "1").
+			Obj()).
+		Obj()
+	writeErr := apierrors.NewTimeoutError("request did not complete within the allowed duration", 0)
+
+	for _, useMergePatch := range []bool{false, true} {
+		t.Run(fmt.Sprintf("WorkloadRequestUseMergePatch=%t", useMergePatch), func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.WorkloadRequestUseMergePatch, useMergePatch)
+			ctx, log := utiltesting.ContextWithLog(t)
+
+			var cqCache *schdcache.Cache
+			// commitThenFail persists the write and applies the committed Workload to the
+			// cache, as its update event would, before the client reports an error.
+			commitThenFail := func(ctx context.Context, c client.Client, write func() error) error {
+				if err := write(); err != nil {
+					return err
+				}
+				var committed kueue.Workload
+				if err := c.Get(ctx, client.ObjectKeyFromObject(wl), &committed); err != nil {
+					return err
+				}
+				if !cqCache.AddOrUpdateWorkload(ctx, log, &committed) {
+					t.Error("Failed to apply the committed Workload to the cache")
+				}
+				return writeErr
+			}
+			cl := utiltesting.NewClientBuilder().
+				WithObjects(ns.DeepCopy(), rf.DeepCopy(), cq.DeepCopy(), lq.DeepCopy(), wl.DeepCopy()).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourcePatch: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, patch client.Patch, opts ...client.SubResourcePatchOption) error {
+						if _, ok := obj.(*kueue.Workload); ok && subResourceName == "status" {
+							return commitThenFail(ctx, c, func() error { return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...) })
+						}
+						return c.SubResource(subResourceName).Patch(ctx, obj, patch, opts...)
+					},
+					SubResourceApply: func(ctx context.Context, c client.Client, subResourceName string, applyConf runtime.ApplyConfiguration, opts ...client.SubResourceApplyOption) error {
+						if subResourceName == "status" {
+							return commitThenFail(ctx, c, func() error {
+								return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
+							})
+						}
+						return utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration(ctx, c, subResourceName, applyConf, opts...)
+					},
+				}).
+				Build()
+
+			cqCache = schdcache.New(cl)
+			qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+			watcher := &workloadUpdateWatcherRecorder{}
+			qManager.AddWorkloadUpdateWatcher(watcher)
+
+			cqCache.AddOrUpdateResourceFlavor(log, rf.DeepCopy())
+			if err := cqCache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+				t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+			}
+			if err := qManager.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+				t.Fatalf("Inserting clusterQueue %s in manager: %v", cq.Name, err)
+			}
+			if err := qManager.AddLocalQueue(ctx, lq.DeepCopy()); err != nil {
+				t.Fatalf("Inserting queue %s/%s in manager: %v", lq.Namespace, lq.Name, err)
+			}
+
+			scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{}, WithClock(t, testingclock.NewFakeClock(now)), WithPreemptionExpectations(preemptexpectations.New()))
+			wg := sync.WaitGroup{}
+			scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
+				func() { wg.Add(1) },
+				func() { wg.Done() },
+			))
+
+			ctx, cancel := context.WithTimeout(ctx, queueingTimeout)
+			defer cancel()
+			go qManager.CleanUpOnContext(ctx)
+
+			scheduler.schedule(ctx)
+			wg.Wait()
+
+			var committed kueue.Workload
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &committed); err != nil {
+				t.Fatalf("Getting the Workload: %v", err)
+			}
+			if !workload.HasQuotaReservation(&committed) {
+				t.Fatal("The admission write was not committed")
+			}
+			if !cqCache.IsAdded(*workload.NewInfo(log, &committed)) {
+				t.Error("The admitted Workload was removed from the scheduler cache")
+			}
+			if watcher.newWl == nil && watcher.oldWl != nil {
+				t.Error("Workload update watchers were notified about the Workload's removal")
+			}
+			if diff := cmp.Diff(map[kueue.ClusterQueueReference][]workload.Reference(nil), qManager.Dump()); diff != "" {
+				t.Errorf("The admitted Workload was requeued (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 type workloadUpdateWatcherRecorder struct {
 	oldWl *kueue.Workload
 	newWl *kueue.Workload

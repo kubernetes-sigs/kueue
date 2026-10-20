@@ -65,6 +65,16 @@ type Simulator interface {
 	// ScheduleWorkload schedules the given pods belonging to the same hierarchy using the workload-aware scheduling algorithm.
 	// If the pods do not belong to the same hierarchy, it returns an error.
 	// The order of the returned SchedulingResult slice is non-deterministic with respect to the input pods order.
+	//
+	// All PodGroup and CompositePodGroup objects in the hierarchy must exist in the snapshot before calling this method.
+	// Callers can register virtual groups (groups not present in the cluster) with AddPodGroup and AddCompositePodGroup.
+	//
+	// Note: Virtual pods (input pods not present in the snapshot beforehand) are assumed on nodes,
+	// but not added to internal pod group sets (allPods/assumedPods). Consequently,
+	// PodGroupState.ScheduledPods() does not include virtual pods from previous ScheduleWorkload calls.
+	// This is safe when evaluating an entire virtual workload in a single call (such as Kueue admission).
+	// However, when scheduling a hierarchy incrementally across multiple ScheduleWorkload calls, plugins
+	// that query ScheduledPods() (such as TAS) do not observe virtual pods from earlier calls.
 	ScheduleWorkload(ctx context.Context, pods []*v1.Pod, opts snapshot.ScheduleWorkloadOptions) ([]snapshot.SchedulingResult, error)
 
 	// PreemptPods removes the given running pods from the snapshot and returns the handle that puts
@@ -82,6 +92,18 @@ type Simulator interface {
 	// back. It fails if the handle has already been used, or if the snapshot has moved on since the
 	// preemption.
 	Unpreempt(u *snapshot.Unpreemption) ([]*v1.Pod, error)
+
+	// AddPodGroup adds a pod group to the snapshot.
+	AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error
+
+	// RemovePodGroup removes a pod group from the snapshot.
+	RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error
+
+	// AddCompositePodGroup adds a composite pod group to the snapshot.
+	AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error
+
+	// RemoveCompositePodGroup removes a composite pod group from the snapshot.
+	RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error
 }
 
 // SchedulingSimulator is the entry point of the library: it owns the scheduler configuration and
@@ -149,12 +171,22 @@ func NewSchedulingSimulator(
 	}, nil
 }
 
+// Option configures the scheduling profiles a ClusterState or ClusterSnapshot is built with.
+type Option = upstreamsync.FrameworkMapOption
+
+// WithSharedDRAManager makes the plugins read DRA objects through the given manager. A nil
+// manager keeps the informer-backed one.
+func WithSharedDRAManager(m fwk.SharedDRAManager) Option {
+	return upstreamsync.WithSharedDRAManager(m)
+}
+
 // NewClusterState initializes a new runtime cluster state.
+// The opts are applied when its scheduling profiles are built; see WithSharedDRAManager.
 // It is not safe to call concurrently with other NewClusterState or NewClusterSnapshot calls.
-func (s *SchedulingSimulator) NewClusterState(ctx context.Context) (*state.ClusterState, error) {
+func (s *SchedulingSimulator) NewClusterState(ctx context.Context, opts ...Option) (*state.ClusterState, error) {
 	snap := cache.NewEmptySnapshot()
 	internalCache := cache.New(ctx, nil, utilfeature.DefaultFeatureGate.Enabled(features.GenericWorkload), utilfeature.DefaultFeatureGate.Enabled(features.CompositePodGroup))
-	profiles, err := s.buildProfileMap(ctx, snap)
+	profiles, err := s.buildProfileMap(ctx, snap, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -163,6 +195,7 @@ func (s *SchedulingSimulator) NewClusterState(ctx context.Context) (*state.Clust
 }
 
 // NewClusterSnapshot initializes a new snapshot with the provided pods, nodes, pod groups, and composite pod groups.
+// The opts are applied when its scheduling profiles are built; see WithSharedDRAManager.
 // It is not safe to call concurrently with other NewClusterState or NewClusterSnapshot calls.
 func (s *SchedulingSimulator) NewClusterSnapshot(
 	ctx context.Context,
@@ -170,9 +203,10 @@ func (s *SchedulingSimulator) NewClusterSnapshot(
 	nodes []*v1.Node,
 	podGroups []*schedulingv1beta1.PodGroup,
 	compositePodGroups []*schedulingv1alpha3.CompositePodGroup,
+	opts ...Option,
 ) (Simulator, error) {
 	snap := cache.NewTestSnapshotWithCompositePodGroups(pods, nodes, podGroups, compositePodGroups)
-	profiles, err := s.buildProfileMap(ctx, snap)
+	profiles, err := s.buildProfileMap(ctx, snap, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -180,8 +214,8 @@ func (s *SchedulingSimulator) NewClusterSnapshot(
 	return snapshot.New(snap, profiles), nil
 }
 
-func (s *SchedulingSimulator) buildProfileMap(ctx context.Context, snap *cache.Snapshot) (*upstreamsync.ProfileMap, error) {
-	profiles, err := upstreamsync.NewFrameworkMap(ctx, s.comps, framework.DiscardRecorderFactory, snap)
+func (s *SchedulingSimulator) buildProfileMap(ctx context.Context, snap *cache.Snapshot, opts ...Option) (*upstreamsync.ProfileMap, error) {
+	profiles, err := upstreamsync.NewFrameworkMap(ctx, s.comps, framework.DiscardRecorderFactory, snap, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("schedlib: building scheduler: %w", err)
 	}
