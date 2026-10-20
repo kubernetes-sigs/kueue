@@ -1411,11 +1411,14 @@ func TestRemovePodGroup(t *testing.T) {
 	}
 
 	got = sim.ScheduleWorkload(ctx, []*corev1.Pod{pod})
-	if got.Error == nil {
-		t.Errorf("expected error scheduling pod after PodGroup was removed, got nil")
+	wantErr := errors.New("failed to build pod group hierarchy: failed to get pod group default/pg from snapshot: pod group state not found for pod group podgroup/default/pg")
+	if diff := cmp.Diff(&wantErr, &got.Error, cmpErrorMessage); diff != "" {
+		t.Errorf("ScheduleWorkload() after RemovePodGroup unexpected error (-want,+got):\n%s", diff)
 	}
 
-	if err := sim.RemovePodGroup(ctx, pg); err == nil {
-		t.Errorf("expected error removing already removed PodGroup, got nil")
+	err = sim.RemovePodGroup(ctx, pg)
+	wantErr = errors.New("pod group podgroup/default/pg not found in snapshot")
+	if diff := cmp.Diff(&wantErr, &err, cmpErrorMessage); diff != "" {
+		t.Errorf("second RemovePodGroup() unexpected error (-want,+got):\n%s", diff)
 	}
 }
