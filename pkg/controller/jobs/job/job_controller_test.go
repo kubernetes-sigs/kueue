@@ -4314,11 +4314,6 @@ func TestReconciler(t *testing.T) {
 			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"when the prebuilt workload is already finished, it is not adopted and the job is suspended": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-
-				features.AssignQueueLabelsForPods: true,
-			},
 			job: baseJobWrapper.
 				Clone().
 				Suspend(false).
@@ -4371,11 +4366,6 @@ func TestReconciler(t *testing.T) {
 			wantErr: jobframework.ErrPrebuiltWorkloadNotFound,
 		},
 		"when the prebuilt workload is already finished and controlled by the job, its finalizer is removed": {
-			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
-
-				features.AssignQueueLabelsForPods: true,
-			},
 			job: baseJobWrapper.
 				Clone().
 				PrebuiltWorkloadLabel("prebuilt-workload").

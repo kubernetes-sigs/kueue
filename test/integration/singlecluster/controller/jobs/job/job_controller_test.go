@@ -524,18 +524,10 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 		})
 
 		ginkgo.It("Should not adopt a prebuilt workload which is already finished", func() {
-			container := corev1.Container{
-				Name:  "c",
-				Image: "pause",
-			}
-			testingjob.SetContainerDefaults(&container)
-
 			// The workload was left finished by a deleted predecessor: it keeps the
 			// in-use finalizer but has no controller, so the job must not adopt it.
 			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
-				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
-					Containers(*container.DeepCopy()).
-					Obj()).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
 				Finalizers(kueue.ResourceInUseFinalizerName).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, wl)
@@ -560,7 +552,6 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 			job := testingjob.MakeJob("job", ns.Name).
 				Queue("main").
 				PrebuiltWorkloadLabel("wl").
-				Containers(*container.DeepCopy()).
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)
 
