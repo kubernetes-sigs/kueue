@@ -490,4 +490,91 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
+	ginkgo.It("Should apply Serve updates in place and reflect subsequent RayService autoscaling", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueRayInTreeAutoscaling, true)
+
+		admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(f.managerCq.Name)).PodSets(
+			utiltestingapi.MakePodSetAssignment("head").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+			utiltestingapi.MakePodSetAssignment("workers-group-0").Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj(),
+		)
+		rayService := testingrayservice.MakeService("autoscaling-rayservice", f.managerNs.Name).
+			Queue(f.managerLq.Name).
+			Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			EnableInTreeAutoscaling().
+			UpgradeStrategy(rayv1.RayServiceUpgradeNone).
+			WithServeConfigV2("serve-config-v1").Obj()
+		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayService)
+		var initialSliceKey types.NamespacedName
+		gomega.Eventually(func(g gomega.Gomega) {
+			workloads := &kueue.WorkloadList{}
+			g.Expect(managerTestCluster.client.List(managerTestCluster.ctx, workloads, client.InNamespace(rayService.Namespace))).To(gomega.Succeed())
+			g.Expect(workloads.Items).To(gomega.HaveLen(1))
+			initialSliceKey = client.ObjectKeyFromObject(&workloads.Items[0])
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, initialSliceKey, admission)
+
+		remoteService := &rayv1.RayService{}
+		serviceKey := client.ObjectKeyFromObject(rayService)
+		gomega.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, serviceKey, remoteService)).To(gomega.Succeed())
+		remoteUID := remoteService.UID
+		child := &rayv1.RayCluster{
+			Name:            "active-rayservice-cluster",
+			Namespace:       remoteService.Namespace,
+			OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(remoteService, rayv1.GroupVersion.WithKind("RayService"))},
+			Spec:            *remoteService.Spec.RayClusterSpec.DeepCopy(),
+		}
+		child.Spec.Suspend = new(false)
+		ginkgo.By("creating the active RayCluster as KubeRay would", func() {
+			behavioral.MustCreate(worker2TestCluster.ctx, worker2TestCluster.client, child)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, serviceKey, remoteService)).To(gomega.Succeed())
+				remoteService.Status.ActiveServiceStatus.RayClusterName = child.Name
+				g.Expect(worker2TestCluster.client.Status().Update(worker2TestCluster.ctx, remoteService)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, serviceKey, rayService)).To(gomega.Succeed())
+				g.Expect(rayService.Annotations).To(gomega.HaveKeyWithValue(
+					workloadraycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":1}]`))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("forwarding a manager-only Serve update while the worker owns replicas", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, serviceKey, rayService)).To(gomega.Succeed())
+				rayService.Spec.ServeConfigV2 = "serve-config-v2"
+				g.Expect(managerTestCluster.client.Update(managerTestCluster.ctx, rayService)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, serviceKey, remoteService)).To(gomega.Succeed())
+				g.Expect(remoteService.Spec.ServeConfigV2).To(gomega.Equal("serve-config-v2"))
+				g.Expect(remoteService.UID).To(gomega.Equal(remoteUID))
+				g.Expect(remoteService.Status.ActiveServiceStatus.RayClusterName).To(gomega.Equal(child.Name))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("reflecting the resulting autoscaler resize into a replacement slice", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, client.ObjectKeyFromObject(child), child)).To(gomega.Succeed())
+				child.Spec.WorkerGroupSpecs[0].Replicas = ptr.To[int32](2)
+				g.Expect(worker2TestCluster.client.Update(worker2TestCluster.ctx, child)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, serviceKey, rayService)).To(gomega.Succeed())
+				g.Expect(rayService.Annotations).To(gomega.HaveKeyWithValue(
+					workloadraycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":2}]`))
+				workloads := &kueue.WorkloadList{}
+				g.Expect(managerTestCluster.client.List(managerTestCluster.ctx, workloads, client.InNamespace(rayService.Namespace))).To(gomega.Succeed())
+				g.Expect(workloads.Items).To(gomega.HaveLen(2))
+				for i := range workloads.Items {
+					if workloads.Items[i].Name != initialSliceKey.Name {
+						g.Expect(workloads.Items[i].Spec.PodSets[1].Count).To(gomega.Equal(int32(2)))
+					}
+				}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, serviceKey, remoteService)).To(gomega.Succeed())
+				g.Expect(remoteService.UID).To(gomega.Equal(remoteUID))
+				g.Expect(jobframework.PrebuiltWorkloadNameFor(remoteService)).To(gomega.Equal(initialSliceKey.Name))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
 })
