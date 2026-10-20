@@ -23,7 +23,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -232,18 +231,6 @@ func (j *ClusterWrapper) SetAnnotation(key, content string) *ClusterWrapper {
 		j.Annotations = make(map[string]string, 1)
 	}
 	j.Annotations[key] = content
-	return j
-}
-
-// UID updates the uid of the RayCluster.
-func (j *ClusterWrapper) UID(uid string) *ClusterWrapper {
-	j.ObjectMeta.UID = types.UID(uid)
-	return j
-}
-
-// Generation updates the generation of the RayCluster.
-func (j *ClusterWrapper) Generation(generation int64) *ClusterWrapper {
-	j.ObjectMeta.Generation = generation
 	return j
 }
 
