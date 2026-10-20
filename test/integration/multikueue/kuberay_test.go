@@ -563,21 +563,15 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, serviceKey, rayService)).To(gomega.Succeed())
 				g.Expect(rayService.Annotations).To(gomega.HaveKeyWithValue(
 					workloadraycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":2}]`))
-				workloads := &kueue.WorkloadList{}
-				g.Expect(managerTestCluster.client.List(managerTestCluster.ctx, workloads, client.InNamespace(rayService.Namespace))).To(gomega.Succeed())
-				g.Expect(workloads.Items).To(gomega.HaveLen(2))
-				for i := range workloads.Items {
-					if workloads.Items[i].Name != initialSliceKey.Name {
-						g.Expect(workloads.Items[i].Spec.PodSets).To(gomega.ContainElement(gomega.And(
-							gomega.HaveField("Name", kueue.PodSetReference("workers-group-0")),
-							gomega.HaveField("Count", int32(2)),
-						)))
-					}
-				}
-				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, serviceKey, remoteService)).To(gomega.Succeed())
-				g.Expect(remoteService.UID).To(gomega.Equal(remoteUID))
-				g.Expect(jobframework.PrebuiltWorkloadNameFor(remoteService)).To(gomega.Equal(initialSliceKey.Name))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			initialSlice := &kueue.Workload{}
+			gomega.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, initialSliceKey, initialSlice)).To(gomega.Succeed())
+			replacement := behavioral.ExpectNewWorkloadSlice(managerTestCluster.ctx, managerTestCluster.client, initialSlice)
+			behavioral.ExpectWorkloadPodSetCount(managerTestCluster.ctx, managerTestCluster.client,
+				client.ObjectKeyFromObject(replacement), "workers-group-0", 2)
+			gomega.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, serviceKey, remoteService)).To(gomega.Succeed())
+			gomega.Expect(remoteService.UID).To(gomega.Equal(remoteUID))
+			gomega.Expect(jobframework.PrebuiltWorkloadNameFor(remoteService)).To(gomega.Equal(initialSliceKey.Name))
 		})
 	})
 })
