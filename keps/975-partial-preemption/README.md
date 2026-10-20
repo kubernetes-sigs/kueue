@@ -77,7 +77,8 @@ job runtime to **act** on it, while the quota accounting stays correct throughou
   assumed (opt-in).
 - Autoscaling / scaling back up after preemption is out of scope; this KEP only covers scale-down
   for quota reclamation.
-
+- Multi-host Ray worker groups (`numOfHosts > 1`) are not supported, as in partial scale-up
+  (KEP-12100): Ray can only reach targets that are multiples of `numOfHosts`.
 ## Proposal
 
 Introduce a per-PodSet target, `status.admission.podSetAssignments[].reclaimTargetCount`, that Kueue
