@@ -33,6 +33,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Label("controller:localcapacity", "area:dynamicquotaorchestration"), func() {
@@ -61,7 +62,7 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 	createNodes := func(names ...string) {
 		for _, name := range names {
 			n := makeNode(name)
-			behavioral.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*n})
+			integration.CreateNodesWithStatus(ctx, k8sClient, []corev1.Node{*n})
 			nodes = append(nodes, n)
 		}
 	}
