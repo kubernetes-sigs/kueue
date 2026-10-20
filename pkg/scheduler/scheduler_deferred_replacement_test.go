@@ -25,8 +25,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/component-base/featuregate"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -83,6 +85,10 @@ func TestDeferredTASReplacementDoesNotTriggerExtraPreemption(t *testing.T) {
 
 	cases := map[string]tasScheduleForTASCase{
 		"deferred replacement keeps a waiting preemptor on its in-flight victim": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASFailedNodeReplacementFailFast:                           true,
+				features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions: true,
+			},
 			nodes:           nodes,
 			topologies:      []kueue.Topology{singleLevelTopology},
 			resourceFlavors: []kueue.ResourceFlavor{flavor},

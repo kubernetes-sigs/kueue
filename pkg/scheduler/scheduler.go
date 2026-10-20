@@ -632,6 +632,9 @@ func shouldFailFastTASReplacement(wl *kueue.Workload, mode flavorassigner.Flavor
 // assignment, and defer with PendingPreemption semantics when the replacement
 // then fits. Otherwise fail-fast eviction is preserved.
 func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.Logger, e *entry, snapshot *schdcache.Snapshot) bool {
+	if !features.Enabled(features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions) {
+		return false
+	}
 	victims := inFlightEvictionVictims(snapshot)
 	if len(victims) == 0 {
 		return false

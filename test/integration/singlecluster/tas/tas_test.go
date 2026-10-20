@@ -4382,6 +4382,8 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 					})
 				})
 				ginkgo.It("should defer the fail-fast eviction of a Workload while an in-flight eviction can free a replacement node", framework.SlowSpec, func() {
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASFailedNodeReplacementFailFast, true)
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions, true)
 					makeRackWorkload := func(name string, count int) *kueue.Workload {
 						return utiltestingapi.MakeWorkload(name, ns.Name).
 							Queue(kueue.LocalQueueName(localQueue.Name)).

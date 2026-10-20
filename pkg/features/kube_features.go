@@ -194,6 +194,13 @@ const (
 	// Evict Workload if Kueue couldn't find replacement for a failed node in TAS in the first attempt.
 	TASFailedNodeReplacementFailFast featuregate.Feature = "TASFailedNodeReplacementFailFast"
 
+	// owner: @bolubo
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
+	//
+	// Defers the fail-fast eviction of a TAS replacement when in-flight
+	// evictions may free a suitable placement for the replacement.
+	TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions featuregate.Feature = "TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions"
+
 	// owner: @pajakd
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/2724-topology-aware-scheduling
 	//
@@ -910,41 +917,42 @@ func init() {
 }
 
 var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Feature{
-	TASFailedNodeReplacement:                            {TopologyAwareScheduling},
-	TASFailedNodeReplacementFailFast:                    {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASReplaceNodeOnPodTermination:                      {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASReplaceNodeDueToNotReadyOverFixedTime:            {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASReplaceMultipleFailedNodes:                       {TopologyAwareScheduling, TASFailedNodeReplacement},
-	TASBalancedPlacement:                                {TopologyAwareScheduling},
-	TASReplaceNodeOnNodeTaints:                          {TopologyAwareScheduling},
-	TASMultiLayerTopology:                               {TopologyAwareScheduling},
-	TASRespectNodeAffinityPreferred:                     {TopologyAwareScheduling},
-	TASGroupedPodSetSlicing:                             {TopologyAwareScheduling},
-	TASRejectFalseUnconstrainedTopology:                 {TopologyAwareScheduling},
-	UnadmittedWorkloadsExplicitStatus:                   {UnadmittedWorkloadsObservability},
-	TASHandleOverlappingFlavors:                         {TopologyAwareScheduling},
-	TASNodeFeasibilityForAllLevels:                      {TopologyAwareScheduling},
-	TASLeaderPodSetFeasibility:                          {TopologyAwareScheduling},
-	TASProfileMixed:                                     {TopologyAwareScheduling},
-	TASRecomputeAssignmentWithinSchedulingCycle:         {TopologyAwareScheduling},
-	ElasticJobsViaWorkloadSlicesWithTAS:                 {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
-	ElasticJobsViaWorkloadSlicesFlavorChangeFromZero:    {ElasticJobsViaWorkloadSlices},
-	MultiKueueRayInTreeAutoscaling:                      {MultiKueue, ElasticJobsViaWorkloadSlices, SkipChildJobSuspension},
-	KueueDRAIntegrationExtendedResource:                 {KueueDRAIntegration},
-	KueueDRAIntegrationPartitionableDevices:             {KueueDRAIntegration},
-	KueueDRAIntegrationConsumableCapacity:               {KueueDRAIntegration},
-	KueueDRAIntegrationPrioritizedList:                  {KueueDRAIntegration},
-	FlavorFungibilityPreserveScanProgress:               {FlavorFungibility},
-	SchedulingEquivalenceHashingIgnorePodSetName:        {SchedulingEquivalenceHashing},
-	MultiKueueReuseClientConnectionConfigForWorkers:     {MultiKueue},
-	TASTopologySpreading:                                {TopologyAwareScheduling},
-	AdmissionFairSharingAnchorAtQuotaReservation:        {AdmissionFairSharing},
-	KueueDRADeviceFeasibility:                           {KueueDRAIntegration, TopologyAwareScheduling, TASNodeFeasibilityForAllLevels},
-	KueueDRAIntegrationDeviceTaints:                     {KueueDRADeviceFeasibility},
-	TASPartialSlices:                                    {TopologyAwareScheduling},
-	ElasticJobsViaWorkloadSlicesForProvisioningRequests: {ElasticJobsViaWorkloadSlices},
-	SchedulerLibraryIntegration:                         {TopologyAwareScheduling},
-	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
+	TASFailedNodeReplacement:                                   {TopologyAwareScheduling},
+	TASFailedNodeReplacementFailFast:                           {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions: {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeOnPodTermination:                             {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceNodeDueToNotReadyOverFixedTime:                   {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASReplaceMultipleFailedNodes:                              {TopologyAwareScheduling, TASFailedNodeReplacement},
+	TASBalancedPlacement:                                       {TopologyAwareScheduling},
+	TASReplaceNodeOnNodeTaints:                                 {TopologyAwareScheduling},
+	TASMultiLayerTopology:                                      {TopologyAwareScheduling},
+	TASRespectNodeAffinityPreferred:                            {TopologyAwareScheduling},
+	TASGroupedPodSetSlicing:                                    {TopologyAwareScheduling},
+	TASRejectFalseUnconstrainedTopology:                        {TopologyAwareScheduling},
+	UnadmittedWorkloadsExplicitStatus:                          {UnadmittedWorkloadsObservability},
+	TASHandleOverlappingFlavors:                                {TopologyAwareScheduling},
+	TASNodeFeasibilityForAllLevels:                             {TopologyAwareScheduling},
+	TASLeaderPodSetFeasibility:                                 {TopologyAwareScheduling},
+	TASProfileMixed:                                            {TopologyAwareScheduling},
+	TASRecomputeAssignmentWithinSchedulingCycle:                {TopologyAwareScheduling},
+	ElasticJobsViaWorkloadSlicesWithTAS:                        {ElasticJobsViaWorkloadSlices, TopologyAwareScheduling},
+	ElasticJobsViaWorkloadSlicesFlavorChangeFromZero:           {ElasticJobsViaWorkloadSlices},
+	MultiKueueRayInTreeAutoscaling:                             {MultiKueue, ElasticJobsViaWorkloadSlices, SkipChildJobSuspension},
+	KueueDRAIntegrationExtendedResource:                        {KueueDRAIntegration},
+	KueueDRAIntegrationPartitionableDevices:                    {KueueDRAIntegration},
+	KueueDRAIntegrationConsumableCapacity:                      {KueueDRAIntegration},
+	KueueDRAIntegrationPrioritizedList:                         {KueueDRAIntegration},
+	FlavorFungibilityPreserveScanProgress:                      {FlavorFungibility},
+	SchedulingEquivalenceHashingIgnorePodSetName:               {SchedulingEquivalenceHashing},
+	MultiKueueReuseClientConnectionConfigForWorkers:            {MultiKueue},
+	TASTopologySpreading:                                       {TopologyAwareScheduling},
+	AdmissionFairSharingAnchorAtQuotaReservation:               {AdmissionFairSharing},
+	KueueDRADeviceFeasibility:                                  {KueueDRAIntegration, TopologyAwareScheduling, TASNodeFeasibilityForAllLevels},
+	KueueDRAIntegrationDeviceTaints:                            {KueueDRADeviceFeasibility},
+	TASPartialSlices:                                           {TopologyAwareScheduling},
+	ElasticJobsViaWorkloadSlicesForProvisioningRequests:        {ElasticJobsViaWorkloadSlices},
+	SchedulerLibraryIntegration:                                {TopologyAwareScheduling},
+	SchedulerLibraryDeepIntegration:                            {SchedulerLibraryIntegration},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.
@@ -1035,6 +1043,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	TASFailedNodeReplacementFailFast: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
 		{Version: version.MustParse("0.14"), Default: true, PreRelease: featuregate.Beta},
+	},
+	TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 	TASReplaceNodeOnPodTermination: {
 		{Version: version.MustParse("0.13"), Default: false, PreRelease: featuregate.Alpha},
