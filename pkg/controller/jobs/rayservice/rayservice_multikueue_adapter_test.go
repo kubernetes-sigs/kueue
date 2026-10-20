@@ -33,10 +33,13 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/ray"
+	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	utiltestingrayservice "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 const (
@@ -50,16 +53,33 @@ func TestMultiKueueAdapter(t *testing.T) {
 	}
 
 	rayServiceBuilder := utiltestingrayservice.MakeService("rayservice1", TestNamespace).Suspend(false)
+	autoscalingRayServiceBuilder := rayServiceBuilder.Clone().
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		EnableInTreeAutoscaling()
+	activeRayClusterBuilder := utiltestingraycluster.MakeCluster("active-cluster", TestNamespace).
+		UID("active-cluster-uid").
+		Generation(2).
+		FirstWorkerGroupReplicas(3, 0, 5)
+	autoscalingGates := map[featuregate.Feature]bool{
+		features.WorkloadIdentifierAnnotations:      false,
+		features.ElasticJobsViaWorkloadSlices:       true,
+		features.MultiKueueRayInTreeAutoscaling:     true,
+		features.KubeRayServiceUsingTopLevelSuspend: true,
+	}
+	errServeConfigPatch := errors.New("serve config patch failed")
 
 	cases := map[string]struct {
 		managersRayServices []rayv1.RayService
 		workerRayServices   []rayv1.RayService
+		workerRayClusters   []rayv1.RayCluster
+		workerPatch         func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error
 
 		operation func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error
 
 		wantError               error
 		wantManagersRayServices []rayv1.RayService
 		wantWorkerRayServices   []rayv1.RayService
+		wantWorkerRayClusters   []rayv1.RayCluster
 		featureGates            map[featuregate.Feature]bool
 	}{
 		"sync creates missing remote rayservice": {
@@ -109,6 +129,196 @@ func TestMultiKueueAdapter(t *testing.T) {
 					WithServeConfigV2("new-config").
 					Obj(),
 			},
+		},
+		"autoscaling: sync forwards serveConfigV2 while reflecting an autoscaler resize, without repointing the old slice": {
+			featureGates: autoscalingGates,
+			managersRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().WithServeConfigV2("new-config").Obj(),
+			},
+			workerRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					WithServeConfigV2("old-config").
+					ActiveRayClusterName("active-cluster").
+					Obj(),
+			},
+			workerRayClusters: []rayv1.RayCluster{*activeRayClusterBuilder.Clone().Obj()},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayservice1", Namespace: TestNamespace}, "admitted-slice", "origin1")
+				return err
+			},
+			wantManagersRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":3}]`).
+					Annotation(raycluster.RayClusterGenerationAnnotation, "active-cluster-uid-2").
+					WithServeConfigV2("new-config").
+					ActiveRayClusterName("active-cluster").
+					Obj(),
+			},
+			wantWorkerRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					WithServeConfigV2("new-config").
+					ActiveRayClusterName("active-cluster").
+					Obj(),
+			},
+			wantWorkerRayClusters: []rayv1.RayCluster{*activeRayClusterBuilder.Clone().Obj()},
+		},
+		"autoscaling: sync forwards serveConfigV2 after repointing the admitted slice": {
+			featureGates: autoscalingGates,
+			managersRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":3}]`).
+					Annotation(raycluster.RayClusterGenerationAnnotation, "active-cluster-uid-2").
+					WithServeConfigV2("new-config").
+					Obj(),
+			},
+			workerRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					WithServeConfigV2("old-config").
+					ActiveRayClusterName("active-cluster").
+					Obj(),
+			},
+			workerRayClusters: []rayv1.RayCluster{*activeRayClusterBuilder.Clone().Obj()},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayservice1", Namespace: TestNamespace}, "admitted-slice", "origin1")
+				return err
+			},
+			wantManagersRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":3}]`).
+					Annotation(raycluster.RayClusterGenerationAnnotation, "active-cluster-uid-2").
+					WithServeConfigV2("new-config").
+					ActiveRayClusterName("active-cluster").
+					Obj(),
+			},
+			wantWorkerRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					PrebuiltWorkloadLabel("admitted-slice").
+					WithServeConfigV2("new-config").
+					ActiveRayClusterName("active-cluster").
+					Obj(),
+			},
+			wantWorkerRayClusters: []rayv1.RayCluster{*activeRayClusterBuilder.Clone().Obj()},
+		},
+		"autoscaling: sync reflects an autoscaler resize but does not forward serveConfigV2 when MultiKueueRemoteSpecSync is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadIdentifierAnnotations:      false,
+				features.ElasticJobsViaWorkloadSlices:       true,
+				features.MultiKueueRayInTreeAutoscaling:     true,
+				features.KubeRayServiceUsingTopLevelSuspend: true,
+				features.MultiKueueRemoteSpecSync:           false,
+			},
+			managersRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().WithServeConfigV2("new-config").Obj(),
+			},
+			workerRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					WithServeConfigV2("old-config").
+					ActiveRayClusterName("active-cluster").
+					Obj(),
+			},
+			workerRayClusters: []rayv1.RayCluster{*activeRayClusterBuilder.Clone().Obj()},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayservice1", Namespace: TestNamespace}, "admitted-slice", "origin1")
+				return err
+			},
+			wantManagersRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":3}]`).
+					Annotation(raycluster.RayClusterGenerationAnnotation, "active-cluster-uid-2").
+					WithServeConfigV2("new-config").
+					ActiveRayClusterName("active-cluster").
+					Obj(),
+			},
+			wantWorkerRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					WithServeConfigV2("old-config").
+					ActiveRayClusterName("active-cluster").
+					Obj(),
+			},
+			wantWorkerRayClusters: []rayv1.RayCluster{*activeRayClusterBuilder.Clone().Obj()},
+		},
+		"autoscaling: sync does not forward serveConfigV2 while the manager rayservice is suspended": {
+			featureGates: autoscalingGates,
+			managersRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().Suspend(true).WithServeConfigV2("new-config").Obj(),
+			},
+			workerRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					WithServeConfigV2("old-config").
+					ActiveRayClusterName("active-cluster").
+					Obj(),
+			},
+			workerRayClusters: []rayv1.RayCluster{*activeRayClusterBuilder.Clone().Obj()},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayservice1", Namespace: TestNamespace}, "admitted-slice", "origin1")
+				return err
+			},
+			wantManagersRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					Suspend(true).
+					WithServeConfigV2("new-config").
+					ActiveRayClusterName("active-cluster").
+					Obj(),
+			},
+			wantWorkerRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					WithServeConfigV2("old-config").
+					ActiveRayClusterName("active-cluster").
+					Obj(),
+			},
+			wantWorkerRayClusters: []rayv1.RayCluster{*activeRayClusterBuilder.Clone().Obj()},
+		},
+		"autoscaling: sync returns the serveConfigV2 patch error after repointing the admitted slice": {
+			featureGates: autoscalingGates,
+			managersRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":3}]`).
+					Annotation(raycluster.RayClusterGenerationAnnotation, "active-cluster-uid-2").
+					WithServeConfigV2("new-config").
+					Obj(),
+			},
+			workerRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					PrebuiltWorkloadLabel("old-slice").
+					WithServeConfigV2("old-config").
+					ActiveRayClusterName("active-cluster").
+					Obj(),
+			},
+			workerRayClusters: []rayv1.RayCluster{*activeRayClusterBuilder.Clone().Obj()},
+			workerPatch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
+				if service, ok := obj.(*rayv1.RayService); ok && service.Spec.ServeConfigV2 == "new-config" {
+					return errServeConfigPatch
+				}
+				return c.Patch(ctx, obj, patch, opts...)
+			},
+			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
+				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayservice1", Namespace: TestNamespace}, "admitted-slice", "origin1")
+				return err
+			},
+			wantError: errServeConfigPatch,
+			wantManagersRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":3}]`).
+					Annotation(raycluster.RayClusterGenerationAnnotation, "active-cluster-uid-2").
+					WithServeConfigV2("new-config").
+					ActiveRayClusterName("active-cluster").
+					Obj(),
+			},
+			wantWorkerRayServices: []rayv1.RayService{
+				*autoscalingRayServiceBuilder.Clone().
+					PrebuiltWorkloadLabel("admitted-slice").
+					WithServeConfigV2("old-config").
+					ActiveRayClusterName("active-cluster").
+					Obj(),
+			},
+			wantWorkerRayClusters: []rayv1.RayCluster{*activeRayClusterBuilder.Clone().Obj()},
 		},
 		"sync status from remote rayservice": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -290,13 +500,18 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 			workerBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{
 				SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				Patch:            tc.workerPatch,
 			})
-			workerBuilder = workerBuilder.WithLists(&rayv1.RayServiceList{Items: tc.workerRayServices})
+			workerBuilder = workerBuilder.WithLists(
+				&rayv1.RayServiceList{Items: tc.workerRayServices},
+				&rayv1.RayClusterList{Items: tc.workerRayClusters},
+			)
 			workerClient := workerBuilder.Build()
 
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			adapter := ray.NewMKAdapter(copyJobSpec, copyJobStatus, getEmptyList, gvk, getManagedBy, setManagedBy,
+				ray.WithElasticReplicaSync(elasticRuntimeSync()),
 				ray.WithRemoteSpecSync[*rayv1.RayService, rayv1.RayService](remoteSpecSyncer{}))
 
 			gotErr := tc.operation(ctx, adapter, managerClient, workerClient)
@@ -320,6 +535,15 @@ func TestMultiKueueAdapter(t *testing.T) {
 			} else {
 				if diff := cmp.Diff(tc.wantWorkerRayServices, gotWorkerRayServices.Items, objCheckOpts...); diff != "" {
 					t.Errorf("unexpected worker's rayservices (-want/+got):\n%s", diff)
+				}
+			}
+
+			gotWorkerRayClusters := &rayv1.RayClusterList{}
+			if err := workerClient.List(ctx, gotWorkerRayClusters); err != nil {
+				t.Errorf("unexpected list worker's rayclusters error %s", err)
+			} else {
+				if diff := cmp.Diff(tc.wantWorkerRayClusters, gotWorkerRayClusters.Items, objCheckOpts...); diff != "" {
+					t.Errorf("unexpected worker's rayclusters (-want/+got):\n%s", diff)
 				}
 			}
 		})
