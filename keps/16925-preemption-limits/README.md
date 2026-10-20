@@ -36,6 +36,7 @@ tags, build the mdtoc tool with `make mdtoc` and then generate the TOC with `hac
   - [Proposed API](#proposed-api)
   - [Limit Enforcement](#limit-enforcement)
   - [In-Memory State Management](#in-memory-state-management)
+  - [Re-computation of Preemption Targets Upon Preemption Limits Consumption Overlap](#re-computation-of-preemption-targets-upon-preemption-limits-consumption-overlap)
   - [Workload Requeuing When No Candidates Are Available](#workload-requeuing-when-no-candidates-are-available)
   - [Observability](#observability)
   - [Test Plan](#test-plan)
@@ -365,6 +366,21 @@ Because preemption event tracking is maintained strictly in-memory rather than p
 Furthermore, the status of the PreemptionLimit is refreshed periodically by a dedicated `PreemptionLimitReconciler` — approximately every minute — to update `lastUpdateTime` and write the aggregated totals into the count map (restricted to the top 1000 counts to fit within CRD size limits).
 
 `PreemptionLimitReconciler` will be responsible for updating an in-memory representation of limits — removing no longer needed recorded preemption limit timestamps from memory when a particular `PreemptionLimit` is deleted, and resetting the in-memory limits when a `PreemptionLimit`'s `spec.scope`, `spec.configSelector`, `spec.preemptorClusterQueueSelector`, or `spec.preemptedClusterQueueSelector` changes.
+
+
+### Re-computation of Preemption Targets Upon Preemption Limits Consumption Overlap
+
+In a Kueue scheduling cycle, workloads are evaluated sequentially during the workload evaluation phase. Because limit consumption is recorded only when preemptions are actually issued for an admitted workload, there is no information about previous limits consumption during the nomination and assignments generation for subsequent workloads in the cycle.
+
+If multiple workloads evaluated in the same cycle consume the same preemption limits (e.g. sharing a Global limit, targeting the same preempted ClusterQueue, or originating from the same preemptor ClusterQueue), each workload independently assumes the full preemption limit budget is available. If left unaddressed, conflicts in preemption limits consumption can cause a workload to fail admission at the point of issuing preemptions, leading to prolonged waiting of the workload for readmission.
+
+To avoid this, if multiple workloads consume the same limits, the preemption targets assignment of the conflicting workload will be recomputed in a similar manner as the [Re-computation of TAS assignments within the workload evaluation phase](/keps/2724-topology-aware-scheduling/README.md#re-computation-of-tas-assignments-within-the-workload-evaluation-phase).
+
+To make this possible:
+1. **Returning Consumed Preemption Limits**: Finding of preemption candidates will also return the consumed preemption limits (and consumed quantities) for the chosen configurable preemption targets alongside the targets themselves.
+2. **Checking for Overlap Overconsuming Limits**: Because Kueue updates the remaining preemption limits during the admission of previous workloads, the in-memory limits are already up to date at this moment. When evaluating a workload that is considered for admission, the entries returned from candidate finding will be used first to check if there is an overlap overconsuming the remaining limits.
+3. **Recomputing Preemption Targets Assignment**: If an overlap overconsuming the limits is detected, the workload's preemption targets assignment will be recomputed, now taking into account the previous preemptions.
+4. **Resolution**: If the recomputation successfully identifies alternative preemption targets that fit within the remaining limit budget, the workload can proceed to admission. If no valid preemption candidates remain without exceeding the limits, the workload is not admitted and is deferred and requeued as described in [Workload Requeuing When No Candidates Are Available](#workload-requeuing-when-no-candidates-are-available).
 
 
 ### Workload Requeuing When No Candidates Are Available
