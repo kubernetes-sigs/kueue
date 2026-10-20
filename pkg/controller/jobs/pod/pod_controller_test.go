@@ -8544,6 +8544,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
+					UID("pod2-uid").
 					ManagedByKueueLabel().
 					PrebuiltWorkloadLabel("prebuilt-workload").
 					KueueFinalizer().
@@ -8721,11 +8722,12 @@ func TestReconciler(t *testing.T) {
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
-		"when the prebuilt workload is already finished and owned by the group": {
+		"when the prebuilt workload is already finished and owned by a non-first pod in the group": {
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
+					UID("pod1-uid").
 					ManagedByKueueLabel().
 					PrebuiltWorkloadLabel("prebuilt-workload").
 					KueueFinalizer().
@@ -8749,8 +8751,7 @@ func TestReconciler(t *testing.T) {
 					Finalizers(kueue.ResourceInUseFinalizerName).
 					PodSets(*utiltestingapi.MakePodSet("dc85db45", 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localTestQueueName).
-					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
-					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "pod2-uid").
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
@@ -8763,6 +8764,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod1").
+					UID("pod1-uid").
 					ManagedByKueueLabel().
 					PrebuiltWorkloadLabel("prebuilt-workload").
 					StatusPhase(corev1.PodPending).
@@ -8772,6 +8774,7 @@ func TestReconciler(t *testing.T) {
 				*basePodWrapper.
 					Clone().
 					Name("pod2").
+					UID("pod2-uid").
 					ManagedByKueueLabel().
 					PrebuiltWorkloadLabel("prebuilt-workload").
 					StatusPhase(corev1.PodPending).
@@ -8783,8 +8786,8 @@ func TestReconciler(t *testing.T) {
 				*utiltestingapi.MakeWorkload("prebuilt-workload", "ns").
 					PodSets(*utiltestingapi.MakePodSet("dc85db45", 2).Request(corev1.ResourceCPU, "1").Obj()).
 					Queue(localTestQueueName).
-					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "test-uid").
-					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "test-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod2", "pod2-uid").
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod1", "pod1-uid").
 					Condition(metav1.Condition{
 						Type:    kueue.WorkloadFinished,
 						Status:  metav1.ConditionTrue,
@@ -8799,6 +8802,12 @@ func TestReconciler(t *testing.T) {
 					EventType: "Normal",
 					Reason:    "FinishedWorkload",
 					Message:   "Workload 'ns/prebuilt-workload' is declared finished",
+				},
+				{
+					Key:       types.NamespacedName{Name: "prebuilt-workload", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "OwnerReferencesAdded",
+					Message:   "Added 1 owner reference(s)",
 				},
 			},
 			workloadCmpOpts: defaultWorkloadCmpOpts,
