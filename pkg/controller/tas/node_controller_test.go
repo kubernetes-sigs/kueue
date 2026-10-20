@@ -1260,6 +1260,23 @@ func TestNodeFailureReconciler(t *testing.T) {
 				features.TASReplaceNodeOnPodTermination: true,
 			},
 		},
+		"Node NotReady, hostname label differs from Node name, all assigned pods succeeded -> Healthy": {
+			initObjs: []client.Object{
+				nodeWithDifferentName.Clone().StatusConditions(corev1.NodeCondition{
+					Type:               corev1.NodeReady,
+					Status:             corev1.ConditionFalse,
+					LastTransitionTime: now}).Obj(),
+				baseWorkload.DeepCopy(),
+				testingpod.MakePod("succeeded-pod", nsName).Annotation(kueue.WorkloadAnnotation, wlName).
+					NodeSelector(corev1.LabelHostname, nodeName).
+					NodeName(nodeObjectName).StatusPhase(corev1.PodSucceeded).Obj(),
+			},
+			reconcileRequests:  []reconcile.Request{{Name: nodeName}},
+			wantUnhealthyNodes: nil,
+			featureGates: map[featuregate.Feature]bool{
+				features.TASReplaceNodeOnPodTermination: true,
+			},
+		},
 		"Workload without admission (nil Admission status) - handled safely": {
 			initObjs: []client.Object{
 				baseNode.Clone().StatusConditions(corev1.NodeCondition{
