@@ -1338,9 +1338,10 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.Ev
 	}
 
 	log := ctrl.LoggerFrom(ctx)
-	cqName, err := p.localQueueClusterQueue(ctx, c)
-	if err != nil {
-		return err
+	// The ClusterQueue is only needed for the metric, so a failed lookup does not block the deletion.
+	cqName, lookupErr := p.localQueueClusterQueue(ctx, c)
+	if lookupErr != nil {
+		log.Error(lookupErr, "Failed to get the ClusterQueue, excess pod deletions are not counted")
 	}
 	customLabelValues := p.customLabels.CQGet(cqName)
 
@@ -1349,7 +1350,7 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.Ev
 	p.excessPodExpectations.ExpectUIDs(log, p.key, extraPodsUIDs)
 
 	// Finalize and delete the active pods created last
-	err = parallelize.Until(ctx, len(extraPods), func(i int) error {
+	err := parallelize.Until(ctx, len(extraPods), func(i int) error {
 		pod := &extraPods[i]
 
 		removed, err := removePodFinalizers(ctx, c, pod)
@@ -1374,7 +1375,9 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.Ev
 			}
 			log.V(3).Info("Requested deletion of excess pod in group", "pod", klog.KObj(pod))
 			r.Eventf(pod, nil, corev1.EventTypeNormal, ReasonExcessPodDeleted, "ExcessPodDeleted", "Excess pod deleted")
-			metrics.ReportExcessPodDeleted(cqName, customLabelValues, p.roleTracker)
+			if lookupErr == nil {
+				metrics.ReportExcessPodDeleted(cqName, customLabelValues, p.roleTracker)
+			}
 		}
 		return nil
 	})
