@@ -119,12 +119,14 @@ controllerManager:
 # -- Manager configuration inputs. Defaults are defined in templates/manager/_config.tpl.
 managerConfig: {}
 # Replace {} above with a mapping and uncomment the settings you want to use.
-# A supplied YAML string takes precedence, including "". Otherwise, structured
-# overrides merge with chart defaults. With neither input, chart defaults apply.
+# With mode omitted, supplied YAML takes precedence, including ""; otherwise,
+# structured overrides merge with defaults. Optional mode selects an input explicitly.
 # See README.md#manager-configuration for migration and upgrade guidance.
 #   structuredOverrides:
 #     clientConnection:
 #       qps: 600
+# Set mode explicitly to ignore retained YAML when migrating with --reuse-values.
+#   mode: structured
 # Alternatively, supply the manager configuration as YAML; chart defaults are not merged.
 #   controllerManagerConfigYaml: |-
 #     <manager configuration YAML>

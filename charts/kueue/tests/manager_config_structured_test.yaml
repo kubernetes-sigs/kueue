@@ -425,3 +425,69 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "(?s)controllerManagerConfigYaml.*string"
+
+  - it: should use explicit structured selection consistently for manager and webhooks
+    set: &explicitModeInputs
+      enableCertManager: true
+      managerConfig.mode: structured
+      managerConfig.controllerManagerConfigYaml: |
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: legacy
+        integrations:
+          frameworks: [batch/job]
+        internalCertManagement:
+          enable: true
+      managerConfig.structuredOverrides:
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: structured
+        integrations:
+          frameworks: [pod]
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "managedJobsNamespaceSelector:\n  matchLabels:\n    team: structured"
+        template: manager/manager-config.yaml
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "internalCertManagement:\n  enable: false"
+        template: manager/manager-config.yaml
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].namespaceSelector
+          value:
+            matchLabels:
+              team: structured
+        template: webhook/manifests.yaml
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
+          value: Fail
+        template: webhook/manifests.yaml
+        documentIndex: 0
+
+  - it: should use explicit YAML selection consistently for manager and webhooks
+    set:
+      <<: *explicitModeInputs
+      managerConfig.mode: yaml
+    asserts:
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "managedJobsNamespaceSelector:\n  matchLabels:\n    team: legacy"
+        template: manager/manager-config.yaml
+      - matchRegex:
+          path: data["controller_manager_config.yaml"]
+          pattern: "internalCertManagement:\n  enable: true"
+        template: manager/manager-config.yaml
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].namespaceSelector
+          value:
+            matchLabels:
+              team: legacy
+        template: webhook/manifests.yaml
+        documentIndex: 0
+      - equal:
+          path: webhooks[?(@.name == "mpod.kb.io")].failurePolicy
+          value: Ignore
+        template: webhook/manifests.yaml
+        documentIndex: 0

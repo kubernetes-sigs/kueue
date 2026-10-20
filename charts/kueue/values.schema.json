@@ -4,8 +4,12 @@
   "properties": {
     "managerConfig": {
       "type": "object",
-      "description": "A supplied controllerManagerConfigYaml takes precedence, including an empty string. Otherwise, structuredOverrides merges with chart defaults.",
+      "description": "Optional mode selects yaml or structured. When omitted, a supplied controllerManagerConfigYaml takes precedence, including an empty string; otherwise, structuredOverrides merges with chart defaults.",
       "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["yaml", "structured"]
+        },
         "structuredOverrides": {
           "type": "object"
         },
