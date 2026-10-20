@@ -680,8 +680,8 @@ When the above MPIJob is submitted, Kueue MPIJob integration webhook adds
 `kueue.x-k8s.io/pod-index-offset: "1"` annotation to `.spec.mpiReplicas["Worker"].metadata.annotations` 
 because Worker pods will get 1-2 index annotation values in `training.kubeflow.org/replica-index`.
 
-The annotation is also added when `kueue.x-k8s.io/podset-group-name` is specified,
-because the Worker indexes start from 1 regardless of the PodSet Group.
+On the other hands, `kueue.x-k8s.io/pod-index-offset` annotation is not added and offset management is delegated to the PodSet Group mechanism
+when `kueue.x-k8s.io/podset-group-name` is specified.
 
 #### Support for the "auto" mode
 
