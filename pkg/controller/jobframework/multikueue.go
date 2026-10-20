@@ -84,8 +84,10 @@ type MultiKueueLocalJobWatcher interface {
 // reporting the status of a remote object that no longer exists.
 type MultiKueueLocalStatusResetter interface {
 	// ResetLocalStatus resets the status copied from the remote object.
-	// It is called when the local workload no longer has a quota reservation
-	// and is not finished. A missing local object is not an error.
+	// It may be called when the local workload is not finished and either has no
+	// quota reservation, or no remote workload is admitted and its admission check
+	// is not Ready. It may be called on every reconcile, so it should not write
+	// when there is nothing to reset. A missing local object is not an error.
 	ResetLocalStatus(ctx context.Context, localClient client.Client, key types.NamespacedName) error
 }
 

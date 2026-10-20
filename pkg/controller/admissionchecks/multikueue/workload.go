@@ -446,8 +446,8 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 				log.V(2).Error(err, "Deleting remote workload", "workerCluster", rem)
 			}
 		}
-		if resetter, ok := group.jobAdapter.(jobframework.MultiKueueLocalStatusResetter); ok && !group.IsFinished() {
-			if err := resetter.ResetLocalStatus(ctx, w.client, group.controllerKey); err != nil {
+		if !group.IsFinished() {
+			if err := w.resetLocalStatus(ctx, group); err != nil {
 				errs = append(errs, err)
 				log.V(2).Error(err, "Resetting local job status")
 			}
@@ -705,6 +705,14 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		return reconcile.Result{RequeueAfter: requeueAfter}, nil
 	}
 
+	// 6c. No remote is admitted, so any status copied from an earlier remote is stale.
+	// Reset it here too: if quota is reserved again before a reconcile sees the
+	// workload without one, step 2 never runs. A failed reset is retried on a
+	// later reconcile instead of blocking the nomination.
+	if err := w.resetLocalStatus(ctx, group); err != nil {
+		log.V(2).Error(err, "Resetting local job status")
+	}
+
 	// 7. Open the preemption gate if applicable
 	var requeueAfterSynchronize time.Duration
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
@@ -733,6 +741,16 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 		res.RequeueAfter = requeueAfterSynchronize
 	}
 	return res, err
+}
+
+// resetLocalStatus resets the status copied from a remote object onto the local
+// job, for adapters that support it.
+func (w *wlReconciler) resetLocalStatus(ctx context.Context, group *wlGroup) error {
+	resetter, ok := group.jobAdapter.(jobframework.MultiKueueLocalStatusResetter)
+	if !ok {
+		return nil
+	}
+	return resetter.ResetLocalStatus(ctx, w.client, group.controllerKey)
 }
 
 func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
