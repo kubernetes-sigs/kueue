@@ -6,15 +6,8 @@
     "kueue": {
       "properties": {
         "managerConfig": {
-          "description": "Omit mode or set it to yaml for legacy configuration. Set mode to structured to use structuredOverrides instead.",
+          "description": "A supplied controllerManagerConfigYaml takes precedence, including an empty string. Otherwise, structuredOverrides merges with chart defaults.",
           "properties": {
-            "mode": {
-              "type": "string",
-              "enum": [
-                "yaml",
-                "structured"
-              ]
-            },
             "structuredOverrides": {
               "type": "object"
             },

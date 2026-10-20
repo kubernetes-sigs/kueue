@@ -150,9 +150,8 @@ The following table lists the configurable parameters under the `kueuePopulator`
 | `config.topology.levels`                           | list     | `[]`              | Optional list of node labels for Topology Aware Scheduling levels. Enables Topology creation.            |
 | `config.resourceFlavor.nodeLabels`                 | object   | `{}`              | Node labels to associate with the default ResourceFlavor.                                                  |
 | `config.managedJobsNamespaceSelector`              | object   | unset             | Optional selector to override Kueue's `managedJobsNamespaceSelector` for the populator.                   |
-| `kueue.managerConfig.mode` | string | (not set) | Omit or use `yaml` for legacy configuration; set `structured` to use `structuredOverrides`. |
-| `kueue.managerConfig.structuredOverrides`                       | object   | (not set) | Overrides of Kueue manager configuration defaults, used only with `mode: structured`. The populator inherits its `managedJobsNamespaceSelector` unless explicitly overridden. |
-| `kueue.managerConfig.controllerManagerConfigYaml`  | string   | (not set)         | Full Kueue manager configuration as YAML; used when mode is absent or `yaml`, and ignored in structured mode. |
+| `kueue.managerConfig.structuredOverrides`                       | object   | (not set) | Overrides of Kueue manager configuration defaults, used when the YAML key is absent. The populator inherits its `managedJobsNamespaceSelector` unless explicitly overridden. |
+| `kueue.managerConfig.controllerManagerConfigYaml`  | string   | (not set)         | Full Kueue manager configuration as YAML; takes precedence when supplied, including an empty string. |
 
 ### Kueue Subchart Configuration
 
@@ -160,9 +159,15 @@ This chart includes the official `kueue` chart as a dependency. You can configur
 
 -   `kueue.enabled: false`: Disables the subchart installation by default. Set to `true` to install Kueue.
 -   `kueue.controllerManager.featureGates`: Enables `TopologyAwareScheduling`.
--   `kueue.managerConfig.mode`: Omit or set to `yaml` to retain legacy YAML behavior. Set to `structured` to select `kueue.managerConfig.structuredOverrides`, ignoring any saved YAML string. The populator inherits `managedJobsNamespaceSelector` unless its own selector is explicitly set. The two inputs are not merged. This selection applies with the Kueue subchart enabled or disabled; structured null-valued map keys are removed in either case.
+-   `kueue.managerConfig`: A supplied `controllerManagerConfigYaml` takes
+    precedence, including an empty string. Otherwise, use `structuredOverrides`.
+    The populator inherits `managedJobsNamespaceSelector` unless its own selector
+    is explicitly set. The two inputs are not merged. This selection applies with
+    the Kueue subchart enabled or disabled; structured null-valued map keys are
+    removed in either case. With the subchart disabled, an absent selector falls
+    back to excluding `kube-system` and the configured Kueue or release namespace.
 
-Both modes reject unknown keys directly under `kueue.managerConfig`. When supplied,
+Unknown keys directly under `kueue.managerConfig` are rejected. When supplied,
 `structuredOverrides` must be a map and `controllerManagerConfigYaml` must be a
 string, even when that input is not selected. Correct unknown keys or incorrectly
 typed inputs before upgrading.

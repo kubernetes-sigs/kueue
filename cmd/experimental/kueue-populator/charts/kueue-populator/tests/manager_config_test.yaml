@@ -3,7 +3,6 @@ templates:
   - manager.yaml
 set:
   kueue.enabled: false
-  kueue.managerConfig.mode: structured
 release:
   namespace: custom-system
 tests:
@@ -192,7 +191,6 @@ tests:
   - it: should preserve legacy YAML nulls and precedence over structured configuration with the subchart disabled
     documentIndex: 3
     set: &legacyYaml
-      kueue.managerConfig.mode: yaml
       kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
       kueue.managerConfig.controllerManagerConfigYaml: |
         managedJobsNamespaceSelector:

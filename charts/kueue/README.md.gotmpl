@@ -111,25 +111,22 @@ for more information on installing kueue with metrics using our Helm chart.
 
 #### Manager configuration
 
-Legacy YAML configuration remains the default. Set `managerConfig.mode` to
-`structured` to opt into structured configuration. Both modes use the same
-resolved configuration for the manager and job webhooks.
+A supplied `managerConfig.controllerManagerConfigYaml` takes precedence as a
+complete configuration, including an explicitly empty string. Otherwise,
+`managerConfig.structuredOverrides` merges with chart defaults. The manager and
+job webhooks use the same resolved configuration.
 
-| Mode | Behavior |
+| Inputs | Behavior |
 |---|---|
-| Absent or `yaml` | Use `controllerManagerConfigYaml` when supplied, including `""`; otherwise use chart defaults. Ignore `structuredOverrides`. |
-| `structured` | Merge `structuredOverrides` with chart defaults. Ignore `controllerManagerConfigYaml`, even when nonempty. |
-| Any other value | Reject the values with a validation error. |
+| Neither supplied | Use chart defaults. |
+| Only `structuredOverrides` | Merge overrides with chart defaults. An empty map uses defaults. |
+| `controllerManagerConfigYaml` supplied | Use the YAML as a complete replacement; ignore structured overrides. |
+| `controllerManagerConfigYaml: ""` | Keep the legacy empty configuration; certificate-management settings still apply. |
 
-`managerConfig.controllerManagerConfigYaml` remains supported for supplying a
-complete configuration. Existing YAML values and explicitly empty YAML strings
-retain their previous behavior.
-
-For structured configuration, specify the mode and only your customizations:
+For structured configuration, specify only your customizations:
 
 ```yaml
 managerConfig:
-  mode: structured
   structuredOverrides:
     clientConnection:
       qps: 600
@@ -146,37 +143,46 @@ never merged together. Existing certificate-management defaults still apply when
 `internalCertManagement` is not set.
 
 The active defaults are defined only in
-[templates/manager/_config.tpl](templates/manager/_config.tpl). Both modes use
-them when no complete YAML configuration is selected. They stay separate from
-saved user values so settings without an override in the effective Helm values
-follow the selected chart version's defaults. Reuse flags retain previously
-saved overrides, even when omitted from the new values file.
+[templates/manager/_config.tpl](templates/manager/_config.tpl). They stay separate
+from saved user values so settings without an override in the effective Helm
+values follow the selected chart version's defaults. Reuse flags retain
+previously saved overrides, even when omitted from the new values file.
 
 Tools that read the default YAML string directly from `values.yaml` must instead
-read the rendered manager ConfigMap.
+read the rendered manager ConfigMap. Full YAML configuration remains supported;
+existing YAML users do not need to migrate.
 
-To migrate, set `mode: structured` and copy every intentional customization from
-the old YAML into `structuredOverrides`. There is no need to clear the YAML
-string: structured mode ignores it. Keep the mode in your values file for
-subsequent upgrades.
+##### Migrating to structured overrides
 
-| Upgrade options | What to supply |
+Copy intentional customizations from your YAML into `structuredOverrides` and
+remove the `controllerManagerConfigYaml` key. Setting it to `""` still selects
+an empty YAML configuration, not structured overrides.
+
+For an existing Helm release, supply a values file containing all customizations
+you want to retain, including settings outside `managerConfig`, then run:
+
+```sh
+helm upgrade kueue <chart> --namespace kueue-system \
+  --reset-values --values values.yaml
+```
+
+This discards any saved YAML string that would otherwise take precedence. Ensure
+that a parent chart or another values file does not still supply the YAML key.
+When Kueue is a dependency, nest the settings under its dependency name or alias.
+
+| Subsequent upgrade options | Behavior |
 |---|---|
-| `--reuse-values` or `--reset-then-reuse-values` | The mode and new or changed structured customizations; omitted saved overrides and other chart settings are retained. For removals, follow the instructions below. |
-| `--reset-values`, or new values without a reuse flag | The mode, structured customizations, and all other chart settings you want to retain. |
+| `--reuse-values` or `--reset-then-reuse-values` | Keep saved settings, including YAML and structured overrides. New values replace matching settings; omitted saved settings remain. For removals, follow the instructions below. |
+| `--reset-values` | Use chart defaults and the supplied values. Include all customizations you want to retain. |
+| No reuse or reset flag | Helm retains saved values if no new values are supplied; supplying nonempty new values replaces the saved inputs. |
 
-Resetting values without supplying the mode returns to legacy YAML mode. To
-switch back deliberately, set `mode: yaml` and supply the desired YAML string.
-When Kueue is a dependency, nest these values under its dependency name or
-alias. Review the rendered configuration when upgrading.
-
-Helm rejects unknown keys directly under `managerConfig` in both modes. The only
-allowed keys are `mode`, `structuredOverrides`, and
-`controllerManagerConfigYaml`. Both inputs must have the correct type even when
-not selected: `structuredOverrides` is a map, and `controllerManagerConfigYaml`
-is a string. Empty maps and empty strings are valid. Fields inside the selected
-configuration are validated by Kueue when it loads the configuration. Run
-`helm lint <chart> --values values.yaml` before upgrading.
+Helm rejects unknown keys directly under `managerConfig`. The only allowed keys
+are `structuredOverrides` and `controllerManagerConfigYaml`. Both inputs must
+have the correct type even when not selected: `structuredOverrides` is a map,
+and `controllerManagerConfigYaml` is a string. Empty maps and empty strings are
+valid. Fields inside the selected configuration are validated by Kueue when it
+loads the configuration. Run `helm lint <chart> --values values.yaml` before
+upgrading and review the rendered configuration.
 
 When upgrading, remove or correct unknown manager input keys and incorrectly
 typed inputs. These values may previously have been ignored.
@@ -201,8 +207,8 @@ helm upgrade kueue <chart> --namespace kueue-system \
   --reset-values --values values.yaml
 ```
 
-Keep `managerConfig.mode: structured` in that file. Resetting values discards
-saved customizations not included in it.
+Do not include `controllerManagerConfigYaml` when using structured overrides.
+Resetting values discards saved customizations not included in the file.
 
 #### Chart values
 

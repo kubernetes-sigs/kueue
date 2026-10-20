@@ -175,9 +175,8 @@ Maps merge recursively, lists and scalars replace, and null removes a key.
 
 {{/*
 Resolve manager configuration once for every consumer.
-Legacy YAML remains the default. Structured configuration is explicitly selected
-with mode: structured and merged with this chart's packaged defaults.
-In YAML mode, an omitted string uses defaults; an explicitly empty string stays empty.
+A supplied YAML string takes precedence as a complete replacement, including an
+explicitly empty string. Otherwise, merge structured overrides with packaged defaults.
 */}}
 {{- define "kueue.managerConfig" -}}
 {{- $values := dict }}
@@ -187,23 +186,16 @@ In YAML mode, an omitted string uses defaults; an explicitly empty string stays 
 {{- if not (kindIs "map" $values) }}
 {{- fail "managerConfig must be a map" }}
 {{- end }}
-{{- $mode := "yaml" }}
-{{- if hasKey $values "mode" }}
-{{- $mode = $values.mode }}
-{{- end }}
-{{- if not (has $mode (list "yaml" "structured")) }}
-{{- fail "managerConfig.mode must be yaml or structured" }}
-{{- end }}
-{{- if and (eq $mode "yaml") (hasKey $values "controllerManagerConfigYaml") }}
+{{- if hasKey $values "controllerManagerConfigYaml" }}
 {{- $values.controllerManagerConfigYaml | fromYaml | toYaml }}
 {{- else }}
-{{- if and (eq $mode "structured") (hasKey $values "structuredOverrides") }}
+{{- if hasKey $values "structuredOverrides" }}
 {{- if not (kindIs "map" $values.structuredOverrides) }}
 {{- fail "managerConfig.structuredOverrides must be a map" }}
 {{- end }}
 {{- end }}
 {{- $config := include "kueue.managerConfigDefaults" . | fromYaml }}
-{{- if and (eq $mode "structured") (hasKey $values "structuredOverrides") }}
+{{- if hasKey $values "structuredOverrides" }}
 {{- $_ := include "kueue.mergeManagerConfig" (dict "target" $config "source" $values.structuredOverrides) }}
 {{- end }}
 {{- toYaml $config }}
