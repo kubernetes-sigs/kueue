@@ -193,6 +193,9 @@ func TestMultiKueueAdapter(t *testing.T) {
 					ActiveRayClusterName("active-cluster").
 					Obj(),
 			},
+			// The manager already reflects the active RayCluster's worker counts, so
+			// the sync sees no runtime change and repoints the remote onto the
+			// admitted slice being synced.
 			wantWorkerRayServices: []rayv1.RayService{
 				*autoscalingRayServiceBuilder.Clone().
 					PrebuiltWorkloadLabel("admitted-slice").
