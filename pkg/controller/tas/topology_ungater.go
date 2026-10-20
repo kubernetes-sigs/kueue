@@ -252,6 +252,9 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 			}
 			if len(pods) > 0 {
 				// Assume that same replica all Pods has the same offset value.
+				// The annotation replaces the PodSet group offset, so integrations
+				// whose Pod indexes start from 0 within a PodSet group, such as
+				// JobSet, set it to 0.
 				offsetVal, found := pods[0].Annotations[kueue.PodIndexOffsetAnnotation]
 				if found {
 					var offset int
@@ -262,7 +265,7 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 						)
 						return reconcile.Result{}, errors.Join(err, errParseOffsetAnnotation)
 					}
-					rankOffsets[psa.Name] += int32(offset)
+					rankOffsets[psa.Name] = int32(offset)
 				}
 			}
 			gatedPodsToDomains := assignGatedPodsToDomains(log, &psa, pods, psNameToTopologyRequest[psa.Name], rankOffsets[psa.Name], lendFreeCapacity)
