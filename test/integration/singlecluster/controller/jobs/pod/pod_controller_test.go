@@ -1089,7 +1089,7 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 			})
 
 			ginkgo.It("Should release an evicted PodGroup after the Pod deletion deadline", framework.SlowSpec, func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FastQuotaReleaseInPodIntegration, false)
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FastQuotaReleaseInPodIntegration, false) //nolint:staticcheck // SA1019: testing deprecated feature gate
 				const holdFinalizer = "test.example.com/hold"
 				pod := testingpod.MakePod("test-pod", ns.Name).
 					GroupNameLabel("test-group").

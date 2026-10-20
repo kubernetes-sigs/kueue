@@ -29,6 +29,8 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/apiutil"
+
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 const (
@@ -69,6 +71,7 @@ func (m *IntegrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 			return err
 		}
 	}
+
 	return m.forEach(func(name string, cb IntegrationCallbacks) error {
 		logger := log.WithValues("jobFrameworkName", name)
 		fwkNamePrefix := fmt.Sprintf("jobFrameworkName %q", name)
@@ -115,12 +118,16 @@ func (m *IntegrationManager) setupControllers(ctx context.Context, mgr ctrl.Mana
 }
 
 func (m *IntegrationManager) setupControllerAndWebhook(ctx context.Context, mgr ctrl.Manager, name string, fwkNamePrefix string, cb IntegrationCallbacks, options Options, opts ...Option) error {
+	reconcilerOpts := opts
+	if features.Enabled(features.QuotaReleaseStrategy) && cb.QuotaReleaseStrategy != nil {
+		reconcilerOpts = append(reconcilerOpts, WithQuotaReleaseStrategy(cb.QuotaReleaseStrategy))
+	}
 	if r, err := cb.NewReconciler(
 		ctx,
 		mgr.GetClient(),
 		mgr.GetFieldIndexer(),
 		mgr.GetEventRecorder(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
-		opts...,
+		reconcilerOpts...,
 	); err != nil {
 		return fmt.Errorf("%s: %w", fwkNamePrefix, err)
 	} else if err := r.SetupWithManager(mgr); err != nil {
@@ -133,7 +140,7 @@ func (m *IntegrationManager) setupControllerAndWebhook(ctx context.Context, mgr 
 			mgr.GetClient(),
 			mgr.GetFieldIndexer(),
 			mgr.GetEventRecorder(fmt.Sprintf("%s-%s-controller", name, options.ManagerName)),
-			opts...,
+			reconcilerOpts...,
 		); err != nil {
 			return fmt.Errorf("%s: %w", fwkNamePrefix, err)
 		} else if err := r.SetupWithManager(mgr); err != nil {
