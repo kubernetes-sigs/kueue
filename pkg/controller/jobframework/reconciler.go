@@ -1128,6 +1128,27 @@ func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job Gener
 	return UpdateWorkloadPriority(ctx, r.client, r.record, job.Object(), getCustomPriorityClassFuncFromJob(job), live...)
 }
 
+// workloadOwnedBy reports whether the workload is already associated with the
+// job object. Regular prebuilt workloads are adopted with a controller
+// reference, while composable jobs (pod groups) record plain owner references
+// to their members. Accept both so that a finished workload owned by the job
+// still goes through the regular finalization path.
+func workloadOwnedBy(wl *kueue.Workload, object client.Object) bool {
+	if metav1.IsControlledBy(wl, object) {
+		return true
+	}
+	uid := object.GetUID()
+	if uid == "" {
+		return false
+	}
+	for i := range wl.OwnerReferences {
+		if wl.OwnerReferences[i].UID == uid {
+			return true
+		}
+	}
+	return false
+}
+
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
 // If there are more than one workload, we should delete the excess ones.
 // The returned workload could be nil.
@@ -1153,10 +1174,10 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		// Do not adopt a prebuilt workload that is already finished. It cannot
 		// represent the execution of this job, and adopting it would finalize the
 		// job immediately, leaving it running unmanaged and without a quota
-		// reservation. A finished workload controlled by this job is still
+		// reservation. A finished workload owned by this job is still
 		// returned, so that the job is finalized and the workload finalizer is
 		// removed as usual.
-		if workloadfinish.IsFinished(wl) && !metav1.IsControlledBy(wl, object) {
+		if workloadfinish.IsFinished(wl) && !workloadOwnedBy(wl, object) {
 			log.V(2).Info(
 				"WARNING: The prebuilt workload is already finished",
 				"workload", klog.KObj(wl),
