@@ -572,27 +572,28 @@ var _ = ginkgo.Describe("MultiKueue Pod", ginkgo.Label("area:multikueue", "featu
 
 		ginkgo.By("leaving a status copied from an earlier worker pod on the manager pod", func() {
 			behavioral.ExpectAdmissionCheckState(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, f.multiKueueAC.Name, kueue.CheckStatePending)
+			// Reconciles of the workload without a quota reservation also reset the pod,
+			// and nothing here shows when the last one has run. Restore the status until
+			// it stays, so the reset checked below happens with the reservation in place.
 			gomega.Eventually(func(g gomega.Gomega) {
 				managerPod := &corev1.Pod{}
 				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, podKey, managerPod)).To(gomega.Succeed())
-				managerPod.Status.Phase = corev1.PodRunning
-				managerPod.Status.PodIP = "10.0.0.1"
-				managerPod.Status.Conditions = []corev1.PodCondition{{
-					Type:               corev1.PodScheduled,
-					Status:             corev1.ConditionTrue,
-					LastTransitionTime: metav1.Now(),
-				}}
-				g.Expect(managerTestCluster.client.Status().Update(managerTestCluster.ctx, managerPod)).To(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-
-			// A reconcile of the workload without a quota reservation would also reset
-			// the pod. Make sure none does, so the reset checked below happens with the
-			// reservation in place.
-			gomega.Consistently(func(g gomega.Gomega) {
-				managerPod := &corev1.Pod{}
-				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, podKey, managerPod)).To(gomega.Succeed())
-				g.Expect(managerPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
-			}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+				if managerPod.Status.Phase != corev1.PodRunning {
+					managerPod.Status.Phase = corev1.PodRunning
+					managerPod.Status.PodIP = "10.0.0.1"
+					managerPod.Status.Conditions = []corev1.PodCondition{{
+						Type:               corev1.PodScheduled,
+						Status:             corev1.ConditionTrue,
+						LastTransitionTime: metav1.Now(),
+					}}
+					g.Expect(managerTestCluster.client.Status().Update(managerTestCluster.ctx, managerPod)).To(gomega.Succeed())
+				}
+				g.Consistently(func(g gomega.Gomega) {
+					managerPod := &corev1.Pod{}
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, podKey, managerPod)).To(gomega.Succeed())
+					g.Expect(managerPod.Status.Phase).To(gomega.Equal(corev1.PodRunning))
+				}, behavioral.LongConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
 		ginkgo.By("reserving quota on the manager without admitting the workload in worker1", func() {
