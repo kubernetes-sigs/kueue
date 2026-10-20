@@ -738,21 +738,9 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, wl)
 
-			// Status is a subresource, so the finished condition passed to Create
-			// is not persisted. Mark the workload finished explicitly and wait for
-			// the update to be observed before the job is created.
+			// Status is a subresource, so set the Finished condition via a status update.
 			ginkgo.By("Marking the prebuilt workload finished", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					createdWl := kueue.Workload{}
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
-					apimeta.SetStatusCondition(&createdWl.Status.Conditions, metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  kueue.WorkloadFinishedReasonSucceeded,
-						Message: "The workload is declared finished",
-					})
-					g.Expect(k8sClient.Status().Update(ctx, &createdWl)).To(gomega.Succeed())
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				integration.FinishWorkloads(ctx, k8sClient, wl)
 			})
 
 			job := testingjob.MakeJob("job", ns.Name).
@@ -761,16 +749,11 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 				Obj()
 			behavioral.MustCreate(ctx, k8sClient, job)
 
-			ginkgo.By("Checking the job gets suspended instead of adopting the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
+			ginkgo.By("Checking the job stays suspended and the finished workload is not adopted", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
 					createdJob := batchv1.Job{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
 					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("Checking the finished workload is not adopted and keeps its finalizer", func() {
-				gomega.Consistently(func(g gomega.Gomega) {
 					createdWl := kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
 					g.Expect(createdWl.OwnerReferences).To(gomega.BeEmpty())
