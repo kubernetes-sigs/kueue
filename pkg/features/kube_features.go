@@ -861,6 +861,14 @@ const (
 	// WaitForPodsReady.Timeout and WaitForPodsReady.RecoveryTimeout for that workload.
 	WorkloadLevelWaitForPodsReady featuregate.Feature = "WorkloadLevelWaitForPodsReady"
 
+	// owner: @anguszzzz
+	//
+	// Enables clearing a Workload's requeueState after it stays in the
+	// PodsReady condition for at least the resolved WaitForPodsReady timeout,
+	// so that a long-lived Workload's re-queuing backoff ladder does not
+	// accumulate PodsReadyTimeout evictions from unrelated past incidents.
+	ResetRequeueStateOnPodsReady featuregate.Feature = "ResetRequeueStateOnPodsReady"
+
 	// owner: @pajakd
 	//
 	// Allow a PodSet slice size that does not evenly divide the PodSet count.
@@ -1354,6 +1362,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	WorkloadLevelWaitForPodsReady: {
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
+	},
+
+	ResetRequeueStateOnPodsReady: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	TASPartialSlices: {

@@ -858,15 +858,19 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		if err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
+		requeueStateResetAfter, err := r.reconcileRequeueStateReset(ctx, &wl)
+		if err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
 		maxExecRecheckAfter, err := r.reconcileMaxExecutionTime(ctx, &wl)
 		if err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
 		// get the minimun non-zero value
-		recheckAfter := min(podsReadyRecheckAfter, maxExecRecheckAfter)
+		recheckAfter := min(podsReadyRecheckAfter, maxExecRecheckAfter, requeueStateResetAfter)
 		if recheckAfter == 0 {
-			recheckAfter = max(podsReadyRecheckAfter, maxExecRecheckAfter)
+			recheckAfter = max(podsReadyRecheckAfter, maxExecRecheckAfter, requeueStateResetAfter)
 		}
 		return ctrl.Result{RequeueAfter: recheckAfter}, nil
 	}
@@ -1286,6 +1290,45 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	)
 
 	return 0, err
+}
+
+// reconcileRequeueStateReset clears the requeueState of an admitted Workload
+// which stays in the PodsReady condition for at least the resolved
+// WaitForPodsReady timeout. It returns the time after which the Workload
+// should be re-reconciled to check the sustained readiness again.
+func (r *WorkloadReconciler) reconcileRequeueStateReset(ctx context.Context, wl *kueue.Workload) (time.Duration, error) {
+	if !features.Enabled(features.ResetRequeueStateOnPodsReady) {
+		return 0, nil
+	}
+	if wl.Status.RequeueState == nil || !workload.IsAdmitted(wl) {
+		return 0, nil
+	}
+	podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
+	if podsReadyCond == nil || podsReadyCond.Status != metav1.ConditionTrue {
+		return 0, nil
+	}
+	timeout, _, ok := r.determineTimeouts(ctx, wl)
+	if !ok {
+		return 0, nil
+	}
+	if recheckAfter := r.remainingUntil(podsReadyCond.LastTransitionTime.Add(timeout)); recheckAfter > 0 {
+		return recheckAfter, nil
+	}
+
+	// Clear RequeueState using Merge Patch instead of SSA.
+	// SSA cannot delete a pointer field with json:",omitempty" when it's owned
+	// by a different field manager. Merge Patch handles this correctly.
+	if err := clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
+		wl.Status.RequeueState = nil
+		return true, nil
+	}); err != nil {
+		return 0, client.IgnoreNotFound(err)
+	}
+
+	ctrl.LoggerFrom(ctx).V(2).Info("Cleared the requeueState after a sustained PodsReady period")
+	r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, "RequeueStateReset", "RequeueStateReset",
+		"The requeueState was cleared since the workload was in PodsReady for at least the WaitForPodsReady timeout")
+	return 0, nil
 }
 
 // triggerDeactivation trigger deactivation of workload
