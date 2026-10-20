@@ -358,6 +358,7 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(log logr.Logger, rayClusterSpec *r
 	if err := podset.Merge(log, &headPod.ObjectMeta, &headPod.Spec, info); err != nil {
 		return err
 	}
+	jobframework.DefaultPodIndexOffsetForPodSetGroup(&headPod.ObjectMeta)
 
 	// workers
 	for index := range rayClusterSpec.WorkerGroupSpecs {
@@ -366,6 +367,7 @@ func UpdateRayClusterSpecToRunWithPodSetsInfo(log logr.Logger, rayClusterSpec *r
 		if err := podset.Merge(log, &workerPod.ObjectMeta, &workerPod.Spec, info); err != nil {
 			return err
 		}
+		jobframework.DefaultPodIndexOffsetForPodSetGroup(&workerPod.ObjectMeta)
 	}
 
 	return nil
@@ -463,19 +465,6 @@ func isRayObjectManagedByMultiKueue(object client.Object) bool {
 		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
 	default:
 		return false
-	}
-}
-
-// DefaultPodIndexOffsetForPodSetGroups sets the Pod index offset to 0 on the
-// grouped Pod templates, because worker replica indexes start from 0 in each
-// worker group.
-func DefaultPodIndexOffsetForPodSetGroups(rayClusterSpec *rayv1.RayClusterSpec) {
-	if rayClusterSpec == nil {
-		return
-	}
-	jobframework.DefaultPodIndexOffsetForPodSetGroup(&rayClusterSpec.HeadGroupSpec.Template.ObjectMeta)
-	for i := range rayClusterSpec.WorkerGroupSpecs {
-		jobframework.DefaultPodIndexOffsetForPodSetGroup(&rayClusterSpec.WorkerGroupSpecs[i].Template.ObjectMeta)
 	}
 }
 
