@@ -93,6 +93,26 @@ func (a *Assignment) UpdateForTASResult(log logr.Logger, cq *schdcache.ClusterQu
 // the RepresentativeMode of the PodSet and the Assignment at large.
 func (a *Assignment) ResolvePodSetFailure(psRef kueue.PodSetReference, targetMode FlavorAssignmentMode, failStatus *Status) {
 	psAssignment := a.PodSetAssignmentByName(psRef)
+	a.resolvePodSetFailure(psAssignment, targetMode, failStatus)
+}
+
+// ResolvePodSetFailures updates failed PodSets and their assigned flavor attempts
+// in linear time in the number of PodSets, assigned resources, and attempts.
+// Attempts are updated only when UnadmittedWorkloadsObservability is enabled.
+func (a *Assignment) ResolvePodSetFailures(failures map[kueue.PodSetReference]*Status, targetMode FlavorAssignmentMode) {
+	recordAttempts := features.Enabled(features.UnadmittedWorkloadsObservability)
+	for i := range a.PodSets {
+		psAssignment := &a.PodSets[i]
+		if status, failed := failures[psAssignment.Name]; failed {
+			a.resolvePodSetFailure(psAssignment, targetMode, status)
+			if recordAttempts {
+				psAssignment.markAssignedFlavorAttempts(targetMode, status.noFitReason)
+			}
+		}
+	}
+}
+
+func (a *Assignment) resolvePodSetFailure(psAssignment *PodSetAssignment, targetMode FlavorAssignmentMode, failStatus *Status) {
 	psAssignment.Status = *failStatus
 	// update the mode for all flavors and the representative mode
 	a.demoteTo(targetMode)
@@ -531,6 +551,22 @@ func (psa *PodSetAssignment) MarkFlavorAttempt(flavor kueue.ResourceFlavorRefere
 			psa.FlavorAssignmentAttempts[i].Mode = mode
 			psa.FlavorAssignmentAttempts[i].NoFitReason = reason
 			break
+		}
+	}
+}
+
+func (psa *PodSetAssignment) markAssignedFlavorAttempts(mode FlavorAssignmentMode, reason string) {
+	assignedFlavors := sets.New[kueue.ResourceFlavorReference]()
+	for _, flavor := range psa.Flavors {
+		assignedFlavors.Insert(flavor.Name)
+	}
+	for i := range psa.FlavorAssignmentAttempts {
+		attempt := &psa.FlavorAssignmentAttempts[i]
+		if assignedFlavors.Has(attempt.Flavor) {
+			attempt.Mode = mode
+			attempt.NoFitReason = reason
+			// Preserve MarkFlavorAttempt's behavior of updating only the first match.
+			assignedFlavors.Delete(attempt.Flavor)
 		}
 	}
 }
