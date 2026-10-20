@@ -869,24 +869,7 @@ func (c *Cache) AddOrUpdateWorkload(ctx context.Context, log logr.Logger, w *kue
 func (c *Cache) UpdateWorkloadIfUnchanged(ctx context.Context, log logr.Logger, w *kueue.Workload, opts ...workload.InfoOption) bool {
 	c.Lock()
 	defer c.Unlock()
-	wlKey := workload.Key(w)
-	cqName, assigned := c.workloadAssignedQueues[wlKey]
-	if !assigned {
-		log.V(3).Info("Not updating workload in cache as the cache does not hold it")
-		return false
-	}
-	cq := c.hm.ClusterQueue(cqName)
-	if cq == nil {
-		log.V(3).Info("Not updating workload in cache as its ClusterQueue is not in the cache", "assignedClusterQueue", klog.KRef("", string(cqName)))
-		return false
-	}
-	cached, found := cq.Workloads[wlKey]
-	if !found {
-		log.V(3).Info("Not updating workload in cache as it is missing from its ClusterQueue", "assignedClusterQueue", klog.KRef("", string(cqName)))
-		return false
-	}
-	if cached.Obj.ResourceVersion != w.ResourceVersion {
-		log.V(3).Info("Not updating workload in cache as its resourceVersion differs from the cached one", "cachedResourceVersion", cached.Obj.ResourceVersion, "resourceVersion", w.ResourceVersion)
+	if c.clusterQueueForUnchangedWorkloadWithoutLock(log, w) == nil {
 		return false
 	}
 	updated, err := c.addOrUpdateWorkloadWithoutLock(ctx, log, w, opts...)
@@ -894,6 +877,32 @@ func (c *Cache) UpdateWorkloadIfUnchanged(ctx context.Context, log logr.Logger, 
 		log.Error(err, "Updating workload in cache")
 	}
 	return updated
+}
+
+// clusterQueueForUnchangedWorkloadWithoutLock returns the ClusterQueue that holds w with the same
+// resourceVersion, or nil if the cache does not hold this version of w.
+func (c *Cache) clusterQueueForUnchangedWorkloadWithoutLock(log logr.Logger, w *kueue.Workload) *clusterQueue {
+	wlKey := workload.Key(w)
+	cqName, assigned := c.workloadAssignedQueues[wlKey]
+	if !assigned {
+		log.V(3).Info("Skipping cache operation as the cache does not hold the workload")
+		return nil
+	}
+	cq := c.hm.ClusterQueue(cqName)
+	if cq == nil {
+		log.V(3).Info("Skipping cache operation as the assigned ClusterQueue is not cached", "assignedClusterQueue", klog.KRef("", string(cqName)))
+		return nil
+	}
+	cached, found := cq.Workloads[wlKey]
+	if !found {
+		log.V(3).Info("Skipping cache operation as the workload is missing from its ClusterQueue", "assignedClusterQueue", klog.KRef("", string(cqName)))
+		return nil
+	}
+	if cached.Obj.ResourceVersion != w.ResourceVersion {
+		log.V(3).Info("Skipping cache operation as the workload resourceVersion differs", "cachedResourceVersion", cached.Obj.ResourceVersion, "resourceVersion", w.ResourceVersion)
+		return nil
+	}
+	return cq
 }
 
 func (c *Cache) addOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Logger, wl *kueue.Workload, opts ...workload.InfoOption) (bool, error) {
@@ -906,8 +915,7 @@ func (c *Cache) addOrUpdateWorkloadWithoutLock(ctx context.Context, log logr.Log
 	// Finished or deactivated workloads should not keep ClusterQueues in-use in the cache.
 	if !workload.HasActiveQuotaReservation(wl) {
 		if assigned {
-			c.deleteFromQueueIfPresent(log, wlKey, assignedCqName)
-			delete(c.workloadAssignedQueues, wlKey)
+			c.removeWorkloadWithoutLock(log, wlKey, c.hm.ClusterQueue(assignedCqName))
 		}
 		return false, nil
 	}
@@ -938,6 +946,17 @@ func (c *Cache) deleteFromQueueIfPresent(log logr.Logger, wlKey workload.Referen
 	}
 }
 
+// removeWorkloadWithoutLock removes the workload from cq, if cq is not nil, and drops its ClusterQueue assignment.
+func (c *Cache) removeWorkloadWithoutLock(log logr.Logger, wlKey workload.Reference, cq *clusterQueue) {
+	if cq != nil {
+		cq.forgetWorkload(log, wlKey)
+	}
+	delete(c.workloadAssignedQueues, wlKey)
+	if c.podsReadyTracking {
+		c.podsReadyCond.Broadcast()
+	}
+}
+
 func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference) error {
 	c.Lock()
 	defer c.Unlock()
@@ -952,14 +971,22 @@ func (c *Cache) DeleteWorkload(log logr.Logger, wlKey workload.Reference) error 
 		return ErrCqNotFound
 	}
 
-	cq.forgetWorkload(log, wlKey)
-	delete(c.workloadAssignedQueues, wlKey)
-
-	if c.podsReadyTracking {
-		c.podsReadyCond.Broadcast()
-	}
-
+	c.removeWorkloadWithoutLock(log, wlKey, cq)
 	return nil
+}
+
+// DeleteWorkloadIfUnchanged removes w like DeleteWorkload, but only if the cache holds it with the same resourceVersion.
+// It returns true if it removed w.
+func (c *Cache) DeleteWorkloadIfUnchanged(log logr.Logger, w *kueue.Workload) bool {
+	c.Lock()
+	defer c.Unlock()
+
+	cq := c.clusterQueueForUnchangedWorkloadWithoutLock(log, w)
+	if cq == nil {
+		return false
+	}
+	c.removeWorkloadWithoutLock(log, workload.Key(w), cq)
+	return true
 }
 
 func (c *Cache) IsAdded(w workload.Info) bool {
