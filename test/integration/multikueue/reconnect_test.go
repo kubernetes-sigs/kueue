@@ -32,19 +32,26 @@ import (
 
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	multikueueac "sigs.k8s.io/kueue/pkg/controller/admissionchecks/multikueue"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
+const (
+	reconnectResyncTimeout = 5 * time.Second
+)
+
 var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	var f *multiKueueFixture
 
 	ginkgo.BeforeAll(func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueManagerQuotaAutomation, false)
 		managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
-			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
+			managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce, multikueueac.WithWorkerLostTimeout(15*time.Minute))
 		})
 	})
 
@@ -154,7 +161,7 @@ var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", 
 					Reason:  kueue.WorkloadFinishedReasonSucceeded,
 					Message: finishJobReason,
 				}, behavioral.IgnoreConditionTimestampsAndObservedGeneration))
-			}, testingWorkerLostTimeout*2/3, behavioral.Interval).Should(gomega.Succeed())
+			}, reconnectResyncTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 
@@ -214,7 +221,7 @@ var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", 
 				g.Expect(evictedCond.Status).To(gomega.Equal(metav1.ConditionTrue))
 				g.Expect(evictedCond.Reason).To(gomega.Equal(kueue.WorkloadEvictedByAdmissionCheck))
 				g.Expect(evictedCond.Message).To(gomega.ContainSubstring("Admitting remote no longer exists"))
-			}, testingWorkerLostTimeout*2/3, behavioral.Interval).Should(gomega.Succeed())
+			}, reconnectResyncTimeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
 })
