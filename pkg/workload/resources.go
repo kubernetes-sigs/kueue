@@ -20,12 +20,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	resourcehelpers "k8s.io/component-helpers/resource"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"sigs.k8s.io/kueue/pkg/resources"
@@ -47,7 +49,8 @@ const (
 )
 
 // UseLimitsAsMissingRequestsInPod adjust the resource requests to the limits value
-// for resources that only set limits.
+// for resources that only set limits. It only covers the (init) containers; the
+// pod-level requests are handled by DefaultPodLevelRequests.
 func UseLimitsAsMissingRequestsInPod(pod *corev1.PodSpec) {
 	for ci := range pod.InitContainers {
 		res := &pod.InitContainers[ci].Resources
@@ -57,10 +60,83 @@ func UseLimitsAsMissingRequestsInPod(pod *corev1.PodSpec) {
 		res := &pod.Containers[ci].Resources
 		res.Requests = resource.MergeResourceListKeepFirst(res.Requests, res.Limits)
 	}
+}
+
+// DefaultPodLevelRequests fills the missing pod-level resource requests the way
+// the API server does: from the aggregate requests of the containers, for the
+// overcommittable resources the containers request, and from the pod-level
+// limits for the remaining supported resources. Servers 1.37 and newer defer
+// this defaulting until after admission, so their aggregates include the
+// container defaults that LimitRanges apply; earlier servers run it before
+// those defaults. ApplyLimitRangeAndPodLevelDefaults picks the matching order.
+func DefaultPodLevelRequests(pod *corev1.PodSpec) {
 	// Pod-level resources (KEP-2837) are an optional pointer, only set when the
 	// PodLevelResources feature is enabled and used.
-	if pod.Resources != nil {
-		pod.Resources.Requests = resource.MergeResourceListKeepFirst(pod.Resources.Requests, pod.Resources.Limits)
+	if pod.Resources == nil || (len(pod.Resources.Requests) == 0 && len(pod.Resources.Limits) == 0) {
+		return
+	}
+	podRequests := pod.Resources.Requests
+	if podRequests == nil {
+		podRequests = make(corev1.ResourceList)
+	}
+	aggregatedRequests := resourcehelpers.AggregateContainerRequests(&corev1.Pod{Spec: *pod}, resourcehelpers.PodResourcesOptions{})
+	for name, quantity := range aggregatedRequests {
+		if _, found := podRequests[name]; found || !resourcehelpers.IsSupportedPodLevelResource(name) {
+			continue
+		}
+		// Only overcommittable resources default from the containers; among the
+		// pod-level resources that excludes hugepages.
+		if strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix) {
+			continue
+		}
+		podRequests[name] = quantity.DeepCopy()
+	}
+	// When no containers specify requests for a resource, the pod-level
+	// requests default to the pod-level limits, including the hugepage limits
+	// defaulted by DefaultHugePagePodLevelLimits.
+	for name, limit := range pod.Resources.Limits {
+		if _, found := podRequests[name]; found || !resourcehelpers.IsSupportedPodLevelResource(name) {
+			continue
+		}
+		podRequests[name] = limit.DeepCopy()
+	}
+	if len(podRequests) > 0 {
+		pod.Resources.Requests = podRequests
+	}
+}
+
+// DefaultHugePagePodLevelLimits mirrors the API server defaulting of pod-level
+// hugepage limits from the aggregated container limits: when containers set
+// hugepage limits and the pod-level resources are partly specified already,
+// the pod-level limit is defaulted to the aggregate unless the pod-level
+// requests or limits carry the resource. The pod-level request defaulting
+// then copies the limit into the missing pod-level requests.
+func DefaultHugePagePodLevelLimits(pod *corev1.PodSpec) {
+	if pod.Resources == nil || (len(pod.Resources.Requests) == 0 && len(pod.Resources.Limits) == 0) {
+		return
+	}
+	podLimits := pod.Resources.Limits
+	if podLimits == nil {
+		podLimits = make(corev1.ResourceList)
+	}
+	aggregatedLimits := resourcehelpers.AggregateContainerLimits(&corev1.Pod{Spec: *pod}, resourcehelpers.PodResourcesOptions{})
+	for name, quantity := range aggregatedLimits {
+		// Only hugepages default here; cpu and memory are overcommittable and
+		// default in DefaultPodLevelRequests.
+		if !resourcehelpers.IsSupportedPodLevelResource(name) || !strings.HasPrefix(string(name), corev1.ResourceHugePagesPrefix) {
+			continue
+		}
+		// The pod-level hugepage limit is not defaulted when a pod-level
+		// hugepage request is already set.
+		if _, found := pod.Resources.Requests[name]; found {
+			continue
+		}
+		if _, found := podLimits[name]; !found {
+			podLimits[name] = quantity.DeepCopy()
+		}
+	}
+	if len(podLimits) > 0 {
+		pod.Resources.Limits = podLimits
 	}
 }
 
