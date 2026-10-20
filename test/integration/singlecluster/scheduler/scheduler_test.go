@@ -729,7 +729,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				behavioral.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 				behavioral.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 0)
 
-				behavioral.UnholdLocalQueue(ctx, k8sClient, prodQueue)
+				behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, prodQueue, kueue.None)
 
 				ginkgo.By("checking the workloads with high priority get admitted")
 				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wlHigh1, wlHigh2)
