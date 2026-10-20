@@ -69,8 +69,14 @@ spec:
 
 ### c. Scaling
 
-Currently, scaling operations on StatefulSets are not supported.
-This means you cannot perform scale up or scale down operations directly through Kueue.
+Before admission, you can scale a StatefulSet up or down; Kueue updates the
+associated Workload's PodSet count so it is admitted for the new size. For an
+admitted StatefulSet, scaling down is supported and the released replicas are
+reported as reclaimable quota. Scaling up an admitted StatefulSet is rejected,
+because Kueue has not reserved quota for the additional replicas.
+
+Scaling to zero places the Workload on hold. You can then scale it back up to a
+new size, and Kueue requeues it for admission at that size.
 
 ## Example
 Here is a sample StatefulSet:

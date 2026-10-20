@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -165,11 +166,88 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})
 
-	ginkgo.It("Should set the workload OnHold when StatefulSet scales to zero and clear it on scale-up", func() {
-		ginkgo.By("Creating a StatefulSet with replicas=1")
+	ginkgo.It("Should update the workload PodSet count when a StatefulSet is scaled before admission", func() {
+		ginkgo.By("Creating a StatefulSet with replicas=1 pointing to a non-existent queue (stays pending)")
+		sts := testingstatefulset.MakeStatefulSet("test-sts-preadmit", ns.Name).
+			Queue("non-existent-lq").
+			Replicas(1).
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, sts)
+
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			g.Expect(createdSTS.UID).ShouldNot(gomega.BeEmpty())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		wlName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
+		wl := &kueue.Workload{}
+		ginkgo.By("Waiting for the workload to be created with PodSet count=1")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Spec.PodSets).Should(gomega.HaveLen(1))
+			g.Expect(wl.Spec.PodSets[0].Count).Should(gomega.Equal(int32(1)))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Scaling the StatefulSet to replicas=3 before admission")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			createdSTS.Spec.Replicas = ptr.To[int32](3)
+			g.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying the workload PodSet count is updated to 3")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Spec.PodSets).Should(gomega.HaveLen(1))
+			g.Expect(wl.Spec.PodSets[0].Count).Should(gomega.Equal(int32(3)))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should set ReclaimablePods on the workload when an admitted StatefulSet is scaled down", func() {
+		ginkgo.By("Creating a StatefulSet with replicas=3")
+		sts := testingstatefulset.MakeStatefulSet("test-sts-scaledown", ns.Name).
+			Queue("lq").
+			Replicas(3).
+			Request(corev1.ResourceCPU, "100m").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, sts)
+
+		createdSTS := &appsv1.StatefulSet{}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			g.Expect(createdSTS.UID).ShouldNot(gomega.BeEmpty())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		wlName := statefulset.GetWorkloadName(createdSTS.UID, createdSTS.Name)
+		wl := &kueue.Workload{}
+		ginkgo.By("Waiting for the workload to be admitted")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+		}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Scaling the StatefulSet down to replicas=1")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			createdSTS.Spec.Replicas = ptr.To[int32](1)
+			g.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying the workload has ReclaimablePods with count=2 (3-1)")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Status.ReclaimablePods).Should(gomega.HaveLen(1))
+			g.Expect(wl.Status.ReclaimablePods[0].Count).Should(gomega.Equal(int32(2)))
+		}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should clear reclaimable pods when a held StatefulSet resumes", func() {
+		ginkgo.By("Creating a StatefulSet with replicas=3")
 		sts := testingstatefulset.MakeStatefulSet("test-sts", ns.Name).
 			Queue("lq").
-			Replicas(1).
+			Replicas(3).
 			Request(corev1.ResourceCPU, "100m").
 			Obj()
 		behavioral.MustCreate(ctx, k8sClient, sts)
@@ -185,6 +263,22 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
 			g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
+		}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Scaling the admitted StatefulSet down to 1")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sts), createdSTS)).Should(gomega.Succeed())
+			createdSTS.Spec.Replicas = new(int32(1))
+			g.Expect(k8sClient.Update(ctx, createdSTS)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Verifying the workload reports the two released replicas as reclaimable")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Status.ReclaimablePods).To(gomega.ConsistOf(kueue.ReclaimablePod{
+				Name:  kueue.DefaultPodSetName,
+				Count: 2,
+			}))
 		}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Scaling the StatefulSet to zero")
@@ -233,6 +327,7 @@ var _ = ginkgo.Describe("StatefulSet controller", ginkgo.Label("job:statefulset"
 		ginkgo.By("Verifying the workload is re-admitted")
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: wlName, Namespace: ns.Name}, wl)).Should(gomega.Succeed())
+			g.Expect(wl.Status.ReclaimablePods).To(gomega.BeEmpty())
 			g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
 			behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, client.ObjectKeyFromObject(wl))
 		}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
