@@ -28,6 +28,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schedcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
+	wassim "sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
@@ -66,15 +67,27 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 	cq := p.snapshot.ClusterQueue(p.wl.ClusterQueue)
 	pods, err := plan.Assignment.CandidateVirtualPods(p.wl, cq)
 	if err != nil {
-		plan.Error = fmt.Errorf("failed to virtualize workload: %w", err)
+		plan.Error = fmt.Errorf("virtualization error: unable to build virtual pods: %w", err)
 		return
 	}
 	if len(pods) == 0 {
 		return
 	}
 
-	// ScheduleWorkload will always return a failed result here for wasScheduler,
-	// until Virtual Pod Groups are implemented and added to the ClusterSnapshot.
+	vPg, err := wassim.BuildVirtualPodGroup(p.wl.Obj)
+	if err != nil {
+		plan.Error = fmt.Errorf("virtualization error: unable to build virtual pod groups: %w", err)
+		return
+	}
+	if err := p.snapshot.SchedulerSimulator.AddPodGroup(ctx, vPg); err != nil {
+		plan.Error = fmt.Errorf("virtualization error: unable to add virtual pod group to simulator: %w", err)
+		return
+	}
+	defer func() {
+		if err := p.snapshot.SchedulerSimulator.RemovePodGroup(ctx, vPg); err != nil {
+			plan.Error = errors.Join(plan.Error, fmt.Errorf("virtualization error: unable to remove virtual pod group from simulator: %w", err))
+		}
+	}()
 	schedulingResult := p.snapshot.SchedulerSimulator.ScheduleWorkload(ctx, pods)
 	if schedulingResult.Error != nil {
 		plan.Error = fmt.Errorf("failed to schedule workload: %w", schedulingResult.Error)

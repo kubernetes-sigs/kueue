@@ -27,6 +27,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -1293,7 +1294,7 @@ func TestScheduleErrorHandling(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonAssignmentError,
-						Message:            `failed to virtualize workload: failed to get TAS flavor for PodSet "main": no TAS flavor assigned`,
+						Message:            `virtualization error: unable to build virtual pods: failed to get TAS flavor for PodSet "main": no TAS flavor assigned`,
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -1520,4 +1521,12 @@ func (s *mockWorkloadScheduler) ScheduleWorkload(_ context.Context, workloadPods
 		placements[client.ObjectKeyFromObject(pod)] = &simulator.PodPlacement{Node: s.placementNode}
 	}
 	return simulator.SchedulingResult{PodPlacements: placements}
+}
+
+func (s *mockWorkloadScheduler) AddPodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
+	return nil
+}
+
+func (s *mockWorkloadScheduler) RemovePodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
+	return nil
 }
