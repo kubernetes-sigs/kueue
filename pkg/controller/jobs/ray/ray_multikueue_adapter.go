@@ -234,15 +234,14 @@ func (a *adapter[PtrT, T]) SyncJob(
 			if err != nil {
 				return false, err
 			}
-			if changed {
-				// The manager copy changed: the slicing machinery produces a
-				// replacement slice and its reconcile repoints the remote.
-				// Repointing now would still name the pre-resize slice.
-				return false, nil
+			// A runtime change may produce a replacement slice. Wait for its
+			// reconcile before repointing, but still forward application updates.
+			if !changed {
+				if err := a.repointPrebuiltWorkload(ctx, remoteClient, workloadName, remoteJob); err != nil {
+					return false, err
+				}
 			}
-			return false, a.repointPrebuiltWorkload(ctx, remoteClient, workloadName, remoteJob)
-		}
-		if a.needElasticSync(ctx, workloadName, localJob, remoteJob) {
+		} else if a.needElasticSync(ctx, workloadName, localJob, remoteJob) {
 			return false, a.syncElastic(ctx, remoteClient, workloadName, localJob, remoteJob)
 		}
 		if a.remoteSpecSync != nil && features.Enabled(features.MultiKueueRemoteSpecSync) && a.remoteSpecSync.NeedsSync(remoteJob, localJob) {
@@ -301,7 +300,7 @@ func (a *adapter[PtrT, T]) needElasticSync(ctx context.Context, workloadName str
 // workerOwnsReplicas reports whether the worker cluster owns the job's worker
 // replica counts: an elastic job that runs the Ray Autoscaler there. In
 // this mode the forward direction never pushes replicas; the manager's only
-// forward-direction duty is repointing the remote's prebuilt-workload marker.
+// replica-related forward duty is repointing the remote's prebuilt-workload marker.
 func (a *adapter[PtrT, T]) workerOwnsReplicas(localJob PtrT) bool {
 	if a.elastic == nil || a.elastic.AutoscalingEnabled == nil {
 		return false
