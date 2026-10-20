@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -76,18 +77,23 @@ var (
 )
 
 // effectiveWorkerCount returns the effective worker pod count for a worker
-// group: Replicas scaled by NumOfHosts, with Replicas defaulting to 1 when
-// unset. BuildPodSets, UpdatePodSets, and the MultiKueue elastic replica sync
+// group, respecting KubeRay's min/max replica bounds and NumOfHosts.
+// BuildPodSets, UpdatePodSets, and the MultiKueue elastic replica sync
 // all call this so the per-group count derivation stays in one place.
 func effectiveWorkerCount(wgs *rayv1.WorkerGroupSpec) int32 {
-	count := int32(1)
-	if wgs.Replicas != nil {
-		count = *wgs.Replicas
+	var replicas int32
+	minReplicas := ptr.Deref(wgs.MinReplicas, int32(0))
+	maxReplicas := ptr.Deref(wgs.MaxReplicas, int32(math.MaxInt32))
+	// Replicas is defaulted by the CRD, but may be nil before admission.
+	switch {
+	case wgs.Replicas == nil || *wgs.Replicas < minReplicas:
+		replicas = minReplicas
+	case *wgs.Replicas > maxReplicas:
+		replicas = maxReplicas
+	default:
+		replicas = *wgs.Replicas
 	}
-	if wgs.NumOfHosts > 1 {
-		count *= wgs.NumOfHosts
-	}
-	return count
+	return replicas * max(wgs.NumOfHosts, 1)
 }
 
 // BuildPodSets builds PodSets from RayClusterSpec.
@@ -409,24 +415,15 @@ func ValidateCreate(object client.Object, rayClusterSpec *rayv1.RayClusterSpec, 
 			),
 		)
 	}
-	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) && workloadslicing.Enabled(object) && isRayObjectManagedByMultiKueue(object) {
-		if _, isRayService := object.(*rayv1.RayService); isRayService {
-			allErrors = append(
-				allErrors,
-				field.Forbidden(
-					rayClusterSpecPath.Child("enableInTreeAutoscaling"),
-					"in-tree autoscaling for a MultiKueue-managed RayService is not supported",
-				),
-			)
-		} else if !features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
-			allErrors = append(
-				allErrors,
-				field.Forbidden(
-					rayClusterSpecPath.Child("enableInTreeAutoscaling"),
-					fmt.Sprintf("in-tree autoscaling for a MultiKueue-managed elastic job requires enabling the %s feature gate", features.MultiKueueRayInTreeAutoscaling),
-				),
-			)
-		}
+	if ptr.Deref(rayClusterSpec.EnableInTreeAutoscaling, false) && workloadslicing.Enabled(object) &&
+		isRayObjectManagedByMultiKueue(object) && !features.Enabled(features.MultiKueueRayInTreeAutoscaling) {
+		allErrors = append(
+			allErrors,
+			field.Forbidden(
+				rayClusterSpecPath.Child("enableInTreeAutoscaling"),
+				fmt.Sprintf("in-tree autoscaling for a MultiKueue-managed elastic job requires enabling the %s feature gate", features.MultiKueueRayInTreeAutoscaling),
+			),
+		)
 	}
 
 	// Should limit the generated PodSet count to the maximum supported by Workloads.
@@ -535,8 +532,14 @@ func ComparePodSetCounts(podSets []kueue.PodSet, referenceCounts map[kueue.PodSe
 // isManagedByMultiKueue reports whether the job is the manager cluster's copy
 // of a MultiKueue-dispatched job. Worker copies have spec.managedBy cleared.
 func isManagedByMultiKueue(object client.Object) bool {
-	rj, ok := object.(*rayv1.RayJob)
-	return ok && ptr.Deref(rj.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
+	switch job := object.(type) {
+	case *rayv1.RayJob:
+		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
+	case *rayv1.RayService:
+		return ptr.Deref(job.Spec.ManagedBy, "") == kueue.MultiKueueControllerName
+	default:
+		return false
+	}
 }
 
 func getRayClusterSpec(object client.Object) *rayv1.RayClusterSpec {
@@ -621,8 +624,7 @@ func ParsePodSetReplicaSizes(annotation string) (map[kueue.PodSetReference]int32
 }
 
 // WorkerGroupPodCounts returns the effective per-worker-group pod count of the
-// given RayClusterSpec, keyed by PodSet reference (replicas scaled by
-// NumOfHosts, matching BuildPodSets).
+// given RayClusterSpec, keyed by PodSet reference, matching BuildPodSets.
 func WorkerGroupPodCounts(spec *rayv1.RayClusterSpec) map[kueue.PodSetReference]int32 {
 	counts := make(map[kueue.PodSetReference]int32, len(spec.WorkerGroupSpecs))
 	for i := range spec.WorkerGroupSpecs {

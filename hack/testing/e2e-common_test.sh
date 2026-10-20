@@ -19,7 +19,16 @@ set -o nounset
 set -o pipefail
 
 test_dir=$(mktemp -d)
-trap 'rm -rf "${test_dir}"' EXIT
+# The fakes print errors that read like CI infra failures, so show output only on failure.
+exec 3>&1 4>&2 >"${test_dir}/test.log" 2>&1
+cleanup() {
+  local status=$?
+  if [[ "${status}" -ne 0 ]]; then
+    cat "${test_dir}/test.log" >&4
+  fi
+  rm -rf "${test_dir}"
+}
+trap cleanup EXIT
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 export ROOT_DIR
@@ -485,4 +494,4 @@ fi
 
 unset DOCKER_FAKE_MANIFEST_OK_AFTER DOCKER_FAKE_MANIFEST_ERROR
 
-echo "e2e-common tests passed"
+echo "e2e-common tests passed" >&3

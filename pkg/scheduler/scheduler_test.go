@@ -33,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	"k8s.io/client-go/util/retry"
 	"k8s.io/component-base/featuregate"
@@ -3952,7 +3953,7 @@ func TestSchedule(t *testing.T) {
 					Obj(),
 			},
 		},
-		"A workload is only eligible to do preemptions if it fits fully within nominal quota": {
+		"A workload can preempt within its ClusterQueue while borrowing": {
 			additionalClusterQueues: []kueue.ClusterQueue{
 				*utiltestingapi.MakeClusterQueue("other-alpha").
 					Cohort("other").
@@ -4014,6 +4015,21 @@ func TestSchedule(t *testing.T) {
 							Assignment(corev1.ResourceCPU, "on-demand", "1").
 							Obj()).
 						Obj(), now).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadEvicted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "Preempted",
+						Message:            "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue; preemptor path: /other/other-alpha; preemptee path: /other/other-alpha",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type:               kueue.WorkloadPreempted,
+						Status:             metav1.ConditionTrue,
+						Reason:             "InClusterQueue",
+						Message:            "Preempted to accommodate a workload (UID: UNKNOWN, JobUID: UNKNOWN) due to prioritization in the ClusterQueue; preemptor path: /other/other-alpha; preemptee path: /other/other-alpha",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("incoming", "eng-alpha").
 					Priority(1).
@@ -4022,8 +4038,8 @@ func TestSchedule(t *testing.T) {
 					Condition(metav1.Condition{
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
-						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForQuota,
-						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed",
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+						Message:            "couldn't assign flavors to pod set main: insufficient unused quota for cpu in flavor on-demand, 1 more needed. Pending the preemption of 1 workload(s)",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{
@@ -4051,7 +4067,7 @@ func TestSchedule(t *testing.T) {
 						Obj(), now).
 					Obj(),
 			},
-			wantInadmissibleLeft: map[kueue.ClusterQueueReference][]workload.Reference{
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{
 				"other-alpha": {"eng-alpha/incoming"},
 			},
 			wantAssignments: map[workload.Reference]kueue.Admission{
@@ -10686,8 +10702,8 @@ func TestEntryMarkSkipped(t *testing.T) {
 
 			e := entry{
 				FlavorScanState: &workload.FlavorScanState{
-					LastTriedFlavorIndexes: []map[corev1.ResourceName]int{
-						{corev1.ResourceCPU: 0},
+					TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
+						{corev1.ResourceCPU: sets.New[kueue.ResourceFlavorReference]("flavor-0")},
 					},
 				},
 			}
@@ -10705,9 +10721,10 @@ func TestEntryMarkSkipped(t *testing.T) {
 			}
 			if !tc.wantFlavorScanStateNil {
 				// The retained progress must still name the flavor that was tried, since
-				// that is what NextFlavorToTryForPodSetResource reads.
-				if got := e.FlavorScanState.LastTriedFlavorIndexes[0][corev1.ResourceCPU]; got != 0 {
-					t.Errorf("retained LastTriedFlavorIdx = %d, want 0", got)
+				// that is what triedFlavorsForPodSetResource reads.
+				want := sets.New[kueue.ResourceFlavorReference]("flavor-0")
+				if got := e.FlavorScanState.TriedFlavors[0][corev1.ResourceCPU]; !got.Equal(want) {
+					t.Errorf("retained TriedFlavors = %v, want %v", got, want)
 				}
 			}
 		})
@@ -11635,167 +11652,6 @@ func (r *workloadUpdateWatcherRecorder) NotifyWorkloadUpdate(oldWl, newWl *kueue
 	}
 	if newWl != nil {
 		r.newWl = newWl.DeepCopy()
-	}
-}
-
-func TestFlavorScanStateOutdated(t *testing.T) {
-	type args struct {
-		currentSchedulingCycle int64
-		last                   *workload.FlavorScanState
-		currentCQGeneration    int64
-		currentSchedulingHash  workload.EquivalenceHash
-	}
-	tests := []struct {
-		name string
-		// preserveProgress enables features.FlavorFungibilityPreserveScanProgress.
-		preserveProgress bool
-		args             args
-		want             bool
-	}{
-		{
-			name: "Cluster queue allocatableResourceIncreasedGen increased",
-			args: args{
-				currentSchedulingCycle: 5,
-				last: &workload.FlavorScanState{
-					AllocatableResourceGeneration: 0,
-					SchedulingCycle:               1,
-				},
-				currentCQGeneration: 1,
-			},
-			want: true,
-		},
-		{
-			name: "AllocatableResourceGeneration not increased",
-			args: args{
-				currentSchedulingCycle: 5,
-				last: &workload.FlavorScanState{
-					AllocatableResourceGeneration: 0,
-					SchedulingCycle:               1,
-				},
-				currentCQGeneration: 0,
-			},
-			want: false,
-		},
-		{
-			name:             "assignment from the immediately preceding cycle survives a generation bump",
-			preserveProgress: true,
-			args: args{
-				currentSchedulingCycle: 5,
-				last: &workload.FlavorScanState{
-					AllocatableResourceGeneration: 0,
-					SchedulingCycle:               4,
-				},
-				currentCQGeneration: 1,
-			},
-			want: false,
-		},
-		{
-			name:             "assignment from the current cycle survives a generation bump",
-			preserveProgress: true,
-			args: args{
-				currentSchedulingCycle: 5,
-				last: &workload.FlavorScanState{
-					AllocatableResourceGeneration: 0,
-					SchedulingCycle:               5,
-				},
-				currentCQGeneration: 1,
-			},
-			want: false,
-		},
-		{
-			name:             "assignment older than one cycle falls back to the generation check",
-			preserveProgress: true,
-			args: args{
-				currentSchedulingCycle: 5,
-				last: &workload.FlavorScanState{
-					AllocatableResourceGeneration: 0,
-					SchedulingCycle:               3,
-				},
-				currentCQGeneration: 1,
-			},
-			want: true,
-		},
-		{
-			name:             "a changed scheduling shape starts the scan over even in the preceding cycle",
-			preserveProgress: true,
-			args: args{
-				currentSchedulingCycle: 5,
-				last: &workload.FlavorScanState{
-					AllocatableResourceGeneration: 0,
-					SchedulingCycle:               4,
-					SchedulingHash:                "shape-a",
-				},
-				currentCQGeneration:   0,
-				currentSchedulingHash: "shape-b",
-			},
-			want: true,
-		},
-		{
-			name:             "an unchanged scheduling shape keeps the preceding cycle's assignment",
-			preserveProgress: true,
-			args: args{
-				currentSchedulingCycle: 5,
-				last: &workload.FlavorScanState{
-					AllocatableResourceGeneration: 0,
-					SchedulingCycle:               4,
-					SchedulingHash:                "shape-a",
-				},
-				currentCQGeneration:   1,
-				currentSchedulingHash: "shape-a",
-			},
-			want: false,
-		},
-		{
-			name:             "an unknown hash is not treated as a shape change",
-			preserveProgress: true,
-			args: args{
-				currentSchedulingCycle: 5,
-				last: &workload.FlavorScanState{
-					AllocatableResourceGeneration: 0,
-					SchedulingCycle:               4,
-					SchedulingHash:                workload.SchedulingHashUnknown,
-				},
-				currentCQGeneration:   1,
-				currentSchedulingHash: "shape-b",
-			},
-			want: false,
-		},
-		{
-			name:             "without the gate a changed scheduling shape is ignored",
-			preserveProgress: false,
-			args: args{
-				currentSchedulingCycle: 5,
-				last: &workload.FlavorScanState{
-					AllocatableResourceGeneration: 0,
-					SchedulingCycle:               4,
-					SchedulingHash:                "shape-a",
-				},
-				currentCQGeneration:   0,
-				currentSchedulingHash: "shape-b",
-			},
-			want: false,
-		},
-		{
-			name:             "without the gate the preceding cycle gets no special treatment",
-			preserveProgress: false,
-			args: args{
-				currentSchedulingCycle: 5,
-				last: &workload.FlavorScanState{
-					AllocatableResourceGeneration: 0,
-					SchedulingCycle:               4,
-				},
-				currentCQGeneration: 1,
-			},
-			want: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.FlavorFungibilityPreserveScanProgress, tt.preserveProgress)
-			if got := flavorScanStateOutdated(tt.args.last, tt.args.currentCQGeneration, tt.args.currentSchedulingCycle, tt.args.currentSchedulingHash); got != tt.want {
-				t.Errorf("FlavorScanStatesOutdated() = %v, want %v", got, tt.want)
-			}
-		})
 	}
 }
 

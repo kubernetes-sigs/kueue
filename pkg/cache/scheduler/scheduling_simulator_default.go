@@ -18,10 +18,12 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
@@ -127,5 +129,17 @@ func (s *defaultSimulator) Simulate(_ context.Context, fn func()) error {
 	// Since default simulator does not hold any state,
 	// we can safely run the function immediately.
 	fn()
+	return nil
+}
+
+func (s *defaultSimulator) ScheduleWorkload(_ context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
+	return simulator.SchedulingResult{Error: errors.ErrUnsupported}
+}
+
+func (s *defaultSimulator) AddPodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
+	return nil
+}
+
+func (s *defaultSimulator) RemovePodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
 	return nil
 }

@@ -24,6 +24,11 @@ LD_FLAGS=${LD_FLAGS:-}
 
 BUILD_NAME=${BUILD_NAME:-kueuectl}
 PLATFORMS=${PLATFORMS:-linux/amd64}
+BUILD_NPROCS=${BUILD_NPROCS:-4}
+if ! [[ "${BUILD_NPROCS}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "BUILD_NPROCS must be a positive integer" >&2
+  exit 1
+fi
 
 CURRENT_DIR=$(dirname "${BASH_SOURCE[0]}")
 ROOT_PATH=$(realpath "${CURRENT_DIR}/..")
@@ -59,12 +64,17 @@ build_platform() {
 
 IFS=","
 PIDS=()
+STATUS=0
 for PLATFORM in ${PLATFORMS} ; do
+  # Bound platform concurrency and reap every started build, including failures.
+  if [ "${#PIDS[@]}" -ge "${BUILD_NPROCS}" ]; then
+    wait "${PIDS[0]}" || STATUS=1
+    PIDS=("${PIDS[@]:1}")
+  fi
   build_platform "${PLATFORM}" &
   PIDS+=("$!")
 done
 
-STATUS=0
 for PID in "${PIDS[@]}"; do
   wait "${PID}" || STATUS=1
 done

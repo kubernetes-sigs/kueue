@@ -969,6 +969,10 @@ const (
 	// misconfiguration, such as missing LocalQueue or ClusterQueue.
 	WorkloadQuotaReservedReasonMisconfigured = "Misconfigured"
 
+	// WorkloadQuotaReservedReasonAssignmentError indicates kueue failed to create an assignment
+	// due to an unexpected error propagated from downstream.
+	WorkloadQuotaReservedReasonAssignmentError = "AssignmentError"
+
 	// WorkloadQuotaReservedReasonSuspended indicates that the workload is inadmissible because
 	// the LocalQueue or ClusterQueue StopPolicy is active.
 	WorkloadQuotaReservedReasonSuspended = "Suspended"
@@ -983,6 +987,10 @@ const (
 	// WorkloadQuotaReservedReasonDRAResourcesUnresolved indicates that quota reservation
 	// failed because the workload's DRA resources could not be resolved.
 	WorkloadQuotaReservedReasonDRAResourcesUnresolved = "DRAResourcesUnresolved"
+
+	// WorkloadQuotaReservedReasonSimulationFailed indicates that quota reservation
+	// failed when running the scheduling simulation.
+	WorkloadQuotaReservedReasonSimulationFailed = "SchedulingSimulationFailed"
 
 	// WorkloadAdmittedReasonNoReservation indicates that the workload has no reservation.
 	WorkloadAdmittedReasonNoReservation = "NoReservation"

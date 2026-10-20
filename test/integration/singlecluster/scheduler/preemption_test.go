@@ -713,6 +713,88 @@ var _ = ginkgo.Describe("Preemption", func() {
 		})
 	})
 
+	ginkgo.Context("When a borrowing ClusterQueue has same-queue preemption", func() {
+		var (
+			cq1, cq2 *kueue.ClusterQueue
+			q1, q2   *kueue.LocalQueue
+		)
+
+		ginkgo.BeforeEach(func() {
+			cq1 = utiltestingapi.MakeClusterQueue("same-queue-cq1").
+				Cohort("same-queue-cohort").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("alpha").
+						Resource(corev1.ResourceCPU, "2").
+						Resource(corev1.ResourceMemory, "4Gi").
+						Obj(),
+				).
+				Preemption(kueue.ClusterQueuePreemption{
+					WithinClusterQueue: kueue.PreemptionPolicyLowerPriority,
+				}).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, cq1)
+			q1 = utiltestingapi.MakeLocalQueue("same-queue-q1", ns.Name).ClusterQueue(cq1.Name).Obj()
+			behavioral.MustCreate(ctx, k8sClient, q1)
+
+			cq2 = utiltestingapi.MakeClusterQueue("same-queue-cq2").
+				Cohort("same-queue-cohort").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("alpha").
+						Resource(corev1.ResourceCPU, "2").
+						Resource(corev1.ResourceMemory, "4Gi").
+						Obj(),
+				).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, cq2)
+			q2 = utiltestingapi.MakeLocalQueue("same-queue-q2", ns.Name).ClusterQueue(cq2.Name).Obj()
+			behavioral.MustCreate(ctx, k8sClient, q2)
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, q1, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, q2, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq1, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq2, true)
+		})
+
+		ginkgo.It("should preempt a same-ClusterQueue workload while borrowing without BorrowWithinCohort", func() {
+			ginkgo.By("Creating a low priority workload that borrows quota from the empty ClusterQueue")
+			lowWl := utiltestingapi.MakeWorkload("same-queue-low", ns.Name).
+				Queue(kueue.LocalQueueName(q1.Name)).
+				Priority(lowPriority).
+				Request(corev1.ResourceCPU, "4").
+				Request(corev1.ResourceMemory, "1Gi").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, lowWl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, lowWl)
+
+			ginkgo.By("Creating a higher priority workload in the same ClusterQueue")
+			highWl := utiltestingapi.MakeWorkload("same-queue-high", ns.Name).
+				Queue(kueue.LocalQueueName(q1.Name)).
+				Priority(highPriority).
+				Request(corev1.ResourceCPU, "4").
+				Request(corev1.ResourceMemory, "1Gi").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, highWl)
+
+			ginkgo.By("Verifying that the low priority workload is preempted within its ClusterQueue")
+			cqPath := "/" + string(cq1.Spec.CohortName) + "/" + cq1.Name
+			behavioral.ExpectPreemptedCondition(ctx, k8sClient, kueue.InClusterQueueReason, metav1.ConditionTrue, lowWl, highWl, string(highWl.UID), "UNKNOWN", cqPath, cqPath)
+			behavioral.ExpectPreemptedWorkloadsTotalMetric(cq1.Name, kueue.InClusterQueueReason, 1)
+			behavioral.ExpectPreemptedWorkloadsTotalMetric(cq2.Name, kueue.InClusterQueueReason, 0)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, highWl)
+
+			ginkgo.By("Finishing eviction of the low priority workload")
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, lowWl)
+
+			ginkgo.By("Verifying that the high priority workload is admitted and the victim is pending")
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq1.Name, highWl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, highWl)
+			behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, lowWl)
+		})
+	})
+
 	ginkgo.Context("In a cohort with StrictFIFO", func() {
 		var (
 			alphaCQ, betaCQ *kueue.ClusterQueue

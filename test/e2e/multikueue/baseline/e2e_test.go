@@ -1386,6 +1386,7 @@ func ensurePodWorkloadsRunning(deployment *appsv1.Deployment, managerNs corev1.N
 	restClient *rest.RESTClient
 	cfg        *rest.Config
 }) {
+	ginkgo.GinkgoHelper()
 	// Given the unpredictable nature of where the deployment pods run this function gathers the workload of a Pod first
 	// it then gets the Pod's assigned cluster from the admission check message and uses the appropriate client to ensure the Pod is running
 	pods := &corev1.PodList{}

@@ -383,6 +383,7 @@ var _ = ginkgo.Describe("Scheduler DynamicQuotaOrchestration", ginkgo.Ordered, f
 })
 
 func updateCohortEffectiveQuotas(ctx context.Context, k8sClient client.Client, cohort *kueue.Cohort, flavor *kueue.ResourceFlavor, cpuQty, orchestratorName string) {
+	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		var currentCohort kueue.Cohort
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohort), &currentCohort)).To(gomega.Succeed())
@@ -392,6 +393,7 @@ func updateCohortEffectiveQuotas(ctx context.Context, k8sClient client.Client, c
 }
 
 func updateCQEffectiveQuotas(ctx context.Context, k8sClient client.Client, cq *kueue.ClusterQueue, flavor *kueue.ResourceFlavor, cpuQty, orchestratorName string) {
+	ginkgo.GinkgoHelper()
 	gomega.Eventually(func(g gomega.Gomega) {
 		var currentCQ kueue.ClusterQueue
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &currentCQ)).To(gomega.Succeed())

@@ -172,21 +172,20 @@ func TestVirtualPodsForWorkload(t *testing.T) {
 				t.Fatalf("Got %d pods, want %d", len(got), len(tc.wantNodes))
 			}
 			for i, wantNode := range tc.wantNodes {
-				pod := got[i]
-				if pod.Spec.NodeName != wantNode {
-					t.Errorf("pod[%d].Spec.NodeName = %q, want %q", i, pod.Spec.NodeName, wantNode)
+				want := &corev1.Pod{
+					Name:        virtualPodName(tc.wl.Name, "main", i),
+					Namespace:   tc.wl.Namespace,
+					UID:         types.UID(fmt.Sprintf("virtual-%s-main-%d", tc.wl.UID, i)),
+					Labels:      map[string]string{constants.PodSetLabel: "main"},
+					Annotations: map[string]string{kueue.WorkloadAnnotation: tc.wl.Name},
+					Spec: corev1.PodSpec{
+						NodeName:   wantNode,
+						Containers: podTemplate.Spec.Containers,
+					},
+					Status: corev1.PodStatus{Phase: corev1.PodRunning},
 				}
-				if pod.Namespace != tc.wl.Namespace || pod.Annotations[kueue.WorkloadAnnotation] != tc.wl.Name {
-					t.Errorf("pod[%d] metadata not wired correctly", i)
-				}
-				if pod.Labels[constants.PodSetLabel] != "main" {
-					t.Errorf("pod[%d] PodSetLabel = %q, want %q", i, pod.Labels[constants.PodSetLabel], "main")
-				}
-				if pod.Status.Phase != corev1.PodRunning {
-					t.Errorf("pod[%d].Status.Phase = %v, want %v", i, pod.Status.Phase, corev1.PodRunning)
-				}
-				if pod.Spec.Containers[0].Ports[0].HostPort != 8080 {
-					t.Errorf("pod[%d] container specs not preserved", i)
+				if diff := cmp.Diff(want, got[i]); diff != "" {
+					t.Errorf("pod[%d] unexpected (-want +got):\n%s", i, diff)
 				}
 			}
 		})
@@ -247,6 +246,9 @@ func TestCandidateVirtualPodsForPodSet_MetadataAndStatus(t *testing.T) {
 	wantPod := &corev1.Pod{
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{{Name: "c"}},
+			SchedulingGroup: &corev1.PodSchedulingGroup{
+				PodGroupName: new(VirtualPodGroupName(wl.Name)),
+			},
 		},
 		Status: corev1.PodStatus{
 			Phase: corev1.PodPending,

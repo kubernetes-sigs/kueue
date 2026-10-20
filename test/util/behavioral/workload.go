@@ -40,6 +40,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/util/admissioncheck"
+	utilpodset "sigs.k8s.io/kueue/pkg/util/podset"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
@@ -50,15 +51,17 @@ import (
 )
 
 func DeleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
-	return deleteWorkloadsInNamespace(ctx, c, ns, 2)
+	ginkgo.GinkgoHelper()
+	return deleteWorkloadsInNamespace(ctx, c, ns)
 }
 
-func deleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace, offset int) error {
+func deleteWorkloadsInNamespace(ctx context.Context, c client.Client, ns *corev1.Namespace) error {
+	ginkgo.GinkgoHelper()
 	if err := c.DeleteAllOf(ctx, &kueue.Workload{}, client.InNamespace(ns.Name)); err != nil && !apierrors.IsNotFound(err) {
 		return err
 	}
 	workloads := kueue.WorkloadList{}
-	gomega.EventuallyWithOffset(offset, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(c.List(ctx, &workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
 		for _, wl := range workloads.Items {
 			if controllerutil.RemoveFinalizer(&wl, kueue.ResourceInUseFinalizerName) {
@@ -128,6 +131,13 @@ var pendingQuotaReservedReasons = sets.New(
 
 func ExpectWorkloadsToBePendingByKeys(ctx context.Context, k8sClient client.Client, wlKeys ...client.ObjectKey) {
 	ginkgo.GinkgoHelper()
+	ExpectWorkloadsToBePendingByKeysWithTimeout(ctx, k8sClient, Timeout, wlKeys...)
+}
+
+// ExpectWorkloadsToBePendingByKeysWithTimeout is ExpectWorkloadsToBePendingByKeys with an explicit
+// timeout, for E2E tests where the scheduler has yet to evaluate a freshly created Workload.
+func ExpectWorkloadsToBePendingByKeysWithTimeout(ctx context.Context, k8sClient client.Client, timeout time.Duration, wlKeys ...client.ObjectKey) {
+	ginkgo.GinkgoHelper()
 	wlKeys = uniqueKeys(wlKeys)
 	wlObjects := make([]*kueue.Workload, len(wlKeys))
 	gomega.Eventually(func(g gomega.Gomega) {
@@ -142,7 +152,7 @@ func ExpectWorkloadsToBePendingByKeys(ctx context.Context, k8sClient client.Clie
 			wlObjects[i] = wl
 		}
 		g.Expect(pending).Should(gomega.Equal(wlKeys))
-	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are pending", wlObjects...))
+	}, timeout, Interval).Should(gomega.Succeed(), AssertMsg("Unexpected workloads are pending", wlObjects...))
 }
 
 func ExpectWorkloadsToBeInadmissible(ctx context.Context, k8sClient client.Client, wls ...*kueue.Workload) {
@@ -295,8 +305,9 @@ func ExpectWorkloadToFinish(ctx context.Context, k8sClient client.Client, wlKey 
 }
 
 func ExpectWorkloadToHaveRequeueState(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, expected *kueue.RequeueState, hasRequeueAt bool) {
+	ginkgo.GinkgoHelper()
 	var wl kueue.Workload
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
 		g.Expect(wl.Status.RequeueState).Should(gomega.BeComparableTo(expected, cmpopts.IgnoreFields(kueue.RequeueState{}, "RequeueAt")))
 		if expected != nil {
@@ -355,9 +366,10 @@ func ExpectWorkloadsToBeWaiting(ctx context.Context, k8sClient client.Client, wl
 }
 
 func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq string, wls ...*kueue.Workload) {
+	ginkgo.GinkgoHelper()
 	wlKeys := uniqueKeys(workloadKeys(wls))
 	wlObjects := make([]*kueue.Workload, len(wlKeys))
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		frozen := make([]client.ObjectKey, 0, len(wlKeys))
 		for i, wlKey := range wlKeys {
 			wl := &kueue.Workload{}
@@ -374,8 +386,9 @@ func ExpectWorkloadsToBeFrozen(ctx context.Context, k8sClient client.Client, cq 
 }
 
 func ExpectWorkloadToBeAdmittedAs(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, admission *kueue.Admission) {
+	ginkgo.GinkgoHelper()
 	var updatedWorkload kueue.Workload
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 		g.Expect(updatedWorkload.Status.Admission).Should(gomega.BeComparableTo(admission))
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload was not admitted with expected admission", &updatedWorkload))
@@ -420,8 +433,9 @@ func FinishEvictionForWorkloads(ctx context.Context, k8sClient client.Client, wl
 }
 
 func SetWorkloadsAdmissionCheck(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, check kueue.AdmissionCheckReference, state kueue.CheckState, expectExisting bool) {
+	ginkgo.GinkgoHelper()
 	var updatedWorkload kueue.Workload
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &updatedWorkload)).To(gomega.Succeed())
 		if expectExisting {
 			currentCheck := admissioncheck.FindAdmissionCheck(updatedWorkload.Status.AdmissionChecks, check)
@@ -438,25 +452,28 @@ func SetWorkloadsAdmissionCheck(ctx context.Context, k8sClient client.Client, wl
 }
 
 func AwaitAndVerifyWorkloadQueueName(ctx context.Context, client client.Client, createdWorkload *kueue.Workload, wlLookupKey types.NamespacedName, jobQueueName kueue.LocalQueueName) {
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(client.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 		g.Expect(createdWorkload.Spec.QueueName).Should(gomega.Equal(jobQueueName))
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload queue name does not match expected", createdWorkload))
 }
 
 func AwaitAndVerifyCreatedWorkload(ctx context.Context, client client.Client, wlLookupKey types.NamespacedName, createdJob metav1.Object) *kueue.Workload {
+	ginkgo.GinkgoHelper()
 	createdWorkload := &kueue.Workload{}
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(client.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 	}, Timeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload was not created", createdWorkload))
-	gomega.ExpectWithOffset(1, metav1.IsControlledBy(createdWorkload, createdJob)).To(gomega.BeTrue(), "The Workload should be owned by the Job")
+	gomega.Expect(metav1.IsControlledBy(createdWorkload, createdJob)).To(gomega.BeTrue(), "The Workload should be owned by the Job")
 	return createdWorkload
 }
 
 func ExpectWorkloadsFinalizedOrGone(ctx context.Context, k8sClient client.Client, keys ...types.NamespacedName) {
+	ginkgo.GinkgoHelper()
 	for _, key := range keys {
 		createdWorkload := &kueue.Workload{}
-		gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+		gomega.Eventually(func(g gomega.Gomega) {
 			err := k8sClient.Get(ctx, key, createdWorkload)
 			// Skip further checks to avoid verifying finalizers on the old Workload object.
 			if apierrors.IsNotFound(err) {
@@ -476,9 +493,10 @@ func ExpectPreemptedCondition(
 	preemptedWl, preempteeWl *kueue.Workload,
 	preemteeWorkloadUID, preempteeJobUID, preemptorPath, preempteePath string,
 ) {
+	ginkgo.GinkgoHelper()
 	conditionCmpOpts := cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")
 	preemptedWlCopy := &kueue.Workload{}
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(preemptedWl), preemptedWlCopy)).To(gomega.Succeed())
 		g.Expect(preemptedWlCopy.Status.Conditions).To(gomega.ContainElements(gomega.BeComparableTo(metav1.Condition{
 			Type:   kueue.WorkloadPreempted,
@@ -578,6 +596,48 @@ func FindNonFinishedWorkloads(workloads []kueue.Workload) []kueue.Workload {
 	return active
 }
 
+// ExpectSingleActiveWorkload waits until the namespace holds exactly one non-finished Workload and returns it.
+func ExpectSingleActiveWorkload(ctx context.Context, k8sClient client.Client, namespace string) *kueue.Workload {
+	ginkgo.GinkgoHelper()
+	return ExpectSingleActiveWorkloadWithTimeout(ctx, k8sClient, namespace, LongTimeout)
+}
+
+// ExpectSingleActiveWorkloadWithTimeout waits until the namespace holds exactly one non-finished Workload within the given timeout and returns it.
+func ExpectSingleActiveWorkloadWithTimeout(ctx context.Context, k8sClient client.Client, namespace string, timeout time.Duration) *kueue.Workload {
+	ginkgo.GinkgoHelper()
+	active := &kueue.Workload{}
+	list := &kueue.WorkloadList{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.List(ctx, list, client.InNamespace(namespace))).To(gomega.Succeed())
+		nonFinished := FindNonFinishedWorkloads(list.Items)
+		g.Expect(nonFinished).To(gomega.HaveLen(1))
+		*active = nonFinished[0]
+	}, timeout, Interval).Should(gomega.Succeed(),
+		AssertMsgObjList("Expected exactly one non-finished workload", list))
+	return active
+}
+
+// ConsistentlyActiveWorkloadNames asserts that the namespace's non-finished Workloads stay exactly the named ones.
+func ConsistentlyActiveWorkloadNames(ctx context.Context, k8sClient client.Client, namespace string, names ...string) {
+	ginkgo.GinkgoHelper()
+	ConsistentlyActiveWorkloadNamesWithDuration(ctx, k8sClient, namespace, LongConsistentDuration, names...)
+}
+
+// ConsistentlyActiveWorkloadNamesWithDuration asserts that the namespace's non-finished Workloads stay exactly the named ones for the given duration.
+func ConsistentlyActiveWorkloadNamesWithDuration(ctx context.Context, k8sClient client.Client, namespace string, duration time.Duration, names ...string) {
+	ginkgo.GinkgoHelper()
+	list := &kueue.WorkloadList{}
+	gomega.Consistently(func(g gomega.Gomega) {
+		g.Expect(k8sClient.List(ctx, list, client.InNamespace(namespace))).To(gomega.Succeed())
+		active := make([]string, 0, len(names))
+		for _, wl := range FindNonFinishedWorkloads(list.Items) {
+			active = append(active, wl.Name)
+		}
+		g.Expect(active).To(gomega.ConsistOf(names))
+	}, duration, Interval).Should(gomega.Succeed(),
+		AssertMsgObjList("Unexpected set of non-finished workloads", list))
+}
+
 // FindConcurrentAdmissionVariants returns the subset of workloads that are Concurrent Admission variants.
 func FindConcurrentAdmissionVariants(workloads []kueue.Workload) []kueue.Workload {
 	var variants []kueue.Workload
@@ -667,7 +727,7 @@ func ExpectWorkloadToHaveConditions(
 ) {
 	ginkgo.GinkgoHelper()
 	wl := &kueue.Workload{}
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 		for _, wantCond := range wantConditions {
 			cond := apimeta.FindStatusCondition(wl.Status.Conditions, wantCond.Type)
@@ -690,12 +750,13 @@ func workloadKeys(wls []*kueue.Workload) []client.ObjectKey {
 }
 
 func AwaitWorkloadEvictionByPodsReadyTimeout(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, sleep time.Duration) {
+	ginkgo.GinkgoHelper()
 	if sleep > 0 {
 		time.Sleep(sleep)
 		ginkgo.By(fmt.Sprintf("exceeded the timeout %q for the %q workload", sleep.String(), wlKey.String()))
 	}
 	var wl kueue.Workload
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).Should(gomega.Succeed())
 		g.Expect(wl.Status.Conditions).Should(gomega.ContainElements(gomega.BeComparableTo(metav1.Condition{
 			Type:    kueue.WorkloadEvicted,
@@ -712,7 +773,14 @@ func AwaitWorkloadEvictionByPodsReadyTimeout(ctx context.Context, k8sClient clie
 // assigned count is what says how far the scale-up actually got.
 func ExpectPodSetAdmittedCount(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, podSetName kueue.PodSetReference, count int32) {
 	ginkgo.GinkgoHelper()
-	ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+	ExpectPodSetAdmittedCountWithTimeout(ctx, k8sClient, wl, podSetName, count, Timeout)
+}
+
+// ExpectPodSetAdmittedCountWithTimeout is ExpectPodSetAdmittedCount with an explicit timeout, for
+// E2E tests where the admission follows a real job controller reacting to a scale event.
+func ExpectPodSetAdmittedCountWithTimeout(ctx context.Context, k8sClient client.Client, wl *kueue.Workload, podSetName kueue.PodSetReference, count int32, timeout time.Duration) {
+	ginkgo.GinkgoHelper()
+	ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, timeout, client.ObjectKeyFromObject(wl))
 	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), wl)).Should(gomega.Succeed())
 		g.Expect(wl.Status.Admission).ShouldNot(gomega.BeNil())
@@ -722,12 +790,52 @@ func ExpectPodSetAdmittedCount(ctx context.Context, k8sClient client.Client, wl 
 		})
 		g.Expect(idx).ShouldNot(gomega.Equal(-1), AssertMsg(fmt.Sprintf("No admitted podSet %q", podSetName), wl))
 		g.Expect(assignments[idx].Count).Should(gomega.Equal(new(count)))
-	}, Timeout, Interval).Should(gomega.Succeed())
+	}, timeout, Interval).Should(gomega.Succeed())
+}
+
+// ExpectWorkloadPodSet waits until the Workload requests the given count and optional minCount on the named PodSet.
+func ExpectWorkloadPodSet(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, podSetName kueue.PodSetReference, wantCount int32, wantMinCount *int32) *kueue.PodSet {
+	ginkgo.GinkgoHelper()
+	return ExpectWorkloadPodSetWithTimeout(ctx, k8sClient, wlKey, podSetName, wantCount, wantMinCount, LongTimeout)
+}
+
+// ExpectWorkloadPodSetWithTimeout waits until the Workload requests the given count and optional minCount on the named PodSet within the given timeout.
+func ExpectWorkloadPodSetWithTimeout(
+	ctx context.Context,
+	k8sClient client.Client,
+	wlKey client.ObjectKey,
+	podSetName kueue.PodSetReference,
+	wantCount int32,
+	wantMinCount *int32,
+	timeout time.Duration,
+) *kueue.PodSet {
+	ginkgo.GinkgoHelper()
+	workers := &kueue.PodSet{}
+	wl := &kueue.Workload{}
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+		found := utilpodset.FindPodSetByName(wl.Spec.PodSets, podSetName)
+		g.Expect(found).NotTo(gomega.BeNil(), "workload has no %q PodSet", podSetName)
+		g.Expect(found.Count).To(gomega.Equal(wantCount))
+		if wantMinCount != nil {
+			g.Expect(found.MinCount).To(gomega.Equal(wantMinCount))
+		}
+		*workers = *found
+	}, timeout, Interval).Should(gomega.Succeed(),
+		AssertMsg(fmt.Sprintf("Workload did not request %d pods for %q", wantCount, podSetName), wl))
+	return workers
+}
+
+// ExpectWorkloadPodSetCount waits until the Workload requests the given count on the named PodSet.
+func ExpectWorkloadPodSetCount(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey, podSetName kueue.PodSetReference, wantCount int32) *kueue.PodSet {
+	ginkgo.GinkgoHelper()
+	return ExpectWorkloadPodSet(ctx, k8sClient, wlKey, podSetName, wantCount, nil)
 }
 
 func ExpectPodsReadyCondition(ctx context.Context, k8sClient client.Client, wlKey client.ObjectKey) {
+	ginkgo.GinkgoHelper()
 	var wl kueue.Workload
-	gomega.EventuallyWithOffset(1, func(g gomega.Gomega) {
+	gomega.Eventually(func(g gomega.Gomega) {
 		g.Expect(k8sClient.Get(ctx, wlKey, &wl)).To(gomega.Succeed())
 		g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadPodsReady), "pods are ready")
 	}, MediumTimeout, Interval).Should(gomega.Succeed(), AssertMsg("Workload pods are not ready", &wl))

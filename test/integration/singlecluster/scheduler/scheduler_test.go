@@ -4339,6 +4339,78 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.MustCreate(ctx, k8sClient, wlNew)
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cycleCq.Name, wlNew)
 		})
+		ginkgo.It("Should requeue inadmissible workloads across the whole tree after swapping cohort parents through a cycle", func() {
+			// cohort-a starts as the root with cohort-b under it. Setting cohort-a's parent
+			// to cohort-b creates a cycle, and clearing cohort-b's parent resolves it with
+			// cohort-a under cohort-b. swap-cq-a has no quota and must borrow from swap-cq-b.
+			ginkgo.By("Creating cohort-a as root and cohort-b under it")
+			cohortA := utiltestingapi.MakeCohort("").GeneratedName("swap-cohort-a-").Obj()
+			behavioral.MustCreate(ctx, k8sClient, cohortA)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohortA, true)
+			})
+			cohortB := utiltestingapi.MakeCohort("").GeneratedName("swap-cohort-b-").
+				Parent(kueue.CohortReference(cohortA.Name)).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, cohortB)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cohortB, true)
+			})
+
+			cqA := createQueue(utiltestingapi.MakeClusterQueue("swap-cq-a").
+				Cohort(kueue.CohortReference(cohortA.Name)).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).Resource(corev1.ResourceCPU, "0").Obj()).
+				Obj())
+			cqB := createQueue(utiltestingapi.MakeClusterQueue("swap-cq-b").
+				Cohort(kueue.CohortReference(cohortB.Name)).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).Resource(corev1.ResourceCPU, "2").Obj()).
+				Obj())
+			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, cqA, cqB)
+
+			ginkgo.By("Using all of swap-cq-b's quota")
+			wlB := utiltestingapi.MakeWorkload("swap-wl-b", ns.Name).
+				Queue(kueue.LocalQueueName(cqB.Name)).
+				Request(corev1.ResourceCPU, "2").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wlB)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqB.Name, wlB)
+
+			ginkgo.By("Setting cohort-a parent to cohort-b, which creates a cycle")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updated := &kueue.Cohort{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohortA), updated)).To(gomega.Succeed())
+				updated.Spec.ParentName = kueue.CohortReference(cohortB.Name)
+				g.Expect(k8sClient.Update(ctx, updated)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				for _, cq := range []*kueue.ClusterQueue{cqA, cqB} {
+					readCq := &kueue.ClusterQueue{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), readCq)).To(gomega.Succeed())
+					g.Expect(readCq.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.ClusterQueueActive, kueue.ClusterQueueActiveReasonCohortCycleDetected))
+				}
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+			ginkgo.By("Clearing cohort-b parent, which resolves the cycle with cohort-a under cohort-b")
+			gomega.Eventually(func(g gomega.Gomega) {
+				updated := &kueue.Cohort{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cohortB), updated)).To(gomega.Succeed())
+				updated.Spec.ParentName = ""
+				g.Expect(k8sClient.Update(ctx, updated)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectClusterQueuesToBeActive(ctx, k8sClient, cqA, cqB)
+
+			ginkgo.By("Submitting a workload to swap-cq-a that cannot borrow yet")
+			wlA := utiltestingapi.MakeWorkload("swap-wl-a", ns.Name).
+				Queue(kueue.LocalQueueName(cqA.Name)).
+				Request(corev1.ResourceCPU, "1").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wlA)
+			behavioral.ExpectPendingWorkloadsMetric(cqA, 0, 1)
+
+			ginkgo.By("Finishing the workload in swap-cq-b frees quota that swap-cq-a can borrow")
+			integration.FinishWorkloads(ctx, k8sClient, wlB)
+			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cqA.Name, wlA)
+		})
 	})
 	ginkgo.When("Workload slicing with multiple podSets", func() {
 		var (
