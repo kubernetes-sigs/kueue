@@ -956,7 +956,8 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 				}
 
 				leader, workers := findLeaderAndWorkers(trs)
-				if reason := s.assignPodSetGroup(ctx, trs, workers, leader, assumedUsage, opts, podSetGroupCounts, result); reason != "" {
+				// Node replacement repairs an admitted Workload, so it does not apply topology spreading.
+				if reason := s.assignPodSetGroup(ctx, trs, workers, leader, assumedUsage, opts, nil, result); reason != "" {
 					return result
 				}
 				continue
