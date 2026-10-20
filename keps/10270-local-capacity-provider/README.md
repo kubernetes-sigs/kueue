@@ -114,9 +114,9 @@ which was closed in favour of building on DQO.
    already used as an example in KEP-12382. It ignores providers addressed to
    other controllers.
 2. For each flavor in the provider's `spec.orchestratedFlavors`, the controller
-   finds the matching Nodes using the ResourceFlavor's `nodeLabels`,
-   `nodeTaints` and `tolerations`, and reports the sum of their allocatable
-   resources.
+   finds the matching Nodes using the ResourceFlavor's `nodeLabels` and, for
+   TAS flavors, the levels of its Topology, and reports the sum of their
+   allocatable resources.
 3. A new feature gate, `LocalCapacityProvider` (alpha, disabled by default),
    which requires `DynamicQuotaOrchestration`.
    Enabling it without `DynamicQuotaOrchestration` fails at startup.
@@ -275,9 +275,12 @@ Kueue uses to place workloads, so counting and placement always agree.
 A node contributes to a flavor only if all of the following hold:
 
 - it matches all of the flavor's `nodeLabels`;
-- it is `Ready`, not `unschedulable`, and not being deleted;
-- it has no NoSchedule/NoExecute taint that the flavor neither tolerates
-  (`tolerations`) nor declares (`nodeTaints`).
+- for a TAS flavor (`spec.topologyName` set), it has a label for every level of
+  the referenced Topology, the same rule TAS uses;
+- it is `Ready`, not `unschedulable`, and not being deleted.
+
+Taints do not exclude a node, because workloads may tolerate them even when the
+flavor does not.
 
 A node that stops meeting these conditions is removed on the next sync.
 
@@ -300,19 +303,21 @@ per flavor, per resource: sum of node.status.allocatable over eligible nodes
 
 ### Controller
 
-The controller watches `CapacityProvider`, `Node` and `ResourceFlavor` objects.
-Any change to a Node, a ResourceFlavor or a local-capacity CapacityProvider
+The controller watches `CapacityProvider`, `Node`, `ResourceFlavor` and
+`Topology` objects.
+Any change to a Node, a ResourceFlavor, a Topology or a local-capacity CapacityProvider
 enqueues all local-capacity providers, because it may affect any of them through
 overlap detection. Node updates that cannot affect capacity are filtered out:
-only changes to labels, taints, `unschedulable`, deletion, `allocatable` or
+only changes to labels, `unschedulable`, deletion, `allocatable` or
 readiness are considered.
 
 For each provider, the reconcile loop:
 
-1. Reads all local-capacity CapacityProviders, ResourceFlavors and Nodes from the
-   informer cache.
-2. Checks that every flavor in `orchestratedFlavors` exists, and that no flavor
-   is orchestrated by more than one local-capacity provider.
+1. Reads all local-capacity CapacityProviders, ResourceFlavors, Topologies and
+   Nodes from the informer cache.
+2. Checks that every flavor in `orchestratedFlavors` and its Topology, if any,
+   exist, and that no flavor is orchestrated by more than one local-capacity
+   provider.
 3. For each node, determines which orchestrated flavors (across all
    local-capacity providers) it matches. A node matching more than one flavor
    makes the provider `Misconfigured`.
@@ -320,7 +325,7 @@ For each provider, the reconcile loop:
 5. Writes `status.capacity` and the `CapacitySynchronized` condition, skipping
    writes that change nothing.
 
-The controller needs `get/list/watch` on Nodes, ResourceFlavors and
+The controller needs `get/list/watch` on Nodes, ResourceFlavors, Topologies and
 CapacityProviders, which Kueue already has, and `get/update/patch` on
 `capacityproviders/status`, which is new.
 
@@ -330,7 +335,7 @@ CapacityProviders, which Kueue already has, and `get/update/patch` on
 |---|---|
 | Normal, including zero nodes | `True`, `Synchronized`, with a message summarizing counted and excluded nodes per flavor |
 | Nodes cannot be read | `False`, `SourceUnavailable`; the last capacity is kept |
-| Missing flavor, flavor claimed twice, node matching several flavors, or more than 64 resources in a flavor | `False`, `Misconfigured`, with a message naming the flavor or node; the last capacity is kept |
+| Missing flavor or Topology, flavor claimed twice, node matching several flavors, or more than 64 resources in a flavor | `False`, `Misconfigured`, with a message naming the flavor or node; the last capacity is kept |
 
 Because DQO requires `CapacitySynchronized=True`, a provider in either `False`
 state makes DQO stop redistributing and keep the last effective quotas.
@@ -351,9 +356,9 @@ None.
 #### Unit tests
 
 - `pkg/controller/core/localcapacity`: node eligibility (Ready, cordoned,
-  deleting, taints vs. tolerations and nodeTaints, label match), summing
+  deleting, label match, Topology level labels, tainted nodes counted), summing
   allocatable, flavors without nodes published as empty, overlap detection,
-  missing flavors, more than 64 resources, a failure to list Nodes keeping the
+  missing flavors and Topologies, more than 64 resources, a failure to list Nodes keeping the
   last capacity (`SourceUnavailable`), unchanged status not rewritten, providers
   of other controllers ignored, feature gate disabled.
 
@@ -366,6 +371,8 @@ None.
   even when more nodes join.
 - Deleting an overlapping provider brings the remaining provider back to
   `Synchronized`.
+- For a TAS flavor, a missing Topology sets `Misconfigured`; once it exists,
+  only nodes with all its level labels count.
 - `effectiveCapacityMultiplier` scales the distributed quota (for example 80
   GPUs with `0.95` give 76).
 - The scheduler admits workloads according to the node-derived quota.
@@ -391,6 +398,8 @@ None.
 - Events and metrics for excluded nodes and sync time.
 - An explicit per-flavor resource list, so the provider is not limited by the
   64-resource cap and can support per-resource headroom.
+- An option to exclude nodes with specific taints, for example maintenance
+  taints, possibly in the LocalCapacity configuration API.
 - An option to count a GPU node only once its GPUs are advertised, so its CPU and
   memory do not count while the device plugin is still starting.
 - A Node cache transform that keeps only the fields the provider and TAS read,
