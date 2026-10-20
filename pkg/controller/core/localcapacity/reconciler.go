@@ -40,6 +40,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
 const (
@@ -78,6 +79,7 @@ func (r *Reconciler) logger() logr.Logger {
 
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=resourceflavors,verbs=get;list;watch
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=topologies,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=capacityproviders,verbs=get;list;watch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=capacityproviders/status,verbs=get;update;patch
 
@@ -109,6 +111,11 @@ func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 			handler.EnqueueRequestsFromMapFunc(r.mapToAllProviders),
 			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
 		).
+		Watches(
+			&kueue.Topology{},
+			handler.EnqueueRequestsFromMapFunc(r.mapToAllProviders),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+		).
 		Complete(r)
 }
 
@@ -127,7 +134,6 @@ var nodeCapacityChangedPredicate = predicate.Funcs{
 			return true
 		}
 		return !equality.Semantic.DeepEqual(oldNode.Labels, newNode.Labels) ||
-			!equality.Semantic.DeepEqual(oldNode.Spec.Taints, newNode.Spec.Taints) ||
 			oldNode.Spec.Unschedulable != newNode.Spec.Unschedulable ||
 			oldNode.DeletionTimestamp.IsZero() != newNode.DeletionTimestamp.IsZero() ||
 			!equality.Semantic.DeepEqual(oldNode.Status.Allocatable, newNode.Status.Allocatable) ||
@@ -136,7 +142,7 @@ var nodeCapacityChangedPredicate = predicate.Funcs{
 }
 
 // mapToAllProviders enqueues every local-capacity CapacityProvider. Any Node,
-// ResourceFlavor or CapacityProvider change may affect any provider, including
+// ResourceFlavor, Topology or CapacityProvider change may affect any provider, including
 // through overlap detection.
 func (r *Reconciler) mapToAllProviders(ctx context.Context, _ client.Object) []ctrl.Request {
 	providers, err := r.listLocalCapacityProviders(ctx)
@@ -210,17 +216,25 @@ func (r *Reconciler) snapshot(ctx context.Context) (*inputs, error) {
 	if err := r.client.List(ctx, &flavors); err != nil {
 		return nil, err
 	}
+	var topologies kueue.TopologyList
+	if err := r.client.List(ctx, &topologies); err != nil {
+		return nil, err
+	}
 	var nodes corev1.NodeList
 	if err := r.client.List(ctx, &nodes); err != nil {
 		return nil, err
 	}
 	in := &inputs{
-		providers: providers,
-		flavors:   make(map[kueuealpha.ResourceFlavorReference]*kueue.ResourceFlavor, len(flavors.Items)),
-		nodes:     nodes.Items,
+		providers:      providers,
+		flavors:        make(map[kueuealpha.ResourceFlavorReference]*kueue.ResourceFlavor, len(flavors.Items)),
+		topologyLevels: make(map[kueue.TopologyReference][]string, len(topologies.Items)),
+		nodes:          nodes.Items,
 	}
 	for i := range flavors.Items {
 		in.flavors[kueuealpha.ResourceFlavorReference(flavors.Items[i].Name)] = &flavors.Items[i]
+	}
+	for _, t := range topologies.Items {
+		in.topologyLevels[kueue.TopologyReference(t.Name)] = utiltas.Levels(&t)
 	}
 	return in, nil
 }

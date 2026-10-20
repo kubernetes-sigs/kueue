@@ -253,6 +253,58 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 		})
 	})
 
+	ginkgo.It("Should count only nodes with every level of the flavor's Topology", func() {
+		createNodes("h100-1", "h100-2")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("16"))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		expectProviderReason := func(reason string) {
+			ginkgo.GinkgoHelper()
+			gomega.Eventually(func(g gomega.Gomega) {
+				latest := &kueuealpha.CapacityProvider{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(provider), latest)).To(gomega.Succeed())
+				g.Expect(apimeta.FindStatusCondition(latest.Status.Conditions, kueuealpha.CapacityProviderCapacitySynchronized)).
+					To(gomega.HaveField("Reason", reason))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
+		ginkgo.By("Referencing a missing Topology makes the provider Misconfigured", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				latest := &kueue.ResourceFlavor{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(flavor), latest)).To(gomega.Succeed())
+				latest.Spec.TopologyName = new(kueue.TopologyReference("default"))
+				g.Expect(k8sClient.Update(ctx, latest)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			expectProviderReason(kueuealpha.CapacityProviderReasonMisconfigured)
+			gomega.Expect(effectiveGPUQuota(gomega.Default, cohort)).To(gomega.Equal("16"))
+		})
+
+		ginkgo.By("Creating the Topology excludes nodes without its level labels", func() {
+			topology := utiltestingapi.MakeTopology("default").Levels("example.com/block").Obj()
+			behavioral.MustCreate(ctx, k8sClient, topology)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, topology, true)
+			})
+			expectProviderReason(kueuealpha.CapacityProviderReasonSynchronized)
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("0"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Labeling a node with the level counts it", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				n := &corev1.Node{}
+				g.Expect(k8sClient.Get(ctx, client.ObjectKey{Name: "h100-1"}, n)).To(gomega.Succeed())
+				n.Labels["example.com/block"] = "b1"
+				g.Expect(k8sClient.Update(ctx, n)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(effectiveGPUQuota(g, cohort)).To(gomega.Equal("8"))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
 	ginkgo.It("Should apply effectiveCapacityMultiplier to the distributed quota", func() {
 		createNodes("h100-1", "h100-2", "h100-3", "h100-4", "h100-5", "h100-6", "h100-7", "h100-8", "h100-9", "h100-10")
 		gomega.Eventually(func(g gomega.Gomega) {

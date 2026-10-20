@@ -24,13 +24,10 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
-	corev1helpers "k8s.io/component-helpers/scheduling/corev1"
-	"k8s.io/klog/v2"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
-	utiltaints "sigs.k8s.io/kueue/pkg/util/taints"
 	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
 )
 
@@ -44,7 +41,9 @@ type inputs struct {
 	// providers are all local-capacity CapacityProviders, used for overlap detection.
 	providers []kueuealpha.CapacityProvider
 	flavors   map[kueuealpha.ResourceFlavorReference]*kueue.ResourceFlavor
-	nodes     []corev1.Node
+	// topologyLevels are the node labels of each Topology's levels.
+	topologyLevels map[kueue.TopologyReference][]string
+	nodes          []corev1.Node
 }
 
 type result struct {
@@ -60,8 +59,9 @@ type result struct {
 // flavor orchestrated by the provider.
 //
 // A node counts toward a flavor when it matches all of the flavor's nodeLabels,
-// is Ready, schedulable and not being deleted, and has no scheduling taint that
-// the flavor neither tolerates nor declares in nodeTaints.
+// has a label for every level of the flavor's Topology, if any, and is Ready,
+// schedulable and not being deleted. Taints are not considered, because
+// workloads may tolerate them on their own.
 //
 // Every orchestrated flavor is published, with empty resources when it has no
 // eligible nodes; Dynamic Quota Orchestration treats unreported resources of an
@@ -85,6 +85,13 @@ func computeCapacity(provider *kueuealpha.CapacityProvider, in *inputs) result {
 	}
 	if len(missing) > 0 {
 		return result{misconfigured: fmt.Sprintf("ResourceFlavors not found: %s", strings.Join(missing, ", "))}
+	}
+	for _, name := range ownFlavors {
+		if topology := in.flavors[name].Spec.TopologyName; topology != nil {
+			if _, ok := in.topologyLevels[*topology]; !ok {
+				return result{misconfigured: fmt.Sprintf("Topology %q of ResourceFlavor %q not found", *topology, name)}
+			}
+		}
 	}
 
 	// Collect every flavor claimed by any local-capacity provider; a flavor
@@ -111,7 +118,7 @@ func computeCapacity(provider *kueuealpha.CapacityProvider, in *inputs) result {
 		node := &in.nodes[i]
 		var matched []kueuealpha.ResourceFlavorReference
 		for _, name := range allFlavors {
-			if rf, ok := in.flavors[name]; ok && nodeMatchesFlavor(node, rf) {
+			if rf, ok := in.flavors[name]; ok && nodeMatchesFlavor(node, rf, in.topologyLevels) {
 				matched = append(matched, name)
 			}
 		}
@@ -123,7 +130,7 @@ func computeCapacity(provider *kueuealpha.CapacityProvider, in *inputs) result {
 		if len(matched) > 1 {
 			return result{misconfigured: fmt.Sprintf("Node %q matches multiple orchestrated ResourceFlavors: %s", node.Name, joinFlavors(matched))}
 		}
-		if reason := ineligibleReason(node, in.flavors[matched[0]]); reason != "" {
+		if reason := ineligibleReason(node); reason != "" {
 			excluded[reason]++
 			continue
 		}
@@ -150,12 +157,18 @@ func computeCapacity(provider *kueuealpha.CapacityProvider, in *inputs) result {
 	return result{capacity: capacity, summary: summarize(sets.List(ownSet), counted, excluded)}
 }
 
-func nodeMatchesFlavor(node *corev1.Node, rf *kueue.ResourceFlavor) bool {
-	return utiltas.NodeMatchesFlavor(node.Labels, rf.Spec.NodeLabels, nil)
+// nodeMatchesFlavor uses the same rule as TAS: a node of a TAS flavor must also
+// have a label for every level of the flavor's Topology.
+func nodeMatchesFlavor(node *corev1.Node, rf *kueue.ResourceFlavor, topologyLevels map[kueue.TopologyReference][]string) bool {
+	var levels []string
+	if rf.Spec.TopologyName != nil {
+		levels = topologyLevels[*rf.Spec.TopologyName]
+	}
+	return utiltas.NodeMatchesFlavor(node.Labels, rf.Spec.NodeLabels, levels)
 }
 
 // ineligibleReason returns why a node matching a flavor must not be counted, or "" if it is eligible.
-func ineligibleReason(node *corev1.Node, rf *kueue.ResourceFlavor) string {
+func ineligibleReason(node *corev1.Node) string {
 	switch {
 	case !node.DeletionTimestamp.IsZero():
 		return "Deleting"
@@ -163,17 +176,6 @@ func ineligibleReason(node *corev1.Node, rf *kueue.ResourceFlavor) string {
 		return "Unschedulable"
 	case !isNodeReady(node):
 		return "NotReady"
-	}
-	isUnexpectedSchedulingTaint := func(t *corev1.Taint) bool {
-		if !utiltaints.IsSchedulingTaint(t) {
-			return false
-		}
-		// Taints declared by the flavor are expected on its nodes: workloads
-		// assigned the flavor are required to tolerate them.
-		return !slices.ContainsFunc(rf.Spec.NodeTaints, func(nt corev1.Taint) bool { return nt.MatchTaint(t) })
-	}
-	if _, untolerated := corev1helpers.FindMatchingUntoleratedTaint(klog.Background(), node.Spec.Taints, rf.Spec.Tolerations, isUnexpectedSchedulingTaint, true); untolerated {
-		return "UntoleratedTaint"
 	}
 	return ""
 }

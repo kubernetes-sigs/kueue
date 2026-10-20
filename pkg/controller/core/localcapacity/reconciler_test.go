@@ -107,6 +107,7 @@ func TestReconcile(t *testing.T) {
 		provider           *kueuealpha.CapacityProvider
 		otherProviders     []*kueuealpha.CapacityProvider
 		flavors            []*kueue.ResourceFlavor
+		topologies         []*kueue.Topology
 		nodes              []*corev1.Node
 		wantStatus         kueuealpha.CapacityProviderStatus
 		wantErr            bool
@@ -141,7 +142,7 @@ func TestReconcile(t *testing.T) {
 				Conditions: []metav1.Condition{synced("a100: 1 node; h100: 2 nodes")},
 			},
 		},
-		"excludes NotReady, unschedulable and untolerated-tainted nodes": {
+		"excludes NotReady and unschedulable nodes": {
 			provider: utiltestingalpha.MakeCapacityProvider("nodes").
 				ControllerName(ControllerName).
 				OrchestratedFlavors("h100").
@@ -152,44 +153,32 @@ func TestReconcile(t *testing.T) {
 				gpuNode("not-ready", "h100").NotReady().Obj(),
 				gpuNode("no-condition", "h100").Obj(),
 				gpuNode("cordoned", "h100").Ready().Unschedulable().Obj(),
-				gpuNode("tainted", "h100").Ready().
-					Taints(corev1.Taint{Key: "maintenance", Effect: corev1.TaintEffectNoSchedule}).
-					Obj(),
-				gpuNode("prefer-no-schedule", "h100").Ready().
-					Taints(corev1.Taint{Key: "soft", Effect: corev1.TaintEffectPreferNoSchedule}).
-					Obj(),
 			},
 			wantStatus: kueuealpha.CapacityProviderStatus{
 				Capacity: utiltestingalpha.MakeNormalizedCapacity().
 					Flavors(
 						utiltestingalpha.MakeNormalizedCapacityFlavor("h100").
-							Resource(corev1.ResourceCPU, "240").
-							Resource(corev1.ResourceMemory, "1800Gi").
-							Resource(gpuResource, "16").
+							Resource(corev1.ResourceCPU, "120").
+							Resource(corev1.ResourceMemory, "900Gi").
+							Resource(gpuResource, "8").
 							Obj(),
 					).
 					Obj(),
-				Conditions: []metav1.Condition{synced("h100: 2 nodes; excluded: NotReady=2, Unschedulable=1, UntoleratedTaint=1")},
+				Conditions: []metav1.Condition{synced("h100: 1 node; excluded: NotReady=2, Unschedulable=1")},
 			},
 		},
-		"counts tainted nodes when the flavor tolerates or declares the taint": {
+		"counts tainted nodes, because workloads may tolerate the taints": {
 			provider: utiltestingalpha.MakeCapacityProvider("nodes").
 				ControllerName(ControllerName).
 				OrchestratedFlavors("h100").
 				Obj(),
-			flavors: []*kueue.ResourceFlavor{
-				utiltestingapi.MakeResourceFlavor("h100").
-					NodeLabel("example.com/gpu-type", "h100").
-					Toleration(corev1.Toleration{Key: "tolerated", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}).
-					Taint(corev1.Taint{Key: "nvidia.com/gpu", Effect: corev1.TaintEffectNoSchedule}).
-					Obj(),
-			},
+			flavors: []*kueue.ResourceFlavor{h100Flavor},
 			nodes: []*corev1.Node{
-				gpuNode("tolerated", "h100").Ready().
-					Taints(corev1.Taint{Key: "tolerated", Effect: corev1.TaintEffectNoSchedule}).
+				gpuNode("no-schedule", "h100").Ready().
+					Taints(corev1.Taint{Key: "maintenance", Effect: corev1.TaintEffectNoSchedule}).
 					Obj(),
-				gpuNode("declared", "h100").Ready().
-					Taints(corev1.Taint{Key: "nvidia.com/gpu", Effect: corev1.TaintEffectNoSchedule}).
+				gpuNode("no-execute", "h100").Ready().
+					Taints(corev1.Taint{Key: "maintenance", Effect: corev1.TaintEffectNoExecute}).
 					Obj(),
 			},
 			wantStatus: kueuealpha.CapacityProviderStatus{
@@ -203,6 +192,64 @@ func TestReconcile(t *testing.T) {
 					).
 					Obj(),
 				Conditions: []metav1.Condition{synced("h100: 2 nodes")},
+			},
+		},
+		"counts only nodes with every level of the flavor's Topology": {
+			provider: utiltestingalpha.MakeCapacityProvider("nodes").
+				ControllerName(ControllerName).
+				OrchestratedFlavors("h100").
+				Obj(),
+			flavors: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("h100").
+					NodeLabel("example.com/gpu-type", "h100").
+					TopologyName("default").
+					Obj(),
+			},
+			topologies: []*kueue.Topology{
+				utiltestingapi.MakeTopology("default").Levels("example.com/block", corev1.LabelHostname).Obj(),
+			},
+			nodes: []*corev1.Node{
+				gpuNode("all-levels-1", "h100").Ready().
+					Label("example.com/block", "b1").
+					Label(corev1.LabelHostname, "all-levels-1").
+					Obj(),
+				gpuNode("all-levels-2", "h100").Ready().
+					Label("example.com/block", "b1").
+					Label(corev1.LabelHostname, "all-levels-2").
+					Obj(),
+				gpuNode("missing-block", "h100").Ready().
+					Label(corev1.LabelHostname, "missing-block").
+					Obj(),
+			},
+			wantStatus: kueuealpha.CapacityProviderStatus{
+				Capacity: utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(
+						utiltestingalpha.MakeNormalizedCapacityFlavor("h100").
+							Resource(corev1.ResourceCPU, "240").
+							Resource(corev1.ResourceMemory, "1800Gi").
+							Resource(gpuResource, "16").
+							Obj(),
+					).
+					Obj(),
+				Conditions: []metav1.Condition{synced("h100: 2 nodes")},
+			},
+		},
+		"is misconfigured when the flavor's Topology is missing": {
+			provider: utiltestingalpha.MakeCapacityProvider("nodes").
+				ControllerName(ControllerName).
+				OrchestratedFlavors("h100").
+				Capacity(previousCapacity).
+				Obj(),
+			flavors: []*kueue.ResourceFlavor{
+				utiltestingapi.MakeResourceFlavor("h100").
+					NodeLabel("example.com/gpu-type", "h100").
+					TopologyName("default").
+					Obj(),
+			},
+			nodes: []*corev1.Node{gpuNode("h100-1", "h100").Ready().Obj()},
+			wantStatus: kueuealpha.CapacityProviderStatus{
+				Capacity:   previousCapacity,
+				Conditions: []metav1.Condition{misconfigured(`Topology "default" of ResourceFlavor "h100" not found`)},
 			},
 		},
 		"publishes a flavor without eligible nodes with empty resources": {
@@ -355,6 +402,9 @@ func TestReconcile(t *testing.T) {
 			}
 			for _, f := range tc.flavors {
 				objs = append(objs, f)
+			}
+			for _, topology := range tc.topologies {
+				objs = append(objs, topology)
 			}
 			for _, n := range tc.nodes {
 				objs = append(objs, n)
