@@ -37,6 +37,24 @@ The pods are created and the actual computation will happen on the mirror copy o
 The mirror copy of the Job does not have the field set.
 {{% /alert %}}
 
+## RayService autoscaling and in-place updates
+
+For an [elastic RayService](/docs/tasks/run/rayservices/#autoscaling-aka-intreeautoscaling),
+enable `MultiKueueRayInTreeAutoscaling` on the management cluster in addition to
+`ElasticJobsViaWorkloadSlices` on the management and worker clusters. Set
+`spec.upgradeStrategy.type: None` to keep a single active RayCluster.
+
+With `MultiKueueRemoteSpecSync` enabled on the management cluster (the default),
+changes to `spec.serveConfigV2` are forwarded to the existing worker RayService.
+KubeRay applies the Serve configuration to the active RayCluster in place.
+Any resulting worker autoscaling changes are reflected back to the management
+cluster and accounted for through workload slices. Scale-up still requires
+quota admission for the additional worker Pods.
+
+This does not forward changes to `spec.rayClusterConfig` or enable upgrades that
+create a second RayCluster. Zero-downtime upgrades with active and pending
+RayClusters remain unsupported by this integration.
+
 {{% alert title="Ray History Server" color="primary" %}}
 Using [Ray History Server](https://docs.ray.io/en/latest/cluster/kubernetes/user-guides/kuberay-history-server.html)
 with MultiKueue requires KubeRay v1.7.0 or later and Ray v2.55 or later.
