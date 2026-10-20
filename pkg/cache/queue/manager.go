@@ -657,8 +657,8 @@ func (m *Manager) QueueForWorkloadExists(wl *kueue.Workload) bool {
 }
 
 // ClusterQueueForWorkload returns the name of the ClusterQueue where the
-// workload should be queued and whether it exists.
-// Returns empty string if the queue doesn't exist.
+// workload has quota reserved, or where it should be queued, and whether it exists.
+// Returns empty string if the workload has no quota reserved and its queue doesn't exist.
 func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
 	m.RLock()
 	defer m.RUnlock()
@@ -666,6 +666,11 @@ func (m *Manager) ClusterQueueForWorkload(wl *kueue.Workload) (kueue.ClusterQueu
 }
 
 func (m *Manager) ClusterQueueNameForWorkloadWithoutLock(wl *kueue.Workload) (kueue.ClusterQueueReference, bool) {
+	// The LocalQueue of a workload with quota reserved might be held or deleted.
+	if workload.HasQuotaReservation(wl) && wl.Status.Admission != nil {
+		cqName := wl.Status.Admission.ClusterQueue
+		return cqName, m.hm.ClusterQueue(cqName) != nil
+	}
 	q, ok := m.localQueues[queue.KeyFromWorkload(wl)]
 	if !ok {
 		return "", false
