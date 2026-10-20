@@ -943,6 +943,18 @@ func (s *TASFlavorSnapshot) FindTopologyAssignmentsForFlavor(ctx context.Context
 				// Every Pod of the PodSet group ran on the failed node, so nothing
 				// pins the group to a domain any more; place the group again as a whole.
 				log.V(3).Info("Placing the PodSet group again, none of its Pods remain on a healthy node", "unhealthyNode", unhealthyNodeName)
+				// tr.Count excludes reclaimable Pods, but the admission still counts them,
+				// so place as many Pods as the previous assignment held.
+				trs = slices.Clone(trs)
+				for i := range trs {
+					psa := findPSA(wlObj, trs[i].PodSet.Name)
+					if psa == nil || psa.TopologyAssignment == nil {
+						continue
+					}
+
+					trs[i].Count = utiltas.CountPodsInAssignment(utiltas.InternalFrom(psa.TopologyAssignment))
+				}
+
 				leader, workers := findLeaderAndWorkers(trs)
 				if reason := s.assignPodSetGroup(ctx, trs, workers, leader, assumedUsage, opts, podSetGroupCounts, result); reason != "" {
 					return result
