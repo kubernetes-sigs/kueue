@@ -93,7 +93,6 @@ func (w *RayJobWebhook) Default(ctx context.Context, obj *rayv1.RayJob) error {
 		return err
 	}
 	jobframework.ApplyDefaultForManagedBy(job, w.queues, w.cache, log)
-	raycluster.DefaultPodIndexOffsetForPodSetGroups(job.Spec.RayClusterSpec)
 	return nil
 }
 

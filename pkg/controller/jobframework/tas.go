@@ -135,6 +135,10 @@ func (p *podSetTopologyRequestBuilder) Build() (*kueue.PodSetTopologyRequest, er
 // topology ungater shifts the ranks of the larger PodSet in the group by the
 // size of the smaller one, which only matches integrations whose Pod indexes
 // continue across the group, such as LeaderWorkerSet.
+// Integrations call it when they start an admitted job, not in the webhook:
+// during an upgrade, a Kueue replica whose validation still rejects the
+// annotation in a PodSet group fails the job update, which Kueue retries,
+// instead of the user's request.
 func DefaultPodIndexOffsetForPodSetGroup(meta *metav1.ObjectMeta) {
 	if !features.Enabled(features.TopologyAwareScheduling) {
 		return
