@@ -149,6 +149,7 @@ func (j *JobSet) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 		if err := podset.Merge(log, &template.ObjectMeta, &template.Spec, info); err != nil {
 			return err
 		}
+		jobframework.DefaultPodIndexOffsetForPodSetGroup(&template.ObjectMeta)
 	}
 	return nil
 }
