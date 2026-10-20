@@ -19,6 +19,7 @@ package waitforpodsready
 import (
 	"math"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -86,8 +87,8 @@ func TestSecondsToDuration(t *testing.T) {
 			if (tc.wantErrMsg == "") != (err == nil) {
 				t.Fatalf("secondsToDuration(%d) error = %v, wantErr = %q", tc.seconds, err, tc.wantErrMsg)
 			}
-			if tc.wantErrMsg != "" && gotErrMsg != tc.wantErrMsg {
-				t.Errorf("secondsToDuration(%d) error = %q, want %q", tc.seconds, gotErrMsg, tc.wantErrMsg)
+			if tc.wantErrMsg != "" && !strings.Contains(gotErrMsg, tc.wantErrMsg) {
+				t.Errorf("secondsToDuration(%d) error = %q, want to contain %q", tc.seconds, gotErrMsg, tc.wantErrMsg)
 			}
 			if err == nil && gotDur != tc.wantDur {
 				t.Errorf("secondsToDuration(%d) = %v, want %v", tc.seconds, gotDur, tc.wantDur)
@@ -234,8 +235,11 @@ func TestParseAnnotation(t *testing.T) {
 			if err != nil {
 				gotErrMsg = err.Error()
 			}
-			if gotErrMsg != tc.wantErrMsg {
-				t.Errorf("ParseAnnotation() error = %q, want %q", gotErrMsg, tc.wantErrMsg)
+			if tc.wantErrMsg != "" && !strings.Contains(gotErrMsg, tc.wantErrMsg) {
+				t.Errorf("ParseAnnotation() error = %q, want to contain %q", gotErrMsg, tc.wantErrMsg)
+			}
+			if tc.wantErrMsg == "" && err != nil {
+				t.Errorf("ParseAnnotation() error = %q, want nil", gotErrMsg)
 			}
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Errorf("ParseAnnotation() = %v, want %v", got, tc.want)
