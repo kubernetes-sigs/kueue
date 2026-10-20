@@ -201,7 +201,7 @@ func TestScheduleForTASDRA(t *testing.T) {
 			},
 			wantEvents: []utiltesting.EventRecord{
 				utiltesting.MakeEventRecord("default", "wl", kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed, corev1.EventTypeWarning).
-					Message(`couldn't assign flavors to pod set main: topology "tas-single-level" doesn't allow to fit any of 1 pod(s). Total nodes: 2; excluded: draNoFit: 2`).
+					Message(`couldn't assign flavors to pod set main: topology "tas-single-level" doesn't allow to fit any of 1 pod(s); all pods must fit in a single "kubernetes.io/hostname" topology domain. Total nodes: 2; excluded: draNoFit: 2`).
 					Obj(),
 			},
 			featureGates: map[featuregate.Feature]bool{

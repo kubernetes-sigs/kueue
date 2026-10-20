@@ -190,6 +190,16 @@ Kueue itself does not manage the `ClusterProfile` resources, which is the respon
 The `MultiKueueClusterProfile` feature gate has to be enabled for Kueue to consider `ClusterProfile` objects when connecting to clusters.
 Refer to the [Installation guide](/docs/installation/#change-the-feature-gates-configuration) for instructions on configuring feature gates.
 
+{{% alert title="Note" color="primary" %}}
+
+Kueue reads `ClusterProfile` objects as `multicluster.x-k8s.io/v1alpha2`.
+The `clusterprofiles.multicluster.x-k8s.io` CRD must serve `v1alpha2`, which requires cluster-inventory-api v0.2.0 or later.
+If your cluster has an older CRD, upgrade it before you upgrade Kueue.
+To list the served versions, run:
+`kubectl get crd clusterprofiles.multicluster.x-k8s.io -o jsonpath='{.spec.versions[?(@.served==true)].name}'`
+
+{{% /alert %}}
+
 ### Provision the `ClusterProfile` objects for your clusters
 
 #### Cloud provider managed cluster inventory
@@ -207,7 +217,7 @@ one per cluster (including the manager itself).
 
 For example:
 ```yaml
-apiVersion: multicluster.x-k8s.io/v1alpha1
+apiVersion: multicluster.x-k8s.io/v1alpha2
 kind: ClusterProfile
 metadata:
   labels:
@@ -256,7 +266,7 @@ kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/cluster-inven
 
 Next, the `ClusterProfile` objects can be created:
 ```yaml
-apiVersion: multicluster.x-k8s.io/v1alpha1
+apiVersion: multicluster.x-k8s.io/v1alpha2
 kind: ClusterProfile
 metadata:
   name: worker1-cluster
@@ -285,7 +295,7 @@ The access provider defined in `ClusterProfile` depends upon an executable plugi
 Kueue controller manager pods running within the MultiKueue manager cluster.
 It's the responsibility of the Kueue administrator to make sure that the required command is available.
 
-An example plugin can be found [here](https://github.com/kubernetes-sigs/cluster-inventory-api/tree/v0.1.3/plugins/secretreader) (secret reader) or [here](https://cloud.google.com/blog/products/containers-kubernetes/kubectl-auth-changes-in-gke) (Google Cloud Platform).
+Example plugins include the [`secretreader` plugin](https://github.com/kubernetes-sigs/cluster-inventory-api/tree/v0.2.0/plugins/secretreader) and the [GKE authentication plugin](https://cloud.google.com/blog/products/containers-kubernetes/kubectl-auth-changes-in-gke).
 
 #### Mount the executable with `initContainers`
 

@@ -260,6 +260,12 @@ func (p *PodWrapper) NodeSelector(k, v string) *PodWrapper {
 	return p
 }
 
+// SchedulingGroup makes the Pod belong to the given PodGroup.
+func (p *PodWrapper) SchedulingGroup(podGroupName string) *PodWrapper {
+	p.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: &podGroupName}
+	return p
+}
+
 func (p *PodWrapper) RequiredDuringSchedulingIgnoredDuringExecution(nodeSelectorTerms []corev1.NodeSelectorTerm) *PodWrapper {
 	if p.Spec.Affinity == nil {
 		p.Spec.Affinity = &corev1.Affinity{}
@@ -368,6 +374,12 @@ func (p *PodWrapper) Image(image string, args []string) *PodWrapper {
 // Limit adds a resource limit to the default container.
 func (p *PodWrapper) Limit(r corev1.ResourceName, v string) *PodWrapper {
 	p.Spec.Containers[0].Resources.Limits[r] = resource.MustParse(v)
+	return p
+}
+
+// RuntimeClass sets the RuntimeClassName of the Pod.
+func (p *PodWrapper) RuntimeClass(name string) *PodWrapper {
+	p.Spec.RuntimeClassName = &name
 	return p
 }
 

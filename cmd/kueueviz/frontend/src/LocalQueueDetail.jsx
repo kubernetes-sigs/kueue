@@ -22,6 +22,7 @@ import FlavorTable from './FlavorTable';
 import './App.css';
 import { Link } from 'react-router-dom';
 import ErrorMessage from './ErrorMessage';
+import { getWorkloadStatus } from './utils/workloadStatus';
 
 const LocalQueueDetail = () => {
   const { namespace, queueName } = useParams();
@@ -107,7 +108,7 @@ const LocalQueueDetail = () => {
             {workloads.map((workload) => (
               <TableRow key={workload.metadata.name}>
                 <TableCell><Link to={`/workload/${namespace}/${workload.metadata.name}`}>{workload.metadata.name}</Link></TableCell>
-                <TableCell>{workload.status?.conditions?.[0]?.type || 'Unknown'}</TableCell>
+                <TableCell>{getWorkloadStatus(workload)}</TableCell>
               </TableRow>
             ))}
           </TableBody>

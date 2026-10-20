@@ -1003,9 +1003,10 @@ function cluster_kueue_deploy {
 # $1 kubeconfig
 # $2 values file
 # $3 kustomization config whose kueue-manager-config and controller-manager
-#    replicas are used, so that Helm and kustomize installs share them
+#    replicas are used, and whose alpha CRDs decide enableAlphaAPIs,
+#    so that Helm and kustomize installs share them
 function helm_install {
-    local manifests manager_config replicas
+    local manifests manager_config replicas alpha_apis=false
     manifests=$($KUSTOMIZE build "$3")
     manager_config=$(mktemp)
     # shellcheck disable=SC2064 # Intentionally expand now to capture the temp file path
@@ -1013,11 +1014,18 @@ function helm_install {
     $YQ -e 'select(.kind == "ConfigMap" and .metadata.name == "kueue-manager-config") | .data."controller_manager_config.yaml"' \
         <<<"$manifests" >"$manager_config"
     replicas=$($YQ -e 'select(.kind == "Deployment" and .metadata.name == "kueue-controller-manager") | .spec.replicas' <<<"$manifests")
+    # The chart's enableAlphaAPIs installs all CRDs of config/components/crd/alpha,
+    # so turn it on if the build contains any of them.
+    if $YQ -N 'select(.kind == "CustomResourceDefinition") | .metadata.name' <<<"$manifests" |
+        grep -Fx -f <($KUSTOMIZE build "${ROOT_DIR}/config/components/crd/alpha" | $YQ -N '.metadata.name') >/dev/null; then
+        alpha_apis=true
+    fi
 
     $HELM install \
       -f "$2" \
       --set-file "managerConfig.controllerManagerConfigYaml=${manager_config}" \
       --set "controllerManager.replicas=${replicas}" \
+      --set "enableAlphaAPIs=${alpha_apis}" \
       --set "controllerManager.manager.image.repository=${IMAGE_TAG%:*}" \
       --set "controllerManager.manager.image.tag=${IMAGE_TAG##*:}" \
       --create-namespace \

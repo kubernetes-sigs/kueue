@@ -88,7 +88,8 @@ golangci-lint: gomod-download-tools ## Download golangci-lint locally if necessa
 
 .PHONY: golangci-lint-kal
 golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configuration.
-	cd hack/testing/kal-linter; $(NETWORK_INSTALL_RETRY) $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
+	# The custom builder runs in golangci-lint's module; keep Kueue's selected Go toolchain.
+	cd hack/testing/kal-linter; $(NETWORK_INSTALL_RETRY) GOTOOLCHAIN=$(shell $(GO_CMD) env GOVERSION) $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
 
 .PHONY: controller-gen
 controller-gen: gomod-download-tools ## Download controller-gen locally if necessary.

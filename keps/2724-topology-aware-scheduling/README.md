@@ -1169,9 +1169,10 @@ const (
   // into the Pod.
   TopologySchedulingGate = "kueue.x-k8s.io/topology"
 
-  // WorkloadAnnotation is an annotation set on the Job's PodTemplate to
-  // indicate the name of the admitted Workload corresponding to the Job. The
-  // annotation is set when starting the Job, and removed on stopping the Job.
+  // The `kueue.x-k8s.io/workload` annotation is added to each PodTemplate
+  // to identify the admitted Workload corresponding to the Job. It is used
+  // by TopologyAssigner to facilitate quick lookup of Pods corresponding
+  // to the workload (and more specifically PodSetAssignment).
   WorkloadAnnotation = "kueue.x-k8s.io/workload"
 
   // TASLabel is a label set on the Job's PodTemplate to indicate that the
@@ -1617,6 +1618,9 @@ period on the original node — an assignment no pod can ever consume, occupying
 newly assigned node for the full grace period. With the gate enabled, evicted
 pod-owned Workloads get `Requeued=False` instead: the Workload is parked, finishes
 with its pod, and the owning controller's replacement pod arrives as a new Workload.
+This applies only once the pod's `kueue.x-k8s.io/admission` scheduling gate has been
+removed; a pod that still carries it at eviction time has not been placed and is not
+deleted by the stop, so its Workload is requeued as usual.
 
 #### Tainted nodes treatment
 

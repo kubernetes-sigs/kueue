@@ -47,20 +47,20 @@ Kueue provides the following in-tree integrations:
 | [AppWrapper](/docs/tasks/run/appwrappers/) | Stable |
 | [Batch Job](/docs/tasks/run/jobs/) | Stable |
 | [Deployment](/docs/tasks/run/deployment/) | Stable |
-| [JAXJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/jaxjobs/) | Deprecated |
 | [JobSet](/docs/tasks/run/jobsets/) | Stable |
 | [LeaderWorkerSet](/docs/tasks/run/leaderworkerset/) | Stable |
 | [MPIJob](/docs/tasks/run/kubeflow/mpijobs/) | Stable |
-| [PaddleJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/paddlejobs/) | Deprecated |
 | [Pod and Pod groups](/docs/tasks/run/plain_pods/) | Stable |
-| [PyTorchJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/pytorchjobs/) | Deprecated |
 | [RayCluster](/docs/tasks/run/rayclusters/) | Stable |
 | [RayJob](/docs/tasks/run/rayjobs/) | Stable |
 | [RayService](/docs/tasks/run/rayservices/) | Stable |
 | [SparkApplication](/docs/tasks/run/kubeflow/sparkapplications/) | Alpha |
 | [StatefulSet](/docs/tasks/run/statefulset/) | Stable |
-| [TFJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/tfjobs/) | Deprecated |
 | [TrainJob (Kubeflow Trainer v2)](/docs/tasks/run/trainjobs/) | Alpha |
+| [JAXJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/jaxjobs/) | Deprecated |
+| [PaddleJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/paddlejobs/) | Deprecated |
+| [PyTorchJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/pytorchjobs/) | Deprecated |
+| [TFJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/tfjobs/) | Deprecated |
 | [XGBoostJob (Kubeflow Trainer v1)](/docs/tasks/run/kubeflow/xgboostjobs/) | Deprecated |
 
 For the deprecated Kubeflow Trainer v1 integrations, migrate to

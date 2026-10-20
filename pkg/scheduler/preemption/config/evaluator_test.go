@@ -31,7 +31,6 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-base/featuregate"
-	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -543,17 +542,16 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 
-			evaluator := NewPreemptionEvaluator(ctx, log, clock.RealClock{}, tc.config, candidatesByName)
-
 			wlInfo := workload.NewInfo(log, tc.preemptorWl)
 			wlInfo.ClusterQueue = tc.preemptorCq
+			evaluator := NewPreemptionEvaluator(ctx, log, tc.config, wlInfo, candidatesByName)
 
 			trigger := tc.trigger
 			if trigger == "" {
 				trigger = kueuealpha.Always
 			}
 			frsNeedPreemption := sets.New(resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU})
-			candidates, err := evaluator.candidatesFor(snapshot, wlInfo, frsNeedPreemption, trigger)
+			candidates, err := evaluator.candidatesFor(snapshot, frsNeedPreemption, trigger)
 			if len(tc.wantErrs) > 0 {
 				if err == nil {
 					t.Fatalf("candidatesFor() expected error, got nil")
@@ -714,9 +712,9 @@ func TestPreemptionEvaluatorOverlappingTASCandidates(t *testing.T) {
 					Rule("test", trigger,
 						utiltestingalpha.MakeCandidateSelector(kueuealpha.AnyClusterQueue).Obj(),
 					).Obj()
-				evaluator := NewPreemptionEvaluator(ctx, log, clock.RealClock{}, config, candidatesByName)
+				evaluator := NewPreemptionEvaluator(ctx, log, config, preemptor, candidatesByName)
 
-				candidates, err := evaluator.candidatesFor(snapshot, preemptor, frsNeedPreemption, trigger)
+				candidates, err := evaluator.candidatesFor(snapshot, frsNeedPreemption, trigger)
 				if err != nil {
 					t.Fatalf("candidatesFor() unexpected error: %v", err)
 				}
@@ -897,10 +895,9 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 
-			evaluator := NewPreemptionEvaluator(ctx, log, clock.RealClock{}, tc.config, candidatesByName)
-
 			wlInfo := workload.NewInfo(log, tc.preemptorWl)
 			wlInfo.ClusterQueue = tc.preemptorCq
+			evaluator := NewPreemptionEvaluator(ctx, log, tc.config, wlInfo, candidatesByName)
 
 			trigger := tc.trigger
 			if trigger == "" {
@@ -908,7 +905,7 @@ func TestPreemptionEvaluatorSelectorIndexes(t *testing.T) {
 			}
 
 			frsNeedPreemption := sets.New(resources.FlavorResource{Flavor: "default", Resource: corev1.ResourceCPU})
-			candidates, err := evaluator.candidatesFor(snapshot, wlInfo, frsNeedPreemption, trigger)
+			candidates, err := evaluator.candidatesFor(snapshot, frsNeedPreemption, trigger)
 			if err != nil {
 				t.Errorf("candidatesFor() error: %v", err)
 				return
@@ -1104,12 +1101,12 @@ func TestPreemptionEvaluatorFindCandidates(t *testing.T) {
 				t.Fatalf("unexpected error while building snapshot: %v", err)
 			}
 
-			var evaluator *PreemptionEvaluator
-			if tc.config != nil {
-				evaluator = NewPreemptionEvaluator(ctx, log, clock.RealClock{}, *tc.config, candidatesByName)
-			}
 			preemptor := workload.NewInfo(log, tc.preemptor)
 			preemptor.ClusterQueue = "a"
+			var evaluator *PreemptionEvaluator
+			if tc.config != nil {
+				evaluator = NewPreemptionEvaluator(ctx, log, *tc.config, preemptor, candidatesByName)
+			}
 			requestedCPU := preemptor.TotalRequests[0].Requests.ResourceValue(corev1.ResourceCPU)
 			quotaFits := func() bool {
 				return snapshot.ClusterQueue("a").Available(fr).Cmp(requestedCPU) >= 0
@@ -1118,7 +1115,7 @@ func TestPreemptionEvaluatorFindCandidates(t *testing.T) {
 			// When
 			// The yield interrupts FindCandidates once the preemptor fits.
 			var gotTargets []string
-			gotInterrupted := evaluator.FindCandidates(snapshot, preemptor, sets.New(fr), quotaFits, func(target *policy.Target) bool {
+			gotInterrupted := evaluator.FindCandidates(snapshot, sets.New(fr), quotaFits, func(target *policy.Target) bool {
 				gotTargets = append(gotTargets, string(workload.Key(target.WorkloadInfo.Obj)))
 				return tc.neverFits || !quotaFits()
 			})

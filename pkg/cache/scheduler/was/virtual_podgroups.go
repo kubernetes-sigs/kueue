@@ -1,5 +1,3 @@
-//go:build !exclude_scheduler_library
-
 /*
 Copyright The Kubernetes Authors.
 

@@ -55,6 +55,7 @@ type rayAutoscalingTestContext struct {
 }
 
 func liveRayWorkloadSlice(g gomega.Gomega, c client.Client, ns, sliceName string) *kueue.Workload {
+	ginkgo.GinkgoHelper()
 	wls := &kueue.WorkloadList{}
 	g.Expect(c.List(ctx, wls, client.InNamespace(ns))).To(gomega.Succeed())
 	var live []kueue.Workload
@@ -73,6 +74,11 @@ func registerRayAutoscalingTests(testContext func() rayAutoscalingTestContext) {
 		ginkgo.It("Should reflect worker-side autoscaler resizes (up, down, and up again) of a RayJob's child RayCluster back on the manager", func() {
 			tc := testContext()
 			runRayJobAutoscalingTest(tc.managerNs, tc.managerCq, tc.managerLq, tc.multiKueueAc, tc.kubernetesClients)
+		})
+
+		ginkgo.It("Should reflect worker-side autoscaler resizes of a RayService's active RayCluster back on the manager", ginkgo.Serial, func() {
+			tc := testContext()
+			runRayServiceAutoscalingTest(tc.managerNs, tc.managerLq, tc.multiKueueAc, tc.kubernetesClients)
 		})
 
 		ginkgo.It("Should reflect worker-side autoscaler resizes (up, down, and up again) of an elastic RayCluster back on the manager", func() {

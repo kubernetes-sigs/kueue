@@ -84,6 +84,7 @@ var _ = ginkgo.AfterSuite(func() {
 
 // Manager setup used by tests to start controllers with DRA ConfigMap configuration
 func managerSetup(modifyConfig func(*config.Configuration)) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		// Indexes
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
