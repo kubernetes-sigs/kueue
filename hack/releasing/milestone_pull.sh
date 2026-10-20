@@ -258,12 +258,6 @@ function submit_mapping_pr() {
 
   cd "${KUBERNETES_TEST_INFRA_PATH}"
 
-  if [[ ! -f "${plugins_file}" ]]; then
-    echo "!!! ${KUBERNETES_TEST_INFRA_PATH}/${plugins_file} does not exist."
-    PR_RESULT="FAILED"
-    exit 2
-  fi
-
   if git_status=$(git status --porcelain --untracked=no 2>/dev/null) && [[ -n "${git_status}" ]]; then
     echo "!!! Dirty tree in ${KUBERNETES_TEST_INFRA_PATH}. Clean up and try again."
     PR_RESULT="FAILED"
@@ -295,6 +289,12 @@ function submit_mapping_pr() {
 
   echo "+++ Creating local branch ${TEST_INFRA_WORK_BRANCH}"
   git checkout -b "${TEST_INFRA_WORK_BRANCH}" "${upstream_remote}/master"
+
+  if [[ ! -f "${plugins_file}" ]]; then
+    echo "!!! ${KUBERNETES_TEST_INFRA_PATH}/${plugins_file} does not exist."
+    PR_RESULT="FAILED"
+    exit 2
+  fi
 
   local state main_val has_entry
   if ! state=$(read_mapping_state "${plugins_file}" "${RELEASE_BRANCH}"); then
