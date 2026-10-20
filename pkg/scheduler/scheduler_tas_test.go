@@ -31,6 +31,7 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -943,6 +944,51 @@ func TestScheduleForTAS(t *testing.T) {
 						Assignment(corev1.ResourceCPU, "tas-default", "1000m").
 						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
 							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+							Obj()).
+						Obj()).
+					Obj(),
+			},
+		},
+		"workload with unhealthyNode annotation; second pass; reclaimable pods keep the admitted count and usage": {
+			nodes:           defaultNodes,
+			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
+			topologies:      []kueue.Topology{defaultThreeLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASThreeLevelFlavor},
+			clusterQueues:   []kueue.ClusterQueue{defaultClusterQueue},
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("foo", "default").
+					UnhealthyNodes("x3").
+					Queue("tas-main").
+					PodSets(*utiltestingapi.MakePodSet("one", 3).
+						PreferredTopologyRequest(corev1.LabelHostname).
+						Request(corev1.ResourceCPU, "1").
+						Obj()).
+					ReserveQuotaAt(
+						utiltestingapi.MakeAdmission("tas-main").
+							PodSets(utiltestingapi.MakePodSetAssignment("one").
+								Assignment(corev1.ResourceCPU, "tas-default", "3000m").
+								Count(3).
+								TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+									Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x3"}, 1).Obj()).
+									Obj()).
+								Obj()).
+							Obj(), now,
+					).
+					AdmittedAt(true, now).
+					ReclaimablePods(kueue.ReclaimablePod{Name: "one", Count: 2}).
+					Obj(),
+			},
+			wantNewAssignments: map[workload.Reference]kueue.Admission{
+				"default/foo": *utiltestingapi.MakeAdmission("tas-main").
+					PodSets(utiltestingapi.MakePodSetAssignment("one").
+						Assignment(corev1.ResourceCPU, "tas-default", "3000m").
+						Count(3).
+						TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&defaultSingleLevelTopology)).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 1).Obj()).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x2"}, 1).Obj()).
+							Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x4"}, 1).Obj()).
 							Obj()).
 						Obj()).
 					Obj(),
@@ -3922,6 +3968,11 @@ type tasScheduleTestCase struct {
 	workloads       []kueue.Workload
 	wantWorkloads   []kueue.Workload
 
+	featureGates map[featuregate.Feature]bool
+
+	// simulatorOverride allows to set a custom simulator.SchedulerSimulator.
+	simulatorOverride func() simulator.SchedulerSimulator
+
 	// prequeuedSecondPasses are the Workloads with a second pass already pending when the cycle runs.
 	prequeuedSecondPasses []workload.Reference
 
@@ -3940,10 +3991,8 @@ type tasScheduleTestCase struct {
 	// eventCmpOpts are the comparison options for the events
 	eventCmpOpts cmp.Options
 
-	featureGates map[featuregate.Feature]bool
-
 	// wantSimulatorPreemptions are the Workloads the scheduler must tell the
-	// simulator to preempt. Setting it installs a recording simulator.
+	// simulator to preempt.
 	wantSimulatorPreemptions []workload.Reference
 
 	// failSimulatorPreemption makes that simulator refuse to release Workloads.
@@ -3953,6 +4002,15 @@ type tasScheduleTestCase struct {
 	// at the same moment feasibility runs. A call count cannot tell that apart from a
 	// release that happened afterwards.
 	wantSimulatorReleasedTogether []workload.Reference
+}
+
+type simulatorFactoryOverride struct {
+	simulator.Factory
+	simulatorOverride simulator.SchedulerSimulator
+}
+
+func (sfo *simulatorFactoryOverride) NewSimulator(_ context.Context, _ []*corev1.Node, _ ...simulator.Option) (simulator.SchedulerSimulator, error) {
+	return sfo.simulatorOverride, nil
 }
 
 // tasScheduleTestConfig carries the per-suite fixtures shared by the TAS preemption
@@ -3970,7 +4028,7 @@ func (s *recordingSimulatorFactory) NewSimulator(ctx context.Context, nodes []*c
 	if err != nil {
 		return nil, err
 	}
-	s.recorder.schedulerSimulator = schedulerSimulator
+	s.recorder.SchedulerSimulator = schedulerSimulator
 	s.recorder.releasedNow = sets.New[workload.Reference]()
 	return &s.recorder, nil
 }
@@ -3982,20 +4040,16 @@ func (s *recordingSimulatorFactory) UntrackPod(ctx context.Context, key client.O
 }
 
 type recordingSchedulerSimulator struct {
+	simulator.SchedulerSimulator
 	// failPreempt makes PreemptWorkload return an error.
 	failPreempt bool
 	// asked holds every Workload the scheduler tried to release, released holds the
 	// ones it managed to. They differ when failPreempt is set.
-	asked              []workload.Reference
-	released           int
-	reverted           int
-	releasedNow        sets.Set[workload.Reference]
-	releasedTogether   sets.Set[workload.Reference]
-	schedulerSimulator simulator.SchedulerSimulator
-}
-
-func (s *recordingSchedulerSimulator) Simulate(ctx context.Context, fn func()) error {
-	return s.schedulerSimulator.Simulate(ctx, fn)
+	asked            []workload.Reference
+	released         int
+	reverted         int
+	releasedNow      sets.Set[workload.Reference]
+	releasedTogether sets.Set[workload.Reference]
 }
 
 func (s *recordingSchedulerSimulator) PreemptWorkload(ctx context.Context, wlKey client.ObjectKey) (func() error, error) {
@@ -4004,7 +4058,7 @@ func (s *recordingSchedulerSimulator) PreemptWorkload(ctx context.Context, wlKey
 	if s.failPreempt {
 		return nil, errors.New("simulated failure")
 	}
-	revert, err := s.schedulerSimulator.PreemptWorkload(ctx, wlKey)
+	revert, err := s.SchedulerSimulator.PreemptWorkload(ctx, wlKey)
 	if err != nil {
 		return nil, err
 	}
@@ -4028,11 +4082,19 @@ func (s *recordingSchedulerSimulator) FindFeasibleNodes(
 	if s.releasedNow.Len() > s.releasedTogether.Len() {
 		s.releasedTogether = s.releasedNow.Clone()
 	}
-	return s.schedulerSimulator.FindFeasibleNodes(ctx, candidates, requirements, stats)
+	return s.SchedulerSimulator.FindFeasibleNodes(ctx, candidates, requirements, stats)
 }
 
 func (s *recordingSchedulerSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
-	return s.schedulerSimulator.ScheduleWorkload(ctx, workloadPods, opts...)
+	return s.SchedulerSimulator.ScheduleWorkload(ctx, workloadPods, opts...)
+}
+
+func (s *recordingSchedulerSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	return s.SchedulerSimulator.AddPodGroup(ctx, pg)
+}
+
+func (s *recordingSchedulerSimulator) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	return s.SchedulerSimulator.RemovePodGroup(ctx, pg)
 }
 
 type tasScheduleTestConfig struct {
@@ -4145,13 +4207,18 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					recorder := &utiltesting.EventRecorder{}
 					var recordingFactory *recordingSimulatorFactory
 					cacheOptions := []schdcache.Option{}
-					if tc.wantSimulatorPreemptions != nil {
-						// main.go only installs a simulator behind this gate, so a test
-						// that installs one has to set it too.
-						features.SetFeatureGateDuringTest(t, features.SchedulerLibraryIntegration, true)
-						simulatorFactory, err := was.NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
+					if tc.featureGates[features.SchedulerLibraryIntegration] {
+						var simulatorFactory simulator.Factory
+						var err error
+						simulatorFactory, err = was.NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
 						if err != nil {
 							t.Fatalf("Failed to initialize WAS scheduling simulator: %v", err)
+						}
+						if tc.simulatorOverride != nil {
+							simulatorFactory = &simulatorFactoryOverride{
+								Factory:           simulatorFactory,
+								simulatorOverride: tc.simulatorOverride(),
+							}
 						}
 						recordingFactory = &recordingSimulatorFactory{simulatorFactory: simulatorFactory}
 						recordingFactory.recorder.failPreempt = tc.failSimulatorPreemption

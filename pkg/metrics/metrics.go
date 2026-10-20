@@ -1606,6 +1606,14 @@ func ReportLocalQueueAdmittedActiveWorkloads(lq LocalQueueReference, incr int, c
 	LocalQueueAdmittedActiveWorkloads.WithLabelValues(labels...).Add(float64(incr))
 }
 
+// ClearLocalQueueAdmittedActiveWorkloadsSeries removes all admitted active workload series for lq.
+func ClearLocalQueueAdmittedActiveWorkloadsSeries(lq LocalQueueReference) {
+	LocalQueueAdmittedActiveWorkloads.DeletePartialMatch(prometheus.Labels{
+		"name":      string(lq.Name),
+		"namespace": lq.Namespace,
+	})
+}
+
 func ReportLocalQueueReservingActiveWorkloads(lq LocalQueueReference, count int, customLabelValues []string, tracker *roletracker.RoleTracker) {
 	labels := append([]string{string(lq.Name), lq.Namespace, roletracker.GetRole(tracker)}, customLabelValues...)
 	LocalQueueReservingActiveWorkloads.WithLabelValues(labels...).Set(float64(count))

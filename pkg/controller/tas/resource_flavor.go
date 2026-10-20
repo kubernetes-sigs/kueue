@@ -84,12 +84,12 @@ func (r *rfReconciler) logger() logr.Logger {
 func (r *rfReconciler) setupWithManager(mgr ctrl.Manager, cache *schdcache.Cache, cfg *configapi.Configuration) (string, error) {
 	bld := builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("tas_resource_flavor_controller").
-		WatchesRawSource(source.TypedKind(
+		WatchesRawSource(cache.TrackInitialSync(source.TypedKind(
 			mgr.GetCache(),
 			&kueue.ResourceFlavor{},
 			&handler.TypedEnqueueRequestForObject[*kueue.ResourceFlavor]{},
 			r,
-		)).
+		))).
 		WatchesRawSource(source.Channel(r.nodeUpdateCh, &nodeHandler{cache: cache}))
 	if features.Enabled(features.KueueDRADeviceFeasibility) {
 		h := &draDeviceHandler{cache: cache}
