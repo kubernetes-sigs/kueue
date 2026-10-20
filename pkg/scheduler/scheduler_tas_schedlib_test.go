@@ -1058,7 +1058,9 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 			// wantSimulatorPreemptions no longer turns SchedulerLibraryIntegration
 			// on, so enable it here explicitly.
 			featureGates: map[featuregate.Feature]bool{
-				features.SchedulerLibraryIntegration: true,
+				features.TASFailedNodeReplacementFailFast:                           true,
+				features.SchedulerLibraryIntegration:                                true,
+				features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions: true,
 			},
 			wantSimulatorPreemptions: []workload.Reference{"default/victim"},
 			nodes: []corev1.Node{

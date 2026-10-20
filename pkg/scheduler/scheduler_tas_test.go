@@ -1376,6 +1376,10 @@ func TestScheduleForTAS(t *testing.T) {
 		// PendingPreemption semantics instead of being fail-fast evicted,
 		// keeping its reservation until the eviction completes.
 		"workload with unhealthyNode annotation; second pass; preferred; no fit; in-flight preemption frees capacity; deferred": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TASFailedNodeReplacementFailFast:                           true,
+				features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions: true,
+			},
 			nodes:           defaultNodes,
 			admissionChecks: []kueue.AdmissionCheck{defaultProvCheck},
 			topologies:      []kueue.Topology{defaultThreeLevelTopology},
