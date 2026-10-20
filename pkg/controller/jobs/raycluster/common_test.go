@@ -897,6 +897,81 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 				},
 			},
 		},
+		"pod-index-offset 0 is set on Pod templates in a PodSet group": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{kueue.PodSetGroupName: "group"},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers1",
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{kueue.PodSetGroupName: "group"},
+							},
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker1"}},
+							},
+						},
+					},
+					{
+						GroupName: "workers2",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker2"}},
+							},
+						},
+					},
+				},
+			},
+			podSetsInfo: []podset.PodSetInfo{{}, {}, {}},
+			wantSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								kueue.PodSetGroupName:          "group",
+								kueue.PodIndexOffsetAnnotation: "0",
+							},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers1",
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetGroupName:          "group",
+									kueue.PodIndexOffsetAnnotation: "0",
+								},
+							},
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker1"}},
+							},
+						},
+					},
+					{
+						GroupName: "workers2",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker2"}},
+							},
+						},
+					},
+				},
+			},
+		},
 	}
 
 	for name, tc := range testCases {
