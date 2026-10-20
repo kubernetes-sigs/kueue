@@ -1131,22 +1131,36 @@ func (r *JobReconciler) syncWorkloadSlicePriority(ctx context.Context, job Gener
 // workloadOwnedBy reports whether the workload is already associated with the
 // job object. Regular prebuilt workloads are adopted with a controller
 // reference, while composable jobs (pod groups) record plain owner references
-// to their members. Accept both so that a finished workload owned by the job
-// still goes through the regular finalization path.
-func workloadOwnedBy(wl *kueue.Workload, object client.Object) bool {
-	if metav1.IsControlledBy(wl, object) {
-		return true
-	}
-	uid := object.GetUID()
-	if uid == "" {
-		return false
-	}
-	for i := range wl.OwnerReferences {
-		if wl.OwnerReferences[i].UID == uid {
-			return true
+// to their members. Check every member of a composable job so that a workload
+// owned by a non-first pod is still finalized.
+func workloadOwnedBy(wl *kueue.Workload, job GenericJob) bool {
+	owned := false
+	check := func(obj runtime.Object) {
+		object, ok := obj.(metav1.Object)
+		if !ok {
+			return
+		}
+		if metav1.IsControlledBy(wl, object) {
+			owned = true
+			return
+		}
+		uid := object.GetUID()
+		if uid == "" {
+			return
+		}
+		for i := range wl.OwnerReferences {
+			if wl.OwnerReferences[i].UID == uid {
+				owned = true
+				return
+			}
 		}
 	}
-	return false
+	if cj, implements := job.(ComposableJob); implements {
+		cj.ForEach(check)
+	} else {
+		check(job.Object())
+	}
+	return owned
 }
 
 // ensureOneWorkload will query for the single matched workload corresponding to job and return it.
@@ -1177,7 +1191,7 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 		// reservation. A finished workload owned by this job is still
 		// returned, so that the job is finalized and the workload finalizer is
 		// removed as usual.
-		if workloadfinish.IsFinished(wl) && !workloadOwnedBy(wl, object) {
+		if workloadfinish.IsFinished(wl) && !workloadOwnedBy(wl, job) {
 			log.V(2).Info(
 				"WARNING: The prebuilt workload is already finished",
 				"workload", klog.KObj(wl),
