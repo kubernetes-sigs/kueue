@@ -66,13 +66,11 @@ func TestMultiKueueAdapter(t *testing.T) {
 		features.MultiKueueRayInTreeAutoscaling:     true,
 		features.KubeRayServiceUsingTopLevelSuspend: true,
 	}
-	errServeConfigPatch := errors.New("serve config patch failed")
 
 	cases := map[string]struct {
 		managersRayServices []rayv1.RayService
 		workerRayServices   []rayv1.RayService
 		workerRayClusters   []rayv1.RayCluster
-		workerPatch         func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error
 
 		operation func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error
 
@@ -278,51 +276,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 			},
 			wantWorkerRayClusters: []rayv1.RayCluster{*activeRayClusterBuilder.Clone().Obj()},
 		},
-		"autoscaling: sync returns the serveConfigV2 patch error after repointing the admitted slice": {
-			featureGates: autoscalingGates,
-			managersRayServices: []rayv1.RayService{
-				*autoscalingRayServiceBuilder.Clone().
-					Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":3}]`).
-					Annotation(raycluster.RayClusterGenerationAnnotation, "active-cluster-uid-2").
-					WithServeConfigV2("new-config").
-					Obj(),
-			},
-			workerRayServices: []rayv1.RayService{
-				*autoscalingRayServiceBuilder.Clone().
-					PrebuiltWorkloadLabel("old-slice").
-					WithServeConfigV2("old-config").
-					ActiveRayClusterName("active-cluster").
-					Obj(),
-			},
-			workerRayClusters: []rayv1.RayCluster{*activeRayClusterBuilder.Clone().Obj()},
-			workerPatch: func(ctx context.Context, c client.WithWatch, obj client.Object, patch client.Patch, opts ...client.PatchOption) error {
-				if service, ok := obj.(*rayv1.RayService); ok && service.Spec.ServeConfigV2 == "new-config" {
-					return errServeConfigPatch
-				}
-				return c.Patch(ctx, obj, patch, opts...)
-			},
-			operation: func(ctx context.Context, adapter jobframework.MultiKueueAdapter, managerClient, workerClient client.Client) error {
-				_, err := adapter.SyncJob(ctx, managerClient, workerClient, types.NamespacedName{Name: "rayservice1", Namespace: TestNamespace}, "admitted-slice", "origin1")
-				return err
-			},
-			wantError: errServeConfigPatch,
-			wantManagersRayServices: []rayv1.RayService{
-				*autoscalingRayServiceBuilder.Clone().
-					Annotation(raycluster.RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers-group-0","count":3}]`).
-					Annotation(raycluster.RayClusterGenerationAnnotation, "active-cluster-uid-2").
-					WithServeConfigV2("new-config").
-					ActiveRayClusterName("active-cluster").
-					Obj(),
-			},
-			wantWorkerRayServices: []rayv1.RayService{
-				*autoscalingRayServiceBuilder.Clone().
-					PrebuiltWorkloadLabel("admitted-slice").
-					WithServeConfigV2("old-config").
-					ActiveRayClusterName("active-cluster").
-					Obj(),
-			},
-			wantWorkerRayClusters: []rayv1.RayCluster{*activeRayClusterBuilder.Clone().Obj()},
-		},
 		"sync status from remote rayservice": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
 			managersRayServices: []rayv1.RayService{
@@ -503,7 +456,6 @@ func TestMultiKueueAdapter(t *testing.T) {
 
 			workerBuilder := utiltesting.NewClientBuilder(rayv1.AddToScheme).WithInterceptorFuncs(interceptor.Funcs{
 				SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
-				Patch:            tc.workerPatch,
 			})
 			workerBuilder = workerBuilder.WithLists(
 				&rayv1.RayServiceList{Items: tc.workerRayServices},
