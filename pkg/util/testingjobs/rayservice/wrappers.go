@@ -216,6 +216,12 @@ func (j *ServiceWrapper) GCSFaultTolerance(redisAddress string) *ServiceWrapper 
 	return j
 }
 
+// ActiveRayClusterName sets the name of the active RayCluster in the RayService status.
+func (j *ServiceWrapper) ActiveRayClusterName(name string) *ServiceWrapper {
+	j.Status.ActiveServiceStatus.RayClusterName = name
+	return j
+}
+
 // Clone returns a deep copy of the RayService.
 func (j *ServiceWrapper) Clone() *ServiceWrapper {
 	return &ServiceWrapper{*j.DeepCopy()}
