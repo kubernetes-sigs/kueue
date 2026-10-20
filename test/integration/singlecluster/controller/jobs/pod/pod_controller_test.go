@@ -2668,6 +2668,63 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 				})
 			})
 
+			ginkgo.It("Should finalize a finished prebuilt workload owned by the pod group", framework.SlowSpec, func() {
+				const workloadName = "test-finished-workload"
+
+				pod1 := testingpod.MakePod("test-pod-1", ns.Name).
+					GroupNameLabel(workloadName).
+					GroupTotalCount("2").
+					Request(corev1.ResourceCPU, "1").
+					Queue(lq.Name).
+					PrebuiltWorkloadLabel(workloadName).
+					RoleHash("leader").
+					Obj()
+				pod2 := testingpod.MakePod("test-pod-2", ns.Name).
+					GroupNameLabel(workloadName).
+					GroupTotalCount("2").
+					Request(corev1.ResourceCPU, "2").
+					Queue(lq.Name).
+					PrebuiltWorkloadLabel(workloadName).
+					RoleHash("worker").
+					Obj()
+
+				pod1LookupKey := client.ObjectKeyFromObject(pod1)
+				pod2LookupKey := client.ObjectKeyFromObject(pod2)
+
+				wl := utiltestingapi.MakeWorkload(workloadName, ns.Name).
+					Queue(kueue.LocalQueueName(lq.Name)).
+					Annotation(podconstants.IsGroupWorkloadAnnotationKey, podconstants.IsGroupWorkloadAnnotationValue).
+					PodSets(
+						*utiltestingapi.MakePodSet("leader", 1).PodSpec(pod1.Spec).Obj(),
+						*utiltestingapi.MakePodSet("worker", 1).PodSpec(pod2.Spec).Obj(),
+					).
+					Finalizers(kueue.ResourceInUseFinalizerName).
+					Obj()
+				wlLookupKey := types.NamespacedName{Name: workloadName, Namespace: ns.Name}
+
+				ginkgo.By("Creating the pods and the prebuilt workload", func() {
+					behavioral.MustCreate(ctx, k8sClient, pod1)
+					behavioral.MustCreate(ctx, k8sClient, pod2)
+					behavioral.MustCreate(ctx, k8sClient, wl)
+				})
+
+				ginkgo.By("Checking the workload is owned by all pods", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlLookupKey, wl)).Should(gomega.Succeed())
+						g.Expect(wl.OwnerReferences).Should(gomega.HaveLen(2))
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Marking the workload finished", func() {
+					integration.FinishWorkloads(ctx, k8sClient, wl)
+				})
+
+				ginkgo.By("Checking the pods and the workload are finalized", func() {
+					behavioral.ExpectPodsFinalizedOrGone(ctx, k8sClient, pod1LookupKey, pod2LookupKey)
+					behavioral.ExpectWorkloadsFinalizedOrGone(ctx, k8sClient, wlLookupKey)
+				})
+			})
+
 			ginkgo.It("Should not adopt or delete a foreign non-pod-group Workload sharing the group name", func() {
 				const groupName = "shared-wl-name"
 
