@@ -83,12 +83,12 @@ function derive_values() {
 
 # read_mapping_state prints "<main-value> <yes|no>" for the milestone_applier Kueue block.
 #
-# Scoped to the `milestone_applier` section because plugins.yaml carries four blocks keyed
-# `kubernetes-sigs/kueue:` — the others configure repo_milestone, plugins and external_plugins.
+# Scoped to the `milestone_applier` section so that any other section keyed
+# `kubernetes-sigs/kueue:` is never read.
 # Exits 3 when the section, the block, or its `main` entry cannot be found, so an upstream
 # restructure surfaces as a refusal rather than an edit against a guess.
 #
-# $1 - path to plugins.yaml
+# $1 - path to the Kueue supplemental plugin config
 # $2 - release branch key, e.g. release-0.20
 function read_mapping_state() {
   awk -v branch="$2" '
@@ -114,7 +114,7 @@ function read_mapping_state() {
 # directly below it, streaming every other byte through unchanged. Exits 3 when nothing
 # matched, so a silent no-op can never become an empty pull request.
 #
-# $1 - input plugins.yaml
+# $1 - input Kueue supplemental plugin config
 # $2 - output path
 # $3 - next minor, e.g. v0.21
 # $4 - release branch key, e.g. release-0.20
@@ -254,7 +254,7 @@ function submit_mapping_pr() {
     exit 2
   fi
 
-  local plugins_file="config/prow/plugins.yaml"
+  local plugins_file="config/prow/plugins/kubernetes-sigs/kueue/kueue_pluginconfig.yaml"
 
   cd "${KUBERNETES_TEST_INFRA_PATH}"
 
