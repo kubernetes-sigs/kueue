@@ -143,6 +143,36 @@ Currently, Kueue suspends the whole RayCluster in step 2.
 KubeRay deletes the head with the workers, so the notebook server goes down, unsaved work is lost, and so is everything in the kernel's memory.
 The RayCluster is requeued with 4 GPU workers and cannot start again until 32 GPUs are free.
 
+#### Story 4: Reclaiming GPU workers restarts a continuous Ray Data pipeline
+
+As a user running a continuous Ray Data pipeline as a RayJob, I want the pipeline to use whatever GPU quota is spare in its Cohort.
+When part of that quota is reclaimed, I want the Ray cluster and the pipeline to keep running with fewer GPU workers.
+
+The pipeline reads from an unbounded source, so it never completes and never releases its quota on its own.
+The Ray cluster has a CPU-only head, requesting 16 CPUs and 64 GiB of memory, and one worker group of GPU Pods.
+Each GPU worker uses a whole 8-GPU node.
+My RayJob opts in to partial preemption.
+My ClusterQueue, `data`, has no GPU nominal quota; every GPU the RayJob uses is borrowed.
+It shares a Cohort with `training`, which owns 16 GPU nodes; CPU and memory quota are not a constraint in this example:
+
+|                       | `data`  | `training` |
+|-----------------------|--------:|-----------:|
+| GPU `nominalQuota`    | 0       | 128        |
+| `reclaimWithinCohort` | `Never` | `Any`      |
+
+1. While `training` is idle, the RayJob runs with its head and 16 GPU workers (128 GPUs).
+2. A 12-node training job in `training` needs 96 GPUs.
+   Kueue asks the RayJob to shrink the GPU worker group to 4 workers; the head keeps running.
+3. A 4-node evaluation job in `training` needs the remaining 32 GPUs.
+   Removing every GPU worker would leave the head running with nothing to do, so Kueue evicts the whole RayJob, as it does today.
+
+Some pipelines keep state on the head that is expensive to rebuild, such as the driver's progress through the source.
+For those, I explicitly allow the GPU worker group to shrink to 0.
+In step 3, Kueue then removes the last 4 GPU workers instead: processing pauses, and the head keeps running until GPU nodes are free again.
+
+Currently, Kueue suspends the whole RayJob in step 2.
+KubeRay deletes the Ray cluster, and when the RayJob is admitted again, the cluster is recreated and the pipeline restarts from its last persisted progress.
+
 ### Notes/Constraints/Caveats
 
 - The victim must opt in (annotation), have exactly one PodSet with `minCount` set, and currently be
