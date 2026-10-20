@@ -43,6 +43,10 @@ export const splitPreemptionMessage = (message, workloadsByUid) =>
     return target ? { text: `(UID: ${part}`, to: `/workload/${target}` } : { text: `(UID: ${part}` };
   });
 
+// workloadKey identifies a workload row. Names are only unique within a
+// namespace, and the dashboard can list workloads from all namespaces.
+export const workloadKey = (workload) => `${workload.metadata?.namespace}/${workload.metadata?.name}`;
+
 const Dashboard = () => {
   const [queues, setQueues] = useState([]);
   const [clusterQueues, setClusterQueues] = useState([]);
@@ -98,10 +102,10 @@ const Dashboard = () => {
     return <ErrorMessage error={error} />;
   }
 
-  const toggleRow = (workloadName) => {
+  const toggleRow = (key) => {
     setExpandedRows((prevExpandedRows) => ({
       ...prevExpandedRows,
-      [workloadName]: !prevExpandedRows[workloadName],
+      [key]: !prevExpandedRows[key],
     }));
   };
 
@@ -110,7 +114,7 @@ const Dashboard = () => {
     setExpandAll(newExpandAll);
     const newExpandedRows = {};
     workloads.forEach(workload => {
-      newExpandedRows[workload.metadata?.name] = newExpandAll;
+      newExpandedRows[workloadKey(workload)] = newExpandAll;
     });
     setExpandedRows(newExpandedRows);
   };
@@ -299,7 +303,7 @@ const Dashboard = () => {
             <TableBody>
               {workloads.map((workload) => {
                 const podCount = workload.spec?.podSets?.reduce((sum, podSet) => sum + (podSet.count || 0), 0) || 0;
-                const isExpanded = expandedRows[workload.metadata.name];
+                const isExpanded = expandedRows[workloadKey(workload)];
                 const pods = workload.pods || [];
 
                 const preemptedCondition = workload.status?.conditions?.find(cond => cond.reason === "Preempted" && cond.status === "True");
@@ -309,10 +313,10 @@ const Dashboard = () => {
                 );
                 const statusIcon = finishedCondition ? <CheckCircle style={{ color: "green" }} /> : <AccessTime style={{ color: "orange" }} />;
                 return (
-                  <React.Fragment key={workload.metadata.name}>
+                  <React.Fragment key={workloadKey(workload)}>
                     <TableRow>
                       <TableCell className="icon-column">
-                        <IconButton onClick={() => toggleRow(workload.metadata.name)}>
+                        <IconButton onClick={() => toggleRow(workloadKey(workload))}>
                           {isExpanded ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
                         </IconButton>
                       </TableCell>
