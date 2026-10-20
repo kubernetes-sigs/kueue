@@ -297,6 +297,11 @@ func (in *ControllerMetrics) DeepCopyInto(out *ControllerMetrics) {
 		*out = new(MetricsAccessControlMode)
 		**out = **in
 	}
+	if in.ClientCAFile != nil {
+		in, out := &in.ClientCAFile, &out.ClientCAFile
+		*out = new(string)
+		**out = **in
+	}
 	if in.CustomLabels != nil {
 		in, out := &in.CustomLabels, &out.CustomLabels
 		*out = make([]ControllerMetricsCustomLabel, len(*in))

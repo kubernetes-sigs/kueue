@@ -187,7 +187,11 @@ func main() {
 	// More info:
 	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/metrics/server
 	// - https://book.kubebuilder.io/reference/metrics.html
-	metricsServerOptions := config.MetricsServerOptions(setupLog, cfg.Metrics)
+	metricsServerOptions, metricsClientCAWatcher, err := config.MetricsServerOptions(setupLog, cfg.Metrics)
+	if err != nil {
+		setupLog.Error(err, "Unable to configure metrics authentication")
+		os.Exit(1)
+	}
 
 	parsedTLSConfig := &tlsconfig.TLS{}
 	if features.Enabled(features.TLSOptions) {
@@ -297,6 +301,13 @@ func main() {
 	if err != nil {
 		setupLog.Error(err, "Unable to start manager")
 		os.Exit(1)
+	}
+
+	if metricsClientCAWatcher != nil {
+		if err := mgr.Add(metricsClientCAWatcher); err != nil {
+			setupLog.Error(err, "Unable to start metrics client-CA watcher")
+			os.Exit(1)
+		}
 	}
 
 	roleTracker := setupRoleTracker(ctx, mgr, &cfg)
