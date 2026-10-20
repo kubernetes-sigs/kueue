@@ -1359,3 +1359,66 @@ func TestAddPodGroup(t *testing.T) {
 		t.Errorf("unexpected placements (-want +got):\n%s", diff)
 	}
 }
+
+func TestRemovePodGroup(t *testing.T) {
+	featuregatetesting.SetFeatureGateDuringTest(t, utilfeature.DefaultFeatureGate, kubefeatures.GenericWorkload, true)
+	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, true)
+	ctx := t.Context()
+	nodes := []*corev1.Node{
+		testingnode.MakeNode("node1").
+			Label(corev1.LabelHostname, "node1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+	}
+
+	factory, err := NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
+	if err != nil {
+		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
+	}
+	sim, err := factory.NewSimulator(ctx, nodes)
+	if err != nil {
+		t.Fatalf("NewSimulator failed: %v", err)
+	}
+
+	pg := &schedulingv1beta1.PodGroup{
+		Name:      "pg",
+		Namespace: "default",
+		Spec: schedulingv1beta1.PodGroupSpec{
+			SchedulingPolicy: schedulingv1beta1.PodGroupSchedulingPolicy{
+				Gang: &schedulingv1beta1.GangSchedulingPolicy{MinCount: 1},
+			},
+		},
+	}
+	if err := sim.AddPodGroup(ctx, pg); err != nil {
+		t.Fatalf("AddPodGroup failed: %v", err)
+	}
+
+	pod := testingpod.MakePod("p1", "default").UID("p1-uid").Obj()
+	pod.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: new("pg")}
+
+	got := sim.ScheduleWorkload(ctx, []*corev1.Pod{pod})
+	want := simulator.PodPlacements{client.ObjectKeyFromObject(pod): {Node: "node1"}}
+	if diff := cmp.Diff(want, got.PodPlacements); diff != "" {
+		t.Fatalf("unexpected placements (-want +got):\n%s", diff)
+	}
+
+	if err := sim.RemovePodGroup(ctx, pg); err != nil {
+		t.Fatalf("RemovePodGroup failed: %v", err)
+	}
+
+	got = sim.ScheduleWorkload(ctx, []*corev1.Pod{pod})
+	wantErr := errors.New("failed to build pod group hierarchy: failed to get pod group default/pg from snapshot: pod group state not found for pod group podgroup/default/pg")
+	if diff := cmp.Diff(&wantErr, &got.Error, cmpErrorMessage); diff != "" {
+		t.Errorf("ScheduleWorkload() after RemovePodGroup unexpected error (-want,+got):\n%s", diff)
+	}
+
+	err = sim.RemovePodGroup(ctx, pg)
+	wantErr = errors.New("pod group podgroup/default/pg not found in snapshot")
+	if diff := cmp.Diff(&wantErr, &err, cmpErrorMessage); diff != "" {
+		t.Errorf("second RemovePodGroup() unexpected error (-want,+got):\n%s", diff)
+	}
+}

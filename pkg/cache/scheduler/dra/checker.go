@@ -149,3 +149,7 @@ func (c *Checker) ScheduleWorkload(ctx context.Context, wlPods []*corev1.Pod, op
 func (c *Checker) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
 	return c.inner.AddPodGroup(ctx, pg)
 }
+
+func (c *Checker) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	return c.inner.RemovePodGroup(ctx, pg)
+}

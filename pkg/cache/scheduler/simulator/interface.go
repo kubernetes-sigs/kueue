@@ -91,6 +91,8 @@ type SchedulerSimulator interface {
 	ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...ScheduleOption) SchedulingResult
 	// AddPodGroup adds a PodGroup to the snapshot
 	AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error
+	// RemovePodGroup removes a PodGroup from the snapshot
+	RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {

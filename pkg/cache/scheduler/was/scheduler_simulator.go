@@ -193,6 +193,10 @@ func (s *wasSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.Po
 	return s.wasSnapshot.AddPodGroup(ctx, pg)
 }
 
+func (s *wasSimulator) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	return s.wasSnapshot.RemovePodGroup(ctx, pg)
+}
+
 func copyWithDefaultScheduler(pods ...*corev1.Pod) []*corev1.Pod {
 	copiedPods := make([]*corev1.Pod, len(pods))
 	for i, pod := range pods {

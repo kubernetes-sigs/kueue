@@ -26,6 +26,27 @@ import { AccessTime, Check, CheckBox, CheckCircle } from '@mui/icons-material';
 import ErrorMessage from './ErrorMessage';
 import UsageBar, { aggregateResourceForQueue, discoverResourceNames, formatResourceValue } from './UsageBar';
 
+// Matches the preemptor workload UID in an eviction message, which Kueue
+// writes as "(UID: <workload-uid>, JobUID: <job-uid>)".
+export const PREEMPTOR_UID_PATTERN = /\(UID: ([0-9a-fA-F-]+)/;
+
+// splitPreemptionMessage splits an eviction message into text segments. The
+// preemptor UID segment keeps its "(UID: " prefix and gets a link target when
+// the preemptor is a known workload.
+export const splitPreemptionMessage = (message, workloadsByUid) =>
+  message.split(PREEMPTOR_UID_PATTERN).map((part, index) => {
+    // split puts the captured UID at odd indices.
+    if (index % 2 === 0) {
+      return { text: part };
+    }
+    const target = workloadsByUid[part];
+    return target ? { text: `(UID: ${part}`, to: `/workload/${target}` } : { text: `(UID: ${part}` };
+  });
+
+// workloadKey identifies a workload row. Names are only unique within a
+// namespace, and the dashboard can list workloads from all namespaces.
+export const workloadKey = (workload) => `${workload.metadata?.namespace}/${workload.metadata?.name}`;
+
 const Dashboard = () => {
   const [queues, setQueues] = useState([]);
   const [clusterQueues, setClusterQueues] = useState([]);
@@ -81,10 +102,10 @@ const Dashboard = () => {
     return <ErrorMessage error={error} />;
   }
 
-  const toggleRow = (workloadName) => {
+  const toggleRow = (key) => {
     setExpandedRows((prevExpandedRows) => ({
       ...prevExpandedRows,
-      [workloadName]: !prevExpandedRows[workloadName],
+      [key]: !prevExpandedRows[key],
     }));
   };
 
@@ -93,7 +114,7 @@ const Dashboard = () => {
     setExpandAll(newExpandAll);
     const newExpandedRows = {};
     workloads.forEach(workload => {
-      newExpandedRows[workload.metadata?.name] = newExpandAll;
+      newExpandedRows[workloadKey(workload)] = newExpandAll;
     });
     setExpandedRows(newExpandedRows);
   };
@@ -103,20 +124,14 @@ const Dashboard = () => {
 
     const preemptedText = `${preemptedCondition.type}: ${preemptedCondition.message || ""}`;
 
-    // Match UID pattern in the message
-    const uidPattern = /\(UID: ([0-9a-fA-F-]+)\)/;
-    const parts = preemptedText.split(uidPattern);
-
     return (
       <Tooltip
         title={
-          parts.map((part, index) => (
-            workloadsByUid[part] ? (
-              <Link key={index} to={`/workload/${workloadsByUid[part]}`}>
-                (UID: {part})
-              </Link>
+          splitPreemptionMessage(preemptedText, workloadsByUid).map((segment, index) => (
+            segment.to ? (
+              <Link key={index} to={segment.to}>{segment.text}</Link>
             ) : (
-              <span key={index}>{part}</span>
+              <span key={index}>{segment.text}</span>
             )
           ))
         }
@@ -288,7 +303,7 @@ const Dashboard = () => {
             <TableBody>
               {workloads.map((workload) => {
                 const podCount = workload.spec?.podSets?.reduce((sum, podSet) => sum + (podSet.count || 0), 0) || 0;
-                const isExpanded = expandedRows[workload.metadata.name];
+                const isExpanded = expandedRows[workloadKey(workload)];
                 const pods = workload.pods || [];
 
                 const preemptedCondition = workload.status?.conditions?.find(cond => cond.reason === "Preempted" && cond.status === "True");
@@ -298,10 +313,10 @@ const Dashboard = () => {
                 );
                 const statusIcon = finishedCondition ? <CheckCircle style={{ color: "green" }} /> : <AccessTime style={{ color: "orange" }} />;
                 return (
-                  <React.Fragment key={workload.metadata.name}>
+                  <React.Fragment key={workloadKey(workload)}>
                     <TableRow>
                       <TableCell className="icon-column">
-                        <IconButton onClick={() => toggleRow(workload.metadata.name)}>
+                        <IconButton onClick={() => toggleRow(workloadKey(workload))}>
                           {isExpanded ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
                         </IconButton>
                       </TableCell>

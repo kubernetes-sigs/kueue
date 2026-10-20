@@ -234,9 +234,20 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 }
 
 // Start implements the Runnable interface to run scheduler as a controller.
+// The scheduling loop does not start until the event handlers that fill the
+// cache have processed their informers' initial lists, so the first cycle
+// sees every ClusterQueue, Cohort, ResourceFlavor, Topology, and admitted
+// Workload that existed at startup. On a replica that was already running as
+// a follower those handlers synced long before it took the lease, so there
+// is no wait.
 func (s *Scheduler) Start(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx).WithName("scheduler")
 	ctx = ctrl.LoggerInto(ctx, log)
+	start := time.Now()
+	if err := s.cache.WaitForInitialSync(ctx); err != nil {
+		return err
+	}
+	log.V(2).Info("Cache event handlers synced, starting the scheduling loop", "waited", time.Since(start))
 	go wait.UntilWithBackoff(ctx, s.schedule)
 	return nil
 }
@@ -1010,7 +1021,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	log := ctrl.LoggerFrom(ctx)
 	admission := &kueue.Admission{
 		ClusterQueue:      e.ClusterQueue,
-		PodSetAssignments: e.assignment.ToAPI(log),
+		PodSetAssignments: e.assignment.ToAPI(log, e.Obj),
 	}
 
 	consideredStr := flavorassigner.FormatFlavorAssignmentAttemptsForEvents(e.assignment)
@@ -1044,10 +1055,12 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			return
 		}
 		if !workload.NeedsSecondPass(e.Obj) || apierrors.IsNotFound(err) {
-			// Ignore errors because the workload or clusterQueue could have been deleted
-			// by an event.
-			_ = s.cache.DeleteWorkload(log, workload.Key(cacheWl))
-			s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
+			// The write may have been committed even though the client observed an error.
+			// If so, its event may already have replaced the assumed entry with the
+			// admitted Workload, which must stay in the cache.
+			if s.cache.DeleteWorkloadIfUnchanged(log, cacheWl) {
+				s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
+			}
 		} else {
 			// The workload still holds its reservation, so put back the version this pass read; this is skipped if an event already replaced or removed the entry.
 			s.cache.UpdateWorkloadIfUnchanged(ctx, log, e.Obj.DeepCopy(), workload.WithEffectivePodSpecs(e.EffectivePodSpecs))

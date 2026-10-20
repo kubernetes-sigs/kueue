@@ -305,7 +305,7 @@ func newClusterQueueImpl(ctx context.Context, cl *metrics.CustomLabels, wo workl
 			pendingResourcesTotal: make(map[corev1.ResourceName]resources.Amount),
 			schedulingHashes:      newSchedulingHashCounts(),
 			inflight:              make(map[workload.Reference]*workload.Info),
-			localQueueCounts:      newLocalQueueCounts(),
+			localQueueCounts:      newLocalQueueCounts(cl),
 		},
 		hashToBulkMoveReason:   make(map[workload.EquivalenceHash]QuotaReservedReason),
 		finishedWorkloads:      sets.New[workload.Reference](),
@@ -672,10 +672,10 @@ func (c *ClusterQueue) PendingInLocalQueue(lqRef utilqueue.LocalQueueReference) 
 
 // PendingBreakdownInLocalQueue returns LabelValsTrackers for active and inadmissible
 // pending workloads in the given LocalQueue, keyed by workload custom label values.
+// It only takes the localQueueCounts lock, so metric reports don't contend on the
+// ClusterQueue-wide lock.
 func (c *ClusterQueue) PendingBreakdownInLocalQueue(lqRef utilqueue.LocalQueueReference) (*metrics.LabelValsTracker, *metrics.LabelValsTracker) {
-	c.rwm.RLock()
-	defer c.rwm.RUnlock()
-	return c.workloads.PendingBreakdownInLocalQueue(lqRef)
+	return c.workloads.localQueueCounts.pendingBreakdownInLocalQueue(lqRef)
 }
 
 // Pop removes the head of the queue and returns it. It returns nil if the

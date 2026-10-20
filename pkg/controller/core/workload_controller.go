@@ -100,6 +100,7 @@ var (
 		kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
 		kueue.WorkloadQuotaReservedReasonExceedsMaxQuota,
 		kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed,
+		kueue.WorkloadQuotaReservedReasonSimulationFailed,
 		kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
 		kueue.WorkloadQuotaReservedReasonWaitingForPodsReady,
 		kueue.WorkloadQuotaReservedReasonPendingEvaluation,
@@ -161,17 +162,15 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 		var changed bool
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 			updated := workload.UnsetQuotaReservationWithCondition(wl, reason, message, r.clock.Now())
-			if updated && workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, "DRA resource claims not supported", false) {
-				updated = true
-			}
-			changed = updated
-			return updated, nil
+			requeuedChanged := workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, "DRA resource claims not supported", false)
+			changed = updated || requeuedChanged
+			return changed, nil
 		})
 		if err != nil {
 			return true, ctrl.Result{}, nil, fmt.Errorf("failed to update workload status for DRA resource claims error: %w", err)
 		}
 		if changed {
-			r.recorder.Eventf(wl, nil, corev1.EventTypeWarning, reason, reason, "%s", message)
+			log.V(3).Info("Workload status updated", "reason", reason, "message", message)
 		}
 		return true, ctrl.Result{}, nil, nil
 	}
@@ -234,7 +233,7 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 	}
 
 	if conditionsChanged {
-		r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, kueue.WorkloadDRAResourcesResolved, kueue.WorkloadDRAResourcesResolved, "DRA resources were resolved after a previous inadmissible marking")
+		log.V(3).Info("Updated previous inadmissible conditions after successful DRA processing")
 	}
 
 	queueOptions = []workload.InfoOption{workload.WithEffectivePodSpecs(wi.EffectivePodSpecs)}
@@ -251,11 +250,9 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 	var changed bool
 	updateErr := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 		updated := workload.UnsetQuotaReservationWithCondition(wl, quotaReservedReason, processingErr.Error(), r.clock.Now())
-		if updated && workload.SetRequeuedCondition(wl, requeuedReason, processingErr.Error(), false) {
-			updated = true
-		}
-		changed = updated
-		return updated, nil
+		requeuedChanged := workload.SetRequeuedCondition(wl, requeuedReason, processingErr.Error(), false)
+		changed = updated || requeuedChanged
+		return changed, nil
 	})
 	if updateErr != nil {
 		return true, ctrl.Result{}, errors.Join(
@@ -267,7 +264,7 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 		return true, ctrl.Result{}, fmt.Errorf("%s: %w", logMsg, processingErr)
 	}
 	if changed {
-		r.recorder.Eventf(wl, nil, corev1.EventTypeWarning, quotaReservedReason, quotaReservedReason, "%s", api.TruncateEventMessage(processingErr.Error()))
+		ctrl.LoggerFrom(ctx).V(3).Info("Workload status updated", "reason", quotaReservedReason, "message", processingErr.Error())
 	}
 	return true, ctrl.Result{}, nil
 }
@@ -544,15 +541,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		message := "Workload uses DRA resources but the KueueDRAIntegration feature gate is not enabled"
 		var changed bool
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			changed = workload.UnsetQuotaReservationWithCondition(wl, quotaReservedReason, message, r.clock.Now())
+			updated := workload.UnsetQuotaReservationWithCondition(wl, quotaReservedReason, message, r.clock.Now())
 			requeuedChanged := workload.SetRequeuedCondition(wl, kueue.WorkloadInadmissible, message, false)
-			return changed || requeuedChanged, nil
+			changed = updated || requeuedChanged
+			return changed, nil
 		})
 		if err != nil {
 			return ctrl.Result{}, fmt.Errorf("failed to update workload status for DRA rejection: %w", err)
 		}
 		if changed {
-			r.recorder.Eventf(&wl, nil, corev1.EventTypeWarning, quotaReservedReason, quotaReservedReason, "%s", message)
+			log.V(3).Info("Workload status updated", "reason", quotaReservedReason, "message", message)
 		}
 		return ctrl.Result{}, nil
 	}
@@ -1043,6 +1041,9 @@ func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, w
 	return false, nil
 }
 
+// syncPreemptionGateStates removes states of gates that are no longer in the spec.
+// Gates without a state are closed, so no Closed state is added for them; doing so
+// would cost extra status writes for every gated workload.
 func (r *WorkloadReconciler) syncPreemptionGateStates(wl *kueue.Workload) bool {
 	changed := false
 
@@ -1058,21 +1059,6 @@ func (r *WorkloadReconciler) syncPreemptionGateStates(wl *kueue.Workload) bool {
 
 		return !ok
 	})
-
-	preemptionGateStates := make(map[string]kueue.PreemptionGateState)
-	for _, gateState := range wl.Status.PreemptionGates {
-		preemptionGateStates[gateState.Name] = gateState
-	}
-	for _, gate := range wl.Spec.PreemptionGates {
-		if _, ok := preemptionGateStates[gate.Name]; !ok {
-			wl.Status.PreemptionGates = append(wl.Status.PreemptionGates, kueue.PreemptionGateState{
-				Name:               gate.Name,
-				Position:           kueue.PreemptionGatePositionClosed,
-				LastTransitionTime: metav1.NewTime(r.clock.Now()),
-			})
-			changed = true
-		}
-	}
 
 	return changed
 }
@@ -1147,23 +1133,15 @@ func (r *WorkloadReconciler) reconcileOnClusterQueueActiveState(ctx context.Cont
 }
 
 // markUnadmitted saves QuotaReserved=False with the given reason and message, and
-// emits a Warning Event when the write changed the QuotaReserved condition to an
-// inadmissible, misconfigured, or suspended state.
+// logs them when the write changed the Workload status.
 func (r *WorkloadReconciler) markUnadmitted(ctx context.Context, wl *kueue.Workload, reason, message string) error {
-	var quotaReservedChanged bool
+	var changed bool
 	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-		prevCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
-		quotaReservedChanged = prevCond == nil ||
-			prevCond.Status != metav1.ConditionFalse ||
-			prevCond.Reason != reason ||
-			prevCond.Message != api.TruncateConditionMessage(message)
-		return workload.UnsetQuotaReservationWithCondition(wl, reason, message, r.clock.Now()), nil
+		changed = workload.UnsetQuotaReservationWithCondition(wl, reason, message, r.clock.Now())
+		return changed, nil
 	})
-	if err == nil && quotaReservedChanged {
-		switch reason {
-		case kueue.WorkloadInadmissible, kueue.WorkloadQuotaReservedReasonMisconfigured, kueue.WorkloadQuotaReservedReasonSuspended:
-			r.recorder.Eventf(wl, nil, corev1.EventTypeWarning, reason, reason, "%s", api.TruncateEventMessage(message))
-		}
+	if err == nil && changed {
+		ctrl.LoggerFrom(ctx).V(3).Info("Workload status updated", "reason", reason, "message", message)
 	}
 	return err
 }
@@ -1709,7 +1687,7 @@ func (r *WorkloadReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Conf
 	dch := &deviceClassHandler{r: r}
 	weh := &workloadEventHandler{r: r}
 	workloadSource := &workloadEventSource{
-		SyncingSource: source.TypedKind(mgr.GetCache(), &kueue.Workload{}, weh),
+		SyncingSource: r.cache.TrackInitialSync(source.TypedKind(mgr.GetCache(), &kueue.Workload{}, weh)),
 		handler:       weh,
 	}
 	bld := builder.TypedControllerManagedBy[reconcile.Request](mgr).
@@ -2066,6 +2044,16 @@ func (w *workloadQueueHandler) queueReconcileForWorkloadsOfClusterQueue(ctx cont
 		ctx := ctrl.LoggerInto(ctx, log)
 		w.queueReconcileForWorkloadsOfLocalQueue(ctx, &lq, wq)
 	}
+
+	// A Workload whose LocalQueue was deleted is only reachable through the
+	// ClusterQueue it reserved quota in.
+	wlList := kueue.WorkloadList{}
+	if err := w.r.client.List(ctx, &wlList, client.MatchingFields{indexer.WorkloadClusterQueueKey: cqName}); err != nil {
+		log.Error(err, "Could not list workloads with quota reserved in the cluster queue")
+	}
+	for _, wl := range wlList.Items {
+		wq.Add(reconcile.Request{Name: wl.Name, Namespace: wl.Namespace})
+	}
 }
 
 func (w *workloadQueueHandler) queueReconcileForWorkloadsOfLocalQueue(ctx context.Context, lq *kueue.LocalQueue, wq workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -2120,12 +2108,17 @@ type deviceClassHandler struct {
 
 func (h *deviceClassHandler) Create(ctx context.Context, e event.CreateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	dc := e.Object.(*resourcev1.DeviceClass)
-	if ern := extendedResourceName(dc); ern != "" {
+	implicitERN := implicitExtendedResourceName(dc)
+	h.r.draBackedResources.Add(corev1.ResourceName(implicitERN), dc.Name)
+	ern := extendedResourceName(dc)
+	if ern != "" {
 		h.r.draBackedResources.Add(corev1.ResourceName(ern), dc.Name)
-		h.reconcileWorkloads(ctx, q, ern)
 	}
+	h.reconcileWorkloads(ctx, q, ern, implicitERN)
 }
 
+// Update leaves the implicit extended resource name alone, since it derives from
+// the DeviceClass name, which cannot change.
 func (h *deviceClassHandler) Update(ctx context.Context, e event.UpdateEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	oldDC := e.ObjectOld.(*resourcev1.DeviceClass)
 	newDC := e.ObjectNew.(*resourcev1.DeviceClass)
@@ -2140,10 +2133,13 @@ func (h *deviceClassHandler) Update(ctx context.Context, e event.UpdateEvent, q 
 
 func (h *deviceClassHandler) Delete(ctx context.Context, e event.DeleteEvent, q workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	dc := e.Object.(*resourcev1.DeviceClass)
-	if ern := extendedResourceName(dc); ern != "" {
+	implicitERN := implicitExtendedResourceName(dc)
+	h.r.draBackedResources.Remove(corev1.ResourceName(implicitERN), dc.Name)
+	ern := extendedResourceName(dc)
+	if ern != "" {
 		h.r.draBackedResources.Remove(corev1.ResourceName(ern), dc.Name)
-		h.reconcileWorkloads(ctx, q, ern)
 	}
+	h.reconcileWorkloads(ctx, q, ern, implicitERN)
 }
 
 func (h *deviceClassHandler) Generic(_ context.Context, _ event.GenericEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
@@ -2154,6 +2150,12 @@ func extendedResourceName(dc *resourcev1.DeviceClass) string {
 		return *dc.Spec.ExtendedResourceName
 	}
 	return ""
+}
+
+// implicitExtendedResourceName returns the name every DeviceClass can be requested
+// by, whether or not it sets spec.extendedResourceName.
+func implicitExtendedResourceName(dc *resourcev1.DeviceClass) string {
+	return resourcev1.ResourceDeviceClassPrefix + dc.Name
 }
 
 func (h *deviceClassHandler) reconcileWorkloads(ctx context.Context, q workqueue.TypedRateLimitingInterface[reconcile.Request], resourceNames ...string) {
@@ -2329,7 +2331,10 @@ func shouldCheckEquivalenceHash(cond *metav1.Condition) bool {
 
 func (r *WorkloadReconciler) needsDRAReconcile(ctx context.Context, wl *kueue.Workload) bool {
 	wi := &workload.Info{Obj: wl}
-	if features.Enabled(features.KueueDRAIntegration) && features.Enabled(features.KueueDRAIntegrationExtendedResource) {
+	// The effective PodSpecs only matter when a DeviceClass backs an extended
+	// resource. This runs on every Workload event, so skip building the Info otherwise.
+	if features.Enabled(features.KueueDRAIntegration) && features.Enabled(features.KueueDRAIntegrationExtendedResource) &&
+		r.draBackedResources != nil && !r.draBackedResources.IsEmpty() {
 		wi = workload.NewInfoFromClient(ctx, r.client, wl)
 	}
 	return dra.NeedsDRAReconcile(wi, r.draBackedResources)

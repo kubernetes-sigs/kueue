@@ -139,3 +139,7 @@ func (s *defaultSimulator) ScheduleWorkload(_ context.Context, workloadPods []*c
 func (s *defaultSimulator) AddPodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
 	return nil
 }
+
+func (s *defaultSimulator) RemovePodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
+	return nil
+}
