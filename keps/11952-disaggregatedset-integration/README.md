@@ -8,7 +8,7 @@
 - [Proposal](#proposal)
   - [User Stories](#user-stories)
     - [Story 1: Atomic admission of a disaggregated model server](#story-1-atomic-admission-of-a-disaggregated-model-server)
-    - [Story 2: Preempting a whole deployment](#story-2-preempting-a-whole-deployment)
+    - [Story 2: Preempting a whole inference workload](#story-2-preempting-a-whole-inference-workload)
     - [Story 3: Scaling out by slices](#story-3-scaling-out-by-slices)
     - [Story 4: Rolling out a new model server image](#story-4-rolling-out-a-new-model-server-image)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
@@ -66,7 +66,6 @@
   - [External framework integration](#external-framework-integration)
   - [Adding <code>suspend</code> to DisaggregatedSet](#adding-suspend-to-disaggregatedset)
   - [Evicting by scaling roles to zero](#evicting-by-scaling-roles-to-zero)
-  - [Relying on LWS gang scheduling](#relying-on-lws-gang-scheduling)
 - [Appendix: DisaggregatedSet behavior](#appendix-disaggregatedset-behavior)
 <!-- /toc -->
 
@@ -78,20 +77,6 @@ contain several resource roles. The first supported integration is
 (`disaggregatedset.x-k8s.io/v1`), the LeaderWorkerSet (LWS) API that runs several
 LeaderWorkerSets, called roles, as one logical unit for disaggregated LLM inference.
 A typical example is a `prefill` role and a `decode` role with different resource shapes.
-
-Kueue creates one Workload for each slice of a DisaggregatedSet. A slice is one
-complete copy of all roles. The Workload contains PodSets for every role in the
-slice, so a slice is admitted as a whole and preempted as a whole.
-
-The integration follows the existing LeaderWorkerSet integration. Kueue gates the
-Pods with scheduling gates, groups them into a prebuilt pod-group Workload, and
-ungates them on admission.
-
-The integration is guarded by the alpha feature gate `DisaggregatedSetIntegration`,
-disabled by default. The alpha scope is deliberately narrow. DisaggregatedSet
-features that the alpha design does not support are rejected by the
-webhook. They are listed, with a graduation path, in
-[Supported and unsupported features](#supported-and-unsupported-features).
 
 ## Motivation
 
@@ -144,11 +129,18 @@ primitives.
   (`scaling.mode: External`) in alpha.
 - Supporting `subRoles`, `groupIdentity: Hash`, LWS native gang scheduling, or
   rollouts with `maxSurge > 0` in alpha.
+- Managing the child LWS objects of a managed DisaggregatedSet on their own. Kueue
+  labels in role metadata and templates are rejected, as described in
+  [Handling of child objects](#handling-of-child-objects).
 - Partial admission inside a slice, or resizing one role of an admitted slice.
 - MultiKueue support in alpha.
 - Translating the DisaggregatedSet `placementPolicy` into TAS constraints in alpha.
 
 ## Proposal
+
+Kueue creates one Workload for each slice of a DisaggregatedSet. A slice is one
+complete copy of all roles. The Workload contains PodSets for every role in the
+slice, so a slice is admitted as a whole and preempted as a whole.
 
 The integration adds the Kueue DisaggregatedSet webhook and the Kueue
 DisaggregatedSet reconciler. It reuses the
@@ -246,12 +238,12 @@ spec:
                   nvidia.com/gpu: 4
 ```
 
-#### Story 2: Preempting a whole deployment
+#### Story 2: Preempting a whole inference workload
 
 As a cluster administrator, I give training a higher WorkloadPriorityClass than
 low-priority inference, and I enable preemption within the ClusterQueue, which is
 off by default. When a training job needs the GPUs, I want Kueue to evict a
-complete inference slice. A half-evicted deployment would keep holding quota while
+complete inference slice. A half-evicted inference workload would keep holding quota while
 serving nothing.
 
 ```yaml
@@ -304,19 +296,17 @@ spec:
 
 #### Required LWS version
 
-Kueue requires LWS v1.0.0 or later, both for its vendored API types and for the LWS
-controller in the cluster:
+The integration requires LWS v1.0.0 or later, both for the vendored API types and
+for the LWS controller in the cluster:
 
 - The vendored types must include every field that the Kueue DisaggregatedSet
   webhook rejects. Kueue decodes the object into those types, so a field they lack,
-  such as `subRoles` or `scalingPolicy` in v0.11, is silently dropped and cannot be
-  rejected. Kueue currently vendors `sigs.k8s.io/lws` v0.11.1, so bumping it to
-  v1.0.0 is a prerequisite for the implementation.
+  such as `subRoles` or `scalingPolicy` before v1.0.0, is silently dropped and
+  cannot be rejected.
 - The integration reads `status.roleStatuses[]`. An older LWS controller does not
   populate it.
 
-LWS v1.0.0 is the first stable LWS release, but DisaggregatedSet is still alpha in
-LWS. The DisaggregatedSet behavior that this design relies on is summarized in
+The DisaggregatedSet behavior that this design relies on is summarized in
 [Appendix: DisaggregatedSet behavior](#appendix-disaggregatedset-behavior).
 
 #### Only constant values are stamped on templates
@@ -404,9 +394,11 @@ DisaggregatedSet.
 
 #### The DisaggregatedSet API changes quickly
 
-The API is alpha in LWS. LWS v1.0.0 alone added `subRoles`, `scalingPolicy`, and new
-LWS template fields. A future LWS release can add a field that the vendored types do
-not know. Kueue cannot reject such a field until it vendors that release.
+The DisaggregatedSet API (`disaggregatedset.x-k8s.io/v1`) still gains fields between
+LWS releases. LWS v1.0.0 added `subRoles`, `scalingPolicy`, `maxSurge`,
+`maxUnavailable` and `status.roleStatuses[].desiredReplicas`, and new LWS template
+fields. A future LWS release can add a field that the vendored types do not know.
+Kueue cannot reject such a field until it vendors that release.
 
 Mitigations:
 - The integration is alpha and disabled by default.
@@ -436,16 +428,23 @@ therefore also checks that:
 A Pod that fails a check is not adopted and stays gated. The Kueue DisaggregatedSet
 reconciler emits a `PodNotAdopted` event on the Pod that names the failed check.
 
-Kueue does not compare the Pod's resource requests with the role template. Mutating
-webhooks such as sidecar injectors add containers after the templates are copied,
-and the LWS integration admits such Pods too. The quota of a slice is charged from
-the role templates, and the pod-group reconciler trusts the role-hash annotation
-that Kueue sets, so an adopted Pod's actual requests are never counted. The slot
-count bounds how many Pods a slice runs, not what they request. A Pod with injected
-containers, or a forged Pod that requests more than the template, runs beyond the
-quota recorded on the Workload. The LWS and StatefulSet integrations have the same
-gap. Use `ResourceQuota` to bound total namespace usage; `LimitRange` can bound
-individual Pods or containers.
+The quota of a slice is charged from the role templates. The Kueue
+DisaggregatedSet reconciler does not compare an adopted Pod's requests with them.
+The pod-group reconciler does, under the `PodIntegrationVerifyRoleRequests`
+feature gate, which is beta and enabled by default in v0.21. Before it ungates a
+Pod, it checks the Pod's requests against the effective reservation of the PodSet
+that the Pod's role hash names. A Pod that requests more stays gated, and the
+pod-group reconciler emits a `PodExceedsRoleRequests` warning event on it. This
+covers both a forged Pod and a Pod that a mutating webhook, such as a sidecar
+injector, made larger than the template. Such a Pod blocks only its own slot: the
+slice Workload stays admitted and its other Pods run. Users who inject sidecars
+add the sidecar requests to the role templates. The LWS and StatefulSet
+integrations behave the same way.
+
+When an admin disables `PodIntegrationVerifyRoleRequests`, the pod-group reconciler
+ungates these Pods, and they run beyond the quota recorded on the Workload. Use
+`ResourceQuota` to bound total namespace usage; `LimitRange` can bound individual
+Pods or containers.
 
 The adoption checks are not proof of origin. A user who can create LWS objects in the
 namespace can create a child LWS owned by a real DisaggregatedSet, and its Pods pass
@@ -519,18 +518,16 @@ if the update changes nothing else. This happens in these cases:
 - a Kueue upgrade changes the stamped annotations;
 - a user adds the queue name to an unmanaged DisaggregatedSet, which makes it
   managed, as described in [Webhook](#webhook);
-- a namespace gains a default LocalQueue. An update of an unmanaged
+- a namespace gains a default LocalQueue. The next update of an unmanaged
   DisaggregatedSet with no Ready replicas makes it managed and stamps its
-  templates. An update of an unmanaged DisaggregatedSet with Ready replicas is
-  rejected, because the queue name can no longer be added. Every update, including
-  an image change, is then rejected until every role is scaled to zero. The LWS
-  integration behaves the same way.
+  templates. An unmanaged DisaggregatedSet with Ready replicas stays unmanaged and
+  can still be updated, as described in [Defaulting](#defaulting).
 
 Mitigations:
 - The documentation lists the stamped annotations and these triggers.
-- The documentation warns that adding a default LocalQueue to a namespace with
-  running unmanaged DisaggregatedSets blocks their updates until they are scaled
-  to zero.
+- The documentation explains that a running unmanaged DisaggregatedSet becomes
+  managed by a namespace default LocalQueue only after its roles are scaled to
+  zero.
 - A Kueue release that changes the stamped annotations calls it out as
   `ACTION REQUIRED` in its release notes.
 
@@ -598,6 +595,15 @@ The mutating webhook runs on create and update:
 
 1. It applies the namespace default LocalQueue and the default
    WorkloadPriorityClass to the DisaggregatedSet, as for other integrations.
+   On update, it applies each default only while every role reports zero Ready
+   replicas in the `status.roleStatuses[]` of the old object. This is the rule that
+   [Validation on update](#validation-on-update) enforces for adding the queue name
+   and the priority class. Without it, the default would be added to every update
+   of a running unmanaged DisaggregatedSet and then rejected, including an update
+   that scales every role to zero. A running unmanaged DisaggregatedSet therefore
+   stays unmanaged after its namespace gains a default LocalQueue, until its roles
+   are scaled to zero. The LWS webhook applies this guard to the default
+   WorkloadPriorityClass but not to the default LocalQueue.
 2. If Kueue manages the DisaggregatedSet, it stamps every role's leader and
    worker templates with the `pod-suspending-parent` and `pod-group-serving`
    annotations. Unlike the LWS webhook, it does not set
@@ -954,6 +960,8 @@ through the standard Workload metrics and conditions. The Kueue DisaggregatedSet
 reconciler emits events on the DisaggregatedSet when a Workload is created, deleted
 or replaced, and when the workload-level annotations are updated. It emits a
 `PodNotAdopted` event on a Pod that fails the [Pod adoption](#pod-adoption) checks.
+The existing `PodExceedsRoleRequests` event of the pod-group reconciler marks an
+adopted Pod that stays gated because it requests more than its PodSet reserves.
 The Kueue DisaggregatedSet webhook rejects invalid DisaggregatedSets, such as one
 over the PodSet limit or with an unsupported feature, so those never reach the
 Kueue DisaggregatedSet reconciler.
@@ -1072,13 +1080,19 @@ In `test/integration/singlecluster/controller/jobs/disaggregatedset`:
   with the reverted counts is created. A slice Workload that is deactivated
   without the replacement annotation is left alone;
 - an adopted Pod whose requests exceed the role template, for example with an
-  injected container, is ungated against the slice Workload;
+  injected container, stays gated and gets a `PodExceedsRoleRequests` event while
+  the other Pods of the slice are ungated. With `PodIntegrationVerifyRoleRequests`
+  disabled, the same Pod is ungated;
 - the workload-level `waitForPodsReady` and admission-gate annotations reach every
   slice Workload, also after an update, when their feature gates are enabled, and
   do not reach them when the gates are disabled;
 - a DisaggregatedSet becomes managed through a namespace default LocalQueue and
   through `manageJobsWithoutQueueName`, and stays unmanaged in a namespace that
   `managedJobsNamespaceSelector` does not select;
+- after its namespace gains a default LocalQueue, a running unmanaged
+  DisaggregatedSet accepts updates, including scaling every role to zero, and
+  becomes managed on the first update after it has no Ready replicas. The same
+  holds for a default WorkloadPriorityClass;
 - queue name updates reach Workloads without reserved quota, and Workloads
   with reserved quota keep their queue. A priority-class change reaches every
   slice Workload, including those with reserved quota, and a Workload that
@@ -1167,8 +1181,8 @@ In `test/integration/singlecluster/controller/jobs/disaggregatedset`:
 #### GA
 
 - At least two releases at beta without significant bug reports.
-- The DisaggregatedSet API has graduated beyond alpha in LWS, or the supported API
-  versions are pinned and documented.
+- The DisaggregatedSet fields that the integration supports are stable across LWS
+  releases, or the supported LWS versions are pinned and documented.
 - The feature gate is locked to enabled and later removed, following the Kueue
   deprecation policy.
 
@@ -1203,10 +1217,7 @@ These alternatives keep the roles independent, which is the problem this KEP sol
 
 ### External framework integration
 
-External frameworks are only treated as known owners in the ancestor walk. They have
-no access to the pod-group plumbing, the parent annotation and prebuilt
-Workloads that an integration without suspend needs. The integration would also need
-a separate controller deployment. Maintainers agreed on
+Maintainers agreed on
 [#11952](https://github.com/kubernetes-sigs/kueue/issues/11952) to keep it in-tree,
 behind an alpha gate, because DisaggregatedSet is part of LWS, which Kueue already
 vendors and integrates.
@@ -1226,13 +1237,6 @@ values on re-admission. This was rejected for these reasons:
 - Replica counts apply to every slice, so one slice cannot be evicted alone.
 - Kueue would rewrite the user's spec, which conflicts with GitOps tools.
 - External roles keep their replica counts in a separate scaler object.
-
-### Relying on LWS gang scheduling
-
-LWS supports gang scheduling through the Kubernetes Workload API (PodGroups) and
-scheduler plugins. That works at the scheduler level and does not provide quota, queueing,
-fair sharing or preemption across tenants, so it complements this integration and
-does not replace it.
 
 ## Appendix: DisaggregatedSet behavior
 
