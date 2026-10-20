@@ -1,19 +1,10 @@
 suite: test network policies
 templates:
   - networkpolicy/manager-ingress.yaml
-  - networkpolicy/manager-egress.yaml
   - networkpolicy/kueueviz-backend.yaml
   - networkpolicy/kueueviz-frontend.yaml
 tests:
-  - it: should render the ControllerManager ingress policy by default
-    template: networkpolicy/manager-ingress.yaml
-    asserts:
-      - hasDocuments:
-          count: 1
-
-  - it: should not render any network policy when disabled
-    set:
-      networkPolicy.enabled: false
+  - it: should not render any network policy by default
     asserts:
       - hasDocuments:
           count: 0
@@ -103,18 +94,10 @@ tests:
       - hasDocuments:
           count: 0
 
-  - it: should skip the ControllerManager egress policy with hostNetwork
-    template: networkpolicy/manager-egress.yaml
-    set:
-      controllerManager.hostNetwork: true
-      networkPolicy.egress.enabled: true
-    asserts:
-      - hasDocuments:
-          count: 0
-
   - it: should follow custom ControllerManager ports
     template: networkpolicy/manager-ingress.yaml
     set:
+      networkPolicy.enabled: true
       managerConfig.controllerManagerConfigYaml: |
         webhook:
           port: 9444
@@ -141,6 +124,7 @@ tests:
   - it: should use default ports for empty bind addresses
     template: networkpolicy/manager-ingress.yaml
     set:
+      networkPolicy.enabled: true
       managerConfig.controllerManagerConfigYaml: |
         metrics:
           bindAddress: ""
@@ -157,6 +141,7 @@ tests:
   - it: should omit disabled metrics and health listeners
     template: networkpolicy/manager-ingress.yaml
     set:
+      networkPolicy.enabled: true
       managerConfig.controllerManagerConfigYaml: |
         metrics:
           bindAddress: "0"
@@ -166,84 +151,6 @@ tests:
       - lengthEqual:
           path: spec.ingress
           count: 1
-
-  - it: should not render the egress policy when only networkPolicy is enabled
-    template: networkpolicy/manager-egress.yaml
-    set:
-      networkPolicy:
-        enabled: true
-    asserts:
-      - hasDocuments:
-          count: 0
-
-  - it: should render the egress policy when egress is enabled
-    template: networkpolicy/manager-egress.yaml
-    set:
-      networkPolicy:
-        enabled: true
-        egress:
-          enabled: true
-    asserts:
-      - hasDocuments:
-          count: 1
-      - isKind:
-          of: NetworkPolicy
-      - equal:
-          path: metadata.name
-          value: RELEASE-NAME-kueue-controller-manager-egress
-      - equal:
-          path: spec.policyTypes
-          value:
-            - Egress
-      # cluster DNS, needed to resolve MultiKueue remote clusters by hostname
-      - equal:
-          path: spec.egress[0].ports
-          value:
-            - protocol: UDP
-              port: 53
-            - protocol: TCP
-              port: 53
-      # the in-cluster API server and MultiKueue remote API servers
-      - equal:
-          path: spec.egress[1].ports
-          value:
-            - protocol: TCP
-              port: 443
-            - protocol: TCP
-              port: 6443
-
-  - it: should append extraEgress rules to the ControllerManager egress policy
-    template: networkpolicy/manager-egress.yaml
-    set:
-      networkPolicy:
-        enabled: true
-        egress:
-          enabled: true
-          extraEgress:
-            - to:
-                - ipBlock:
-                    cidr: 10.10.0.0/16
-              ports:
-                - protocol: TCP
-                  port: 6443
-    asserts:
-      - lengthEqual:
-          path: spec.egress
-          count: 3
-      - equal:
-          path: spec.egress[0].to[0].ipBlock.cidr
-          value: 10.10.0.0/16
-
-  - it: should not render the egress policy when networkPolicy is disabled
-    template: networkpolicy/manager-egress.yaml
-    set:
-      networkPolicy:
-        enabled: false
-        egress:
-          enabled: true
-    asserts:
-      - hasDocuments:
-          count: 0
 
   - it: should not render the KueueViz policies when KueueViz is disabled
     templates:
@@ -282,6 +189,11 @@ tests:
       - equal:
           path: metadata.name
           value: RELEASE-NAME-kueue-kueueviz-backend
+      - isSubset:
+          path: metadata.labels
+          content:
+            app.kubernetes.io/name: kueue
+            app.kubernetes.io/instance: RELEASE-NAME
       # KueueViz pods carry only the app label, not the app.kubernetes.io/* set
       - equal:
           path: spec.podSelector.matchLabels
@@ -305,6 +217,11 @@ tests:
       - equal:
           path: metadata.name
           value: RELEASE-NAME-kueue-kueueviz-frontend
+      - isSubset:
+          path: metadata.labels
+          content:
+            app.kubernetes.io/name: kueue
+            app.kubernetes.io/instance: RELEASE-NAME
       - equal:
           path: spec.podSelector.matchLabels
           value:

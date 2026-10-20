@@ -166,17 +166,10 @@ networkPolicy:
   # -- Enable ingress NetworkPolicies for the Kueue components. Requires NetworkPolicy
   # enforcement. ControllerManager policies are skipped when controllerManager.hostNetwork
   # is enabled because enforcement for host-network pods depends on the CNI plugin.
-  enabled: true
+  enabled: false
   # -- Additional ingress rules appended to the ControllerManager's NetworkPolicy. Ingress
   # rules are additive, so these permit extra traffic and cannot narrow the built-in rules.
   extraIngress: []
-  egress:
-    # -- Enable the ControllerManager's egress NetworkPolicy. This applies default-deny
-    # egress, which breaks MultiKueue unless every remote cluster API server is reachable
-    # through the built-in rules or through extraEgress.
-    enabled: false
-    # -- Additional egress rules appended to the ControllerManager's NetworkPolicy.
-    extraEgress: []
 kueueViz:
   ingress:
     # -- Enable a single path-routed ingress serving the KueueViz dashboard and its

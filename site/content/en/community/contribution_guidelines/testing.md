@@ -124,10 +124,11 @@ make test-multikueue-e2e-extended
 make test-multikueue-e2e-sequential
 ```
 
-The baseline and baseline sequential targets install the NetworkPolicy enforcement
-agent before Kueue, so admission, metrics, and visibility tests exercise the default
-ingress policies. Baseline jobs also run the policy connectivity and denial tests,
-regardless of their main suite's label filter.
+The baseline and baseline sequential targets install the opt-in ingress NetworkPolicies
+with Kueue (`E2E_NETWORK_POLICIES=true`), so admission, metrics, and visibility tests run
+under them. kind's default CNI enforces NetworkPolicy, so no extra agent is needed.
+Baseline jobs also run the policy connectivity and denial tests, regardless of their
+main suite's label filter.
 
 `test-e2e-networkpolicy` covers the policies themselves and can be run on its own.
 

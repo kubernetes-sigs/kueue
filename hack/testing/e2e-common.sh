@@ -357,10 +357,6 @@ if [[ -n "${CERTMANAGER_VERSION:-}" ]]; then
     export CERTMANAGER_MANIFEST="https://github.com/cert-manager/cert-manager/releases/download/${CERTMANAGER_VERSION}/cert-manager.yaml"
 fi
 
-if [[ -n "${NETWORK_POLICIES_VERSION:-}" ]]; then
-    export NETWORK_POLICIES_MANIFEST="https://raw.githubusercontent.com/kubernetes-sigs/kube-network-policies/${NETWORK_POLICIES_VERSION}/install.yaml"
-fi
-
 if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
     export CLUSTERPROFILE_CRD=${ROOT_DIR}/dep-crds/clusterprofile/multicluster.x-k8s.io_clusterprofiles.yaml
     # Only one secretreader image is ever needed per suite. From k8s 1.35 image volumes are
@@ -1001,6 +997,10 @@ function cluster_kueue_deploy {
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/${E2E_CONFIG_FOLDER:-default}"
     fi
 
+    if e2e_is_truthy "${E2E_NETWORK_POLICIES:-}" && [ "$E2E_USE_HELM" != 'true' ]; then
+        $KUSTOMIZE build "${ROOT_DIR}/config/networkpolicy" | kubectl apply --kubeconfig="$1" --server-side -f -
+    fi
+
     wait_for_kueue_controller_operator "$1"
 }
 
@@ -1024,12 +1024,17 @@ function helm_install {
         grep -Fx -f <($KUSTOMIZE build "${ROOT_DIR}/config/components/crd/alpha" | $YQ -N '.metadata.name') >/dev/null; then
         alpha_apis=true
     fi
+    local network_policies=false
+    if e2e_is_truthy "${E2E_NETWORK_POLICIES:-}"; then
+        network_policies=true
+    fi
 
     $HELM install \
       -f "$2" \
       --set-file "managerConfig.controllerManagerConfigYaml=${manager_config}" \
       --set "controllerManager.replicas=${replicas}" \
       --set "enableAlphaAPIs=${alpha_apis}" \
+      --set "networkPolicy.enabled=${network_policies}" \
       --set "controllerManager.manager.image.repository=${IMAGE_TAG%:*}" \
       --set "controllerManager.manager.image.tag=${IMAGE_TAG##*:}" \
       --create-namespace \
@@ -1514,16 +1519,6 @@ function deploy_kueue_prometheus_config {
     local kubeconfig=${1:-}
     $KUSTOMIZE build "${ROOT_DIR}/config/prometheus" | \
         kubectl apply --kubeconfig="${kubeconfig}" --server-side -f -
-}
-
-# The kind default CNI accepts NetworkPolicy objects but does not enforce them, so the
-# policies have to be exercised against an agent that does.
-# $1 kubeconfig option
-function install_network_policies_enforcement {
-    local kubeconfig=${1:-}
-    e2e_kubectl_apply_url "${NETWORK_POLICIES_MANIFEST}" --kubeconfig="${kubeconfig}"
-    kubectl rollout status daemonset/kube-network-policies -n kube-system \
-        --timeout=5m --kubeconfig="${kubeconfig}"
 }
 
 # $1 kubeconfig option
