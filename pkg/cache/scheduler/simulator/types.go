@@ -74,9 +74,30 @@ type PodRequirements struct {
 	SimulateEmpty bool
 }
 
-type scheduleOptions struct{}
+type scheduleOptions struct {
+	preemptionCandidates []client.ObjectKey
+}
 
 type ScheduleOption func(*scheduleOptions)
+
+// WithPreemptionCandidates configures the ordered list of candidate workloads
+// that may be preempted to make room for the scheduled workload.
+func WithPreemptionCandidates(candidates []client.ObjectKey) ScheduleOption {
+	return func(o *scheduleOptions) {
+		o.preemptionCandidates = candidates
+	}
+}
+
+// PreemptionCandidates extracts the preemption candidates from the given schedule options.
+func PreemptionCandidates(options ...ScheduleOption) []client.ObjectKey {
+	opts := &scheduleOptions{}
+	for _, opt := range options {
+		if opt != nil {
+			opt(opts)
+		}
+	}
+	return opts.preemptionCandidates
+}
 
 // SchedulingResult encapsulates the node assignments for the pods of the Workload.
 type SchedulingResult struct {

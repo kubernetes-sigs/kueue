@@ -156,13 +156,44 @@ func (s *wasSimulator) Simulate(ctx context.Context, fn func()) error {
 	})
 }
 
-func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
+type workloadVictim struct {
+	pods []*corev1.Pod
+}
+
+var _ schedlib.PreemptionVictim = (*workloadVictim)(nil)
+
+func (v *workloadVictim) Pods() []*corev1.Pod {
+	return v.pods
+}
+
+func (s *wasSimulator) potentialVictims(candidates []client.ObjectKey) iter.Seq[schedlib.PreemptionVictim] {
+	if len(candidates) == 0 {
+		return nil
+	}
+	return func(yield func(schedlib.PreemptionVictim) bool) {
+		for _, wlKey := range candidates {
+			v := &workloadVictim{
+				pods: s.podsByWorkload.getPodsForWorkload(wlKey),
+			}
+			if !yield(v) {
+				return
+			}
+		}
+	}
+}
+
+func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
 	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		return simulator.SchedulingResult{Error: errScheduleWorkloadNotAllowed}
 	}
 
 	workloadPods = copyWithDefaultScheduler(workloadPods...)
-	wasResult := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, schedlib.ScheduleWorkloadOptions{DryRun: true})
+	wasResult := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, schedlib.ScheduleWorkloadOptions{
+		CommonSchedulingOptions: schedlib.CommonSchedulingOptions{DryRun: true},
+		WorkloadPreemptionOptions: schedlib.WorkloadPreemptionOptions{
+			PotentialVictims: s.potentialVictims(simulator.PreemptionCandidates(opts...)),
+		},
+	})
 	if wasResult.Status.IsError() {
 		return simulator.SchedulingResult{Error: wasResult.Status.AsError()}
 	}

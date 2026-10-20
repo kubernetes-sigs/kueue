@@ -120,6 +120,17 @@ func newPreemptionStrategy(
 	return ps
 }
 
+// Materialize evaluates and collects all candidate targets for this strategy
+// in order, and restores the snapshot to its state before the strategy was evaluated.
+func (ps *PreemptionStrategy) Materialize() []*Target {
+	var targets []*Target
+	for candidate := range ps.candidates {
+		targets = append(targets, candidate)
+	}
+	restoreSnapshot(ps.pCtx.snapshot, targets)
+	return targets
+}
+
 type preemptionCtx struct {
 	clock                 clock.Clock
 	preemptor             workload.Info

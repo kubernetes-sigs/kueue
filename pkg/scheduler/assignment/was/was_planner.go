@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -41,15 +42,17 @@ import (
 func NewPlanner(
 	wl *workload.Info,
 	snapshot *schedcache.Snapshot,
+	preemptor *preemption.Preemptor,
 ) assignment.Planner {
-	return &wasPlanner{wl: wl, snapshot: snapshot}
+	return &wasPlanner{wl: wl, snapshot: snapshot, preemptor: preemptor}
 }
 
 var _ assignment.Planner = (*wasPlanner)(nil)
 
 type wasPlanner struct {
-	wl       *workload.Info
-	snapshot *schedcache.Snapshot
+	wl        *workload.Info
+	snapshot  *schedcache.Snapshot
+	preemptor *preemption.Preemptor
 }
 
 func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner.Assignment, _ ...assignment.PlannerOption) (plan assignment.Plan) {
@@ -57,10 +60,6 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		Assignment: initialAssignment,
 	}
 	if plan.Assignment.RepresentativeMode() == flavorassigner.NoFit {
-		return
-	}
-	if plan.Assignment.RepresentativeMode() == flavorassigner.Preempt {
-		plan.Error = errors.New("WAS Planner does not support preemptions")
 		return
 	}
 
@@ -94,13 +93,40 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		}
 	}()
 
-	schedulingResult := p.snapshot.SchedulerSimulator.ScheduleWorkload(ctx, pods)
-	if schedulingResult.Error != nil {
-		plan.Error = fmt.Errorf("failed to schedule workload: %w", schedulingResult.Error)
-		return
+	var placementSummary podSetPlacementSummary
+	var failures podSetFailureSummary
+	schedule := func(opts ...simulator.ScheduleOption) bool {
+		schedulingResult := p.snapshot.SchedulerSimulator.ScheduleWorkload(ctx, pods, opts...)
+		if schedulingResult.Error != nil {
+			plan.Error = fmt.Errorf("failed to schedule workload: %w", schedulingResult.Error)
+			return false
+		}
+		placementSummary, failures = groupByPodSet(pods, schedulingResult.PodPlacements)
+		return len(failures) == 0
 	}
 
-	placementSummary, failures := groupByPodSet(pods, schedulingResult.PodPlacements)
+	if plan.Assignment.RepresentativeMode() == flavorassigner.Preempt {
+		var ranStrategy bool
+		for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, *plan.Assignment) {
+			ranStrategy = true
+			targets := strategy.Materialize()
+			candidates := make([]client.ObjectKey, len(targets))
+			for i, target := range targets {
+				candidates[i] = client.ObjectKeyFromObject(target.WorkloadInfo.Obj)
+			}
+			if schedule(simulator.WithPreemptionCandidates(candidates)) || plan.Error != nil {
+				break
+			}
+		}
+		if !ranStrategy {
+			schedule(simulator.WithPreemptionCandidates(nil))
+		}
+	} else {
+		schedule()
+	}
+	if plan.Error != nil {
+		return
+	}
 
 	if len(failures) > 0 {
 		// Record the scheduling failures of Pods that failed to secure any Placement.
