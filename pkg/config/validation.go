@@ -969,6 +969,12 @@ func validateCIdentifier(id string, fldPath *field.Path) field.ErrorList {
 func validateMetrics(metrics configapi.ControllerMetrics) field.ErrorList {
 	mode := ptr.Deref(metrics.AccessControlMode, configapi.MetricsAccessControlModeDelegated)
 	modePath := field.NewPath("metrics", "accessControlMode")
+	if !features.Enabled(features.MetricsAccessControl) {
+		if metrics.AccessControlMode != nil {
+			return field.ErrorList{field.Forbidden(modePath, "requires the MetricsAccessControl feature gate")}
+		}
+		return nil
+	}
 	if mode != configapi.MetricsAccessControlModeDelegated && mode != configapi.MetricsAccessControlModeNone {
 		return field.ErrorList{field.NotSupported(modePath, mode, []configapi.MetricsAccessControlMode{
 			configapi.MetricsAccessControlModeDelegated, configapi.MetricsAccessControlModeNone,
@@ -978,9 +984,6 @@ func validateMetrics(metrics configapi.ControllerMetrics) field.ErrorList {
 		return nil
 	}
 	var allErrs field.ErrorList
-	if !features.Enabled(features.MetricsAccessControl) {
-		allErrs = append(allErrs, field.Forbidden(modePath, "None requires the MetricsAccessControl feature gate; enable it or use Delegated"))
-	}
 	address, err := netip.ParseAddrPort(metrics.BindAddress)
 	if err != nil || !address.Addr().Unmap().IsLoopback() || address.Port() == 0 {
 		allErrs = append(allErrs, field.Invalid(field.NewPath("metrics", "bindAddress"), metrics.BindAddress,

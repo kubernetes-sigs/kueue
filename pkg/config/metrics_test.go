@@ -40,15 +40,16 @@ func TestMetricsServerOptions(t *testing.T) {
 		wantFilter  bool
 		wantWarning bool
 	}{
-		"default delegated":             {address: ":8443", wantFilter: true},
-		"explicit delegated":            {mode: new(configapi.MetricsAccessControlModeDelegated), address: ":8443", wantFilter: true},
-		"delegated with gate":           {mode: new(configapi.MetricsAccessControlModeDelegated), address: ":8443", gate: true, wantFilter: true},
-		"IPv4 opt out":                  {mode: new(configapi.MetricsAccessControlModeNone), address: "127.0.0.1:8443", gate: true, wantWarning: true},
-		"IPv6 opt out":                  {mode: new(configapi.MetricsAccessControlModeNone), address: "[::1]:8443", gate: true, wantWarning: true},
-		"mapped opt out":                {mode: new(configapi.MetricsAccessControlModeNone), address: "[::ffff:127.0.0.1]:8443", gate: true, wantWarning: true},
-		"disabled delegated":            {mode: new(configapi.MetricsAccessControlModeDelegated), address: "0", wantFilter: true},
-		"disabled opt out without gate": {mode: new(configapi.MetricsAccessControlModeNone), address: "0"},
-		"disabled opt out with gate":    {mode: new(configapi.MetricsAccessControlModeNone), address: "0", gate: true},
+		"default delegated":               {address: ":8443", wantFilter: true},
+		"explicit delegated without gate": {mode: new(configapi.MetricsAccessControlModeDelegated), address: ":8443", wantFilter: true},
+		"opt out ignored without gate":    {mode: new(configapi.MetricsAccessControlModeNone), address: "127.0.0.1:8443", wantFilter: true},
+		"delegated with gate":             {mode: new(configapi.MetricsAccessControlModeDelegated), address: ":8443", gate: true, wantFilter: true},
+		"IPv4 opt out":                    {mode: new(configapi.MetricsAccessControlModeNone), address: "127.0.0.1:8443", gate: true, wantWarning: true},
+		"IPv6 opt out":                    {mode: new(configapi.MetricsAccessControlModeNone), address: "[::1]:8443", gate: true, wantWarning: true},
+		"mapped opt out":                  {mode: new(configapi.MetricsAccessControlModeNone), address: "[::ffff:127.0.0.1]:8443", gate: true, wantWarning: true},
+		"disabled delegated":              {gate: true, mode: new(configapi.MetricsAccessControlModeDelegated), address: "0", wantFilter: true},
+		"disabled opt out without gate":   {mode: new(configapi.MetricsAccessControlModeNone), address: "0", wantFilter: true},
+		"disabled opt out with gate":      {mode: new(configapi.MetricsAccessControlModeNone), address: "0", gate: true},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -56,10 +57,6 @@ func TestMetricsServerOptions(t *testing.T) {
 			var logs []string
 			log := funcr.New(func(prefix, args string) { logs = append(logs, prefix+args) }, funcr.Options{})
 			cfg := &configapi.Configuration{Metrics: configapi.ControllerMetrics{AccessControlMode: tc.mode, BindAddress: tc.address}}
-			configapi.SetDefaults_Configuration(cfg)
-			if errs := validateMetrics(cfg.Metrics); len(errs) > 0 {
-				t.Fatalf("unexpected validation errors: %v", errs)
-			}
 			options := MetricsServerOptions(log, cfg.Metrics)
 			if diff := cmp.Diff(tc.address, options.BindAddress); diff != "" {
 				t.Errorf("unexpected address (-want,+got): %s", diff)
@@ -88,16 +85,23 @@ func TestMetricsServerOptions(t *testing.T) {
 
 func TestLoadMetricsConfiguration(t *testing.T) {
 	cases := map[string]struct {
-		metricsYAML string
-		wantMode    configapi.MetricsAccessControlMode
-		wantErrors  field.ErrorList
+		metricsYAML  string
+		wantMode     *configapi.MetricsAccessControlMode
+		gateDisabled bool
+		wantErrors   field.ErrorList
 	}{
-		"omitted mode":       {metricsYAML: "{}", wantMode: configapi.MetricsAccessControlModeDelegated},
-		"null mode":          {metricsYAML: "{accessControlMode: null}", wantMode: configapi.MetricsAccessControlModeDelegated},
-		"explicit delegated": {metricsYAML: "{accessControlMode: Delegated}", wantMode: configapi.MetricsAccessControlModeDelegated},
+		"omitted mode without gate": {metricsYAML: "{}", gateDisabled: true},
+		"explicit mode without gate": {
+			metricsYAML: "{accessControlMode: Delegated}", gateDisabled: true,
+			wantMode:   new(configapi.MetricsAccessControlModeDelegated),
+			wantErrors: field.ErrorList{field.Forbidden(field.NewPath("metrics", "accessControlMode"), "requires the MetricsAccessControl feature gate")},
+		},
+		"omitted mode":       {metricsYAML: "{}", wantMode: new(configapi.MetricsAccessControlModeDelegated)},
+		"null mode":          {metricsYAML: "{accessControlMode: null}", wantMode: new(configapi.MetricsAccessControlModeDelegated)},
+		"explicit delegated": {metricsYAML: "{accessControlMode: Delegated}", wantMode: new(configapi.MetricsAccessControlModeDelegated)},
 		"empty mode": {
 			metricsYAML: `{accessControlMode: ""}`,
-			wantMode:    "",
+			wantMode:    new(configapi.MetricsAccessControlMode("")),
 			wantErrors: field.ErrorList{
 				field.NotSupported(
 					field.NewPath("metrics", "accessControlMode"),
@@ -108,7 +112,7 @@ func TestLoadMetricsConfiguration(t *testing.T) {
 		},
 		"opt out with omitted address": {
 			metricsYAML: "{accessControlMode: None}",
-			wantMode:    configapi.MetricsAccessControlModeNone,
+			wantMode:    new(configapi.MetricsAccessControlModeNone),
 			wantErrors: field.ErrorList{
 				field.Invalid(
 					field.NewPath("metrics", "bindAddress"),
@@ -119,7 +123,7 @@ func TestLoadMetricsConfiguration(t *testing.T) {
 		},
 		"opt out with empty address": {
 			metricsYAML: `{accessControlMode: None, bindAddress: ""}`,
-			wantMode:    configapi.MetricsAccessControlModeNone,
+			wantMode:    new(configapi.MetricsAccessControlModeNone),
 			wantErrors: field.ErrorList{
 				field.Invalid(
 					field.NewPath("metrics", "bindAddress"),
@@ -131,13 +135,16 @@ func TestLoadMetricsConfiguration(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.MetricsAccessControl, true)
+			features.SetFeatureGateDuringTest(t, features.MetricsAccessControl, false)
 			scheme := runtime.NewScheme()
 			if err := configapi.AddToScheme(scheme); err != nil {
 				t.Fatal(err)
 			}
 			path := filepath.Join(t.TempDir(), "config.yaml")
 			content := "apiVersion: config.kueue.x-k8s.io/v1beta2\nkind: Configuration\nmetrics: " + tc.metricsYAML + "\n"
+			if !tc.gateDisabled {
+				content += "featureGates:\n  MetricsAccessControl: true\n"
+			}
 			if err := os.WriteFile(path, []byte(content), 0600); err != nil {
 				t.Fatal(err)
 			}
@@ -145,10 +152,11 @@ func TestLoadMetricsConfiguration(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if cfg.Metrics.AccessControlMode == nil {
-				t.Fatal("accessControlMode was not defaulted")
+			if errs := LoadAndValidateFeatureGates("", cfg.FeatureGates); len(errs) != 0 {
+				t.Fatalf("unexpected feature gate errors: %v", errs)
 			}
-			if diff := cmp.Diff(tc.wantMode, *cfg.Metrics.AccessControlMode); diff != "" {
+			scheme.Default(&cfg)
+			if diff := cmp.Diff(tc.wantMode, cfg.Metrics.AccessControlMode); diff != "" {
 				t.Errorf("unexpected mode (-want,+got): %s", diff)
 			}
 			if diff := cmp.Diff(configapi.DefaultMetricsBindAddress, cfg.Metrics.BindAddress); diff != "" {

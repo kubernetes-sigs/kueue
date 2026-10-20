@@ -501,12 +501,13 @@ registered within this manager.</p>
 </td>
 <td>
    <p>AccessControlMode selects how the metrics listener authenticates and authorizes requests.
+Requires the MetricsAccessControl feature gate.
 Possible values are:</p>
 <ul>
 <li>Delegated: each request needs a bearer token that passes TokenReview and SubjectAccessReview.</li>
 <li>None: no authentication or authorization. For enabled metrics, requires the
-MetricsAccessControl feature gate and a loopback IP and port in bindAddress.
-Defaults to Delegated.</li>
+loopback IP and port in bindAddress.
+Defaults to Delegated when the feature gate is enabled.</li>
 </ul>
 </td>
 </tr>

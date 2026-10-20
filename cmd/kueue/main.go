@@ -158,6 +158,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Apply feature-gated defaults after the configured gates have been loaded.
+	scheme.Default(&cfg)
+
 	// Validates the configuration after it has been loaded and feature gates have been set.
 	if err := config.Validate(&cfg, scheme, integrationManager).ToAggregate(); err != nil {
 		setupLog.Error(err, "Unable to validate the configuration")

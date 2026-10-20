@@ -23,6 +23,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 // MetricsServerOptions constructs HTTPS metrics options after configuration validation.
@@ -32,7 +33,7 @@ func MetricsServerOptions(log logr.Logger, metrics configapi.ControllerMetrics) 
 		SecureServing:  true,
 		FilterProvider: filters.WithAuthenticationAndAuthorization,
 	}
-	if ptr.Deref(metrics.AccessControlMode, configapi.MetricsAccessControlModeDelegated) == configapi.MetricsAccessControlModeNone {
+	if features.Enabled(features.MetricsAccessControl) && ptr.Deref(metrics.AccessControlMode, configapi.MetricsAccessControlModeDelegated) == configapi.MetricsAccessControlModeNone {
 		options.FilterProvider = nil
 		if metrics.BindAddress != "0" {
 			log.Info(

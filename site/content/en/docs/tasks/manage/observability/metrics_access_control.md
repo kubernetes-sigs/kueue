@@ -49,9 +49,12 @@ port from 1 to 65535, such as `127.0.0.1:8443`, `[::1]:8443`, or
 URLs, missing ports, and port zero fail startup. Omitted or empty bind addresses
 default to `:8443`, which is rejected with `None`.
 
-`metrics.bindAddress: "0"` disables metrics and skips the gate and loopback checks.
+Setting `metrics.accessControlMode` requires the `MetricsAccessControl` feature
+gate, including when metrics are disabled. With the gate enabled,
+`metrics.bindAddress: "0"` disables metrics and skips the loopback checks.
 The access-control mode must still be `Delegated` or `None`. Omitted or null modes
-default to `Delegated`; empty and unknown values are invalid.
+default to `Delegated` when the gate is enabled; empty and unknown values are invalid.
+With the gate disabled, leave the field unset to retain delegated authentication.
 
 ## Configure the sidecar
 
@@ -88,4 +91,5 @@ is enabled. Assess who can reach or forward the listener before opting out; reta
 `Delegated` when the audience needs tighter restrictions.
 
 To restore authenticated metrics, set `metrics.accessControlMode: Delegated` and
-restart the manager. The feature gate may then be disabled.
+restart the manager. To also disable the feature gate, remove
+`metrics.accessControlMode` from the configuration.

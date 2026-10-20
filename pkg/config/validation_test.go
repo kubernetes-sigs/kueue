@@ -67,6 +67,21 @@ func TestValidate(t *testing.T) {
 		featureGates map[featuregate.Feature]bool
 		wantErr      field.ErrorList
 	}{
+		"unset metrics mode without gate": {
+			cfg:          &configapi.Configuration{Integrations: defaultIntegrations, Metrics: configapi.ControllerMetrics{BindAddress: "not-an-address"}},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+		},
+		"unsafe metrics opt out without gate": {
+			cfg: &configapi.Configuration{
+				Integrations: defaultIntegrations,
+				Metrics: configapi.ControllerMetrics{
+					AccessControlMode: new(configapi.MetricsAccessControlModeNone),
+					BindAddress:       ":8443",
+				},
+			},
+			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+			wantErr:      field.ErrorList{&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"}},
+		},
 		"delegated metrics without gate": {
 			cfg: &configapi.Configuration{
 				Integrations: defaultIntegrations,
@@ -76,6 +91,9 @@ func TestValidate(t *testing.T) {
 				},
 			},
 			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"},
+			},
 		},
 		"delegated metrics with gate": {
 			cfg: &configapi.Configuration{
@@ -109,6 +127,9 @@ func TestValidate(t *testing.T) {
 				},
 			},
 			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"},
+			},
 		},
 		"disabled delegated metrics": {
 			cfg: &configapi.Configuration{
@@ -119,6 +140,9 @@ func TestValidate(t *testing.T) {
 				},
 			},
 			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
+			wantErr: field.ErrorList{
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"},
+			},
 		},
 		"disabled metrics with unknown mode": {
 			cfg: &configapi.Configuration{
@@ -130,7 +154,7 @@ func TestValidate(t *testing.T) {
 			},
 			featureGates: map[featuregate.Feature]bool{features.MetricsAccessControl: false},
 			wantErr: field.ErrorList{
-				&field.Error{Type: field.ErrorTypeNotSupported, Field: "metrics.accessControlMode"},
+				&field.Error{Type: field.ErrorTypeForbidden, Field: "metrics.accessControlMode"},
 			},
 		},
 		"empty metrics access control mode": {

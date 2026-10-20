@@ -188,11 +188,12 @@ const (
 // ControllerMetrics defines the metrics configs.
 type ControllerMetrics struct {
 	// AccessControlMode selects how the metrics listener authenticates and authorizes requests.
+	// Requires the MetricsAccessControl feature gate.
 	// Possible values are:
 	// - Delegated: each request needs a bearer token that passes TokenReview and SubjectAccessReview.
 	// - None: no authentication or authorization. For enabled metrics, requires the
-	//   MetricsAccessControl feature gate and a loopback IP and port in bindAddress.
-	// Defaults to Delegated.
+	//   loopback IP and port in bindAddress.
+	// Defaults to Delegated when the feature gate is enabled.
 	// +optional
 	AccessControlMode *MetricsAccessControlMode `json:"accessControlMode,omitempty"`
 
