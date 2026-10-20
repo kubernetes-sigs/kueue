@@ -396,12 +396,15 @@ None.
 - User feedback is addressed.
 - A scale test with thousands of nodes.
 - Events and metrics for excluded nodes and sync time.
-- An explicit per-flavor resource list, so the provider is not limited by the
-  64-resource cap and can support per-resource headroom.
 - An option to exclude nodes with specific taints, for example maintenance
   taints, possibly in the LocalCapacity configuration API.
 - An option to count a GPU node only once its GPUs are advertised, so its CPU and
   memory do not count while the device plugin is still starting.
+- An explicit per-flavor resource list in the LocalCapacity parameters
+  (`CapacityProvider.spec.parameters`, see
+  [A LocalCapacity configuration API](#a-localcapacity-configuration-api)),
+  so the provider is not limited by the 64-resource cap and can support
+  per-resource headroom.
 - A Node cache transform that keeps only the fields the provider and TAS read,
   agreed with TAS owners because the Node informer is shared.
 - Freshness and expiry of effective quota are revisited together with DQO.
