@@ -3081,6 +3081,67 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectReservingActiveWorkloadsMetric(cq, 2)
 			integration.FinishWorkloads(ctx, k8sClient, wl1, wl2)
 		})
+
+		drainClusterQueue := func() {
+			ginkgo.By("Stopping the ClusterQueue")
+			createdCq := &kueue.ClusterQueue{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), createdCq)).To(gomega.Succeed())
+				createdCq.Spec.StopPolicy = new(kueue.HoldAndDrain)
+				g.Expect(k8sClient.Update(ctx, createdCq)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		}
+
+		expectEvictedByClusterQueueStopped := func(wl *kueue.Workload) {
+			ginkgo.By("Checking the condition of workload is evicted")
+			createdWl := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), createdWl)).To(gomega.Succeed())
+				g.Expect(meta.FindStatusCondition(createdWl.Status.Conditions, kueue.WorkloadEvicted)).Should(
+					gomega.BeComparableTo(&metav1.Condition{
+						Type:    kueue.WorkloadEvicted,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadEvictedByClusterQueueStopped,
+						Message: "The ClusterQueue is stopped",
+					}, behavioral.IgnoreConditionTimestampsAndObservedGeneration),
+				)
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByClusterQueueStopped, "", "", 1)
+		}
+
+		ginkgo.It("Should evict workloads when stop policy is drain and the LocalQueue is held", func() {
+			ginkgo.By("Creating a workload")
+			wl := utiltestingapi.MakeWorkload("one", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			ginkgo.By("Holding the LocalQueue")
+			createdLq := &kueue.LocalQueue{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(queue), createdLq)).To(gomega.Succeed())
+				createdLq.Spec.StopPolicy = new(kueue.Hold)
+				g.Expect(k8sClient.Update(ctx, createdLq)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectLQByStatusMetric(queue, metav1.ConditionFalse)
+
+			drainClusterQueue()
+			expectEvictedByClusterQueueStopped(wl)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wl)
+		})
+
+		ginkgo.It("Should evict workloads when stop policy is drain and the LocalQueue is deleted", func() {
+			ginkgo.By("Creating a workload")
+			wl := utiltestingapi.MakeWorkload("one", ns.Name).Queue(kueue.LocalQueueName(queue.Name)).Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
+
+			ginkgo.By("Deleting the LocalQueue")
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, queue, true)
+
+			drainClusterQueue()
+			expectEvictedByClusterQueueStopped(wl)
+			behavioral.FinishEvictionForWorkloads(ctx, k8sClient, wl)
+		})
 	})
 
 	ginkgo.When("Using localQueue stop policy", func() {
