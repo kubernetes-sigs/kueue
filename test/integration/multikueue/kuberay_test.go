@@ -568,7 +568,10 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 				g.Expect(workloads.Items).To(gomega.HaveLen(2))
 				for i := range workloads.Items {
 					if workloads.Items[i].Name != initialSliceKey.Name {
-						g.Expect(workloads.Items[i].Spec.PodSets[1].Count).To(gomega.Equal(int32(2)))
+						g.Expect(workloads.Items[i].Spec.PodSets).To(gomega.ContainElement(gomega.And(
+							gomega.HaveField("Name", kueue.PodSetReference("workers-group-0")),
+							gomega.HaveField("Count", int32(2)),
+						)))
 					}
 				}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, serviceKey, remoteService)).To(gomega.Succeed())
