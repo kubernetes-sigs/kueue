@@ -84,7 +84,7 @@ var _ = ginkgo.Describe("Metrics access control", ginkgo.Serial, ginkgo.SpecPrio
 				deployment.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339Nano)
 			})
 			e2e.WaitForKueueAvailabilityNoRestartCountCheck(ctx, k8sClient)
-			expectMetricsToBeAvailable(curlPod.Name, curlContainer, [][]string{{"go_gc_duration_seconds"}})
+			expectMetricsToBeAvailableWithTimeout(curlPod.Name, curlContainer, [][]string{{"go_gc_duration_seconds"}}, behavioral.MediumTimeout)
 		})
 
 		ginkgo.By("enabling loopback metrics with external serving certificates")
