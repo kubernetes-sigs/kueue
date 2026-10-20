@@ -269,8 +269,10 @@ quota and the condition message names the node.
 
 ### Which nodes count
 
-The ResourceFlavor is the node selector. Its `nodeLabels` are the same labels
-Kueue uses to place workloads, so counting and placement always agree.
+The ResourceFlavor's `nodeLabels` select the Nodes, the same labels Kueue uses
+to place workloads on the flavor.
+Taint eligibility depends on each workload's tolerations, so it is not part of
+capacity counting.
 
 A node contributes to a flavor only if all of the following hold:
 
@@ -279,8 +281,10 @@ A node contributes to a flavor only if all of the following hold:
   the referenced Topology, the same rule TAS uses;
 - it is `Ready`, not `unschedulable`, and not being deleted.
 
-Taints do not exclude a node, because workloads may tolerate them even when the
-flavor does not.
+Taints do not exclude a node.
+As a result, counted capacity may not be usable by every workload: a workload
+can use a tainted Node only if its tolerations, its own or the flavor's, cover
+the Node's taints.
 
 A node that stops meeting these conditions is removed on the next sync.
 
