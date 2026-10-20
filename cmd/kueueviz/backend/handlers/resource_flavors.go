@@ -131,9 +131,11 @@ func (h *Handlers) fetchResourceFlavorDetails(ctx context.Context, flavorName st
 		return nil, fmt.Errorf("error fetching nodes for resource flavor %s: %w", flavorName, err)
 	}
 
+	// Keys match the fields the ResourceFlavor detail page reads.
 	details := map[string]any{
+		"nodeLabels":  flavor.Spec.NodeLabels,
+		"nodeTaints":  flavor.Spec.NodeTaints,
 		"tolerations": flavor.Spec.Tolerations,
-		"taints":      flavor.Spec.NodeTaints,
 	}
 
 	// Construct the result
