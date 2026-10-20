@@ -64,8 +64,7 @@ func run() error {
 	// Initialize server configuration
 	serverConfig, err := config.NewServerConfig()
 	if err != nil {
-		slog.Error("Error loading server configuration", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("loading server configuration: %w", err)
 	}
 
 	// Setup pprof for development
