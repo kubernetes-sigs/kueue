@@ -174,8 +174,8 @@ For MultiKueue, DQO builds foundation to decomission the Alpha1 manager-quota co
 described in [KEP-9988](https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation).
 The mechanism will no longer update ClusterQueue's `.spec.resourceGroups`.
 
-The integration-specific API and migration are defined by an update to KEP-9988
-for its Alpha2, see the related discussion [here](https://github.com/kubernetes-sigs/kueue/tree/main/keps/9988-multikueue-manager-quota-automation#move-the-aggregated-quota-out-of-clusterqueuespec).
+[KEP-17401](../17401-multikueue-capacity-provider/README.md), the Alpha2 stage of KEP-9988,
+defines the integration-specific API and the migration.
 
 ### Risks and Mitigations
 

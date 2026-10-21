@@ -414,6 +414,8 @@ lastTransitionTime: 2026-01-01T00:00:00Z
 
 #### Planned changes in Alpha2 version
 
+> **Note**: [KEP-17401: MultiKueue Capacity Provider](../17401-multikueue-capacity-provider/README.md) replaces this plan and defines Alpha2 and the later stages of this feature.
+
 Starting from Alpha2 version, we plan to introduce a **new field** in ClusterQueueStatus (provisionally named `effectiveResourceGroups`), which would act as the **new source of truth** about a ClusterQueue capacity (taking over that role from `.spec.resourceGroups`). This is discussed in more detail in [this future work idea](#move-the-aggregated-quota-out-of-clusterqueuespec).
 
 While this move is mostly independent from the [API for Alpha1](#alpha1-version), it may lead to some slight changes in that API:
@@ -494,7 +496,7 @@ We **postpone** this to Alpha2 in order to earn more time for carefully planning
 
 Yet, we plan to deliver an Alpha1 version even before that happens - because the core functionality (managing quotas and workloads in MultiKueue) is going to be unaffected.
 
-More specifically, the KEP will be adjusted to use the [Dynamic Quota Orchestration (KEP-14104)](https://github.com/kubernetes-sigs/kueue/pull/14104) mechanism.
+More specifically, [KEP-17401](../17401-multikueue-capacity-provider/README.md) defines Alpha2 with the [Dynamic Quota Orchestration (KEP-12382)](../12382-dynamic-quota-orchestration/README.md) mechanism.
 
 #### Use cached remote clients for low-volume resource kinds
 
