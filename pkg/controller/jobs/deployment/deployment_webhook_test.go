@@ -528,6 +528,15 @@ func TestValidateUpdate(t *testing.T) {
 				Queue("test-queue-new").
 				ReadyReplicas(1).
 				Obj(),
+		},
+		"delete queue (ready replicas)": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				ReadyReplicas(1).
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				ReadyReplicas(1).
+				Obj(),
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:  field.ErrorTypeInvalid,
