@@ -261,15 +261,20 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 // associated object, pod sets, and label keys to copy.
 func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy, annotationsToCopy sets.Set[string]) *kueue.Workload {
 	annotations := admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations())
-	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
-		annotation := obj.GetAnnotations()[controllerconstants.WaitForPodsReadyAnnotation]
-		if annotation != "" {
-			annotations[controllerconstants.WaitForPodsReadyAnnotation] = annotation
-		}
-	}
 	if features.Enabled(features.CustomMetricLabels) {
 		maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), annotationsToCopy.UnsortedList()))
 	}
+	var wfpr *kueue.WaitForPodsReady
+	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
+		var err error
+		wfpr, err = waitforpodsready.ParseWaitForPodsReady(obj)
+		if err != nil {
+			ctrl.Log.WithName("waitforpodsready").V(2).Info(
+				"Failed to parse WaitForPodsReady annotation; falling back to cluster-level configuration",
+				"object", klog.KObj(obj), "error", err)
+		}
+	}
+
 	return &kueue.Workload{
 		Name:        name,
 		Namespace:   obj.GetNamespace(),
@@ -280,6 +285,7 @@ func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKe
 			QueueName:                   QueueNameForObject(obj),
 			PodSets:                     podSets,
 			MaximumExecutionTimeSeconds: MaximumExecutionTimeSecondsForObject(obj),
+			WaitForPodsReady:            wfpr,
 		},
 	}
 }

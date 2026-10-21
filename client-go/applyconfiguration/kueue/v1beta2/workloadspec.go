@@ -64,6 +64,12 @@ type WorkloadSpecApplyConfiguration struct {
 	// can trigger preemptions.
 	// The gates are closed by default.
 	PreemptionGates []PreemptionGateApplyConfiguration `json:"preemptionGates,omitempty"`
+	// waitForPodsReady defines the per-workload pods-ready timeouts.
+	//
+	// This is an alpha field and requires enabling WorkloadLevelWaitForPodsReady feature gate.
+	//
+	// If unspecified, the cluster-wide WaitForPodsReady is used.
+	WaitForPodsReady *WaitForPodsReadyApplyConfiguration `json:"waitForPodsReady,omitempty"`
 }
 
 // WorkloadSpecApplyConfiguration constructs a declarative configuration of the WorkloadSpec type for use with
@@ -135,5 +141,13 @@ func (b *WorkloadSpecApplyConfiguration) WithPreemptionGates(values ...*Preempti
 		}
 		b.PreemptionGates = append(b.PreemptionGates, *values[i])
 	}
+	return b
+}
+
+// WithWaitForPodsReady sets the WaitForPodsReady field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the WaitForPodsReady field is set to the value of the last call.
+func (b *WorkloadSpecApplyConfiguration) WithWaitForPodsReady(value *WaitForPodsReadyApplyConfiguration) *WorkloadSpecApplyConfiguration {
+	b.WaitForPodsReady = value
 	return b
 }

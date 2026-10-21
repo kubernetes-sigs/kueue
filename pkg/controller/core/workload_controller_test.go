@@ -903,6 +903,127 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 			wantUnderlyingCause: kueue.WorkloadWaitForRecovery,
 			wantRecheckAfter:    4 * time.Minute,
 		},
+		"Stale workload level wait for pods ready has no effect": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: false,
+				features.DisableWaitForPodsReady:       true,
+			},
+			workload: *utiltestingapi.MakeWorkload("wl", "ns").
+				WaitForPodsReady(&kueue.WaitForPodsReady{TimeoutSeconds: 300}).
+				Admission(&kueue.Admission{}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadAdmitted,
+					Status:             metav1.ConditionTrue,
+					LastTransitionTime: metav1.NewTime(minuteAgo),
+				}).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadPodsReady,
+					Status:             metav1.ConditionFalse,
+					Reason:             kueue.WorkloadWaitForStart,
+					LastTransitionTime: metav1.NewTime(minuteAgo),
+				}).
+				Obj(),
+			waitForPodsReady:    nil,
+			wantUnderlyingCause: "",
+			wantRecheckAfter:    0,
+		},
+		"PodsReady=False/WorkloadWaitForStart with spec timeout only": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: true,
+			},
+			workload: kueue.Workload{
+				Spec: kueue.WorkloadSpec{
+					WaitForPodsReady: &kueue.WaitForPodsReady{TimeoutSeconds: 300},
+				},
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForStart,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 1 * time.Minute},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    4 * time.Minute,
+		},
+		"PodsReady=False/WorkloadWaitForStart with annotation timeout only": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: true,
+			},
+			workload: kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						controllerconstants.WaitForPodsReadyAnnotation: `{"timeoutSeconds": 300}`,
+					},
+				},
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForStart,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 1 * time.Minute},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    4 * time.Minute,
+		},
+		// Both the spec and the legacy annotation are set to different timeouts; the spec takes
+		// precedence. The spec's 300s yields a 4m recheck, whereas the annotation's 60s (or the
+		// cluster-level 1m) would yield 0, so the expectation proves the spec wins.
+		"PodsReady=False/WorkloadWaitForStart with spec and annotation; spec takes precedence": {
+			featureGates: map[featuregate.Feature]bool{
+				features.WorkloadLevelWaitForPodsReady: true,
+			},
+			workload: kueue.Workload{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{
+						controllerconstants.WaitForPodsReadyAnnotation: `{"timeoutSeconds": 60}`,
+					},
+				},
+				Spec: kueue.WorkloadSpec{
+					WaitForPodsReady: &kueue.WaitForPodsReady{TimeoutSeconds: 300},
+				},
+				Status: kueue.WorkloadStatus{
+					Admission: &kueue.Admission{},
+					Conditions: []metav1.Condition{
+						{
+							Type:               kueue.WorkloadAdmitted,
+							Status:             metav1.ConditionTrue,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+						{
+							Type:               kueue.WorkloadPodsReady,
+							Status:             metav1.ConditionFalse,
+							Reason:             kueue.WorkloadWaitForStart,
+							LastTransitionTime: metav1.NewTime(minuteAgo),
+						},
+					},
+				},
+			},
+			waitForPodsReady:    &waitForPodsReadyConfig{timeout: 1 * time.Minute},
+			wantUnderlyingCause: kueue.WorkloadWaitForStart,
+			wantRecheckAfter:    4 * time.Minute,
+		},
 	}
 
 	for name, tc := range testCases {

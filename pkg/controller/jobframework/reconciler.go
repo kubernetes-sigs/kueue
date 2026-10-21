@@ -1444,62 +1444,97 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 	return false
 }
 
-// UpdateWaitForPodsReady propagates the WaitForPodsReady annotation from the job object
-// to its associated workload. Emits an event only if the annotation was actually changed
-// and the update succeeded.
-// The function returnes immediately if the WorkloadLevelWaitForPodsReady feature is not enabled.
+// UpdateWaitForPodsReady migrates the WaitForPodsReady configuration from the job object
+// to its associated workload spec, removing the legacy annotation from the workload.
+// It emits an event only when the effective configuration changed; removing a legacy annotation
+// that is redundant with the spec is persisted silently.
+// The function returns immediately if the WorkloadLevelWaitForPodsReady feature is not enabled.
 func UpdateWaitForPodsReady(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, wl *kueue.Workload) error {
 	if !waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
 		return nil
 	}
 
-	var propagated bool
+	var event WaitForPodsReadyEvent
 	if err := clientutil.Patch(ctx, c, wl, func() (bool, error) {
-		var err error
-		propagated, err = PropagateWaitForPodsReadyAnnotation(obj, wl)
-		return propagated, err
+		var persist bool
+		persist, event = SyncWaitForPodsReady(ctx, obj, wl)
+		return persist, nil
 	}); err != nil {
 		return fmt.Errorf("updating the WaitForPodsReady of existing workload: %w", err)
 	}
 
-	if propagated {
-		RecordWaitForPodsReadyUpdateEvent(r, obj)
+	if event != WaitForPodsReadyEventNone {
+		RecordWaitForPodsReadyUpdateEvent(r, obj, wl, event)
 	}
 
 	return nil
 }
 
-// PropagateWaitForPodsReadyAnnotation copies the WaitForPodsReady annotation from the given object to
-// workload object but only in memory. It does not persist the changes to the API server.
-func PropagateWaitForPodsReadyAnnotation(obj client.Object, wl *kueue.Workload) (bool, error) {
-	jobCfg, err := waitforpodsready.ParseAnnotation(obj.GetAnnotations()[controllerconsts.WaitForPodsReadyAnnotation])
+// WaitForPodsReadyEvent is the kind of user-facing change SyncWaitForPodsReady made to a Workload's
+// WaitForPodsReady configuration.
+type WaitForPodsReadyEvent string
+
+const (
+	// WaitForPodsReadyEventNone means no user-facing event should be recorded.
+	WaitForPodsReadyEventNone WaitForPodsReadyEvent = ""
+	// WaitForPodsReadyEventUpdated means the Workload's WaitForPodsReady spec was set or changed.
+	WaitForPodsReadyEventUpdated WaitForPodsReadyEvent = "Updated"
+	// WaitForPodsReadyEventCleared means the Workload's WaitForPodsReady configuration was removed.
+	WaitForPodsReadyEventCleared WaitForPodsReadyEvent = "Cleared"
+)
+
+// SyncWaitForPodsReady migrates the WaitForPodsReady configuration from the given
+// object into the workload spec, in memory only; it does not persist the changes to the API server.
+// The legacy wait-for-pods-ready annotation is deleted from the workload if present.
+// It returns persist=true when the workload must be written back and the kind of event the change
+// warrants: WaitForPodsReadyEventUpdated or WaitForPodsReadyEventCleared, or WaitForPodsReadyEventNone
+// when the change is silent (for example removing an annotation that is redundant with the spec).
+func SyncWaitForPodsReady(ctx context.Context, obj client.Object, wl *kueue.Workload) (persist bool, event WaitForPodsReadyEvent) {
+	desiredCfg, err := waitforpodsready.ParseWaitForPodsReady(obj)
 	if err != nil {
-		return false, err
+		ctrl.LoggerFrom(ctx).V(2).Info("Failed to parse WaitForPodsReady annotation", "error", err)
+		return false, WaitForPodsReadyEventNone
 	}
 
-	wlCfg, err := waitforpodsready.ParseAnnotation(wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation])
+	// Remove the legacy annotation as the configuration moves to the workload spec.
+	_, annotationRemoved := wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation]
+	delete(wl.Annotations, controllerconsts.WaitForPodsReadyAnnotation)
 
-	if err == nil && apiequality.Semantic.DeepEqual(wlCfg, jobCfg) {
-		return false, nil
+	specChanged := !apiequality.Semantic.DeepEqual(wl.Spec.WaitForPodsReady, desiredCfg)
+	if specChanged {
+		wl.Spec.WaitForPodsReady = desiredCfg
 	}
 
-	if wl.Annotations == nil {
-		wl.Annotations = make(map[string]string)
+	persist = specChanged || annotationRemoved
+	// An event is warranted when the spec gained a value (updated) or the effective configuration
+	// was dropped (cleared). Removing an annotation that is redundant with the spec is silent.
+	switch {
+	case specChanged && wl.Spec.WaitForPodsReady != nil:
+		event = WaitForPodsReadyEventUpdated
+	case persist && wl.Spec.WaitForPodsReady == nil:
+		event = WaitForPodsReadyEventCleared
 	}
-	if jobCfg == nil {
-		delete(wl.Annotations, controllerconsts.WaitForPodsReadyAnnotation)
-	} else {
-		wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation] = obj.GetAnnotations()[controllerconsts.WaitForPodsReadyAnnotation]
-	}
-	return true, nil
+	return persist, event
 }
 
-// RecordWaitForPodsReadyUpdateEvent records a successful WaitForPodsReady annotation
-// update to a workload.
-func RecordWaitForPodsReadyUpdateEvent(r events.EventRecorder, obj client.Object) {
-	r.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
-		"Updated workload WaitForPodsReady annotation to %s", obj.GetAnnotations()[controllerconsts.WaitForPodsReadyAnnotation],
-	)
+// RecordWaitForPodsReadyUpdateEvent records the given WaitForPodsReady event on obj, describing the
+// resulting workload spec. WaitForPodsReadyEventUpdated implies wl.Spec.WaitForPodsReady is set.
+func RecordWaitForPodsReadyUpdateEvent(r events.EventRecorder, obj client.Object, wl *kueue.Workload, event WaitForPodsReadyEvent) {
+	switch event {
+	case WaitForPodsReadyEventCleared:
+		r.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
+			"Cleared workload WaitForPodsReady")
+	case WaitForPodsReadyEventUpdated:
+		cfg := wl.Spec.WaitForPodsReady
+		if cfg.RecoveryTimeoutSeconds != nil {
+			r.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
+				"Updated workload spec WaitForPodsReady to timeoutSeconds=%d, recoveryTimeoutSeconds=%d",
+				cfg.TimeoutSeconds, *cfg.RecoveryTimeoutSeconds)
+		} else {
+			r.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
+				"Updated workload spec WaitForPodsReady to timeoutSeconds=%d", cfg.TimeoutSeconds)
+		}
+	}
 }
 
 // UpdateWorkloadPriority reconciles the priority of each workload that still
