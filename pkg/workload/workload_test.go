@@ -739,6 +739,49 @@ func TestNewInfo(t *testing.T) {
 				},
 			},
 		},
+		"admitted with reclaim and no assignment count": {
+			workload: *utiltestingapi.MakeWorkload("", "").
+				PodSets(
+					*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 5).
+						Request(corev1.ResourceCPU, "10m").
+						Obj(),
+				).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("").
+						PodSets(kueue.PodSetAssignment{
+							Name: kueue.DefaultPodSetName,
+							Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+								corev1.ResourceCPU: "f1",
+							},
+							// Without a count, this usage is for all 5 Pods of the PodSet.
+							ResourceUsage: corev1.ResourceList{
+								corev1.ResourceCPU: resource.MustParse("50m"),
+							},
+						}).
+						Obj(), now,
+				).
+				ReclaimablePods(
+					kueue.ReclaimablePod{
+						Name:  kueue.DefaultPodSetName,
+						Count: 2,
+					},
+				).
+				Obj(),
+			wantInfo: Info{
+				TotalRequests: []PodSetResources{
+					{
+						Name: kueue.DefaultPodSetName,
+						Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+							corev1.ResourceCPU: "f1",
+						},
+						Requests: resources.NewRequestsFromMap(map[corev1.ResourceName]int64{
+							corev1.ResourceCPU: 3 * 10,
+						}),
+						Count: 3,
+					},
+				},
+			},
+		},
 		"partially admitted": {
 			workload: *utiltestingapi.MakeWorkload("", "").
 				PodSets(
