@@ -146,6 +146,66 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"stale provider generation retains previously applied ClusterQueue quotas": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-stale-retain").
+				DiscoveryProvider("cp-stale-retain", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-retain").
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				func() *kueuealpha.CapacityProvider {
+					cp := makeSynchronizedProvider("cp-stale-retain", "gpu", 1)
+					cp.Generation = 2
+					cp.Status.Conditions[0].ObservedGeneration = 1
+					return cp
+				}(),
+			},
+			clusterQueues: []*kueue.ClusterQueue{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "cq-retain"},
+					Status: kueue.ClusterQueueStatus{
+						EffectiveQuotas: &kueue.EffectiveQuotaStatus{
+							OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
+								APIGroup: "kueue.x-k8s.io",
+								Kind:     "DynamicQuotaOrchestrator",
+								Name:     "dqo-stale-retain",
+							},
+							ResourceGroups: []kueue.ResourceGroup{},
+						},
+					},
+				},
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-stale-retain").
+				DiscoveryProvider("cp-stale-retain", nil).
+				SubtreeRoot(kueuealpha.ClusterQueueSubtreeRootRefKind, "cq-retain").
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
+					Message: "CapacityProvider \"cp-stale-retain\" synchronization is stale (observedGeneration=1, currentGeneration=2)",
+				}).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorDistributed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonEffectiveCapacityNotComputed,
+					Message: "Capacity discovery not ready",
+				}).
+				Obj(),
+			wantClusterQueues: []*kueue.ClusterQueue{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "cq-retain"},
+					Status: kueue.ClusterQueueStatus{
+						EffectiveQuotas: &kueue.EffectiveQuotaStatus{
+							OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
+								APIGroup: "kueue.x-k8s.io",
+								Kind:     "DynamicQuotaOrchestrator",
+								Name:     "dqo-stale-retain",
+							},
+							ResourceGroups: []kueue.ResourceGroup{},
+						},
+					},
+				},
+			},
+		},
 		"discovery-only: failed synchronization is not ready": {
 			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-failed").
 				DiscoveryProvider("cp-failed", nil).
