@@ -161,7 +161,7 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 				Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
 					Resource(corev1.ResourceCPU, "16").Obj()).Obj()).
 			Condition(metav1.Condition{
-				Type: kueuealpha.CapacityProviderCapacitySynchronized,
+				Type:   kueuealpha.CapacityProviderCapacitySynchronized,
 				Status: metav1.ConditionTrue,
 				Reason: kueuealpha.CapacityProviderReasonSynchronized,
 			}).Obj()

@@ -139,9 +139,9 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-stale").
 				DiscoveryProvider("cp-stale", nil).
 				Condition(metav1.Condition{
-					Type: kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
-					Status: metav1.ConditionFalse,
-					Reason: kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
 					Message: "CapacityProvider \"cp-stale\" synchronization is stale (observedGeneration=1, currentGeneration=2)",
 				}).
 				Obj(),
@@ -239,9 +239,9 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 					Flavors(makeEffectiveCapacityFlavors("gpu", 1)...).
 					Obj()).
 				Condition(metav1.Condition{
-					Type: kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
-					Status: metav1.ConditionTrue,
-					Reason: kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionTrue,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
 					Message: "Aggregated capacity successfully computed",
 				}).
 				Obj(),
