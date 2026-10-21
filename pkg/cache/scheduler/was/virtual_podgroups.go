@@ -36,17 +36,7 @@ import (
 // VirtualPodGroupName returns a collision-free name for a virtual pod group
 // representing the workload.
 func VirtualPodGroupName(wlName string) string {
-	h := sha1.New()
-	h.Write([]byte(wlName))
-	hash := hex.EncodeToString(h.Sum(nil))[:hashLength]
-	suffix := fmt.Sprintf("-%s", hash)
-	prefix := fmt.Sprintf("virtual-pg-%s", wlName)
-	maxPrefix := maxPodNameLength - len(suffix)
-	if len(prefix) > maxPrefix {
-		prefix = strings.TrimRight(prefix[:maxPrefix], ".-")
-	}
-
-	return prefix + suffix
+	return virtualGroupName("pg", wlName, "")
 }
 
 // BuildVirtualPodGroup creates one single gang PodGroup for the entire Workload.
@@ -133,7 +123,7 @@ func virtualGroupName(prefix, wlName, groupID string) string {
 }
 
 // newVPG creates a leaf virtual PodGroup with gang count and optional topology constraint
-func newVPG(name, namespace, topology string, count int32, parent string) *schedulingv1beta1.PodGroup {
+func newVPG(name, namespace, topology string, count int32) *schedulingv1beta1.PodGroup {
 	pg := &schedulingv1beta1.PodGroup{
 		Name:      name,
 		Namespace: namespace,
@@ -142,9 +132,6 @@ func newVPG(name, namespace, topology string, count int32, parent string) *sched
 				Gang: &schedulingv1beta1.GangSchedulingPolicy{MinCount: count},
 			},
 		},
-	}
-	if parent != "" {
-		pg.Spec.ParentCompositePodGroupName = new(parent)
 	}
 	if topology != "" {
 		pg.Spec.SchedulingConstraints = &schedulingv1beta1.PodGroupSchedulingConstraints{
@@ -155,7 +142,7 @@ func newVPG(name, namespace, topology string, count int32, parent string) *sched
 }
 
 // newVCPG creates a CompositePodGroup with gang group count and optional topology constraint
-func newVCPG(name, namespace, topology string, groupCount int32, parent string) *schedulingv1alpha3.CompositePodGroup {
+func newVCPG(name, namespace, topology string, groupCount int32) *schedulingv1alpha3.CompositePodGroup {
 	cpg := &schedulingv1alpha3.CompositePodGroup{
 		Name:      name,
 		Namespace: namespace,
@@ -164,9 +151,6 @@ func newVCPG(name, namespace, topology string, groupCount int32, parent string) 
 				Gang: &schedulingv1alpha3.CompositeGangSchedulingPolicy{MinGroupCount: groupCount},
 			},
 		},
-	}
-	if parent != "" {
-		cpg.Spec.ParentCompositePodGroupName = new(parent)
 	}
 	if topology != "" {
 		cpg.Spec.SchedulingConstraints = &schedulingv1alpha3.CompositePodGroupSchedulingConstraints{
@@ -263,7 +247,7 @@ func (f *virtualPodGroupFactory) build(groups map[string][]*kueue.PodSet, psgOrd
 	var topLevelGroupNames []string
 
 	for _, psgName := range psgOrder {
-		roots, err := f.buildSubtree(psgName, groups[psgName])
+		roots, err := f.buildSubtrees(psgName, groups[psgName])
 		if err != nil {
 			return nil, err
 		}
@@ -305,8 +289,8 @@ func (f *virtualPodGroupFactory) build(groups map[string][]*kueue.PodSet, psgOrd
 	}, nil
 }
 
-// buildSubtree builds the PodGroups for a group of PodSets, wrapping them in a CompositePodGroup if needed
-func (f *virtualPodGroupFactory) buildSubtree(psgName string, podSets []*kueue.PodSet) ([]string, error) {
+// buildSubtrees builds the PodGroups for a group of PodSets, wrapping them in a CompositePodGroup if needed
+func (f *virtualPodGroupFactory) buildSubtrees(psgName string, podSets []*kueue.PodSet) ([]string, error) {
 	var roots []string
 	hasSlices := false
 
@@ -341,7 +325,7 @@ func (f *virtualPodGroupFactory) buildSubtree(psgName string, podSets []*kueue.P
 	for _, child := range roots {
 		f.setParent(child, cpgName)
 	}
-	f.vcpgMap[cpgName] = newVCPG(cpgName, f.wl.Namespace, groupTopology, int32(len(roots)), "")
+	f.vcpgMap[cpgName] = newVCPG(cpgName, f.wl.Namespace, groupTopology, int32(len(roots)))
 	return []string{cpgName}, nil
 }
 
@@ -362,7 +346,7 @@ func (f *virtualPodGroupFactory) buildTreesForPodSet(ps *kueue.PodSet) ([]string
 	f.podToLeafPG[podSetName] = podSetLeafMapping{
 		leafPGs: []string{pgName},
 	}
-	f.vpgMap[pgName] = newVPG(pgName, f.wl.Namespace, topology, ps.Count, "")
+	f.vpgMap[pgName] = newVPG(pgName, f.wl.Namespace, topology, ps.Count)
 	return []string{pgName}, nil
 }
 
@@ -390,7 +374,7 @@ func (f *virtualPodGroupFactory) buildSlicedTrees(ps *kueue.PodSet, sliceConstra
 				pgName := virtualGroupName("pg", f.wl.Name, fmt.Sprintf("s.ps%s-l%d-s%d", podSetName, lvl, s))
 				start := s * sliceSize
 				end := min((s+1)*sliceSize, ps.Count)
-				f.vpgMap[pgName] = newVPG(pgName, f.wl.Namespace, constraint.Topology, end-start, "")
+				f.vpgMap[pgName] = newVPG(pgName, f.wl.Namespace, constraint.Topology, end-start)
 				currentLevelNames = append(currentLevelNames, pgName)
 			}
 			f.podToLeafPG[podSetName] = podSetLeafMapping{
@@ -411,7 +395,7 @@ func (f *virtualPodGroupFactory) buildSlicedTrees(ps *kueue.PodSet, sliceConstra
 				for _, child := range currentLevelNames[startChild:endChild] {
 					f.setParent(child, cpgName)
 				}
-				f.vcpgMap[cpgName] = newVCPG(cpgName, f.wl.Namespace, constraint.Topology, int32(endChild-startChild), "")
+				f.vcpgMap[cpgName] = newVCPG(cpgName, f.wl.Namespace, constraint.Topology, int32(endChild-startChild))
 				nextLevelNames = append(nextLevelNames, cpgName)
 			}
 			currentLevelNames = nextLevelNames
@@ -427,7 +411,7 @@ func (f *virtualPodGroupFactory) buildRootCPG(topLevelGroupNames []string) {
 		for _, child := range topLevelGroupNames {
 			f.setParent(child, rootCPGName)
 		}
-		f.vcpgMap[rootCPGName] = newVCPG(rootCPGName, f.wl.Namespace, "", int32(len(topLevelGroupNames)), "")
+		f.vcpgMap[rootCPGName] = newVCPG(rootCPGName, f.wl.Namespace, "", int32(len(topLevelGroupNames)))
 	}
 }
 
