@@ -104,7 +104,7 @@ func ValidateTASPodSetRequest(replicaPath *field.Path, replicaMetadata *metav1.O
 	sliceSizeAnnotationErr := validateSliceSizeAnnotation(annotationsPath, replicaMetadata)
 	allErrs = append(allErrs, sliceSizeAnnotationErr...)
 
-	offsetAnnotationErr := validatePodIndexOffsetAnnotation(annotationsPath, replicaMetadata, podSetGroupNameFound)
+	offsetAnnotationErr := validatePodIndexOffsetAnnotation(annotationsPath, replicaMetadata)
 	allErrs = append(allErrs, offsetAnnotationErr...)
 
 	// validate slice annotations
@@ -175,22 +175,15 @@ func validateSliceSizeAnnotation(annotationsPath *field.Path, replicaMetadata *m
 	return nil
 }
 
-func validatePodIndexOffsetAnnotation(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta, podSetGroupNameFound bool) field.ErrorList {
+func validatePodIndexOffsetAnnotation(annotationsPath *field.Path, replicaMetadata *metav1.ObjectMeta) field.ErrorList {
 	offsetValue, offsetFound := replicaMetadata.Annotations[kueue.PodIndexOffsetAnnotation]
 	if !offsetFound {
 		return nil
 	}
 
-	offsetPath := annotationsPath.Key(kueue.PodIndexOffsetAnnotation)
-	if podSetGroupNameFound {
-		return field.ErrorList{
-			field.Forbidden(offsetPath, fmt.Sprintf("may not be set when '%s' is specified", kueue.PodSetGroupName)),
-		}
-	}
-
 	if val, err := strconv.ParseInt(offsetValue, 10, 32); err != nil || val < 0 {
 		return field.ErrorList{
-			field.Invalid(offsetPath, offsetValue, "must be a non-negative integer"),
+			field.Invalid(annotationsPath.Key(kueue.PodIndexOffsetAnnotation), offsetValue, "must be a non-negative integer"),
 		}
 	}
 
@@ -319,17 +312,9 @@ func ValidatePodSetGroupingTopology(podSets []kueue.PodSet, podSetAnnotationsByN
 		v2, found2 := podSet2.Template.Annotations[kueue.PodSetTopologySpreadingAnnotation]
 		if features.Enabled(features.TASTopologySpreading) &&
 			(found1 != found2 || (found1 && !utiltas.SpreadingAnnotationsAgree(v1, v2))) {
-			spreadingError := func(otherPath *field.Path) string {
-				return fmt.Sprintf(
-					"must specify the same '%s' annotation as '%s' in group '%s', or neither pod set may specify it",
-					kueue.PodSetTopologySpreadingAnnotation,
-					otherPath,
-					groupName,
-				)
-			}
 			allErrs = append(allErrs,
-				field.Invalid(annotationsPath1, field.OmitValueType{}, spreadingError(annotationsPath2)),
-				field.Invalid(annotationsPath2, field.OmitValueType{}, spreadingError(annotationsPath1)),
+				field.Invalid(annotationsPath1, field.OmitValueType{}, spreadingError(annotationsPath2, groupName)),
+				field.Invalid(annotationsPath2, field.OmitValueType{}, spreadingError(annotationsPath1, groupName)),
 			)
 		}
 
@@ -357,6 +342,15 @@ func ValidatePodSetGroupingTopology(podSets []kueue.PodSet, podSetAnnotationsByN
 	}
 
 	return allErrs
+}
+
+func spreadingError(otherPath *field.Path, groupName string) string {
+	return fmt.Sprintf(
+		"must specify the same '%s' annotation as '%s' in group '%s', or neither pod set may specify it",
+		kueue.PodSetTopologySpreadingAnnotation,
+		otherPath,
+		groupName,
+	)
 }
 
 func topologyRequestsValid(r1, r2 *kueue.PodSetTopologyRequest) bool {

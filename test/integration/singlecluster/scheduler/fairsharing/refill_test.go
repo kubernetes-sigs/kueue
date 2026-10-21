@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 // The shape of issue #9345: refill-rich is already borrowing 6 of refill-poor's
@@ -124,7 +125,7 @@ var _ = ginkgo.Describe("Scheduler with fair sharing refill", ginkgo.Label("feat
 
 		// Finishing models the normal return of capacity; a delete would do.
 		ginkgo.By("freeing exactly two CPU in a single step", func() {
-			behavioral.FinishWorkloads(ctx, k8sClient, richSpare)
+			integration.FinishWorkloads(ctx, k8sClient, richSpare)
 		})
 
 		// Poor takes the first CPU either way; the second is refill's.

@@ -40,28 +40,15 @@ const (
 	requiredTopologyLevel   = "cloud.com/block"
 )
 
-func spreadingAnnPath(i int) *field.Path {
-	return field.NewPath("spec", "podSets").Index(i).Child("template", "metadata", "annotations").Key(kueue.PodSetTopologySpreadingAnnotation)
-}
-
-func spreadingPodSet(name kueue.PodSetReference, count int, spreading string) kueue.PodSet {
-	return *utiltestingapi.MakePodSet(name, count).
-		RequiredTopologyRequest(requiredTopologyLevel).
-		Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: spreading}).
-		Obj()
-}
-
-func groupedPodSet(name kueue.PodSetReference, group, spreading string) kueue.PodSet {
-	ps := utiltestingapi.MakePodSet(name, 1).
-		RequiredTopologyRequest(requiredTopologyLevel).
-		PodSetGroup(group)
-	if spreading != "" {
-		ps = ps.Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: spreading})
-	}
-	return *ps.Obj()
-}
-
 func TestValidateWorkloadSpreadingCreate(t *testing.T) {
+	podSetsPath := field.NewPath("spec", "podSets")
+	firstSpreadingPath := podSetsPath.Index(0).Child("template", "metadata", "annotations").Key(kueue.PodSetTopologySpreadingAnnotation)
+	secondSpreadingPath := podSetsPath.Index(1).Child("template", "metadata", "annotations").Key(kueue.PodSetTopologySpreadingAnnotation)
+	baseWorkload := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace)
+	mainPodSet := utiltestingapi.MakePodSet("main", 1).RequiredTopologyRequest(requiredTopologyLevel)
+	leaderPodSet := utiltestingapi.MakePodSet("leader", 1).RequiredTopologyRequest(requiredTopologyLevel).PodSetGroup("g")
+	workersPodSet := utiltestingapi.MakePodSet("workers", 1).RequiredTopologyRequest(requiredTopologyLevel).PodSetGroup("g")
+
 	testCases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
 		workload     *kueue.Workload
@@ -69,25 +56,29 @@ func TestValidateWorkloadSpreadingCreate(t *testing.T) {
 	}{
 		"valid: absent spreading annotation is unaffected": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			workload: baseWorkload.Clone().
 				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
 				Obj(),
 		},
 		"valid: structured required topology, omitted selectors, no job UID or companion annotation": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(spreadingPodSet("main", 1, validSpreadingJSON)).
+			workload: baseWorkload.Clone().
+				PodSets(*mainPodSet.Clone().
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+					Obj()).
 				Obj(),
 		},
 		"valid: empty selectors remain accepted": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(spreadingPodSet("main", 1, emptySelectorsJSON)).
+			workload: baseWorkload.Clone().
+				PodSets(*mainPodSet.Clone().
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: emptySelectorsJSON}).
+					Obj()).
 				Obj(),
 		},
 		"valid: group members have matching spreading annotations": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			workload: baseWorkload.Clone().
 				PodSets(
 					*utiltestingapi.MakePodSet("a", 1).
 						RequiredTopologyRequest(requiredTopologyLevel).
@@ -104,7 +95,7 @@ func TestValidateWorkloadSpreadingCreate(t *testing.T) {
 		},
 		"valid: group members have equivalent parsed spreading annotations": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			workload: baseWorkload.Clone().
 				PodSets(
 					*utiltestingapi.MakePodSet("a", 1).
 						RequiredTopologyRequest(requiredTopologyLevel).
@@ -121,72 +112,99 @@ func TestValidateWorkloadSpreadingCreate(t *testing.T) {
 		},
 		"valid: standalone PodSet and a named group with the same name stay distinct": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			workload: baseWorkload.Clone().
 				PodSets(
-					spreadingPodSet("g", 1, otherSpreadingJSON),
-					groupedPodSet("leader", "g", validSpreadingJSON),
-					groupedPodSet("workers", "g", validSpreadingJSON),
+					*utiltestingapi.MakePodSet("g", 1).
+						RequiredTopologyRequest(requiredTopologyLevel).
+						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: otherSpreadingJSON}).
+						Obj(),
+					*leaderPodSet.Clone().
+						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+						Obj(),
+					*workersPodSet.Clone().
+						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+						Obj(),
 				).
 				Obj(),
 		},
 		"valid: unrelated named groups do not participate in one another's comparison": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			workload: baseWorkload.Clone().
 				PodSets(
-					groupedPodSet("a1", "g1", validSpreadingJSON),
-					groupedPodSet("a2", "g1", validSpreadingJSON),
-					groupedPodSet("b1", "g2", otherSpreadingJSON),
-					groupedPodSet("b2", "g2", otherSpreadingJSON),
+					*utiltestingapi.MakePodSet("a1", 1).
+						RequiredTopologyRequest(requiredTopologyLevel).
+						PodSetGroup("g1").
+						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+						Obj(),
+					*utiltestingapi.MakePodSet("a2", 1).
+						RequiredTopologyRequest(requiredTopologyLevel).
+						PodSetGroup("g1").
+						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+						Obj(),
+					*utiltestingapi.MakePodSet("b1", 1).
+						RequiredTopologyRequest(requiredTopologyLevel).
+						PodSetGroup("g2").
+						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: otherSpreadingJSON}).
+						Obj(),
+					*utiltestingapi.MakePodSet("b2", 1).
+						RequiredTopologyRequest(requiredTopologyLevel).
+						PodSetGroup("g2").
+						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: otherSpreadingJSON}).
+						Obj(),
 				).
 				Obj(),
 		},
 		"valid: neither group member carries the spreading annotation": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			workload: baseWorkload.Clone().
 				PodSets(
-					groupedPodSet("a", "g", ""),
-					groupedPodSet("b", "g", ""),
+					*utiltestingapi.MakePodSet("a", 1).RequiredTopologyRequest(requiredTopologyLevel).PodSetGroup("g").Obj(),
+					*utiltestingapi.MakePodSet("b", 1).RequiredTopologyRequest(requiredTopologyLevel).PodSetGroup("g").Obj(),
 				).
 				Obj(),
 		},
 		"valid: gate off, malformed annotation left unvalidated": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: false},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(spreadingPodSet("main", 1, invalidSpreadingJSON)).
+			workload: baseWorkload.Clone().
+				PodSets(*mainPodSet.Clone().
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).
+					Obj()).
 				Obj(),
 		},
 		"invalid: empty spreading annotation": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(spreadingPodSet("main", 1, "")).
+			workload: baseWorkload.Clone().
+				PodSets(*mainPodSet.Clone().Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: ""}).Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(spreadingAnnPath(0), nil, ""),
+				field.Invalid(firstSpreadingPath, nil, ""),
 			}.ToAggregate(),
 		},
 		"invalid: share of 1 is rejected at the Workload field path": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				PodSets(spreadingPodSet("main", 1, `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"1"}]}`)).
+			workload: baseWorkload.Clone().
+				PodSets(*mainPodSet.Clone().
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: `{"rules":[{"topologyKey":"cloud.com/block","maxShareAllowingPlacement":"1"}]}`}).
+					Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(spreadingAnnPath(0).Child("rules").Index(0).Child("maxShareAllowingPlacement"), nil, ""),
+				field.Invalid(firstSpreadingPath.Child("rules").Index(0).Child("maxShareAllowingPlacement"), nil, ""),
 			}.ToAggregate(),
 		},
 		"invalid: nil topology request": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			workload: baseWorkload.Clone().
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
 					Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Forbidden(spreadingAnnPath(0), ""),
+				field.Forbidden(firstSpreadingPath, ""),
 			}.ToAggregate(),
 		},
 		"invalid: topology request without required": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			workload: baseWorkload.Clone().
 				PodSets(func() kueue.PodSet {
 					ps := utiltestingapi.MakePodSet("main", 1).
 						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON})
@@ -195,36 +213,36 @@ func TestValidateWorkloadSpreadingCreate(t *testing.T) {
 				}()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Forbidden(spreadingAnnPath(0), ""),
+				field.Forbidden(firstSpreadingPath, ""),
 			}.ToAggregate(),
 		},
 		"invalid: preferred-only topology request": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			workload: baseWorkload.Clone().
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					PreferredTopologyRequest(requiredTopologyLevel).
 					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
 					Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Forbidden(spreadingAnnPath(0), ""),
+				field.Forbidden(firstSpreadingPath, ""),
 			}.ToAggregate(),
 		},
 		"invalid: unconstrained-only topology request": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			workload: baseWorkload.Clone().
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					UnconstrainedTopologyRequest().
 					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
 					Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Forbidden(spreadingAnnPath(0), ""),
+				field.Forbidden(firstSpreadingPath, ""),
 			}.ToAggregate(),
 		},
 		"invalid: companion required-topology annotation without structured required request": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			workload: baseWorkload.Clone().
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Annotations(map[string]string{
 						kueue.PodSetRequiredTopologyAnnotation:  requiredTopologyLevel,
@@ -233,43 +251,51 @@ func TestValidateWorkloadSpreadingCreate(t *testing.T) {
 					Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Forbidden(spreadingAnnPath(0), ""),
+				field.Forbidden(firstSpreadingPath, ""),
 			}.ToAggregate(),
 		},
 		"invalid: group members have different spreading annotations": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			workload: baseWorkload.Clone().
 				PodSets(
-					groupedPodSet("leader", "g", validSpreadingJSON),
-					groupedPodSet("workers", "g", otherSpreadingJSON),
+					*leaderPodSet.Clone().
+						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+						Obj(),
+					*workersPodSet.Clone().
+						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: otherSpreadingJSON}).
+						Obj(),
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(spreadingAnnPath(1), nil, ""),
+				field.Invalid(secondSpreadingPath, nil, ""),
 			}.ToAggregate(),
 		},
 		"invalid: first group member is missing the spreading annotation": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			workload: baseWorkload.Clone().
 				PodSets(
-					groupedPodSet("leader", "g", ""),
-					groupedPodSet("workers", "g", validSpreadingJSON),
+					*leaderPodSet.Clone().Obj(),
+					*workersPodSet.Clone().
+						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+						Obj(),
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(spreadingAnnPath(0), nil, ""),
+				field.Invalid(firstSpreadingPath, nil, ""),
 			}.ToAggregate(),
 		},
 		"invalid: later group member is missing the spreading annotation": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			workload: baseWorkload.Clone().
 				PodSets(
-					groupedPodSet("leader", "g", validSpreadingJSON),
-					groupedPodSet("workers", "g", ""),
+					*leaderPodSet.Clone().
+						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+						Obj(),
+					*workersPodSet.Clone().Obj(),
 				).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(spreadingAnnPath(1), nil, ""),
+				field.Invalid(secondSpreadingPath, nil, ""),
 			}.ToAggregate(),
 		},
 	}
@@ -286,31 +312,25 @@ func TestValidateWorkloadSpreadingCreate(t *testing.T) {
 }
 
 func TestValidateWorkloadSpreadingUpdate(t *testing.T) {
-	pendingInvalid := func() *kueue.Workload {
-		return utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-			Queue("q1").
-			PodSets(spreadingPodSet("main", 1, invalidSpreadingJSON)).
-			Obj()
-	}
-	pendingValid := func() *kueue.Workload {
-		return utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-			Queue("q1").
-			PodSets(spreadingPodSet("main", 1, validSpreadingJSON)).
-			Obj()
-	}
-	withPodSets := func(podSets ...kueue.PodSet) *kueue.Workload {
-		return utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-			Queue("q1").
-			PodSets(podSets...).
-			Obj()
-	}
-	annotatedMember := func(name kueue.PodSetReference, count int, group, spreading string) kueue.PodSet {
-		return *utiltestingapi.MakePodSet(name, count).
-			RequiredTopologyRequest(requiredTopologyLevel).
-			PodSetGroup(group).
-			Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: spreading}).
-			Obj()
-	}
+	podSetsPath := field.NewPath("spec", "podSets")
+	firstSpreadingPath := podSetsPath.Index(0).Child("template", "metadata", "annotations").Key(kueue.PodSetTopologySpreadingAnnotation)
+	secondSpreadingPath := podSetsPath.Index(1).Child("template", "metadata", "annotations").Key(kueue.PodSetTopologySpreadingAnnotation)
+	thirdSpreadingPath := podSetsPath.Index(2).Child("template", "metadata", "annotations").Key(kueue.PodSetTopologySpreadingAnnotation)
+	fourthSpreadingPath := podSetsPath.Index(3).Child("template", "metadata", "annotations").Key(kueue.PodSetTopologySpreadingAnnotation)
+	baseWorkload := utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).Queue("q1")
+	mainPodSet := utiltestingapi.MakePodSet("main", 1).RequiredTopologyRequest(requiredTopologyLevel)
+	a1PodSet := utiltestingapi.MakePodSet("a1", 1).RequiredTopologyRequest(requiredTopologyLevel)
+	a2PodSet := utiltestingapi.MakePodSet("a2", 2).RequiredTopologyRequest(requiredTopologyLevel)
+	b1PodSet := utiltestingapi.MakePodSet("b1", 1).RequiredTopologyRequest(requiredTopologyLevel)
+	b2PodSet := utiltestingapi.MakePodSet("b2", 2).RequiredTopologyRequest(requiredTopologyLevel)
+	leaderPodSet := utiltestingapi.MakePodSet("leader", 1).RequiredTopologyRequest(requiredTopologyLevel).PodSetGroup("g")
+	workersPodSet := utiltestingapi.MakePodSet("workers", 2).RequiredTopologyRequest(requiredTopologyLevel).PodSetGroup("g")
+	pendingInvalid := baseWorkload.Clone().PodSets(*mainPodSet.Clone().
+		Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).
+		Obj())
+	pendingValid := baseWorkload.Clone().PodSets(*mainPodSet.Clone().
+		Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+		Obj())
 
 	testCases := map[string]struct {
 		featureGates  map[featuregate.Feature]bool
@@ -319,70 +339,78 @@ func TestValidateWorkloadSpreadingUpdate(t *testing.T) {
 	}{
 		"reject changing a valid spreading annotation to invalid": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before:       pendingValid(),
-			after:        pendingInvalid(),
+			before:       pendingValid.Clone().Obj(),
+			after:        pendingInvalid.Clone().Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(spreadingAnnPath(0), nil, ""),
+				field.Invalid(firstSpreadingPath, nil, ""),
 			}.ToAggregate(),
 		},
 		"exempt an unchanged invalid spreading annotation": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before:       pendingInvalid(),
-			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+			before:       pendingInvalid.Clone().Obj(),
+			after: baseWorkload.Clone().
 				Queue("q2").
-				PodSets(spreadingPodSet("main", 1, invalidSpreadingJSON)).
+				PodSets(*mainPodSet.Clone().
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).
+					Obj()).
 				Obj(),
 		},
 		"reject a different invalid annotation including equivalent invalid quantities": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before:       withPodSets(spreadingPodSet("main", 1, shareOneJSON)),
-			after:        withPodSets(spreadingPodSet("main", 1, shareOneMilliJSON)),
+			before: baseWorkload.Clone().PodSets(*mainPodSet.Clone().
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: shareOneJSON}).
+				Obj()).
+				Obj(),
+			after: baseWorkload.Clone().PodSets(*mainPodSet.Clone().
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: shareOneMilliJSON}).
+				Obj()).
+				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(spreadingAnnPath(0).Child("rules").Index(0).Child("maxShareAllowingPlacement"), nil, ""),
+				field.Invalid(firstSpreadingPath.Child("rules").Index(0).Child("maxShareAllowingPlacement"), nil, ""),
 			}.ToAggregate(),
 		},
 		"reject absent spreading becoming a present empty annotation": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before: withPodSets(*utiltestingapi.MakePodSet("main", 1).
+			before: baseWorkload.Clone().PodSets(*utiltestingapi.MakePodSet("main", 1).
 				RequiredTopologyRequest(requiredTopologyLevel).
-				Obj()),
-			after: withPodSets(spreadingPodSet("main", 1, "")),
+				Obj()).Obj(),
+			after: baseWorkload.Clone().PodSets(*mainPodSet.Clone().
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: ""}).
+				Obj()).
+				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(spreadingAnnPath(0), nil, ""),
+				field.Invalid(firstSpreadingPath, nil, ""),
 			}.ToAggregate(),
 		},
 		"reject removing required topology while spreading remains": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before:       pendingValid(),
-			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				Queue("q1").
+			before:       pendingValid.Clone().Obj(),
+			after: baseWorkload.Clone().
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
 					Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Forbidden(spreadingAnnPath(0), ""),
+				field.Forbidden(firstSpreadingPath, ""),
 			}.ToAggregate(),
 		},
 		"reject a required topology change while the annotation stays invalid": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before:       pendingInvalid(),
-			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				Queue("q1").
+			before:       pendingInvalid.Clone().Obj(),
+			after: baseWorkload.Clone().
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					RequiredTopologyRequest("cloud.com/rack").
 					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).
 					Obj()).
 				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(spreadingAnnPath(0), nil, ""),
+				field.Invalid(firstSpreadingPath, nil, ""),
 			}.ToAggregate(),
 		},
 		"accept a required topology change when spreading stays valid": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before:       pendingValid(),
-			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				Queue("q1").
+			before:       pendingValid.Clone().Obj(),
+			after: baseWorkload.Clone().
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
 					RequiredTopologyRequest("cloud.com/rack").
 					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
@@ -391,130 +419,209 @@ func TestValidateWorkloadSpreadingUpdate(t *testing.T) {
 		},
 		"accept an equivalent rewrite of a valid annotation": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before:       pendingValid(),
-			after:        withPodSets(spreadingPodSet("main", 1, equivalentSpreadingJSON)),
+			before:       pendingValid.Clone().Obj(),
+			after: baseWorkload.Clone().PodSets(*mainPodSet.Clone().
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: equivalentSpreadingJSON}).
+				Obj()).
+				Obj(),
 		},
 		"reject a membership change that introduces group disagreement": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before: withPodSets(
-				annotatedMember("a1", 1, "g1", validSpreadingJSON),
-				annotatedMember("a2", 2, "g1", validSpreadingJSON),
-				annotatedMember("b1", 1, "g2", otherSpreadingJSON),
-				annotatedMember("b2", 2, "g2", otherSpreadingJSON),
-			),
-			after: withPodSets(
-				annotatedMember("a1", 1, "g1", validSpreadingJSON),
-				annotatedMember("a2", 2, "g2", validSpreadingJSON),
-				annotatedMember("b1", 1, "g2", otherSpreadingJSON),
-				annotatedMember("b2", 2, "g1", otherSpreadingJSON),
-			),
+			before: baseWorkload.Clone().PodSets(
+				*a1PodSet.Clone().
+					PodSetGroup("g1").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+					Obj(),
+				*a2PodSet.Clone().
+					PodSetGroup("g1").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+					Obj(),
+				*b1PodSet.Clone().
+					PodSetGroup("g2").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: otherSpreadingJSON}).
+					Obj(),
+				*b2PodSet.Clone().
+					PodSetGroup("g2").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: otherSpreadingJSON}).
+					Obj(),
+			).Obj(),
+			after: baseWorkload.Clone().PodSets(
+				*a1PodSet.Clone().
+					PodSetGroup("g1").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+					Obj(),
+				*a2PodSet.Clone().
+					PodSetGroup("g2").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+					Obj(),
+				*b1PodSet.Clone().
+					PodSetGroup("g2").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: otherSpreadingJSON}).
+					Obj(),
+				*b2PodSet.Clone().
+					PodSetGroup("g1").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: otherSpreadingJSON}).
+					Obj(),
+			).Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(spreadingAnnPath(3), nil, ""),
-				field.Invalid(spreadingAnnPath(2), nil, ""),
+				field.Invalid(fourthSpreadingPath, nil, ""),
+				field.Invalid(thirdSpreadingPath, nil, ""),
 			}.ToAggregate(),
 		},
 		"repair one group while an unchanged invalid group remains": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before: withPodSets(
-				annotatedMember("a1", 1, "g1", validSpreadingJSON),
-				annotatedMember("a2", 2, "g1", otherSpreadingJSON),
-				annotatedMember("b1", 1, "g2", validSpreadingJSON),
-				annotatedMember("b2", 2, "g2", otherSpreadingJSON),
-			),
-			after: withPodSets(
-				annotatedMember("a1", 1, "g1", validSpreadingJSON),
-				annotatedMember("a2", 2, "g1", validSpreadingJSON),
-				annotatedMember("b1", 1, "g2", validSpreadingJSON),
-				annotatedMember("b2", 2, "g2", otherSpreadingJSON),
-			),
+			before: baseWorkload.Clone().PodSets(
+				*a1PodSet.Clone().
+					PodSetGroup("g1").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+					Obj(),
+				*a2PodSet.Clone().
+					PodSetGroup("g1").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: otherSpreadingJSON}).
+					Obj(),
+				*b1PodSet.Clone().
+					PodSetGroup("g2").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+					Obj(),
+				*b2PodSet.Clone().
+					PodSetGroup("g2").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: otherSpreadingJSON}).
+					Obj(),
+			).Obj(),
+			after: baseWorkload.Clone().PodSets(
+				*a1PodSet.Clone().
+					PodSetGroup("g1").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+					Obj(),
+				*a2PodSet.Clone().
+					PodSetGroup("g1").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+					Obj(),
+				*b1PodSet.Clone().
+					PodSetGroup("g2").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+					Obj(),
+				*b2PodSet.Clone().
+					PodSetGroup("g2").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: otherSpreadingJSON}).
+					Obj(),
+			).Obj(),
 		},
 		"membership change with identical malformed annotations does not force annotation validity": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before: withPodSets(
-				annotatedMember("a1", 1, "g1", invalidSpreadingJSON),
-				annotatedMember("a2", 2, "g1", invalidSpreadingJSON),
-				annotatedMember("b1", 1, "g2", invalidSpreadingJSON),
-				annotatedMember("b2", 2, "g2", invalidSpreadingJSON),
-			),
-			after: withPodSets(
-				annotatedMember("a1", 1, "g1", invalidSpreadingJSON),
-				annotatedMember("a2", 2, "g2", invalidSpreadingJSON),
-				annotatedMember("b1", 1, "g2", invalidSpreadingJSON),
-				annotatedMember("b2", 2, "g1", invalidSpreadingJSON),
-			),
+			before: baseWorkload.Clone().PodSets(
+				*a1PodSet.Clone().
+					PodSetGroup("g1").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).
+					Obj(),
+				*a2PodSet.Clone().
+					PodSetGroup("g1").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).
+					Obj(),
+				*b1PodSet.Clone().
+					PodSetGroup("g2").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).
+					Obj(),
+				*b2PodSet.Clone().
+					PodSetGroup("g2").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).
+					Obj(),
+			).Obj(),
+			after: baseWorkload.Clone().PodSets(
+				*a1PodSet.Clone().
+					PodSetGroup("g1").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).
+					Obj(),
+				*a2PodSet.Clone().
+					PodSetGroup("g2").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).
+					Obj(),
+				*b1PodSet.Clone().
+					PodSetGroup("g2").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).
+					Obj(),
+				*b2PodSet.Clone().
+					PodSetGroup("g1").
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).
+					Obj(),
+			).Obj(),
 		},
 		"reorder named PodSets without changing spreading inputs": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before: withPodSets(
+			before: baseWorkload.Clone().PodSets(
 				*utiltestingapi.MakePodSet("extra", 1).Obj(),
-				spreadingPodSet("main", 1, invalidSpreadingJSON),
-			),
-			after: withPodSets(
-				spreadingPodSet("main", 1, invalidSpreadingJSON),
+				*mainPodSet.Clone().Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).Obj(),
+			).Obj(),
+			after: baseWorkload.Clone().PodSets(
+				*mainPodSet.Clone().Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).Obj(),
 				*utiltestingapi.MakePodSet("extra", 1).Obj(),
-			),
+			).Obj(),
 		},
 		"rename a PodSet carrying invalid spreading": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before:       pendingInvalid(),
-			after:        withPodSets(spreadingPodSet("other", 1, invalidSpreadingJSON)),
+			before:       pendingInvalid.Clone().Obj(),
+			after: baseWorkload.Clone().PodSets(*utiltestingapi.MakePodSet("other", 1).
+				RequiredTopologyRequest(requiredTopologyLevel).
+				Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).
+				Obj()).
+				Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(spreadingAnnPath(0), nil, ""),
+				field.Invalid(firstSpreadingPath, nil, ""),
 			}.ToAggregate(),
 		},
 		"adding an unannotated standalone PodSet does not revalidate old spreading errors": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before:       pendingInvalid(),
-			after: withPodSets(
-				spreadingPodSet("main", 1, invalidSpreadingJSON),
+			before:       pendingInvalid.Clone().Obj(),
+			after: baseWorkload.Clone().PodSets(
+				*mainPodSet.Clone().Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).Obj(),
 				*utiltestingapi.MakePodSet("extra", 1).Obj(),
-			),
+			).Obj(),
 		},
 		"reject removing spreading from only one member of a pair": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before: withPodSets(
-				annotatedMember("leader", 1, "g", validSpreadingJSON),
-				annotatedMember("workers", 2, "g", validSpreadingJSON),
-			),
-			after: withPodSets(
-				annotatedMember("leader", 1, "g", validSpreadingJSON),
-				*utiltestingapi.MakePodSet("workers", 2).
-					RequiredTopologyRequest(requiredTopologyLevel).
-					PodSetGroup("g").
+			before: baseWorkload.Clone().PodSets(
+				*leaderPodSet.Clone().
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
 					Obj(),
-			),
+				*workersPodSet.Clone().
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+					Obj(),
+			).Obj(),
+			after: baseWorkload.Clone().PodSets(
+				*leaderPodSet.Clone().
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
+					Obj(),
+				*workersPodSet.Clone().Obj(),
+			).Obj(),
 			wantErr: field.ErrorList{
-				field.Invalid(spreadingAnnPath(1), nil, ""),
+				field.Invalid(secondSpreadingPath, nil, ""),
 			}.ToAggregate(),
 		},
 		"accept removing spreading from all members of a pair together": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before: withPodSets(
-				annotatedMember("leader", 1, "g", validSpreadingJSON),
-				annotatedMember("workers", 2, "g", validSpreadingJSON),
-			),
-			after: withPodSets(
-				*utiltestingapi.MakePodSet("leader", 1).
-					RequiredTopologyRequest(requiredTopologyLevel).
-					PodSetGroup("g").
+			before: baseWorkload.Clone().PodSets(
+				*leaderPodSet.Clone().
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
 					Obj(),
-				*utiltestingapi.MakePodSet("workers", 2).
-					RequiredTopologyRequest(requiredTopologyLevel).
-					PodSetGroup("g").
+				*workersPodSet.Clone().
+					Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: validSpreadingJSON}).
 					Obj(),
-			),
+			).Obj(),
+			after: baseWorkload.Clone().PodSets(
+				*leaderPodSet.Clone().Obj(),
+				*workersPodSet.Clone().Obj(),
+			).Obj(),
 		},
 		"exemption does not skip other Workload validation": {
 			featureGates: map[featuregate.Feature]bool{features.TASTopologySpreading: true},
-			before:       pendingInvalid(),
-			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
-				Queue("q1").
+			before:       pendingInvalid.Clone().Obj(),
+			after: baseWorkload.Clone().
 				PodSets(
-					func() kueue.PodSet {
-						ps := spreadingPodSet("main", 2, invalidSpreadingJSON)
-						ps.MinCount = new(int32(1))
-						return ps
-					}(),
+					*utiltestingapi.MakePodSet("main", 2).
+						RequiredTopologyRequest(requiredTopologyLevel).
+						Annotations(map[string]string{kueue.PodSetTopologySpreadingAnnotation: invalidSpreadingJSON}).
+						SetMinimumCount(1).
+						Obj(),
 					*utiltestingapi.MakePodSet("other", 2).SetMinimumCount(1).Obj(),
 				).
 				Obj(),
@@ -527,7 +634,7 @@ func TestValidateWorkloadSpreadingUpdate(t *testing.T) {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("main", 1).RequiredTopologyRequest(requiredTopologyLevel).Obj()).
 				Obj(),
-			after: pendingInvalid(),
+			after: pendingInvalid.Clone().Obj(),
 		},
 	}
 

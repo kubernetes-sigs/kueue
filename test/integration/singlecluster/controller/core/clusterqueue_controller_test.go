@@ -44,6 +44,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 const (
@@ -243,7 +244,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			for i, w := range workloads {
 				gomega.Eventually(func(g gomega.Gomega) {
 					if admissions[i] != nil {
-						behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(w), admissions[i])
+						integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(w), admissions[i])
 					}
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			}
@@ -353,7 +354,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			})
 
 			ginkgo.By("Finishing workloads")
-			behavioral.FinishWorkloads(ctx, k8sClient, workloads...)
+			integration.FinishWorkloads(ctx, k8sClient, workloads...)
 			gomega.Eventually(func(g gomega.Gomega) {
 				var updatedCq kueue.ClusterQueue
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCq)).To(gomega.Succeed())
@@ -457,7 +458,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			behavioral.ExpectCQResourcePendingMetric(clusterQueue, string(corev1.ResourceCPU), gomega.Equal(6.0))
 
 			ginkgo.By("Setting 1 pod as reclaimable, reducing effective request to 4 CPU")
-			behavioral.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{
+			integration.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{
 				{Name: kueue.DefaultPodSetName, Count: 1},
 			})
 
@@ -518,7 +519,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 					},
 				).Obj()
 
-				behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
+				integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
 			})
 
 			behavioral.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
@@ -557,7 +558,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Mark two workers as reclaimable", func() {
-				behavioral.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 2}})
+				integration.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 2}})
 				behavioral.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 				behavioral.ExpectLQReservingActiveWorkloadsMetric(localQueue, 1)
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -596,7 +597,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 
 			ginkgo.By("Mark all workers and a driver as reclaimable", func() {
 				reclaimablePods := []kueue.ReclaimablePod{{Name: "workers", Count: 5}, {Name: "driver", Count: 1}}
-				behavioral.UpdateReclaimablePods(ctx, k8sClient, wl, reclaimablePods)
+				integration.UpdateReclaimablePods(ctx, k8sClient, wl, reclaimablePods)
 				behavioral.ExpectReservingActiveWorkloadsMetric(clusterQueue, 1)
 				behavioral.ExpectLQReservingActiveWorkloadsMetric(localQueue, 1)
 				gomega.Eventually(func(g gomega.Gomega) {
@@ -633,7 +634,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			})
 
 			ginkgo.By("Finishing workload", func() {
-				behavioral.FinishWorkloads(ctx, k8sClient, wl)
+				integration.FinishWorkloads(ctx, k8sClient, wl)
 				behavioral.ExpectPendingWorkloadsMetric(clusterQueue, 0, 0)
 				behavioral.ExpectReservingActiveWorkloadsMetric(clusterQueue, 0)
 				behavioral.ExpectLQPendingWorkloadsMetric(localQueue, 0, 0)
@@ -1055,7 +1056,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 						Count: new(int32(5)),
 					},
 				).Obj()
-				behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
+				integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), admission)
 			})
 
 			ginkgo.By("Validating CQ status has changed", func() {
@@ -1077,7 +1078,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			})
 
 			ginkgo.By("Marking two workers as reclaimable", func() {
-				behavioral.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 2}})
+				integration.UpdateReclaimablePods(ctx, k8sClient, wl, []kueue.ReclaimablePod{{Name: "workers", Count: 2}})
 			})
 
 			ginkgo.By("Validating CQ status hasn't changed", func() {
@@ -1150,7 +1151,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 				kueue.ResourceFlavorReference(flavor.Name),
 			).Obj()
 			cqAdmission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).PodSets(podSetAssignment).Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, key, cqAdmission)
+			integration.SetQuotaReservation(ctx, k8sClient, key, cqAdmission)
 
 			ginkgo.By("Set admission check ready")
 			behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, true)
@@ -1173,7 +1174,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Finish workload")
-			behavioral.FinishWorkloads(ctx, k8sClient, wl)
+			integration.FinishWorkloads(ctx, k8sClient, wl)
 
 			ginkgo.By("The clusterQueue will be deleted")
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, false)
@@ -1195,7 +1196,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 				kueue.ResourceFlavorReference(flavor.Name),
 			).Obj()
 			cqAdmission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).PodSets(podSetAssignment).Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, admittedKey, cqAdmission)
+			integration.SetQuotaReservation(ctx, k8sClient, admittedKey, cqAdmission)
 			behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, admittedWl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, true)
 
 			ginkgo.By("Creating a second workload that stays pending (quota is exhausted)")
@@ -1235,7 +1236,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Finishing the admitted workload lets the ClusterQueue be deleted")
-			behavioral.FinishWorkloads(ctx, k8sClient, admittedWl)
+			integration.FinishWorkloads(ctx, k8sClient, admittedWl)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, false)
 		})
 
@@ -1252,7 +1253,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 				kueue.ResourceFlavorReference(flavor.Name),
 			).Obj()
 			cqAdmission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).PodSets(podSetAssignment).Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), cqAdmission)
+			integration.SetQuotaReservation(ctx, k8sClient, client.ObjectKeyFromObject(wl), cqAdmission)
 
 			ginkgo.By("Delete clusterQueue")
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
@@ -1272,7 +1273,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 				kueue.ResourceFlavorReference(flavor.Name),
 			).Obj()
 			cqAdmission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).PodSets(podSetAssignment).Obj()
-			behavioral.SetQuotaReservation(ctx, k8sClient, key, cqAdmission)
+			integration.SetQuotaReservation(ctx, k8sClient, key, cqAdmission)
 
 			behavioral.SetWorkloadsAdmissionCheck(ctx, k8sClient, wl, kueue.AdmissionCheckReference(check.Name), kueue.CheckStateReady, true)
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -1282,7 +1283,7 @@ var _ = ginkgo.Describe("ClusterQueue controller", ginkgo.Label("controller:clus
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Finishing workload")
-			behavioral.FinishWorkloads(ctx, k8sClient, wl)
+			integration.FinishWorkloads(ctx, k8sClient, wl)
 
 			ginkgo.By("Deleting clusterQueue - should succeed without waiting")
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)

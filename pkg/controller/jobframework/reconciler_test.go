@@ -58,8 +58,11 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobs"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/job"
+	workloadjobset "sigs.k8s.io/kueue/pkg/controller/jobs/jobset"
+	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/kubeversion"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -69,6 +72,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/testingjobs/jobset"
 	testingmpijob "sigs.k8s.io/kueue/pkg/util/testingjobs/mpijob"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 
 	. "sigs.k8s.io/kueue/pkg/controller/jobframework"
@@ -604,7 +608,7 @@ func TestReconcileGenericJob(t *testing.T) {
 				},
 			},
 		},
-		"waitForPodsReady disabled does not add the workload annotation": {
+		"waitForPodsReady without scheduling tracking adds the workload annotation": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: true,
 				features.TopologyAwareScheduling:            false,
@@ -657,9 +661,11 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 			wantPodSets: []podset.PodSetInfo{
 				{
-					Name:        "main",
-					Count:       1,
-					Annotations: map[string]string{},
+					Name:  "main",
+					Count: 1,
+					Annotations: map[string]string{
+						kueue.WorkloadAnnotation: "job-test-job-1",
+					},
 					Labels: map[string]string{
 						kueueconstants.ClusterQueueLabel: "default-cq",
 						kueueconstants.LocalQueueLabel:   "test-lq",
@@ -669,7 +675,7 @@ func TestReconcileGenericJob(t *testing.T) {
 				},
 			},
 		},
-		"scheduling tracking disabled does not add the workload annotation": {
+		"workload annotation is added when all related feature gates are disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: false,
 				features.TopologyAwareScheduling:            false,
@@ -725,9 +731,11 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 			wantPodSets: []podset.PodSetInfo{
 				{
-					Name:        "main",
-					Count:       1,
-					Annotations: map[string]string{},
+					Name:  "main",
+					Count: 1,
+					Annotations: map[string]string{
+						kueue.WorkloadAnnotation: "job-test-job-1",
+					},
 					Labels: map[string]string{
 						kueueconstants.ClusterQueueLabel: "default-cq",
 						kueueconstants.LocalQueueLabel:   "test-lq",
@@ -1317,6 +1325,17 @@ func TestFindMatchingWorkloads(t *testing.T) {
 // whose Kind, APIVersion and Name all match the job (and whose UID matches
 // when FinishOrphanedWorkloads is enabled). Each test case provides a fully
 // constructed job and Workload.
+type jobWithCustomEquivalence struct {
+	*job.Job
+	options []equality.ComparePodSetsOption
+}
+
+var _ JobWithCustomEquivalenceOptions = (*jobWithCustomEquivalence)(nil)
+
+func (j *jobWithCustomEquivalence) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
+	return j.options
+}
+
 func TestEquivalentToWorkload(t *testing.T) {
 	const (
 		testJobName = "test-job"
@@ -1349,11 +1368,24 @@ func TestEquivalentToWorkload(t *testing.T) {
 		PodAnnotation(kueue.PodSetUnconstrainedTopologyAnnotation, "not-a-bool").
 		Obj())
 
+	tasJob := (*job.Job)(testingjob.MakeJob(testJobName, testNS).
+		UID(testJobUID).
+		PodAnnotation(kueue.PodSetRequiredTopologyAnnotation, corev1.LabelHostname).
+		Obj())
+
 	baseWl := utiltestingapi.MakeWorkload("base", testNS).
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 			PodSpec(baseJob().Spec.Template.Spec).
 			PodIndexLabel(ptr.To(batchv1.JobCompletionIndexAnnotation)).
 			Obj())
+
+	tasWlWithoutIndex := utiltestingapi.MakeWorkload("tas-wl", testNS).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			PodSpec(tasJob.Spec.Template.Spec).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Obj()).
+		ControllerReference(testGVK, testJobName, testJobUID).
+		Obj()
 
 	admittedWl := baseWl.Clone().
 		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
@@ -1515,6 +1547,18 @@ func TestEquivalentToWorkload(t *testing.T) {
 				ControllerReference(testGVK, testJobName, testJobUID).
 				Obj(),
 			wantErr: true,
+		},
+		"custom equivalence options: WithIgnoreTopologyIndexLabels matches missing index on workload": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			job:          &jobWithCustomEquivalence{Job: tasJob, options: []equality.ComparePodSetsOption{equality.WithIgnoreTopologyIndexLabels()}},
+			wl:           tasWlWithoutIndex,
+			want:         true,
+		},
+		"without custom equivalence options: missing index on workload does not match": {
+			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
+			job:          tasJob,
+			wl:           tasWlWithoutIndex,
+			want:         false,
 		},
 	}
 	for name, tc := range testCases {
@@ -1949,6 +1993,30 @@ func TestProcessOptions(t *testing.T) {
 				Clock:                      fakeClock,
 			},
 		},
+		"Kueue's internal labels and annotations are dropped from the keys to copy": {
+			inputOpts: []Option{
+				WithLabelKeysToCopy(sets.New("toCopyKey",
+					kueue.MultiKueueOriginLabel,
+					constants.ConcurrentAdmissionParentLabelKey,
+					constants.JobUIDLabel,
+				)),
+				WithAnnotationsToCopy(sets.New("toCopyAnnotation",
+					constants.ComponentWorkloadIndexAnnotation,
+					constants.JobOwnerGVKAnnotation,
+					constants.JobOwnerNameAnnotation,
+					constants.PriorityBoostAnnotationKey,
+					constants.WorkloadAllowedResourceFlavorAnnotation,
+					kueue.WorkloadSliceNameAnnotation,
+					workloadslicing.WorkloadSliceReplacementFor,
+					podconstants.IsGroupWorkloadAnnotationKey,
+				)),
+			},
+			wantOpts: Options{
+				LabelKeysToCopy:   sets.New("toCopyKey"),
+				AnnotationsToCopy: sets.New("toCopyAnnotation"),
+				Clock:             clock.RealClock{},
+			},
+		},
 		"a single option is passed": {
 			inputOpts: []Option{
 				WithManageJobsWithoutQueueName(true),
@@ -1979,6 +2047,43 @@ func TestProcessOptions(t *testing.T) {
 			if diff := cmp.Diff(tc.wantOpts, gotOpts,
 				cmpopts.IgnoreUnexported(kubeversion.ServerVersionFetcher{}, testingclock.FakePassiveClock{}, testingclock.FakeClock{})); len(diff) != 0 {
 				t.Errorf("Unexpected error from ProcessOptions (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestNonInheritableLabelsIn(t *testing.T) {
+	cases := map[string]struct {
+		keys []string
+		want []string
+	}{
+		"only user labels": {
+			keys: []string{"team", "project"},
+			want: []string{},
+		},
+		"internal labels among user labels": {
+			keys: []string{
+				"team",
+				kueue.MultiKueueOriginLabel,
+				constants.JobUIDLabel,
+				constants.ConcurrentAdmissionParentLabelKey,
+				kueue.MultiKueueOriginLabel,
+			},
+			want: []string{
+				constants.ConcurrentAdmissionParentLabelKey,
+				constants.JobUIDLabel,
+				kueue.MultiKueueOriginLabel,
+			},
+		},
+		"the key of an internal annotation": {
+			keys: []string{constants.PriorityBoostAnnotationKey},
+			want: []string{},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if diff := cmp.Diff(tc.want, NonInheritableLabelsIn(tc.keys)); diff != "" {
+				t.Errorf("NonInheritableLabelsIn() (-want,+got):\n%s", diff)
 			}
 		})
 	}
@@ -2638,6 +2743,88 @@ func TestReconcileGenericJob_EvictionClearsQuotaReservation(t *testing.T) {
 	}
 }
 
+// TestReconcileJobSetReclaimablePods covers how the reconciler updates a workload's
+// reclaimablePods depending on its eviction/quota state (kueue#14811). It uses a JobSet
+// because that is the job type that actually produces a reclaimable decrease: a Recreate
+// restart moves a succeeded child back to running, dropping its Succeeded count to zero.
+func TestReconcileJobSetReclaimablePods(t *testing.T) {
+	gvk := v1alpha2.GroupVersion.WithKind("JobSet")
+	reclaimableOne := []kueue.ReclaimablePod{{Name: "rj", Count: 1}}
+
+	testCases := map[string]struct {
+		evicted         bool
+		wantReclaimable []kueue.ReclaimablePod
+	}{
+		"evicted and holding quota: reclaimable pods are retained": {
+			evicted:         true,
+			wantReclaimable: reclaimableOne,
+		},
+		"not evicted: reclaimable pods are removed": {
+			evicted:         false,
+			wantReclaimable: nil,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			// A suspended JobSet whose replicated job has one active pod and none succeeded:
+			// IsActive() is true (so the workload keeps holding quota), and ReclaimablePods() is
+			// empty.
+			jobSetObj := jobset.MakeJobSet("job-1", "ns").
+				ReplicatedJobs(jobset.ReplicatedJobRequirements{Name: "rj", Replicas: 2, Parallelism: 1, Completions: 1}).
+				Queue("cq").UID("job-1").Suspend(true).
+				JobsStatus(v1alpha2.ReplicatedJobStatus{Name: "rj", Active: 1}).
+				Obj()
+			genericJob := (*workloadjobset.JobSet)(jobSetObj)
+			basePodSets, err := genericJob.PodSets(ctx, nil)
+			if err != nil {
+				t.Fatalf("getting job pod sets: %v", err)
+			}
+
+			wlWrapper := utiltestingapi.MakeWorkload("job-1", "ns").
+				PodSets(basePodSets...).
+				ControllerReference(gvk, "job-1", "job-1")
+			if tc.evicted {
+				wlWrapper = wlWrapper.ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now())
+				wlWrapper = wlWrapper.Condition(metav1.Condition{
+					Type:   kueue.WorkloadEvicted,
+					Status: metav1.ConditionTrue,
+					Reason: kueue.WorkloadEvictedByPodsReadyTimeout,
+				})
+			}
+			wl := wlWrapper.Obj()
+
+			cl := utiltesting.NewClientBuilder(v1alpha2.AddToScheme).
+				WithObjects(jobSetObj, wl, utiltesting.MakeNamespace("ns")).
+				WithStatusSubresource(jobSetObj, wl).
+				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(gvk), indexer.WorkloadOwnerIndexFunc(gvk)).
+				Build()
+
+			// Seed the reclaimable pods through the reconciler's own field manager so a later
+			// empty apply can actually remove them.
+			if err := workload.UpdateReclaimablePods(ctx, cl, wl, reclaimableOne); err != nil {
+				t.Fatalf("seeding reclaimable pods: %v", err)
+			}
+
+			r := NewReconciler(cl, &utiltesting.EventRecorder{})
+			req := controllerruntime.Request{Namespace: "ns", Name: "job-1"}
+			if _, err := r.ReconcileGenericJob(ctx, req, genericJob); err != nil {
+				t.Fatalf("ReconcileGenericJob() unexpected error: %v", err)
+			}
+
+			var gotWl kueue.Workload
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), &gotWl); err != nil {
+				t.Fatalf("failed to get workload: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantReclaimable, gotWl.Status.ReclaimablePods, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("unexpected reclaimablePods (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
 	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp, true)
@@ -2892,5 +3079,67 @@ func TestConstructWorkloadForPartialScaleUp(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestReconcilePrebuiltWorkloadFinishesReplacedSlice(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now().Truncate(time.Second)
+	gvk := batchv1.SchemeGroupVersion.WithKind("Job")
+	obj := testingjob.MakeJob("job", "ns").UID("job-uid").Queue("q").Suspend(false).
+		PrebuiltWorkloadLabel("new").
+		SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).Obj()
+	// The scheduler admitted the replacement but failed to finish the old slice.
+	old := utiltestingapi.MakeWorkload("old", "ns").
+		ControllerReference(gvk, obj.Name, string(obj.UID)).
+		PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj()
+	replacement := utiltestingapi.MakeWorkload("new", "ns").Queue("q").
+		Annotation(kueue.WorkloadSliceNameAnnotation, "old").
+		Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/old").
+		PodSets(*utiltestingapi.MakePodSet("main", 2).Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).AdmittedAt(true, now).Obj()
+	workloads := []*kueue.Workload{old, replacement}
+
+	cl := utiltesting.NewClientBuilder().WithObjects(utiltesting.MakeNamespace("ns"), obj, old, replacement).
+		WithStatusSubresource(&kueue.Workload{}).
+		WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
+		WithInterceptorFuncs(interceptor.Funcs{SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration}).
+		Build()
+	mgj := mocks.NewMockGenericJob(gomock.NewController(t))
+	mgj.EXPECT().Object().Return(obj).AnyTimes()
+	mgj.EXPECT().GVK().Return(gvk).AnyTimes()
+	mgj.EXPECT().IsSuspended().Return(false).AnyTimes()
+	mgj.EXPECT().IsActive().Return(true).AnyTimes()
+	mgj.EXPECT().Finished(gomock.Any()).Return("", false, false).AnyTimes()
+	mgj.EXPECT().PodsReady(gomock.Any(), gomock.Any()).Return(false).AnyTimes()
+	mgj.EXPECT().PodSets(gomock.Any(), gomock.Any()).Return(replacement.Spec.PodSets, nil).AnyTimes()
+	rec := NewReconciler(cl, &utiltesting.EventRecorder{})
+	req := controllerruntime.Request{NamespacedName: client.ObjectKeyFromObject(obj)}
+
+	if _, err := rec.ReconcileGenericJob(ctx, req, mgj); err != nil {
+		t.Fatal(err)
+	}
+
+	list := &kueue.WorkloadList{}
+	if err := cl.List(ctx, list); err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Items) != len(workloads) {
+		t.Fatalf("workload count = %d, want %d", len(list.Items), len(workloads))
+	}
+	for _, before := range workloads {
+		got := &kueue.Workload{}
+		if err := cl.Get(ctx, client.ObjectKeyFromObject(before), got); err != nil {
+			t.Fatal(err)
+		}
+		if diff := cmp.Diff(before.Spec.PodSets, got.Spec.PodSets, cmpopts.EquateEmpty()); diff != "" {
+			t.Errorf("PodSets changed: %s", diff)
+		}
+		wantFinished := before.Name == "old"
+		if workloadfinish.IsFinished(got) != wantFinished {
+			t.Errorf("%s Finished = %v, want %v", got.Name, workloadfinish.IsFinished(got), wantFinished)
+		}
 	}
 }

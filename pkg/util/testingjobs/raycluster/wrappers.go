@@ -23,6 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -94,6 +95,21 @@ func (w *WorkerGroupWrapper) Request(r corev1.ResourceName, v string) *WorkerGro
 // NodeSelector adds a node selector to the group's pod template.
 func (w *WorkerGroupWrapper) NodeSelector(key, value string) *WorkerGroupWrapper {
 	w.Template.Spec.NodeSelector[key] = value
+	return w
+}
+
+// NumOfHosts sets the group's numOfHosts.
+func (w *WorkerGroupWrapper) NumOfHosts(numOfHosts int32) *WorkerGroupWrapper {
+	w.WorkerGroupSpec.NumOfHosts = numOfHosts
+	return w
+}
+
+// PodAnnotation sets an annotation on the group's pod template.
+func (w *WorkerGroupWrapper) PodAnnotation(key, value string) *WorkerGroupWrapper {
+	if w.Template.Annotations == nil {
+		w.Template.Annotations = make(map[string]string)
+	}
+	w.Template.Annotations[key] = value
 	return w
 }
 
@@ -216,6 +232,18 @@ func (j *ClusterWrapper) SetAnnotation(key, content string) *ClusterWrapper {
 		j.Annotations = make(map[string]string, 1)
 	}
 	j.Annotations[key] = content
+	return j
+}
+
+// UID updates the uid of the RayCluster.
+func (j *ClusterWrapper) UID(uid string) *ClusterWrapper {
+	j.ObjectMeta.UID = types.UID(uid)
+	return j
+}
+
+// Generation updates the generation of the RayCluster.
+func (j *ClusterWrapper) Generation(generation int64) *ClusterWrapper {
+	j.ObjectMeta.Generation = generation
 	return j
 }
 

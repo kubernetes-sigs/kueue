@@ -34,6 +34,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Workload accounting after requeue backoff", ginkgo.Label("controller:workload", "area:core"), func() {
@@ -127,7 +128,7 @@ var _ = ginkgo.Describe("Workload accounting after requeue backoff", ginkgo.Labe
 		})
 
 		ginkgo.By("readmitting the workload with its full effective request once quota is released", func() {
-			behavioral.FinishWorkloads(ctx, k8sClient, other)
+			integration.FinishWorkloads(ctx, k8sClient, other)
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, cq.Name, wl)
 			gomega.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 			gomega.Expect(wl.Status.Admission.PodSetAssignments).To(gomega.HaveLen(1))

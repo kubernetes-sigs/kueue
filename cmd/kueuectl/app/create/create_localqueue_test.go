@@ -22,6 +22,10 @@ import (
 	"github.com/google/go-cmp/cmp"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/client-go/clientset/versioned/fake"
+	"sigs.k8s.io/kueue/cmd/kueuectl/app/dryrun"
+	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 func TestCreateLocalQueue(t *testing.T) {
@@ -47,6 +51,102 @@ func TestCreateLocalQueue(t *testing.T) {
 			lq := tc.options.createLocalQueue()
 			if diff := cmp.Diff(tc.expected, lq); diff != "" {
 				t.Errorf("Unexpected result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestValidateLocalQueue(t *testing.T) {
+	testCases := map[string]struct {
+		options *LocalQueueOptions
+		wantErr string
+	}{
+		"missing name": {
+			options: &LocalQueueOptions{
+				ClusterQueue: "cq1",
+				Namespace:    "ns1",
+			},
+			wantErr: "name must be specified",
+		},
+		"missing clusterqueue": {
+			options: &LocalQueueOptions{
+				Name:      "lq1",
+				Namespace: "ns1",
+			},
+			wantErr: "clusterqueue must be specified",
+		},
+		"missing namespace": {
+			options: &LocalQueueOptions{
+				Name:         "lq1",
+				ClusterQueue: "cq1",
+			},
+			wantErr: "namespace must be specified",
+		},
+		"existing cluster queue with dry-run none": {
+			options: &LocalQueueOptions{
+				Name:                      "lq1",
+				Namespace:                 "ns1",
+				ClusterQueue:              "cq1",
+				UserSpecifiedClusterQueue: "cq1",
+				DryRunStrategy:            dryrun.None,
+				Client: fake.NewSimpleClientset(
+					utiltestingapi.MakeClusterQueue("cq1").Obj(),
+				).KueueV1beta2(),
+			},
+		},
+		"unknown cluster queue with dry-run none fails": {
+			options: &LocalQueueOptions{
+				Name:                      "lq1",
+				Namespace:                 "ns1",
+				ClusterQueue:              "unknown-cq",
+				UserSpecifiedClusterQueue: "unknown-cq",
+				DryRunStrategy:            dryrun.None,
+				Client:                    fake.NewSimpleClientset().KueueV1beta2(),
+			},
+			wantErr: `clusterqueues.kueue.x-k8s.io "unknown-cq" not found`,
+		},
+		"unknown cluster queue with dry-run none and ignore-unknown-cq succeeds": {
+			options: &LocalQueueOptions{
+				Name:                      "lq1",
+				Namespace:                 "ns1",
+				ClusterQueue:              "unknown-cq",
+				UserSpecifiedClusterQueue: "unknown-cq",
+				IgnoreUnknownCq:           true,
+				DryRunStrategy:            dryrun.None,
+				Client:                    fake.NewSimpleClientset().KueueV1beta2(),
+			},
+		},
+		"unknown cluster queue with dry-run client succeeds without remote call": {
+			options: &LocalQueueOptions{
+				Name:                      "lq1",
+				Namespace:                 "ns1",
+				ClusterQueue:              "unknown-cq",
+				UserSpecifiedClusterQueue: "unknown-cq",
+				DryRunStrategy:            dryrun.Client,
+			},
+		},
+		"unknown cluster queue with dry-run server fails": {
+			options: &LocalQueueOptions{
+				Name:                      "lq1",
+				Namespace:                 "ns1",
+				ClusterQueue:              "unknown-cq",
+				UserSpecifiedClusterQueue: "unknown-cq",
+				DryRunStrategy:            dryrun.Server,
+				Client:                    fake.NewSimpleClientset().KueueV1beta2(),
+			},
+			wantErr: `clusterqueues.kueue.x-k8s.io "unknown-cq" not found`,
+		},
+	}
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			err := tc.options.Validate(ctx)
+			var gotErrStr string
+			if err != nil {
+				gotErrStr = err.Error()
+			}
+			if diff := cmp.Diff(tc.wantErr, gotErrStr); diff != "" {
+				t.Errorf("Unexpected error (-want/+got):\n%s", diff)
 			}
 		})
 	}

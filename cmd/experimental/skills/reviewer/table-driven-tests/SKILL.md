@@ -1,13 +1,16 @@
 ---
 name: table-driven-tests
-description: Review that tests covering multiple scenarios use table-driven style instead of inline sequential blocks.
+description: Review reuse of suitable tables and setup for independent unit-test scenarios.
 license: Apache-2.0
 metadata:
   copyright: The Kubernetes Authors
 ---
 
-# Skill: Table-Driven Tests
+# Skill: Reuse Table-Driven Unit Tests
 
-**Flag:** A Go test function that covers multiple scenarios inline as a single sequential block.
+Follow [Writing tests](../../../../../site/content/en/community/contribution_guidelines/writing_tests.md).
 
-**Ask:** Refactor to use table-driven style — `tests := map[string]struct{ ... }{ ... }` with `for name, tc := range tests`. A monolithic test that grows one `if` block per case is a "spaghetti test" and makes it hard to add new scenarios.
+**Flag:** Independent unit scenarios duplicate setup or bypass a suitable
+existing table.
+
+**Ask:** Add them as cases to a suitable table.

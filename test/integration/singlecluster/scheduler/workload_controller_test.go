@@ -39,6 +39,7 @@ import (
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var ignoreCqCondition = cmpopts.IgnoreFields(kueue.ClusterQueueStatus{}, "Conditions")
@@ -570,7 +571,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			})
 
 			ginkgo.By("Finishing the first workload causes the second one to be admitted", func() {
-				behavioral.FinishWorkloads(ctx, k8sClient, wl)
+				integration.FinishWorkloads(ctx, k8sClient, wl)
 				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl2)
 			})
 
@@ -598,7 +599,7 @@ var _ = ginkgo.Describe("Workload controller with scheduler", func() {
 			})
 
 			ginkgo.By("After all workloads are finished cluster queue state is clean", func() {
-				behavioral.FinishWorkloads(ctx, k8sClient, wl2)
+				integration.FinishWorkloads(ctx, k8sClient, wl2)
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), &updatedCQ)).To(gomega.Succeed())
 					g.Expect(updatedCQ.Status).Should(gomega.BeComparableTo(kueue.ClusterQueueStatus{

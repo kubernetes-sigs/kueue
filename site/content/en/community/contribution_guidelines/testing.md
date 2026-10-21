@@ -7,6 +7,9 @@ description: >
 type: docs
 ---
 
+For coverage, test levels, and maintainable test design, see
+[Writing tests](/community/contribution_guidelines/writing_tests/).
+
 ## Quick start
 
 The most common development workflows:

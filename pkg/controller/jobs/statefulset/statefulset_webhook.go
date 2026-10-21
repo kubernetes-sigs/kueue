@@ -89,8 +89,15 @@ func (wh *Webhook) Default(ctx context.Context, stsObj *appsv1.StatefulSet) erro
 	if err := wh.integrationManager.ApplyDefaultLocalQueue(ctx, wh.client, ss.Object(), wh.queues.DefaultLocalQueueExist, wh.managedJobsNamespaceSelector); err != nil {
 		return err
 	}
-	if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, ss.Object(), wh.managedJobsNamespaceSelector); err != nil {
+	oldSTSObj, err := webhook.OldObjectFromContext[appsv1.StatefulSet](ctx)
+	if err != nil {
 		return err
+	}
+	// ValidateUpdate rejects adding the label to a running StatefulSet that did not have it.
+	if oldSTSObj == nil || jobframework.CanSetWorkloadPriorityClassName(oldSTSObj.Status.ReadyReplicas == 0, oldSTSObj) {
+		if err := wh.integrationManager.ApplyDefaultWorkloadPriorityClass(ctx, wh.client, ss.Object(), wh.managedJobsNamespaceSelector); err != nil {
+			return err
+		}
 	}
 	suspend, err := wh.integrationManager.WorkloadShouldBeSuspended(
 		ctx,
@@ -174,17 +181,17 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldSTSObj, newSTSObj *app
 	allErrs = append(allErrs, jobframework.ValidateElasticJobAnnotation(newStatefulSet.Object(), newStatefulSet.GVK())...)
 
 	isSuspended := oldStatefulSet.Status.ReadyReplicas == 0
-	queueNameImmutable := !isSuspended || newQueueName == ""
-	if !queueNameImmutable && newQueueName != oldQueueName {
+	queueErrs, err := jobframework.ValidateQueueNameUpdate(oldQueueName, newQueueName, isSuspended, func() (bool, error) {
 		_, wl, err := findWorkload(ctx, wh.client, oldSTSObj)
 		if err != nil {
-			return nil, err
+			return false, err
 		}
-		queueNameImmutable = wl != nil && workload.HasQuotaReservation(wl)
+		return wl != nil && workload.HasQuotaReservation(wl), nil
+	})
+	if err != nil {
+		return nil, err
 	}
-	if queueNameImmutable {
-		allErrs = append(allErrs, apivalidation.ValidateImmutableField(newQueueName, oldQueueName, queueNameLabelPath)...)
-	}
+	allErrs = append(allErrs, queueErrs...)
 	allErrs = append(allErrs, jobframework.ValidateUpdateForWorkloadPriorityClassName(
 		isSuspended,
 		oldStatefulSet.Object(),

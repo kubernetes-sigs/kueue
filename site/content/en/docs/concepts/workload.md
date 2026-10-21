@@ -214,6 +214,7 @@ whereas `count` increases on every eviction.
 ## Replicate labels from Jobs into Workloads
 You can configure Kueue to copy labels, at Workload creation, into the new Workload from the underlying Job or Pod objects. This can be useful for Workload identification and debugging.
 You can specify which labels should be copied by setting the `labelKeysToCopy` field in the configuration API (under `integrations`). By default, Kueue does not copy any Job or Pod label into the Workload.
+Kueue never copies its internal labels `kueue.x-k8s.io/multikueue-origin`, `kueue.x-k8s.io/concurrent-admission-parent` and `kueue.x-k8s.io/job-uid` from the Job or Pod. If `labelKeysToCopy` names one of them, Kueue lists it in its log at startup.
 
 ## Maximum execution time
 

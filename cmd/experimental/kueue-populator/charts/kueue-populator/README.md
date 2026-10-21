@@ -34,7 +34,7 @@ You can install the chart directly from the OCI registry:
 
 ```bash
 helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
-  --version 0.20.0 \
+  --version 0.20.2 \
   --namespace kueue-system \
   --create-namespace \
   --wait
@@ -112,7 +112,7 @@ kueuePopulator:
 
 ```bash
 helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
-  --version 0.20.0 \
+  --version 0.20.2 \
   --namespace kueue-system \
   --create-namespace \
   --wait \
@@ -125,7 +125,7 @@ For simple configuration you may also use the minimalistic command:
 
 ```bash
 helm install kueue-populator oci://registry.k8s.io/kueue/charts/kueue-populator \
-  --version 0.20.0 \
+  --version 0.20.2 \
   --namespace kueue-system \
   --create-namespace \
   --wait \
@@ -150,7 +150,9 @@ The following table lists the configurable parameters under the `kueuePopulator`
 | `config.topology.levels`                           | list     | `[]`              | Optional list of node labels for Topology Aware Scheduling levels. Enables Topology creation.            |
 | `config.resourceFlavor.nodeLabels`                 | object   | `{}`              | Node labels to associate with the default ResourceFlavor.                                                  |
 | `config.managedJobsNamespaceSelector`              | object   | unset             | Optional selector to override Kueue's `managedJobsNamespaceSelector` for the populator.                   |
-| `kueue.managerConfig.controllerManagerConfigYaml`  | string   | (see Kueue chart) | Kueue controller manager configuration. The chart copies `managedJobsNamespaceSelector` from this config into the populator config. |
+| `kueue.managerConfig.mode` | string | (not set) | Optional `yaml` or `structured` selection. When omitted, supplied YAML takes precedence. |
+| `kueue.managerConfig.structuredOverrides`                       | object   | (not set) | Overrides of Kueue manager configuration defaults, used in structured mode, or when both mode and YAML are absent. The populator inherits its `managedJobsNamespaceSelector` unless explicitly overridden. |
+| `kueue.managerConfig.controllerManagerConfigYaml`  | string   | (not set)         | Full Kueue manager configuration as YAML; takes precedence when supplied, including an empty string, unless mode is `structured`. |
 
 ### Kueue Subchart Configuration
 
@@ -158,7 +160,20 @@ This chart includes the official `kueue` chart as a dependency. You can configur
 
 -   `kueue.enabled: false`: Disables the subchart installation by default. Set to `true` to install Kueue.
 -   `kueue.controllerManager.featureGates`: Enables `TopologyAwareScheduling`.
--   `kueue.managerConfig.controllerManagerConfigYaml`: Provides Kueue's controller manager configuration. The chart copies its `managedJobsNamespaceSelector` into the populator config unless `kueuePopulator.config.managedJobsNamespaceSelector` is set explicitly.
+-   `kueue.managerConfig`: With mode omitted, supplied `controllerManagerConfigYaml`
+    takes precedence, including an empty string. Otherwise, use `structuredOverrides`.
+    Optional `mode: structured` ignores YAML; `mode: yaml` ignores structured overrides.
+    The populator inherits `managedJobsNamespaceSelector` unless its own selector
+    is explicitly set. The two inputs are not merged. This selection applies with
+    the Kueue subchart enabled or disabled; structured null-valued map keys are
+    removed in either case. With the subchart disabled, an absent selector falls
+    back to excluding `kube-system` and the configured Kueue or release namespace.
+
+Unknown keys directly under `kueue.managerConfig` are rejected. If supplied,
+mode must be `yaml` or `structured`. When supplied,
+`structuredOverrides` must be a map and `controllerManagerConfigYaml` must be a
+string, even when that input is not selected. Correct unknown keys or incorrectly
+typed inputs before upgrading.
 
 See the [Kueue chart README](https://github.com/kubernetes-sigs/kueue/blob/main/charts/kueue/README.md) for all possible Kueue configuration options.
 

@@ -250,6 +250,51 @@ var _ = ginkgo.Describe("Kueuectl Create", func() {
 				})
 			})
 		})
+
+		ginkgo.It("Should not create a local queue with --dry-run=client and unknown cluster queue", func() {
+			lqName := "lq-dryrun-client-unknown-cq"
+			cqName := "cq-unknown"
+
+			ginkgo.By("Create a local queue with --dry-run=client and unknown cluster queue", func() {
+				streams, _, out, _ := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl.SetOut(out)
+				kueuectl.SetErr(out)
+
+				kueuectl.SetArgs([]string{"create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name, "--dry-run=client"})
+				err := kueuectl.Execute()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred(), "%s: %s", err, out)
+
+				ginkgo.By("Verify the local queue was NOT created in the cluster", func() {
+					var createdQueue kueue.LocalQueue
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: lqName, Namespace: ns.Name}, &createdQueue)).To(utiltesting.BeNotFoundError())
+					}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Verify the local queue object is still printed to stdout", func() {
+					gomega.Expect(out.String()).To(gomega.ContainSubstring(lqName))
+				})
+			})
+		})
+
+		ginkgo.It("Should not create a local queue with --dry-run=server and unknown cluster queue", func() {
+			lqName := "lq-dryrun-server-unknown-cq"
+			cqName := "cq-unknown"
+
+			ginkgo.By("Create a local queue with --dry-run=server and unknown cluster queue", func() {
+				streams, _, output, _ := genericiooptions.NewTestIOStreams()
+				configFlags := CreateConfigFlagsWithRestConfig(cfg, streams)
+				kueuectl := app.NewKueuectlCmd(app.KueuectlOptions{ConfigFlags: configFlags, IOStreams: streams})
+				kueuectl.SetOut(output)
+				kueuectl.SetErr(output)
+
+				kueuectl.SetArgs([]string{"create", "localqueue", lqName, "--clusterqueue", cqName, "--namespace", ns.Name, "--dry-run=server"})
+				err := kueuectl.Execute()
+				gomega.Expect(err).To(gomega.MatchError(gomega.ContainSubstring(fmt.Sprintf(`clusterqueues.kueue.x-k8s.io "%s" not found`, cqName))))
+			})
+		})
 	})
 
 	ginkgo.When("Creating a ClusterQueue", func() {

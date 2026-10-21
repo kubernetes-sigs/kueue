@@ -20,23 +20,33 @@ package was
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"iter"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	schedLibSnapshot "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
+	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/features"
 )
 
+const FailedReasonSkipped = "skipped"
+
 var _ simulator.SchedulerSimulator = (*wasSimulator)(nil)
+
+var (
+	errFindFeasibleNodesNotAllowed = errors.New("FindFeasibleNodes() not allowed when SchedulerLibraryDeepIntegration enabled")
+	errScheduleWorkloadNotAllowed  = errors.New("ScheduleWorkload() not allowed when SchedulerLibraryDeepIntegration disabled")
+)
 
 type wasSimulator struct {
 	// wasSnapshot is the cluster as it stands, with every tracked Pod on its node.
-	wasSnapshot *schedLibSnapshot.ClusterSnapshot
+	wasSnapshot *schedlib.ClusterSnapshot
 	// podsByWorkload indexes the tracked Pods by the Workload that owns them, which
 	// is the only set PreemptWorkload can release.
 	podsByWorkload podsByWorkload
@@ -49,14 +59,14 @@ type wasSimulator struct {
 // pay for it.
 type lazyCluster struct {
 	// build produces the cluster. It runs at most once.
-	build func(context.Context) (*schedLibSnapshot.ClusterSnapshot, error)
+	build func(context.Context) (*schedlib.ClusterSnapshot, error)
 	once  sync.Once
 	// value and err hold what build returned, and are only read after once has run.
-	value *schedLibSnapshot.ClusterSnapshot
+	value *schedlib.ClusterSnapshot
 	err   error
 }
 
-func (l *lazyCluster) get(ctx context.Context) (*schedLibSnapshot.ClusterSnapshot, error) {
+func (l *lazyCluster) get(ctx context.Context) (*schedlib.ClusterSnapshot, error) {
 	l.once.Do(func() {
 		l.value, l.err = l.build(ctx)
 	})
@@ -69,6 +79,9 @@ func (s *wasSimulator) FindFeasibleNodes(
 	requirements *simulator.PodRequirements,
 	stats *simulator.NodeExclusionStats,
 ) ([]simulator.MatchedCandidate, error) {
+	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		return nil, errFindFeasibleNodesNotAllowed
+	}
 	var candidateLeaves = make(map[string]simulator.MatchedCandidate)
 	var candidateNodeNames []string
 	var feasibleCandidates []simulator.MatchedCandidate
@@ -136,8 +149,63 @@ func (s *wasSimulator) PreemptWorkload(ctx context.Context, wlKey client.ObjectK
 }
 
 func (s *wasSimulator) Simulate(ctx context.Context, fn func()) error {
-	return s.wasSnapshot.Transaction(ctx, func() (schedLibSnapshot.TransactionResult, error) {
+	return s.wasSnapshot.Transaction(ctx, func() (schedlib.TransactionResult, error) {
 		fn()
-		return schedLibSnapshot.Revert, nil
+		return schedlib.Revert, nil
 	})
+}
+
+func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
+	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		return simulator.SchedulingResult{Error: errScheduleWorkloadNotAllowed}
+	}
+
+	workloadPods = copyWithDefaultScheduler(workloadPods...)
+	wasResult := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, schedlib.ScheduleWorkloadOptions{DryRun: true})
+	if wasResult.Status.IsError() {
+		return simulator.SchedulingResult{Error: wasResult.Status.AsError()}
+	}
+
+	// Parse scheduler-library results
+	placements := make(simulator.PodPlacements, len(workloadPods))
+	for _, podResult := range wasResult.PodResults {
+		podKey := client.ObjectKeyFromObject(podResult.Pod)
+		status := podResult.Status
+		if status.IsSuccess() {
+			placements[podKey] = &simulator.PodPlacement{Node: types.NodeName(podResult.SelectedNodeName)}
+		} else {
+			placements[podKey] = &simulator.PodPlacement{
+				Error:   status.AsError(),
+				Reasons: status.Reasons(),
+			}
+		}
+	}
+
+	// Add entries for pods not scheduled by the scheduler-library
+	for _, wlPod := range workloadPods {
+		podKey := client.ObjectKeyFromObject(wlPod)
+		if _, placed := placements[podKey]; !placed {
+			placements[podKey] = &simulator.PodPlacement{Reasons: []string{FailedReasonSkipped}}
+		}
+	}
+
+	return simulator.SchedulingResult{PodPlacements: placements}
+}
+
+func (s *wasSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	return s.wasSnapshot.AddPodGroup(ctx, pg)
+}
+
+func (s *wasSimulator) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	return s.wasSnapshot.RemovePodGroup(ctx, pg)
+}
+
+func copyWithDefaultScheduler(pods ...*corev1.Pod) []*corev1.Pod {
+	copiedPods := make([]*corev1.Pod, len(pods))
+	for i, pod := range pods {
+		copiedPods[i] = pod.DeepCopy()
+		// The simulator builds one profile, so judge the Pod by it rather than by the scheduler it names.
+		copiedPods[i].Spec.SchedulerName = corev1.DefaultSchedulerName
+	}
+	return copiedPods
 }

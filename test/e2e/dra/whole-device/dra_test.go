@@ -117,7 +117,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(job))
 
 			ginkgo.By("Verifying job completes successfully")
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job)
 
 			ginkgo.By("Verifying workload finished successfully")
 			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
@@ -215,8 +215,8 @@ var _ = ginkgo.Describe("DRA", func() {
 			}
 
 			ginkgo.By("Verifying both jobs complete successfully")
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job1)
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job2)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job1)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job2)
 
 			ginkgo.By("Verifying both workloads finished successfully")
 			for _, job := range []*batchv1.Job{job1, job2} {
@@ -273,7 +273,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			behavioral.MustCreate(ctx, k8sClient, job3)
 
 			ginkgo.By("Verifying first two jobs complete and third job eventually runs")
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job3)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job3)
 
 			ginkgo.By("Verifying third workload finished successfully")
 			wlLookupKey3 := types.NamespacedName{
@@ -322,7 +322,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(job))
 
 			ginkgo.By("Verifying job completes successfully")
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job)
 
 			ginkgo.By("Verifying workload finished successfully")
 			behavioral.ExpectWorkloadToFinish(ctx, k8sClient, wlLookupKey)
@@ -387,7 +387,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, legitimateWlKey)
 
 			ginkgo.By("Verifying legitimate job completes successfully")
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, legitimateJob)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, legitimateJob)
 			behavioral.ExpectWorkloadToFinish(ctx, k8sClient, legitimateWlKey)
 		})
 
@@ -431,7 +431,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verifying job completes successfully")
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job)
 		})
 	})
 
@@ -520,7 +520,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(job))
 
 			ginkgo.By("Verifying job completes successfully")
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job)
 
 			ginkgo.By("Verifying workload finished successfully")
 			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wlLookupKey, behavioral.LongTimeout)
@@ -618,8 +618,8 @@ var _ = ginkgo.Describe("DRA", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verifying both jobs complete successfully")
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job1)
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job2)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job1)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job2)
 		})
 
 		ginkgo.It("Should track ResourceClaimTemplate and Extended Resource requests separately", func() {
@@ -661,7 +661,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verifying job completes successfully")
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job)
 		})
 
 		ginkgo.It("Should not double-count extended resource when translated to DRA logical resource", func() {
@@ -693,7 +693,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Verifying job completes successfully")
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job)
 		})
 	})
 
@@ -780,7 +780,7 @@ var _ = ginkgo.Describe("DRA", func() {
 			behavioral.ExpectJobUnsuspended(ctx, k8sClient, client.ObjectKeyFromObject(job))
 
 			ginkgo.By("Verifying job completes successfully")
-			behavioral.ExpectJobToBeCompleted(ctx, k8sClient, job)
+			e2e.ExpectJobToBeCompleted(ctx, k8sClient, job)
 		})
 	})
 })

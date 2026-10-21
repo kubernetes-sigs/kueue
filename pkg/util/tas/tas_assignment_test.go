@@ -1145,6 +1145,36 @@ func TestInternalSeqFromV1Beta2_iteratorStops(t *testing.T) {
 	}
 }
 
+func TestDomainIDs(t *testing.T) {
+	for _, tc := range slices.Concat(bothWaysTestCases, oneWayTestCases) {
+		t.Run(tc.name, func(t *testing.T) {
+			got := slices.Collect(DomainIDs(tc.v1beta2))
+			want := make([]TopologyDomainID, 0, len(tc.internal.Domains))
+			for _, d := range tc.internal.Domains {
+				want = append(want, DomainID(d.Values))
+			}
+			if diff := cmp.Diff(want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("unexpected result (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestDomainIDs_forNil(t *testing.T) {
+	got := DomainIDs(nil)
+	if got != nil {
+		t.Errorf("unexpected result for nil: %+v", got)
+	}
+}
+
+func TestDomainIDs_iteratorStops(t *testing.T) {
+	for range DomainIDs(twoDomains) {
+		// Break the loop prematurely.
+		// If the iterator isn't smart enough to stop, this will panic.
+		break
+	}
+}
+
 func TestPodCounts(t *testing.T) {
 	for _, tc := range slices.Concat(bothWaysTestCases, oneWayTestCases) {
 		t.Run(tc.name, func(t *testing.T) {

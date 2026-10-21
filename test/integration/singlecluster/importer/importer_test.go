@@ -34,6 +34,7 @@ import (
 	utiltestingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("Importer", func() {
@@ -165,7 +166,7 @@ var _ = ginkgo.Describe("Importer", func() {
 			})
 
 			ginkgo.By("By finishing an imported pod, the new one's Workload should be admitted", func() {
-				behavioral.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod2)
+				integration.SetPodsPhase(ctx, k8sClient, corev1.PodSucceeded, pod2)
 
 				behavioral.ExpectWorkloadToFinish(ctx, k8sClient, wl2LookupKey)
 				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1, wl3)

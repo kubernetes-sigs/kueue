@@ -96,7 +96,7 @@ func registerJobSetTests(contextProvider func() jobSetTestContext) {
 		})
 
 		ginkgo.By("Finishing the jobset pods", func() {
-			listOpts := behavioral.GetListOptsFromLabel(fmt.Sprintf("jobset.sigs.k8s.io/jobset-name=%s", jobSet.Name))
+			listOpts := e2e.GetListOptsFromLabel(fmt.Sprintf("jobset.sigs.k8s.io/jobset-name=%s", jobSet.Name))
 			e2e.WaitForActivePodsAndTerminate(ctx, admittedWorker.client, admittedWorker.restClient, admittedWorker.cfg, jobSet.Namespace, 4, 0, listOpts)
 		})
 
@@ -114,8 +114,8 @@ func registerJobSetTests(contextProvider func() jobSetTestContext) {
 		})
 
 		ginkgo.By("Checking no objects are left in the worker clusters and the jobSet is completed", func() {
-			behavioral.ExpectObjectToBeDeletedOnClusters(ctx, createdLeaderWorkload, k8sWorker1Client, k8sWorker2Client)
-			behavioral.ExpectObjectToBeDeletedOnClusters(ctx, jobSet, k8sWorker1Client, k8sWorker2Client)
+			e2e.ExpectObjectToBeDeletedOnClusters(ctx, createdLeaderWorkload, k8sWorker1Client, k8sWorker2Client)
+			e2e.ExpectObjectToBeDeletedOnClusters(ctx, jobSet, k8sWorker1Client, k8sWorker2Client)
 
 			createdJobSet := &jobset.JobSet{}
 			gomega.Expect(k8sManagerClient.Get(ctx, client.ObjectKeyFromObject(jobSet), createdJobSet)).To(gomega.Succeed())

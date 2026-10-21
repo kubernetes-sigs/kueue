@@ -456,7 +456,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 				ginkgo.By("Check workload is deleted", func() {
 					createdWorkload := &kueue.Workload{}
 					gomega.Eventually(func(g gomega.Gomega) {
-						g.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(utiltesting.BeNotFoundError())
+						g.Expect(k8sClient.Get(ctx, e2e.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(utiltesting.BeNotFoundError())
 					}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 				})
 			})
@@ -514,7 +514,7 @@ var _ = ginkgo.Describe("ManageJobsWithoutQueueName", ginkgo.Label("feature:mana
 			ginkgo.By("Check workload is deleted", func() {
 				createdWorkload := &kueue.Workload{}
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, behavioral.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(utiltesting.BeNotFoundError())
+					g.Expect(k8sClient.Get(ctx, e2e.WorkloadKeyForLeaderWorkerSet(lws, "0"), createdWorkload)).To(utiltesting.BeNotFoundError())
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})

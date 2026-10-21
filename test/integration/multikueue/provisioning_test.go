@@ -38,6 +38,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -223,7 +224,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 						Obj(),
 				).
 				Obj()
-			behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, managerWlKey, admission)
+			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, managerWlKey, admission)
 		})
 
 		ginkgo.By("verifying workload is created on worker cluster", func() {
@@ -241,7 +242,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 						Obj(),
 				).
 				Obj()
-			behavioral.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, worker1WlKey, admission)
+			integration.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, worker1WlKey, admission)
 		})
 
 		provReqKey := types.NamespacedName{
@@ -318,7 +319,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 						Obj(),
 				).
 				Obj()
-			behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, managerWlKey, admission)
+			integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, managerWlKey, admission)
 		})
 
 		ginkgo.By("verifying workloads are created on both worker clusters", func() {
@@ -337,7 +338,7 @@ var _ = ginkgo.Describe("MultiKueue with ProvisioningRequest", ginkgo.Label("are
 						Obj(),
 				).
 				Obj()
-			behavioral.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, worker1WlKey, admission)
+			integration.SetQuotaReservation(worker1TestCluster.ctx, worker1TestCluster.client, worker1WlKey, admission)
 		})
 
 		ginkgo.By("verifying worker2 workload still exists while worker1 is not admitted", func() {

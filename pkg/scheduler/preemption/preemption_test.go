@@ -43,8 +43,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
-	preemptioncommon "sigs.k8s.io/kueue/pkg/scheduler/preemption/common"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	utilslices "sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingalpha "sigs.k8s.io/kueue/pkg/util/testing/v1alpha1"
@@ -57,7 +57,7 @@ var snapCmpOpts = cmp.Options{
 	// ignore zero values during comparison, as we consider
 	// zero FlavorResource usage to be same as no map entry.
 	cmpopts.IgnoreMapEntries(func(_ resources.FlavorResource, v resources.Amount) bool { return v.CmpInt64(0) == 0 }),
-	cmpopts.IgnoreFields(schdcache.Snapshot{}, "hostnameLeafTASFlavors", "released"),
+	cmpopts.IgnoreFields(schdcache.Snapshot{}, "hostnameLeafTASFlavors", "released", "candidateOrderCache"),
 	cmp.AllowUnexported(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}),
 	cmpopts.IgnoreFields(hierarchy.Manager[*schdcache.ClusterQueueSnapshot, *schdcache.CohortSnapshot]{}, "cohortFactory"),
 	cmpopts.IgnoreFields(schdcache.CohortSnapshot{}, "Cohort"),
@@ -4981,7 +4981,7 @@ func TestCandidatesOrdering(t *testing.T) {
 	for _, tc := range cases {
 		features.SetFeatureGatesDuringTest(t, tc.featureGates)
 		slices.SortFunc(tc.candidates, func(a, b workload.Info) int {
-			return preemptioncommon.CandidatesOrdering(log, tc.featureGates != nil && tc.featureGates[features.AdmissionFairSharing], &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
+			return policy.CandidatesOrdering(log, tc.featureGates != nil && tc.featureGates[features.AdmissionFairSharing], &a, &b, kueue.ClusterQueueReference(preemptorCq), now)
 		})
 		got := utilslices.Map(tc.candidates, func(c *workload.Info) workload.Reference {
 			return workload.Reference(c.Obj.Name)

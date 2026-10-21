@@ -1534,6 +1534,12 @@ func TestCacheWorkloadOperations(t *testing.T) {
 					Workloads:     sets.KeySet(cq.Workloads),
 					UsedResources: cq.resourceNode.Usage,
 				}
+				// The cache builds its Infos without the scheduling hash.
+				for wlKey, wi := range cq.Workloads {
+					if wi.SchedulingHash != "" {
+						t.Errorf("Workload %s in ClusterQueue %s has scheduling hash %q, want none", wlKey, name, wi.SchedulingHash)
+					}
+				}
 			}
 			cmpOpts := []cmp.Option{
 				cmpopts.EquateEmpty(),
@@ -3201,6 +3207,229 @@ func TestIsAddedCheckWorkload(t *testing.T) {
 			}
 			if cache.IsAdded(tc.workload) != tc.expected {
 				t.Error("Unexpected response")
+			}
+		})
+	}
+}
+
+func TestUpdateWorkloadIfUnchanged(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10").Obj(),
+			*utiltestingapi.MakeFlavorQuotas("spot").Resource(corev1.ResourceCPU, "10").Obj(),
+		).
+		Obj()
+	makeWorkload := func(rv string, flavor kueue.ResourceFlavorReference) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("wl", "ns").
+			ResourceVersion(rv).
+			PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+				PodSets(utiltestingapi.MakePodSetAssignment("main").
+					Assignment(corev1.ResourceCPU, flavor, "1").
+					Obj()).
+				Obj(), now).
+			Obj()
+	}
+
+	cases := map[string]struct {
+		cached *kueue.Workload
+		// deleteClusterQueue removes the ClusterQueue after seeding, leaving the workload assigned to it.
+		deleteClusterQueue bool
+		// recreateClusterQueue adds the removed ClusterQueue back, which lists no workloads from the empty client.
+		recreateClusterQueue bool
+		update               *kueue.Workload
+		wantUpdated          bool
+		wantRemoved          bool
+		wantRV               string
+		wantUsage            resources.FlavorResourceQuantities
+	}{
+		"same resourceVersion replaces the cached workload": {
+			cached:      makeWorkload("1", "on-demand"),
+			update:      makeWorkload("1", "spot"),
+			wantUpdated: true,
+			wantRV:      "1",
+			wantUsage: resources.FlavorResourceQuantities{
+				{Flavor: "spot", Resource: corev1.ResourceCPU}: resources.NewAmount(1000),
+			},
+		},
+		"different resourceVersion leaves the cached workload unchanged": {
+			cached:      makeWorkload("2", "on-demand"),
+			update:      makeWorkload("1", "spot"),
+			wantUpdated: false,
+			wantRV:      "2",
+			wantUsage: resources.FlavorResourceQuantities{
+				{Flavor: "on-demand", Resource: corev1.ResourceCPU}: resources.NewAmount(1000),
+			},
+		},
+		"workload not in the cache is not added": {
+			update:      makeWorkload("1", "spot"),
+			wantUpdated: false,
+		},
+		"workload assigned to a removed ClusterQueue is left unchanged": {
+			cached:             makeWorkload("1", "on-demand"),
+			deleteClusterQueue: true,
+			update:             makeWorkload("1", "spot"),
+			wantUpdated:        false,
+		},
+		"workload assigned to a re-created ClusterQueue that misses it is not added": {
+			cached:               makeWorkload("1", "on-demand"),
+			deleteClusterQueue:   true,
+			recreateClusterQueue: true,
+			update:               makeWorkload("1", "spot"),
+			wantUpdated:          false,
+		},
+		"admission naming a ClusterQueue that is not in the cache leaves the cached workload unchanged": {
+			cached: makeWorkload("1", "on-demand"),
+			update: func() *kueue.Workload {
+				w := makeWorkload("1", "spot")
+				w.Status.Admission.ClusterQueue = "missing"
+				return w
+			}(),
+			wantUpdated: false,
+			wantRV:      "1",
+			wantUsage: resources.FlavorResourceQuantities{
+				{Flavor: "on-demand", Resource: corev1.ResourceCPU}: resources.NewAmount(1000),
+			},
+		},
+		"same resourceVersion without a quota reservation removes the workload": {
+			cached: makeWorkload("1", "on-demand"),
+			update: utiltestingapi.MakeWorkload("wl", "ns").
+				ResourceVersion("1").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Request(corev1.ResourceCPU, "1").Obj()).
+				Obj(),
+			wantUpdated: false,
+			wantRemoved: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cache := New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+				t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+			}
+			if tc.cached != nil && !cache.AddOrUpdateWorkload(ctx, log, tc.cached) {
+				t.Fatal("Failed to seed the workload in the cache")
+			}
+			if tc.deleteClusterQueue {
+				cache.DeleteClusterQueue(cq)
+			}
+			if tc.recreateClusterQueue {
+				if err := cache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+					t.Fatalf("Re-inserting clusterQueue %s in cache: %v", cq.Name, err)
+				}
+			}
+
+			if got := cache.UpdateWorkloadIfUnchanged(ctx, log, tc.update); got != tc.wantUpdated {
+				t.Errorf("UpdateWorkloadIfUnchanged() = %t, want %t", got, tc.wantUpdated)
+			}
+
+			if tc.recreateClusterQueue {
+				if _, found := cache.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name)).Workloads[workload.Key(tc.update)]; found {
+					t.Error("The workload is in the ClusterQueue cache, want it absent")
+				}
+				if got := cache.workloadAssignedQueues[workload.Key(tc.update)]; got != kueue.ClusterQueueReference(cq.Name) {
+					t.Errorf("The workload is assigned to ClusterQueue %q, want %q", got, cq.Name)
+				}
+				return
+			}
+			if tc.deleteClusterQueue {
+				if got := cache.workloadAssignedQueues[workload.Key(tc.update)]; got != kueue.ClusterQueueReference(cq.Name) {
+					t.Errorf("The workload is assigned to ClusterQueue %q, want %q", got, cq.Name)
+				}
+				if cache.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name)) != nil {
+					t.Error("UpdateWorkloadIfUnchanged added back the removed ClusterQueue")
+				}
+				return
+			}
+			cachedCQ := cache.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name))
+			cachedWl, found := cachedCQ.Workloads[workload.Key(tc.update)]
+			if tc.cached == nil || tc.wantRemoved {
+				if found {
+					t.Error("The workload is in the ClusterQueue cache, want it absent")
+				}
+				if _, assigned := cache.workloadAssignedQueues[workload.Key(tc.update)]; assigned {
+					t.Error("The workload is assigned to a ClusterQueue, want it unassigned")
+				}
+				return
+			}
+			if !found {
+				t.Fatal("The workload is missing from the cache")
+			}
+			if cachedWl.Obj.ResourceVersion != tc.wantRV {
+				t.Errorf("Cached workload has resourceVersion %q, want %q", cachedWl.Obj.ResourceVersion, tc.wantRV)
+			}
+			if diff := cmp.Diff(tc.wantUsage, cachedCQ.resourceNode.Usage, cmp.Comparer(equalFlavorResourceQuantitiesIgnoringZero)); diff != "" {
+				t.Errorf("Unexpected ClusterQueue usage (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestDeleteWorkloadIfUnchanged(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	cq := utiltestingapi.MakeClusterQueue("cq").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("on-demand").Resource(corev1.ResourceCPU, "10").Obj()).
+		Obj()
+	baseWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Request(corev1.ResourceCPU, "1").
+		SimpleReserveQuota("cq", "on-demand", now)
+
+	cases := map[string]struct {
+		cached *kueue.Workload
+		// deleteClusterQueue removes the ClusterQueue after seeding, leaving the workload assigned to it.
+		deleteClusterQueue bool
+		delete             *kueue.Workload
+		wantDeleted        bool
+	}{
+		"same resourceVersion removes the cached workload": {
+			cached:      baseWl.Clone().ResourceVersion("1").Obj(),
+			delete:      baseWl.Clone().ResourceVersion("1").Obj(),
+			wantDeleted: true,
+		},
+		"different resourceVersion leaves the cached workload": {
+			cached: baseWl.Clone().ResourceVersion("2").Obj(),
+			delete: baseWl.Clone().ResourceVersion("1").Obj(),
+		},
+		"workload not in the cache is ignored": {
+			delete: baseWl.Clone().ResourceVersion("1").Obj(),
+		},
+		"workload assigned to a removed ClusterQueue is ignored": {
+			cached:             baseWl.Clone().ResourceVersion("1").Obj(),
+			deleteClusterQueue: true,
+			delete:             baseWl.Clone().ResourceVersion("1").Obj(),
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			ctx, log := utiltesting.ContextWithLog(t)
+			cache := New(utiltesting.NewFakeClient())
+			if err := cache.AddClusterQueue(ctx, cq.DeepCopy()); err != nil {
+				t.Fatalf("Inserting clusterQueue %s in cache: %v", cq.Name, err)
+			}
+			if tc.cached != nil && !cache.AddOrUpdateWorkload(ctx, log, tc.cached) {
+				t.Fatal("Failed to seed the workload in the cache")
+			}
+			if tc.deleteClusterQueue {
+				cache.DeleteClusterQueue(cq)
+			}
+
+			if got := cache.DeleteWorkloadIfUnchanged(log, tc.delete); got != tc.wantDeleted {
+				t.Errorf("DeleteWorkloadIfUnchanged() = %t, want %t", got, tc.wantDeleted)
+			}
+
+			wlKey := workload.Key(tc.delete)
+			_, assigned := cache.workloadAssignedQueues[wlKey]
+			if wantAssigned := tc.cached != nil && !tc.wantDeleted; assigned != wantAssigned {
+				t.Errorf("The workload is assigned to a ClusterQueue = %t, want %t", assigned, wantAssigned)
+			}
+			if tc.deleteClusterQueue {
+				return
+			}
+			_, found := cache.hm.ClusterQueue(kueue.ClusterQueueReference(cq.Name)).Workloads[wlKey]
+			if wantFound := tc.cached != nil && !tc.wantDeleted; found != wantFound {
+				t.Errorf("The workload is in the ClusterQueue cache = %t, want %t", found, wantFound)
 			}
 		})
 	}

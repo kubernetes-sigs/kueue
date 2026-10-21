@@ -35,7 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
-	inventoryv1alpha1 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha1"
+	inventoryv1alpha2 "sigs.k8s.io/cluster-inventory-api/apis/v1alpha2"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -52,6 +52,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:multikueue"), ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
@@ -782,7 +783,7 @@ var _ = ginkgo.Describe("MultiKueue", ginkgo.Label("area:multikueue", "feature:m
 				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(managerCq.Name)).
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
 						Flavor(corev1.ResourceCPU, multikueueTestFlavor).Obj()).Obj()
-				behavioral.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
+				integration.SetQuotaReservation(managerTestCluster.ctx, managerTestCluster.client, wlLookupKey, admission)
 			})
 
 			ginkgo.By("verify remote clients are managed correctly: worker1 was removed and worker2 is still active", func() {
@@ -891,8 +892,8 @@ var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:mul
 		var (
 			mkc1 *kueue.MultiKueueCluster
 			mkc2 *kueue.MultiKueueCluster
-			cp1  *inventoryv1alpha1.ClusterProfile
-			cp2  *inventoryv1alpha1.ClusterProfile
+			cp1  *inventoryv1alpha2.ClusterProfile
+			cp2  *inventoryv1alpha2.ClusterProfile
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -900,7 +901,7 @@ var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:mul
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueClusterProfile, true)
 
 			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
-				managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce)
+				managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce, multikueue.WithClusterProfileCRDPresent(true))
 			})
 		})
 
@@ -1222,7 +1223,7 @@ var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:mul
 	ginkgo.When("Feature gate disabled", ginkgo.Ordered, func() {
 		var (
 			mkc *kueue.MultiKueueCluster
-			cp  *inventoryv1alpha1.ClusterProfile
+			cp  *inventoryv1alpha2.ClusterProfile
 		)
 
 		ginkgo.BeforeEach(func() {
@@ -1272,6 +1273,65 @@ var _ = ginkgo.Describe("MultiKueue with ClusterProfile", ginkgo.Label("area:mul
 					g.Expect(active).NotTo(gomega.BeNil())
 					g.Expect(active.Reason).To(gomega.Equal("MultiKueueClusterProfileFeatureDisabled"))
 				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+	})
+
+	ginkgo.When("Feature gate enabled but ClusterProfile CRD not installed", ginkgo.Ordered, func() {
+		var (
+			cluster *kueue.MultiKueueCluster
+			secret  *corev1.Secret
+		)
+
+		ginkgo.BeforeEach(func() {
+			// The flag must be set before multikueue.SetupIndexer so the ClusterProfile indexer is registered.
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueClusterProfile, true)
+
+			// Simulate a cluster where the ClusterProfile CRD is absent: the feature
+			// gate is enabled, but WithClusterProfileCRDPresent(false) makes the
+			// controller skip the ClusterProfile watch so the manager still starts
+			// and kubeconfig-based clusters keep working.
+			managerTestCluster.fwk.StartManager(managerTestCluster.ctx, managerTestCluster.cfg, func(ctx context.Context, mgr manager.Manager) {
+				managerAndMultiKueueSetup(ctx, mgr, 2*time.Second, defaultEnabledIntegrations, config.MultiKueueDispatcherModeAllAtOnce, multikueue.WithClusterProfileCRDPresent(false))
+			})
+		})
+
+		ginkgo.AfterEach(func() {
+			behavioral.ExpectObjectToBeDeleted(managerTestCluster.ctx, managerTestCluster.client, cluster, true)
+			if secret != nil {
+				gomega.Expect(client.IgnoreNotFound(managerTestCluster.client.Delete(managerTestCluster.ctx, secret))).To(gomega.Succeed())
+			}
+			cluster, secret = nil, nil
+			managerTestCluster.fwk.StopManager(managerTestCluster.ctx)
+		})
+
+		ginkgo.It("Should still connect a kubeconfig-based MultiKueueCluster", func() {
+			ginkgo.By("Create the worker kubeconfig secret", func() {
+				w1Kubeconfig, err := worker1TestCluster.kubeConfigBytes()
+				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				secret = utiltesting.MakeSecret("multikueue-crd-absent", managersConfigNamespace.Name).
+					Data(kueue.MultiKueueConfigSecretKey, w1Kubeconfig).Obj()
+				gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, secret)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Create a kubeconfig-based MultiKueueCluster", func() {
+				cluster = utiltestingapi.MakeMultiKueueCluster("worker-crd-absent").
+					KubeConfig(kueue.SecretLocationType, secret.Name).Obj()
+				gomega.Expect(managerTestCluster.client.Create(managerTestCluster.ctx, cluster)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Verify the cluster becomes active despite the ClusterProfile CRD being absent", func() {
+				clusterKey := client.ObjectKeyFromObject(cluster)
+				updatedCluster := kueue.MultiKueueCluster{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, clusterKey, &updatedCluster)).To(gomega.Succeed())
+					g.Expect(updatedCluster.Status.Conditions).To(gomega.ContainElement(gomega.BeComparableTo(metav1.Condition{
+						Type:    kueue.MultiKueueClusterActive,
+						Status:  metav1.ConditionTrue,
+						Reason:  "Active",
+						Message: "Connected",
+					}, behavioral.IgnoreConditionTimestampsAndObservedGeneration)))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})

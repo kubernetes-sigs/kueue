@@ -237,6 +237,10 @@ func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue
 	log := r.logger().WithValues("localQueue", klog.KObj(e.Object))
 	log.V(2).Info("LocalQueue create event")
 
+	if features.Enabled(features.CustomMetricLabels) {
+		r.customLabels.LQStore(utilqueue.Key(e.Object), e.Object.GetLabels(), e.Object.GetAnnotations())
+	}
+
 	if ptr.Deref(e.Object.Spec.StopPolicy, kueue.None) == kueue.None {
 		ctx := logr.NewContext(context.Background(), log)
 		if err := r.queues.AddLocalQueue(ctx, e.Object); err != nil {
@@ -246,10 +250,6 @@ func (r *LocalQueueReconciler) Create(e event.TypedCreateEvent[*kueue.LocalQueue
 
 	if err := r.cache.AddLocalQueue(e.Object); err != nil {
 		log.Error(err, "Failed to add localQueue to the cache")
-	}
-
-	if features.Enabled(features.CustomMetricLabels) {
-		r.customLabels.LQStore(utilqueue.Key(e.Object), e.Object.GetLabels(), e.Object.GetAnnotations())
 	}
 
 	if r.lqMetrics.ShouldExposeLocalQueueMetrics(e.Object.GetLabels()) {
@@ -287,8 +287,12 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 
 	var customLabelsChanged bool
 	if features.Enabled(features.CustomMetricLabels) {
-		customLabelsChanged = r.customLabels.LQStore(
+		storeUpdated := r.customLabels.LQStore(
 			utilqueue.Key(e.ObjectNew),
+			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
+		)
+		customLabelsChanged = storeUpdated || r.customLabels.LQValuesChanged(
+			e.ObjectOld.GetLabels(), e.ObjectOld.GetAnnotations(),
 			e.ObjectNew.GetLabels(), e.ObjectNew.GetAnnotations(),
 		)
 	}
@@ -619,12 +623,14 @@ func (r *LocalQueueReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config.Co
 	}
 	return builder.TypedControllerManagedBy[reconcile.Request](mgr).
 		Named("localqueue_controller").
-		WatchesRawSource(source.TypedKind(
+		// The scheduler also waits for this source, so that pending workloads
+		// of every LocalQueue are queued before the first cycle picks heads.
+		WatchesRawSource(r.cache.TrackInitialSync(source.TypedKind(
 			mgr.GetCache(),
 			&kueue.LocalQueue{},
 			&handler.TypedEnqueueRequestForObject[*kueue.LocalQueue]{},
 			r,
-		)).
+		))).
 		WithOptions(controller.Options{
 			NeedLeaderElection:      new(false),
 			MaxConcurrentReconciles: mgr.GetControllerOptions().GroupKindConcurrency[kueue.SchemeGroupVersion.WithKind("LocalQueue").GroupKind().String()],

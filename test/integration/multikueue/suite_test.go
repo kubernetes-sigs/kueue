@@ -73,6 +73,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
+	"sigs.k8s.io/kueue/test/util/behavioral/integration"
 )
 
 const (
@@ -153,6 +154,7 @@ func createCluster(setupFnc framework.ManagerSetup, apiFeatureGates ...string) c
 }
 
 func managerSetupWithResourceFormatter(formatter *resources.ResourceFormatter, cacheSink func(*schdcache.Cache)) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		ctx = context.WithValue(ctx, managerSetupOptionsKey{}, managerSetupOptions{
 			resourceFormatter: formatter,
@@ -163,6 +165,7 @@ func managerSetupWithResourceFormatter(formatter *resources.ResourceFormatter, c
 }
 
 func resourceFormatterForCounterResource(resourceName corev1.ResourceName) *resources.ResourceFormatter {
+	ginkgo.GinkgoHelper()
 	mapper := dra.NewResourceMapper()
 	gomega.Expect(mapper.PopulateFromConfiguration([]config.DeviceClassMapping{
 		{
@@ -185,10 +188,12 @@ func resourceFormatterForCounterResource(resourceName corev1.ResourceName) *reso
 }
 
 func managerSetup(ctx context.Context, mgr manager.Manager) {
+	ginkgo.GinkgoHelper()
 	setupManager(ctx, mgr)
 }
 
 func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.IntegrationManager {
+	ginkgo.GinkgoHelper()
 	options, _ := ctx.Value(managerSetupOptionsKey{}).(managerSetupOptions)
 	resourceFormatter := options.resourceFormatter
 	if resourceFormatter == nil {
@@ -208,7 +213,7 @@ func setupManager(ctx context.Context, mgr manager.Manager) *jobframework.Integr
 		qcache.WithPreemptionExpectations(preemptionExpecations),
 		qcache.WithResourceFormatter(resourceFormatter),
 	}
-	queues := behavioral.NewManagerForIntegrationTests(ctx, mgr.GetClient(), cCache, queueOptions...)
+	queues := integration.NewManager(ctx, mgr.GetClient(), cCache, queueOptions...)
 	jobOptions := []jobframework.Option{
 		jobframework.WithIntegrationManager(integrationManager),
 		jobframework.WithCache(cCache),
@@ -481,6 +486,7 @@ func managerAndMultiKueueSetup(
 	dispatcherName string,
 	extraOptions ...multikueue.SetupOption,
 ) {
+	ginkgo.GinkgoHelper()
 	integrationManager := setupManager(ctx, mgr)
 
 	err := multikueue.SetupIndexer(ctx, mgr.GetFieldIndexer(), managersConfigNamespace.Name)
