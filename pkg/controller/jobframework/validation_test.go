@@ -727,17 +727,17 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  annotationPath.String(),
-					Detail: "timeoutSeconds overflows the maximum supported duration",
+					Detail: "timeoutSeconds must be less than or equal to 7200 seconds",
 				},
 			},
 		},
-		"max int64 timeout is rejected as overflowing": {
+		"max int64 timeout is rejected as exceeding MaxTimeoutOnWorkload": {
 			annotation: `{"timeoutSeconds": 9223372036854775807}`,
 			wantErr: field.ErrorList{
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  annotationPath.String(),
-					Detail: "timeoutSeconds overflows the maximum supported duration",
+					Detail: "timeoutSeconds must be less than or equal to 7200 seconds",
 				},
 			},
 		},
@@ -747,7 +747,7 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 				&field.Error{
 					Type:   field.ErrorTypeInvalid,
 					Field:  annotationPath.String(),
-					Detail: "recoveryTimeoutSeconds overflows the maximum supported duration",
+					Detail: "recoveryTimeoutSeconds must be less than or equal to 7200 seconds",
 				},
 			},
 		},
