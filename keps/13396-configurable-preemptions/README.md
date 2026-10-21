@@ -456,7 +456,7 @@ Requested functionalities from the community can be satisfied with the following
    ```
 
 4. **Minimal execution duration before preemption ([Issue #9596](https://github.com/kubernetes-sigs/kueue/issues/9596)):**
-   Avoid preempting workloads that just started by requiring candidates to have run for a minimum duration (e.g. at least 15 minutes):
+   Avoid preempting workloads that just started by requiring candidates to have run for a minimum duration (e.g. at least 15 minutes). Available since v0.21:
 
    ```yaml
    spec:
