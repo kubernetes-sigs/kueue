@@ -519,13 +519,31 @@ func TestValidateUpdate(t *testing.T) {
 				},
 			}.ToAggregate(),
 		},
-		"with queue (ready replicas)": {
+		"change queue (ready replicas)": {
 			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue").
 				ReadyReplicas(1).
 				Obj(),
 			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
 				Queue("test-queue-new").
+				ReadyReplicas(1).
+				Obj(),
+		},
+		"add queue (ready replicas)": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				ReadyReplicas(1).
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				ReadyReplicas(1).
+				Obj(),
+		},
+		"delete queue (ready replicas)": {
+			oldDeployment: testingdeployment.MakeDeployment("test-pod", "").
+				Queue("test-queue").
+				ReadyReplicas(1).
+				Obj(),
+			newDeployment: testingdeployment.MakeDeployment("test-pod", "").
 				ReadyReplicas(1).
 				Obj(),
 			wantErr: field.ErrorList{
