@@ -156,7 +156,7 @@ func (t *Tracker) Reconcile(ctx context.Context, req reconcile.Request) (reconci
 func (t *Tracker) updateWorkloadStatusIfNeeded(ctx context.Context, wl *kueue.Workload, pods []*corev1.Pod, current *metav1.Condition, now time.Time) error {
 	log := ctrl.LoggerFrom(ctx)
 	nonTerminal, activeScheduled, succeeded := countsPodsbyStatus(pods)
-	var reclaimable map[kueue.PodSetReference]int32
+	var reclaimable workload.PodSetsCounts
 	if features.Enabled(features.ReclaimablePods) {
 		reclaimable = workload.ReclaimableCounts(wl)
 	}
