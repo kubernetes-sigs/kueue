@@ -2424,6 +2424,8 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 
 		wantWorker1Workloads      []string
 		wantRemoteLeaderWorkerSet bool
+		// wantEnqueuedWorkloads are reconciled again to sync the remote LeaderWorkerSet.
+		wantEnqueuedWorkloads []string
 	}{
 		"a finished group keeps the remote LeaderWorkerSet of a running group": {
 			managerWorkloads: []kueue.Workload{
@@ -2468,6 +2470,7 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 			reconcile:                 []string{"wl1"},
 			wantWorker1Workloads:      []string{"wl0"},
 			wantRemoteLeaderWorkerSet: true,
+			wantEnqueuedWorkloads:     []string{"wl0"},
 		},
 		"the last finished group deletes the remote LeaderWorkerSet": {
 			managerWorkloads: []kueue.Workload{*admittedGroupWorkload("wl1", "1").Finished().Obj()},
@@ -2556,6 +2559,14 @@ func TestRemoveRemoteObjectsOfLeaderWorkerSetGroups(t *testing.T) {
 			}
 			if gotRemoteLeaderWorkerSet := err == nil; gotRemoteLeaderWorkerSet != tc.wantRemoteLeaderWorkerSet {
 				t.Errorf("unexpected remote LeaderWorkerSet presence: want %v, got %v", tc.wantRemoteLeaderWorkerSet, gotRemoteLeaderWorkerSet)
+			}
+
+			var gotEnqueuedWorkloads []string
+			for len(cRec.wlUpdateCh) > 0 {
+				gotEnqueuedWorkloads = append(gotEnqueuedWorkloads, (<-cRec.wlUpdateCh).Object.GetName())
+			}
+			if diff := cmp.Diff(tc.wantEnqueuedWorkloads, gotEnqueuedWorkloads, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("unexpected enqueued workloads (-want/+got):\n%s", diff)
 			}
 		})
 	}
