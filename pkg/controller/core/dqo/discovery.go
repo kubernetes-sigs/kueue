@@ -58,12 +58,21 @@ func (r *Reconciler) reconcileDiscovery(ctx context.Context, orchestrator *kueue
 			return err
 		}
 
-		if !apimeta.IsStatusConditionTrue(capacityProvider.Status.Conditions, kueuealpha.CapacityProviderCapacitySynchronized) {
+		// A spec update increments Generation without clearing the previous
+		// synchronization condition or reported capacity. Do not aggregate the
+		// new spec with capacity published for an older generation.
+		condition := apimeta.FindStatusCondition(capacityProvider.Status.Conditions, kueuealpha.CapacityProviderCapacitySynchronized)
+		if condition == nil || condition.Status != metav1.ConditionTrue || condition.ObservedGeneration != capacityProvider.Generation {
+			message := fmt.Sprintf("CapacityProvider %q is not synchronized", providerContribution.Name)
+			if condition != nil && condition.Status == metav1.ConditionTrue && condition.ObservedGeneration != capacityProvider.Generation {
+				message = fmt.Sprintf("CapacityProvider %q synchronization is stale (observedGeneration=%d, currentGeneration=%d)",
+					providerContribution.Name, condition.ObservedGeneration, capacityProvider.Generation)
+			}
 			r.setDiscoveryCondition(
 				orchestrator,
 				metav1.ConditionFalse,
 				kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
-				fmt.Sprintf("CapacityProvider %q is not synchronized", providerContribution.Name),
+				message,
 			)
 			orchestrator.Status.EffectiveCapacity = nil
 			return nil
