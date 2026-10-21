@@ -1457,7 +1457,7 @@ func TestAddCompositePodGroup(t *testing.T) {
 		Namespace: "default",
 		Spec: schedulingv1alpha3.CompositePodGroupSpec{
 			SchedulingPolicy: schedulingv1alpha3.CompositePodGroupSchedulingPolicy{
-				Gang: &schedulingv1alpha3.CompositeGangSchedulingPolicy{},
+				Gang: &schedulingv1alpha3.CompositeGangSchedulingPolicy{MinGroupCount: 1},
 			},
 		},
 	}
@@ -1522,7 +1522,7 @@ func TestRemoveCompositePodGroup(t *testing.T) {
 		Namespace: "default",
 		Spec: schedulingv1alpha3.CompositePodGroupSpec{
 			SchedulingPolicy: schedulingv1alpha3.CompositePodGroupSchedulingPolicy{
-				Gang: &schedulingv1alpha3.CompositeGangSchedulingPolicy{},
+				Gang: &schedulingv1alpha3.CompositeGangSchedulingPolicy{MinGroupCount: 1},
 			},
 		},
 	}
