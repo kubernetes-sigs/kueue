@@ -25,7 +25,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -64,31 +63,16 @@ func testResourceSliceConfig() *configapi.Configuration {
 }
 
 func TestResourceSliceDriverEventRequests(t *testing.T) {
-	cl := utiltesting.NewFakeClient()
 	r := NewResourceSliceReconciler(nil, nil, testResourceSliceConfig(), nil)
 	a := &resourcev1.ResourceSlice{ObjectMeta: metav1.ObjectMeta{Name: "a"}, Spec: resourcev1.ResourceSliceSpec{Driver: "driver-a.example.com"}}
 	b := &resourcev1.ResourceSlice{ObjectMeta: metav1.ObjectMeta{Name: "b"}, Spec: resourcev1.ResourceSliceSpec{Driver: "driver-b.example.com"}}
 	unknown := &resourcev1.ResourceSlice{ObjectMeta: metav1.ObjectMeta{Name: "unknown"}, Spec: resourcev1.ResourceSliceSpec{Driver: "other.example.com"}}
-	_ = cl
 
-	for _, tc := range []struct {
-		name string
-		slice *resourcev1.ResourceSlice
-		want []reconcile.Request
-	}{
-		{"driver A", a, []reconcile.Request{{NamespacedName: reconcile.Request{NamespacedName: reconcile.Request{}.NamespacedName}.NamespacedName}}},
-		{"unconfigured", unknown, nil},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got := r.mapResourceSliceToDriver(context.Background(), tc.slice)
-			if tc.name == "driver A" {
-				if len(got) != 1 || got[0].Name != "driver-a.example.com" || got[0].Namespace != "" {
-					t.Fatalf("driver-A event requests: %v", got)
-				}
-			} else if len(got) != 0 {
-				t.Fatalf("unconfigured driver requests: %v", got)
-			}
-		})
+	if got := r.mapResourceSliceToDriver(context.Background(), a); len(got) != 1 || got[0].Name != "driver-a.example.com" || got[0].Namespace != "" {
+		t.Fatalf("driver-A event requests: %v", got)
+	}
+	if got := r.mapResourceSliceToDriver(context.Background(), unknown); len(got) != 0 {
+		t.Fatalf("unconfigured driver requests: %v", got)
 	}
 	if got := r.mapResourceSliceToDriver(context.Background(), b); len(got) != 1 || got[0].Name != "driver-b.example.com" {
 		t.Fatalf("driver-B event requests: %v", got)
