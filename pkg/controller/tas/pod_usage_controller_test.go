@@ -32,7 +32,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
-	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
@@ -377,6 +377,21 @@ func TestDrainPendingNodes(t *testing.T) {
 	}
 }
 
+type fakeSimulatorFactory struct {
+	simulator.Factory
+	pods map[client.ObjectKey]string
+}
+
+func (f *fakeSimulatorFactory) TrackPod(_ context.Context, pod *corev1.Pod) {
+	f.pods[client.ObjectKeyFromObject(pod)] = pod.Spec.NodeName
+}
+
+func (f *fakeSimulatorFactory) UntrackPod(_ context.Context, key client.ObjectKey) string {
+	node := f.pods[key]
+	delete(f.pods, key)
+	return node
+}
+
 func TestReconcileNotifiesFreedNodeOnUntrackPod(t *testing.T) {
 	ctx := t.Context()
 	podKey := types.NamespacedName{Namespace: "ns", Name: "tas-pod"}
@@ -407,10 +422,7 @@ func TestReconcileNotifiesFreedNodeOnUntrackPod(t *testing.T) {
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
 			cl := fake.NewClientBuilder().WithObjects(tc.objects...).Build()
-			simulatorFactory, err := was.NewWASSimulatorFactory(ctx, nil)
-			if err != nil {
-				t.Fatalf("NewWASSimulatorFactory failed: %v", err)
-			}
+			simulatorFactory := &fakeSimulatorFactory{pods: make(map[client.ObjectKey]string)}
 			cache := schdcache.New(cl, schdcache.WithSimulatorFactory(simulatorFactory))
 			r := newPodUsageReconciler(cl, nil, cache, nil)
 
