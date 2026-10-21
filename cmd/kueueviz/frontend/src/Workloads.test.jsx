@@ -18,49 +18,58 @@ limitations under the License.
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import '@testing-library/jest-dom/vitest';
 import React from 'react';
-import { cleanup, render, screen } from '@testing-library/react';
-import { MemoryRouter, Routes, Route } from 'react-router-dom';
-import WorkloadDetail from './WorkloadDetail';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import Workloads from './Workloads';
 import * as useWebSocketModule from './useWebSocket';
 
 vi.mock('./useWebSocket', () => ({
   default: vi.fn(),
 }));
 
+// ViewYamlButton needs an AuthProvider and is not under test here.
+vi.mock('./ViewYamlButton', () => ({
+  default: () => null,
+}));
+
 afterEach(cleanup);
 
-describe('WorkloadDetail owner reference', () => {
-  it('shows the owner reference from metadata', () => {
+describe('Workloads owner reference tooltip', () => {
+  it('shows the owner reference from metadata', async () => {
     // Return the same objects on every render, as the real hook does.
-    const events = { data: [], error: null };
-    const workload = {
+    const namespaces = { data: { namespaces: ['ns-1'] }, error: null };
+    const workloads = {
       data: {
-        metadata: {
-          name: 'wl-1',
-          namespace: 'ns-1',
-          ownerReferences: [{ apiVersion: 'batch/v1', kind: 'Job', name: 'job-1', uid: 'job-uid-1' }],
+        workloads: {
+          items: [
+            {
+              metadata: {
+                name: 'wl-1',
+                namespace: 'ns-1',
+                ownerReferences: [{ apiVersion: 'batch/v1', kind: 'Job', name: 'job-1', uid: 'job-uid-1' }],
+              },
+              spec: { queueName: 'lq-1', podSets: [{ count: 1 }] },
+              status: {},
+            },
+          ],
         },
-        spec: { queueName: 'lq-1' },
-        status: {},
-        clusterQueueName: 'cq-a',
       },
       error: null,
     };
     vi.mocked(useWebSocketModule.default).mockImplementation((url) =>
-      url.endsWith('/events') ? events : workload
+      url === '/ws/namespaces' ? namespaces : workloads
     );
 
     render(
-      <MemoryRouter initialEntries={['/workload/ns-1/wl-1']}>
-        <Routes>
-          <Route path="/workload/:namespace/:workloadName" element={<WorkloadDetail />} />
-        </Routes>
+      <MemoryRouter>
+        <Workloads />
       </MemoryRouter>
     );
+    fireEvent.mouseOver(screen.getByText('wl-1'));
 
+    expect(await screen.findByText('Owner Reference: job-uid-1')).toBeInTheDocument();
     expect(screen.getByText('API Version: batch/v1')).toBeInTheDocument();
     expect(screen.getByText('Kind: Job')).toBeInTheDocument();
     expect(screen.getByText('Name: job-1')).toBeInTheDocument();
-    expect(screen.getByText('UID: job-uid-1')).toBeInTheDocument();
   });
 });
