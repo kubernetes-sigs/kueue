@@ -504,6 +504,9 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 		"a simulator that will not release the victim does not stop the cycle": {
 			// A simulator that cannot release the victim leaves the cycle stricter
 			// than reality, which is safe. It must not stop the cycle.
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryIntegration: true,
+			},
 			failSimulatorPreemption:  true,
 			wantSimulatorPreemptions: []workload.Reference{"default/low-priority-admitted"},
 			nodes:                    defaultSingleNode,
@@ -635,6 +638,9 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 			//
 			// The simulated cluster has to lose the victim's Pods too, or a host
 			// port it holds keeps the node looking unusable.
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryIntegration: true,
+			},
 			wantSimulatorPreemptions: []workload.Reference{"default/low-priority-admitted"},
 			nodes:                    defaultSingleNode,
 			topologies:               []kueue.Topology{defaultSingleLevelTopology},
@@ -765,12 +771,13 @@ func TestScheduleForTASPreemptionSchedulerLibrary(t *testing.T) {
 			// usage, and has to project it out of the simulator too, or the simulator
 			// keeps reporting the host ports and devices that victim holds as taken.
 			//
-			// Kept apart from the case above rather than folded into it: setting
-			// wantSimulatorPreemptions turns SchedulerLibraryIntegration on, and that
-			// case is the only cover for the recompute with the gate off.
+			// Kept apart from the case above rather than folded into it: this case
+			// turns SchedulerLibraryIntegration on, and that case is the only cover
+			// for the recompute with the gate off.
 			featureGates: map[featuregate.Feature]bool{
 				features.RecomputeAssignmentUponPreemptionTargetsOverlap: true,
 				features.TASRecomputeAssignmentWithinSchedulingCycle:     true,
+				features.SchedulerLibraryIntegration:                     true,
 			},
 			nodes:           defaultTwoNodes,
 			topologies:      []kueue.Topology{defaultSingleLevelTopology},
