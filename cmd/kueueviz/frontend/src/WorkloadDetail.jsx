@@ -83,10 +83,10 @@ const WorkloadDetail = () => {
         </Grid>
         <Grid item xs={12} sm={6}>
           <Typography variant="body1"><strong>Owner Reference:</strong></Typography>
-          <Typography variant="body2">API Version: {workload.ownerReferences?.[0]?.apiVersion || 'N/A'}</Typography>
-          <Typography variant="body2">Kind: {workload.ownerReferences?.[0]?.kind || 'N/A'}</Typography>
-          <Typography variant="body2">Name: {workload.ownerReferences?.[0]?.name || 'N/A'}</Typography>
-          <Typography variant="body2">UID: {workload.ownerReferences?.[0]?.uid || 'N/A'}</Typography>
+          <Typography variant="body2">API Version: {workload.metadata?.ownerReferences?.[0]?.apiVersion || 'N/A'}</Typography>
+          <Typography variant="body2">Kind: {workload.metadata?.ownerReferences?.[0]?.kind || 'N/A'}</Typography>
+          <Typography variant="body2">Name: {workload.metadata?.ownerReferences?.[0]?.name || 'N/A'}</Typography>
+          <Typography variant="body2">UID: {workload.metadata?.ownerReferences?.[0]?.uid || 'N/A'}</Typography>
         </Grid>
         <Grid item xs={12}>
           <Typography variant="body1"><strong>Pod Sets Count:</strong> {workload.spec?.podSets?.[0]?.count || 'N/A'}</Typography>
@@ -112,7 +112,7 @@ const WorkloadDetail = () => {
             </TableHead>
             <TableBody>
               {events.map((event) => (
-                <TableRow key={event.name}>
+                <TableRow key={event.metadata?.uid}>
                   <TableCell>
                     {formatEventTimestamp(getEventTimestamp(event))}
                   </TableCell>
