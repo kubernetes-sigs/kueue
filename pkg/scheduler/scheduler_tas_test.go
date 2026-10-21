@@ -128,6 +128,128 @@ func TestShouldFailFastTASReplacement(t *testing.T) {
 	}
 }
 
+// TestTryDeferFailedTASReplacementRestoresVictim verifies that the deferral
+// simulation restores the victim workload in the shared snapshot before the
+// next scheduler entry can observe it. A full scheduling pass cannot catch
+// this: assignments are computed during nomination, before the deferral runs.
+func TestTryDeferFailedTASReplacementRestoresVictim(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASFailedNodeReplacementFailFast, true)
+	features.SetFeatureGateDuringTest(t, features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions, true)
+
+	ctx, log := utiltesting.ContextWithLog(t)
+	now := time.Now().Truncate(time.Second)
+	topology := *utiltestingapi.MakeDefaultOneLevelTopology("tas-single-level")
+	nodes := []corev1.Node{
+		*testingnode.MakeNode("x6").
+			Label("tas-node", "true").
+			Label("replacement", "x6").
+			Label(corev1.LabelHostname, "x6").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:    resource.MustParse("2"),
+				corev1.ResourceMemory: resource.MustParse("4Gi"),
+				corev1.ResourcePods:   resource.MustParse("10"),
+			}).
+			Ready().Obj(),
+	}
+	flavor := *utiltestingapi.MakeResourceFlavor("tas-default").
+		NodeLabel("tas-node", "true").
+		TopologyName(topology.Name).
+		Obj()
+	clusterQueue := *utiltestingapi.MakeClusterQueue("tas-main").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas(flavor.Name).
+			Resource(corev1.ResourceCPU, "2").
+			Resource(corev1.ResourceMemory, "4Gi").
+			Obj()).
+		Obj()
+	victim := *utiltestingapi.MakeWorkload("victim", "default").
+		UID("wl-victim").
+		Queue("tas-main").
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "2").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("tas-main").
+				PodSets(utiltestingapi.MakePodSetAssignment("one").
+					Assignment(corev1.ResourceCPU, "tas-default", "2").
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x6"}, 1).Obj()).
+						Obj()).
+					Obj()).
+				Obj(), now,
+		).
+		AdmittedAt(true, now).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadEvicted,
+			Status:             metav1.ConditionTrue,
+			Reason:             "Preempted",
+			Message:            "Preempted to accommodate a workload",
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).
+		Obj()
+	foo := *utiltestingapi.MakeWorkload("foo", "default").
+		UID("wl-foo").
+		UnhealthyNodes("x0").
+		Queue("tas-main").
+		PodSets(*utiltestingapi.MakePodSet("one", 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			NodeSelector(map[string]string{"replacement": "x6"}).
+			Request(corev1.ResourceCPU, "2").
+			Obj()).
+		ReserveQuotaAt(
+			utiltestingapi.MakeAdmission("tas-main").
+				PodSets(utiltestingapi.MakePodSetAssignment("one").
+					Assignment(corev1.ResourceCPU, "tas-default", "2").
+					TopologyAssignment(utiltestingapi.MakeTopologyAssignment(utiltas.Levels(&topology)).
+						Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x0"}, 1).Obj()).
+						Obj()).
+					Obj()).
+				Obj(), now,
+		).
+		AdmittedAt(true, now).
+		Obj()
+
+	cl := utiltesting.NewClientBuilder().
+		WithLists(
+			&corev1.NodeList{Items: nodes},
+			&kueue.TopologyList{Items: []kueue.Topology{topology}},
+			&kueue.WorkloadList{Items: []kueue.Workload{victim, foo}},
+		).
+		Build()
+	cqCache := schdcache.New(cl)
+	for i := range nodes {
+		cqCache.TASCache().SyncNode(&nodes[i])
+	}
+	cqCache.AddOrUpdateResourceFlavor(log, &flavor)
+	cqCache.AddOrUpdateTopology(log, &topology)
+	if err := cqCache.AddClusterQueue(ctx, &clusterQueue); err != nil {
+		t.Fatalf("Adding ClusterQueue: %v", err)
+	}
+	for _, w := range []*kueue.Workload{&victim, &foo} {
+		if !cqCache.AddOrUpdateWorkload(ctx, log, w) {
+			t.Fatalf("Adding Workload %s", w.Name)
+		}
+	}
+	snapshot, err := cqCache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Taking snapshot: %v", err)
+	}
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+	scheduler := New(qManager, cqCache, cl, &utiltesting.EventRecorder{}, WithFailedTASReplacementRecoveryTimeout(time.Minute))
+	e := &entry{
+		Info:                 *workload.NewInfo(log, &foo),
+		clusterQueueSnapshot: snapshot.ClusterQueue("tas-main"),
+	}
+
+	if !scheduler.tryDeferFailedTASReplacement(ctx, log, e, snapshot) {
+		t.Fatal("tryDeferFailedTASReplacement() = false, want true")
+	}
+	if got := snapshot.ClusterQueue("tas-main").Workloads[workload.Key(&victim)]; got == nil || len(got.Usage().Quota.Assigned) == 0 {
+		t.Fatal("victim is missing or has no usage in the snapshot after deferral; the simulated usage was not restored")
+	}
+}
+
 func TestScheduleForTAS(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	const (
