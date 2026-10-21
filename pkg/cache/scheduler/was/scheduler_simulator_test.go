@@ -29,8 +29,10 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
@@ -1420,5 +1422,155 @@ func TestRemovePodGroup(t *testing.T) {
 	wantErr = errors.New("pod group podgroup/default/pg not found in snapshot")
 	if diff := cmp.Diff(&wantErr, &err, cmpErrorMessage); diff != "" {
 		t.Errorf("second RemovePodGroup() unexpected error (-want,+got):\n%s", diff)
+	}
+}
+
+func TestAddCompositePodGroup(t *testing.T) {
+	featuregatetesting.SetFeatureGatesDuringTest(t, utilfeature.DefaultFeatureGate, featuregatetesting.FeatureOverrides{
+		kubefeatures.GenericWorkload:                 true,
+		kubefeatures.TopologyAwareWorkloadScheduling: true,
+		kubefeatures.CompositePodGroup:               true,
+	})
+	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, true)
+	ctx := t.Context()
+	nodes := []*corev1.Node{
+		testingnode.MakeNode("node1").
+			Label(corev1.LabelHostname, "node1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+	}
+
+	factory, err := NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
+	if err != nil {
+		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
+	}
+	sim, err := factory.NewSimulator(ctx, nodes)
+	if err != nil {
+		t.Fatalf("NewSimulator failed: %v", err)
+	}
+
+	cpg := &schedulingv1alpha3.CompositePodGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cpg",
+			Namespace: "default",
+		},
+		Spec: schedulingv1alpha3.CompositePodGroupSpec{
+			SchedulingPolicy: schedulingv1alpha3.CompositePodGroupSchedulingPolicy{
+				Gang: &schedulingv1alpha3.CompositeGangSchedulingPolicy{},
+			},
+		},
+	}
+	if err := sim.AddCompositePodGroup(ctx, cpg); err != nil {
+		t.Fatalf("AddCompositePodGroup failed: %v", err)
+	}
+
+	pg := &schedulingv1beta1.PodGroup{
+		Name:      "pg",
+		Namespace: "default",
+		Spec: schedulingv1beta1.PodGroupSpec{
+			SchedulingPolicy: schedulingv1beta1.PodGroupSchedulingPolicy{
+				Gang: &schedulingv1beta1.GangSchedulingPolicy{MinCount: 1},
+			},
+			ParentCompositePodGroupName: ptr.To("cpg"),
+		},
+	}
+	if err := sim.AddPodGroup(ctx, pg); err != nil {
+		t.Fatalf("AddPodGroup failed: %v", err)
+	}
+
+	pod := testingpod.MakePod("p1", "default").UID("p1-uid").Obj()
+	pod.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: new("pg")}
+
+	got := sim.ScheduleWorkload(ctx, []*corev1.Pod{pod})
+	want := simulator.PodPlacements{client.ObjectKeyFromObject(pod): {Node: "node1"}}
+	if diff := cmp.Diff(want, got.PodPlacements); diff != "" {
+		t.Errorf("unexpected placements (-want +got):\n%s", diff)
+	}
+}
+
+func TestRemoveCompositePodGroup(t *testing.T) {
+	featuregatetesting.SetFeatureGatesDuringTest(t, utilfeature.DefaultFeatureGate, featuregatetesting.FeatureOverrides{
+		kubefeatures.GenericWorkload:                 true,
+		kubefeatures.TopologyAwareWorkloadScheduling: true,
+		kubefeatures.CompositePodGroup:               true,
+	})
+	features.SetFeatureGateDuringTest(t, features.SchedulerLibraryDeepIntegration, true)
+	ctx := t.Context()
+	nodes := []*corev1.Node{
+		testingnode.MakeNode("node1").
+			Label(corev1.LabelHostname, "node1").
+			StatusAllocatable(corev1.ResourceList{
+				corev1.ResourceCPU:  resource.MustParse("4"),
+				corev1.ResourcePods: resource.MustParse("10"),
+			}).
+			Ready().
+			Obj(),
+	}
+
+	factory, err := NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
+	if err != nil {
+		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
+	}
+	sim, err := factory.NewSimulator(ctx, nodes)
+	if err != nil {
+		t.Fatalf("NewSimulator failed: %v", err)
+	}
+
+	cpg := &schedulingv1alpha3.CompositePodGroup{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cpg",
+			Namespace: "default",
+		},
+		Spec: schedulingv1alpha3.CompositePodGroupSpec{
+			SchedulingPolicy: schedulingv1alpha3.CompositePodGroupSchedulingPolicy{
+				Gang: &schedulingv1alpha3.CompositeGangSchedulingPolicy{},
+			},
+		},
+	}
+	if err := sim.AddCompositePodGroup(ctx, cpg); err != nil {
+		t.Fatalf("AddCompositePodGroup failed: %v", err)
+	}
+
+	pg := &schedulingv1beta1.PodGroup{
+		Name:      "pg",
+		Namespace: "default",
+		Spec: schedulingv1beta1.PodGroupSpec{
+			SchedulingPolicy: schedulingv1beta1.PodGroupSchedulingPolicy{
+				Gang: &schedulingv1beta1.GangSchedulingPolicy{MinCount: 1},
+			},
+			ParentCompositePodGroupName: ptr.To("cpg"),
+		},
+	}
+	if err := sim.AddPodGroup(ctx, pg); err != nil {
+		t.Fatalf("AddPodGroup failed: %v", err)
+	}
+
+	pod := testingpod.MakePod("p1", "default").UID("p1-uid").Obj()
+	pod.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: new("pg")}
+
+	got := sim.ScheduleWorkload(ctx, []*corev1.Pod{pod})
+	want := simulator.PodPlacements{client.ObjectKeyFromObject(pod): {Node: "node1"}}
+	if diff := cmp.Diff(want, got.PodPlacements); diff != "" {
+		t.Fatalf("unexpected placements (-want +got):\n%s", diff)
+	}
+
+	if err := sim.RemoveCompositePodGroup(ctx, cpg); err != nil {
+		t.Fatalf("RemoveCompositePodGroup failed: %v", err)
+	}
+
+	got = sim.ScheduleWorkload(ctx, []*corev1.Pod{pod})
+	wantErr := errors.New(`failed to build pod group hierarchy: failed to get composite pod group default/cpg from snapshot: composite pod group object not found for pod group "compositepodgroup/default/cpg"`)
+	if diff := cmp.Diff(&wantErr, &got.Error, cmpErrorMessage); diff != "" {
+		t.Errorf("ScheduleWorkload() after RemoveCompositePodGroup unexpected error (-want,+got):\n%s", diff)
+	}
+
+	err = sim.RemoveCompositePodGroup(ctx, cpg)
+	wantErr = errors.New("composite pod group compositepodgroup/default/cpg not found in snapshot")
+	if diff := cmp.Diff(&wantErr, &err, cmpErrorMessage); diff != "" {
+		t.Errorf("second RemoveCompositePodGroup() unexpected error (-want,+got):\n%s", diff)
 	}
 }
