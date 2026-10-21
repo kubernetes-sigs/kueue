@@ -18,6 +18,7 @@ package dynamicquotaorchestrator
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/go-cmp/cmp"
@@ -398,6 +399,81 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 					).
 					Obj()
 				g.Expect(cmp.Diff(wantUpdatedCapacity, latestDQO.Status.EffectiveCapacity, cmpopts.EquateEmpty())).Should(gomega.BeEmpty())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should fail aggregation when a flavor exceeds the resource limit across providers", func() {
+		cp1Flavor := utiltestingalpha.MakeNormalizedCapacityFlavor("f1")
+		for i := range 64 {
+			cp1Flavor.Resource(corev1.ResourceName(fmt.Sprintf("example.com/r-%02d", i)), "1")
+		}
+		cp1 := utiltestingalpha.MakeCapacityProvider("res-limit-cp-1").
+			ControllerName("example.com/p1").
+			OrchestratedFlavors("f1").
+			Capacity(utiltestingalpha.MakeNormalizedCapacity().Flavors(cp1Flavor.Obj()).Obj()).
+			Condition(metav1.Condition{
+				Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+				Status: metav1.ConditionTrue,
+				Reason: kueuealpha.CapacityProviderReasonSynchronized,
+			}).
+			Obj()
+		cps = append(cps, cp1)
+		createCapacityProvider(ctx, k8sClient, cp1)
+
+		cp2 := utiltestingalpha.MakeCapacityProvider("res-limit-cp-2").
+			ControllerName("example.com/p2").
+			OrchestratedFlavors("f1").
+			Capacity(utiltestingalpha.MakeNormalizedCapacity().
+				Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+					Resource("example.com/r-00", "1").
+					Obj()).
+				Obj()).
+			Condition(metav1.Condition{
+				Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+				Status: metav1.ConditionTrue,
+				Reason: kueuealpha.CapacityProviderReasonSynchronized,
+			}).
+			Obj()
+		cps = append(cps, cp2)
+		createCapacityProvider(ctx, k8sClient, cp2)
+
+		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("res-limit-dqo").
+			DiscoveryProvider("res-limit-cp-1", nil).
+			DiscoveryProvider("res-limit-cp-2", nil).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, dqo)
+
+		dqoKey := types.NamespacedName{Name: dqo.Name}
+		latestDQO := &kueuealpha.DynamicQuotaOrchestrator{}
+
+		ginkgo.By("Verifying 64 distinct resources in one flavor are aggregated", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, dqoKey, latestDQO)).Should(gomega.Succeed())
+				g.Expect(latestDQO.Status.Conditions).Should(utiltesting.HaveConditionStatusTrueAndReason(
+					kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+				))
+				g.Expect(latestDQO.Status.EffectiveCapacity).ShouldNot(gomega.BeNil())
+				g.Expect(latestDQO.Status.EffectiveCapacity.Flavors).Should(gomega.HaveLen(1))
+				g.Expect(latestDQO.Status.EffectiveCapacity.Flavors[0].Resources).Should(gomega.HaveLen(64))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("Reporting a 65th distinct resource for the same flavor from the second provider", func() {
+			setCapacityProviderCapacity(ctx, k8sClient, cp2, utiltestingalpha.MakeNormalizedCapacity().
+				Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+					Resource("example.com/extra", "1").
+					Obj()).
+				Obj())
+
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, dqoKey, latestDQO)).Should(gomega.Succeed())
+				g.Expect(latestDQO.Status.Conditions).Should(utiltesting.HaveConditionStatusFalseAndReason(
+					kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					kueuealpha.DynamicQuotaOrchestratorReasonAggregationFailed,
+				))
+				g.Expect(latestDQO.Status.EffectiveCapacity).Should(gomega.BeNil())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 	})
