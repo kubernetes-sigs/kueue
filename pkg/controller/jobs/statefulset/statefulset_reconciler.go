@@ -490,8 +490,12 @@ func (r *Reconciler) constructWorkload(sts *appsv1.StatefulSet) (*kueue.Workload
 		}
 		podSet.TopologyRequest = topologyRequest
 	}
+	wfpr, err := waitforpodsready.ParseWaitForPodsReady(sts)
+	if err != nil {
+		return nil, err
+	}
 
-	wl := podcontroller.NewGroupWorkload(GetWorkloadName(GetOwnerUID(sts), sts.Name), sts, []kueue.PodSet{podSet}, r.labelKeysToCopy, r.annotationsToCopy)
+	wl := podcontroller.NewGroupWorkload(GetWorkloadName(GetOwnerUID(sts), sts.Name), sts, []kueue.PodSet{podSet}, r.labelKeysToCopy, r.annotationsToCopy, wfpr)
 
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string, 1)

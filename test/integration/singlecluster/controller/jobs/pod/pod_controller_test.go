@@ -3910,7 +3910,7 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 		})
 	})
 
-	ginkgo.It("should respect both pod-group-max-not-ready-count and per-workload wait-for-pods-ready annotation", func() {
+	ginkgo.It("should respect both pod-group-max-not-ready-count and per-workload wait-for-pods-ready annotation", ginkgo.Label("feature:workloadlevelwaitforpodsready"), func() {
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WaitForPodsReadyMaxNotReady, true)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.WorkloadLevelWaitForPodsReady, true)
 		podGroupName := "pod-group-max-not-ready-wfpr"
@@ -3937,10 +3937,8 @@ var _ = ginkgo.Describe("Pod group when waitForPodsReady enabled with recoveryTi
 		ginkgo.By("ensuring the wait-for-pods-ready annotation is propagated to the workload and admitting it", func() {
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
-				g.Expect(wl.Annotations).Should(gomega.HaveKeyWithValue(
-					controllerconstants.WaitForPodsReadyAnnotation,
-					`{"timeoutSeconds":60,"recoveryTimeoutSeconds":300}`,
-				))
+				g.Expect(wl.Spec.WaitForPodsReady.TimeoutSeconds).Should(gomega.HaveValue(gomega.Equal(int64(60))))
+				g.Expect(wl.Spec.WaitForPodsReady.RecoveryTimeoutSeconds).Should(gomega.HaveValue(gomega.Equal(int64(300))))
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
