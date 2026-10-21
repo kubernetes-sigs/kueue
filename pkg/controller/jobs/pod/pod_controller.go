@@ -490,31 +490,32 @@ func (p *Pod) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 // preempted pods begin terminating.
 func (p *Pod) IsActive() bool {
 	for i := range p.list.Items {
-		pod := p.list.Items[i]
-
-		// Pods that are not in the Running phase are never considered Active.
-		if pod.Status.Phase != corev1.PodRunning {
-			continue
+		if active, _ := PodActivity(&p.list.Items[i], p.clock.Now()); active {
+			return true
 		}
-
-		if features.Enabled(features.FastQuotaReleaseInPodIntegration) && pod.DeletionTimestamp != nil {
-			continue
-		}
-
-		// If a pod is stuck terminating (e.g., due to a lost node), we should avoid
-		// counting as Active, as doing so could block the workload to release acquired quota.
-		if pod.DeletionTimestamp != nil && pod.DeletionGracePeriodSeconds != nil {
-			// For graceful deletion, the API server sets DeletionTimestamp to the
-			// end of the grace period.
-			if p.clock.Now().After(pod.DeletionTimestamp.Time) {
-				continue
-			}
-		}
-
-		// At this point, the pod is Running and not stuck terminating — count as active.
-		return true
 	}
 	return false
+}
+
+// PodActivity reports whether a Pod still consumes a reservation.
+// For an active Pod, recheckAfter is the delay until its known activity deadline.
+// A zero delay means that activity must be rechecked on a Pod event.
+func PodActivity(pod *corev1.Pod, now time.Time) (active bool, recheckAfter time.Duration) {
+	if pod.Status.Phase != corev1.PodRunning {
+		return false, 0
+	}
+	if features.Enabled(features.FastQuotaReleaseInPodIntegration) && pod.DeletionTimestamp != nil {
+		return false, 0
+	}
+	if pod.DeletionTimestamp == nil || pod.DeletionGracePeriodSeconds == nil {
+		return true, 0
+	}
+	// DeletionTimestamp already marks the end of the grace period.
+	deadline := pod.DeletionTimestamp.Time
+	if now.After(deadline) {
+		return false, 0
+	}
+	return true, deadline.Sub(now) + time.Nanosecond
 }
 
 func hasPodReadyTrue(conds []corev1.PodCondition) bool {
