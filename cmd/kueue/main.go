@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -727,6 +728,7 @@ func setupScheduler(
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
 		scheduler.WithCustomLabels(customLabels),
 		scheduler.WithResourceFormatter(resourceFormatter),
+		scheduler.WithFailedTASReplacementRecoveryTimeout(failedTASReplacementRecoveryTimeout(cfg)),
 	)
 	if err := mgr.Add(sched); err != nil {
 		return fmt.Errorf("unable to add scheduler to manager: %w", err)
@@ -780,6 +782,13 @@ func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.Requeui
 		return *cfg.WaitForPodsReady.RequeuingStrategy.Timestamp
 	}
 	return configapi.EvictionTimestamp
+}
+
+func failedTASReplacementRecoveryTimeout(cfg *configapi.Configuration) time.Duration {
+	if cfg == nil || !waitforpodsready.Enabled(cfg.WaitForPodsReady) || cfg.WaitForPodsReady.RecoveryTimeout == nil {
+		return 0
+	}
+	return cfg.WaitForPodsReady.RecoveryTimeout.Duration
 }
 
 func quotaCheckStrategy(cfg *configapi.Configuration) configapi.QuotaCheckStrategy {

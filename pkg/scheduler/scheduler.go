@@ -80,21 +80,22 @@ var (
 )
 
 type Scheduler struct {
-	queues                  *qcache.Manager
-	cache                   *schdcache.Cache
-	client                  client.Client
-	recorder                events.EventRecorder
-	admissionRoutineWrapper routine.Wrapper
-	preemptor               *preemption.Preemptor
-	workloadOrdering        workload.Ordering
-	fairSharing             *config.FairSharing
-	admissionFairSharing    *config.AdmissionFairSharing
-	quotaCheckStrategy      config.QuotaCheckStrategy
-	clock                   clock.Clock
-	roleTracker             *roletracker.RoleTracker
-	customLabels            *metrics.CustomLabels
-	resourceFormatter       *resources.ResourceFormatter
-	refillBudget            int
+	queues                              *qcache.Manager
+	cache                               *schdcache.Cache
+	client                              client.Client
+	recorder                            events.EventRecorder
+	admissionRoutineWrapper             routine.Wrapper
+	preemptor                           *preemption.Preemptor
+	workloadOrdering                    workload.Ordering
+	fairSharing                         *config.FairSharing
+	admissionFairSharing                *config.AdmissionFairSharing
+	quotaCheckStrategy                  config.QuotaCheckStrategy
+	clock                               clock.Clock
+	roleTracker                         *roletracker.RoleTracker
+	customLabels                        *metrics.CustomLabels
+	resourceFormatter                   *resources.ResourceFormatter
+	refillBudget                        int
+	failedTASReplacementRecoveryTimeout time.Duration
 
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
@@ -102,16 +103,17 @@ type Scheduler struct {
 }
 
 type options struct {
-	podsReadyRequeuingTimestamp config.RequeuingTimestamp
-	fairSharing                 *config.FairSharing
-	admissionFairSharing        *config.AdmissionFairSharing
-	quotaCheckStrategy          config.QuotaCheckStrategy
-	clock                       clock.Clock
-	roleTracker                 *roletracker.RoleTracker
-	preemptionExpectations      *expectations.Store
-	customLabels                *metrics.CustomLabels
-	resourceFormatter           *resources.ResourceFormatter
-	refillBudget                int
+	podsReadyRequeuingTimestamp         config.RequeuingTimestamp
+	fairSharing                         *config.FairSharing
+	admissionFairSharing                *config.AdmissionFairSharing
+	quotaCheckStrategy                  config.QuotaCheckStrategy
+	clock                               clock.Clock
+	roleTracker                         *roletracker.RoleTracker
+	preemptionExpectations              *expectations.Store
+	customLabels                        *metrics.CustomLabels
+	resourceFormatter                   *resources.ResourceFormatter
+	refillBudget                        int
+	failedTASReplacementRecoveryTimeout time.Duration
 }
 
 // Option configures the reconciler.
@@ -192,6 +194,15 @@ func WithRefillBudget(budget int) Option {
 	}
 }
 
+// WithFailedTASReplacementRecoveryTimeout sets the recovery timeout that
+// bounds deferral of a failed TAS replacement. A non-positive value disables
+// deferral so the scheduler falls back to fail-fast eviction.
+func WithFailedTASReplacementRecoveryTimeout(timeout time.Duration) Option {
+	return func(o *options) {
+		o.failedTASReplacementRecoveryTimeout = timeout
+	}
+}
+
 func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder events.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -220,15 +231,16 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 			options.preemptionExpectations,
 			options.customLabels,
 		),
-		admissionRoutineWrapper: routine.DefaultWrapper,
-		workloadOrdering:        wo,
-		clock:                   options.clock,
-		admissionFairSharing:    options.admissionFairSharing,
-		quotaCheckStrategy:      options.quotaCheckStrategy,
-		roleTracker:             options.roleTracker,
-		customLabels:            options.customLabels,
-		resourceFormatter:       options.resourceFormatter,
-		refillBudget:            options.refillBudget,
+		admissionRoutineWrapper:             routine.DefaultWrapper,
+		workloadOrdering:                    wo,
+		clock:                               options.clock,
+		admissionFairSharing:                options.admissionFairSharing,
+		quotaCheckStrategy:                  options.quotaCheckStrategy,
+		roleTracker:                         options.roleTracker,
+		customLabels:                        options.customLabels,
+		resourceFormatter:                   options.resourceFormatter,
+		refillBudget:                        options.refillBudget,
+		failedTASReplacementRecoveryTimeout: options.failedTASReplacementRecoveryTimeout,
 	}
 	return s
 }
@@ -633,6 +645,9 @@ func shouldFailFastTASReplacement(wl *kueue.Workload, mode flavorassigner.Flavor
 // then fits. Otherwise fail-fast eviction is preserved.
 func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.Logger, e *entry, snapshot *schdcache.Snapshot) bool {
 	if !features.Enabled(features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions) {
+		return false
+	}
+	if s.failedTASReplacementRecoveryTimeout <= 0 {
 		return false
 	}
 	victims := inFlightEvictionVictims(snapshot)

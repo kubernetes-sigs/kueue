@@ -5146,6 +5146,10 @@ type tasScheduleTestCase struct {
 	// prequeuedSecondPasses are the Workloads with a second pass already pending when the cycle runs.
 	prequeuedSecondPasses []workload.Reference
 
+	// recoveryTimeout bounds failed TAS replacement deferral in this case.
+	// A nil value keeps the default used by normal Kueue configuration.
+	recoveryTimeout *time.Duration
+
 	// wantWorkloadsAfterSecondSchedule, when set, is the Workloads after one more cycle,
 	// in which the pending second passes run.
 	wantWorkloadsAfterSecondSchedule []kueue.Workload
@@ -5445,7 +5449,15 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 							t.Fatalf("expected workload %s to be prequeued again for a second pass", workload.Key(wl))
 						}
 					}
-					scheduler := New(qManager, cqCache, cl, recorder, WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New()))
+					recoveryTimeout := 30 * time.Minute
+					if tc.recoveryTimeout != nil {
+						recoveryTimeout = *tc.recoveryTimeout
+					}
+					schedulerOpts := []Option{WithClock(t, fakeClock), WithPreemptionExpectations(preemptexpectations.New())}
+					if recoveryTimeout > 0 {
+						schedulerOpts = append(schedulerOpts, WithFailedTASReplacementRecoveryTimeout(recoveryTimeout))
+					}
+					scheduler := New(qManager, cqCache, cl, recorder, schedulerOpts...)
 					wg := sync.WaitGroup{}
 					scheduler.setAdmissionRoutineWrapper(routine.NewWrapper(
 						func() { wg.Add(1) },

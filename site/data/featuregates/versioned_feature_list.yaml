@@ -653,10 +653,6 @@
     version: "0.20"
 - name: TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions
   versionedSpecs:
-  - default: false
-    lockToDefault: false
-    preRelease: Alpha
-    version: "0.20"
   - default: true
     lockToDefault: false
     preRelease: Beta
