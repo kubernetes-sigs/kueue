@@ -58,6 +58,7 @@ var (
 	baseCmpOpts = cmp.Options{
 		cmpopts.EquateEmpty(),
 		cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion"),
+		cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime"),
 	}
 )
 
@@ -190,6 +191,14 @@ func TestReconciler(t *testing.T) {
 				CurrentRevision("1").
 				UpdateRevision("2").
 				DeepCopy(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					OwnerReference(gvk, "sts", "sts-uid").Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					OwnerReference(gvk, "sts", "sts-uid").Obj(),
+			},
 			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
 				UID("sts-uid").
 				CurrentRevision("1").
@@ -256,7 +265,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"shouldn't add StatefulSet to Workload owner references if replicas = 0": {
+		"should restore StatefulSet owner and hold Workload if replicas = 0": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
 			stsKey:       client.ObjectKey{Name: "sts", Namespace: "ns"},
 			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
@@ -275,6 +284,17 @@ func TestReconciler(t *testing.T) {
 				DeepCopy(),
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadOnHold, Message: "StatefulSet scaled to zero; workload on hold",
+					}).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadAdmitted, Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadAdmittedReasonNoReservation, Message: "The workload has no reservation",
+					}).
 					Obj(),
 			},
 		},
@@ -299,6 +319,14 @@ func TestReconciler(t *testing.T) {
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
 					OwnerReference(gvk, "sts", "sts-uid").
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadOnHold, Message: "StatefulSet scaled to zero; workload on hold",
+					}).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadAdmitted, Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadAdmittedReasonNoReservation, Message: "The workload has no reservation",
+					}).
 					Obj(),
 			},
 		},
@@ -557,6 +585,17 @@ func TestReconciler(t *testing.T) {
 			},
 			wantWorkloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload(GetWorkloadName("", "sts"), "ns").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadOnHold, Message: "StatefulSet scaled to zero; workload on hold",
+					}).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadAdmitted, Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadAdmittedReasonNoReservation, Message: "The workload has no reservation",
+					}).
 					Obj(),
 			},
 		},
@@ -919,11 +958,14 @@ func TestReconciler(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tc.featureGates)
 			ctx, _ := utiltesting.ContextWithLog(t)
-			clientBuilder := utiltesting.NewClientBuilder()
+			clientBuilder := utiltesting.NewClientBuilder().WithStatusSubresource(&kueue.Workload{})
 			indexer := utiltesting.AsIndexer(clientBuilder)
 			err := indexer.IndexField(ctx, &corev1.Pod{}, podcontroller.PodGroupNameCacheKey, podcontroller.IndexPodGroupName)
 			if err != nil {
 				t.Fatalf("Could not add index for %s field name", podcontroller.PodGroupNameCacheKey)
+			}
+			if err := SetupIndexes(ctx, indexer); err != nil {
+				t.Fatalf("SetupIndexes() error: %v", err)
 			}
 
 			objs := make([]client.Object, 0, len(tc.pods)+len(tc.workloads)+1)
@@ -986,7 +1028,14 @@ func TestReconciler(t *testing.T) {
 				t.Fatalf("Could not get WorkloadList after reconcile: %v", err)
 			}
 
-			if diff := cmp.Diff(tc.wantWorkloads, gotWorkloadList.Items, baseCmpOpts...); diff != "" {
+			wantWorkloads := make([]kueue.Workload, len(tc.wantWorkloads))
+			for i := range tc.wantWorkloads {
+				tc.wantWorkloads[i].DeepCopyInto(&wantWorkloads[i])
+			}
+			if !features.Enabled(features.UnadmittedWorkloadsObservability) {
+				utiltesting.AdjustWorkloadsForDisabledObservabilityInWorkloadController(wantWorkloads)
+			}
+			if diff := cmp.Diff(wantWorkloads, gotWorkloadList.Items, baseCmpOpts...); diff != "" {
 				t.Errorf("Workloads after reconcile (-want,+got):\n%s", diff)
 			}
 
@@ -1119,7 +1168,8 @@ func TestReconciler_ClearOnHoldSetsReason(t *testing.T) {
 				t.Fatalf("failed to get workload: %v", err)
 			}
 
-			wantReason := kueue.WorkloadPending //nolint:staticcheck // SA1019: fallback
+			//nolint:staticcheck // SA1019: fallback for the disabled feature gate.
+			wantReason := kueue.WorkloadPending
 			if scenario[features.UnadmittedWorkloadsObservability] {
 				wantReason = kueue.WorkloadQuotaReservedReasonPendingEvaluation
 			}
