@@ -158,14 +158,14 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 	}
 
 	workloadPods = copyWithDefaultScheduler(workloadPods...)
-	wasResults, err := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, schedlib.ScheduleWorkloadOptions{DryRun: true})
-	if err != nil {
-		return simulator.SchedulingResult{Error: err}
+	wasResult := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, schedlib.ScheduleWorkloadOptions{DryRun: true})
+	if wasResult.Status.IsError() {
+		return simulator.SchedulingResult{Error: wasResult.Status.AsError()}
 	}
 
 	// Parse scheduler-library results
 	placements := make(simulator.PodPlacements, len(workloadPods))
-	for _, podResult := range wasResults {
+	for _, podResult := range wasResult.PodResults {
 		podKey := client.ObjectKeyFromObject(podResult.Pod)
 		status := podResult.Status
 		if status.IsSuccess() {
