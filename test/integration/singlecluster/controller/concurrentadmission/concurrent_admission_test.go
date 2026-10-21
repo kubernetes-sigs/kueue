@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
@@ -39,6 +40,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
@@ -669,6 +671,7 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 						State:              kueue.CheckStateReady,
 						LastTransitionTime: metav1.Now(),
 						Message:            "Admission check succeeded",
+						PodSetUpdates:      []kueue.PodSetUpdate{podSetUpdate("first")},
 					}, behavioral.RealClock)
 					g.Expect(k8sClient.Status().Update(ctx, variantProvReq)).To(gomega.Succeed())
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
@@ -681,13 +684,77 @@ var _ = ginkgo.Describe("Concurrent Admission", func() {
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 
-			ginkgo.By("Verifying parent workload is admitted and has no admission checks", func() {
+			ginkgo.By("Verifying parent workload is admitted with the variant's admission checks", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parentWl), parentWl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(parentWl)).To(gomega.BeTrue())
-					g.Expect(parentWl.Status.AdmissionChecks).To(gomega.BeEmpty())
+					g.Expect(parentWl.Status.AdmissionChecks).To(gomega.BeComparableTo([]kueue.AdmissionCheckState{{
+						Name:          kueue.AdmissionCheckReference(ac.Name),
+						State:         kueue.CheckStateReady,
+						PodSetUpdates: []kueue.PodSetUpdate{podSetUpdate("first")},
+					}}, ignoreVolatileCheckFields))
 					g.Expect(parentWl.Status.Admission.PodSetAssignments[0].Flavors[corev1.ResourceCPU]).To(gomega.Equal(kueue.ResourceFlavorReference("provreq-flavor")))
 				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
+		ginkgo.It("Should replace the parent's admission checks when the variant is admitted again", func() {
+			parentWl := utiltestingapi.MakeWorkload("parent-wl-ac-readmit", ns.Name).
+				Request(corev1.ResourceCPU, "1").
+				Queue(kueue.LocalQueueName(lq.Name)).
+				ParentVariant().
+				Obj()
+			acRef := kueue.AdmissionCheckReference(ac.Name)
+
+			ginkgo.By("Creating the parent workload", func() {
+				behavioral.MustCreate(ctx, k8sClient, parentWl)
+			})
+
+			var variantProvReq *kueue.Workload
+			ginkgo.By("Waiting for the variant to reserve quota on provreq-flavor", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					list := &kueue.WorkloadList{}
+					g.Expect(k8sClient.List(ctx, list, client.InNamespace(ns.Name))).To(gomega.Succeed())
+					variantProvReq = getVariantByFlavor(list, parentWl.Name, flavorProvReq.Name)
+					g.Expect(variantProvReq).ToNot(gomega.BeNil(), "Variant for provreq-flavor not found")
+					g.Expect(workload.HasQuotaReservation(variantProvReq)).To(gomega.BeTrue())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Setting the variant's admission check Ready with the first pod set updates", func() {
+				setVariantAdmissionCheck(variantProvReq, acRef, kueue.CheckStateReady, podSetUpdate("first"))
+			})
+
+			ginkgo.By("Verifying the parent is admitted with the first pod set updates", func() {
+				expectParentAdmissionCheck(parentWl, acRef, podSetUpdate("first"))
+			})
+
+			ginkgo.By("Setting the variant's admission check to Retry to evict it", func() {
+				setVariantAdmissionCheck(variantProvReq, acRef, kueue.CheckStateRetry)
+			})
+
+			ginkgo.By("Finishing eviction of the parent workload", func() {
+				behavioral.FinishEvictionForWorkloads(ctx, k8sClient, parentWl)
+			})
+
+			ginkgo.By("Waiting for the variant to reserve quota again with a Pending admission check", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(variantProvReq), variantProvReq)).To(gomega.Succeed())
+					g.Expect(workload.HasQuotaReservation(variantProvReq)).To(gomega.BeTrue())
+					g.Expect(workloadevict.IsEvicted(variantProvReq)).To(gomega.BeFalse())
+					g.Expect(variantProvReq.Status.AdmissionChecks).To(gomega.BeComparableTo([]kueue.AdmissionCheckState{{
+						Name:  acRef,
+						State: kueue.CheckStatePending,
+					}}, ignoreVolatileCheckFields))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Setting the variant's admission check Ready with the second pod set updates", func() {
+				setVariantAdmissionCheck(variantProvReq, acRef, kueue.CheckStateReady, podSetUpdate("second"))
+			})
+
+			ginkgo.By("Verifying the parent is admitted again with only the second pod set updates", func() {
+				expectParentAdmissionCheck(parentWl, acRef, podSetUpdate("second"))
 			})
 		})
 	})
@@ -1088,4 +1155,46 @@ func getVariantByFlavor(list *kueue.WorkloadList, parentName string, flavor stri
 		}
 	}
 	return nil
+}
+
+// ignoreVolatileCheckFields ignores the admission check fields which depend on timing and on
+// how often the check was retried.
+var ignoreVolatileCheckFields = cmpopts.IgnoreFields(kueue.AdmissionCheckState{}, "LastTransitionTime", "Message", "RetryCount")
+
+// podSetUpdate returns a pod set update for the default pod set whose label,
+// annotation and node selector carry the given value.
+func podSetUpdate(value string) kueue.PodSetUpdate {
+	return kueue.PodSetUpdate{
+		Name:         kueue.DefaultPodSetName,
+		Labels:       map[string]string{"update-label": value},
+		Annotations:  map[string]string{"update-annotation": value},
+		NodeSelector: map[string]string{"update-selector": value},
+	}
+}
+
+func setVariantAdmissionCheck(variant *kueue.Workload, check kueue.AdmissionCheckReference, state kueue.CheckState, updates ...kueue.PodSetUpdate) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(variant), variant)).To(gomega.Succeed())
+		workloadpatching.SetAdmissionCheckState(&variant.Status.AdmissionChecks, kueue.AdmissionCheckState{
+			Name:          check,
+			State:         state,
+			Message:       fmt.Sprintf("Admission check is %s", state),
+			PodSetUpdates: updates,
+		}, behavioral.RealClock)
+		g.Expect(k8sClient.Status().Update(ctx, variant)).To(gomega.Succeed())
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+}
+
+func expectParentAdmissionCheck(parent *kueue.Workload, check kueue.AdmissionCheckReference, update kueue.PodSetUpdate) {
+	ginkgo.GinkgoHelper()
+	gomega.Eventually(func(g gomega.Gomega) {
+		g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(parent), parent)).To(gomega.Succeed())
+		g.Expect(workload.IsAdmitted(parent)).To(gomega.BeTrue())
+		g.Expect(parent.Status.AdmissionChecks).To(gomega.BeComparableTo([]kueue.AdmissionCheckState{{
+			Name:          check,
+			State:         kueue.CheckStateReady,
+			PodSetUpdates: []kueue.PodSetUpdate{update},
+		}}, ignoreVolatileCheckFields))
+	}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 }
