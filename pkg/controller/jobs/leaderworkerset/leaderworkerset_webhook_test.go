@@ -502,7 +502,7 @@ func TestValidateCreate(t *testing.T) {
 				Obj(),
 			wantErr: nil,
 		},
-		"invalid PodSet group name request - pod-index-offset set alongside podset-group-name": {
+		"valid PodSet group name request - pod-index-offset set alongside podset-group-name": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				Queue("test-queue").
 				LeaderTemplate(corev1.PodTemplateSpec{
@@ -519,12 +519,6 @@ func TestValidateCreate(t *testing.T) {
 					},
 				}).
 				Obj(),
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:  field.ErrorTypeForbidden,
-					Field: "spec.leaderWorkerTemplate.workerTemplate.metadata.annotations[kueue.x-k8s.io/pod-index-offset]",
-				},
-			}.ToAggregate(),
 		},
 		"invalid PodSet group name request - value is a number": {
 			lws: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
