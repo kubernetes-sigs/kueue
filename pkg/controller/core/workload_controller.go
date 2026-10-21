@@ -442,11 +442,11 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 
 	if features.Enabled(features.MultiKueueOrchestratedPreemption) {
 		updateErr := workloadpatching.PatchAdmissionStatus(ctx, r.client, &wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			updated := r.syncPreemptionGateStates(wl)
+			updated := r.removeOrphanedPreemptionGateStates(wl)
 			return updated, nil
 		})
 		if updateErr != nil {
-			return ctrl.Result{}, fmt.Errorf("failed to sync workload preemption gate status: %w", updateErr)
+			return ctrl.Result{}, fmt.Errorf("failed to remove orphaned preemption gate states: %w", updateErr)
 		}
 	}
 
@@ -1011,10 +1011,10 @@ func (r *WorkloadReconciler) reconcileSyncAdmissionChecks(ctx context.Context, w
 	return false, nil
 }
 
-// syncPreemptionGateStates removes states of gates that are no longer in the spec.
+// removeOrphanedPreemptionGateStates removes states of gates that are no longer in the spec.
 // Gates without a state are closed, so no Closed state is added for them; doing so
 // would cost extra status writes for every gated workload.
-func (r *WorkloadReconciler) syncPreemptionGateStates(wl *kueue.Workload) bool {
+func (r *WorkloadReconciler) removeOrphanedPreemptionGateStates(wl *kueue.Workload) bool {
 	changed := false
 
 	preemptionGates := make(map[string]kueue.PreemptionGate)
