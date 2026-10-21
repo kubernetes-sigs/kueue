@@ -65,6 +65,16 @@ type Snapshot struct {
 	// usage has left the snapshot. Removing or restoring them, including in
 	// simulations, leaves the usage untouched.
 	released sets.Set[workload.Reference]
+
+	// candidateOrderCache memoizes per-CQ preemption candidate ordering per snapshot.
+	candidateOrderCache *CandidateOrderCache
+}
+
+func (s *Snapshot) CandidateOrder() *CandidateOrderCache {
+	if s.candidateOrderCache == nil {
+		s.candidateOrderCache = newCandidateOrderCache()
+	}
+	return s.candidateOrderCache
 }
 
 // RemoveWorkload removes a workload from its corresponding ClusterQueue and

@@ -74,9 +74,9 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 	// in which we try allowBorrowing=false before true is to keep compatibility with
 	// previous versions.
 	switch {
-	case candidatesGenerator.NoCandidateFromOtherQueues || (borrowWithinCohortForbidden && !queueUnderNominalInResourcesNeedingPreemption(preemptionCtx)):
+	case candidatesGenerator.NoCandidateFromOtherQueues() || (borrowWithinCohortForbidden && !queueUnderNominalInResourcesNeedingPreemption(preemptionCtx)):
 		attemptPossibleOpts = []preemptionAttemptOpts{{true}}
-	case borrowWithinCohortForbidden && candidatesGenerator.NoCandidateForHierarchicalReclaim:
+	case borrowWithinCohortForbidden && candidatesGenerator.NoCandidateForHierarchicalReclaim():
 		attemptPossibleOpts = []preemptionAttemptOpts{{false}, {true}}
 	default:
 		attemptPossibleOpts = []preemptionAttemptOpts{{true}, {false}}
@@ -90,7 +90,6 @@ func classicalPreemptionStrategy(ctx context.Context, preemptor *Preemptor, pree
 				if cont && features.Enabled(features.ConfigurablePreemptions) {
 					preemptionCtx.configurableEvaluator.FindCandidates(
 						preemptionCtx.snapshot,
-						&preemptionCtx.preemptor,
 						preemptionCtx.frsNeedPreemption,
 						func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing) },
 						yieldCandidate,

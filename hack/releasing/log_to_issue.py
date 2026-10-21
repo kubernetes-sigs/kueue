@@ -120,13 +120,10 @@ def main():
 
     old_entry = ""
     if entry_index != -1:
-        old_entry = entries[entry_index].strip()
-        if cleanup:
-            entries.pop(entry_index)
-        else:
-            entries[entry_index] = new_entry
-    elif not cleanup:
-        entries.append(new_entry)
+        old_entry = entries.pop(entry_index).strip()
+    # The latest entry is always placed at the top of the release log.
+    if not cleanup:
+        entries.insert(0, new_entry)
 
     # Reconstruct details section with horizontal rule separators
     if entries:

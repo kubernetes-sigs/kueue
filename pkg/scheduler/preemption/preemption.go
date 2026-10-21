@@ -210,7 +210,7 @@ func (p *Preemptor) buildContext(
 			},
 			TAS: wl.TASUsage(),
 		},
-		configurableEvaluator: p.newConfigurableEvaluator(ctx, log, cq),
+		configurableEvaluator: p.newConfigurableEvaluator(ctx, log, cq, &wl),
 	}
 }
 
@@ -218,11 +218,11 @@ func (p *Preemptor) buildContext(
 // PreemptionConfig must not be re-read for each of them.
 // Returns nil if the ConfigurablePreemptions feature is disabled, or the ClusterQueue
 // references no PreemptionConfig.
-func (p *Preemptor) newConfigurableEvaluator(ctx context.Context, log logr.Logger, cq *schdcache.ClusterQueueSnapshot) *configurable.PreemptionEvaluator {
+func (p *Preemptor) newConfigurableEvaluator(ctx context.Context, log logr.Logger, cq *schdcache.ClusterQueueSnapshot, preemptor *workload.Info) *configurable.PreemptionEvaluator {
 	if !features.Enabled(features.ConfigurablePreemptions) || cq == nil || cq.PreemptionConfigName == nil {
 		return nil
 	}
-	return configurable.NewEvaluatorForPreemptionConfig(ctx, log, p.clock, p.client, *cq.PreemptionConfigName, p.candidatesOrdering(log, cq.Name))
+	return configurable.NewEvaluatorForPreemptionConfig(ctx, log, p.client, *cq.PreemptionConfigName, preemptor, p.candidatesOrdering(log, cq.Name))
 }
 
 // candidatesOrdering returns the order in which the preemption candidates are
@@ -605,13 +605,16 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 	return true
 }
 
-// queueWithinNominalInResourcesNeedingPreemption checks whether the
-// preemptor CQ's usage is at or below nominal quota (usage <= nominal)
-// for all flavor-resources needing preemption.
-// The difference from queueUnderNominalInResourcesNeedingPreemption is
-// that this treats usage exactly equal to nominal as "within nominal."
-func queueWithinNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx) bool {
-	for fr := range preemptionCtx.frsNeedPreemption {
+// queueWithinNominalInRequestedResources checks whether the preemptor CQ's
+// usage is at or below nominal quota (usage <= nominal) for all positive
+// flavor-resource requests assigned to the incoming workload.
+// The difference from queueUnderNominalInResourcesNeedingPreemption is that
+// this treats usage exactly equal to nominal as "within nominal."
+func queueWithinNominalInRequestedResources(preemptionCtx *preemptionCtx) bool {
+	for fr, request := range preemptionCtx.workloadUsage.Quota.Assigned {
+		if request.CmpInt64(0) <= 0 {
+			continue
+		}
 		if preemptionCtx.preemptorCQ.Borrowing(fr) {
 			return false
 		}

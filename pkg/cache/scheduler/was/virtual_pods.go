@@ -175,6 +175,9 @@ func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count i
 	spec := baseSpec.DeepCopy()
 	spec.NodeSelector = info.NodeSelector
 	spec.Tolerations = info.Tolerations
+	spec.SchedulingGroup = &corev1.PodSchedulingGroup{
+		PodGroupName: new(VirtualPodGroupName(wl.Name)),
+	}
 
 	pods := make([]*corev1.Pod, 0, count)
 	for replicaIdx := range int(count) {

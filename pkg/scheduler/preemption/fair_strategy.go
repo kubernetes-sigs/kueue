@@ -132,7 +132,6 @@ func fairPreemptionStrategy(
 		if cont && features.Enabled(features.ConfigurablePreemptions) {
 			interrupted := preemptionCtx.configurableEvaluator.FindCandidates(
 				preemptionCtx.snapshot,
-				&preemptionCtx.preemptor,
 				preemptionCtx.frsNeedPreemption,
 				func() bool { return workloadQuotaFits(preemptionCtx, allowBorrowing) },
 				yieldAndRecord,
@@ -179,7 +178,7 @@ func verifyFairSharingTargets(preemptionCtx *preemptionCtx, targets []*Target, f
 	defer revertSimulation()
 
 	withinNominal := features.Enabled(features.FairSharingPreemptWithinNominal) &&
-		queueWithinNominalInResourcesNeedingPreemption(preemptionCtx)
+		queueWithinNominalInRequestedResources(preemptionCtx)
 
 	for _, t := range targets {
 		if passed, reason := verifyFairSharingTarget(preemptionCtx, t, fsStrategies, withinNominal); !passed {
@@ -249,15 +248,15 @@ func iterateWithFirstFsStrategy(
 	yield func(*Target) bool,
 ) (retryCandidates []*workload.Info, cont bool) {
 	yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
-	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, candidates, log, preemptionCtx.clock)
-	// If the preemptor CQ stays within nominal quota for the contested
-	// resources (including the incoming workload, already simulated),
+	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, candidates, preemptionCtx.frsNeedPreemption, log, preemptionCtx.clock)
+	// If the preemptor CQ stays within nominal quota for all requested
+	// resources assigned to the incoming workload (already simulated),
 	// preemption is allowed regardless of DRS (nominal entitlement).
 	// When true, all cross-CQ candidates are preempted unconditionally
 	// (bypassing the strategy check), so no retryCandidates are produced
 	// and iterateWithSecondFsStrategy has nothing to do.
 	preemptorWithinNominal := features.Enabled(features.FairSharingPreemptWithinNominal) &&
-		queueWithinNominalInResourcesNeedingPreemption(preemptionCtx)
+		queueWithinNominalInRequestedResources(preemptionCtx)
 	for candCQ := range ordering.Iter() {
 		if candCQ.InClusterQueuePreemption() {
 			candWl := candCQ.PopWorkload()
@@ -323,7 +322,7 @@ func iterateWithSecondFsStrategy(
 	yield func(*Target) bool,
 ) bool {
 	yield = policy.YieldFromSnapshot(preemptionCtx.snapshot, yield)
-	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, retryCandidates, log, preemptionCtx.clock)
+	ordering := fairsharing.MakeClusterQueueOrdering(preemptionCtx.preemptorCQ, retryCandidates, preemptionCtx.frsNeedPreemption, log, preemptionCtx.clock)
 	for candCQ := range ordering.Iter() {
 		preemptorNewShare, targetOldShare := candCQ.ComputeShares()
 		passed := fairsharing.LessThanInitialShare(preemptorNewShare, targetOldShare, fairsharing.TargetNewShare{})

@@ -234,9 +234,20 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 }
 
 // Start implements the Runnable interface to run scheduler as a controller.
+// The scheduling loop does not start until the event handlers that fill the
+// cache have processed their informers' initial lists, so the first cycle
+// sees every ClusterQueue, Cohort, ResourceFlavor, Topology, and admitted
+// Workload that existed at startup. On a replica that was already running as
+// a follower those handlers synced long before it took the lease, so there
+// is no wait.
 func (s *Scheduler) Start(ctx context.Context) error {
 	log := ctrl.LoggerFrom(ctx).WithName("scheduler")
 	ctx = ctrl.LoggerInto(ctx, log)
+	start := time.Now()
+	if err := s.cache.WaitForInitialSync(ctx); err != nil {
+		return err
+	}
+	log.V(2).Info("Cache event handlers synced, starting the scheduling loop", "waited", time.Since(start))
 	go wait.UntilWithBackoff(ctx, s.schedule)
 	return nil
 }
@@ -325,9 +336,9 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 	log := roletracker.WithReplicaRole(ctrl.LoggerFrom(ctx), s.roleTracker).WithValues("schedulingCycle", s.schedulingCycle)
 	ctx = ctrl.LoggerInto(ctx, log)
 	cycleStartTime := s.clock.Now()
-	log.V(2).Info("Scheduling cycle starts")
+	log.V(3).Info("Scheduling cycle starts")
 	defer func() {
-		log.V(2).Info("Scheduling cycle complete", "duration", s.clock.Since(cycleStartTime))
+		log.V(3).Info("Scheduling cycle complete", "duration", s.clock.Since(cycleStartTime))
 	}()
 
 	// 1. Get the heads from the queues, including their desired clusterQueue.
@@ -338,7 +349,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		return wait.KeepGoing
 	}
 	startTime := s.clock.Now()
-	log.V(2).Info("Obtained heads", "headCount", len(heads), "waitDuration", startTime.Sub(cycleStartTime))
+	log.V(3).Info("Obtained heads", "headCount", len(heads), "waitDuration", startTime.Sub(cycleStartTime))
 
 	// 2. Take a snapshot of the cache.
 	var snapshotOpts []schdcache.SnapshotOption
@@ -353,12 +364,12 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		return wait.SlowDown
 	}
 	logSnapshotIfVerbose(log, snapshot)
-	log.V(2).Info("Snapshot taken", "duration", s.clock.Since(phaseStartTime))
+	log.V(3).Info("Snapshot taken", "duration", s.clock.Since(phaseStartTime))
 
 	// 3. Calculate requirements (resource flavors, borrowing) for admitting workloads.
 	phaseStartTime = s.clock.Now()
 	entries, inadmissibleEntries := s.nominate(ctx, heads, snapshot)
-	log.V(2).Info("Nomination done", "entries", len(entries), "inadmissibleEntries", len(inadmissibleEntries), "duration", s.clock.Since(phaseStartTime))
+	log.V(3).Info("Nomination done", "entries", len(entries), "inadmissibleEntries", len(inadmissibleEntries), "duration", s.clock.Since(phaseStartTime))
 
 	// 4. Create iterator which returns ordered entries.
 	iterator := makeIterator(ctx, entries, s.workloadOrdering, fairsharing.Enabled(s.fairSharing))
@@ -397,7 +408,7 @@ func (s *Scheduler) schedule(ctx context.Context) wait.SpeedSignal {
 		s.finishEntry(ctx, log, e)
 	}
 
-	log.V(2).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime))
+	log.V(3).Info("Workload processing done", "duration", s.clock.Since(phaseStartTime))
 	s.reportSkippedPreemptions(skippedPreemptions)
 	metrics.AdmissionAttempt(result, s.clock.Since(startTime), s.roleTracker)
 	if result != metrics.AdmissionResultSuccess {
@@ -457,7 +468,7 @@ func (s *Scheduler) processEntry(
 		log = log.WithValues("parentCohort", klog.KRef("", string(cq.Parent().GetName())), "rootCohort", klog.KRef("", string(cq.Parent().Root().GetName())))
 	}
 	ctx = ctrl.LoggerInto(ctx, log)
-	log.V(2).Info("Attempting to schedule workload")
+	log.V(3).Info("Attempting to schedule workload")
 
 	if features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(e.Obj) {
 		if moreFavorableSibling := s.findAdmittedMoreFavorableSibling(&e.Info, snapshot); moreFavorableSibling != nil {
@@ -886,7 +897,11 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 		return schdcache.FitsCheckOk == fitsCheck, nil
 	}
 	// Clear the flavor scan state so that we can start from the first flavor again and
-	// reach all flavors from the nomination.
+	// reach all flavors from the nomination. Preserve the nomination's scan state across
+	// this in-cycle recompute when quota still accepts the nominated flavor, so that a
+	// workload whose TAS placement is invalidated mid-cycle resumes the next cycle with
+	// its nomination scan state intact.
+	nominationScanState := e.assignment.FlavorScanState
 	e.FlavorScanState = nil
 	e.NominationMapping = e.readResourceToFlavorMapping()
 	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot)
@@ -901,6 +916,7 @@ func (s *Scheduler) updateAssignmentIfNeeded(
 	}
 
 	e.recordAssignment(newAssignment, newTargets)
+	e.assignment.FlavorScanState.RestoreAfterRecompute(nominationScanState)
 	if needsOverlapRecompute && e.assignment.RepresentativeMode() == flavorassigner.Fit {
 		e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
 	}
@@ -969,26 +985,6 @@ func quotaResourcesToReserve(e *entry, cq *schdcache.ClusterQueueSnapshot) resou
 	return reservedUsage
 }
 
-// flavorScanStateOutdated reports whether the recorded flavor assignment no longer describes
-// the current state, in which case the flavor scan has to start over.
-func flavorScanStateOutdated(last *workload.FlavorScanState, currentCQGeneration, currentSchedulingCycle int64, currentSchedulingHash workload.EquivalenceHash) bool {
-	if features.Enabled(features.FlavorFungibilityPreserveScanProgress) {
-		// Checked before the cycle age, so that a Workload whose shape changed starts over
-		// even when it was assigned in the preceding cycle.
-		if !last.MatchesSchedulingShape(currentSchedulingHash) {
-			return true
-		}
-		// An assignment computed in the current or the immediately preceding cycle is not
-		// treated as outdated. The ClusterQueue generation advances on every admission or
-		// eviction in the Cohort, which on a busy cluster discards the flavor progress
-		// recorded one cycle earlier before it can be used.
-		if currentSchedulingCycle-last.SchedulingCycle <= 1 {
-			return false
-		}
-	}
-	return currentCQGeneration > last.AllocatableResourceGeneration
-}
-
 func (s *Scheduler) evictWorkloadAfterFailedTASReplacement(ctx context.Context, log logr.Logger, wl *kueue.Workload) error {
 	unhealthyNodes := workload.UnhealthyNodeNames(wl)
 	unhealthyNodesCsv := strings.Join(unhealthyNodes, ",")
@@ -1025,7 +1021,7 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 	log := ctrl.LoggerFrom(ctx)
 	admission := &kueue.Admission{
 		ClusterQueue:      e.ClusterQueue,
-		PodSetAssignments: e.assignment.ToAPI(log),
+		PodSetAssignments: e.assignment.ToAPI(log, e.Obj),
 	}
 
 	consideredStr := flavorassigner.FormatFlavorAssignmentAttemptsForEvents(e.assignment)
@@ -1059,10 +1055,12 @@ func (s *Scheduler) admit(ctx context.Context, e *entry, cq *schdcache.ClusterQu
 			return
 		}
 		if !workload.NeedsSecondPass(e.Obj) || apierrors.IsNotFound(err) {
-			// Ignore errors because the workload or clusterQueue could have been deleted
-			// by an event.
-			_ = s.cache.DeleteWorkload(log, workload.Key(cacheWl))
-			s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
+			// The write may have been committed even though the client observed an error.
+			// If so, its event may already have replaced the assumed entry with the
+			// admitted Workload, which must stay in the cache.
+			if s.cache.DeleteWorkloadIfUnchanged(log, cacheWl) {
+				s.queues.NotifyWorkloadUpdateWatchers(cacheWl, nil)
+			}
 		} else {
 			// The workload still holds its reservation, so put back the version this pass read; this is skipped if an event already replaced or removed the entry.
 			s.cache.UpdateWorkloadIfUnchanged(ctx, log, e.Obj.DeepCopy(), workload.WithEffectivePodSpecs(e.EffectivePodSpecs))
@@ -1272,7 +1270,7 @@ func (s *Scheduler) requeueAndUpdate(ctx context.Context, e entry) {
 	}
 
 	added := s.queues.RequeueWorkload(ctx, &e.Info, e.requeueReason, qcache.QuotaReservedReason(e.quotaReservedReason))
-	log.V(2).
+	log.V(3).
 		Info("Workload re-queued", "workload", klog.KObj(e.Obj), "clusterQueue", klog.KRef("", string(e.ClusterQueue)), "queue", klog.KRef(e.Obj.Namespace, string(e.Obj.Spec.QueueName)), "requeueReason", e.requeueReason, "added", added, "status", e.status)
 	if e.status == notNominated || e.status == skipped || e.status == preemptionGated {
 		if e.skipStatusUpdate {
@@ -1566,7 +1564,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	// dropped once it no longer describes the current state. Deciding that here rather than
 	// inside the assigner keeps it to one place per Workload per cycle: the assigner runs
 	// again for each reduced pod count when partial admission is in play.
-	if wl.FlavorScanState != nil && flavorScanStateOutdated(wl.FlavorScanState, cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
+	if wl.FlavorScanState != nil && wl.FlavorScanState.IsOutdated(cq.AllocatableResourceGeneration, s.schedulingCycle, wl.SchedulingHash) {
 		log.V(6).Info("Clearing Workload's flavor scan state because it was outdated",
 			"cq.AllocatableResourceGeneration", cq.AllocatableResourceGeneration,
 			"wl.FlavorScanState.AllocatableResourceGeneration", wl.FlavorScanState.AllocatableResourceGeneration)
@@ -1613,6 +1611,15 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 	fullAssignment, targets, err = *assignmentPlan.Assignment, assignmentPlan.PreemptionTargets, assignmentPlan.Error
 	if assignmentPlan.CanFit() {
 		targets = append(slicePreemptTargets, targets...)
+	} else if err != nil {
+		log.V(3).Info(
+			"Assignment planner failed to build a valid plan",
+			"workload", klog.KObj(wl.Obj),
+			"error", err,
+		)
+	}
+	if features.Enabled(features.UnadmittedWorkloadsObservability) {
+		fullAssignment.ResolveNoFitReason(cq)
 	}
 	return
 }

@@ -50,6 +50,7 @@ func specReplicasPerWorkerGroup(rayCluster *rayv1.RayCluster) map[string]int32 {
 // findRunningPodsPerWorkerGroup counts the RayCluster's running worker Pods,
 // keyed by worker group name.
 func findRunningPodsPerWorkerGroup(g gomega.Gomega, rayClusterKey client.ObjectKey) map[string]int32 {
+	ginkgo.GinkgoHelper()
 	workerPods, err := e2e.GetRayClusterWorkerPods(ctx, k8sClient, rayClusterKey, corev1.PodRunning)
 	g.Expect(err).NotTo(gomega.HaveOccurred())
 	counts := make(map[string]int32, len(workerPods))
@@ -165,6 +166,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 		})
 
 		expectWorkerGroups := func(expected map[string]int32) {
+			ginkgo.GinkgoHelper()
 			createdRayCluster := &rayv1.RayCluster{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), createdRayCluster)).To(gomega.Succeed())
@@ -178,6 +180,7 @@ var _ = ginkgo.Describe("KubeRay multi-PodSet autoscaling", ginkgo.Label("area:s
 		}
 
 		expectKueueAccounting := func(expected map[string]int32) {
+			ginkgo.GinkgoHelper()
 			workloadList := &kueue.WorkloadList{}
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.List(ctx, workloadList, client.InNamespace(ns.Name))).To(gomega.Succeed())

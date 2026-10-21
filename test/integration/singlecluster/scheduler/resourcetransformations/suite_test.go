@@ -65,6 +65,7 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerAndSchedulerSetup(transformations []config.ResourceTransformation, excludedResourcePrefixes []string) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -108,7 +109,7 @@ func managerAndSchedulerSetup(transformations []config.ResourceTransformation, e
 			mgr.GetEventRecorder(constants.AdmissionName),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 		)
-		err = sched.Start(ctx)
+		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }

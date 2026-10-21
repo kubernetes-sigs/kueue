@@ -17,6 +17,7 @@ limitations under the License.
 package jobframework_test
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/validation/field"
@@ -34,6 +36,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	mocks "sigs.k8s.io/kueue/internal/mocks/controller/jobframework"
 	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
@@ -46,6 +49,78 @@ import (
 var (
 	testPath = field.NewPath("spec")
 )
+
+func TestValidateQueueNameUpdate(t *testing.T) {
+	lookupErr := errors.New("quota lookup failed")
+	queuePath := field.NewPath("metadata", "labels").Key(constants.QueueLabel)
+	testCases := map[string]struct {
+		oldQueueName    kueue.LocalQueueName
+		newQueueName    kueue.LocalQueueName
+		isSuspended     bool
+		reserved        bool
+		lookupErr       error
+		wantLookupCalls int
+		wantErrs        field.ErrorList
+	}{
+		"unchanged queue while suspended": {
+			oldQueueName: "old", newQueueName: "old", isSuspended: true, reserved: true, lookupErr: lookupErr,
+		},
+		"unchanged queue while running": {
+			oldQueueName: "old", newQueueName: "old", reserved: true, lookupErr: lookupErr,
+		},
+		"unchanged empty queue": {
+			isSuspended: true, lookupErr: lookupErr,
+		},
+		"ready replicas prevent change": {
+			oldQueueName: "old", newQueueName: "new", lookupErr: lookupErr,
+			wantErrs: field.ErrorList{field.Invalid(queuePath, kueue.LocalQueueName("new"), apivalidation.FieldImmutableErrorMsg)},
+		},
+		"removing queue is forbidden": {
+			oldQueueName: "old", isSuspended: true, lookupErr: lookupErr,
+			wantErrs: field.ErrorList{field.Invalid(queuePath, kueue.LocalQueueName(""), apivalidation.FieldImmutableErrorMsg)},
+		},
+		"unreserved workload permits change": {
+			oldQueueName: "old", newQueueName: "new", isSuspended: true, wantLookupCalls: 1,
+		},
+		"reserved workload prevents change": {
+			oldQueueName: "old", newQueueName: "new", isSuspended: true, reserved: true, wantLookupCalls: 1,
+			wantErrs: field.ErrorList{field.Invalid(queuePath, kueue.LocalQueueName("new"), apivalidation.FieldImmutableErrorMsg)},
+		},
+		"setting queue without quota reservation": {
+			newQueueName: "new", isSuspended: true, wantLookupCalls: 1,
+		},
+		"setting queue with quota reservation": {
+			newQueueName: "new", isSuspended: true, reserved: true, wantLookupCalls: 1,
+			wantErrs: field.ErrorList{field.Invalid(queuePath, kueue.LocalQueueName("new"), apivalidation.FieldImmutableErrorMsg)},
+		},
+		"lookup error is returned": {
+			oldQueueName: "old", newQueueName: "new", isSuspended: true, lookupErr: lookupErr, wantLookupCalls: 1,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			lookupCalls := 0
+			gotErrs, err := jobframework.ValidateQueueNameUpdate(tc.oldQueueName, tc.newQueueName, tc.isSuspended, func() (bool, error) {
+				lookupCalls++
+				return tc.reserved, tc.lookupErr
+			})
+			var wantErr error
+			if tc.wantLookupCalls > 0 {
+				wantErr = tc.lookupErr
+			}
+			if !errors.Is(err, wantErr) {
+				t.Errorf("Unexpected lookup error: got %v, want %v", err, wantErr)
+			}
+			if lookupCalls != tc.wantLookupCalls {
+				t.Errorf("Unexpected lookup calls: got %d, want %d", lookupCalls, tc.wantLookupCalls)
+			}
+			if diff := cmp.Diff(tc.wantErrs, gotErrs); diff != "" {
+				t.Errorf("Unexpected validation errors (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
 
 func TestValidateImmutablePodSpec(t *testing.T) {
 	testCases := map[string]struct {

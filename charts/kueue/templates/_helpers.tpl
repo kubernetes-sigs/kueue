@@ -153,3 +153,52 @@ kind: Issuer
 name: '{{ include "kueue.fullname" . }}-selfsigned-issuer'
 {{- end }}
 {{- end }}
+
+{{/*
+Apply structured manager configuration to the defaults in place.
+Maps merge recursively, lists and scalars replace, and null removes a key.
+*/}}
+{{- define "kueue.mergeManagerConfig" -}}
+{{- range $key, $value := .source }}
+{{- if eq $value nil }}
+{{- $_ := unset $.target $key }}
+{{- else if kindIs "map" $value }}
+{{- if not (kindIs "map" (get $.target $key)) }}
+{{- $_ := set $.target $key (dict) }}
+{{- end }}
+{{- $_ := include "kueue.mergeManagerConfig" (dict "target" (get $.target $key) "source" $value) }}
+{{- else }}
+{{- $_ := set $.target $key (deepCopy $value) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{/*
+Resolve manager configuration once for every consumer.
+An explicit mode selects the input. Otherwise, a supplied YAML string takes
+precedence, including an empty string; merge structured overrides when YAML is absent.
+*/}}
+{{- define "kueue.managerConfig" -}}
+{{- $values := dict }}
+{{- if hasKey .Values "managerConfig" }}
+{{- $values = .Values.managerConfig }}
+{{- end }}
+{{- if not (kindIs "map" $values) }}
+{{- fail "managerConfig must be a map" }}
+{{- end }}
+{{- $mode := default "" $values.mode }}
+{{- if and (ne $mode "structured") (hasKey $values "controllerManagerConfigYaml") }}
+{{- $values.controllerManagerConfigYaml | fromYaml | toYaml }}
+{{- else }}
+{{- if hasKey $values "structuredOverrides" }}
+{{- if not (kindIs "map" $values.structuredOverrides) }}
+{{- fail "managerConfig.structuredOverrides must be a map" }}
+{{- end }}
+{{- end }}
+{{- $config := include "kueue.managerConfigDefaults" . | fromYaml }}
+{{- if and (ne $mode "yaml") (hasKey $values "structuredOverrides") }}
+{{- $_ := include "kueue.mergeManagerConfig" (dict "target" $config "source" $values.structuredOverrides) }}
+{{- end }}
+{{- toYaml $config }}
+{{- end }}
+{{- end }}
