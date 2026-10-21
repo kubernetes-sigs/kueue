@@ -122,7 +122,7 @@ type DynamicQuotaOrchestratorStatus struct {
 	// effectiveCapacity is the combined capacity from the referenced providers.
 	// Each provider's capacity is multiplied by its effectiveCapacityMultiplier.
 	// DQO clears this field if any referenced provider is missing or does not
-	// have CapacitySynchronized=True.
+	// report CapacitySynchronized=True for its current generation.
 	//
 	// +optional
 	EffectiveCapacity *EffectiveCapacity `json:"effectiveCapacity,omitempty"`
