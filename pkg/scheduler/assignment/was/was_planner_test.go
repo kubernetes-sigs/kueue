@@ -806,10 +806,10 @@ func TestPlanPreemptionStrategies(t *testing.T) {
 
 	now := time.Now()
 	cases := map[string]struct {
-		enableFairSharing bool
-		cqs               []*kueue.ClusterQueue
-		admittedWorkloads []*kueue.Workload
-		incomingCPU       string
+		enableFairSharing     bool
+		cqs                   []*kueue.ClusterQueue
+		admittedWorkloads     []*kueue.Workload
+		incomingCPU           string
 		simResults            []simulator.SchedulingResult
 		wantCalls             int
 		wantCandidates        [][]client.ObjectKey

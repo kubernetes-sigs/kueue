@@ -191,10 +191,8 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 
 	workloadPods = copyWithDefaultScheduler(workloadPods...)
 	wasResult := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, schedlib.ScheduleWorkloadOptions{
-		CommonSchedulingOptions: schedlib.CommonSchedulingOptions{DryRun: true},
-		WorkloadPreemptionOptions: schedlib.WorkloadPreemptionOptions{
-			PotentialVictims: s.potentialVictims(simulator.PreemptionCandidates(opts...)),
-		},
+		DryRun:           true,
+		PotentialVictims: s.potentialVictims(simulator.PreemptionCandidates(opts...)),
 	})
 	if wasResult.Status.IsError() {
 		return simulator.SchedulingResult{Error: wasResult.Status.AsError()}
