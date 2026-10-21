@@ -26,8 +26,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/zapr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -38,6 +42,7 @@ import (
 	"k8s.io/component-base/featuregate"
 	"k8s.io/component-base/metrics/testutil"
 	testingclock "k8s.io/utils/clock/testing"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
@@ -75,6 +80,8 @@ var cmpDump = cmp.Options{
 // (TestSchedule, TestScheduleForFairSharing, TestScheduleConcurrentAdmission). Each
 // test sets only the fields it needs; unused fields keep their zero value.
 type scheduleTestCase struct {
+	wantSchedulerLogs map[string]int
+
 	// Features
 	featureGates map[featuregate.Feature]bool
 
@@ -163,6 +170,13 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					features.SetFeatureGatesDuringTest(t, fg)
 
 					ctx, log := utiltesting.ContextWithLog(t)
+					var observedLogs *observer.ObservedLogs
+					if tc.wantSchedulerLogs != nil {
+						core, logs := observer.New(zapcore.Level(-3))
+						observedLogs = logs
+						log = zapr.NewLogger(zap.New(core))
+						ctx = ctrl.LoggerInto(ctx, log)
+					}
 
 					var wantWorkloads []kueue.Workload
 					if tc.wantWorkloads != nil {
@@ -279,6 +293,17 @@ func runScheduleTestCases(t *testing.T, cfg scheduleTestConfig, cases map[string
 					}
 					scheduler.schedule(ctx)
 					wg.Wait()
+					if observedLogs != nil {
+						gotLogs := make(map[string]int)
+						for _, entry := range observedLogs.All() {
+							if _, ok := tc.wantSchedulerLogs[entry.Message]; ok {
+								gotLogs[entry.Message] = -int(entry.Level)
+							}
+						}
+						if diff := cmp.Diff(tc.wantSchedulerLogs, gotLogs); diff != "" {
+							t.Errorf("unexpected scheduler logs (-want/+got):\n%s", diff)
+						}
+					}
 					for raw, original := range rawSnapshots {
 						if diff := cmp.Diff(original, raw); diff != "" {
 							t.Errorf("scheduling mutated the queued API object (-before,+after): %s", diff)
