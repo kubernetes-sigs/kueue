@@ -487,7 +487,7 @@ func (a *FlavorAssigner) AssignFlavors(
 }
 
 // conflictingFlavors returns an error if the flavors selected for a pod set
-// set the same node label key to different values.
+// assign different values to the same node label key.
 func (a *FlavorAssigner) conflictingFlavors(flavors ResourceAssignment) error {
 	merged := make(map[string]string)
 	owners := make(map[string]kueue.ResourceFlavorReference)
