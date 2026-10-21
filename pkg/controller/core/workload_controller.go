@@ -247,6 +247,13 @@ func (r *WorkloadReconciler) handleDRA(ctx context.Context, wl *kueue.Workload) 
 func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.Workload, fieldErrs field.ErrorList, logMsg string) (bool, ctrl.Result, error) {
 	processingErr := fieldErrs.ToAggregate()
 	quotaReservedReason, requeuedReason := draConditionReasonsWithLegacyFallback()
+	existingCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
+	requeuedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadRequeued)
+	shouldEmitWarning := existingCond == nil ||
+		existingCond.Status != metav1.ConditionFalse ||
+		existingCond.Reason != quotaReservedReason ||
+		existingCond.Message != api.TruncateConditionMessage(processingErr.Error()) ||
+		(requeuedCond != nil && requeuedCond.Status == metav1.ConditionTrue)
 	var changed bool
 	updateErr := workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
 		updated := workload.UnsetQuotaReservationWithCondition(wl, quotaReservedReason, processingErr.Error(), r.clock.Now())
@@ -258,6 +265,17 @@ func (r *WorkloadReconciler) markDRAInadmissible(ctx context.Context, wl *kueue.
 		return true, ctrl.Result{}, errors.Join(
 			fmt.Errorf("%s: %w", logMsg, processingErr),
 			fmt.Errorf("failed to persist DRA inadmissibility: %w", updateErr),
+		)
+	}
+	if shouldEmitWarning {
+		r.recorder.Eventf(
+			wl,
+			nil,
+			corev1.EventTypeWarning,
+			requeuedReason,
+			requeuedReason,
+			"%s",
+			api.TruncateEventMessage(processingErr.Error()),
 		)
 	}
 	if workload.HasInternalError(fieldErrs) {
