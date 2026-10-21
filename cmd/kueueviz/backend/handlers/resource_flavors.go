@@ -126,7 +126,7 @@ func (h *Handlers) fetchResourceFlavorDetails(ctx context.Context, flavorName st
 	}
 
 	// Retrieve matching nodes for the flavor
-	matchingNodes, err := h.getNodesForFlavor(ctx, flavorName)
+	matchingNodes, err := h.getNodesForFlavor(ctx, flavor.Spec.NodeLabels)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching nodes for resource flavor %s: %w", flavorName, err)
 	}
@@ -149,23 +149,16 @@ func (h *Handlers) fetchResourceFlavorDetails(ctx context.Context, flavorName st
 	return result, nil
 }
 
-// getNodesForFlavor retrieves a list of nodes that match a specific resource flavor.
-func (h *Handlers) getNodesForFlavor(ctx context.Context, flavorName string) ([]map[string]any, error) {
-	rf := &kueueapi.ResourceFlavor{}
-	err := h.client.Get(ctx, ctrlclient.ObjectKey{Name: flavorName}, rf)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching resource flavor %s: %v", flavorName, err)
-	}
-
+// getNodesForFlavor retrieves the nodes that have all the given flavor node labels.
+func (h *Handlers) getNodesForFlavor(ctx context.Context, nodeLabels map[string]string) ([]map[string]any, error) {
 	// List all nodes
 	nl := &v1.NodeList{}
-	err = h.client.List(ctx, nl)
+	err := h.client.List(ctx, nl)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching nodes: %v", err)
 	}
 
 	var matchingNodes []map[string]any
-	nodeLabels := rf.Spec.NodeLabels
 
 	// Iterate through each node to find matches for the flavor's nodeLabels
 	for _, node := range nl.Items {
