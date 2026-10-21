@@ -32,7 +32,6 @@ import (
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
@@ -1454,10 +1453,8 @@ func TestAddCompositePodGroup(t *testing.T) {
 	}
 
 	cpg := &schedulingv1alpha3.CompositePodGroup{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cpg",
-			Namespace: "default",
-		},
+		Name:      "cpg",
+		Namespace: "default",
 		Spec: schedulingv1alpha3.CompositePodGroupSpec{
 			SchedulingPolicy: schedulingv1alpha3.CompositePodGroupSchedulingPolicy{
 				Gang: &schedulingv1alpha3.CompositeGangSchedulingPolicy{},
@@ -1475,7 +1472,7 @@ func TestAddCompositePodGroup(t *testing.T) {
 			SchedulingPolicy: schedulingv1beta1.PodGroupSchedulingPolicy{
 				Gang: &schedulingv1beta1.GangSchedulingPolicy{MinCount: 1},
 			},
-			ParentCompositePodGroupName: ptr.To("cpg"),
+			ParentCompositePodGroupName: new("cpg"),
 		},
 	}
 	if err := sim.AddPodGroup(ctx, pg); err != nil {
@@ -1521,10 +1518,8 @@ func TestRemoveCompositePodGroup(t *testing.T) {
 	}
 
 	cpg := &schedulingv1alpha3.CompositePodGroup{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "cpg",
-			Namespace: "default",
-		},
+		Name:      "cpg",
+		Namespace: "default",
 		Spec: schedulingv1alpha3.CompositePodGroupSpec{
 			SchedulingPolicy: schedulingv1alpha3.CompositePodGroupSchedulingPolicy{
 				Gang: &schedulingv1alpha3.CompositeGangSchedulingPolicy{},
@@ -1542,7 +1537,7 @@ func TestRemoveCompositePodGroup(t *testing.T) {
 			SchedulingPolicy: schedulingv1beta1.PodGroupSchedulingPolicy{
 				Gang: &schedulingv1beta1.GangSchedulingPolicy{MinCount: 1},
 			},
-			ParentCompositePodGroupName: ptr.To("cpg"),
+			ParentCompositePodGroupName: new("cpg"),
 		},
 	}
 	if err := sim.AddPodGroup(ctx, pg); err != nil {
@@ -1563,7 +1558,8 @@ func TestRemoveCompositePodGroup(t *testing.T) {
 	}
 
 	got = sim.ScheduleWorkload(ctx, []*corev1.Pod{pod})
-	wantErr := errors.New(`failed to build pod group hierarchy: failed to get composite pod group default/cpg from snapshot: composite pod group object not found for pod group "compositepodgroup/default/cpg"`)
+	wantErr := errors.New("failed to build pod group hierarchy: failed to get composite pod group default/cpg from snapshot: " +
+		`composite pod group object not found for pod group "compositepodgroup/default/cpg"`)
 	if diff := cmp.Diff(&wantErr, &got.Error, cmpErrorMessage); diff != "" {
 		t.Errorf("ScheduleWorkload() after RemoveCompositePodGroup unexpected error (-want,+got):\n%s", diff)
 	}

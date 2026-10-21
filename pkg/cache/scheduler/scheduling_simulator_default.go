@@ -152,4 +152,3 @@ func (s *defaultSimulator) AddCompositePodGroup(_ context.Context, _ *scheduling
 func (s *defaultSimulator) RemoveCompositePodGroup(_ context.Context, _ *schedulingv1alpha3.CompositePodGroup) error {
 	return nil
 }
-
