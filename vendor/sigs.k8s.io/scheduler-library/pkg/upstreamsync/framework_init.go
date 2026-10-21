@@ -22,6 +22,7 @@ import (
 	"time"
 
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/informers"
@@ -44,13 +45,16 @@ import (
 	apicalls "k8s.io/kubernetes/pkg/scheduler/framework/api_calls"
 	"k8s.io/kubernetes/pkg/scheduler/framework/parallelize"
 	frameworkplugins "k8s.io/kubernetes/pkg/scheduler/framework/plugins"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultpreemption"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/dynamicresources"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/names"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodevolumelimits"
 	frameworkruntime "k8s.io/kubernetes/pkg/scheduler/framework/runtime"
 	"k8s.io/kubernetes/pkg/scheduler/metrics"
 	"k8s.io/kubernetes/pkg/scheduler/profile"
 	"k8s.io/kubernetes/pkg/scheduler/util/assumecache"
+	"sigs.k8s.io/scheduler-library/pkg/upstreamsync/preemption"
 )
 
 /*
@@ -290,6 +294,22 @@ func buildExtenders(logger klog.Logger, extenders []schedulerapi.Extender, profi
 // ProfileMap embeds profile.Map to attach FrameworkForPod and FrameworkForPodGroup.
 type ProfileMap struct {
 	profile.Map
+	// PreemptionFrameworks stores one PreemptionFramework wrapper per profile so that
+	// FrameworkForPodGroup, ApplySimulationNeutralizers, and plugin handles share the same
+	// PreemptionFramework instance.
+	//
+	// UPSTREAM-DIFF: Temporary 1.37 wrapper map.
+	// Migration Plan (1.38): Remove PreemptionFrameworks once framework.Framework in 1.38
+	// implements PreemptionManager() and SetPreemptionManager() directly.
+	PreemptionFrameworks map[string]*preemption.PreemptionFramework
+}
+
+func getProfileName(pod *v1.Pod) string {
+	name := pod.Spec.SchedulerName
+	if name == "" {
+		name = v1.DefaultSchedulerName
+	}
+	return name
 }
 
 // FrameworkForPod returns the framework registered for the pod's scheduler
@@ -297,10 +317,7 @@ type ProfileMap struct {
 // cannot happen for pods observed via the API (the field is defaulted there),
 // but can for synthetic pods used in scheduling simulations.
 func (p *ProfileMap) FrameworkForPod(pod *v1.Pod) (framework.Framework, error) {
-	name := pod.Spec.SchedulerName
-	if name == "" {
-		name = v1.DefaultSchedulerName
-	}
+	name := getProfileName(pod)
 	f, ok := p.Map[name]
 	if !ok {
 		return nil, fmt.Errorf("profile not found for scheduler name %q", name)
@@ -311,14 +328,54 @@ func (p *ProfileMap) FrameworkForPod(pod *v1.Pod) (framework.Framework, error) {
 // FrameworkForPodGroup returns the framework of the profile requested by the pod group,
 // defaulting to the default scheduler name when its member pods do not name one.
 //
-// UPSTREAM-DIFF: adapted from Scheduler.frameworkForPodGroup in schedule_one_podgroup.go.
-// It checks its podgroup members and delegates to FrameworkForPod which looks up the podgroup member profile.
-func (p *ProfileMap) FrameworkForPodGroup(podGroupInfo *framework.PodGroupInfo) (framework.Framework, error) {
+// UPSTREAM-DIFF: adapted from Scheduler.frameworkForPodGroup in schedule_one_podgroup.go,
+// returning *preemption.PreemptionFramework instead of framework.Framework.
+// Migration Plan (1.38): Change return type to (framework.Framework, error) and delegate
+// directly to p.FrameworkForPod(pods[0]).
+func (p *ProfileMap) FrameworkForPodGroup(podGroupInfo *framework.PodGroupInfo) (*preemption.PreemptionFramework, error) {
 	pods := podGroupInfo.GetUnscheduledPods()
 	if len(pods) == 0 {
 		return nil, fmt.Errorf("no pods in pod group")
 	}
-	return p.FrameworkForPod(pods[0])
+	name := getProfileName(pods[0])
+	f, ok := p.PreemptionFrameworks[name]
+	if !ok {
+		return nil, fmt.Errorf("profile not found for scheduler name %q", name)
+	}
+	return f, nil
+}
+
+// wrapRegistryForPreemption wraps plugin factories in registry so that during profile.NewMap:
+//  1. Every plugin receives the profile's *preemption.PreemptionFramework as its fwk.Handle
+//     (allowing plugins to call fh.(preemption.Handle).PreemptionManager() during PodGroupPostFilter).
+//  2. The in-tree DefaultPreemption plugin is wrapped with preemption.NewDefaultPreemption so
+//     PodGroupPostFilter uses the 1.38 PodGroupEvaluator.
+//
+// UPSTREAM-DIFF: Temporary 1.37 bridge for PodGroup preemption and out-of-tree PodGroupPostFilter plugins.
+// Migration Plan (1.38): Delete wrapRegistryForPreemption completely once k8s.io/kubernetes 1.38
+// provides PreemptionManager() and SetPreemptionManager() on framework.Framework.
+func wrapRegistryForPreemption(registry frameworkruntime.Registry, numProfiles int) map[string]*preemption.PreemptionFramework {
+	preemptionFrameworks := make(map[string]*preemption.PreemptionFramework, numProfiles)
+	for name, factory := range registry {
+		origFactory := factory
+		pluginName := name
+		registry[name] = func(ctx context.Context, args runtime.Object, fh fwk.Handle) (fwk.Plugin, error) {
+			pf, ok := preemptionFrameworks[fh.ProfileName()]
+			if !ok {
+				pf = preemption.NewPreemptionFramework(fh.(framework.Framework), nil)
+				preemptionFrameworks[fh.ProfileName()] = pf
+			}
+			pl, err := origFactory(ctx, args, pf)
+			if err != nil {
+				return nil, err
+			}
+			if pluginName == names.DefaultPreemption {
+				return preemption.NewDefaultPreemption(pl.(*defaultpreemption.DefaultPreemption), pf), nil
+			}
+			return pl, nil
+		}
+	}
+	return preemptionFrameworks
 }
 
 // NewFrameworkMap builds the map of scheduling framework profiles from the
@@ -328,7 +385,7 @@ func (p *ProfileMap) FrameworkForPodGroup(podGroupInfo *framework.PodGroupInfo) 
 // snapshot is injected into every framework profile as its SharedLister and PodGroupManager.
 //
 // UPSTREAM-DIFF: returns *ProfileMap embedding profile.Map and omits unused upstream options
-// (componentConfigVersion, kubeConfig, captureProfile, maxBatchAge). mapOpts configure this map
+// (componentConfigVersion, captureProfile, maxBatchAge). mapOpts configure this map
 // only, see FrameworkMapOption.
 func NewFrameworkMap(
 	ctx context.Context,
@@ -346,7 +403,7 @@ func NewFrameworkMap(
 	InitMetricsOnce()
 	registry := frameworkplugins.NewInTreeRegistry()
 	if err := registry.Merge(c.options.frameworkOutOfTreeRegistry); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("merging out-of-tree plugin registry: %w", err)
 	}
 	csiManager := nodevolumelimits.NewCSIManager(
 		c.informerFactory.Storage().V1().CSINodes().Lister())
@@ -366,6 +423,7 @@ func NewFrameworkMap(
 
 	opts := []frameworkruntime.Option{
 		frameworkruntime.WithClientSet(c.client),
+		frameworkruntime.WithKubeConfig(c.options.kubeConfig),
 		// UPSTREAM-DIFF: wrap informerFactory so that plugins registering indexers on Pods().Informer()
 		// (such as DynamicResources) skip already-registered indexers when NewFrameworkMap is called multiple times.
 		frameworkruntime.WithInformerFactory(&dedupPodIndexerInformerFactory{SharedInformerFactory: c.informerFactory}),
@@ -386,6 +444,8 @@ func NewFrameworkMap(
 		frameworkruntime.WithPodGroupManager(snapshot),
 	}
 
+	preemptionFrameworks := wrapRegistryForPreemption(registry, len(c.options.profiles))
+
 	profiles, err := profile.NewMap(ctx, c.options.profiles, registry, recorderFactory, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("initializing profiles: %w", err)
@@ -394,7 +454,10 @@ func NewFrameworkMap(
 		return nil, errors.New("at least one profile is required")
 	}
 
-	return &ProfileMap{Map: profiles}, nil
+	return &ProfileMap{
+		Map:                  profiles,
+		PreemptionFrameworks: preemptionFrameworks,
+	}, nil
 }
 
 // UPSTREAM-DIFF: sharedResolverDRAManager wraps DefaultDRAManager so that DeviceClassResolver
