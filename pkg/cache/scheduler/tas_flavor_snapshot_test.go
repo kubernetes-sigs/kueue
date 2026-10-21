@@ -3720,11 +3720,11 @@ func TestTASAssignmentsResultFailure(t *testing.T) {
 		},
 		"PodSets fail in different flavors": {
 			result: TASAssignmentsResult{
-				"ps-c": {Flavor: "tas-a"},
-				"ps-b": {FailureReason: "no fit in tas-a", Flavor: "tas-a"},
-				"ps-a": {FailureReason: "no fit in tas-b", Flavor: "tas-b"},
+				"ps-c": {FailureReason: "no fit in tas-a", Flavor: "tas-a"},
+				"ps-b": {FailureReason: "no fit in tas-b", Flavor: "tas-b"},
+				"ps-a": {Flavor: "tas-a"},
 			},
-			want: &FailureInfo{PodSetName: "ps-a", Reason: "no fit in tas-b", Flavor: "tas-b"},
+			want: &FailureInfo{PodSetName: "ps-b", Reason: "no fit in tas-b", Flavor: "tas-b"},
 		},
 	}
 	for name, tc := range cases {
