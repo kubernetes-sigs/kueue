@@ -37,7 +37,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
-	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -285,7 +284,7 @@ func (j *SparkApplication) RestorePodSetsInfo(ctx context.Context, podSetsInfo [
 		// An elastic job's executor count follows the running executors, not
 		// spec.executor.instances, and Kueue never changes instances when it
 		// starts the job, so there is nothing to restore.
-		if role == sparkcommon.SparkRoleExecutor && !isAnElasticJob((*sparkv1beta2.SparkApplication)(j)) {
+		if role == sparkcommon.SparkRoleExecutor && !isAnElasticJob(j) {
 			// An unset spec.executor.instances is counted as 0 executors, while the
 			// CRD requires the field to be at least 1 when set. Restore 0 as unset,
 			// otherwise the API server rejects the patch that suspends the job.
@@ -356,25 +355,32 @@ func (j *SparkApplication) PodsReady(ctx context.Context, _ client.Client) bool 
 // allocation, an elastic job follows the executors the driver keeps (pending or
 // running), so terminating executors hold quota until they stop.
 func (j *SparkApplication) numExecutors() int32 {
-	if !workloadslicing.Enabled(j.Object()) || !ptr.Deref(j.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
+	if !isAnElasticJob(j) || !ptr.Deref(j.Spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled {
 		return j.numInitialExecutors()
 	}
 	if !j.driverStarted() || len(j.Status.ExecutorState) == 0 {
 		minExecutors := ptr.Deref(j.Spec.DynamicAllocation.MinExecutors, 0)
 		return max(j.numInitialExecutors(), minExecutors)
 	}
-	var count int32
-	for _, st := range j.Status.ExecutorState {
-		if st == sparkv1beta2.ExecutorStatePending || st == sparkv1beta2.ExecutorStateRunning {
-			count++
-		}
-	}
+	count := j.numActiveExecutors()
 	// cap the upper and lower bounds
 	if minExecutors := j.Spec.DynamicAllocation.MinExecutors; minExecutors != nil {
 		count = max(count, *minExecutors)
 	}
 	if maxExecutors := j.Spec.DynamicAllocation.MaxExecutors; maxExecutors != nil {
 		count = min(count, *maxExecutors)
+	}
+	return count
+}
+
+// numActiveExecutors returns the number of executors the driver keeps, pending
+// or running.
+func (j *SparkApplication) numActiveExecutors() int32 {
+	var count int32
+	for _, st := range j.Status.ExecutorState {
+		if st == sparkv1beta2.ExecutorStatePending || st == sparkv1beta2.ExecutorStateRunning {
+			count++
+		}
 	}
 	return count
 }

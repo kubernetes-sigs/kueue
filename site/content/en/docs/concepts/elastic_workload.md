@@ -70,6 +70,8 @@ Elastic Workloads via Workload Slices are gated by the following feature flag:
 ElasticJobsViaWorkloadSlices: true
 ```
 
+SparkApplication additionally requires the `ElasticJobsViaWorkloadSlicesForSparkApplication` feature gate.
+
 Additionally, Elastic Job behavior must be explicitly enabled on a per-job basis via annotation:
 
 ```yaml

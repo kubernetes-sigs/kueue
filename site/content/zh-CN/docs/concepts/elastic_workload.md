@@ -76,6 +76,8 @@ description: >
 ElasticJobsViaWorkloadSlices: true
 ```
 
+SparkApplication 还需要启用 `ElasticJobsViaWorkloadSlicesForSparkApplication` 特性门控。
+
 此外，必须通过注解为每个 Job 显式启用弹性 Job 行为：
 
 ```yaml

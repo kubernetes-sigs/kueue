@@ -97,9 +97,9 @@ var _ = ginkgo.Describe("SparkApplication Webhook", func() {
 			})
 		})
 
-		ginkgo.When("ElasticJobsViaWorkloadSlices is enabled", func() {
+		ginkgo.When("ElasticJobsViaWorkloadSlicesForSparkApplication is enabled", func() {
 			ginkgo.BeforeEach(func() {
-				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlices, true)
+				features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
 			})
 
 			ginkgo.It("should gate the executors of an elastic SparkApplication and keep the gate on update", func() {

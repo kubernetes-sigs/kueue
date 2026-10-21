@@ -63,11 +63,11 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: field.ErrorList{field.Invalid(
 				dynamicAllocationEnabledPath,
 				true,
-				"a kueue managed job can use dynamicAllocation only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
+				"a kueue managed job can use dynamicAllocation only when the ElasticJobsViaWorkloadSlicesForSparkApplication feature gate is on and the job is an elastic job",
 			)}.ToAggregate(),
 		},
 		"dynamicAllocation with elastic job feature": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesForSparkApplication: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
 				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
 			).DynamicAllocation(&sparkappv1beta2.DynamicAllocation{
@@ -79,7 +79,7 @@ func TestValidateCreate(t *testing.T) {
 			wantErr: nil,
 		},
 		"elastic job without the ElasticJobSchedulingGate": {
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesForSparkApplication: true},
 			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
 				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
 			).Obj(),
@@ -88,6 +88,16 @@ func TestValidateCreate(t *testing.T) {
 				[]corev1.PodSchedulingGate(nil),
 				"an elastic job must have the ElasticJobSchedulingGate",
 			)}.ToAggregate(),
+		},
+		"elastic job annotation is ignored without the SparkApplication elastic feature": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                    true,
+				features.ElasticJobsViaWorkloadSlicesForSparkApplication: false,
+			},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
+				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
+			).Obj(),
+			wantErr: nil,
 		},
 		"base with TAS": {
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: true},
@@ -147,7 +157,7 @@ func TestValidateUpdate(t *testing.T) {
 		"elastic job must not drop the ElasticJobSchedulingGate": {
 			oldSparkApp:  elasticSparkApp.Clone().Obj(),
 			newSparkApp:  elasticSparkApp.Clone().ExecutorSchedulingGates().Obj(),
-			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlicesForSparkApplication: true},
 			wantErr: field.ErrorList{field.Invalid(
 				executorSpecPath.Child("template").Child("spec").Child("schedulingGates"),
 				[]corev1.PodSchedulingGate(nil),
@@ -341,6 +351,7 @@ func TestDefault(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			kClient := utiltesting.NewClientBuilder().WithObjects(testManagedNamespace.Obj()).Build()

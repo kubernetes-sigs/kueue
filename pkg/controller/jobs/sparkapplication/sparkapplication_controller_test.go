@@ -415,6 +415,7 @@ func TestPodSetsExecutorCount(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
 			ctx, _ := utiltesting.ContextWithLog(t)
 
 			got, err := (*SparkApplication)(tc.sparkApp).PodSets(ctx, nil)
@@ -866,6 +867,7 @@ func TestRestorePodSetsInfo(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
 			kSparkApp := (*SparkApplication)(tc.sparkApp)
 			changed := kSparkApp.RestorePodSetsInfo(t.Context(), tc.podsetsInfo)
 			if diff := cmp.Diff(tc.wantChanged, changed); diff != "" {

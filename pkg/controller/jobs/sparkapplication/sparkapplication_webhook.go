@@ -129,8 +129,8 @@ func (w *SparkApplicationWebhook) ValidateCreate(ctx context.Context, obj *spark
 }
 
 // returns whether the SparkApplication is an elastic job or not
-func isAnElasticJob(sparkApp *sparkv1beta2.SparkApplication) bool {
-	return workloadslicing.Enabled(sparkApp)
+func isAnElasticJob(sparkApp metav1.Object) bool {
+	return features.Enabled(features.ElasticJobsViaWorkloadSlicesForSparkApplication) && workloadslicing.Enabled(sparkApp)
 }
 
 func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *sparkv1beta2.SparkApplication, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
@@ -152,7 +152,7 @@ func (w *SparkApplicationWebhook) validateCreate(ctx context.Context, job *spark
 			allErrors = append(allErrors,
 				field.Invalid(dynamicAllocationEnabledPath,
 					ptr.Deref(spec.DynamicAllocation, sparkv1beta2.DynamicAllocation{}).Enabled,
-					"a kueue managed job can use dynamicAllocation only when the ElasticJobsViaWorkloadSlices feature gate is on and the job is an elastic job",
+					"a kueue managed job can use dynamicAllocation only when the ElasticJobsViaWorkloadSlicesForSparkApplication feature gate is on and the job is an elastic job",
 				),
 			)
 		}

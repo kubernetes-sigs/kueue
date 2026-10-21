@@ -60,6 +60,7 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 		e2e.UpdateKueueConfigurationAndRestart(ctx, k8sClient, defaultKueueCfg, kindClusterName, func(cfg *configapi.Configuration) {
 			cfg.Integrations.Frameworks = append(cfg.Integrations.Frameworks, sparkapplication.FrameworkName)
 			cfg.FeatureGates[string(features.SparkApplicationIntegration)] = true
+			cfg.FeatureGates[string(features.ElasticJobsViaWorkloadSlicesForSparkApplication)] = true
 			cfg.FeatureGates[string(features.TopologyAwareScheduling)] = true
 		})
 	})
@@ -250,32 +251,12 @@ var _ = ginkgo.Describe("SparkApplication integration", ginkgo.Label("feature:sp
 			ginkgo.By("the driver scales up, and a new workload slice admits the new executors")
 			scaleUpSlice := behavioral.ExpectNewWorkloadSliceWithTimeout(ctx, k8sClient, initialSlice, behavioral.LongTimeout)
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, scaleUpSlice)
-			gomega.Eventually(func(g gomega.Gomega) {
-				pods := &corev1.PodList{}
-				g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{
-					sparkcommon.LabelSparkAppName: sparkApp.Name,
-					sparkcommon.LabelSparkRole:    sparkcommon.SparkRoleExecutor,
-				})).To(gomega.Succeed())
-				running := 0
-				for _, pod := range pods.Items {
-					if pod.Status.Phase == corev1.PodRunning {
-						running++
-					}
-				}
-				g.Expect(running).To(gomega.BeNumerically(">", 1))
-			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+			e2e.ExpectSparkApplicationRunningExecutorsAtLeast(ctx, k8sClient, client.ObjectKeyFromObject(sparkApp), 2)
 
 			ginkgo.By("the SparkApplication completes in its first submission, and every workload slice finishes")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(sparkApp), sparkApp)).To(gomega.Succeed())
-				g.Expect(sparkApp.Status.AppState.State).To(gomega.Equal(sparkv1beta2.ApplicationStateCompleted))
-				g.Expect(sparkApp.Status.SubmissionAttempts).To(gomega.Equal(int32(1)))
-				wls := &kueue.WorkloadList{}
-				g.Expect(k8sClient.List(ctx, wls, client.InNamespace(ns.Name))).To(gomega.Succeed())
-				for _, wl := range wls.Items {
-					g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished), "workload %s", wl.Name)
-				}
-			}, behavioral.VeryLongTimeout, behavioral.Interval).Should(gomega.Succeed())
+			sparkApp = e2e.ExpectSparkApplicationToComplete(ctx, k8sClient, client.ObjectKeyFromObject(sparkApp))
+			gomega.Expect(sparkApp.Status.SubmissionAttempts).To(gomega.Equal(int32(1)))
+			behavioral.ExpectAllWorkloadsInNamespaceToFinish(ctx, k8sClient, ns.Name)
 		})
 	})
 

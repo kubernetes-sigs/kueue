@@ -102,7 +102,7 @@ Resources set through Spark Pod template files (`spark.kubernetes.driver.podTemp
 Kueue supports [Spark dynamic allocation](https://spark.apache.org/docs/latest/job-scheduling.html#dynamic-resource-allocation)
 by running the SparkApplication as an [elastic workload](/docs/concepts/elastic_workload). To enable it:
 
-1. Activate the `ElasticJobsViaWorkloadSlices` feature gate.
+1. Activate the `ElasticJobsViaWorkloadSlices` and `ElasticJobsViaWorkloadSlicesForSparkApplication` feature gates.
 2. Annotate the SparkApplication with:
 
    ```yaml

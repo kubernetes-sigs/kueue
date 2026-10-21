@@ -84,7 +84,7 @@ Kueue 通过将 SparkApplication 作为[弹性工作负载](/zh-cn/docs/concepts
 [Spark 动态分配](https://spark.apache.org/docs/latest/job-scheduling.html#dynamic-resource-allocation)。
 要启用它：
 
-1. 启用 `ElasticJobsViaWorkloadSlices` 特性门控。
+1. 启用 `ElasticJobsViaWorkloadSlices` 和 `ElasticJobsViaWorkloadSlicesForSparkApplication` 特性门控。
 2. 为 SparkApplication 添加注解：
 
    ```yaml
