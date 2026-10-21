@@ -162,6 +162,8 @@ spec:
                         backoffBaseSeconds defines the base for the exponential backoff for
                         re-queuing an evicted workload.
 
+                        Must be greater than or equal to 0.
+
                         Defaults to 60.
                       format: int32
                       minimum: 0
@@ -180,6 +182,8 @@ spec:
                         other workloads will have a chance to be admitted.
                         By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
 
+                        Must be greater than or equal to 0.
+
                         Defaults to 3.
                       format: int32
                       minimum: 0
@@ -188,6 +192,8 @@ spec:
                       default: 1800
                       description: |-
                         backoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
+
+                        Must be greater than or equal to 0.
 
                         Defaults to 1800.
                       format: int32

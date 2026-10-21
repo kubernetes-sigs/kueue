@@ -136,6 +136,8 @@ type ProvisioningRequestRetryStrategy struct {
 	// other workloads will have a chance to be admitted.
 	// By default, the consecutive requeue delays are around: (60s, 120s, 240s, ...).
 	//
+	// Must be greater than or equal to 0.
+	//
 	// Defaults to 3.
 	// +optional
 	// +kubebuilder:default=3
@@ -145,6 +147,8 @@ type ProvisioningRequestRetryStrategy struct {
 	// backoffBaseSeconds defines the base for the exponential backoff for
 	// re-queuing an evicted workload.
 	//
+	// Must be greater than or equal to 0.
+	//
 	// Defaults to 60.
 	// +optional
 	// +kubebuilder:default=60
@@ -152,6 +156,8 @@ type ProvisioningRequestRetryStrategy struct {
 	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
 
 	// backoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
+	//
+	// Must be greater than or equal to 0.
 	//
 	// Defaults to 1800.
 	// +optional

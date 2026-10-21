@@ -685,6 +685,8 @@ func TestUpdateAdmissionCheckRequeueState(t *testing.T) {
 			backoffMaxSeconds:       1800,
 			wantRequeueAfterSeconds: 1800,
 		},
+		// The following cases document behavior that the +kubebuilder:validation:Minimum=0
+		// markers on the API fields now block at admission.
 		"negative base produces a negative requeue time": {
 			retryCount:              2,
 			backoffBaseSeconds:      -60,
