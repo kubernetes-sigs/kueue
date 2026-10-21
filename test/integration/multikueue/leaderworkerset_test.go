@@ -25,6 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	leaderworkersetv1 "sigs.k8s.io/lws/api/leaderworkerset/v1"
@@ -105,7 +106,12 @@ var _ = ginkgo.Describe("MultiKueue LeaderWorkerSet", ginkgo.Label("area:multiku
 			waitForRemoteWorkloadToBeDeleted(worker2TestCluster.ctx, worker2TestCluster.client, group1Key, "worker2", behavioral.Timeout)
 		})
 
-		ginkgo.By("checking the LeaderWorkerSet of the remaining group is kept on worker2", func() {
+		ginkgo.By("checking the LeaderWorkerSet of the remaining group is kept on worker2 and shrunk to one group", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				gotLws := &leaderworkersetv1.LeaderWorkerSet{}
+				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lwsKey, gotLws)).To(gomega.Succeed())
+				g.Expect(gotLws.Spec.Replicas).To(gomega.Equal(ptr.To[int32](1)))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			gomega.Consistently(func(g gomega.Gomega) {
 				gotLws := &leaderworkersetv1.LeaderWorkerSet{}
 				g.Expect(worker2TestCluster.client.Get(worker2TestCluster.ctx, lwsKey, gotLws)).To(gomega.Succeed())

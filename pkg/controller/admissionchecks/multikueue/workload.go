@@ -311,6 +311,11 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 				return reconcile.Result{}, err
 			}
 		}
+		// A scale down deletes this workload but leaves the other workloads of the job
+		// unchanged, so enqueue them to sync the shared remote controller object.
+		if grp.jobHasMultipleWorkloads() {
+			w.enqueueComponentWorkloads(ctx, wl)
+		}
 		// Remote workloads on unavailable clusters will be cleaned up by
 		// the per-cluster GC once the cluster reconnects.
 		w.deletedWlCache.Delete(req.String())
