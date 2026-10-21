@@ -771,9 +771,26 @@ func (r *variantReconciler) syncAdmissionStatus(
 		}); err != nil {
 			return client.IgnoreNotFound(err)
 		}
+		if slices.ContainsFunc(parent.Status.AdmissionChecks, func(c kueue.AdmissionCheckState) bool { return c.State == kueue.CheckStateReady }) {
+			// The Parent can keep Ready checks after losing its quota reservation, with or without
+			// an eviction (for example when its LocalQueue is deleted). Reset them before the copy,
+			// as the pod set updates of a Ready check cannot change.
+			if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
+				workloadevict.ResetChecksOnEviction(wl, r.clock.Now())
+				return true, nil
+			}); err != nil {
+				return client.IgnoreNotFound(err)
+			}
+		}
 		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
 			workload.SetQuotaReservation(wl, admittedVariant.Status.Admission, r.clock)
 			workload.SetAdmittedCondition(wl, r.clock.Now(), "Admitted", fmt.Sprintf("The variant %s is admitted", admittedVariant.Name))
+			// The Parent mirrors the admission checks of the admitted Variant, so that the job
+			// is started with their pod set updates.
+			wl.Status.AdmissionChecks = make([]kueue.AdmissionCheckState, len(admittedVariant.Status.AdmissionChecks))
+			for i := range admittedVariant.Status.AdmissionChecks {
+				admittedVariant.Status.AdmissionChecks[i].DeepCopyInto(&wl.Status.AdmissionChecks[i])
+			}
 			log.V(2).Info("Parent is not admitted but a variant is admitted, updating parent to admitted", "parent", klog.KObj(parent), "admittedVariant", klog.KObj(admittedVariant))
 			return true, nil
 		}); err != nil {
