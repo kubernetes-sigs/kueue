@@ -56,6 +56,20 @@ metadata:
     kueue.x-k8s.io/queue-name: user-queue
 ```
 
+{{% alert title="Note" color="primary" %}}
+Changing or adding the `kueue.x-k8s.io/queue-name` label on a running Deployment starts an update:
+
+- **RollingUpdate** (default): with the default `maxUnavailable: 25%`, up to a quarter of the old Pods can be
+  removed before replacement Pods are admitted. The ClusterQueue behind the new LocalQueue needs enough capacity
+  to admit **all replacement Pods** to complete the rollout — not just the surge Pods. If quota runs short
+  mid-rollout, the remaining replacements stay pending and the rollout stalls. To keep all existing Pods running
+  until replacements are admitted, set `spec.strategy.rollingUpdate.maxUnavailable: 0` with a positive
+  `spec.strategy.rollingUpdate.maxSurge` (Kubernetes rejects `maxUnavailable: 0` and `maxSurge: 0` together).
+- **Recreate**: all existing Pods are terminated before any replacement is created. Any admission delay in the new
+  LocalQueue causes a full outage. Ensure the ClusterQueue behind the new LocalQueue has enough quota before
+  changing the queue label on a Recreate Deployment.
+{{% /alert %}}
+
 ### b. Configure the resource needs
 
 The resource needs of the workload can be configured in the `spec.template.spec.containers`.
