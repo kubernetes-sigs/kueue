@@ -443,10 +443,10 @@ func (a *FlavorAssigner) AssignFlavors(
 			}
 		}
 		if groupFlavors != nil {
-			if first, second, err := a.conflictingFlavors(groupFlavors); err != nil {
+			if err := a.conflictingFlavors(groupFlavors); err != nil {
 				groupFlavors = nil
 				groupStatus = Status{
-					reasons:     []string{fmt.Sprintf("flavors %s and %s have conflicting node labels: %v", first, second, err)},
+					reasons:     []string{err.Error()},
 					noFitReason: kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
 				}
 			}
@@ -486,28 +486,28 @@ func (a *FlavorAssigner) AssignFlavors(
 	return assignment
 }
 
-func (a *FlavorAssigner) conflictingFlavors(flavors ResourceAssignment) (kueue.ResourceFlavorReference, kueue.ResourceFlavorReference, error) {
-	names := sets.New[kueue.ResourceFlavorReference]()
-	for _, flavor := range flavors {
-		names.Insert(flavor.Name)
-	}
-	sortedNames := sets.List(names)
-	for i, firstName := range sortedNames {
-		first := a.resourceFlavors[firstName]
-		if first == nil {
+// conflictingFlavors returns an error if the flavors selected for a pod set
+// set the same node label key to different values.
+func (a *FlavorAssigner) conflictingFlavors(flavors ResourceAssignment) error {
+	merged := make(map[string]string)
+	owners := make(map[string]kueue.ResourceFlavorReference)
+	for _, resName := range slices.Sorted(maps.Keys(flavors)) {
+		fName := flavors[resName].Name
+		flv := a.resourceFlavors[fName]
+		if flv == nil {
 			continue
 		}
-		for _, secondName := range sortedNames[i+1:] {
-			second := a.resourceFlavors[secondName]
-			if second == nil {
-				continue
-			}
-			if err := utilmaps.HaveConflict(first.Spec.NodeLabels, second.Spec.NodeLabels); err != nil {
-				return firstName, secondName, err
+		for key, value := range flv.Spec.NodeLabels {
+			if old, found := merged[key]; found && old != value {
+				return fmt.Errorf("flavors %s and %s have conflicting node labels: conflict for key=%s, value1=%s, value2=%s", owners[key], fName, key, old, value)
 			}
 		}
+		for key, value := range flv.Spec.NodeLabels {
+			merged[key] = value
+			owners[key] = fName
+		}
 	}
-	return "", "", nil
+	return nil
 }
 
 // AssignTopology updates the assignment based on topology requirements.

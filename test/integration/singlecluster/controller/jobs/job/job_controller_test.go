@@ -8575,10 +8575,16 @@ var _ = ginkgo.Describe("Job flavors with conflicting node labels", ginkgo.Order
 			g.Expect(firstJob.Spec.Suspend).Should(gomega.Equal(new(true)))
 		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 
-		ginkgo.By("the second workload also stays pending")
-		secondJob := newJob("second-job")
+		ginkgo.By("a second job can use the CPU quota")
+		// Requesting only CPU gives the second job a different scheduling shape,
+		// so BestEffortFIFO does not skip it as equivalent to the pending
+		// workload. Admission also shows that the first workload reserved no quota.
+		secondJob := testingjob.MakeJob("second-job", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Request(corev1.ResourceCPU, "1").
+			Obj()
 		behavioral.MustCreate(ctx, k8sClient, secondJob)
 		secondWlKey := types.NamespacedName{Name: workloadjob.GetWorkloadNameForJob(secondJob.Name, secondJob.UID), Namespace: ns.Name}
-		behavioral.ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, firstWlKey, secondWlKey)
+		behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, secondWlKey)
 	})
 })

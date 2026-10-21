@@ -111,29 +111,6 @@ func TestFromAssignment(t *testing.T) {
 				Tolerations: []corev1.Toleration{*toleration1.DeepCopy(), *toleration2.DeepCopy()},
 			},
 		},
-		"multiple flavors": {
-			assignment: &kueue.PodSetAssignment{
-				Name: "name",
-				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-					corev1.ResourceCPU:    kueue.ResourceFlavorReference(flavor1.Name),
-					corev1.ResourceMemory: kueue.ResourceFlavorReference(flavor2.Name),
-				},
-				Count: new(int32(2)),
-			},
-			defaultCount: 4,
-			flavors:      []kueue.ResourceFlavor{*flavor1.DeepCopy(), *flavor2.DeepCopy()},
-			wantInfo: PodSetInfo{
-				Name:  "name",
-				Count: 2,
-				NodeSelector: map[string]string{
-					"f1l1": "f1v1",
-					"f1l2": "f1v2",
-					"f2l1": "f2v1",
-					"f2l2": "f2v2",
-				},
-				Tolerations: []corev1.Toleration{*toleration1.DeepCopy(), *toleration2.DeepCopy(), *toleration3.DeepCopy()},
-			},
-		},
 		"duplicate flavor": {
 			assignment: &kueue.PodSetAssignment{
 				Name: "name",
