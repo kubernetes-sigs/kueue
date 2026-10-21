@@ -4097,6 +4097,14 @@ func TestTopologyUngater_ElasticJobs_Reconciler(t *testing.T) {
 			elasticTAS:              true,
 			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": survivorAssignment},
 		},
+		"shrink waits for unhealthy node recovery": {
+			workloads:               []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().UnhealthyNodes("n1").Obj()},
+			pods:                    []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			wantPods:                []corev1.Pod{*survivor.Clone().Obj(), *secondSurvivor.Clone().Obj()},
+			nodes:                   shrinkNodes,
+			elasticTAS:              true,
+			wantTopologyAssignments: map[string]*kueue.TopologyAssignment{"replacement": originalAssignment},
+		},
 		"shrink releases capacity after a survivor is reclaimed": {
 			workloads: []kueue.Workload{*origin.Clone().Obj(), *shrinking.Clone().
 				ReclaimablePods(kueue.ReclaimablePod{Name: "workers", Count: 1}).Obj()},

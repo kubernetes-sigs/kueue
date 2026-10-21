@@ -339,6 +339,10 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 // reconcileElasticShrink releases domains only after the remaining Pods account
 // for the requested size after reclaim.
 func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.Workload) (bool, error) {
+	// Node recovery needs the assignment to find and clear unhealthyNodes entries.
+	if workload.HasUnhealthyNodes(wl) {
+		return false, nil
+	}
 	before := wl
 	wl = wl.DeepCopy()
 	counts := workload.ExtractPodSetCountsFromWorkload(wl)
