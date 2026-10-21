@@ -107,9 +107,9 @@ func TestResourceSliceDriverMappedClusterQueues(t *testing.T) {
 			t.Fatalf("add %s: %v", cq.Name, err)
 		}
 	}
-	for _, tc := range []struct{
+	for _, tc := range []struct {
 		driver string
-		want sets.Set[kueue.ClusterQueueReference]
+		want   sets.Set[kueue.ClusterQueueReference]
 	}{
 		{"driver-a.example.com", sets.New[kueue.ClusterQueueReference]("cq-a", "cq-shared", "cq-both")},
 		{"driver-b.example.com", sets.New[kueue.ClusterQueueReference]("cq-b", "cq-shared", "cq-both")},
