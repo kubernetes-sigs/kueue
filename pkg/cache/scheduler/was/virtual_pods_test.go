@@ -271,6 +271,36 @@ func TestCandidateVirtualPodsForPodSet_MetadataAndStatus(t *testing.T) {
 	}
 }
 
+func TestCandidateVirtualPodsForPodSet_LeafPGForPod(t *testing.T) {
+	wl := utiltestingapi.MakeWorkload("wl", "test-ns").UID("wl-uid").Obj()
+	ps := &kueue.PodSet{
+		Name: "workers",
+		Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{{Name: "c"}},
+			},
+		},
+		Count: 2,
+	}
+
+	opts := CandidatePodOptions{
+		LeafPGForPod: func(replicaIdx int) string {
+			return fmt.Sprintf("custom-leaf-pg-%d", replicaIdx)
+		},
+	}
+	pods, err := CandidateVirtualPodsForPodSet(wl, ps, 2, opts)
+	if err != nil {
+		t.Fatalf("CandidateVirtualPodsForPodSet() unexpected error: %v", err)
+	}
+
+	for i, pod := range pods {
+		wantPG := fmt.Sprintf("custom-leaf-pg-%d", i)
+		if pod.Spec.SchedulingGroup == nil || pod.Spec.SchedulingGroup.PodGroupName == nil || *pod.Spec.SchedulingGroup.PodGroupName != wantPG {
+			t.Errorf("pod[%d] SchedulingGroup = %v, want %q", i, pod.Spec.SchedulingGroup, wantPG)
+		}
+	}
+}
+
 func TestCandidateVirtualPodsForPodSet_EffectivePodSpec(t *testing.T) {
 	wl := utiltestingapi.MakeWorkload("wl", "default").Obj()
 	ps := &kueue.PodSet{
