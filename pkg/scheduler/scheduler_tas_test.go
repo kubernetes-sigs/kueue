@@ -128,13 +128,9 @@ func TestShouldFailFastTASReplacement(t *testing.T) {
 	}
 }
 
-// TestTryDeferFailedTASReplacementRestoresVictim verifies that the deferral
-// simulation restores the victim workload in the shared snapshot before the
-// next scheduler entry can observe it. A full scheduling pass cannot catch
-// this: assignments are computed during nomination, before the deferral runs.
-func TestTryDeferFailedTASReplacementRestoresVictim(t *testing.T) {
+func newTryDeferFailedTASReplacementFixture(t *testing.T) (context.Context, logr.Logger, *Scheduler, *schdcache.Snapshot, *entry, *kueue.Workload) {
+	t.Helper()
 	features.SetFeatureGateDuringTest(t, features.TASFailedNodeReplacementFailFast, true)
-	features.SetFeatureGateDuringTest(t, features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions, true)
 
 	ctx, log := utiltesting.ContextWithLog(t)
 	now := time.Now().Truncate(time.Second)
@@ -241,12 +237,54 @@ func TestTryDeferFailedTASReplacementRestoresVictim(t *testing.T) {
 		Info:                 *workload.NewInfo(log, &foo),
 		clusterQueueSnapshot: snapshot.ClusterQueue("tas-main"),
 	}
+	return ctx, log, scheduler, snapshot, e, &victim
+}
 
+// TestTryDeferFailedTASReplacementRestoresVictim verifies that the deferral
+// simulation restores the victim workload in the shared snapshot before the
+// next scheduler entry can observe it. A full scheduling pass cannot catch
+// this: assignments are computed during nomination, before the deferral runs.
+func TestTryDeferFailedTASReplacementRestoresVictim(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions, true)
+	ctx, log, scheduler, snapshot, e, victim := newTryDeferFailedTASReplacementFixture(t)
 	if !scheduler.tryDeferFailedTASReplacement(ctx, log, e, snapshot) {
 		t.Fatal("tryDeferFailedTASReplacement() = false, want true")
 	}
-	if got := snapshot.ClusterQueue("tas-main").Workloads[workload.Key(&victim)]; got == nil || len(got.Usage().Quota.Assigned) == 0 {
+	if got := snapshot.ClusterQueue("tas-main").Workloads[workload.Key(victim)]; got == nil || len(got.Usage().Quota.Assigned) == 0 {
 		t.Fatal("victim is missing or has no usage in the snapshot after deferral; the simulated usage was not restored")
+	}
+}
+
+func TestTryDeferFailedTASReplacementHonorsGuards(t *testing.T) {
+	// Use the real fixture so each guard is exercised without relying on a
+	// nil-snapshot panic to fail.
+	cases := map[string]struct {
+		gate    bool
+		timeout time.Duration
+		want    bool
+	}{
+		"enabled": {
+			gate:    true,
+			timeout: time.Minute,
+			want:    true,
+		},
+		"feature gate disabled": {
+			gate:    false,
+			timeout: time.Minute,
+		},
+		"zero recovery timeout": {
+			gate: true,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions, tc.gate)
+			ctx, log, scheduler, snapshot, e, _ := newTryDeferFailedTASReplacementFixture(t)
+			scheduler.failedTASReplacementRecoveryTimeout = tc.timeout
+			if got := scheduler.tryDeferFailedTASReplacement(ctx, log, e, snapshot); got != tc.want {
+				t.Fatalf("tryDeferFailedTASReplacement() = %t, want %t", got, tc.want)
+			}
+		})
 	}
 }
 
