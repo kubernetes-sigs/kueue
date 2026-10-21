@@ -62,7 +62,8 @@ type Factory interface {
 	// TrackPod notifies the simulator that a pod is running on a node.
 	TrackPod(ctx context.Context, pod *corev1.Pod)
 	// UntrackPod notifies the simulator that a pod has been removed.
-	UntrackPod(ctx context.Context, key client.ObjectKey)
+	// Returns the node name when a tracked pod is removed.
+	UntrackPod(ctx context.Context, key client.ObjectKey) string
 }
 
 // SchedulerSimulator allows running simulations on a snapshotted cluster state.

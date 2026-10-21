@@ -22,7 +22,9 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -30,6 +32,7 @@ import (
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 )
 
@@ -368,6 +371,56 @@ func TestDrainPendingNodes(t *testing.T) {
 				t.Errorf("pendingRequeueNodes has %d items, want %d", r.pending.nodes.Len(), tc.wantPendingLen)
 			}
 			if tc.wantPendingKeys != nil && !r.pending.nodes.Equal(tc.wantPendingKeys) {
+				t.Errorf("pendingRequeueNodes = %v, want %v", r.pending.nodes, tc.wantPendingKeys)
+			}
+		})
+	}
+}
+
+func TestReconcileNotifiesFreedNodeOnUntrackPod(t *testing.T) {
+	ctx := t.Context()
+	podKey := types.NamespacedName{Namespace: "ns", Name: "tas-pod"}
+
+	runningTASPod := testingpod.MakePod("tas-pod", "ns").
+		NodeName("node-a").
+		Annotation(kueue.WorkloadAnnotation, "wl1").
+		Annotation(kueue.PodSetRequiredTopologyAnnotation, "rack").
+		StatusPhase(corev1.PodRunning).
+		Obj()
+
+	terminatedTASPod := runningTASPod.DeepCopy()
+	terminatedTASPod.Status.Phase = corev1.PodSucceeded
+
+	tests := map[string]struct {
+		objects         []client.Object
+		wantPendingKeys sets.Set[string]
+	}{
+		"terminated TAS pod notifies freed node": {
+			objects:         []client.Object{terminatedTASPod},
+			wantPendingKeys: sets.New[string]("node-a"),
+		},
+		"deleted TAS pod notifies freed node": {
+			wantPendingKeys: sets.New[string]("node-a"),
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			cl := fake.NewClientBuilder().WithObjects(tc.objects...).Build()
+			simulatorFactory, err := was.NewWASSimulatorFactory(ctx, nil)
+			if err != nil {
+				t.Fatalf("NewWASSimulatorFactory failed: %v", err)
+			}
+			cache := schdcache.New(cl, schdcache.WithSimulatorFactory(simulatorFactory))
+			r := newPodUsageReconciler(cl, nil, cache, nil)
+
+			// Seed the simulator with the running TAS pod first.
+			cache.TASCache().TrackPod(ctx, runningTASPod)
+
+			if _, err := r.Reconcile(ctx, ctrl.Request{NamespacedName: podKey}); err != nil {
+				t.Fatalf("Reconcile failed: %v", err)
+			}
+			if !r.pending.nodes.Equal(tc.wantPendingKeys) {
 				t.Errorf("pendingRequeueNodes = %v, want %v", r.pending.nodes, tc.wantPendingKeys)
 			}
 		})
