@@ -139,6 +139,7 @@ type ProvisioningRequestRetryStrategy struct {
 	// Defaults to 3.
 	// +optional
 	// +kubebuilder:default=3
+	// +kubebuilder:validation:Minimum=0
 	BackoffLimitCount *int32 `json:"backoffLimitCount,omitempty"`
 
 	// backoffBaseSeconds defines the base for the exponential backoff for
@@ -147,6 +148,7 @@ type ProvisioningRequestRetryStrategy struct {
 	// Defaults to 60.
 	// +optional
 	// +kubebuilder:default=60
+	// +kubebuilder:validation:Minimum=0
 	BackoffBaseSeconds *int32 `json:"backoffBaseSeconds,omitempty"`
 
 	// backoffMaxSeconds defines the maximum backoff time to re-queue an evicted workload.
@@ -154,6 +156,7 @@ type ProvisioningRequestRetryStrategy struct {
 	// Defaults to 1800.
 	// +optional
 	// +kubebuilder:default=1800
+	// +kubebuilder:validation:Minimum=0
 	BackoffMaxSeconds *int32 `json:"backoffMaxSeconds,omitempty"`
 }
 

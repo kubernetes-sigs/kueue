@@ -164,6 +164,7 @@ spec:
 
                         Defaults to 60.
                       format: int32
+                      minimum: 0
                       type: integer
                     backoffLimitCount:
                       default: 3
@@ -181,6 +182,7 @@ spec:
 
                         Defaults to 3.
                       format: int32
+                      minimum: 0
                       type: integer
                     backoffMaxSeconds:
                       default: 1800
@@ -189,6 +191,7 @@ spec:
 
                         Defaults to 1800.
                       format: int32
+                      minimum: 0
                       type: integer
                   type: object
               required:
