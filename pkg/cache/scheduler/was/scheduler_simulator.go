@@ -39,6 +39,11 @@ const FailedReasonSkipped = "skipped"
 
 var _ simulator.SchedulerSimulator = (*wasSimulator)(nil)
 
+var (
+	errFindFeasibleNodesNotAllowed = errors.New("FindFeasibleNodes() not allowed when SchedulerLibraryDeepIntegration enabled")
+	errScheduleWorkloadNotAllowed  = errors.New("ScheduleWorkload() not allowed when SchedulerLibraryDeepIntegration disabled")
+)
+
 type wasSimulator struct {
 	// wasSnapshot is the cluster as it stands, with every tracked Pod on its node.
 	wasSnapshot *schedlib.ClusterSnapshot
@@ -75,7 +80,7 @@ func (s *wasSimulator) FindFeasibleNodes(
 	stats *simulator.NodeExclusionStats,
 ) ([]simulator.MatchedCandidate, error) {
 	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		return nil, errors.New("FindFeasibleNodes() not allowed when SchedulerLibraryDeepIntegration enabled")
+		return nil, errFindFeasibleNodesNotAllowed
 	}
 	var candidateLeaves = make(map[string]simulator.MatchedCandidate)
 	var candidateNodeNames []string
@@ -152,9 +157,7 @@ func (s *wasSimulator) Simulate(ctx context.Context, fn func()) error {
 
 func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
 	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		return simulator.SchedulingResult{
-			Error: errors.New("ScheduleWorkload() not allowed when SchedulerLibraryDeepIntegration disabled"),
-		}
+		return simulator.SchedulingResult{Error: errScheduleWorkloadNotAllowed}
 	}
 
 	workloadPods = copyWithDefaultScheduler(workloadPods...)

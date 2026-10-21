@@ -28,6 +28,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -382,8 +383,7 @@ func TestFindFeasibleNodesWithDeepIntegration(t *testing.T) {
 	got, err := schedulerSimulator.FindFeasibleNodes(ctx, candidates, &simulator.PodRequirements{
 		PodTemplate: &corev1.PodTemplateSpec{},
 	}, &simulator.NodeExclusionStats{})
-	wantErr := errors.New("FindFeasibleNodes() not allowed when SchedulerLibraryDeepIntegration enabled")
-	if diff := cmp.Diff(&wantErr, &err, cmpErrorMessage); diff != "" {
+	if diff := cmp.Diff(errFindFeasibleNodesNotAllowed, err, cmpopts.EquateErrors()); diff != "" {
 		t.Errorf("FindFeasibleNodes() unexpected error (-want,+got):\n%s", diff)
 	}
 	if got != nil {
@@ -1285,8 +1285,7 @@ func TestScheduleWorkloadWithoutDeepIntegration(t *testing.T) {
 	schedulerSimulator := newTestSimulatorWithPodGroups(ctx, t, nodes, nil, podGroups)
 
 	got := schedulerSimulator.ScheduleWorkload(ctx, []*corev1.Pod{pod})
-	wantErr := errors.New("ScheduleWorkload() not allowed when SchedulerLibraryDeepIntegration disabled")
-	if diff := cmp.Diff(&wantErr, &got.Error, cmpErrorMessage); diff != "" {
+	if diff := cmp.Diff(errScheduleWorkloadNotAllowed, got.Error, cmpopts.EquateErrors()); diff != "" {
 		t.Errorf("ScheduleWorkload() unexpected error (-want,+got):\n%s", diff)
 	}
 	if got.PodPlacements != nil {
