@@ -124,6 +124,53 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 				Obj(),
 			wantErr: false,
 		},
+		"discovery-only: stale provider generation is not ready": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-stale").
+				DiscoveryProvider("cp-stale", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				func() *kueuealpha.CapacityProvider {
+					cp := makeSynchronizedProvider("cp-stale", "gpu", 1)
+					cp.Generation = 2
+					cp.Status.Conditions[0].ObservedGeneration = 1
+					return cp
+				}(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-stale").
+				DiscoveryProvider("cp-stale", nil).
+				Condition(metav1.Condition{
+					Type: kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status: metav1.ConditionFalse,
+					Reason: kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
+					Message: "CapacityProvider \"cp-stale\" synchronization is stale (observedGeneration=1, currentGeneration=2)",
+				}).
+				Obj(),
+		},
+		"discovery-only: current provider generation is ready": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-current").
+				DiscoveryProvider("cp-current", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				func() *kueuealpha.CapacityProvider {
+					cp := makeSynchronizedProvider("cp-current", "gpu", 1)
+					cp.Generation = 2
+					cp.Status.Conditions[0].ObservedGeneration = 2
+					return cp
+				}(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-current").
+				DiscoveryProvider("cp-current", nil).
+				EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().
+					Flavors(makeEffectiveCapacityFlavors("gpu", 1)...).
+					Obj()).
+				Condition(metav1.Condition{
+					Type: kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status: metav1.ConditionTrue,
+					Reason: kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+					Message: "Aggregated capacity successfully computed",
+				}).
+				Obj(),
+		},
 		"discovery-only: single provider aggregated successfully": {
 			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-1").
 				DiscoveryProvider("cp-1", nil).
