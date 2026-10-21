@@ -146,6 +146,81 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 				}).
 				Obj(),
 		},
+		"discovery-only: failed synchronization is not ready": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-failed").
+				DiscoveryProvider("cp-failed", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				func() *kueuealpha.CapacityProvider {
+					cp := makeSynchronizedProvider("cp-failed", "gpu", 1)
+					cp.Generation = 2
+					cp.Status.Conditions[0].ObservedGeneration = 2
+					cp.Status.Conditions[0].Status = metav1.ConditionFalse
+					cp.Status.Conditions[0].Reason = kueuealpha.CapacityProviderReasonSourceUnavailable
+					return cp
+				}(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-failed").
+				DiscoveryProvider("cp-failed", nil).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
+					Message: "CapacityProvider \"cp-failed\" is not synchronized",
+				}).
+				Obj(),
+		},
+		"discovery-only: zero observed generation is not ready": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-zero").
+				DiscoveryProvider("cp-zero", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				func() *kueuealpha.CapacityProvider {
+					cp := makeSynchronizedProvider("cp-zero", "gpu", 1)
+					cp.Generation = 2
+					return cp
+				}(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-zero").
+				DiscoveryProvider("cp-zero", nil).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
+					Message: "CapacityProvider \"cp-zero\" synchronization is stale (observedGeneration=0, currentGeneration=2)",
+				}).
+				Obj(),
+		},
+		"discovery-only: mixed fresh and stale providers are not aggregated": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-mixed").
+				DiscoveryProvider("cp-fresh", nil).
+				DiscoveryProvider("cp-stale", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				func() *kueuealpha.CapacityProvider {
+					cp := makeSynchronizedProvider("cp-fresh", "gpu", 1)
+					cp.Generation = 2
+					cp.Status.Conditions[0].ObservedGeneration = 2
+					return cp
+				}(),
+				func() *kueuealpha.CapacityProvider {
+					cp := makeSynchronizedProvider("cp-stale", "cpu", 1)
+					cp.Generation = 2
+					cp.Status.Conditions[0].ObservedGeneration = 1
+					return cp
+				}(),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-mixed").
+				DiscoveryProvider("cp-fresh", nil).
+				DiscoveryProvider("cp-stale", nil).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
+					Message: "CapacityProvider \"cp-stale\" synchronization is stale (observedGeneration=1, currentGeneration=2)",
+				}).
+				Obj(),
+		},
 		"discovery-only: current provider generation is ready": {
 			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-current").
 				DiscoveryProvider("cp-current", nil).

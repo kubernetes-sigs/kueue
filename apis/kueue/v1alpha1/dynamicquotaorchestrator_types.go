@@ -169,7 +169,8 @@ const (
 	// DynamicQuotaOrchestratorReasonComputed indicates that effective capacity was aggregated successfully.
 	DynamicQuotaOrchestratorReasonComputed string = "Computed"
 
-	// DynamicQuotaOrchestratorReasonProviderNotReady indicates a referenced CapacityProvider does not have CapacitySynchronized=True.
+	// DynamicQuotaOrchestratorReasonProviderNotReady indicates a referenced CapacityProvider is not synchronized
+	// or its CapacitySynchronized condition does not observe the current CapacityProvider generation.
 	DynamicQuotaOrchestratorReasonProviderNotReady string = "ProviderNotReady"
 
 	// DynamicQuotaOrchestratorReasonAggregationFailed indicates aggregation failed (e.g. multiplier application error, math overflow, or capacity limits exceeded).

@@ -38,6 +38,22 @@ import (
 // EffectiveCapacity.Flavors in apis/kueue/v1alpha1/dynamicquotaorchestrator_types.go.
 const maxEffectiveCapacityFlavors = 128
 
+// providerNotReadyMessage returns why the CapacityProvider's capacity cannot be
+// trusted, or "" if CapacitySynchronized=True for the current generation.
+// A spec update increments Generation without clearing the previous condition
+// or reported capacity, so a True condition from an older generation is stale.
+func providerNotReadyMessage(cp *kueuealpha.CapacityProvider) string {
+	cond := apimeta.FindStatusCondition(cp.Status.Conditions, kueuealpha.CapacityProviderCapacitySynchronized)
+	switch {
+	case cond == nil || cond.Status != metav1.ConditionTrue:
+		return fmt.Sprintf("CapacityProvider %q is not synchronized", cp.Name)
+	case cond.ObservedGeneration != cp.Generation:
+		return fmt.Sprintf("CapacityProvider %q synchronization is stale (observedGeneration=%d, currentGeneration=%d)",
+			cp.Name, cond.ObservedGeneration, cp.Generation)
+	}
+	return ""
+}
+
 // reconcileDiscovery performs Phase 1 reconciliation: aggregates normalized capacities across referenced CapacityProviders.
 func (r *Reconciler) reconcileDiscovery(ctx context.Context, orchestrator *kueuealpha.DynamicQuotaOrchestrator) error {
 	aggregatedCapacity := make(map[kueuealpha.ResourceFlavorReference]corev1.ResourceList)
@@ -58,16 +74,7 @@ func (r *Reconciler) reconcileDiscovery(ctx context.Context, orchestrator *kueue
 			return err
 		}
 
-		// A spec update increments Generation without clearing the previous
-		// synchronization condition or reported capacity. Do not aggregate the
-		// new spec with capacity published for an older generation.
-		condition := apimeta.FindStatusCondition(capacityProvider.Status.Conditions, kueuealpha.CapacityProviderCapacitySynchronized)
-		if condition == nil || condition.Status != metav1.ConditionTrue || condition.ObservedGeneration != capacityProvider.Generation {
-			message := fmt.Sprintf("CapacityProvider %q is not synchronized", providerContribution.Name)
-			if condition != nil && condition.Status == metav1.ConditionTrue && condition.ObservedGeneration != capacityProvider.Generation {
-				message = fmt.Sprintf("CapacityProvider %q synchronization is stale (observedGeneration=%d, currentGeneration=%d)",
-					providerContribution.Name, condition.ObservedGeneration, capacityProvider.Generation)
-			}
+		if message := providerNotReadyMessage(&capacityProvider); message != "" {
 			r.setDiscoveryCondition(
 				orchestrator,
 				metav1.ConditionFalse,
