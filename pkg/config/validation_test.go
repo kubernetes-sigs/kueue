@@ -2978,21 +2978,13 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
-		"TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions requires TASFailedNodeReplacement": {
+		"disabling TAS failed-node replacement does not require the deferral gate": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):                                    true,
-				string(features.TASFailedNodeReplacement):                                   false,
-				string(features.TASFailedNodeReplacementFailFast):                           false,
-				string(features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions): true,
-				string(features.TASReplaceNodeOnPodTermination):                             false,
-				string(features.TASMultiLayerTopology):                                      false,
-			},
-			wantErr: field.ErrorList{
-				&field.Error{
-					Type:   field.ErrorTypeInvalid,
-					Field:  "featureGates",
-					Detail: "TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions is enabled, but depends on features that are disabled: [TASFailedNodeReplacement]",
-				},
+				string(features.TopologyAwareScheduling):          true,
+				string(features.TASFailedNodeReplacement):         false,
+				string(features.TASFailedNodeReplacementFailFast): false,
+				string(features.TASReplaceNodeOnPodTermination):   false,
+				string(features.TASMultiLayerTopology):            false,
 			},
 		},
 		"TASFailedNodeReplacementFailFast requires both TopologyAwareScheduling and TASFailedNodeReplacement": {
@@ -3099,12 +3091,10 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			// Most cases here predate the TAS deferral gate and disable its
-			// parents to isolate another dependency error. Keep the gate off
-			// unless the case sets it explicitly.
-			features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
-				features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions: false,
-			})
+			// LoadAndValidateFeatureGates mutates the process-wide gate state.
+			// Capture it here so each case starts from the real defaults, then
+			// restore it after the subtest.
+			features.SetFeatureGatesDuringTest(t, nil)
 			got := LoadAndValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
 			// Ignore "Detail" field when multiple feature gate dependency errors occur (or when ignoreDetail is set/Detail is empty),
 			// because k8s.io/component-base/featuregate iterates over internal Go maps,
