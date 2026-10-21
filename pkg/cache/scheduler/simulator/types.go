@@ -17,6 +17,8 @@ limitations under the License.
 package simulator
 
 import (
+	"iter"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -74,29 +76,55 @@ type PodRequirements struct {
 	SimulateEmpty bool
 }
 
-type scheduleOptions struct {
-	preemptionCandidates []client.ObjectKey
+// PreemptionFilter tracks external constraints (such as ClusterQueue and Cohort quota)
+// alongside node-level simulation during preemption candidate selection and reprieval.
+type PreemptionFilter interface {
+	PreemptWorkload(wlKey client.ObjectKey)
+	UnpreemptWorkload(wlKey client.ObjectKey)
+	MayFit() bool
 }
 
-type ScheduleOption func(*scheduleOptions)
-
-// WithPreemptionCandidates configures the ordered list of candidate workloads
-// that may be preempted to make room for the scheduled workload.
-func WithPreemptionCandidates(candidates []client.ObjectKey) ScheduleOption {
-	return func(o *scheduleOptions) {
-		o.preemptionCandidates = candidates
-	}
+type ScheduleOptions struct {
+	PreemptionCandidates iter.Seq[client.ObjectKey]
+	PreemptionFilter     PreemptionFilter
+	SimulateEmpty        bool
 }
 
-// PreemptionCandidates extracts the preemption candidates from the given schedule options.
-func PreemptionCandidates(options ...ScheduleOption) []client.ObjectKey {
-	opts := &scheduleOptions{}
+type ScheduleOption func(*ScheduleOptions)
+
+// BuildScheduleOptions applies the given options and returns the resulting ScheduleOptions.
+func BuildScheduleOptions(options ...ScheduleOption) ScheduleOptions {
+	var opts ScheduleOptions
 	for _, opt := range options {
 		if opt != nil {
-			opt(opts)
+			opt(&opts)
 		}
 	}
-	return opts.preemptionCandidates
+	return opts
+}
+
+// WithPreemptionCandidates configures the ordered sequence of candidate workloads
+// that may be preempted to make room for the scheduled workload.
+func WithPreemptionCandidates(candidates iter.Seq[client.ObjectKey]) ScheduleOption {
+	return func(o *ScheduleOptions) {
+		o.PreemptionCandidates = candidates
+	}
+}
+
+// WithPreemptionFilter configures the filter used to evaluate whether preempting
+// candidate workloads satisfies non-node constraints (such as quota).
+func WithPreemptionFilter(filter PreemptionFilter) ScheduleOption {
+	return func(o *ScheduleOptions) {
+		o.PreemptionFilter = filter
+	}
+}
+
+// WithSimulateEmpty configures the simulator to schedule the workload against
+// a cluster snapshot containing only Pods not managed by Kueue.
+func WithSimulateEmpty(simulateEmpty bool) ScheduleOption {
+	return func(o *ScheduleOptions) {
+		o.SimulateEmpty = simulateEmpty
+	}
 }
 
 // SchedulingResult encapsulates the node assignments for the pods of the Workload.

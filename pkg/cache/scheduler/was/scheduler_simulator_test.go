@@ -35,6 +35,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
@@ -1008,10 +1009,20 @@ func newTestSimulatorWithPodGroups(
 	for _, pod := range existingPods {
 		tracker.track(pod)
 	}
-	return &wasSimulator{
+	sim := &wasSimulator{
 		wasSnapshot:    schedLibSnapshot.New(snap, profiles),
 		podsByWorkload: tracker.workloadPods,
 	}
+	sim.emptyCluster.build = func(ctx context.Context) (*schedLibSnapshot.ClusterSnapshot, error) {
+		emptySnap := cache.NewTestSnapshotWithPodGroups(podsNotManagedByKueue(existingPods, tracker.workloadPods), nodes, podGroups)
+		emptyProfiles, err := upstreamsync.NewFrameworkMap(ctx, comps, framework.DiscardRecorderFactory, emptySnap)
+		if err != nil {
+			return nil, err
+		}
+		framework.ApplySimulationNeutralizers(emptyProfiles)
+		return schedLibSnapshot.New(emptySnap, emptyProfiles), nil
+	}
+	return sim
 }
 
 // cmpErrorMessage compares errors by message, as the scheduler-library returns
@@ -1022,6 +1033,30 @@ var cmpErrorMessage = cmp.Comparer(func(a, b error) bool {
 	}
 	return a.Error() == b.Error()
 })
+
+type fakePreemptionFilter struct {
+	fitFunc   func(preempted sets.Set[client.ObjectKey]) bool
+	preempted sets.Set[client.ObjectKey]
+}
+
+func newFakePreemptionFilter(fitFunc func(preempted sets.Set[client.ObjectKey]) bool) *fakePreemptionFilter {
+	return &fakePreemptionFilter{
+		fitFunc:   fitFunc,
+		preempted: sets.New[client.ObjectKey](),
+	}
+}
+
+func (f *fakePreemptionFilter) PreemptWorkload(wlKey client.ObjectKey) {
+	f.preempted.Insert(wlKey)
+}
+
+func (f *fakePreemptionFilter) UnpreemptWorkload(wlKey client.ObjectKey) {
+	f.preempted.Delete(wlKey)
+}
+
+func (f *fakePreemptionFilter) MayFit() bool {
+	return f.fitFunc(f.preempted)
+}
 
 func TestScheduleWorkload(t *testing.T) {
 	const ns = "default"
@@ -1247,7 +1282,7 @@ func TestScheduleWorkload(t *testing.T) {
 			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
 			pods:      []*corev1.Pod{workloadPod("p", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj()},
 			scheduleOpts: []simulator.ScheduleOption{
-				simulator.WithPreemptionCandidates([]client.ObjectKey{key("victim-wl")}),
+				simulator.WithPreemptionCandidates(slices.Values([]client.ObjectKey{key("victim-wl")})),
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p"): {Node: "node1"},
@@ -1286,7 +1321,7 @@ func TestScheduleWorkload(t *testing.T) {
 					Obj(),
 			},
 			scheduleOpts: []simulator.ScheduleOption{
-				simulator.WithPreemptionCandidates([]client.ObjectKey{key("victim-1"), key("victim-2")}),
+				simulator.WithPreemptionCandidates(slices.Values([]client.ObjectKey{key("victim-1"), key("victim-2")})),
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): {Node: "node1"},
@@ -1326,11 +1361,115 @@ func TestScheduleWorkload(t *testing.T) {
 					Obj(),
 			},
 			scheduleOpts: []simulator.ScheduleOption{
-				simulator.WithPreemptionCandidates([]client.ObjectKey{key("victim-1")}),
+				simulator.WithPreemptionCandidates(slices.Values([]client.ObjectKey{key("victim-1")})),
 			},
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): {Reasons: []string{FailedReasonSkipped}},
 				key("p2"): {Reasons: []string{FailedReasonSkipped}},
+			},
+		},
+		"preemption with filter: pod fits on free node, filter selects minimal victims and reprieves unneeded ones": {
+			existingPods: []*corev1.Pod{
+				blocker,
+				testingpod.MakePod("victim-1-pod", ns).
+					UID("victim-1-uid").
+					Annotation(kueue.WorkloadAnnotation, "victim-1").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+				testingpod.MakePod("victim-2-pod", ns).
+					UID("victim-2-uid").
+					Annotation(kueue.WorkloadAnnotation, "victim-2").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "1").
+					Obj(),
+			},
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
+			pods:      []*corev1.Pod{workloadPod("p", "pg").Obj()},
+			scheduleOpts: []simulator.ScheduleOption{
+				simulator.WithPreemptionCandidates(slices.Values([]client.ObjectKey{key("victim-1"), key("victim-2")})),
+				simulator.WithPreemptionFilter(newFakePreemptionFilter(func(preempted sets.Set[client.ObjectKey]) bool {
+					return preempted.Has(key("victim-2"))
+				})),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("p"): {Node: "node2"},
+			},
+			wantPreempted: []client.ObjectKey{key("victim-2")},
+		},
+		"preemption with filter: node-level fit needs one victim, filter requires both victims": {
+			nodes: []*corev1.Node{makeNode("node1", "6")},
+			existingPods: []*corev1.Pod{
+				testingpod.MakePod("victim-1-pod", ns).
+					UID("victim-1-uid").
+					Annotation(kueue.WorkloadAnnotation, "victim-1").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "2").
+					Obj(),
+				testingpod.MakePod("victim-2-pod", ns).
+					UID("victim-2-uid").
+					Annotation(kueue.WorkloadAnnotation, "victim-2").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Request(corev1.ResourceCPU, "4").
+					Obj(),
+			},
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 2)},
+			pods: []*corev1.Pod{
+				testingpod.MakePod("p1", ns).
+					UID("p1-uid").
+					Request(corev1.ResourceCPU, "2").
+					SchedulingGroup("pg").
+					Obj(),
+				testingpod.MakePod("p2", ns).
+					UID("p2-uid").
+					Request(corev1.ResourceCPU, "2").
+					SchedulingGroup("pg").
+					Obj(),
+			},
+			scheduleOpts: []simulator.ScheduleOption{
+				simulator.WithPreemptionCandidates(slices.Values([]client.ObjectKey{key("victim-1"), key("victim-2")})),
+				simulator.WithPreemptionFilter(newFakePreemptionFilter(func(preempted sets.Set[client.ObjectKey]) bool {
+					return preempted.HasAll(key("victim-1"), key("victim-2"))
+				})),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("p1"): {Node: "node1"},
+				key("p2"): {Node: "node1"},
+			},
+			wantPreempted: []client.ObjectKey{key("victim-1"), key("victim-2")},
+		},
+		"simulate empty: ignores pods managed by Kueue": {
+			existingPods: []*corev1.Pod{
+				testingpod.MakePod("managed-pod", ns).
+					UID("managed-uid").
+					Annotation(kueue.WorkloadAnnotation, "other-wl").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Port(8080, 8080, corev1.ProtocolTCP).
+					Obj(),
+			},
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
+			pods:      []*corev1.Pod{workloadPod("p", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj()},
+			scheduleOpts: []simulator.ScheduleOption{
+				simulator.WithSimulateEmpty(true),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("p"): {Node: "node1"},
+			},
+		},
+		"simulate empty: keeps pods not managed by Kueue": {
+			existingPods: []*corev1.Pod{blocker},
+			podGroups:    []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 1)},
+			pods:         []*corev1.Pod{workloadPod("p", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj()},
+			scheduleOpts: []simulator.ScheduleOption{
+				simulator.WithSimulateEmpty(true),
+			},
+			wantPlacements: simulator.PodPlacements{
+				key("p"): {Reasons: []string{FailedReasonSkipped}},
 			},
 		},
 	}

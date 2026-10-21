@@ -97,18 +97,15 @@ type strategiesConsumption struct {
 func consumeStrategies(strategies iter.Seq[PreemptionStrategy], consumption strategiesConsumption) []wantStrategy {
 	gotStrategies := []wantStrategy{}
 	for strategy := range strategies {
-		var targets []*Target
-		if len(gotStrategies) == 0 && consumption.stopAfterFirstStrategyTargets > 0 {
-			for candidate := range strategy.candidates {
-				targets = append(targets, candidate)
-				if len(targets) >= consumption.stopAfterFirstStrategyTargets {
-					break
-				}
+		targets := make([]*Target, 0)
+		for candidate := range strategy.candidates {
+			targets = append(targets, candidate)
+			if len(gotStrategies) == 0 && consumption.stopAfterFirstStrategyTargets > 0 &&
+				len(targets) >= consumption.stopAfterFirstStrategyTargets {
+				break
 			}
-			restoreSnapshot(strategy.pCtx.snapshot, targets)
-		} else {
-			targets = strategy.Materialize()
 		}
+		restoreSnapshot(strategy.pCtx.snapshot, targets)
 		wantTargets := make([]wantTarget, len(targets))
 		for i, target := range targets {
 			wantTargets[i] = wantTarget{
