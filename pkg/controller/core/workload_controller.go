@@ -867,12 +867,7 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
-		// get the minimun non-zero value
-		recheckAfter := min(podsReadyRecheckAfter, maxExecRecheckAfter, requeueStateResetAfter)
-		if recheckAfter == 0 {
-			recheckAfter = max(podsReadyRecheckAfter, maxExecRecheckAfter, requeueStateResetAfter)
-		}
-		return ctrl.Result{RequeueAfter: recheckAfter}, nil
+		return ctrl.Result{RequeueAfter: earliestRecheck(podsReadyRecheckAfter, maxExecRecheckAfter, requeueStateResetAfter)}, nil
 	}
 
 	return ctrl.Result{}, nil
@@ -1293,14 +1288,20 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 }
 
 // reconcileRequeueStateReset clears the requeueState of an admitted Workload
-// which stays in the PodsReady condition for at least the resolved
-// WaitForPodsReady timeout. It returns the time after which the Workload
-// should be re-reconciled to check the sustained readiness again.
+// whose PodsReady condition has been True for at least the resolved
+// WaitForPodsReady timeout. The window restarts on every transition of PodsReady
+// to True. It returns the time left until the window is complete, or 0 if the
+// requeueState does not apply or was just cleared.
 func (r *WorkloadReconciler) reconcileRequeueStateReset(ctx context.Context, wl *kueue.Workload) (time.Duration, error) {
 	if !features.Enabled(features.ResetRequeueStateOnPodsReady) {
 		return 0, nil
 	}
 	if wl.Status.RequeueState == nil || !workload.IsAdmitted(wl) {
+		return 0, nil
+	}
+	// An evicted Workload stays admitted while it drains, and its PodsReady condition
+	// can still be True with an old timestamp, so the drain time must not count as readiness.
+	if workloadevict.IsEvicted(wl) {
 		return 0, nil
 	}
 	podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
@@ -1315,9 +1316,8 @@ func (r *WorkloadReconciler) reconcileRequeueStateReset(ctx context.Context, wl 
 		return recheckAfter, nil
 	}
 
-	// Clear RequeueState using Merge Patch instead of SSA.
-	// SSA cannot delete a pointer field with json:",omitempty" when it's owned
-	// by a different field manager. Merge Patch handles this correctly.
+	previousCount := ptr.Deref(wl.Status.RequeueState.Count, 0)
+	// A merge patch, as in the deactivation path, because SSA cannot clear a field owned by another manager.
 	if err := clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
 		wl.Status.RequeueState = nil
 		return true, nil
@@ -1325,9 +1325,9 @@ func (r *WorkloadReconciler) reconcileRequeueStateReset(ctx context.Context, wl 
 		return 0, client.IgnoreNotFound(err)
 	}
 
-	ctrl.LoggerFrom(ctx).V(2).Info("Cleared the requeueState after a sustained PodsReady period")
+	ctrl.LoggerFrom(ctx).V(2).Info("Cleared the requeueState after a sustained PodsReady period", "previousCount", previousCount, "timeout", timeout)
 	r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, "RequeueStateReset", "RequeueStateReset",
-		"The requeueState was cleared since the workload was in PodsReady for at least the WaitForPodsReady timeout")
+		"Reset the requeue count (was %d) after PodsReady was True for at least %s", previousCount, timeout)
 	return 0, nil
 }
 
@@ -1839,6 +1839,18 @@ func (r *WorkloadReconciler) schedulingDeadline(wl *kueue.Workload, admittedAt t
 
 func (r *WorkloadReconciler) remainingUntil(deadline time.Time) time.Duration {
 	return max(deadline.Sub(r.clock.Now()), 0)
+}
+
+// earliestRecheck returns the smallest positive duration among the given recheck
+// delays, or 0 if none is positive.
+func earliestRecheck(durations ...time.Duration) time.Duration {
+	var earliest time.Duration
+	for _, d := range durations {
+		if d > 0 && (earliest == 0 || d < earliest) {
+			earliest = d
+		}
+	}
+	return earliest
 }
 
 type resourceUpdatesHandler struct {

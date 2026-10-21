@@ -442,23 +442,22 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 				Count: new(int32(1)),
 			}, false)
 
-			ginkgo.By("re-admit the 'prod' workload and mark it PodsReady since before the timeout")
+			ginkgo.By("re-admit the 'prod' workload and mark it PodsReady")
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
 				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, prodWl, behavioral.RealClock, func(wl *kueue.Workload) (bool, error) {
 					apimeta.SetStatusCondition(&wl.Status.Conditions, metav1.Condition{
-						Type:               kueue.WorkloadPodsReady,
-						Status:             metav1.ConditionTrue,
-						Reason:             kueue.WorkloadStarted,
-						Message:            "All pods reached readiness and the workload is running",
-						LastTransitionTime: metav1.NewTime(behavioral.RealClock.Now().Add(-2 * podsReadyTimeout)),
+						Type:    kueue.WorkloadPodsReady,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueue.WorkloadStarted,
+						Message: "All pods reached readiness and the workload is running",
 					})
 					return true, nil
 				})).Should(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
-			ginkgo.By("the requeueState is cleared after the sustained readiness")
+			ginkgo.By("the requeueState is cleared once PodsReady has been True for the timeout")
 			gomega.Eventually(func(g gomega.Gomega) {
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(prodWl), prodWl)).Should(gomega.Succeed())
 				g.Expect(prodWl.Status.RequeueState).Should(gomega.BeNil())

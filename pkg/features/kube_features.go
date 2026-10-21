@@ -861,14 +861,6 @@ const (
 	// WaitForPodsReady.Timeout and WaitForPodsReady.RecoveryTimeout for that workload.
 	WorkloadLevelWaitForPodsReady featuregate.Feature = "WorkloadLevelWaitForPodsReady"
 
-	// owner: @anguszzzz
-	//
-	// Enables clearing a Workload's requeueState after it stays in the
-	// PodsReady condition for at least the resolved WaitForPodsReady timeout,
-	// so that a long-lived Workload's re-queuing backoff ladder does not
-	// accumulate PodsReadyTimeout evictions from unrelated past incidents.
-	ResetRequeueStateOnPodsReady featuregate.Feature = "ResetRequeueStateOnPodsReady"
-
 	// owner: @pajakd
 	//
 	// Allow a PodSet slice size that does not evenly divide the PodSet count.
@@ -902,6 +894,16 @@ const (
 	// Verifies fair sharing preemption targets after fillBackWorkloads
 	// to prevent preemption loops caused by temporary share deflation.
 	FairSharingVerifyFinalTargets featuregate.Feature = "FairSharingVerifyFinalTargets"
+
+	// owner: @anguszzzz
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/17519
+	//
+	// Clears a Workload's requeueState once its PodsReady condition has been True for at
+	// least the resolved WaitForPodsReady timeout. Then backoffLimitCount counts PodsReady
+	// timeouts since the last period in which PodsReady stayed True for the timeout, rather
+	// than over the Workload's lifetime. When disabled, requeueState is cleared only when
+	// the Workload is deactivated.
+	ResetRequeueStateOnPodsReady featuregate.Feature = "ResetRequeueStateOnPodsReady"
 )
 
 func init() {
@@ -1364,10 +1366,6 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
-	ResetRequeueStateOnPodsReady: {
-		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
-	},
-
 	TASPartialSlices: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
@@ -1394,6 +1392,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	PodIntegrationVerifyRoleRequests: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	ResetRequeueStateOnPodsReady: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 

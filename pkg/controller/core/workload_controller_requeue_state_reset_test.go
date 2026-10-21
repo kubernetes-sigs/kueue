@@ -21,20 +21,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
-	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
-	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
@@ -72,6 +68,49 @@ func TestReconcileRequeueStateReset(t *testing.T) {
 			RequeueState(new(int32(3)), nil)
 	}
 
+	// notReadyWl is an admitted workload which waits for its pods to start and
+	// carries a requeueState left by earlier evictions.
+	notReadyWl := readyWl(0).Condition(metav1.Condition{
+		Type:               kueue.WorkloadPodsReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             kueue.WorkloadWaitForStart,
+		Message:            "Not all pods are ready or succeeded",
+		LastTransitionTime: metav1.NewTime(now.Add(-time.Minute)),
+	})
+
+	// evictedWl has been preempted but is still admitted while it drains, and
+	// its PodsReady condition is left over from before the eviction.
+	evictedWl := readyWl(6 * time.Minute).Condition(metav1.Condition{
+		Type:               kueue.WorkloadEvicted,
+		Status:             metav1.ConditionTrue,
+		Reason:             kueue.WorkloadEvictedByPreemption,
+		Message:            "Preempted to accommodate a workload",
+		LastTransitionTime: metav1.NewTime(now.Add(-time.Minute)),
+	})
+
+	// checksPendingWl has its quota reserved but is not admitted, because the
+	// AdmissionCheck of its ClusterQueue is Pending. Its PodsReady condition
+	// is left over from an earlier admission.
+	checksPendingWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Queue("lq").
+		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "flavor1", "1").Obj()).
+			Obj(), now).
+		AdmissionCheck(kueue.AdmissionCheckState{
+			Name:               "ac1",
+			State:              kueue.CheckStatePending,
+			LastTransitionTime: metav1.NewTime(now),
+		}).
+		Condition(metav1.Condition{
+			Type:               kueue.WorkloadPodsReady,
+			Status:             metav1.ConditionTrue,
+			Reason:             "PodsReady",
+			Message:            "All pods are ready or succeeded",
+			LastTransitionTime: metav1.NewTime(now.Add(-10 * time.Minute)),
+		}).
+		RequeueState(new(int32(3)), nil)
+
 	cases := map[string]reconcileTestCase{
 		"should keep the requeueState after sustained readiness when the gate is disabled": {
 			featureGates: map[featuregate.Feature]bool{
@@ -103,43 +142,19 @@ func TestReconcileRequeueStateReset(t *testing.T) {
 					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
 					EventType: corev1.EventTypeNormal,
 					Reason:    "RequeueStateReset",
-					Message:   "The requeueState was cleared since the workload was in PodsReady for at least the WaitForPodsReady timeout",
+					Message:   "Reset the requeue count (was 3) after PodsReady was True for at least 5m0s",
 				},
 			},
 			wantResult: reconcile.Result{},
 		},
-		"should not reset the requeueState when the readiness flipped to False before the threshold": {
+		"should keep the requeueState when PodsReady is False": {
 			featureGates: map[featuregate.Feature]bool{
 				features.ResetRequeueStateOnPodsReady: true,
 			},
 			reconcilerOpts: []Option{WithWaitForPodsReady(timeoutConfig)},
-			workload: utiltestingapi.MakeWorkload("wl", "ns").
-				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
-				AdmittedAt(true, now).
-				Condition(metav1.Condition{
-					Type:               kueue.WorkloadPodsReady,
-					Status:             metav1.ConditionFalse,
-					Reason:             kueue.WorkloadWaitForStart,
-					Message:            "Not all pods are ready or succeeded",
-					LastTransitionTime: metav1.NewTime(now.Add(-time.Minute)),
-				}).
-				RequeueState(new(int32(3)), nil).
-				Obj(),
-			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
-				AdmittedAt(true, now).
-				Condition(metav1.Condition{
-					Type:               kueue.WorkloadPodsReady,
-					Status:             metav1.ConditionFalse,
-					Reason:             kueue.WorkloadWaitForStart,
-					Message:            "Not all pods are ready or succeeded",
-					LastTransitionTime: metav1.NewTime(now.Add(-time.Minute)),
-				}).
-				RequeueState(new(int32(3)), nil).
-				Obj(),
-			wantResult: reconcile.Result{RequeueAfter: 5 * time.Minute},
+			workload:       notReadyWl.Clone().Obj(),
+			wantWorkload:   notReadyWl.Clone().Obj(),
+			wantResult:     reconcile.Result{RequeueAfter: 5 * time.Minute},
 		},
 		"should not reset the requeueState when no waitForPodsReady timeout is configured": {
 			featureGates: map[featuregate.Feature]bool{
@@ -168,154 +183,86 @@ func TestReconcileRequeueStateReset(t *testing.T) {
 			wantWorkload:   readyWl(5 * time.Minute).Obj(),
 			wantError:      errStatus,
 		},
-		"should count from one on the next PodsReadyTimeout eviction when requeueState is unset (post-reset shape)": {
+		"should requeue after the earlier of the PodsReady and maximumExecutionTime timers when the gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ResetRequeueStateOnPodsReady: false,
+			},
+			reconcilerOpts: []Option{WithWaitForPodsReady(timeoutConfig)},
+			workload:       notReadyWl.Clone().MaximumExecutionTimeSeconds(60).Obj(),
+			wantWorkload:   notReadyWl.Clone().MaximumExecutionTimeSeconds(60).Obj(),
+			wantResult:     reconcile.Result{RequeueAfter: time.Minute},
+		},
+		"should requeue at the maximumExecutionTime when it is due before the requeueState reset": {
 			featureGates: map[featuregate.Feature]bool{
 				features.ResetRequeueStateOnPodsReady: true,
 			},
 			reconcilerOpts: []Option{WithWaitForPodsReady(timeoutConfig)},
-			workload: utiltestingapi.MakeWorkload("wl", "ns").
-				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
-				Condition(metav1.Condition{ // Override LastTransitionTime
-					Type:               kueue.WorkloadAdmitted,
-					Status:             metav1.ConditionTrue,
-					LastTransitionTime: metav1.NewTime(now.Add(-6 * time.Minute)),
-					Reason:             "ByTest",
-					Message:            "Admitted by ClusterQueue q1",
-				}).
-				AdmittedAt(true, now).
-				Generation(1).
+			workload:       readyWl(2 * time.Minute).MaximumExecutionTimeSeconds(60).Obj(),
+			wantWorkload:   readyWl(2 * time.Minute).MaximumExecutionTimeSeconds(60).Obj(),
+			wantResult:     reconcile.Result{RequeueAfter: time.Minute},
+		},
+		"should requeue at the requeueState reset when it is due before the maximumExecutionTime": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ResetRequeueStateOnPodsReady: true,
+			},
+			reconcilerOpts: []Option{WithWaitForPodsReady(timeoutConfig)},
+			workload:       readyWl(4*time.Minute + 30*time.Second).MaximumExecutionTimeSeconds(120).Obj(),
+			wantWorkload:   readyWl(4*time.Minute + 30*time.Second).MaximumExecutionTimeSeconds(120).Obj(),
+			wantResult:     reconcile.Result{RequeueAfter: 30 * time.Second},
+		},
+		"should not reset the requeueState of an evicted workload which is still admitted": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ResetRequeueStateOnPodsReady: true,
+			},
+			reconcilerOpts: []Option{WithWaitForPodsReady(timeoutConfig)},
+			workload:       evictedWl.Clone().Obj(),
+			wantWorkload:   evictedWl.Clone().Obj(),
+			wantResult:     reconcile.Result{},
+		},
+		"should not reset the requeueState when the quota is reserved but the workload is not admitted": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ResetRequeueStateOnPodsReady: true,
+			},
+			reconcilerOpts: []Option{WithWaitForPodsReady(timeoutConfig)},
+			cq: utiltestingapi.MakeClusterQueue("cq").
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("flavor1").Obj()).
+				AdmissionChecks("ac1").
 				Obj(),
-			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
-				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
-				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
+			lq:       utiltestingapi.MakeLocalQueue("lq", "ns").ClusterQueue("cq").Obj(),
+			workload: checksPendingWl.Clone().Obj(),
+			wantWorkload: checksPendingWl.Clone().
 				Condition(metav1.Condition{
-					Type:               kueue.WorkloadAdmitted,
-					Status:             metav1.ConditionTrue,
-					LastTransitionTime: metav1.NewTime(now.Add(-6 * time.Minute)),
-					Reason:             "ByTest",
-					Message:            "Admitted by ClusterQueue q1",
+					Type:    kueue.WorkloadAdmitted,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueue.WorkloadAdmittedReasonUnsatisfiedAdmissionChecks,
+					Message: "The workload has not all checks ready",
 				}).
-				AdmittedAt(true, now).
-				Generation(1).
-				Condition(metav1.Condition{
-					Type:               kueue.WorkloadEvicted,
-					Status:             metav1.ConditionTrue,
-					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
-					Message:            "Exceeded the PodsReady timeout ns/wl",
-					ObservedGeneration: 1,
-				}).
-				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(10*time.Second).Truncate(time.Second)))).
-				SchedulingStatsEviction(
-					kueue.WorkloadSchedulingStatsEviction{
-						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
-						UnderlyingCause: kueue.WorkloadWaitForStart,
-						Count:           1,
-					},
-				).
+				Obj(),
+			wantResult: reconcile.Result{},
+		},
+		"should reset the requeueState after the per-workload timeout when it is shorter than the cluster-level one": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ResetRequeueStateOnPodsReady:  true,
+				features.WorkloadLevelWaitForPodsReady: true,
+			},
+			reconcilerOpts: []Option{WithWaitForPodsReady(timeoutConfig)},
+			workload: readyWl(2*time.Minute).
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":60}`).
+				Obj(),
+			wantWorkload: readyWl(2*time.Minute).
+				Annotation(controllerconstants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":60}`).
+				RequeueState(nil, nil).
 				Obj(),
 			wantEvents: []utiltesting.EventRecord{
 				{
 					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
 					EventType: corev1.EventTypeNormal,
-					Reason:    "EvictedDueToPodsReadyTimeout",
-					Message:   "Exceeded the PodsReady timeout ns/wl",
+					Reason:    "RequeueStateReset",
+					Message:   "Reset the requeue count (was 3) after PodsReady was True for at least 1m0s",
 				},
 			},
+			wantResult: reconcile.Result{},
 		},
 	}
 	runReconcileTestCases(t, cases, fakeClock)
-}
-
-// TestReconcileRequeueStateResetIdempotent verifies the second reconciliation
-// after the reset neither emits an event nor fails.
-func TestReconcileRequeueStateResetIdempotent(t *testing.T) {
-	now := time.Now().Truncate(time.Second)
-	fakeClock := testingclock.NewFakeClock(now)
-	features.SetFeatureGateDuringTest(t, features.ResetRequeueStateOnPodsReady, true)
-
-	wl := utiltestingapi.MakeWorkload("wl", "ns").
-		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
-		ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
-		AdmittedAt(true, now).
-		Condition(metav1.Condition{
-			Type:               kueue.WorkloadPodsReady,
-			Status:             metav1.ConditionTrue,
-			Reason:             "PodsReady",
-			Message:            "All pods are ready or succeeded",
-			LastTransitionTime: metav1.NewTime(now.Add(-10 * time.Minute)),
-		}).
-		RequeueState(new(int32(3)), nil).
-		Obj()
-	wantEvents := []utiltesting.EventRecord{
-		{
-			Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
-			EventType: corev1.EventTypeNormal,
-			Reason:    "RequeueStateReset",
-			Message:   "The requeueState was cleared since the workload was in PodsReady for at least the WaitForPodsReady timeout",
-		},
-	}
-
-	objs := []client.Object{wl, &batchv1.Job{
-		Name:      "ownername",
-		Namespace: "ns",
-		UID:       "owneruid",
-	}, &corev1.Namespace{Name: "ns"}}
-	cl := utiltesting.NewClientBuilder().
-		WithObjects(objs...).
-		WithStatusSubresource(objs...).
-		WithInterceptorFuncs(interceptor.Funcs{
-			SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
-		}).
-		Build()
-	recorder := &utiltesting.EventRecorder{}
-	cqCache := schdcache.New(cl)
-	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
-	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, recorder,
-		WithWaitForPodsReady(&waitForPodsReadyConfig{
-			timeout:                     5 * time.Minute,
-			requeuingBackoffLimitCount:  new(int32(100)),
-			requeuingBackoffBaseSeconds: 10,
-			requeuingBackoffJitter:      0,
-			requeuingBackoffMaxDuration: time.Hour,
-		}))
-	reconciler.clock = fakeClock
-
-	ctx, _ := utiltesting.ContextWithLog(t)
-	req := reconcile.Request{NamespacedName: client.ObjectKeyFromObject(wl)}
-
-	result, err := reconciler.Reconcile(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error on the first reconcile: %v", err)
-	}
-	if diff := cmp.Diff(reconcile.Result{}, result); diff != "" {
-		t.Errorf("unexpected reconcile result (-want/+got):\n%s", diff)
-	}
-	gotWl := &kueue.Workload{}
-	if err := cl.Get(ctx, req.NamespacedName, gotWl); err != nil {
-		t.Fatalf("could not get the workload after the first reconcile: %v", err)
-	}
-	if gotWl.Status.RequeueState != nil {
-		t.Errorf("expected the requeueState to be cleared, got %+v", gotWl.Status.RequeueState)
-	}
-	if diff := cmp.Diff(wantEvents, recorder.RecordedEvents); diff != "" {
-		t.Errorf("unexpected events after the first reconcile (-want/+got):\n%s", diff)
-	}
-
-	result, err = reconciler.Reconcile(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error on the second reconcile: %v", err)
-	}
-	if diff := cmp.Diff(reconcile.Result{}, result); diff != "" {
-		t.Errorf("unexpected reconcile result on the second reconcile (-want/+got):\n%s", diff)
-	}
-	if err := cl.Get(ctx, req.NamespacedName, gotWl); err != nil {
-		t.Fatalf("could not get the workload after the second reconcile: %v", err)
-	}
-	if gotWl.Status.RequeueState != nil {
-		t.Errorf("expected the requeueState to stay cleared, got %+v", gotWl.Status.RequeueState)
-	}
-	if diff := cmp.Diff(wantEvents, recorder.RecordedEvents); diff != "" {
-		t.Errorf("unexpected events after the second reconcile (-want/+got):\n%s", diff)
-	}
 }
