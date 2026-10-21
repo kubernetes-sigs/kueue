@@ -464,8 +464,12 @@ type FailureInfo struct {
 
 type TASAssignmentsResult map[kueue.PodSetReference]tasPodSetAssignmentResult
 
+// Failure returns the failure of the first failed PodSet by name. Sorting keeps
+// the reported PodSet stable across scheduling cycles, as several PodSets can
+// fail at once, e.g. a leader and its workers, or PodSets in different flavors.
 func (r TASAssignmentsResult) Failure() *FailureInfo {
-	for psName, psAssignment := range r {
+	for _, psName := range slices.Sorted(maps.Keys(r)) {
+		psAssignment := r[psName]
 		if psAssignment.FailureReason != "" {
 			return &FailureInfo{
 				PodSetName: psName,
