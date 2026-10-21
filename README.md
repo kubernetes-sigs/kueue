@@ -12,6 +12,8 @@ created) and when it should stop (as in active pods should be deleted).
 
 Read the [overview](https://kueue.sigs.k8s.io/docs/overview/) and watch the Kueue-related [talks & presentations](https://kueue.sigs.k8s.io/community/talks_and_presentations/) to learn more.
 
+You can also [help Kueue grow](#help-kueue-grow).
+
 ## Features overview
 
 - **Job management:** Support job queueing based on [priorities](https://kueue.sigs.k8s.io/docs/concepts/workload/#priority) with different [strategies](https://kueue.sigs.k8s.io/docs/concepts/cluster_queue/#queueing-strategy): `StrictFIFO` and `BestEffortFIFO`.
@@ -168,6 +170,19 @@ You can reach the maintainers of this project at:
 
 - [Slack](https://kubernetes.slack.com/messages/wg-batch)
 - [Mailing List](https://groups.google.com/a/kubernetes.io/g/wg-batch)
+
+### Help Kueue grow
+
+Showing how people use and value Kueue helps keep the project well supported and growing. Here are a few ideas to get you started:
+
+- ⭐ **[Star Kueue on GitHub](https://github.com/kubernetes-sigs/kueue)** if you like the project.
+- 🤝 **[Add your organization to our adopters list](https://kueue.sigs.k8s.io/community/adopters/)**
+  if you're already running Kueue in production, by opening a PR that updates
+  [`site/data/adopters.yaml`](site/data/adopters.yaml).
+- 📝 **Share your Kueue experience on Medium.** Tag a new or existing post with `kueue` so it can
+  appear on our [User Showcase page](https://kueue.sigs.k8s.io/community/showcase/).
+
+Feel free to contact the maintainers for help getting listed or sharing your story.
 
 ### Graphic assets
 
