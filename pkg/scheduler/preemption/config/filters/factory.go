@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-logr/logr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/clock"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
@@ -31,6 +32,7 @@ import (
 // It returns a slice of errors identifying all filters that failed to build if compilation fails.
 func NewCandidateFilters(
 	log logr.Logger,
+	clock clock.Clock,
 	selector *kueuealpha.PreemptionConfigPreemptionCandidateSelector,
 	preemptor *workload.Info,
 	snapshot *schdcache.Snapshot,
@@ -61,6 +63,10 @@ func NewCandidateFilters(
 	if err != nil {
 		errs = append(errs, err)
 	}
+	wlTimeFilter, err := NewTimeFilter(log, clock, selector, preemptor)
+	if err != nil {
+		errs = append(errs, err)
+	}
 
 	if len(errs) > 0 {
 		return CandidateFilters{}, errs
@@ -80,6 +86,9 @@ func NewCandidateFilters(
 	wlFilters = append(wlFilters, wlNumericFilters...)
 	if wlPriorityFilter != nil {
 		wlFilters = append(wlFilters, wlPriorityFilter)
+	}
+	if wlTimeFilter != nil {
+		wlFilters = append(wlFilters, wlTimeFilter)
 	}
 
 	return CandidateFilters{

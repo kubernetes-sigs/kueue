@@ -290,6 +290,46 @@ type PreemptionConfigPreemptionCandidateSelector struct {
 	//
 	// +optional
 	Priority *PreemptionConfigPriorityConstraint `json:"priority,omitempty"`
+
+	// minExecutionSeconds specifies the minimum runtime a candidate workload must have been running for.
+	// Accepts any execution time if not set.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MinExecutionSeconds *int32 `json:"minExecutionSeconds,omitempty"`
+
+	// maxExecutionSeconds specifies the maximum runtime a candidate workload can have been running for.
+	// Accepts any execution time if not set.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MaxExecutionSeconds *int32 `json:"maxExecutionSeconds,omitempty"`
+
+	// executionTimeRelation defines how the candidate's execution time compares to the preemptor's.
+	// Accepts any execution time if not set.
+	//
+	// +optional
+	ExecutionTimeRelation *NumericComparison `json:"executionTimeRelation,omitempty"`
+
+	// minTimeFromCreationSeconds specifies the minimum age of the workload from creation timestamp.
+	// Accepts any time from creation if not set.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MinTimeFromCreationSeconds *int32 `json:"minTimeFromCreationSeconds,omitempty"`
+
+	// maxTimeFromCreationSeconds specifies the maximum age of the workload from creation timestamp.
+	// Accepts any time from creation if not set.
+	//
+	// +optional
+	// +kubebuilder:validation:Minimum=0
+	MaxTimeFromCreationSeconds *int32 `json:"maxTimeFromCreationSeconds,omitempty"`
+
+	// timeFromCreationRelation defines how the candidate's creation time compares to the preemptor's.
+	// Accepts any time from creation if not set.
+	//
+	// +optional
+	TimeFromCreationRelation *NumericComparison `json:"timeFromCreationRelation,omitempty"`
 }
 
 // PreemptionConfigPriorityConstraint defines the requirements for the priority of preemption candidates.

@@ -28,6 +28,7 @@ const (
 	FilterPriority             = "Priority"
 	FilterNumericLabels        = "NumericLabels"
 	FilterPreemptorSelector    = "PreemptorSelector"
+	FilterTimeSelector         = "TimeSelector"
 
 	ReasonUnsupportedScope      = "UnsupportedScope"
 	ReasonInvalidSelector       = "InvalidSelector"

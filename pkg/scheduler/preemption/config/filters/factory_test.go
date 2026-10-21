@@ -24,6 +24,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -472,7 +473,7 @@ func TestNewCandidateFilters(t *testing.T) {
 
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			gotFilters, gotErrs := NewCandidateFilters(log, tc.selector, tc.preemptor, snapshot)
+			gotFilters, gotErrs := NewCandidateFilters(log, clock.RealClock{}, tc.selector, tc.preemptor, snapshot)
 			if diff := cmp.Diff(tc.wantErrs, gotErrs, cmpopts.EquateErrors()); diff != "" {
 				t.Fatalf("NewCandidateFilters() error mismatch (-want +got):\n%s", diff)
 			}

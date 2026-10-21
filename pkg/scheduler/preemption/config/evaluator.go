@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/utils/clock"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -48,6 +49,7 @@ import (
 type PreemptionEvaluator struct {
 	ctx       context.Context
 	log       logr.Logger
+	clock     clock.Clock
 	config    kueuealpha.PreemptionConfig
 	preemptor *workload.Info
 	// candidatesOrdering orders the candidates of a trigger from the most to the
@@ -61,6 +63,7 @@ type PreemptionEvaluator struct {
 func NewPreemptionEvaluator(
 	ctx context.Context,
 	log logr.Logger,
+	clock clock.Clock,
 	config kueuealpha.PreemptionConfig,
 	preemptor *workload.Info,
 	candidatesOrdering func(a, b *workload.Info) int,
@@ -68,6 +71,7 @@ func NewPreemptionEvaluator(
 	return &PreemptionEvaluator{
 		ctx:                ctx,
 		log:                log,
+		clock:              clock,
 		config:             config,
 		preemptor:          preemptor,
 		candidatesOrdering: candidatesOrdering,
@@ -79,6 +83,7 @@ func NewPreemptionEvaluator(
 func NewEvaluatorForPreemptionConfig(
 	ctx context.Context,
 	log logr.Logger,
+	clock clock.Clock,
 	cl client.Client,
 	preemptionConfigName string,
 	preemptor *workload.Info,
@@ -89,7 +94,7 @@ func NewEvaluatorForPreemptionConfig(
 		log.Error(err, "Failed to get PreemptionConfig", "preemptionConfigName", preemptionConfigName)
 		return nil
 	}
-	return NewPreemptionEvaluator(ctx, log, *preemptionConfig, preemptor, candidatesOrdering)
+	return NewPreemptionEvaluator(ctx, log, clock, *preemptionConfig, preemptor, candidatesOrdering)
 }
 
 // HasRules returns whether the PreemptionConfig holds any rule at all. It only
@@ -276,7 +281,7 @@ func (p *PreemptionEvaluator) candidatesFor(
 		}
 
 		for selectorIndex, selector := range rule.CandidateSelectors {
-			filter, buildErrs := filters.NewCandidateFilters(p.log, &selector, p.preemptor, snapshot)
+			filter, buildErrs := filters.NewCandidateFilters(p.log, p.clock, &selector, p.preemptor, snapshot)
 			if len(buildErrs) > 0 {
 				for _, bErr := range buildErrs {
 					errs = append(errs, fmt.Errorf("preemptionConfig %q rule %q candidateSelectors[%d]: %w", p.config.Name, rule.Name, selectorIndex, bErr))
