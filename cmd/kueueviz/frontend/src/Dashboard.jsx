@@ -25,6 +25,7 @@ import './App.css';
 import { AccessTime, Check, CheckBox, CheckCircle } from '@mui/icons-material';
 import ErrorMessage from './ErrorMessage';
 import UsageBar, { aggregateResourceForQueue, discoverResourceNames, formatResourceValue } from './UsageBar';
+import { podCount } from './utils/workloadStatus';
 
 // Matches the preemptor workload UID in an eviction message, which Kueue
 // writes as "(UID: <workload-uid>, JobUID: <job-uid>)".
@@ -302,7 +303,7 @@ const Dashboard = () => {
             </TableHead>
             <TableBody>
               {workloads.map((workload) => {
-                const podCount = workload.spec?.podSets?.reduce((sum, podSet) => sum + (podSet.count || 0), 0) || 0;
+                const workloadPodCount = podCount(workload) || 0;
                 const isExpanded = expandedRows[workloadKey(workload)];
                 const pods = workload.pods || [];
 
@@ -326,7 +327,7 @@ const Dashboard = () => {
                           {workload.metadata.name}
                         </Link>
                       </TableCell>
-                      <TableCell className="pods-count-column">{podCount}</TableCell>
+                      <TableCell className="pods-count-column">{workloadPodCount}</TableCell>
                       <TableCell className="status-column">{statusIcon}</TableCell>
                       <TableCell className="queue-name-column">
                         <Link to={`/local-queue/${workload.metadata.namespace}/${workload.spec.queueName}`}>{workload.spec.queueName}</Link>
