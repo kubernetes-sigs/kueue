@@ -46,7 +46,7 @@ func AdjustConditionsForDisabledObservabilityInWorkloadController(conditions []m
 			switch cond.Reason {
 			case kueue.WorkloadQuotaReservedReasonWaitingForPodsReady:
 				cond.Reason = kueue.WorkloadWaiting //nolint:staticcheck // SA1019: legacy reason
-			case kueue.WorkloadAdmissionGated:
+			case kueue.WorkloadAdmissionGated, kueue.WorkloadOnHold:
 				// Keep as is
 			case kueue.WorkloadQuotaReservedReasonMisconfigured,
 				kueue.WorkloadQuotaReservedReasonSuspended,

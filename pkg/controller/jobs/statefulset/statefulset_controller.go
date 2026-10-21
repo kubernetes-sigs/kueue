@@ -20,6 +20,8 @@ import (
 	"context"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -27,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	coreindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 )
@@ -67,8 +70,21 @@ func (d *StatefulSet) GVK() schema.GroupVersionKind {
 	return gvk
 }
 
-func SetupIndexes(context.Context, client.FieldIndexer) error {
+func IndexPodOwner(o client.Object) []string {
+	pod, ok := o.(*corev1.Pod)
+	if !ok {
+		return nil
+	}
+	if controllerRef := metav1.GetControllerOf(pod); controllerRef != nil &&
+		controllerRef.Kind == gvk.Kind &&
+		controllerRef.APIVersion == gvk.GroupVersion().String() {
+		return []string{controllerRef.Name}
+	}
 	return nil
+}
+
+func SetupIndexes(ctx context.Context, indexer client.FieldIndexer) error {
+	return indexer.IndexField(ctx, &corev1.Pod{}, coreindexer.OwnerReferenceIndexKey(gvk), IndexPodOwner)
 }
 
 func GetOwnerUID(sts *appsv1.StatefulSet) types.UID {

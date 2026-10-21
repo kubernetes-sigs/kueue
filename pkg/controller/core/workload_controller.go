@@ -1125,6 +1125,11 @@ func (r *WorkloadReconciler) mayUpdateConditionForAdmissionGatedBy(ctx context.C
 	if !features.Enabled(features.AdmissionGatedBy) {
 		return false, nil
 	}
+	// The job integration owns the hold. Keep its reason stable; the annotation
+	// still prevents admission after the integration clears OnHold.
+	if workload.IsOnHold(wl) {
+		return false, nil
+	}
 
 	hasGatedAnnotation := workload.HasAdmissionGate(wl)
 	hasGatedCondition := hasAdmissionGatedCondition(wl)
@@ -2100,6 +2105,9 @@ func (r *WorkloadReconciler) resolveUnadmittedQuotaReservedCondition(
 ) (string, string, error) {
 	if features.Enabled(features.UnadmittedWorkloadsObservability) {
 		return r.resolveGranularUnadmittedQuotaReservedCondition(ctx, wl, lqExists, lqActive, cq)
+	}
+	if workload.IsOnHold(wl) {
+		return "", "", nil
 	}
 	if _, message := r.getQueueBlocker(wl, lqExists, lqActive, cq); message != "" {
 		return kueue.WorkloadInadmissible, message, nil

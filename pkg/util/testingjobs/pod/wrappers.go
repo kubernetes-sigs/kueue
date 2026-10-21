@@ -380,6 +380,12 @@ func (p *PodWrapper) OwnerReference(ownerName string, ownerGVK schema.GroupVersi
 	return p
 }
 
+// OwnerReferenceWithUID adds an ownerReference with a custom UID.
+func (p *PodWrapper) OwnerReferenceWithUID(ownerName string, ownerGVK schema.GroupVersionKind, uid string) *PodWrapper {
+	utiltesting.AppendOwnerReference(&p.Pod, ownerGVK, ownerName, uid, new(true), new(true))
+	return p
+}
+
 // UID updates the uid of the Pod.
 func (p *PodWrapper) UID(uid string) *PodWrapper {
 	p.ObjectMeta.UID = types.UID(uid)
@@ -415,6 +421,12 @@ func (p *PodWrapper) CreationTimestamp(t time.Time) *PodWrapper {
 func (p *PodWrapper) DeletionTimestamp(t time.Time) *PodWrapper {
 	timestamp := metav1.NewTime(t).Rfc3339Copy()
 	p.Pod.DeletionTimestamp = &timestamp
+	return p
+}
+
+// DeletionGracePeriod sets the deletion grace period recorded by the API server.
+func (p *PodWrapper) DeletionGracePeriod(seconds int64) *PodWrapper {
+	p.DeletionGracePeriodSeconds = &seconds
 	return p
 }
 
