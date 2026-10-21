@@ -13,7 +13,7 @@ jobs:
     name: Set PR release note
     if: |
       github.event.issue.pull_request != null &&
-      contains(github.event.comment.body, '/set-release-note') &&
+      (startsWith(github.event.comment.body, '/set-release-note') || contains(github.event.comment.body, format('{0}/set-release-note', fromJSON('"\n"')))) &&
       (github.event.comment.author_association == 'OWNER' ||
        github.event.comment.author_association == 'MEMBER' ||
        github.event.comment.author_association == 'COLLABORATOR')

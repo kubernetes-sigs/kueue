@@ -69,6 +69,18 @@ class ParseReleaseNoteTest(unittest.TestCase):
                 "/set-release-note\nFirst line\n/kind bug\nNot part of the note",
                 "First line",
             ),
+            "note line starting with a slash that is not a command is kept": (
+                "/set-release-note\nAPI change:\n/v1beta2 is now the default\n/kind api-change",
+                "API change:\n/v1beta2 is now the default",
+            ),
+            "remove label command ends the note": (
+                "/set-release-note\nA useful change\n/remove-kind cleanup",
+                "A useful change",
+            ),
+            "indented command line is part of the note": (
+                "/set-release-note\nA useful change\n  /kind bug",
+                "A useful change\n  /kind bug",
+            ),
             "commands are matched case-insensitively": (
                 "/set-release-note\nCLI: Example release note.\n\nExample release note.\n\n"
                 "/remove-kind cleanup\n/kind bug\n\n/Set-release-note\nCLI: Example release note.\n\n",

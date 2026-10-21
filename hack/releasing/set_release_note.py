@@ -21,9 +21,49 @@ from pathlib import Path
 
 COMMAND = "/set-release-note"
 MAX_PR_BODY_LENGTH = 65_536
-# A line holding a single Prow-style command, such as "/kind bug" or "/lgtm".
-# Prow matches command names case-insensitively, so this does too.
-COMMAND_LINE_RE = re.compile(r"^/[a-z][a-z0-9-]*(?:[ \t]+\S.*)?$", re.IGNORECASE)
+# Prow commands enabled for this repository, see
+# https://prow.k8s.io/command-help?repo=kubernetes-sigs%2Fkueue
+PROW_COMMANDS = frozenset(
+    {
+        "approve",
+        "area",
+        "assign",
+        "cc",
+        "cherry-pick",
+        "cherrypick",
+        "close",
+        "committee",
+        "good-first-issue",
+        "help",
+        "hold",
+        "kind",
+        "label",
+        "language",
+        "lgtm",
+        "lifecycle",
+        "milestone",
+        "ok-to-test",
+        "override",
+        "priority",
+        "release-note-edit",
+        "release-note-none",
+        "reopen",
+        "retest",
+        "retitle",
+        "set-release-note",
+        "sig",
+        "stage",
+        "test",
+        "triage",
+        "unassign",
+        "uncc",
+        "unhold",
+        "wg",
+    }
+)
+# A line holding a single command, such as "/kind bug" or "/lgtm". Prow only
+# matches a command at the start of a line and ignores the case of its name.
+COMMAND_LINE_RE = re.compile(r"^/(?P<name>[a-z][a-z0-9-]*)(?:[ \t]+\S.*)?$", re.IGNORECASE)
 FENCE_RE = re.compile(
     r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>[^\r\n]*?)[ \t]*(?:\r?\n)?$"
 )
@@ -46,21 +86,35 @@ def _is_set_release_note_line(line: str) -> bool:
     return line.rstrip().lower() == COMMAND
 
 
+def _is_prow_command_line(line: str) -> bool:
+    """Report whether the line is a Prow command, such as "/kind bug"."""
+    match = COMMAND_LINE_RE.match(line.rstrip())
+    if match is None:
+        return False
+    name = match.group("name").lower()
+    # The label plugin accepts "/remove-<label>" for any label prefix.
+    return name in PROW_COMMANDS or name.startswith("remove-")
+
+
 def parse_release_note(comment: str) -> str:
     """Parse and validate the release note from a ChatOps comment.
 
     The note is the text after the last /set-release-note line, up to the next
-    command line such as "/kind bug". Other commands in the same comment are
-    handled by Prow and must not end up in the release note.
+    Prow command line such as "/kind bug". Other commands in the same comment
+    are handled by Prow and must not end up in the release note. Other lines
+    that start with "/" are kept in the note.
     """
     lines = comment.replace("\r\n", "\n").splitlines()
-    commands = [i for i, line in enumerate(lines) if _is_set_release_note_line(line)]
-    if not commands:
+    last_command = next(
+        (i for i in reversed(range(len(lines))) if _is_set_release_note_line(lines[i])),
+        None,
+    )
+    if last_command is None:
         raise ValueError(f"{COMMAND} must be on a line of its own.")
 
     note_lines = []
-    for line in lines[commands[-1] + 1 :]:
-        if COMMAND_LINE_RE.match(line.strip()):
+    for line in lines[last_command + 1 :]:
+        if _is_prow_command_line(line):
             break
         note_lines.append(line)
     release_note = "\n".join(note_lines).strip()
