@@ -151,14 +151,11 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			Obj()
 		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayJob)
 
+		var originWorkload *kueue.Workload
 		var originSliceKey types.NamespacedName
 		ginkgo.By("admitting the initial RayJob slice on worker2", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				workloads := &kueue.WorkloadList{}
-				g.Expect(managerTestCluster.client.List(managerTestCluster.ctx, workloads, client.InNamespace(rayJob.Namespace))).To(gomega.Succeed())
-				g.Expect(workloads.Items).To(gomega.HaveLen(1))
-				originSliceKey = client.ObjectKeyFromObject(&workloads.Items[0])
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			originWorkload = &behavioral.ExpectWorkloadsInNamespace(managerTestCluster.ctx, managerTestCluster.client, rayJob.Namespace, 1)[0]
+			originSliceKey = client.ObjectKeyFromObject(originWorkload)
 			admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, originSliceKey, admission(1))
 		})
 
@@ -205,18 +202,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 
 		var activeSliceKey types.NamespacedName
 		ginkgo.By("admitting the replacement created by the first child scale-up", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				workloads := &kueue.WorkloadList{}
-				g.Expect(managerTestCluster.client.List(managerTestCluster.ctx, workloads, client.InNamespace(rayJob.Namespace))).To(gomega.Succeed())
-				g.Expect(workloads.Items).To(gomega.HaveLen(2))
-				for i := range workloads.Items {
-					key := client.ObjectKeyFromObject(&workloads.Items[i])
-					if key != originSliceKey {
-						activeSliceKey = key
-					}
-				}
-				g.Expect(activeSliceKey.Name).NotTo(gomega.BeEmpty())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			activeSliceKey = client.ObjectKeyFromObject(behavioral.ExpectNewWorkloadSlice(managerTestCluster.ctx, managerTestCluster.client, originWorkload))
 
 			originSlice := getWorkload(gomega.Default, managerTestCluster.client, originSliceKey)
 			gomega.Eventually(func(g gomega.Gomega) {
@@ -291,14 +277,11 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 			Obj()
 		behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, rayJob)
 
+		var originWorkload *kueue.Workload
 		var originSliceKey types.NamespacedName
 		ginkgo.By("admitting the initial RayJob slice on worker2", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				workloads := &kueue.WorkloadList{}
-				g.Expect(managerTestCluster.client.List(managerTestCluster.ctx, workloads, client.InNamespace(rayJob.Namespace))).To(gomega.Succeed())
-				g.Expect(workloads.Items).To(gomega.HaveLen(1))
-				originSliceKey = client.ObjectKeyFromObject(&workloads.Items[0])
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			originWorkload = &behavioral.ExpectWorkloadsInNamespace(managerTestCluster.ctx, managerTestCluster.client, rayJob.Namespace, 1)[0]
+			originSliceKey = client.ObjectKeyFromObject(originWorkload)
 			admitWorkloadAndCheckWorkerCopies(f.multiKueueAC.Name, originSliceKey, admission(1))
 		})
 
@@ -338,17 +321,7 @@ var _ = ginkgo.Describe("MultiKueue Kuberay", ginkgo.Label("area:multikueue", "f
 
 		var replacementSliceKey types.NamespacedName
 		ginkgo.By("observing the replacement slice in the manager cluster", func() {
-			gomega.Eventually(func(g gomega.Gomega) {
-				workloads := &kueue.WorkloadList{}
-				g.Expect(managerTestCluster.client.List(managerTestCluster.ctx, workloads, client.InNamespace(rayJob.Namespace))).To(gomega.Succeed())
-				g.Expect(workloads.Items).To(gomega.HaveLen(2))
-				for i := range workloads.Items {
-					if key := client.ObjectKeyFromObject(&workloads.Items[i]); key != originSliceKey {
-						replacementSliceKey = key
-					}
-				}
-				g.Expect(replacementSliceKey.Name).NotTo(gomega.BeEmpty())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			replacementSliceKey = client.ObjectKeyFromObject(behavioral.ExpectNewWorkloadSlice(managerTestCluster.ctx, managerTestCluster.client, originWorkload))
 		})
 
 		// This suite does not run a scheduler, so the steps it would perform when admitting the
