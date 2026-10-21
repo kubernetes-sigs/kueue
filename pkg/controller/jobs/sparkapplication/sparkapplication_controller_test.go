@@ -1143,6 +1143,45 @@ func TestGlobalNodeSelectorSurvivesRunRestoreRoundTrip(t *testing.T) {
 		Obj()
 	kSparkApp := (*SparkApplication)(sparkApp)
 
+	runRestoreRoundTrip(t, kSparkApp)
+
+	if diff := cmp.Diff(globalNodeSelector, sparkApp.Spec.Driver.NodeSelector); diff != "" {
+		t.Errorf("driver node selector mismatch (-want,+got):\n%s", diff)
+	}
+	if diff := cmp.Diff(globalNodeSelector, sparkApp.Spec.Executor.NodeSelector); diff != "" {
+		t.Errorf("executor node selector mismatch (-want,+got):\n%s", diff)
+	}
+	if sparkApp.Spec.NodeSelector != nil {
+		t.Errorf("spec.nodeSelector should stay cleared, got %v", sparkApp.Spec.NodeSelector)
+	}
+}
+
+func TestSchedulingGatesSurviveRunRestoreRoundTrip(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesForSparkApplication, true)
+	driverGate := corev1.PodSchedulingGate{Name: "example.com/driver-gate"}
+	elasticGate := corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}
+	sparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "ns").
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		DriverTemplate(&corev1.PodTemplateSpec{Spec: corev1.PodSpec{SchedulingGates: []corev1.PodSchedulingGate{driverGate}}}).
+		ExecutorInstances(1).
+		ExecutorSchedulingGates(elasticGate).
+		Obj()
+	kSparkApp := (*SparkApplication)(sparkApp)
+
+	runRestoreRoundTrip(t, kSparkApp)
+
+	if diff := cmp.Diff([]corev1.PodSchedulingGate{driverGate}, sparkApp.Spec.Driver.Template.Spec.SchedulingGates); diff != "" {
+		t.Errorf("driver scheduling gates mismatch (-want,+got):\n%s", diff)
+	}
+	if diff := cmp.Diff([]corev1.PodSchedulingGate{elasticGate}, sparkApp.Spec.Executor.Template.Spec.SchedulingGates); diff != "" {
+		t.Errorf("executor scheduling gates mismatch (-want,+got):\n%s", diff)
+	}
+}
+
+// runRestoreRoundTrip starts and stops the SparkApplication with the PodSetInfos the
+// reconciler derives from the Workload's PodSets.
+func runRestoreRoundTrip(t *testing.T, kSparkApp *SparkApplication) {
+	t.Helper()
 	podSets, err := kSparkApp.PodSets(t.Context(), nil)
 	if err != nil {
 		t.Fatalf("PodSets() returned error: %v", err)
@@ -1158,14 +1197,4 @@ func TestGlobalNodeSelectorSurvivesRunRestoreRoundTrip(t *testing.T) {
 		t.Fatalf("RunWithPodSetsInfo() returned error: %v", err)
 	}
 	kSparkApp.RestorePodSetsInfo(t.Context(), podSetsInfo)
-
-	if diff := cmp.Diff(globalNodeSelector, sparkApp.Spec.Driver.NodeSelector); diff != "" {
-		t.Errorf("driver node selector mismatch (-want,+got):\n%s", diff)
-	}
-	if diff := cmp.Diff(globalNodeSelector, sparkApp.Spec.Executor.NodeSelector); diff != "" {
-		t.Errorf("executor node selector mismatch (-want,+got):\n%s", diff)
-	}
-	if sparkApp.Spec.NodeSelector != nil {
-		t.Errorf("spec.nodeSelector should stay cleared, got %v", sparkApp.Spec.NodeSelector)
-	}
 }

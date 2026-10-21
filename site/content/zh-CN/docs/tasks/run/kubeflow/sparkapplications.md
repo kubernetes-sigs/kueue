@@ -115,7 +115,8 @@ Kueue 通过将 SparkApplication 作为[弹性工作负载](/zh-cn/docs/concepts
   与 `spec.dynamicAllocation.maxExecutors` 之间。
 - 当 Driver 添加 Executor 时，Kueue 会为更大的数量创建新的 Workload 切片，
   并在该切片被接纳后移除新 Executor 的调度门控。
-  当 Driver 移除 Executor 时，Kueue 会降低已接纳 Workload 的数量并释放它们的配额。
+  当 Driver 移除 Executor 时，Kueue 会在这些 Executor 停止后降低已接纳 Workload 的数量并释放它们的配额，
+  仍在终止中的 Executor 会继续占用配额。
 - 扩容是原子的：新的 Executor 会保持门控状态，直到它们全部能放入配额。
 
 在 Kueue 中使用动态分配有以下限制：

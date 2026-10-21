@@ -134,7 +134,8 @@ Kueue then admits the executors that the Spark driver adds or removes while the 
   and `spec.dynamicAllocation.maxExecutors`.
 - When the driver adds executors, Kueue creates a new Workload slice for the larger count and removes the
   scheduling gate from the new executors once that slice is admitted.
-  When the driver removes executors, Kueue lowers the count of the admitted Workload and releases their quota.
+  When the driver removes executors, Kueue lowers the count of the admitted Workload and releases their quota
+  once those executors stop, so terminating executors keep their quota until then.
 - Scale-up is atomic: the new executors stay gated until all of them fit in the quota.
 
 Dynamic allocation with Kueue has the following limitations:
