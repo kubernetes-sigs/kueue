@@ -358,7 +358,7 @@ func (j *Job) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 		Name:     kueue.DefaultPodSetName,
 		Template: *cleanLabels(j.Spec.Template.DeepCopy()),
 		Count:    j.podsCount(),
-		MinCount: j.minPodsCount(),
+		MinCount: j.podSetMinCount(),
 	}
 	if features.Enabled(features.TopologyAwareScheduling) {
 		topologyRequest, err := jobframework.NewPodSetTopologyRequest(
@@ -467,6 +467,13 @@ func (j *Job) minPodsCount() *int32 {
 		return nil
 	}
 	return new(int32(minCount))
+}
+
+func (j *Job) podSetMinCount() *int32 {
+	if jobframework.ElasticPartialScaleUpEnabled(j) {
+		return new(j.podsCount())
+	}
+	return j.minPodsCount()
 }
 
 func (j *Job) partialAdmissionRequested() bool {
