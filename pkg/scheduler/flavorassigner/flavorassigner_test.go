@@ -1183,6 +1183,41 @@ func TestAssignFlavors(t *testing.T) {
 				}}},
 			},
 		},
+		"flavors with conflicting node labels across resource groups, no fit": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Mi").
+					Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("label-x-a").
+						Resource(corev1.ResourceCPU, "4").
+						Obj(),
+				).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("label-xy-b").
+						Resource(corev1.ResourceMemory, "4Mi").
+						Obj(),
+				).
+				Obj(),
+			wantRepMode: NoFit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{{
+					Name: kueue.DefaultPodSetName,
+					Status: *NewStatus(
+						"flavors label-x-a and label-xy-b have conflicting node labels: conflict for key=x, value1=a, value2=b",
+					),
+					Requests: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("1"),
+						corev1.ResourceMemory: resource.MustParse("1Mi"),
+					},
+					Count: 1,
+				}},
+				NoFitReason: kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
+			},
+		},
 		"labelless flavor in group with labeled flavor, workload uses labeled selector": {
 			wlPods: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).

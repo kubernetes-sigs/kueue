@@ -442,6 +442,15 @@ func (a *FlavorAssigner) AssignFlavors(
 				groupStatus.reasons = append(groupStatus.reasons, status.reasons...)
 			}
 		}
+		if groupFlavors != nil {
+			if first, second, err := a.conflictingFlavors(groupFlavors); err != nil {
+				groupFlavors = nil
+				groupStatus = Status{
+					reasons:     []string{fmt.Sprintf("flavors %s and %s have conflicting node labels: %v", first, second, err)},
+					noFitReason: kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
+				}
+			}
+		}
 
 		finalConsidered := finalizeFlavorAssignmentAttempts(consideredFlavors)
 		atLeastOnePodsAssignmentFailed := false
@@ -475,6 +484,30 @@ func (a *FlavorAssigner) AssignFlavors(
 		return assignment
 	}
 	return assignment
+}
+
+func (a *FlavorAssigner) conflictingFlavors(flavors ResourceAssignment) (kueue.ResourceFlavorReference, kueue.ResourceFlavorReference, error) {
+	names := sets.New[kueue.ResourceFlavorReference]()
+	for _, flavor := range flavors {
+		names.Insert(flavor.Name)
+	}
+	sortedNames := sets.List(names)
+	for i, firstName := range sortedNames {
+		first := a.resourceFlavors[firstName]
+		if first == nil {
+			continue
+		}
+		for _, secondName := range sortedNames[i+1:] {
+			second := a.resourceFlavors[secondName]
+			if second == nil {
+				continue
+			}
+			if err := utilmaps.HaveConflict(first.Spec.NodeLabels, second.Spec.NodeLabels); err != nil {
+				return firstName, secondName, err
+			}
+		}
+	}
+	return "", "", nil
 }
 
 // AssignTopology updates the assignment based on topology requirements.

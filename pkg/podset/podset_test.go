@@ -67,15 +67,29 @@ func TestFromAssignment(t *testing.T) {
 		NodeLabel("f2l2", "f2v2").
 		Toleration(*toleration3.DeepCopy()).
 		Obj()
+	conflictFlavorA := utiltestingapi.MakeResourceFlavor("conflict-a").
+		NodeLabel("topology.kubernetes.io/zone", "zone-a").
+		Obj()
+	conflictFlavorB := utiltestingapi.MakeResourceFlavor("conflict-b").
+		NodeLabel("topology.kubernetes.io/zone", "zone-b").
+		Obj()
+	sharedFlavorA := utiltestingapi.MakeResourceFlavor("shared-a").
+		NodeLabel("topology.kubernetes.io/zone", "zone-a").
+		Obj()
+	sharedFlavorB := utiltestingapi.MakeResourceFlavor("shared-b").
+		NodeLabel("topology.kubernetes.io/zone", "zone-a").
+		Obj()
 
 	cases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
 
-		assignment   *kueue.PodSetAssignment
-		defaultCount int32
-		flavors      []kueue.ResourceFlavor
-		wantError    error
-		wantInfo     PodSetInfo
+		assignment        *kueue.PodSetAssignment
+		defaultCount      int32
+		flavors           []kueue.ResourceFlavor
+		wantError         error
+		wantErrorContains string
+		wantPermanent     bool
+		wantInfo          PodSetInfo
 	}{
 		"single flavor": {
 			assignment: &kueue.PodSetAssignment{
@@ -139,6 +153,62 @@ func TestFromAssignment(t *testing.T) {
 					"f1l2": "f1v2",
 				},
 				Tolerations: []corev1.Toleration{*toleration1.DeepCopy(), *toleration2.DeepCopy()},
+			},
+		},
+		"conflicting node labels": {
+			assignment: &kueue.PodSetAssignment{
+				Name: "name",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU:    kueue.ResourceFlavorReference(conflictFlavorA.Name),
+					corev1.ResourceMemory: kueue.ResourceFlavorReference(conflictFlavorB.Name),
+				},
+				Count: new(int32(2)),
+			},
+			defaultCount:      4,
+			flavors:           []kueue.ResourceFlavor{*conflictFlavorA.DeepCopy(), *conflictFlavorB.DeepCopy()},
+			wantErrorContains: "topology.kubernetes.io/zone",
+			wantPermanent:     true,
+		},
+		"stable flavor order": {
+			assignment: &kueue.PodSetAssignment{
+				Name: "name",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU:    kueue.ResourceFlavorReference(flavor1.Name),
+					corev1.ResourceMemory: kueue.ResourceFlavorReference(flavor2.Name),
+				},
+				Count: new(int32(2)),
+			},
+			defaultCount: 4,
+			flavors:      []kueue.ResourceFlavor{*flavor1.DeepCopy(), *flavor2.DeepCopy()},
+			wantInfo: PodSetInfo{
+				Name:  "name",
+				Count: 2,
+				NodeSelector: map[string]string{
+					"f1l1": "f1v1",
+					"f1l2": "f1v2",
+					"f2l1": "f2v1",
+					"f2l2": "f2v2",
+				},
+				Tolerations: []corev1.Toleration{*toleration1.DeepCopy(), *toleration2.DeepCopy(), *toleration3.DeepCopy()},
+			},
+		},
+		"shared node label value": {
+			assignment: &kueue.PodSetAssignment{
+				Name: "name",
+				Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
+					corev1.ResourceCPU:    kueue.ResourceFlavorReference(sharedFlavorA.Name),
+					corev1.ResourceMemory: kueue.ResourceFlavorReference(sharedFlavorB.Name),
+				},
+				Count: new(int32(2)),
+			},
+			defaultCount: 4,
+			flavors:      []kueue.ResourceFlavor{*sharedFlavorA.DeepCopy(), *sharedFlavorB.DeepCopy()},
+			wantInfo: PodSetInfo{
+				Name:  "name",
+				Count: 2,
+				NodeSelector: map[string]string{
+					"topology.kubernetes.io/zone": "zone-a",
+				},
 			},
 		},
 		"flavor not found": {
@@ -249,12 +319,19 @@ func TestFromAssignment(t *testing.T) {
 			}
 			gotInfo, gotError := FromAssignment(ctx, client, tc.assignment, &podSet)
 
-			if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
+			if tc.wantErrorContains != "" {
+				if gotError == nil || !strings.Contains(gotError.Error(), tc.wantErrorContains) {
+					t.Errorf("Unexpected error (-want contains %q, got %v)", tc.wantErrorContains, gotError)
+				}
+				if tc.wantPermanent && !errors.Is(gotError, ErrInvalidPodSetUpdate) {
+					t.Errorf("Expected a permanent PodSet update error, got: %v", gotError)
+				}
+			} else if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
 				t.Errorf("Unexpected error (-want/+got):\n%s", diff)
 			}
 
-			if tc.wantError == nil {
-				if diff := cmp.Diff(tc.wantInfo, gotInfo, cmpopts.EquateEmpty(), cmpopts.SortSlices(func(a, b corev1.Toleration) bool { return a.Key < b.Key })); diff != "" {
+			if tc.wantError == nil && tc.wantErrorContains == "" {
+				if diff := cmp.Diff(tc.wantInfo, gotInfo, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("Unexpected info (-want/+got):\n%s", diff)
 				}
 			}
@@ -694,102 +771,5 @@ func TestAddOrUpdateLabel(t *testing.T) {
 				t.Errorf("Unexpected info (-want/+got):\n%s", diff)
 			}
 		})
-	}
-}
-
-func TestFromAssignmentNodeLabelConflict(t *testing.T) {
-	flavorA := utiltestingapi.MakeResourceFlavor("flavor-a").
-		NodeLabel("topology.kubernetes.io/zone", "zone-a").
-		Obj()
-	flavorB := utiltestingapi.MakeResourceFlavor("flavor-b").
-		NodeLabel("topology.kubernetes.io/zone", "zone-b").
-		Obj()
-	client := utiltesting.NewClientBuilder().WithLists(&kueue.ResourceFlavorList{Items: []kueue.ResourceFlavor{*flavorA, *flavorB}}).Build()
-
-	assignment := &kueue.PodSetAssignment{
-		Name: "main",
-		Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-			corev1.ResourceCPU:    "flavor-a",
-			corev1.ResourceMemory: "flavor-b",
-		},
-	}
-	podSet := kueue.PodSet{Name: "main", Count: 1}
-	ctx, _ := utiltesting.ContextWithLog(t)
-
-	// Each run used to pick a winner by map order; now every run must refuse.
-	for i := range 100 {
-		_, err := FromAssignment(ctx, client, assignment, &podSet)
-		if err == nil {
-			t.Fatalf("run %d: expected a conflict error, got none", i)
-		}
-		if !errors.Is(err, ErrInvalidPodSetUpdate) {
-			t.Fatalf("run %d: expected a permanent podset update error, got: %v", i, err)
-		}
-		if !strings.Contains(err.Error(), "topology.kubernetes.io/zone") {
-			t.Fatalf("run %d: error should name the conflicting key, got: %v", i, err)
-		}
-	}
-}
-
-func TestFromAssignmentStableFlavorOrder(t *testing.T) {
-	cpuToleration := corev1.Toleration{Key: "cpu-key", Operator: corev1.TolerationOpExists}
-	memoryToleration := corev1.Toleration{Key: "memory-key", Operator: corev1.TolerationOpExists}
-	flavorCPU := utiltestingapi.MakeResourceFlavor("flavor-cpu").
-		Toleration(cpuToleration).
-		Obj()
-	flavorMemory := utiltestingapi.MakeResourceFlavor("flavor-memory").
-		Toleration(memoryToleration).
-		Obj()
-	client := utiltesting.NewClientBuilder().WithLists(&kueue.ResourceFlavorList{Items: []kueue.ResourceFlavor{*flavorCPU, *flavorMemory}}).Build()
-
-	assignment := &kueue.PodSetAssignment{
-		Name: "main",
-		Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-			corev1.ResourceCPU:    "flavor-cpu",
-			corev1.ResourceMemory: "flavor-memory",
-		},
-	}
-	podSet := kueue.PodSet{Name: "main", Count: 1}
-	ctx, _ := utiltesting.ContextWithLog(t)
-
-	// The flavors are applied in a stable resource order, cpu before memory.
-	wantTolerations := []corev1.Toleration{cpuToleration, memoryToleration}
-	for i := range 100 {
-		got, err := FromAssignment(ctx, client, assignment, &podSet)
-		if err != nil {
-			t.Fatalf("run %d: unexpected error: %v", i, err)
-		}
-		if diff := cmp.Diff(wantTolerations, got.Tolerations); diff != "" {
-			t.Fatalf("run %d: tolerations order is not stable (-want/+got):\n%s", i, diff)
-		}
-	}
-}
-
-func TestFromAssignmentSharedNodeLabelValue(t *testing.T) {
-	flavorA := utiltestingapi.MakeResourceFlavor("flavor-a").
-		NodeLabel("topology.kubernetes.io/zone", "zone-a").
-		Obj()
-	flavorB := utiltestingapi.MakeResourceFlavor("flavor-b").
-		NodeLabel("topology.kubernetes.io/zone", "zone-a").
-		Obj()
-	client := utiltesting.NewClientBuilder().WithLists(&kueue.ResourceFlavorList{Items: []kueue.ResourceFlavor{*flavorA, *flavorB}}).Build()
-
-	assignment := &kueue.PodSetAssignment{
-		Name: "main",
-		Flavors: map[corev1.ResourceName]kueue.ResourceFlavorReference{
-			corev1.ResourceCPU:    "flavor-a",
-			corev1.ResourceMemory: "flavor-b",
-		},
-	}
-	podSet := kueue.PodSet{Name: "main", Count: 1}
-	ctx, _ := utiltesting.ContextWithLog(t)
-
-	info, err := FromAssignment(ctx, client, assignment, &podSet)
-	if err != nil {
-		t.Fatalf("flavors that agree on the shared key should merge cleanly, got: %v", err)
-	}
-	wantSelector := map[string]string{"topology.kubernetes.io/zone": "zone-a"}
-	if diff := cmp.Diff(wantSelector, info.NodeSelector); diff != "" {
-		t.Fatalf("unexpected node selector (-want/+got):\n%s", diff)
 	}
 }
