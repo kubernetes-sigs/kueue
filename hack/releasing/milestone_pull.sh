@@ -290,8 +290,8 @@ function submit_mapping_pr() {
   echo "+++ Creating local branch ${TEST_INFRA_WORK_BRANCH}"
   git checkout -b "${TEST_INFRA_WORK_BRANCH}" "${upstream_remote}/master"
 
-  if [[ ! -f "${plugins_file}" ]]; then
-    echo "!!! ${KUBERNETES_TEST_INFRA_PATH}/${plugins_file} does not exist."
+  if ! git cat-file -e "${upstream_remote}/master:${plugins_file}" 2>/dev/null; then
+    echo "!!! ${plugins_file} does not exist in ${upstream_remote}/master."
     PR_RESULT="FAILED"
     exit 2
   fi
