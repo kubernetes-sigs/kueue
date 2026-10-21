@@ -38,12 +38,16 @@ import (
 
 const (
 	managerPolicyName = "kueue-controller-manager-ingress"
+	listenerName      = "netpol-listener"
 	metricsPort       = 8443
 	unlistedPort      = 9999
 	connectTimeout    = "5s"
 )
 
-var managerSelector = map[string]string{"control-plane": "controller-manager"}
+var managerSelector = map[string]string{
+	"app.kubernetes.io/name": "kueue",
+	"control-plane":          "controller-manager",
+}
 
 var _ = ginkgo.Describe("NetworkPolicies", func() {
 	const defaultFlavor = "default-flavor"
@@ -87,7 +91,9 @@ var _ = ginkgo.Describe("NetworkPolicies", func() {
 			Namespace: kueueNS, Name: managerPolicyName,
 		}, policy)).To(gomega.Succeed())
 
-		gomega.Expect(policy.Spec.PodSelector.MatchLabels).To(gomega.Equal(managerSelector))
+		for key, value := range managerSelector {
+			gomega.Expect(policy.Spec.PodSelector.MatchLabels).To(gomega.HaveKeyWithValue(key, value))
+		}
 		gomega.Expect(policy.Spec.PolicyTypes).To(gomega.Equal([]networkingv1.PolicyType{networkingv1.PolicyTypeIngress}))
 
 		var allowed []int32
@@ -199,16 +205,22 @@ var _ = ginkgo.Describe("NetworkPolicies", func() {
 	})
 })
 
-// The listener carries the label the ControllerManager policy selects on, so the policy
+// The listener carries the labels the ControllerManager policy selects on, so the policy
 // covers it. It serves one listed and one unlisted port, which keeps the denial scoped to
 // the port rather than to whether the pod is up. The failing readiness probe keeps it out
-// of the Kueue Services, which select on that same label.
+// of the Kueue Services, which select on those same labels.
 func newPolicyCoveredListener() *corev1.Pod {
-	listener := testingpod.MakePod("netpol-listener", kueueNS).
+	policy := &networkingv1.NetworkPolicy{}
+	gomega.Expect(k8sClient.Get(ctx, client.ObjectKey{
+		Namespace: kueueNS, Name: managerPolicyName,
+	}, policy)).To(gomega.Succeed())
+	wrapper := testingpod.MakePod(listenerName, kueueNS).
 		Image(e2e.GetAgnHostImage(), []string{"netexec", fmt.Sprintf("--http-port=%d", metricsPort), "--udp-port=-1"}).
-		Label("control-plane", managerSelector["control-plane"]).
-		TerminationGracePeriod(1).
-		Obj()
+		TerminationGracePeriod(1)
+	for key, value := range policy.Spec.PodSelector.MatchLabels {
+		wrapper.Label(key, value)
+	}
+	listener := wrapper.Obj()
 	listener.Spec.Containers[0].ReadinessProbe = &corev1.Probe{
 		Exec: &corev1.ExecAction{Command: []string{"false"}},
 	}
@@ -220,17 +232,18 @@ func newPolicyCoveredListener() *corev1.Pod {
 	return listener
 }
 
-// Selecting on the chart label as well as the policy label keeps this from picking up the
-// listener, which carries only the policy label.
+// The listener carries the same labels, so it is skipped by name.
 func managerPodIP() string {
 	pods := &corev1.PodList{}
 	gomega.Expect(k8sClient.List(ctx, pods, client.InNamespace(kueueNS),
-		client.MatchingLabels{
-			"control-plane":          managerSelector["control-plane"],
-			"app.kubernetes.io/name": "kueue",
-		})).To(gomega.Succeed())
-	gomega.Expect(pods.Items).NotTo(gomega.BeEmpty())
-	return pods.Items[0].Status.PodIP
+		client.MatchingLabels(managerSelector))).To(gomega.Succeed())
+	for _, pod := range pods.Items {
+		if pod.Name != listenerName {
+			return pod.Status.PodIP
+		}
+	}
+	ginkgo.Fail("no ControllerManager pod found")
+	return ""
 }
 
 func podIP(pod *corev1.Pod) string {

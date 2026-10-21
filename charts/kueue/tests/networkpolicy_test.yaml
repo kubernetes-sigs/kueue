@@ -9,6 +9,14 @@ tests:
       - hasDocuments:
           count: 0
 
+  - it: should not render any network policy without networkPolicy values
+    set:
+      networkPolicy: null
+      enableKueueViz: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
   - it: should render the ControllerManager ingress policy when enabled
     template: networkpolicy/manager-ingress.yaml
     set:
@@ -25,6 +33,8 @@ tests:
       - equal:
           path: spec.podSelector.matchLabels
           value:
+            app.kubernetes.io/name: kueue
+            app.kubernetes.io/instance: RELEASE-NAME
             control-plane: controller-manager
       - equal:
           path: spec.policyTypes
@@ -131,6 +141,60 @@ tests:
         health:
           healthProbeBindAddress: ""
     asserts:
+      - equal:
+          path: spec.ingress[1].ports[0].port
+          value: 8443
+      - equal:
+          path: spec.ingress[2].ports[0].port
+          value: 8081
+
+  - it: should use default ports for null and non-positive ports
+    template: networkpolicy/manager-ingress.yaml
+    set:
+      networkPolicy.enabled: true
+      managerConfig.controllerManagerConfigYaml: |
+        webhook:
+          port: 0
+        visibilityServer:
+          bindPort: null
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports
+          value:
+            - protocol: TCP
+              port: 9443
+            - protocol: TCP
+              port: 8082
+
+  - it: should use default ports for a negative webhook port
+    template: networkpolicy/manager-ingress.yaml
+    set:
+      networkPolicy.enabled: true
+      managerConfig.controllerManagerConfigYaml: |
+        webhook:
+          port: -1
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports[0].port
+          value: 9443
+
+  - it: should use default ports for null config sections
+    template: networkpolicy/manager-ingress.yaml
+    set:
+      networkPolicy.enabled: true
+      managerConfig.controllerManagerConfigYaml: |
+        webhook: null
+        visibilityServer: null
+        metrics: null
+        health: null
+    asserts:
+      - equal:
+          path: spec.ingress[0].ports
+          value:
+            - protocol: TCP
+              port: 9443
+            - protocol: TCP
+              port: 8082
       - equal:
           path: spec.ingress[1].ports[0].port
           value: 8443

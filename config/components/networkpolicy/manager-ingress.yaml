@@ -10,6 +10,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
+      app.kubernetes.io/name: kueue
       control-plane: controller-manager
   policyTypes:
     - Ingress
