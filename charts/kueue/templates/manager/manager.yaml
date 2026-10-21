@@ -63,41 +63,37 @@ spec:
           httpGet:
             path: /healthz
             port: 8081
-          initialDelaySeconds: {{ .Values.controllerManager.livenessProbe.initialDelaySeconds }}
-          periodSeconds: {{ .Values.controllerManager.livenessProbe.periodSeconds }}
-          timeoutSeconds: {{ .Values.controllerManager.livenessProbe.timeoutSeconds }}
-          failureThreshold: {{ .Values.controllerManager.livenessProbe.failureThreshold }}
-          successThreshold: {{ .Values.controllerManager.livenessProbe.successThreshold }}
+          {{- with .Values.controllerManager.livenessProbe }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
         name: manager
         ports:
+        - containerPort: 8443
+          name: metrics
+          protocol: TCP
         - containerPort: 8082
           name: visibility
           protocol: TCP
         - containerPort: 9443
           name: webhook-server
           protocol: TCP
-        - containerPort: 8443
-          name: metrics
-          protocol: TCP
         readinessProbe:
           httpGet:
             path: /readyz
             port: 8081
-          initialDelaySeconds: {{ .Values.controllerManager.readinessProbe.initialDelaySeconds }}
-          periodSeconds: {{ .Values.controllerManager.readinessProbe.periodSeconds }}
-          timeoutSeconds: {{ .Values.controllerManager.readinessProbe.timeoutSeconds }}
-          failureThreshold: {{ .Values.controllerManager.readinessProbe.failureThreshold }}
-          successThreshold: {{ .Values.controllerManager.readinessProbe.successThreshold }}
+          {{- with .Values.controllerManager.readinessProbe }}
+          {{- . | toYaml | nindent 10 }}
+          {{- end }}
         resources:
           {{- toYaml .Values.controllerManager.manager.resources | nindent 10 }}
         securityContext:
           {{- toYaml .Values.controllerManager.manager.containerSecurityContext | nindent 10 }}
         volumeMounts:
+        - mountPath: /visibility
+          name: visibility
         - mountPath: /tmp/k8s-webhook-server/serving-certs
           name: cert
           readOnly: true
-        - mountPath: /visibility
-          name: visibility
         - mountPath: /controller_manager_config.yaml
           name: manager-config
           subPath: controller_manager_config.yaml
@@ -131,6 +127,8 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       volumes:
+      - name: visibility
+        emptyDir: {}
       - name: cert
         secret:
           defaultMode: 420
@@ -162,6 +160,4 @@ spec:
           - key: tls.key
             path: tls.key
       {{- else }}
-      - name: visibility
-        emptyDir: {}
       {{- end }}

@@ -28,7 +28,6 @@ metadata:
   annotations:
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
   {{- end }}
-  namespace: '{{ .Release.Namespace }}'
 webhooks:
   - admissionReviewVersions:
       - v1
@@ -60,7 +59,9 @@ webhooks:
         resources:
           - appwrappers
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -80,7 +81,9 @@ webhooks:
         resources:
           - clusterqueues
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -116,7 +119,9 @@ webhooks:
         resources:
           - deployments
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -147,7 +152,9 @@ webhooks:
         resources:
           - jaxjobs
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -178,7 +185,9 @@ webhooks:
         resources:
           - jobs
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -209,7 +218,9 @@ webhooks:
         resources:
           - jobsets
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -241,7 +252,9 @@ webhooks:
         resources:
           - leaderworkersets
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -272,7 +285,9 @@ webhooks:
         resources:
           - mpijobs
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -303,7 +318,9 @@ webhooks:
         resources:
           - paddlejobs
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -338,7 +355,9 @@ webhooks:
         resources:
           - pods
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -369,7 +388,9 @@ webhooks:
         resources:
           - pytorchjobs
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -400,7 +421,9 @@ webhooks:
         resources:
           - rayclusters
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -431,7 +454,9 @@ webhooks:
         resources:
           - rayjobs
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -462,7 +487,9 @@ webhooks:
         resources:
           - rayservices
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -482,7 +509,9 @@ webhooks:
         resources:
           - resourceflavors
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -513,7 +542,9 @@ webhooks:
         resources:
           - sparkapplications
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -549,7 +580,9 @@ webhooks:
         resources:
           - statefulsets
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -580,7 +613,9 @@ webhooks:
         resources:
           - tfjobs
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -611,7 +646,9 @@ webhooks:
         resources:
           - trainjobs
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -631,7 +668,9 @@ webhooks:
         resources:
           - workloads
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -662,7 +701,9 @@ webhooks:
         resources:
           - xgboostjobs
     sideEffects: None
-    reinvocationPolicy: '{{ .Values.mutatingWebhook.reinvocationPolicy }}'
+    {{- with .Values.mutatingWebhook.reinvocationPolicy }}
+    reinvocationPolicy: {{ . | quote }}
+    {{- end }}
 ---
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
@@ -674,8 +715,42 @@ metadata:
   annotations:
     cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "kueue.fullname" . }}-serving-cert
   {{- end }}
-  namespace: '{{ .Release.Namespace }}'
 webhooks:
+  - admissionReviewVersions:
+      - v1
+    clientConfig:
+      service:
+        name: '{{ include "kueue.fullname" . }}-webhook-service'
+        namespace: '{{ .Release.Namespace }}'
+        path: /validate--v1-pod
+    name: vpod.kb.io
+    {{- if has "pod" $integrationsConfig.frameworks }}
+    failurePolicy: Fail
+    {{- else }}
+    failurePolicy: Ignore
+    {{- end }}
+    namespaceSelector:
+      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
+        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
+      {{- else }}
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values:
+            - kube-system
+            - '{{ .Release.Namespace }}'
+      {{- end }}
+    rules:
+      - apiGroups:
+          - ""
+        apiVersions:
+          - v1
+        operations:
+          - CREATE
+          - UPDATE
+        resources:
+          - pods
+    sideEffects: None
   - admissionReviewVersions:
       - v1
     clientConfig:
@@ -967,41 +1042,6 @@ webhooks:
           - UPDATE
         resources:
           - paddlejobs
-    sideEffects: None
-  - admissionReviewVersions:
-      - v1
-    clientConfig:
-      service:
-        name: '{{ include "kueue.fullname" . }}-webhook-service'
-        namespace: '{{ .Release.Namespace }}'
-        path: /validate--v1-pod
-    name: vpod.kb.io
-    {{- if has "pod" $integrationsConfig.frameworks }}
-    failurePolicy: Fail
-    {{- else }}
-    failurePolicy: Ignore
-    {{- end }}
-    namespaceSelector:
-      {{- if (hasKey $managerConfig "managedJobsNamespaceSelector") }}
-        {{- toYaml $managerConfig.managedJobsNamespaceSelector | nindent 6 }}
-      {{- else }}
-      matchExpressions:
-        - key: kubernetes.io/metadata.name
-          operator: NotIn
-          values:
-            - kube-system
-            - '{{ .Release.Namespace }}'
-      {{- end }}
-    rules:
-      - apiGroups:
-          - ""
-        apiVersions:
-          - v1
-        operations:
-          - CREATE
-          - UPDATE
-        resources:
-          - pods
     sideEffects: None
   - admissionReviewVersions:
       - v1

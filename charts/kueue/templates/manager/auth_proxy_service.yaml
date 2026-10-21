@@ -27,7 +27,9 @@ metadata:
   {{- toYaml .Values.metricsService.annotations | nindent 4 }}
   {{- end }}
 spec:
-  type: {{ .Values.metricsService.type }}
+  {{- with .Values.metricsService.type }}
+  type: '{{ . }}'
+  {{- end }}
   selector:
   {{- include "kueue.selectorLabels" . | nindent 4 }}
   ports:
