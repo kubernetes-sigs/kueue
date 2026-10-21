@@ -284,3 +284,31 @@ func TestFetchResourceFlavorDetailsSpec(t *testing.T) {
 		t.Errorf("unexpected details (-want,+got):\n%s", diff)
 	}
 }
+
+func TestFetchResourceFlavorDetailsGetsFlavorOnce(t *testing.T) {
+	flavorGets := 0
+	funcs := &interceptor.Funcs{
+		Get: func(ctx context.Context, c ctrlclient.WithWatch, key ctrlclient.ObjectKey, obj ctrlclient.Object, opts ...ctrlclient.GetOption) error {
+			if _, ok := obj.(*kueueapi.ResourceFlavor); ok {
+				flavorGets++
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	}
+	objs := []ctrlclient.Object{
+		makeResourceFlavor("spot", map[string]string{"capacity": "spot"}),
+		makeNode("node-spot", map[string]string{"capacity": "spot"}),
+	}
+	h := New(newFakeClient(t, funcs, objs...), nil, nil)
+
+	got, err := h.fetchResourceFlavorDetails(t.Context(), "spot", middleware.Identity{Username: "alice"})
+	if err != nil {
+		t.Fatalf("fetchResourceFlavorDetails() error = %v", err)
+	}
+	if flavorGets != 1 {
+		t.Errorf("ResourceFlavor fetched %d times, want 1", flavorGets)
+	}
+	if nodes := got["nodes"].([]map[string]any); len(nodes) != 1 || nodes[0]["name"] != "node-spot" {
+		t.Errorf("nodes = %v, want only node-spot", nodes)
+	}
+}
