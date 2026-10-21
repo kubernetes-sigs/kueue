@@ -1182,8 +1182,10 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 				"workload", klog.KObj(wl),
 				"controlledBy", controlledBy,
 			)
+			msg := fmt.Sprintf("Prebuilt workload %q is controlled by another object and cannot be used by this job. "+
+				"Delete or replace the workload, or select a different prebuilt workload", klog.KObj(wl))
 			r.record.Eventf(object, nil, corev1.EventTypeWarning, ReasonPrebuiltWorkloadControlledByOther, "PrebuiltWorkloadRefused",
-				api.TruncateEventMessage(fmt.Sprintf("Prebuilt workload %q is controlled by another object and cannot be used by this job. Delete or replace the workload, or select a different prebuilt workload", klog.KObj(wl))))
+				api.TruncateEventMessage(msg))
 			return nil, nil
 		}
 
@@ -1198,8 +1200,10 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 				"WARNING: The prebuilt workload is already finished",
 				"workload", klog.KObj(wl),
 			)
+			msg := fmt.Sprintf("Prebuilt workload %q is already finished and cannot be used by this job. "+
+				"Delete or replace the workload, or select a different prebuilt workload", klog.KObj(wl))
 			r.record.Eventf(object, nil, corev1.EventTypeWarning, ReasonPrebuiltWorkloadFinished, "PrebuiltWorkloadRefused",
-				api.TruncateEventMessage(fmt.Sprintf("Prebuilt workload %q is already finished and cannot be used by this job. Delete or replace the workload, or select a different prebuilt workload", klog.KObj(wl))))
+				api.TruncateEventMessage(msg))
 			return nil, nil
 		}
 
