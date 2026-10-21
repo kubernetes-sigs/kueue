@@ -26,6 +26,7 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -198,6 +199,14 @@ func (s *wasSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.Po
 
 func (s *wasSimulator) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
 	return s.wasSnapshot.RemovePodGroup(ctx, pg)
+}
+
+func (s *wasSimulator) AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	return s.wasSnapshot.AddCompositePodGroup(ctx, cpg)
+}
+
+func (s *wasSimulator) RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	return s.wasSnapshot.RemoveCompositePodGroup(ctx, cpg)
 }
 
 func copyWithDefaultScheduler(pods ...*corev1.Pod) []*corev1.Pod {
