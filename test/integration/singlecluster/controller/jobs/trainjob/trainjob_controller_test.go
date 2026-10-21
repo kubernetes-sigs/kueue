@@ -225,6 +225,33 @@ var _ = ginkgo.Describe("Trainjob controller", ginkgo.Ordered, ginkgo.ContinueOn
 			})
 		})
 
+		ginkgo.It("Should create a workload when a workload with the trainjob name already exists", func() {
+			trainJob := testingtrainjob.MakeTrainJob("trainjob-test", ns.Name).RuntimeRef(kftrainerapi.RuntimeRef{
+				APIGroup: new("trainer.kubeflow.org"),
+				Name:     "test",
+				Kind:     new("ClusterTrainingRuntime"),
+			}).
+				Queue(localQueue.Name).
+				Obj()
+
+			ginkgo.By("creating a workload with the trainjob name", func() {
+				behavioral.MustCreate(ctx, k8sClient, utiltestingapi.MakeWorkload(trainJob.Name, ns.Name).Obj())
+			})
+
+			ginkgo.By("creating the trainjob", func() {
+				behavioral.MustCreate(ctx, k8sClient, trainJob)
+			})
+
+			ginkgo.By("checking the workload for the trainjob is created", func() {
+				wlLookupKey := types.NamespacedName{Name: workloadtrainjob.GetWorkloadNameForTrainJob(trainJob.Name, trainJob.UID), Namespace: ns.Name}
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Spec.PodSets).Should(gomega.HaveLen(2))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+		})
+
 		ginkgo.It("A trainjob created in an unmanaged namespace is not suspended and a workload is not created", framework.SlowSpec, func() {
 			ginkgo.By("Creating an unsuspended trainjob without a queue-name in unmanaged-ns", func() {
 				trainJob := testingtrainjob.MakeTrainJob("trainjob-test", "unmanaged-ns").RuntimeRef(kftrainerapi.RuntimeRef{
