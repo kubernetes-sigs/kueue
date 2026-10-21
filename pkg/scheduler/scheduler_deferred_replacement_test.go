@@ -36,6 +36,16 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
+func TestTryDeferFailedTASReplacementRequiresRecoveryTimeout(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions, true)
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	scheduler := &Scheduler{}
+	if scheduler.tryDeferFailedTASReplacement(ctx, log, &entry{}, nil) {
+		t.Fatal("tryDeferFailedTASReplacement() = true, want false without a recovery timeout")
+	}
+}
+
 // TestDeferredTASReplacementDoesNotTriggerExtraPreemption covers the case where
 // the capacity a failed-node replacement is waiting for is already claimed by a
 // pending preemptor: v is being preempted on x6 for p, x runs on y1, and the
