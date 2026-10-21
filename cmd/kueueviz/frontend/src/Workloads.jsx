@@ -22,7 +22,7 @@ import useWebSocket from './useWebSocket';
 import './App.css';
 import ErrorMessage from './ErrorMessage';
 import ViewYamlButton from './ViewYamlButton';
-import { getWorkloadStatus } from './utils/workloadStatus';
+import { getWorkloadStatus, podCount } from './utils/workloadStatus';
 
 const Workloads = () => {
   const [selectedNamespace, setSelectedNamespace] = useState('');
@@ -118,7 +118,8 @@ const Workloads = () => {
                       <Tooltip
                         title={
                           <div>
-                            <div><strong>Pod Sets Count:</strong> {workload.spec?.podSets?.[0]?.count || 'N/A'}</div>
+                            <div><strong>Pod Sets Count:</strong> {workload.spec?.podSets?.length ?? 'N/A'}</div>
+                            <div><strong>Pod Count:</strong> {podCount(workload) ?? 'N/A'}</div>
                             <div><strong>Owner Reference: {workload.ownerReferences?.[0]?.uid || 'N/A'}</strong></div>
                             <div>API Version: {workload.ownerReferences?.[0]?.apiVersion || 'N/A'}</div>
                             <div>Kind: {workload.ownerReferences?.[0]?.kind || 'N/A'}</div>

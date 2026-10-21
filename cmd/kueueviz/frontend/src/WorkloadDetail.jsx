@@ -20,6 +20,7 @@ import { Typography, Paper, CircularProgress, Grid, Table, TableBody, TableCell,
 import useWebSocket from './useWebSocket';
 import './App.css';
 import ErrorMessage from './ErrorMessage';
+import { podCount } from './utils/workloadStatus';
 
 export const formatEventTimestamp = (timestamp) => {
   if (!timestamp) return 'N/A';
@@ -89,7 +90,8 @@ const WorkloadDetail = () => {
           <Typography variant="body2">UID: {workload.ownerReferences?.[0]?.uid || 'N/A'}</Typography>
         </Grid>
         <Grid item xs={12}>
-          <Typography variant="body1"><strong>Pod Sets Count:</strong> {workload.spec?.podSets?.[0]?.count || 'N/A'}</Typography>
+          <Typography variant="body1"><strong>Pod Sets Count:</strong> {workload.spec?.podSets?.length ?? 'N/A'}</Typography>
+          <Typography variant="body1"><strong>Pod Count:</strong> {podCount(workload) ?? 'N/A'}</Typography>
         </Grid>
       </Grid>
 
