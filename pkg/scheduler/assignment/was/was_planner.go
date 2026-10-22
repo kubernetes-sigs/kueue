@@ -64,17 +64,12 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		return
 	}
 
-	var totalPods int64
-	for _, ps := range p.wl.Obj.Spec.PodSets {
-		totalPods += int64(ps.Count)
-	}
-	if totalPods == 0 {
-		return
-	}
-
 	vPgs, err := wassim.BuildVirtualPodGroups(p.wl.Obj)
 	if err != nil {
 		plan.Error = fmt.Errorf("virtualization error: unable to build virtual pod groups: %w", err)
+		return
+	}
+	if vPgs == nil {
 		return
 	}
 
@@ -88,28 +83,16 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		return
 	}
 
-	for _, cpg := range vPgs.CompositePodGroups {
-		if err := p.snapshot.SchedulerSimulator.AddCompositePodGroup(ctx, cpg); err != nil {
-			plan.Error = fmt.Errorf("virtualization error: unable to add composite pod group %q to simulator: %w", cpg.Name, err)
-			return
-		}
-		defer func() {
-			if err := p.snapshot.SchedulerSimulator.RemoveCompositePodGroup(ctx, cpg); err != nil {
-				plan.Error = errors.Join(plan.Error, fmt.Errorf("virtualization error: unable to remove composite pod group %q from simulator: %w", cpg.Name, err))
-			}
-		}()
+	revert, err := p.addPodGroups(ctx, vPgs)
+	if err != nil {
+		plan.Error = fmt.Errorf("virtualization error: %w", err)
+		return
 	}
-	for _, pg := range vPgs.PodGroups {
-		if err := p.snapshot.SchedulerSimulator.AddPodGroup(ctx, pg); err != nil {
-			plan.Error = fmt.Errorf("virtualization error: unable to add pod group %q to simulator: %w", pg.Name, err)
-			return
+	defer func() {
+		if err := revert(); err != nil {
+			plan.Error = errors.Join(plan.Error, fmt.Errorf("virtualization error: %w", err))
 		}
-		defer func() {
-			if err := p.snapshot.SchedulerSimulator.RemovePodGroup(ctx, pg); err != nil {
-				plan.Error = errors.Join(plan.Error, fmt.Errorf("virtualization error: unable to remove pod group %q from simulator: %w", pg.Name, err))
-			}
-		}()
-	}
+	}()
 
 	schedulingResult := p.snapshot.SchedulerSimulator.ScheduleWorkload(ctx, pods)
 	if schedulingResult.Error != nil {
@@ -205,4 +188,43 @@ func (p *wasPlanner) calculateTopologyAssignment(
 		}
 	}
 	return tasAssignment
+}
+
+func (p *wasPlanner) addPodGroups(ctx context.Context, vPgs *wassim.WorkloadVirtualPodGroups) (func() error, error) {
+	for i, cpg := range vPgs.CompositePodGroups {
+		if err := p.snapshot.SchedulerSimulator.AddCompositePodGroup(ctx, cpg); err != nil {
+			for _, added := range vPgs.CompositePodGroups[:i] {
+				_ = p.snapshot.SchedulerSimulator.RemoveCompositePodGroup(ctx, added)
+			}
+			return nil, fmt.Errorf("unable to add composite pod group %q to simulator: %w", cpg.Name, err)
+		}
+	}
+	for i, pg := range vPgs.PodGroups {
+		if err := p.snapshot.SchedulerSimulator.AddPodGroup(ctx, pg); err != nil {
+			for _, added := range vPgs.PodGroups[:i] {
+				_ = p.snapshot.SchedulerSimulator.RemovePodGroup(ctx, added)
+			}
+			for _, added := range vPgs.CompositePodGroups {
+				_ = p.snapshot.SchedulerSimulator.RemoveCompositePodGroup(ctx, added)
+			}
+			return nil, fmt.Errorf("unable to add pod group %q to simulator: %w", pg.Name, err)
+		}
+	}
+
+	revert := func() error {
+		var errs []error
+		for _, pg := range vPgs.PodGroups {
+			if err := p.snapshot.SchedulerSimulator.RemovePodGroup(ctx, pg); err != nil {
+				errs = append(errs, fmt.Errorf("unable to remove pod group %q from simulator: %w", pg.Name, err))
+			}
+		}
+		for _, cpg := range vPgs.CompositePodGroups {
+			if err := p.snapshot.SchedulerSimulator.RemoveCompositePodGroup(ctx, cpg); err != nil {
+				errs = append(errs, fmt.Errorf("unable to remove composite pod group %q from simulator: %w", cpg.Name, err))
+			}
+		}
+		return errors.Join(errs...)
+	}
+
+	return revert, nil
 }

@@ -166,8 +166,12 @@ func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error
 		return nil, errors.New("workload must not be nil")
 	}
 
-	if err := validateWorkloadPods(wl); err != nil {
+	totalPods, err := validateWorkloadPods(wl)
+	if err != nil {
 		return nil, err
+	}
+	if totalPods == 0 {
+		return nil, nil
 	}
 
 	groups, psgOrder, err := groupPodSets(wl)
@@ -179,16 +183,16 @@ func BuildVirtualPodGroups(wl *kueue.Workload) (*WorkloadVirtualPodGroups, error
 	return f.build(groups, psgOrder)
 }
 
-// validateWorkloadPods checks that total pods > 0
-func validateWorkloadPods(wl *kueue.Workload) error {
+// validateWorkloadPods checks that total pods >= 0
+func validateWorkloadPods(wl *kueue.Workload) (int64, error) {
 	var totalPods int64
 	for i := range wl.Spec.PodSets {
 		totalPods += int64(wl.Spec.PodSets[i].Count)
 	}
-	if totalPods <= 0 {
-		return fmt.Errorf("workload %q has non-positive total pods count %d", wl.Name, totalPods)
+	if totalPods < 0 {
+		return 0, fmt.Errorf("workload %q has negative total pods count %d", wl.Name, totalPods)
 	}
-	return nil
+	return totalPods, nil
 }
 
 // groupPodSets groups non-empty PodSets by group name and rejects preferred topology

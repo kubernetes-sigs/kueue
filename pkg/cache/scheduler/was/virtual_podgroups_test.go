@@ -480,7 +480,6 @@ func TestBuildVirtualPodGroups(t *testing.T) {
 			workload: utiltesting.MakeWorkload("wl-zero", "default").
 				PodSets(*utiltesting.MakePodSet("main", 0).Obj()).
 				Obj(),
-			wantErr: "has non-positive total pods count 0",
 		},
 		"zero-count PodSet alongside non-zero PodSet": {
 			workload: utiltesting.MakeWorkload("wl-zero-mixed", "default").
@@ -608,6 +607,12 @@ func TestBuildVirtualPodGroups(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
+			if res == nil {
+				if tc.wantPodGroups != nil || tc.wantCompositePodGroups != nil {
+					t.Fatalf("expected non-nil result, got nil")
+				}
+				return
+			}
 			if diff := cmp.Diff(tc.wantPodGroups, res.PodGroups, cmpOpts); diff != "" {
 				t.Errorf("unexpected PodGroups (-want,+got):\n%s", diff)
 			}
