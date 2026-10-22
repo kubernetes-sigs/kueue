@@ -156,6 +156,9 @@ func (j *RayCluster) Finished(ctx context.Context) (message string, success, fin
 }
 
 func (j *RayCluster) PodsReady(ctx context.Context, _ client.Client) bool {
+	if !features.Enabled(features.RayClusterHeadPodReady) {
+		return j.Status.State == rayv1.Ready
+	}
 	// RayClusters are commonly used as devboxes, where users may already be
 	// working on a ready head while workers are still unready. Check only
 	// HeadPodReady to avoid interrupting those users with PodsReadyTimeout
