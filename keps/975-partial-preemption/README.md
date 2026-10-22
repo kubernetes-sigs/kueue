@@ -9,6 +9,8 @@
   - [User Stories](#user-stories)
     - [Story 1: Spark on Kubernetes elastic executors](#story-1-spark-on-kubernetes-elastic-executors)
     - [Story 2: Ray with split baseline/opportunistic worker groups](#story-2-ray-with-split-baselineopportunistic-worker-groups)
+    - [Story 3: Preempting an interactive Ray cluster loses the user's notebook session](#story-3-preempting-an-interactive-ray-cluster-loses-the-users-notebook-session)
+    - [Story 4: Reclaiming GPU workers restarts a continuous Ray Data pipeline](#story-4-reclaiming-gpu-workers-restarts-a-continuous-ray-data-pipeline)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
 - [Design Details](#design-details)
@@ -115,7 +117,7 @@ group's PodSet. The Ray driver scales in that worker group and updates the Workl
 Workload controller then releases the quota, and the high-priority job is admitted. The RayCluster,
 including its head and baseline worker group, continues running the entire time.
 
-#### Story 5: Preempting an interactive Ray cluster loses the user's notebook session
+### Story 3: Preempting an interactive Ray cluster loses the user's notebook session
 
 As a researcher, I use a RayCluster as an interactive workspace: a Jupyter notebook runs on the head, and I submit Ray tasks to GPU workers from it.
 When a higher-priority job needs GPUs, I want to give back GPU workers, not lose my session.
@@ -144,7 +146,7 @@ Currently, Kueue suspends the whole RayCluster in step 2.
 KubeRay deletes the head with the workers, so the notebook server goes down, unsaved work is lost, and so is everything in the kernel's memory.
 The RayCluster is requeued with 4 GPU workers and cannot start again until 32 GPUs are free.
 
-#### Story 4: Reclaiming GPU workers restarts a continuous Ray Data pipeline
+### Story 4: Reclaiming GPU workers restarts a continuous Ray Data pipeline
 
 As a user running a continuous Ray Data pipeline as a RayJob, I want the pipeline to use whatever GPU quota is spare in its Cohort.
 When part of that quota is reclaimed, I want the Ray cluster and the pipeline to keep running with fewer GPU workers.
@@ -192,7 +194,9 @@ KubeRay deletes the Ray cluster, and when the RayJob is admitted again, the clus
   accounting only drops after the runtime and Workload controller converge.
 - **Uncooperative runtime.** A runtime that ignores `reclaimTargetCount` never releases quota, so
   the preemptor stays `Pending`. This is opt-in; only workloads whose runtime honors the field
-  should set the annotation. A future enhancement could fall back to whole eviction after a timeout.
+  should set the annotation. Mitigated by the optional `partialPreemption.timeout` configuration:
+  once a victim has stayed in the `Preempted` condition longer than the timeout without
+  converging, the scheduler falls back to whole eviction for that victim.
 - **Feature isolation.** All behavior is behind the `PartialPreemption` gate; when off, the 
   preemption path is the existing one.
 
@@ -276,15 +280,20 @@ preferred. Priority still dominates, and with the gate off these criteria are no
 
 #### Target selection
 
-For an eligible candidate, the scheduler searches between the current effective used count and the
-allowed floor and selects the largest target count that makes the preemptor fit. If the candidate
-alone is insufficient, it is reduced to the current floor and later candidates can contribute.
-Reductions can accumulate across multiple victims and repeated candidate rounds.
+By default, for an eligible candidate the scheduler reduces the PodSet straight to its per-round
+floor: the PodSet's `minCount`, or higher if the optional max-reclaimed-count annotation caps how
+much a single round may reclaim. If the candidate alone is insufficient, later candidates can
+contribute; reductions can accumulate across multiple victims and repeated candidate rounds. An
+existing in-flight target is simulated and preserved until it clears. If partial reductions are
+still insufficient, a candidate that has reached its floor can later be handled as a normal
+whole-eviction candidate.
 
-The optional max-reclaimed-count annotation limits each reduction step, not the final accumulated
-reduction. An existing in-flight target is simulated and preserved until it clears. If partial
-reductions are still insufficient, a candidate that has reached `minCount` can later be handled as
-a normal whole-eviction candidate.
+The `partialPreemption.enableOnDemandPreemption` configuration flag switches target selection to an
+alternative mode: instead of dropping straight to the floor, the scheduler searches between the
+candidate's current effective used count and the floor, and selects the largest target count that
+already makes the preemptor fit, so it reclaims only the replicas actually needed. Both modes are
+gated by the same `PartialPreemption` feature gate; with the flag unset, the default floor-based
+reduction above is used.
 
 #### Issuing preemptions
 
@@ -327,6 +336,9 @@ make this code solid enough prior to committing the changes necessary to impleme
 This change should be covered by unit tests.
 
 #### Integration tests
+
+This change should be covered by integration tests, including the release-phase accounting
+update and the timeout fallback to whole eviction.
 
 
 ### Graduation Criteria
