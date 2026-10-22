@@ -570,7 +570,8 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 		}),
 		ginkgo.Entry("Running RayCluster", podsReadyTestSpec{
 			jobStatus: rayv1.RayClusterStatus{
-				State: rayv1.Ready,
+				State:      rayv1.Ready,
+				Conditions: []metav1.Condition{{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue, Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now()}},
 			},
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -589,7 +590,8 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 			},
 			jobStatus: rayv1.RayClusterStatus{
 
-				State: rayv1.Ready,
+				State:      rayv1.Ready,
+				Conditions: []metav1.Condition{{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue, Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now()}},
 			},
 			wantCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -600,7 +602,8 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 		}),
 		ginkgo.Entry("Job suspended; PodsReady=True before", podsReadyTestSpec{
 			beforeJobStatus: &rayv1.RayClusterStatus{
-				State: rayv1.Ready,
+				State:      rayv1.Ready,
+				Conditions: []metav1.Condition{{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue, Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now()}},
 			},
 			beforeCondition: &metav1.Condition{
 				Type:    kueue.WorkloadPodsReady,
@@ -609,7 +612,8 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 				Message: "All pods reached readiness and the workload is running",
 			},
 			jobStatus: rayv1.RayClusterStatus{
-				State: rayv1.Ready,
+				State:      rayv1.Ready,
+				Conditions: []metav1.Condition{{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue, Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now()}},
 			},
 			suspended: true,
 			wantCondition: &metav1.Condition{

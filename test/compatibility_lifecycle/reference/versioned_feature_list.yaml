@@ -479,9 +479,9 @@
     version: "0.19"
 - name: RayClusterHeadPodReady
   versionedSpecs:
-  - default: false
+  - default: true
     lockToDefault: false
-    preRelease: Alpha
+    preRelease: Beta
     version: "0.21"
 - name: RayServiceValidateUpgradeStrategy
   versionedSpecs:
