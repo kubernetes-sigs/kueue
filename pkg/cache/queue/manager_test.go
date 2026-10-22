@@ -236,12 +236,21 @@ func TestRequeueWorkloadDRAStaleCharges(t *testing.T) {
 			).Obj()
 			clientWl := wl.DeepCopy()
 			clientWl.Generation = tc.clientGeneration
+			clientWl.ResourceVersion = "1"
 
 			lq := utiltestingapi.MakeLocalQueue("lq", defaultNamespace).ClusterQueue("cq").Obj()
 			kClient := utiltesting.NewClientBuilder().
 				WithObjects(clientWl, lq).
 				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				Build()
+			// Keep the queued object at the version the client actually stored.
+			// In the refreshed-charge case, this makes the changed TotalRequests
+			// the only reason Update should recompute SchedulingHash.
+			storedWl := &kueue.Workload{}
+			if err := kClient.Get(ctx, client.ObjectKeyFromObject(wl), storedWl); err != nil {
+				t.Fatalf("Failed reading workload from client: %v", err)
+			}
+			wl.ResourceVersion = storedWl.ResourceVersion
 			manager := NewManagerForUnitTests(kClient, nil, WithPreemptionExpectations(preemptexpectations.New()))
 			draCh := make(chan event.TypedGenericEvent[*kueue.Workload], 1)
 			manager.SetDRAReconcileChannel(draCh)
