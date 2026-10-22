@@ -106,7 +106,7 @@ You can also [help Kueue grow](#help-kueue-grow).
 To install the latest release of Kueue in your cluster, run the following command:
 
 ```shell
-kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.20.2/manifests.yaml
+kubectl apply --server-side -f https://github.com/kubernetes-sigs/kueue/releases/download/v0.20.3/manifests.yaml
 ```
 
 The controller runs in the `kueue-system` namespace.
