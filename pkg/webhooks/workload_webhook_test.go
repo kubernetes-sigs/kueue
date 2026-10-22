@@ -502,6 +502,30 @@ func TestValidateWorkload(t *testing.T) {
 			}.ToAggregate(),
 			wantDetail: "preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
 		},
+		"preferred topology is accepted when WAS deep integration is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: false,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+		},
+		"required topology is accepted when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RequiredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+		},
+		"unconstrained topology is accepted when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					UnconstrainedTopologyRequest().Obj()).Obj(),
+		},
 		"matched names in podSetUpdates with names in podSets": {
 			workload: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).PodSets(
 				*utiltestingapi.MakePodSet("first", 1).Obj(),
@@ -869,8 +893,71 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 
 		before, after *kueue.Workload
 		wantErr       error
+		wantDetail    string
 		wantWarnings  admission.Warnings
 	}{
+		"unchanged preferred topology allows finalizer removal when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).
+				Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+		},
+		"changed preferred topology is rejected on update when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/block").Obj()).Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "preferred"), ""),
+			}.ToAggregate(),
+			wantDetail: "preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
+		},
+		"added preferred topology is rejected on update when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(podSetsPath.Index(0).Child("topologyRequest", "preferred"), ""),
+			}.ToAggregate(),
+			wantDetail: "preferred topology is not supported when SchedulerLibraryDeepIntegration is enabled",
+		},
+		"changed preferred topology is accepted on update when WAS deep integration is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: false,
+			},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/block").Obj()).Obj(),
+		},
+		"preferred topology can be removed on update when WAS deep integration is enabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.SchedulerLibraryDeepIntegration: true,
+			},
+			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					PreferredTopologyRequest("topology.example.com/rack").Obj()).Obj(),
+			after: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
+				PodSets(*utiltestingapi.MakePodSet("main", 1).Obj()).Obj(),
+		},
 		"an update may not put a workload in quota reserved with no admission": {
 			before: utiltestingapi.MakeWorkload(testWorkloadName, testWorkloadNamespace).
 				PodSets(*utiltestingapi.MakePodSet("driver", 1).Obj()).Obj(),
@@ -1709,6 +1796,15 @@ func TestValidateWorkloadUpdate(t *testing.T) {
 			gotWarnings, gotErr := (&WorkloadWebhook{}).ValidateUpdate(t.Context(), tc.before, tc.after)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "Detail", "BadValue")); diff != "" {
 				t.Errorf("ValidateUpdate() error mismatch (-want +got):\n%s", diff)
+			}
+			if tc.wantDetail != "" {
+				gotErr := ValidateWorkloadUpdate(tc.after, tc.before)
+				if len(gotErr) == 0 {
+					t.Fatalf("expected an error but got none")
+				}
+				if gotErr[0].Detail != tc.wantDetail {
+					t.Errorf("unexpected error detail, want %q got %q", tc.wantDetail, gotErr[0].Detail)
+				}
 			}
 			if diff := cmp.Diff(tc.wantWarnings, gotWarnings); diff != "" {
 				t.Errorf("ValidateUpdate() warnings mismatch (-want +got):\n%s", diff)
