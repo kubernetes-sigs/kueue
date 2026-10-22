@@ -909,6 +909,12 @@ const (
 	// Verifies fair sharing preemption targets after fillBackWorkloads
 	// to prevent preemption loops caused by temporary share deflation.
 	FairSharingVerifyFinalTargets featuregate.Feature = "FairSharingVerifyFinalTargets"
+
+	// owner: @vivekk16
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/11952-disaggregatedset-integration
+	//
+	// Enables the LeaderWorkerSet's DisaggregatedSet integration.
+	DisaggregatedSetIntegration featuregate.Feature = "DisaggregatedSetIntegration"
 )
 
 func init() {
@@ -1404,6 +1410,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	PodIntegrationVerifyRoleRequests: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	DisaggregatedSetIntegration: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
