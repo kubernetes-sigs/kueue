@@ -138,6 +138,9 @@ func (w *MpiJobWebhook) ValidateCreate(ctx context.Context, obj *v2beta1.MPIJob)
 	if err != nil {
 		return nil, err
 	}
+	if features.Enabled(features.TopologyAwareScheduling) {
+		validationErrs = append(validationErrs, validateWorkerPodIndexOffset(mpiJob)...)
+	}
 	slices.SortFunc(validationErrs, func(a, b *field.Error) int {
 		return cmp.Compare(a.Field, b.Field)
 	})
@@ -158,13 +161,7 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2be
 	allErrs = append(allErrs, validationErrs...)
 
 	if features.Enabled(features.TopologyAwareScheduling) {
-		got := workerPodIndexOffset(newMpiJob)
-		if expected, managed := expectedWorkerPodIndexOffset(newMpiJob); managed {
-			if got != expected {
-				allErrs = append(allErrs, field.Invalid(workerOffsetAnnotationPath, got,
-					fmt.Sprintf("must be %q, the value the defaulting webhook would set", expected)))
-			}
-		}
+		allErrs = append(allErrs, validateWorkerPodIndexOffset(newMpiJob)...)
 	}
 	slices.SortFunc(allErrs, func(a, b *field.Error) int {
 		return cmp.Compare(a.Field, b.Field)
@@ -175,6 +172,27 @@ func (w *MpiJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *v2be
 // ValidateDelete implements webhook.Validator so a webhook will be registered for the type
 func (w *MpiJobWebhook) ValidateDelete(context.Context, *v2beta1.MPIJob) (admission.Warnings, error) {
 	return nil, nil
+}
+
+// validateWorkerPodIndexOffset checks the Worker offset of an MPIJob with
+// runLauncherAsWorker.
+func validateWorkerPodIndexOffset(mpiJob *MPIJob) field.ErrorList {
+	expected, managed := expectedWorkerPodIndexOffset(mpiJob)
+	got := workerPodIndexOffset(mpiJob)
+	if !managed || got == expected {
+		return nil
+	}
+	if expected == "" {
+		// For grouped MPIJobs with runLauncherAsWorker, "1" matches
+		// the Worker offset inferred from the PodSet group.
+		if got == "1" {
+			return nil
+		}
+		return field.ErrorList{field.Invalid(workerOffsetAnnotationPath, got,
+			fmt.Sprintf(`must be "1" or unset when '%s' is specified`, kueue.PodSetGroupName))}
+	}
+	return field.ErrorList{field.Invalid(workerOffsetAnnotationPath, got,
+		fmt.Sprintf("must be %q, the value the defaulting webhook would set", expected))}
 }
 
 func workerPodIndexOffset(mpiJob *MPIJob) string {
