@@ -156,8 +156,10 @@ func (j *RayCluster) Finished(ctx context.Context) (message string, success, fin
 }
 
 func (j *RayCluster) PodsReady(ctx context.Context, _ client.Client) bool {
-	// State can retain Ready after the head becomes unready, and worker
-	// readiness must not block the head. Use the head condition directly.
+	// RayClusters are commonly used as devboxes, where users may already be
+	// working on a ready head while workers are still unready. Check only
+	// HeadPodReady to avoid interrupting those users with PodsReadyTimeout
+	// evictions.
 	return apimeta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.HeadPodReady))
 }
 
