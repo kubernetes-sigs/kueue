@@ -136,13 +136,21 @@ verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify
 # Giving the wrapper its own recipe body is the only way to enforce ordering
 # without recursive $(MAKE).
 
+# List tracked and untracked, non-ignored files matching the given pathspecs.
+# Unlike find, git ls-files does not descend into nested Git worktrees or clones
+# under the repo, so local checkouts there are not linted or formatted.
+# Files deleted from the working tree but still tracked are skipped.
+_ls_repo_files = git ls-files --cached --others --exclude-standard -- $(1) \
+	| while IFS= read -r f; do if [ -e "$$f" ]; then printf '%s\n' "$$f"; fi; done
+
 # Lint each module in parallel; drop generated packages (client-go/, internal/mocks/)
 # from the target list — golangci-lint's path/generated exclusions only filter reported
 # issues, not the analysis work, so they must be excluded before the linter runs.
 # Label module totals and command timings so parallel workers remain distinguishable.
 define _ci_lint_recipe
 @echo "Module lint concurrency: processes=$(CI_LINT_NPROCS), GOMAXPROCS=$${GOMAXPROCS:-default}"
-@find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; \
+@$(call _ls_repo_files,'go.mod' '**/go.mod' ':!:site/' ':!:bin/' ':!:vendor/') \
+	| xargs -n 1 dirname \
 	| xargs -P $(CI_LINT_NPROCS) -n 1 sh -c ' \
 		MAKE_TIMING_LABEL="lint module=$$2" MAKE_TIMING_COMMANDS=1 \
 			exec "$(PROJECT_DIR)/hack/make-timed-shell.sh" -c "$$1" sh "$$2"' sh ' \
@@ -165,7 +173,7 @@ $(GOLANGCI_LINT_KAL) run -v \
 endef
 
 define _fmt_verify_recipe
-@out=`$(GO_FMT) -l -d $$(find . \( -path ./vendor -o -path ./bin \) -prune -false -o -name '*.go' -print)`; \
+@out=`$(GO_FMT) -l -d $$($(call _ls_repo_files,'*.go' ':!:vendor/' ':!:bin/'))`; \
 if [ -n "$$out" ]; then \
     echo "$$out"; \
     exit 1; \
