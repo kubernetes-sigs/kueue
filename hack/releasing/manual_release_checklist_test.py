@@ -70,6 +70,8 @@ class ManualReleaseChecklistTest(unittest.TestCase):
                     "main target": ({"TARGET": "main"}, "y\n", True, True),
                     "snapshot copy failed": ({"MISSING_HELPER": "1"}, "", False, False),
                     "mktemp failed": ({"MISSING_TMPDIR": "1"}, "", False, False),
+                    "mktemp requires a template": ({"REQUIRE_MKTEMP_TEMPLATE": "1"}, "y\ny\n", True, True),
+                    "temporary directory contains spaces": ({"TMPDIR_WITH_SPACES": "1"}, "y\ny\n", True, True),
                 })
             for name, (env, answers, want_success, want_edit) in script_cases.items():
                 with self.subTest(script=script_name, case=name), tempfile.TemporaryDirectory() as directory:
@@ -81,7 +83,7 @@ class ManualReleaseChecklistTest(unittest.TestCase):
                     expected_helper.write_text(helper.read_text())
                     if env.get("MISSING_HELPER"):
                         helper.unlink()
-                    tmpdir = root / "tmp"
+                    tmpdir = root / ("tmp dir" if env.get("TMPDIR_WITH_SPACES") else "tmp")
                     if not env.get("MISSING_TMPDIR"):
                         tmpdir.mkdir()
                     snapshot_seen = root / "snapshot_seen"
@@ -140,6 +142,7 @@ if args[:2] == ["pr", "list"] and not os.environ.get("NO_PR"):
                         "SNAPSHOT_SEEN": str(snapshot_seen),
                         "STARTING_BRANCH": "main",
                         "TMPDIR": str(tmpdir),
+                        "REQUIRE_MKTEMP_TEMPLATE": "",
                         **env,
                     }
                     test_env.pop("RELEASE_CHECKLIST_SCRIPT", None)
@@ -147,6 +150,13 @@ if args[:2] == ["pr", "list"] and not os.environ.get("NO_PR"):
 set -o errexit
 set -o nounset
 set -o pipefail
+function mktemp() {
+  if [[ "$REQUIRE_MKTEMP_TEMPLATE" == "1" && "$#" -eq 0 ]]; then
+    echo "mktemp: template required" >&2
+    return 1
+  fi
+  command mktemp "$@"
+}
 function prepare_local_branch() { cp "$OLD_HELPER" "$REPO_ROOT/hack/releasing/log_to_issue.py"; }
 function git() { if [[ "$1" == "push" ]]; then return "$PUSH_STATUS"; fi; }
 function gh() { "$TEST_PYTHON" "$GH_STUB" "$@"; }

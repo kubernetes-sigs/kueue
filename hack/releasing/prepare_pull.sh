@@ -183,7 +183,7 @@ LATEST_MAJOR=$(echo "$latest_core_version" | cut -d. -f1)
 LATEST_MINOR=$(echo "$latest_core_version" | cut -d. -f2)
 
 clean_branches=()
-RELEASE_CHECKLIST_SCRIPT=$(mktemp)
+RELEASE_CHECKLIST_SCRIPT=$(mktemp "${TMPDIR:-/tmp}/log_to_issue.XXXXXX")
 declare -r RELEASE_CHECKLIST_SCRIPT
 function cleanup {
   rm -f "${RELEASE_CHECKLIST_SCRIPT}"
