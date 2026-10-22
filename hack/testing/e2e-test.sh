@@ -76,3 +76,10 @@ fi
 
 run_e2e_ginkgo --json-report=e2e.json --output-dir="$ARTIFACTS" -v ./test/e2e/"${E2E_TARGET_FOLDER}"/...
 "${E2E_BIN_DIR}/ginkgo-top" -i "$ARTIFACTS/e2e.json" > "$ARTIFACTS/e2e-top.yaml"
+
+# Runs after the main suite so the two cannot interfere, and only with the policies
+# installed, which is what it asserts. Label filters select main-suite specs, so drop them.
+if [[ -n ${E2E_EXTRA_TARGET_FOLDER:-} ]] && e2e_is_truthy "${E2E_NETWORK_POLICIES:-}"; then
+    GINKGO_ARGS="" run_e2e_ginkgo --json-report="${E2E_EXTRA_TARGET_FOLDER}.json" \
+        --output-dir="$ARTIFACTS" -v ./test/e2e/"${E2E_EXTRA_TARGET_FOLDER}"/...
+fi

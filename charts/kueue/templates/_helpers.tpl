@@ -202,3 +202,36 @@ precedence, including an empty string; merge structured overrides when YAML is a
 {{- toYaml $config }}
 {{- end }}
 {{- end }}
+
+{{/* ControllerManager ingress ports follow its configuration rather than chart defaults. */}}
+{{- define "kueue.networkPolicy.managerIngress" -}}
+{{- $config := include "kueue.managerConfig" . | fromYaml -}}
+{{- $metricsAddress := get (get $config "metrics" | default dict) "bindAddress" | default ":8443" -}}
+{{- $healthAddress := get (get $config "health" | default dict) "healthProbeBindAddress" | default ":8081" -}}
+{{- $webhookPort := get (get $config "webhook" | default dict) "port" | default 9443 | int -}}
+{{- $visibility := get $config "visibilityServer" | default dict -}}
+{{- $visibilityPort := 8082 -}}
+{{- if and (hasKey $visibility "bindPort") (ne $visibility.bindPort nil) -}}
+{{- $visibilityPort = int $visibility.bindPort -}}
+{{- end -}}
+{{- with .Values.networkPolicy.extraIngress }}
+{{ toYaml . }}
+{{- end }}
+- ports:
+{{- if gt $webhookPort 0 }}
+    - protocol: TCP
+      port: {{ $webhookPort }}
+{{- end }}
+    - protocol: TCP
+      port: {{ $visibilityPort }}
+{{- if ne $metricsAddress "0" }}
+- ports:
+    - protocol: TCP
+      port: {{ last (splitList ":" $metricsAddress) | int }}
+{{- end }}
+{{- if ne $healthAddress "0" }}
+- ports:
+    - protocol: TCP
+      port: {{ last (splitList ":" $healthAddress) | int }}
+{{- end }}
+{{- end }}

@@ -997,6 +997,10 @@ function cluster_kueue_deploy {
         build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/test/e2e/config/${E2E_CONFIG_FOLDER:-default}"
     fi
 
+    if e2e_is_truthy "${E2E_NETWORK_POLICIES:-}" && [ "$E2E_USE_HELM" != 'true' ]; then
+        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/config/networkpolicy"
+    fi
+
     wait_for_kueue_controller_operator "$1"
 }
 
@@ -1020,12 +1024,17 @@ function helm_install {
         grep -Fx -f <($KUSTOMIZE build "${ROOT_DIR}/config/components/crd/alpha" | $YQ -N '.metadata.name') >/dev/null; then
         alpha_apis=true
     fi
+    local network_policies=false
+    if e2e_is_truthy "${E2E_NETWORK_POLICIES:-}"; then
+        network_policies=true
+    fi
 
     $HELM install \
       -f "$2" \
       --set-file "managerConfig.controllerManagerConfigYaml=${manager_config}" \
       --set "controllerManager.replicas=${replicas}" \
       --set "enableAlphaAPIs=${alpha_apis}" \
+      --set "networkPolicy.enabled=${network_policies}" \
       --set "controllerManager.manager.image.repository=${IMAGE_TAG%:*}" \
       --set "controllerManager.manager.image.tag=${IMAGE_TAG##*:}" \
       --create-namespace \
