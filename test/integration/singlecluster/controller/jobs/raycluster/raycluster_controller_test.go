@@ -32,6 +32,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	utilfeature "k8s.io/apiserver/pkg/util/feature"
+	"k8s.io/component-base/featuregate"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -312,6 +313,7 @@ var _ = ginkgo.Describe("Job controller RayCluster for workloads when only jobs 
 
 var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.Ordered, ginkgo.ContinueOnFailure, func() {
 	type podsReadyTestSpec struct {
+		featureGates    map[featuregate.Feature]bool
 		beforeJobStatus *rayv1.RayClusterStatus
 		beforeCondition *metav1.Condition
 		jobStatus       rayv1.RayClusterStatus
@@ -345,6 +347,7 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 
 	ginkgo.DescribeTable("Single job at different stages of progress towards completion",
 		func(podsReadyTestSpec podsReadyTestSpec) {
+			features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), podsReadyTestSpec.featureGates)
 			ginkgo.By("Create a job")
 			job := testingraycluster.MakeCluster(jobName, ns.Name).Obj()
 			jobQueueName := "test-queue"
@@ -428,6 +431,65 @@ var _ = ginkgo.Describe("Job controller when waitForPodsReady enabled", ginkgo.O
 				Status:  metav1.ConditionFalse,
 				Reason:  kueue.WorkloadWaitForStart,
 				Message: "Not all pods are ready or succeeded",
+			},
+		}),
+		ginkgo.Entry("Feature disabled; head ready but cluster state not ready", podsReadyTestSpec{
+			featureGates: map[featuregate.Feature]bool{features.RayClusterHeadPodReady: false},
+			jobStatus: rayv1.RayClusterStatus{
+				Conditions: []metav1.Condition{{
+					Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue,
+					Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now(),
+				}},
+			},
+			wantCondition: &metav1.Condition{
+				Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForStart, Message: "Not all pods are ready or succeeded",
+			},
+		}),
+		ginkgo.Entry("Feature disabled; cluster state ready without head condition", podsReadyTestSpec{
+			featureGates: map[featuregate.Feature]bool{features.RayClusterHeadPodReady: false},
+			jobStatus:    rayv1.RayClusterStatus{State: rayv1.Ready},
+			wantCondition: &metav1.Condition{
+				Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue,
+				Reason: kueue.WorkloadStarted, Message: "All pods reached readiness and the workload is running",
+			},
+		}),
+		ginkgo.Entry("Head ready before cluster state becomes ready", podsReadyTestSpec{
+			featureGates: map[featuregate.Feature]bool{features.RayClusterHeadPodReady: true},
+			jobStatus: rayv1.RayClusterStatus{
+				Conditions: []metav1.Condition{{
+					Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue,
+					Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now(),
+				}},
+			},
+			wantCondition: &metav1.Condition{
+				Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue,
+				Reason: kueue.WorkloadStarted, Message: "All pods reached readiness and the workload is running",
+			},
+		}),
+		ginkgo.Entry("Head loses readiness while cluster state remains ready", podsReadyTestSpec{
+			featureGates: map[featuregate.Feature]bool{features.RayClusterHeadPodReady: true},
+			beforeJobStatus: &rayv1.RayClusterStatus{
+				State: rayv1.Ready,
+				Conditions: []metav1.Condition{{
+					Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue,
+					Reason: "HeadPodRunningAndReady", LastTransitionTime: metav1.Now(),
+				}},
+			},
+			beforeCondition: &metav1.Condition{
+				Type: kueue.WorkloadPodsReady, Status: metav1.ConditionTrue,
+				Reason: kueue.WorkloadStarted, Message: "All pods reached readiness and the workload is running",
+			},
+			jobStatus: rayv1.RayClusterStatus{
+				State: rayv1.Ready,
+				Conditions: []metav1.Condition{{
+					Type: string(rayv1.HeadPodReady), Status: metav1.ConditionFalse,
+					Reason: "ContainersNotReady", LastTransitionTime: metav1.Now(),
+				}},
+			},
+			wantCondition: &metav1.Condition{
+				Type: kueue.WorkloadPodsReady, Status: metav1.ConditionFalse,
+				Reason: kueue.WorkloadWaitForRecovery, Message: "At least one pod has failed, waiting for recovery",
 			},
 		}),
 		ginkgo.Entry("Running RayCluster", podsReadyTestSpec{
