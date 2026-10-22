@@ -28,18 +28,20 @@ SHELLCHECK_IMAGE=$(grep '^FROM' "${CURRENT_DIR}/Dockerfile" | awk '{print $2}')
 scripts_to_check=()
 
 if [[ "$#" == 0 ]]; then
-  # Find all shell scripts excluding certain directories and patterns
+  # List tracked and untracked, non-ignored shell scripts excluding certain
+  # directories and patterns. Unlike find, git ls-files does not descend into
+  # nested Git worktrees or clones under the repo.
   while IFS=$'\n' read -r script; do
-    if ! git check-ignore -q "$script"; then
+    if [[ "$script" == third_party* && "$script" != third_party/forked* ]]; then
+      continue
+    fi
+    if [[ -e "$script" ]]; then
       scripts_to_check+=("$script")
     fi
-  done < <(find . -name "*.sh" \
-    -not \( \
-      -path ./_\*      -o \
-      -path ./.git\*   -o \
-      -path ./vendor\* -o \
-      \( -path ./third_party\* -a -not -path ./third_party/forked\* \) \
-    \))
+  done < <(git ls-files --cached --others --exclude-standard -- '*.sh' \
+    ':!:_*' \
+    ':!:.git*' \
+    ':!:vendor*')
 fi
 
 # Download shellcheck-alpine from Docker Hub
