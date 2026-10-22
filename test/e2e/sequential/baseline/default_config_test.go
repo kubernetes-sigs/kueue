@@ -145,7 +145,7 @@ var _ = ginkgo.Describe("Default configuration tests", ginkgo.Label(e2e.Shard0),
 			})
 
 			ginkgo.By("verify the localQueue can be fetched and mutated", func() {
-				behavioral.SetLocalQueueStopPolicyWithTimeout(ctx, k8sClient, localQueue, kueue.Hold, behavioral.MediumTimeout)
+				behavioral.SetLocalQueueStopPolicyWithTimeout(ctx, k8sClient, localQueue, new(kueue.Hold), behavioral.MediumTimeout)
 			})
 
 			ginkgo.By("verify the LocalQueue status is updated", func() {
