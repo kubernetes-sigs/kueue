@@ -591,34 +591,12 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// handle a job when waitForPodsReady is enabled, and it is the main job
 	if r.waitForPodsReady {
 		log.V(3).Info("Handling a job when waitForPodsReady is enabled")
-		condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock)
-		if !workload.HasConditionWithTypeAndReason(wl, &condition) {
-			log.V(3).Info("Updating the PodsReady condition", "reason", condition.Reason, "status", condition.Status)
-			err := workload.SetConditionAndUpdate(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
-			if err != nil {
-				log.Error(err, "Updating workload status")
-				return ctrl.Result{}, client.IgnoreNotFound(err)
-			}
-			// update the metrics only when PodsReady condition status is true and the workload started for the first time.
-			// This avoids re-emitting the time-to-readiness metrics when the workload recovered readiness (`kueue.WorkloadRecovered`).
-			if condition.Status == metav1.ConditionTrue && condition.Reason == kueue.WorkloadStarted {
-				cqName := wl.Status.Admission.ClusterQueue
-				priorityClassName := workloadpatching.PriorityClassName(wl)
-				queuedUntilReadyWaitTime := workload.QueuedWaitTime(wl, r.clock)
-				metrics.ReadyWaitTime(cqName, priorityClassName, queuedUntilReadyWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
-				admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
-				admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
-				metrics.ReportAdmittedUntilReadyWaitTime(cqName, priorityClassName, admittedUntilReadyWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
-				if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl) {
-					lqRef := metrics.LQRefFromWorkload(wl)
-					lqCustomLabels := r.customLabels.LQGet(utilqueue.KeyFromWorkload(wl))
-					metrics.LocalQueueReadyWaitTime(lqRef, priorityClassName, queuedUntilReadyWaitTime, lqCustomLabels, r.roleTracker)
-					metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(lqRef, priorityClassName, admittedUntilReadyWaitTime, lqCustomLabels, r.roleTracker)
-				}
-			}
+		updated, err := r.reconcilePodsReadyCondition(ctx, job, wl)
+		if err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
+		if updated {
 			return ctrl.Result{}, nil
-		} else {
-			log.V(3).Info("No update for PodsReady condition")
 		}
 	}
 
@@ -2075,6 +2053,41 @@ func (r *JobReconciler) ignoreUnretryableError(log logr.Logger, err error) error
 		return nil
 	}
 	return err
+}
+
+// reconcilePodsReadyCondition sets the PodsReady condition on wl and records the readiness metrics.
+// It returns true if the workload was updated.
+func (r *JobReconciler) reconcilePodsReadyCondition(ctx context.Context, job GenericJob, wl *kueue.Workload) (bool, error) {
+	log := ctrl.LoggerFrom(ctx)
+	condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock)
+	if workload.HasConditionWithTypeAndReason(wl, &condition) {
+		log.V(3).Info("No update for PodsReady condition")
+		return false, nil
+	}
+	log.V(3).Info("Updating the PodsReady condition", "reason", condition.Reason, "status", condition.Status)
+	err := workload.SetConditionAndUpdate(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
+	if err != nil {
+		log.Error(err, "Updating workload status")
+		return false, client.IgnoreNotFound(err)
+	}
+	// update the metrics only when PodsReady condition status is true and the workload started for the first time.
+	// This avoids re-emitting the time-to-readiness metrics when the workload recovered readiness (`kueue.WorkloadRecovered`).
+	if condition.Status == metav1.ConditionTrue && condition.Reason == kueue.WorkloadStarted {
+		cqName := wl.Status.Admission.ClusterQueue
+		priorityClassName := workloadpatching.PriorityClassName(wl)
+		queuedUntilReadyWaitTime := workload.QueuedWaitTime(wl, r.clock)
+		metrics.ReadyWaitTime(cqName, priorityClassName, queuedUntilReadyWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
+		admittedCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted)
+		admittedUntilReadyWaitTime := condition.LastTransitionTime.Sub(admittedCond.LastTransitionTime.Time)
+		metrics.ReportAdmittedUntilReadyWaitTime(cqName, priorityClassName, admittedUntilReadyWaitTime, r.customLabels.CQGet(cqName), r.roleTracker)
+		if r.cache.ShouldExposeLocalQueueMetricsForWorkload(log, wl) {
+			lqRef := metrics.LQRefFromWorkload(wl)
+			lqCustomLabels := r.customLabels.LQGet(utilqueue.KeyFromWorkload(wl))
+			metrics.LocalQueueReadyWaitTime(lqRef, priorityClassName, queuedUntilReadyWaitTime, lqCustomLabels, r.roleTracker)
+			metrics.ReportLocalQueueAdmittedUntilReadyWaitTime(lqRef, priorityClassName, admittedUntilReadyWaitTime, lqCustomLabels, r.roleTracker)
+		}
+	}
+	return true, nil
 }
 
 func generatePodsReadyCondition(ctx context.Context, c client.Client, job GenericJob, wl *kueue.Workload, clock clock.Clock) metav1.Condition {
