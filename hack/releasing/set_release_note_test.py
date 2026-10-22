@@ -73,6 +73,10 @@ class ParseReleaseNoteTest(unittest.TestCase):
                 "/set-release-note\nAPI change:\n/v1beta2 is now the default\n/kind api-change",
                 "API change:\n/v1beta2 is now the default",
             ),
+            "skip command ends the note": (
+                "/set-release-note\nA useful change\n/skip",
+                "A useful change",
+            ),
             "remove label command ends the note": (
                 "/set-release-note\nA useful change\n/remove-kind cleanup",
                 "A useful change",
@@ -113,6 +117,14 @@ class ParseReleaseNoteTest(unittest.TestCase):
             "repeated command with an empty last note": (
                 "/set-release-note\nFirst note\n/set-release-note\n",
                 "/set-release-note must be followed by a non-empty release note.",
+            ),
+            "combined with release-note-none": (
+                "/set-release-note\nA useful change\n/release-note-none",
+                "/set-release-note cannot be combined with /release-note-edit or /release-note-none.",
+            ),
+            "combined with release-note-edit": (
+                "/release-note-edit\nOther note\n/set-release-note\nA useful change",
+                "/set-release-note cannot be combined with /release-note-edit or /release-note-none.",
             ),
             "only commands after the command": (
                 "/set-release-note\n/kind bug\n/lgtm",

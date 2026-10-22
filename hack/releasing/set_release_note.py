@@ -28,7 +28,15 @@ PROW_COMMANDS = frozenset(
         "approve",
         "area",
         "assign",
+        "auto-cc",
+        "bark",
+        "bugzilla",
+        "buildifier",
+        "buildify",
         "cc",
+        "check-cla",
+        "check-dco",
+        "check-required-labels",
         "cherry-pick",
         "cherrypick",
         "close",
@@ -36,29 +44,56 @@ PROW_COMMANDS = frozenset(
         "good-first-issue",
         "help",
         "hold",
+        "honk",
+        "joke",
         "kind",
         "label",
         "language",
         "lgtm",
         "lifecycle",
+        "link-issue",
+        "lint",
+        "meow",
+        "meowvie",
         "milestone",
         "ok-to-test",
         "override",
+        "override-cancel",
+        "override-sticky",
+        "pin-issue",
+        "pony",
         "priority",
+        "project",
         "release-note-edit",
         "release-note-none",
         "reopen",
         "retest",
+        "retest-required",
         "retitle",
-        "set-release-note",
+        "shrug",
         "sig",
+        "skip",
         "stage",
+        "status",
         "test",
+        "test-manual-required",
+        "this-is-fine",
+        "this-is-not-fine",
+        "this-is-unbearable",
+        "transfer",
+        "transfer-issue",
         "triage",
+        "trick-or-treat",
+        "trickortreat",
         "unassign",
         "uncc",
         "unhold",
+        "unlink-issue",
+        "unpin-issue",
+        "unshrug",
+        "verify-owners",
         "wg",
+        "woof",
     }
 )
 # A line holding a single command, such as "/kind bug" or "/lgtm". Prow only
@@ -86,12 +121,22 @@ def _is_set_release_note_line(line: str) -> bool:
     return line.rstrip().lower() == COMMAND
 
 
+# Prow commands that also change the release note. Combining one of them with
+# /set-release-note in the same comment is contradictory.
+CONFLICTING_COMMANDS = frozenset({"release-note-edit", "release-note-none"})
+
+
+def _command_name(line: str) -> str | None:
+    """Return the lowercase command name of a command line, or None."""
+    match = COMMAND_LINE_RE.match(line.rstrip())
+    return match.group("name").lower() if match else None
+
+
 def _is_prow_command_line(line: str) -> bool:
     """Report whether the line is a Prow command, such as "/kind bug"."""
-    match = COMMAND_LINE_RE.match(line.rstrip())
-    if match is None:
+    name = _command_name(line)
+    if name is None:
         return False
-    name = match.group("name").lower()
     # The label plugin accepts "/remove-<label>" for any label prefix.
     return name in PROW_COMMANDS or name.startswith("remove-")
 
@@ -111,6 +156,10 @@ def parse_release_note(comment: str) -> str:
     )
     if last_command is None:
         raise ValueError(f"{COMMAND} must be on a line of its own.")
+    if any(_command_name(line) in CONFLICTING_COMMANDS for line in lines):
+        raise ValueError(
+            f"{COMMAND} cannot be combined with /release-note-edit or /release-note-none."
+        )
 
     note_lines = []
     for line in lines[last_command + 1 :]:
