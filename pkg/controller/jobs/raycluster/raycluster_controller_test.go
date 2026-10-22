@@ -63,9 +63,8 @@ func TestPodsReady(t *testing.T) {
 	modes := map[string]struct {
 		enableElastic bool
 		annotation    string
-		wantHeadOnly  bool
 	}{
-		"elastic":             {enableElastic: true, annotation: "true", wantHeadOnly: true},
+		"elastic":             {enableElastic: true, annotation: "true"},
 		"gate disabled":       {annotation: "true"},
 		"annotation missing":  {enableElastic: true},
 		"annotation disabled": {enableElastic: true, annotation: "false"},
@@ -94,13 +93,9 @@ func TestPodsReady(t *testing.T) {
 							cluster.StatusConditions(tc.condition)
 						}
 						cluster.Status.State = state
-						wantReady := state == rayv1.Ready
-						if config.wantHeadOnly {
-							wantReady = tc.wantReady
-						}
 						ctx, _ := utiltesting.ContextWithLog(t)
-						if got := (*RayCluster)(cluster.Obj()).PodsReady(ctx, nil); got != wantReady {
-							t.Errorf("PodsReady() = %t, want %t", got, wantReady)
+						if got := (*RayCluster)(cluster.Obj()).PodsReady(ctx, nil); got != tc.wantReady {
+							t.Errorf("PodsReady() = %t, want %t", got, tc.wantReady)
 						}
 					})
 				}
