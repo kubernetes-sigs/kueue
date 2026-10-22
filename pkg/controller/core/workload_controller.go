@@ -1267,8 +1267,7 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 
 	// While a replacement slice is pending, the job's PodsReady() reflects the
 	// replacement's desired Pods rather than the Pods admitted for this slice,
-	// so this slice's PodsReady condition can drift. Do not evict on it, and
-	// recheck later in case the pending slice goes away.
+	// so this slice's PodsReady condition can drift. Do not evict on it.
 	pendingReplacement, err := workloadslicing.HasPendingReplacement(ctx, r.client, wl)
 	if err != nil {
 		return 0, err
