@@ -423,7 +423,8 @@ func (s *ClusterSnapshot) Unpreempt(u *Unpreemption) ([]*v1.Pod, error) {
 // If the pods do not belong to the same hierarchy, it returns an error status.
 // The order of WorkloadSchedulingResult.PodResults is not guaranteed to match the order of input pods.
 //
-// When initial scheduling fails with Unschedulable and opts.CommittedVictims or opts.PotentialVictims
+// When initial scheduling is skipped (because opts.PreemptionFilter.MayFit() is false) or
+// fails with Unschedulable, and opts.CommittedVictims or opts.PotentialVictims
 // is provided, ScheduleWorkload simulates preemption, rolls back all snapshot mutations, and returns
 // Status: Unschedulable with the proposed PodResults and PreemptionVictims.
 //
@@ -472,37 +473,53 @@ func (s *ClusterSnapshot) ScheduleWorkload(ctx context.Context, pods []*v1.Pod, 
 	// Initial scheduling attempt without preempting.
 	sched := upstreamsync.NewScheduler(s.schedulerSnapshot, 0, 0, 1, nil)
 	podGroupCycleState := framework.NewCycleState()
-	rootKey := getEntityKey(podGroupInfo)
 
-	algResultsMap, revertFn := sched.RunRootSchedulingAlgorithm(ctx, schedFramework, podGroupCycleState, podGroupInfo)
-	rootResult := algResultsMap[rootKey]
+	initialResult := s.runInitialWorkloadScheduling(ctx, sched, schedFramework, podGroupCycleState, podGroupInfo, opts)
+	if initialResult.Status.Code() != fwk.Unschedulable || (opts.PotentialVictims == nil && len(opts.CommittedVictims) == 0) {
+		return initialResult
+	}
 
-	if rootResult.Status.IsSuccess() {
-		if revertFn != nil {
-			s.undoLog.registerOperation(revertFn)
-		}
-		var podResults []SchedulingResult
-		for res := range upstreamsync.SuccessfulLeafResults(podGroupInfo, algResultsMap) {
-			for _, pRes := range res.PodResults {
-				podResults = append(podResults, SchedulingResult{
-					Pod:              pRes.GetPod(),
-					Status:           pRes.GetStatus(),
-					SelectedNodeName: pRes.GetNodeName(),
-					CycleState:       pRes.GetCycleState(),
-				})
-			}
-		}
+	return s.workloadPreemption(ctx, sched, schedFramework, podGroupCycleState, podGroupInfo, initialResult.Status, opts)
+}
+
+func (s *ClusterSnapshot) runInitialWorkloadScheduling(
+	ctx context.Context,
+	sched *upstreamsync.Scheduler,
+	schedFramework *upstreampreemption.PreemptionFramework,
+	podGroupCycleState *framework.CycleState,
+	podGroupInfo *framework.PodGroupInfo,
+	opts ScheduleWorkloadOptions,
+) WorkloadSchedulingResult {
+	if opts.PreemptionFilter != nil && !opts.PreemptionFilter.MayFit() {
 		return WorkloadSchedulingResult{
-			Status:     rootResult.Status,
-			PodResults: podResults,
+			Status: fwk.NewStatus(fwk.Unschedulable, "preemption filter reported that workload cannot fit without preemption"),
 		}
 	}
 
-	if rootResult.Status.Code() != fwk.Unschedulable || (opts.PotentialVictims == nil && len(opts.CommittedVictims) == 0) {
+	algResultsMap, revertFn := sched.RunRootSchedulingAlgorithm(ctx, schedFramework, podGroupCycleState, podGroupInfo)
+	rootResult := algResultsMap[getEntityKey(podGroupInfo)]
+	if !rootResult.Status.IsSuccess() {
 		return WorkloadSchedulingResult{Status: rootResult.Status}
 	}
 
-	return s.workloadPreemption(ctx, sched, schedFramework, podGroupCycleState, podGroupInfo, rootResult.Status, opts)
+	if revertFn != nil {
+		s.undoLog.registerOperation(revertFn)
+	}
+	var podResults []SchedulingResult
+	for res := range upstreamsync.SuccessfulLeafResults(podGroupInfo, algResultsMap) {
+		for _, pRes := range res.PodResults {
+			podResults = append(podResults, SchedulingResult{
+				Pod:              pRes.GetPod(),
+				Status:           pRes.GetStatus(),
+				SelectedNodeName: pRes.GetNodeName(),
+				CycleState:       pRes.GetCycleState(),
+			})
+		}
+	}
+	return WorkloadSchedulingResult{
+		Status:     rootResult.Status,
+		PodResults: podResults,
+	}
 }
 
 func (s *ClusterSnapshot) workloadPreemption(
@@ -516,28 +533,29 @@ func (s *ClusterSnapshot) workloadPreemption(
 ) WorkloadSchedulingResult {
 
 	// Evict CommittedVictims and check if it is enough.
-	var committedVictims []PreemptionVictim
 	for _, v := range opts.CommittedVictims {
 		if v == nil || len(v.Pods()) == 0 {
-			continue
+			return WorkloadSchedulingResult{Status: fwk.AsStatus(fmt.Errorf("committed preemption victim cannot be nil nor empty"))}
 		}
 		if _, err := s.PreemptPods(ctx, v.Pods()); err != nil {
 			return WorkloadSchedulingResult{Status: fwk.AsStatus(err)}
 		}
-		committedVictims = append(committedVictims, v)
 		if opts.PreemptionFilter != nil {
 			opts.PreemptionFilter.PreemptVictim(v)
 		}
 	}
 
 	baseSchedulingFunc := sched.BuildPodGroupSchedulingFunc(schedFramework, podGroupInfo)
-	if len(committedVictims) > 0 && (opts.PreemptionFilter == nil || opts.PreemptionFilter.MayFit()) {
+	if len(opts.CommittedVictims) > 0 && (opts.PreemptionFilter == nil || opts.PreemptionFilter.MayFit()) {
 		assignments, status := baseSchedulingFunc(ctx)
+		if status.IsError() {
+			return WorkloadSchedulingResult{Status: status}
+		}
 		if status.IsSuccess() {
 			return WorkloadSchedulingResult{
 				Status:            initialStatus,
 				PodResults:        buildWorkloadPodResults(assignments),
-				PreemptionVictims: committedVictims,
+				PreemptionVictims: opts.CommittedVictims,
 			}
 		}
 	}
@@ -561,7 +579,7 @@ func (s *ClusterSnapshot) workloadPreemption(
 	return WorkloadSchedulingResult{
 		Status:            initialStatus,
 		PodResults:        buildWorkloadPodResults(assignments),
-		PreemptionVictims: slices.Concat(committedVictims, preemptedVictims),
+		PreemptionVictims: slices.Concat(opts.CommittedVictims, preemptedVictims),
 	}
 }
 

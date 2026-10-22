@@ -32,7 +32,8 @@ type PreemptionVictim interface {
 }
 
 // PreemptionFilter provides a fast pre-check to skip expensive scheduling evaluations
-// when the current set of preempted victims is known to be insufficient.
+// (including the initial scheduling attempt) when the current set of preempted victims
+// is known to be insufficient.
 type PreemptionFilter interface {
 	// UnpreemptVictim is called whenever a victim has been removed from the current victim set.
 	UnpreemptVictim(PreemptionVictim)
@@ -41,11 +42,13 @@ type PreemptionFilter interface {
 	PreemptVictim(PreemptionVictim)
 
 	// MayFit reports whether the preemptor could potentially fit given
-	// the current victim set.
+	// the current victim set. It is called before the initial scheduling
+	// attempt (before any victims are preempted) as well as during prefix
+	// search and reprieval.
 	//
 	// If it returns true, the scheduler runs a scheduling evaluation for the preemptor.
 	// If it returns false, the current victim set is treated as insufficient and
-	// the scheduling evaluation is skipped.
+	// the scheduling evaluation (including the initial scheduling attempt) is skipped.
 	//
 	// Implementations must rely only on internal state updated via
 	// [PreemptionFilter.PreemptVictim] and [PreemptionFilter.UnpreemptVictim],
@@ -72,16 +75,16 @@ type WorkloadPreemptionOptions struct {
 	// If nil or empty, no additional victims are considered during stage 1.
 	PotentialVictims iter.Seq[PreemptionVictim]
 
-	// CommittedVictims are victims that are preempted after the unsuccessful initial scheduling attempt
-	// but before stage 1 begins.
+	// CommittedVictims are victims that are preempted after the initial scheduling attempt
+	// fails (or is skipped by [PreemptionFilter.MayFit]), but before stage 1 begins.
 	// Unlike PotentialVictims, they are never candidates for reprieval in stage 2.
 	// Each committed victim is passed to [PreemptionFilter.PreemptVictim] before stage 1.
 	// If nil or empty, no victims are preempted upfront.
 	CommittedVictims []PreemptionVictim
 
-	// PreemptionFilter is an optional fast pre-check used during both prefix search and
-	// reprieval to skip scheduling evaluations when the current victim set is known
-	// to be insufficient.
+	// PreemptionFilter is an optional fast pre-check used before the initial scheduling
+	// attempt and during both prefix search and reprieval to skip scheduling evaluations
+	// when the current victim set is known to be insufficient.
 	// If nil, no pre-check filter is applied.
 	PreemptionFilter PreemptionFilter
 }
