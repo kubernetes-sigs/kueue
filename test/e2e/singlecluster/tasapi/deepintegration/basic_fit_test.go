@@ -302,6 +302,99 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.La
 			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wl2Key, behavioral.MediumTimeout)
 		})
 	})
+
+	ginkgo.It("Should admit a waiting Job after an active Job's workload is deactivated and its pods finish terminating", func() {
+		job1 := testingjob.MakeJob("job-deactivated", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Parallelism(8).
+			Completions(8).
+			RequestAndLimit(extraResource, "1").
+			TerminationGracePeriod(1).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, job1)
+
+		wl1Key := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(job1.Name, job1.UID),
+			Namespace: ns.Name,
+		}
+		wl1 := &kueue.Workload{}
+		ginkgo.By("await admission of job1 occupying all nodes", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wl1Key, wl1)).Should(gomega.Succeed())
+				g.Expect(wl1.Status.Admission).ShouldNot(gomega.BeNil())
+				g.Expect(workload.HasQuotaReservation(wl1)).Should(gomega.BeTrue())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("ensure job1 pods are created, scheduled, and running", func() {
+			expectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, job1.Name, 8)
+		})
+
+		job2 := testingjob.MakeJob("job-waiting-on-deactivation", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			Parallelism(1).
+			Completions(1).
+			RequestAndLimit(extraResource, "1").
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorExitFast).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, job2)
+
+		wl2Key := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(job2.Name, job2.UID),
+			Namespace: ns.Name,
+		}
+		wl2 := &kueue.Workload{}
+		ginkgo.By("await creation of workload for job2", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wl2Key, wl2)).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify job2 is held while job1 occupies all nodes", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wl2Key, wl2)).Should(gomega.Succeed())
+				g.Expect(wl2.Status.Admission).Should(gomega.BeNil())
+				g.Expect(workload.HasQuotaReservation(wl2)).Should(gomega.BeFalse())
+			}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		// Deactivate wl1 without deleting job1: wl1 loses admission while job1's pods are still in
+		// their 1s termination grace period. Once job1's pods finish terminating, job2 must be admitted.
+		ginkgo.By("deactivate wl1 to evict job1", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wl1Key, wl1)).To(gomega.Succeed())
+				wl1.Spec.Active = new(false)
+				g.Expect(k8sClient.Update(ctx, wl1)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify wl1 is evicted and its pods finish terminating", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wl1Key, wl1)).To(gomega.Succeed())
+				g.Expect(workload.HasQuotaReservation(wl1)).Should(gomega.BeFalse())
+				pods := &corev1.PodList{}
+				g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), client.MatchingLabels{"job-name": job1.Name})).To(gomega.Succeed())
+				g.Expect(pods.Items).Should(gomega.BeEmpty())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify job2 is admitted after job1 pods terminate", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wl2Key, wl2)).Should(gomega.Succeed())
+				g.Expect(wl2.Status.Admission).ShouldNot(gomega.BeNil())
+				g.Expect(workload.HasQuotaReservation(wl2)).Should(gomega.BeTrue())
+			}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("ensure job2 pods are created, scheduled, and running", func() {
+			expectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, job2.Name, 1)
+		})
+
+		ginkgo.By(fmt.Sprintf("verify workload %q finishes successfully", wl2Key), func() {
+			behavioral.ExpectWorkloadToFinishWithTimeout(ctx, k8sClient, wl2Key, behavioral.MediumTimeout)
+		})
+	})
 })
 
 func expectPodsScheduledAndRunning(ctx context.Context, k8sClient client.Client, ns string, jobName string, count int) {

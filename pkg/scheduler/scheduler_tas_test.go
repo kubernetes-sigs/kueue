@@ -4034,8 +4034,8 @@ func (s *recordingSimulatorFactory) NewSimulator(ctx context.Context, nodes []*c
 func (s *recordingSimulatorFactory) TrackPod(ctx context.Context, pod *corev1.Pod) {
 	s.simulatorFactory.TrackPod(ctx, pod)
 }
-func (s *recordingSimulatorFactory) UntrackPod(ctx context.Context, key client.ObjectKey) {
-	s.simulatorFactory.UntrackPod(ctx, key)
+func (s *recordingSimulatorFactory) UntrackPod(ctx context.Context, key client.ObjectKey) string {
+	return s.simulatorFactory.UntrackPod(ctx, key)
 }
 
 type recordingSchedulerSimulator struct {
