@@ -98,12 +98,12 @@ func TestComparePodTemplate(t *testing.T) {
 		"different runtime classes": {
 			a: func() corev1.PodSpec {
 				ps := *base.DeepCopy()
-				ps.RuntimeClassName = ptr.To("kata")
+				ps.RuntimeClassName = new("kata")
 				return ps
 			}(),
 			b: func() corev1.PodSpec {
 				ps := *base.DeepCopy()
-				ps.RuntimeClassName = ptr.To("runc")
+				ps.RuntimeClassName = new("runc")
 				return ps
 			}(),
 			want: false,
@@ -111,7 +111,7 @@ func TestComparePodTemplate(t *testing.T) {
 		"runtime class on one side": {
 			a: func() corev1.PodSpec {
 				ps := *base.DeepCopy()
-				ps.RuntimeClassName = ptr.To("kata")
+				ps.RuntimeClassName = new("kata")
 				return ps
 			}(),
 			b:    *base.DeepCopy(),
@@ -120,12 +120,12 @@ func TestComparePodTemplate(t *testing.T) {
 		"same runtime class": {
 			a: func() corev1.PodSpec {
 				ps := *base.DeepCopy()
-				ps.RuntimeClassName = ptr.To("kata")
+				ps.RuntimeClassName = new("kata")
 				return ps
 			}(),
 			b: func() corev1.PodSpec {
 				ps := *base.DeepCopy()
-				ps.RuntimeClassName = ptr.To("kata")
+				ps.RuntimeClassName = new("kata")
 				return ps
 			}(),
 			want: true,

@@ -998,9 +998,9 @@ func firstExceededResource(pod *corev1.Pod, reserved resources.Requests) (corev1
 // rewritten to make the check sound. A pod exceeding its reservation gets a Warning
 // event and is left gated instead of failing the group, so that such a pod cannot
 // disrupt an already admitted group.
-// The reservation is taken from the effective PodSet spec (requests defaulted from
-// limits, LimitRange defaults and RuntimeClass overhead applied), the same view
-// quota is accounted against.
+// The role bounds come from the effective PodSet spec, preserving any overhead
+// already recorded in the template. ResourceUsage can contain transformed
+// resources, so it cannot be compared directly with the Pod requests.
 func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []corev1.Pod, wl *kueue.Workload, recorder events.EventRecorder) (sets.Set[string], error) {
 	if !features.Enabled(features.PodIntegrationVerifyRoleRequests) {
 		return nil, nil
@@ -1015,6 +1015,11 @@ func validatePodsBeforeUngating(ctx context.Context, c client.Client, pods []cor
 	effectiveSpecs := workload.EffectivePodSpecs(wl, in)
 	podSpecs := make(map[kueue.PodSetReference]*corev1.PodSpec, len(wl.Spec.PodSets))
 	for i := range wl.Spec.PodSets {
+		// A RuntimeClass update must not increase the overhead allowed for an
+		// existing role: its Pods and quota reservation may still use the old value.
+		if overhead := wl.Spec.PodSets[i].Template.Spec.Overhead; len(overhead) > 0 {
+			effectiveSpecs[i].Overhead = overhead.DeepCopy()
+		}
 		podSpecs[wl.Spec.PodSets[i].Name] = &effectiveSpecs[i]
 	}
 	oversized := sets.New[string]()
