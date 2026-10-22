@@ -456,7 +456,7 @@ Requested functionalities from the community can be satisfied with the following
    ```
 
 4. **Minimal execution duration before preemption ([Issue #9596](https://github.com/kubernetes-sigs/kueue/issues/9596)):**
-   Avoid preempting workloads that just started by requiring candidates to have run for a minimum duration (e.g. at least 15 minutes). Available since v0.21:
+   Avoid preempting workloads that just started by requiring candidates to have run for a minimum duration (e.g. at most 15 minutes). Available since v0.21:
 
    ```yaml
    spec:
@@ -474,7 +474,7 @@ Requested functionalities from the community can be satisfied with the following
    ```
 
 5. **SLA protection based on workload creation time:**
-   Model SLA requirements by only preempting recently created workloads (e.g., created less than 1 hour ago) to avoid preemption of older workloads nearing SLA completion deadlines. Available since v0.21:
+   Model SLA requirements by only preempting recently created workloads (e.g., created at most 1 hour ago) to avoid preemption of older workloads nearing SLA completion deadlines. Available since v0.21:
    ```yaml
    spec:
      rules:
@@ -790,7 +790,7 @@ type PreemptionConfigPreemptionCandidateSelector struct {
   // Accepts any execution time if not set.
   // executionTime defines the requirements for candidates based on cumulative execution time.
   // A workload's cumulative execution time is the total time spent in the Admitted=True
-  // state across admission cycles.
+  // state across admission cycles. It is a sum of previous execution time and current execution time.
   // Workloads not matching these requirements will not be considered as preemption candidates.
   // If nil, no execution time requirements are enforced.
   //
