@@ -21,6 +21,84 @@ from pathlib import Path
 
 COMMAND = "/set-release-note"
 MAX_PR_BODY_LENGTH = 65_536
+# Prow commands enabled for this repository, see
+# https://prow.k8s.io/command-help?repo=kubernetes-sigs%2Fkueue
+PROW_COMMANDS = frozenset(
+    {
+        "approve",
+        "area",
+        "assign",
+        "auto-cc",
+        "bark",
+        "bugzilla",
+        "buildifier",
+        "buildify",
+        "cc",
+        "check-cla",
+        "check-dco",
+        "check-required-labels",
+        "cherry-pick",
+        "cherrypick",
+        "close",
+        "committee",
+        "good-first-issue",
+        "help",
+        "hold",
+        "honk",
+        "joke",
+        "kind",
+        "label",
+        "language",
+        "lgtm",
+        "lifecycle",
+        "link-issue",
+        "lint",
+        "meow",
+        "meowvie",
+        "milestone",
+        "ok-to-test",
+        "override",
+        "override-cancel",
+        "override-sticky",
+        "pin-issue",
+        "pony",
+        "priority",
+        "project",
+        "release-note-edit",
+        "release-note-none",
+        "reopen",
+        "retest",
+        "retest-required",
+        "retitle",
+        "shrug",
+        "sig",
+        "skip",
+        "stage",
+        "status",
+        "test",
+        "test-manual-required",
+        "this-is-fine",
+        "this-is-not-fine",
+        "this-is-unbearable",
+        "transfer",
+        "transfer-issue",
+        "triage",
+        "trick-or-treat",
+        "trickortreat",
+        "unassign",
+        "uncc",
+        "unhold",
+        "unlink-issue",
+        "unpin-issue",
+        "unshrug",
+        "verify-owners",
+        "wg",
+        "woof",
+    }
+)
+# A line holding a single command, such as "/kind bug" or "/lgtm". Prow only
+# matches a command at the start of a line and ignores the case of its name.
+COMMAND_LINE_RE = re.compile(r"^/(?P<name>[a-z][a-z0-9-]*)(?:[ \t]+\S.*)?$", re.IGNORECASE)
 FENCE_RE = re.compile(
     r"^(?P<indent> {0,3})(?P<fence>`{3,}|~{3,})(?P<info>[^\r\n]*?)[ \t]*(?:\r?\n)?$"
 )
@@ -38,13 +116,57 @@ def _match_fence(line: str) -> re.Match[str] | None:
     return match
 
 
-def parse_release_note(comment: str) -> str:
-    """Parse and validate the release note from a ChatOps comment."""
-    lines = comment.replace("\r\n", "\n").splitlines()
-    if not lines or lines[0].rstrip() != COMMAND:
-        raise ValueError(f"{COMMAND} must be the first line of the comment.")
+def _is_set_release_note_line(line: str) -> bool:
+    """Report whether the line is the /set-release-note command."""
+    return line.rstrip().lower() == COMMAND
 
-    release_note = "\n".join(lines[1:]).strip()
+
+# Prow commands that also change the release note. Combining one of them with
+# /set-release-note in the same comment is contradictory.
+CONFLICTING_COMMANDS = frozenset({"release-note-edit", "release-note-none"})
+
+
+def _command_name(line: str) -> str | None:
+    """Return the lowercase command name of a command line, or None."""
+    match = COMMAND_LINE_RE.match(line.rstrip())
+    return match.group("name").lower() if match else None
+
+
+def _is_prow_command_line(line: str) -> bool:
+    """Report whether the line is a Prow command, such as "/kind bug"."""
+    name = _command_name(line)
+    if name is None:
+        return False
+    # The label plugin accepts "/remove-<label>" for any label prefix.
+    return name in PROW_COMMANDS or name.startswith("remove-")
+
+
+def parse_release_note(comment: str) -> str:
+    """Parse and validate the release note from a ChatOps comment.
+
+    The note is the text after the last /set-release-note line, up to the next
+    Prow command line such as "/kind bug". Other commands in the same comment
+    are handled by Prow and must not end up in the release note. Other lines
+    that start with "/" are kept in the note.
+    """
+    lines = comment.replace("\r\n", "\n").splitlines()
+    last_command = next(
+        (i for i in reversed(range(len(lines))) if _is_set_release_note_line(lines[i])),
+        None,
+    )
+    if last_command is None:
+        raise ValueError(f"{COMMAND} must be on a line of its own.")
+    if any(_command_name(line) in CONFLICTING_COMMANDS for line in lines):
+        raise ValueError(
+            f"{COMMAND} cannot be combined with /release-note-edit or /release-note-none."
+        )
+
+    note_lines = []
+    for line in lines[last_command + 1 :]:
+        if _is_prow_command_line(line):
+            break
+        note_lines.append(line)
+    release_note = "\n".join(note_lines).strip()
     if not release_note:
         raise ValueError(f"{COMMAND} must be followed by a non-empty release note.")
     if any(_match_fence(line) for line in release_note.splitlines()):
