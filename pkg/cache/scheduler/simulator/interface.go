@@ -21,6 +21,7 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -93,6 +94,10 @@ type SchedulerSimulator interface {
 	AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error
 	// RemovePodGroup removes a PodGroup from the snapshot
 	RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error
+	// AddCompositePodGroup adds a CompositePodGroup to the snapshot
+	AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error
+	// RemoveCompositePodGroup removes a CompositePodGroup from the snapshot
+	RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error
 }
 
 func AsCandidates[C Candidate](seq iter.Seq[C]) iter.Seq[Candidate] {

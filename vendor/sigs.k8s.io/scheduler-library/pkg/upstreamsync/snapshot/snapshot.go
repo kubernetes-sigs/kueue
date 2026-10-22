@@ -28,10 +28,13 @@ import (
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/klog/v2"
+
 	fwk "k8s.io/kube-scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
+	"sigs.k8s.io/scheduler-library/pkg/preemption"
 	"sigs.k8s.io/scheduler-library/pkg/upstreamsync"
+	upstreampreemption "sigs.k8s.io/scheduler-library/pkg/upstreamsync/preemption"
 )
 
 // ClusterSnapshot wraps a scheduler snapshot and its associated frameworks.
@@ -417,8 +420,12 @@ func (s *ClusterSnapshot) Unpreempt(u *Unpreemption) ([]*v1.Pod, error) {
 }
 
 // ScheduleWorkload schedules the given pods belonging to the same hierarchy using the workload-aware scheduling algorithm.
-// If the pods do not belong to the same hierarchy, it returns an error.
-// The order of the returned SchedulingResult slice is non-deterministic with respect to the input pods order.
+// If the pods do not belong to the same hierarchy, it returns an error status.
+// The order of WorkloadSchedulingResult.PodResults is not guaranteed to match the order of input pods.
+//
+// When initial scheduling fails with Unschedulable and opts.CommittedVictims or opts.PotentialVictims
+// is provided, ScheduleWorkload simulates preemption, rolls back all snapshot mutations, and returns
+// Status: Unschedulable with the proposed PodResults and PreemptionVictims.
 //
 // All PodGroup and CompositePodGroup objects in the hierarchy must exist in the snapshot before calling this method.
 // Callers can register virtual groups (groups not present in the cluster) with AddPodGroup and AddCompositePodGroup.
@@ -429,16 +436,23 @@ func (s *ClusterSnapshot) Unpreempt(u *Unpreemption) ([]*v1.Pod, error) {
 // This is safe when evaluating an entire virtual workload in a single call (such as Kueue admission).
 // However, when scheduling a hierarchy incrementally across multiple ScheduleWorkload calls, plugins
 // that query ScheduledPods() (such as TAS) do not observe virtual pods from earlier calls.
-func (s *ClusterSnapshot) ScheduleWorkload(ctx context.Context, pods []*v1.Pod, opts ScheduleWorkloadOptions) (_ []SchedulingResult, err error) {
+func (s *ClusterSnapshot) ScheduleWorkload(ctx context.Context, pods []*v1.Pod, opts ScheduleWorkloadOptions) (result WorkloadSchedulingResult) {
 	if len(pods) == 0 {
-		return nil, nil
+		return WorkloadSchedulingResult{Status: fwk.NewStatus(fwk.Success)}
 	}
 
 	initialStateVersion := s.undoLog.stateVersion
 
 	defer func() {
-		if err != nil || opts.DryRun {
+		if !result.Status.IsSuccess() || opts.DryRun {
 			s.undoLog.restoreState(initialStateVersion)
+		}
+		if result.Status.IsSuccess() && !opts.DryRun {
+			for _, r := range result.PodResults {
+				if r.SelectedNodeName != "" && r.Pod != nil {
+					r.Pod.Spec.NodeName = r.SelectedNodeName
+				}
+			}
 		}
 		if initialStateVersion != s.undoLog.stateVersion {
 			s.stateVersionForPreemption++
@@ -447,49 +461,126 @@ func (s *ClusterSnapshot) ScheduleWorkload(ctx context.Context, pods []*v1.Pod, 
 
 	podGroupInfo, err := buildPodGroupHierarchy(s.schedulerSnapshot, pods)
 	if err != nil {
-		return nil, fmt.Errorf("failed to build pod group hierarchy: %w", err)
+		return WorkloadSchedulingResult{Status: fwk.AsStatus(fmt.Errorf("failed to build pod group hierarchy: %w", err))}
 	}
 
 	schedFramework, err := s.profiles.FrameworkForPodGroup(podGroupInfo)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get framework for pod group: %w", err)
+		return WorkloadSchedulingResult{Status: fwk.AsStatus(fmt.Errorf("failed to get framework for pod group: %w", err))}
 	}
 
+	// Initial scheduling attempt without preempting.
 	sched := upstreamsync.NewScheduler(s.schedulerSnapshot, 0, 0, 1, nil)
 	podGroupCycleState := framework.NewCycleState()
-	algResultsMap, revertFn := sched.RunRootSchedulingAlgorithm(ctx, schedFramework, podGroupCycleState, podGroupInfo)
-
-	if revertFn != nil {
-		s.undoLog.registerOperation(revertFn)
-	}
-
 	rootKey := getEntityKey(podGroupInfo)
-	rootResult := algResultsMap[rootKey]
-	isRootSuccess := rootResult.Status.IsSuccess()
 
-	var results []SchedulingResult
-	for _, groupResult := range algResultsMap {
-		for _, pRes := range groupResult.PodResults {
-			status := pRes.GetStatus()
-			nodeName := pRes.GetNodeName()
-			pod := pRes.GetPod()
-			if isRootSuccess && status.IsSuccess() {
-				pod.Spec.NodeName = nodeName
-			} else {
-				nodeName = ""
-				if !isRootSuccess && status.IsSuccess() {
-					status = rootResult.Status
-				}
+	algResultsMap, revertFn := sched.RunRootSchedulingAlgorithm(ctx, schedFramework, podGroupCycleState, podGroupInfo)
+	rootResult := algResultsMap[rootKey]
+
+	if rootResult.Status.IsSuccess() {
+		if revertFn != nil {
+			s.undoLog.registerOperation(revertFn)
+		}
+		var podResults []SchedulingResult
+		for res := range upstreamsync.SuccessfulLeafResults(podGroupInfo, algResultsMap) {
+			for _, pRes := range res.PodResults {
+				podResults = append(podResults, SchedulingResult{
+					Pod:              pRes.GetPod(),
+					Status:           pRes.GetStatus(),
+					SelectedNodeName: pRes.GetNodeName(),
+					CycleState:       pRes.GetCycleState(),
+				})
 			}
-			results = append(results, SchedulingResult{
-				Pod:              pod,
-				Status:           status,
-				SelectedNodeName: nodeName,
-			})
+		}
+		return WorkloadSchedulingResult{
+			Status:     rootResult.Status,
+			PodResults: podResults,
 		}
 	}
 
-	return results, nil
+	if rootResult.Status.Code() != fwk.Unschedulable || (opts.PotentialVictims == nil && len(opts.CommittedVictims) == 0) {
+		return WorkloadSchedulingResult{Status: rootResult.Status}
+	}
+
+	return s.workloadPreemption(ctx, sched, schedFramework, podGroupCycleState, podGroupInfo, rootResult.Status, opts)
+}
+
+func (s *ClusterSnapshot) workloadPreemption(
+	ctx context.Context,
+	sched *upstreamsync.Scheduler,
+	schedFramework *upstreampreemption.PreemptionFramework,
+	podGroupCycleState *framework.CycleState,
+	podGroupInfo *framework.PodGroupInfo,
+	initialStatus *fwk.Status,
+	opts ScheduleWorkloadOptions,
+) WorkloadSchedulingResult {
+
+	// Evict CommittedVictims and check if it is enough.
+	var committedVictims []PreemptionVictim
+	for _, v := range opts.CommittedVictims {
+		if v == nil || len(v.Pods()) == 0 {
+			continue
+		}
+		if _, err := s.PreemptPods(ctx, v.Pods()); err != nil {
+			return WorkloadSchedulingResult{Status: fwk.AsStatus(err)}
+		}
+		committedVictims = append(committedVictims, v)
+		if opts.PreemptionFilter != nil {
+			opts.PreemptionFilter.PreemptVictim(v)
+		}
+	}
+
+	baseSchedulingFunc := sched.BuildPodGroupSchedulingFunc(schedFramework, podGroupInfo)
+	if len(committedVictims) > 0 && (opts.PreemptionFilter == nil || opts.PreemptionFilter.MayFit()) {
+		assignments, status := baseSchedulingFunc(ctx)
+		if status.IsSuccess() {
+			return WorkloadSchedulingResult{
+				Status:            initialStatus,
+				PodResults:        buildWorkloadPodResults(assignments),
+				PreemptionVictims: committedVictims,
+			}
+		}
+	}
+
+	// Pull PotentialVictims and run PodGroup preemption with reprieval.
+	assignments, preemptedVictims, status := preemption.EvaluateWorkloadPreemption(
+		ctx,
+		schedFramework,
+		podGroupCycleState,
+		podGroupInfo,
+		baseSchedulingFunc,
+		opts.WorkloadPreemptionOptions,
+	)
+	if status.IsError() {
+		return WorkloadSchedulingResult{Status: status}
+	}
+	if !status.IsSuccess() {
+		return WorkloadSchedulingResult{Status: initialStatus}
+	}
+
+	return WorkloadSchedulingResult{
+		Status:            initialStatus,
+		PodResults:        buildWorkloadPodResults(assignments),
+		PreemptionVictims: slices.Concat(committedVictims, preemptedVictims),
+	}
+}
+
+func buildWorkloadPodResults(
+	assignments *fwk.PodGroupAssignments,
+) []SchedulingResult {
+	var results []SchedulingResult
+	if assignments != nil {
+		results = make([]SchedulingResult, 0, len(assignments.ProposedAssignments))
+		for _, pa := range assignments.ProposedAssignments {
+			results = append(results, SchedulingResult{
+				Pod:              pa.GetPod(),
+				Status:           nil,
+				SelectedNodeName: pa.GetNodeName(),
+				CycleState:       pa.GetCycleState(),
+			})
+		}
+	}
+	return results
 }
 
 // AddPodGroup adds a pod group object to the snapshot, linking it to its parent

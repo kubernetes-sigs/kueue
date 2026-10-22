@@ -31,7 +31,6 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
-	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -4083,18 +4082,6 @@ func (s *recordingSchedulerSimulator) FindFeasibleNodes(
 		s.releasedTogether = s.releasedNow.Clone()
 	}
 	return s.SchedulerSimulator.FindFeasibleNodes(ctx, candidates, requirements, stats)
-}
-
-func (s *recordingSchedulerSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
-	return s.SchedulerSimulator.ScheduleWorkload(ctx, workloadPods, opts...)
-}
-
-func (s *recordingSchedulerSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
-	return s.SchedulerSimulator.AddPodGroup(ctx, pg)
-}
-
-func (s *recordingSchedulerSimulator) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
-	return s.SchedulerSimulator.RemovePodGroup(ctx, pg)
 }
 
 type tasScheduleTestConfig struct {
