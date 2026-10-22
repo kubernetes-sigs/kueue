@@ -94,7 +94,7 @@ var _ = ginkgo.Describe("LocalQueue pending metrics", ginkgo.Label("controller:l
 	ginkgo.It("should refresh pending metrics when a LocalQueue is stopped with Hold", func() {
 		for i, lq := range queues {
 			ginkgo.By("stopping LocalQueue "+lq.Name+" with Hold", func() {
-				behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, kueue.Hold)
+				behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, new(kueue.Hold))
 			})
 
 			ginkgo.By("checking pending metrics after stopping LocalQueue "+lq.Name+" with Hold", func() {
@@ -113,7 +113,7 @@ var _ = ginkgo.Describe("LocalQueue pending metrics", ginkgo.Label("controller:l
 	ginkgo.It("should refresh pending metrics when a LocalQueue is stopped with HoldAndDrain", func() {
 		for i, lq := range queues {
 			ginkgo.By("stopping LocalQueue "+lq.Name+" with HoldAndDrain", func() {
-				behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, kueue.HoldAndDrain)
+				behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, new(kueue.HoldAndDrain))
 			})
 
 			ginkgo.By("checking pending metrics after stopping LocalQueue "+lq.Name+" with HoldAndDrain", func() {
