@@ -300,6 +300,35 @@ func TestReconcile(t *testing.T) {
 				Conditions: []metav1.Condition{misconfigured(`Node "h100-1" matches multiple orchestrated ResourceFlavors: default, h100`)},
 			},
 		},
+		"flavor of another provider with a missing Topology does not count as overlap": {
+			provider: utiltestingalpha.MakeCapacityProvider("nodes").
+				ControllerName(ControllerName).
+				OrchestratedFlavors("h100").
+				Obj(),
+			otherProviders: []*kueuealpha.CapacityProvider{
+				utiltestingalpha.MakeCapacityProvider("default").
+					ControllerName(ControllerName).
+					OrchestratedFlavors("default").
+					Obj(),
+			},
+			flavors: []*kueue.ResourceFlavor{
+				h100Flavor,
+				utiltestingapi.MakeResourceFlavor("default").TopologyName("missing").Obj(),
+			},
+			nodes: []*corev1.Node{gpuNode("h100-1", "h100").Ready().Obj()},
+			wantStatus: kueuealpha.CapacityProviderStatus{
+				Capacity: utiltestingalpha.MakeNormalizedCapacity().
+					Flavors(
+						utiltestingalpha.MakeNormalizedCapacityFlavor("h100").
+							Resource(corev1.ResourceCPU, "120").
+							Resource(corev1.ResourceMemory, "900Gi").
+							Resource(gpuResource, "8").
+							Obj(),
+					).
+					Obj(),
+				Conditions: []metav1.Condition{synced("h100: 1 node")},
+			},
+		},
 		"flavor orchestrated by multiple local-capacity providers is misconfigured": {
 			provider: utiltestingalpha.MakeCapacityProvider("nodes").
 				ControllerName(ControllerName).

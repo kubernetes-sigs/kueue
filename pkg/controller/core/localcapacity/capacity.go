@@ -159,10 +159,15 @@ func computeCapacity(provider *kueuealpha.CapacityProvider, in *inputs) result {
 
 // nodeMatchesFlavor uses the same rule as TAS: a node of a TAS flavor must also
 // have a label for every level of the flavor's Topology.
+// A flavor whose Topology is missing matches no node. Its own provider reports
+// it as misconfigured, so it must not cause overlaps for other providers.
 func nodeMatchesFlavor(node *corev1.Node, rf *kueue.ResourceFlavor, topologyLevels map[kueue.TopologyReference][]string) bool {
 	var levels []string
 	if rf.Spec.TopologyName != nil {
-		levels = topologyLevels[*rf.Spec.TopologyName]
+		var ok bool
+		if levels, ok = topologyLevels[*rf.Spec.TopologyName]; !ok {
+			return false
+		}
 	}
 	return utiltas.NodeMatchesFlavor(node.Labels, rf.Spec.NodeLabels, levels)
 }
