@@ -295,6 +295,8 @@ func TestPlan(t *testing.T) {
 		wantNoFitReason string
 		// wantCandidates, when set, checks the preemption candidates passed to each ScheduleWorkload call.
 		wantCandidates [][]client.ObjectKey
+		// wantPreemptionTargets checks the workload keys of the PreemptionTargets returned in Plan.
+		wantPreemptionTargets []client.ObjectKey
 		// wantResolvedNoFitReason configures what should be the NoFitReason
 		// the Assignemtn resolves to when the UnadmittedWorkloadsObservability
 		// FG ius enabled.
@@ -323,11 +325,16 @@ func TestPlan(t *testing.T) {
 			flavorQuotas: []kueue.FlavorQuotas{cpuQuota(testFlavor, "3")},
 			podSets:      []testPodSet{{name: kueue.DefaultPodSetName, count: 1, cpu: "2"}},
 			initialMode:  flavorassigner.Preempt,
-			schedulingResult: &simulator.SchedulingResult{PodPlacements: simulator.PodPlacements{
-				podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
-			}},
-			wantMode:       flavorassigner.Preempt,
-			wantCandidates: [][]client.ObjectKey{{{Namespace: testNamespace, Name: victimName}}},
+			schedulingResult: &simulator.SchedulingResult{
+				PodPlacements: simulator.PodPlacements{
+					podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
+				},
+				PreemptedWorkloads: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}},
+			},
+			wantMode:              flavorassigner.Preempt,
+			wantFit:               true,
+			wantCandidates:        [][]client.ObjectKey{{{Namespace: testNamespace, Name: victimName}}},
+			wantPreemptionTargets: []client.ObjectKey{{Namespace: testNamespace, Name: victimName}},
 			wantPodSets: []flavorassigner.PodSetAssignment{{
 				Name:               kueue.DefaultPodSetName,
 				Status:             *flavorassigner.NewStatus("insufficient unused quota for cpu in flavor tas-flavor, 1 more needed"),
@@ -677,8 +684,12 @@ func TestPlan(t *testing.T) {
 			if tc.wantFit != gotPlan.CanFit() {
 				t.Errorf("Plan() returned unexpected verdict - want fit: %v, got: %v", tc.wantFit, gotPlan.CanFit())
 			}
-			if len(gotPlan.PreemptionTargets) != 0 {
-				t.Errorf("Plan() returned unexpected preemption targets: %v", gotPlan.PreemptionTargets)
+			var gotTargets []client.ObjectKey
+			for _, target := range gotPlan.PreemptionTargets {
+				gotTargets = append(gotTargets, client.ObjectKeyFromObject(target.WorkloadInfo.Obj))
+			}
+			if diff := cmp.Diff(tc.wantPreemptionTargets, gotTargets); diff != "" {
+				t.Errorf("Plan() preemption targets mismatch (-want +got):\n%s", diff)
 			}
 			if gotPlan.Assignment.NoFitReason != tc.wantNoFitReason {
 				t.Errorf("Plan() assignment NoFitReason mismatch: want %q, got %q", tc.wantNoFitReason, gotPlan.Assignment.NoFitReason)
@@ -799,10 +810,11 @@ func TestPlanPreemptionStrategies(t *testing.T) {
 		cqs               []*kueue.ClusterQueue
 		admittedWorkloads []*kueue.Workload
 		incomingCPU       string
-		simResults        []simulator.SchedulingResult
-		wantCalls         int
-		wantCandidates    [][]client.ObjectKey
-		wantMode          flavorassigner.FlavorAssignmentMode
+		simResults            []simulator.SchedulingResult
+		wantCalls             int
+		wantCandidates        [][]client.ObjectKey
+		wantPreemptionTargets []client.ObjectKey
+		wantMode              flavorassigner.FlavorAssignmentMode
 	}{
 		"classical preemption with BorrowWithinCohort: tries borrowing strategy first, falls back to non-borrowing strategy": {
 			enableFairSharing: false,
@@ -849,6 +861,10 @@ func TestPlanPreemptionStrategies(t *testing.T) {
 					PodPlacements: simulator.PodPlacements{
 						podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
 					},
+					PreemptedWorkloads: []client.ObjectKey{
+						{Namespace: testNamespace, Name: "victim-cohort"},
+						{Namespace: testNamespace, Name: "victim-low"},
+					},
 				},
 			},
 			wantCalls: 2,
@@ -860,6 +876,10 @@ func TestPlanPreemptionStrategies(t *testing.T) {
 					{Namespace: testNamespace, Name: "victim-cohort"},
 					{Namespace: testNamespace, Name: "victim-low"},
 				},
+			},
+			wantPreemptionTargets: []client.ObjectKey{
+				{Namespace: testNamespace, Name: "victim-cohort"},
+				{Namespace: testNamespace, Name: "victim-low"},
 			},
 			wantMode: flavorassigner.Preempt,
 		},
@@ -892,6 +912,9 @@ func TestPlanPreemptionStrategies(t *testing.T) {
 					PodPlacements: simulator.PodPlacements{
 						podKey(kueue.DefaultPodSetName, 0): {Node: testNode1},
 					},
+					PreemptedWorkloads: []client.ObjectKey{
+						{Namespace: testNamespace, Name: "borrower-low"},
+					},
 				},
 			},
 			wantCalls: 1,
@@ -900,6 +923,9 @@ func TestPlanPreemptionStrategies(t *testing.T) {
 					{Namespace: testNamespace, Name: "borrower-low"},
 					{Namespace: testNamespace, Name: "borrower-mid"},
 				},
+			},
+			wantPreemptionTargets: []client.ObjectKey{
+				{Namespace: testNamespace, Name: "borrower-low"},
 			},
 			wantMode: flavorassigner.Preempt,
 		},
@@ -992,6 +1018,13 @@ func TestPlanPreemptionStrategies(t *testing.T) {
 			}
 			if diff := cmp.Diff(tc.wantCandidates, testSim.gotCandidates); diff != "" {
 				t.Errorf("Plan() preemption candidates mismatch (-want +got):\n%s", diff)
+			}
+			var gotTargets []client.ObjectKey
+			for _, target := range gotPlan.PreemptionTargets {
+				gotTargets = append(gotTargets, client.ObjectKeyFromObject(target.WorkloadInfo.Obj))
+			}
+			if diff := cmp.Diff(tc.wantPreemptionTargets, gotTargets); diff != "" {
+				t.Errorf("Plan() preemption targets mismatch (-want +got):\n%s", diff)
 			}
 			if gotMode := gotPlan.Assignment.RepresentativeMode(); gotMode != tc.wantMode {
 				t.Errorf("Plan() RepresentativeMode() = %v, want %v", gotMode, tc.wantMode)

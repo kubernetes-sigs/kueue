@@ -1085,6 +1085,7 @@ func TestScheduleWorkload(t *testing.T) {
 		simulatorOpts  []testSimulatorOption
 		scheduleOpts   []simulator.ScheduleOption
 		wantPlacements simulator.PodPlacements
+		wantPreempted  []client.ObjectKey
 		wantError      error
 	}{
 		"no pods: no placements": {
@@ -1251,6 +1252,7 @@ func TestScheduleWorkload(t *testing.T) {
 			wantPlacements: simulator.PodPlacements{
 				key("p"): {Node: "node1"},
 			},
+			wantPreempted: []client.ObjectKey{key("victim-wl")},
 		},
 		"preemption: workload fits after preempting ordered candidate workloads": {
 			nodes: []*corev1.Node{makeNode("node1", "6")},
@@ -1290,6 +1292,7 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node1"},
 			},
+			wantPreempted: []client.ObjectKey{key("victim-2")},
 		},
 		"preemption: fails when candidate workloads do not free enough resources": {
 			nodes: []*corev1.Node{makeNode("node1", "6")},
@@ -1355,6 +1358,9 @@ func TestScheduleWorkload(t *testing.T) {
 				}
 				if diff := cmp.Diff(tc.wantPlacements, got.PodPlacements, cmpErrorMessage); diff != "" {
 					t.Errorf("attempt %d: unexpected placements (-want,+got):\n%s", attempt, diff)
+				}
+				if diff := cmp.Diff(tc.wantPreempted, got.PreemptedWorkloads); diff != "" {
+					t.Errorf("attempt %d: unexpected preempted workloads (-want,+got):\n%s", attempt, diff)
 				}
 			}
 		})

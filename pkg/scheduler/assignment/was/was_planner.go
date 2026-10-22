@@ -95,6 +95,7 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 
 	var placementSummary podSetPlacementSummary
 	var failures podSetFailureSummary
+	var preemptedWorkloads []client.ObjectKey
 	schedule := func(opts ...simulator.ScheduleOption) bool {
 		schedulingResult := p.snapshot.SchedulerSimulator.ScheduleWorkload(ctx, pods, opts...)
 		if schedulingResult.Error != nil {
@@ -102,6 +103,7 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 			return false
 		}
 		placementSummary, failures = groupByPodSet(pods, schedulingResult.PodPlacements)
+		preemptedWorkloads = schedulingResult.PreemptedWorkloads
 		return len(failures) == 0
 	}
 
@@ -111,10 +113,21 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 			ranStrategy = true
 			targets := strategy.Materialize()
 			candidates := make([]client.ObjectKey, len(targets))
+			targetsByKey := make(map[client.ObjectKey]*preemption.Target, len(targets))
 			for i, target := range targets {
-				candidates[i] = client.ObjectKeyFromObject(target.WorkloadInfo.Obj)
+				wlKey := client.ObjectKeyFromObject(target.WorkloadInfo.Obj)
+				candidates[i] = wlKey
+				targetsByKey[wlKey] = target
 			}
-			if schedule(simulator.WithPreemptionCandidates(candidates)) || plan.Error != nil {
+			if schedule(simulator.WithPreemptionCandidates(candidates)) {
+				for _, wlKey := range preemptedWorkloads {
+					if target, ok := targetsByKey[wlKey]; ok {
+						plan.PreemptionTargets = append(plan.PreemptionTargets, target)
+					}
+				}
+				break
+			}
+			if plan.Error != nil {
 				break
 			}
 		}

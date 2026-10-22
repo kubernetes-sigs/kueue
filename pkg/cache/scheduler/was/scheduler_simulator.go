@@ -157,7 +157,8 @@ func (s *wasSimulator) Simulate(ctx context.Context, fn func()) error {
 }
 
 type workloadVictim struct {
-	pods []*corev1.Pod
+	wlKey client.ObjectKey
+	pods  []*corev1.Pod
 }
 
 var _ schedlib.PreemptionVictim = (*workloadVictim)(nil)
@@ -173,7 +174,8 @@ func (s *wasSimulator) potentialVictims(candidates []client.ObjectKey) iter.Seq[
 	return func(yield func(schedlib.PreemptionVictim) bool) {
 		for _, wlKey := range candidates {
 			v := &workloadVictim{
-				pods: s.podsByWorkload.getPodsForWorkload(wlKey),
+				wlKey: wlKey,
+				pods:  s.podsByWorkload.getPodsForWorkload(wlKey),
 			}
 			if !yield(v) {
 				return
@@ -221,7 +223,20 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 		}
 	}
 
-	return simulator.SchedulingResult{PodPlacements: placements}
+	var preemptedWorkloads []client.ObjectKey
+	if len(wasResult.PreemptionVictims) > 0 {
+		preemptedWorkloads = make([]client.ObjectKey, 0, len(wasResult.PreemptionVictims))
+		for _, victim := range wasResult.PreemptionVictims {
+			if wlVictim, ok := victim.(*workloadVictim); ok {
+				preemptedWorkloads = append(preemptedWorkloads, wlVictim.wlKey)
+			}
+		}
+	}
+
+	return simulator.SchedulingResult{
+		PodPlacements:      placements,
+		PreemptedWorkloads: preemptedWorkloads,
+	}
 }
 
 func (s *wasSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {

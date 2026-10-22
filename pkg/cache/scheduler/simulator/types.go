@@ -101,8 +101,9 @@ func PreemptionCandidates(options ...ScheduleOption) []client.ObjectKey {
 
 // SchedulingResult encapsulates the node assignments for the pods of the Workload.
 type SchedulingResult struct {
-	PodPlacements PodPlacements
-	Error         error
+	PodPlacements      PodPlacements
+	PreemptedWorkloads []client.ObjectKey
+	Error              error
 }
 
 type PodPlacements map[client.ObjectKey]*PodPlacement
