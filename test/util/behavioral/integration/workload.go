@@ -23,6 +23,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/klog/v2"
 	testingclock "k8s.io/utils/clock/testing"
@@ -58,7 +59,7 @@ func FinishWorkloads(ctx context.Context, k8sClient client.Client, workloads ...
 		var newWL kueue.Workload
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(w), &newWL)).To(gomega.Succeed())
-			newWL.Status.Conditions = append(w.Status.Conditions, metav1.Condition{
+			apimeta.SetStatusCondition(&newWL.Status.Conditions, metav1.Condition{
 				Type:               kueue.WorkloadFinished,
 				Status:             metav1.ConditionTrue,
 				LastTransitionTime: metav1.Now(),
