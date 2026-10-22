@@ -551,6 +551,14 @@ const (
 	// the generic FinishOrphanedWorkloads owner-deletion check lands.
 	DeferRayServiceFinalizationForRedisCleanup featuregate.Feature = "DeferRayServiceFinalizationForRedisCleanup"
 
+	// owner: @kevin85421
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/17591
+	//
+	// Uses the HeadPodReady condition to determine RayCluster readiness instead of
+	// the cluster state, so unready workers do not block readiness of a usable head.
+	// Requires KubeRay v1.3.0 or later.
+	RayClusterHeadPodReady featuregate.Feature = "RayClusterHeadPodReady"
+
 	// owner: @j-skiba
 	//
 	// Enable caching node matching results (NodeSelector, Tolerations, Affinity) per workload/PodSet
@@ -1096,6 +1104,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	DeferRayServiceFinalizationForRedisCleanup: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	RayClusterHeadPodReady: {
+		{Version: version.MustParse("0.19"), Default: false, PreRelease: featuregate.Alpha},
 	},
 
 	TASCacheNodeMatchResults: {
