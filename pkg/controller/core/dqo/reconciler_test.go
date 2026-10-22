@@ -161,7 +161,7 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 			},
 			clusterQueues: []*kueue.ClusterQueue{
 				{
-					ObjectMeta: metav1.ObjectMeta{Name: "cq-retain"},
+					Name: "cq-retain",
 					Status: kueue.ClusterQueueStatus{
 						EffectiveQuotas: &kueue.EffectiveQuotaStatus{
 							OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
@@ -192,7 +192,7 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 				Obj(),
 			wantClusterQueues: []*kueue.ClusterQueue{
 				{
-					ObjectMeta: metav1.ObjectMeta{Name: "cq-retain"},
+					Name: "cq-retain",
 					Status: kueue.ClusterQueueStatus{
 						EffectiveQuotas: &kueue.EffectiveQuotaStatus{
 							OrchestratorRef: kueue.EffectiveQuotaStatusOrchestratorRef{
