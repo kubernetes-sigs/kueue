@@ -229,6 +229,7 @@ for pull in "${PULLS[@]}"; do
   echo "+++ About to cherry-pick the squashed PR. To reattempt:"
   echo "  $ git cherry-pick --no-rerere-autoupdate --no-commit ${squashed_commit}"
   echo
+  pick_base=$(git rev-parse HEAD)
   # Ignore rerere.autoupdate so a reused resolution still stops at the prompt.
   if ! git cherry-pick --no-rerere-autoupdate --no-commit "${squashed_commit}"; then
     # --diff-filter=U catches every unmerged state (UU, AA, DD, AU, DU, ...),
@@ -263,6 +264,11 @@ for pull in "${PULLS[@]}"; do
   git rerere
   # Clear the cherry-pick sequencer state while keeping the staged changes.
   git cherry-pick --quit
+  # A resolution committed in the other window moved HEAD; stage it again.
+  if [[ "$(git symbolic-ref -q --short HEAD)" == "${NEWBRANCHUNIQ}" ]] &&
+    git merge-base --is-ancestor "${pick_base}" HEAD; then
+    git reset -q --soft "${pick_base}"
+  fi
 
   # A cherry-pick that left nothing staged and no conflicts is a real error,
   # not something to commit.
