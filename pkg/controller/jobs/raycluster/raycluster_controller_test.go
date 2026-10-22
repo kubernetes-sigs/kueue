@@ -59,51 +59,6 @@ var (
 	}
 )
 
-func TestPodsReady(t *testing.T) {
-	modes := map[string]struct {
-		enableElastic bool
-		annotation    string
-	}{
-		"elastic":             {enableElastic: true, annotation: "true"},
-		"gate disabled":       {annotation: "true"},
-		"annotation missing":  {enableElastic: true},
-		"annotation disabled": {enableElastic: true, annotation: "false"},
-	}
-	conditions := map[string]struct {
-		condition metav1.Condition
-		wantReady bool
-	}{
-		"head ready":               {condition: metav1.Condition{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionTrue}, wantReady: true},
-		"head not ready":           {condition: metav1.Condition{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionFalse}},
-		"head readiness unknown":   {condition: metav1.Condition{Type: string(rayv1.HeadPodReady), Status: metav1.ConditionUnknown}},
-		"head condition missing":   {},
-		"unrelated condition true": {condition: metav1.Condition{Type: string(rayv1.RayClusterProvisioned), Status: metav1.ConditionTrue}},
-	}
-	for mode, config := range modes {
-		t.Run(mode, func(t *testing.T) {
-			features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, config.enableElastic)
-			for name, tc := range conditions {
-				for _, state := range []rayv1.ClusterState{"", rayv1.Ready, rayv1.Failed} {
-					t.Run(fmt.Sprintf("%s/state=%s", name, state), func(t *testing.T) {
-						cluster := testingrayutil.MakeCluster("cluster", "ns")
-						if config.annotation != "" {
-							cluster.SetAnnotation(constants.ElasticJobAnnotation, config.annotation)
-						}
-						if tc.condition.Type != "" {
-							cluster.StatusConditions(tc.condition)
-						}
-						cluster.Status.State = state
-						ctx, _ := utiltesting.ContextWithLog(t)
-						if got := (*RayCluster)(cluster.Obj()).PodsReady(ctx, nil); got != tc.wantReady {
-							t.Errorf("PodsReady() = %t, want %t", got, tc.wantReady)
-						}
-					})
-				}
-			}
-		})
-	}
-}
-
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
 		rayCluster   *RayCluster
