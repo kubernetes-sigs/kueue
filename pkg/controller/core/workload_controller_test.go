@@ -2918,6 +2918,9 @@ func runReconcileTestCases(t *testing.T, cases map[string]reconcileTestCase, fak
 				if features.Enabled(features.KueueDRAIntegrationExtendedResource) {
 					clientBuilder = clientBuilder.WithIndex(&resourcev1.DeviceClass{}, utilindexer.DeviceClassExtendedResourceNameIndex, utilindexer.IndexDeviceClassExtendedResourceName)
 				}
+				if features.Enabled(features.ElasticJobsViaWorkloadSlices) {
+					clientBuilder = clientBuilder.WithIndex(&kueue.Workload{}, utilindexer.WorkloadSliceNameKey, utilindexer.IndexWorkloadSliceName)
+				}
 				cl := clientBuilder.Build()
 				recorder := &utiltesting.EventRecorder{}
 

@@ -26,6 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/component-base/featuregate"
 	testingclock "k8s.io/utils/clock/testing"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -35,6 +36,7 @@ import (
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestReconcileRequeue(t *testing.T) {
@@ -117,6 +119,90 @@ func TestReconcileRequeue(t *testing.T) {
 						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
 						UnderlyingCause: kueue.WorkloadWaitForStart,
 						Count:           2,
+					},
+				).
+				Obj(),
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "wl", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    "EvictedDueToPodsReadyTimeout",
+					Message:   "Exceeded the PodsReady timeout ns/wl",
+				},
+			},
+		},
+		"skip PodsReady timeout eviction while a replacement workload slice is pending": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     3 * time.Second,
+					requeuingBackoffLimitCount:  new(int32(100)),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffMaxDuration: time.Duration(3600) * time.Second,
+				}),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now.Add(-5*time.Minute)).
+				AdmittedAt(true, now.Add(-5*time.Minute)).
+				Generation(1).
+				Obj(),
+			additionalObjects: []client.Object{
+				utiltestingapi.MakeWorkload("wl-2", "ns").
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/wl").
+					Obj(),
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now.Add(-5*time.Minute)).
+				AdmittedAt(true, now.Add(-5*time.Minute)).
+				Generation(1).
+				Obj(),
+			wantResult: reconcile.Result{RequeueAfter: 3 * time.Second},
+		},
+		"evict on PodsReady timeout when the replacement workload slice is deactivated": {
+			reconcilerOpts: []Option{
+				WithWaitForPodsReady(&waitForPodsReadyConfig{
+					timeout:                     3 * time.Second,
+					requeuingBackoffLimitCount:  new(int32(100)),
+					requeuingBackoffBaseSeconds: 10,
+					requeuingBackoffMaxDuration: time.Duration(3600) * time.Second,
+				}),
+			},
+			workload: utiltestingapi.MakeWorkload("wl", "ns").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now.Add(-5*time.Minute)).
+				AdmittedAt(true, now.Add(-5*time.Minute)).
+				Generation(1).
+				Obj(),
+			additionalObjects: []client.Object{
+				utiltestingapi.MakeWorkload("wl-2", "ns").
+					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
+					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/wl").
+					Active(false).
+					Obj(),
+			},
+			wantWorkload: utiltestingapi.MakeWorkload("wl", "ns").
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now.Add(-5*time.Minute)).
+				AdmittedAt(true, now.Add(-5*time.Minute)).
+				Generation(1).
+				Condition(metav1.Condition{
+					Type:               kueue.WorkloadEvicted,
+					Status:             metav1.ConditionTrue,
+					Reason:             kueue.WorkloadEvictedByPodsReadyTimeout,
+					Message:            "Exceeded the PodsReady timeout ns/wl",
+					ObservedGeneration: 1,
+				}).
+				// 10s * 2^(1-1) = 10s
+				RequeueState(new(int32(1)), new(metav1.NewTime(now.Add(10*time.Second).Truncate(time.Second)))).
+				SchedulingStatsEviction(
+					kueue.WorkloadSchedulingStatsEviction{
+						Reason:          kueue.WorkloadEvictedByPodsReadyTimeout,
+						UnderlyingCause: kueue.WorkloadWaitForStart,
+						Count:           1,
 					},
 				).
 				Obj(),
