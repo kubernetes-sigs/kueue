@@ -17,12 +17,15 @@ limitations under the License.
 package elasticjobs
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
@@ -308,8 +311,8 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		room := granted[ps] - ungatedPerPodSet[ps]
 		var toUngate []*corev1.Pod
 		if room > 0 {
-			// Ungate the lowest-named pods first for deterministic behavior.
-			slices.SortFunc(candidates, func(a, b *corev1.Pod) int { return strings.Compare(a.Name, b.Name) })
+			// Ungate the lowest completion-index pods first and lowest-name next.
+			slices.SortFunc(candidates, ungateOrder)
 			toUngate = candidates
 			if int32(len(candidates)) > room {
 				toUngate = candidates[:room]
@@ -325,6 +328,36 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		gated = append(gated, toUngate...)
 	}
 	return gated, nil
+}
+
+// ungateOrder picks which gated Pods to ungate first, treating indexed and
+// un-indexed Pods as separate ordered groups so the comparator stays a
+// strict weak ordering:
+//   - Pods with a parseable completion-index are ungated before the rest, lowest index first.
+//   - Pods without one follow, ordered by lowest name.
+func ungateOrder(a, b *corev1.Pod) int {
+	ai, aOK := completionIndex(a)
+	bi, bOK := completionIndex(b)
+	switch {
+	case aOK && bOK:
+		return cmp.Compare(ai, bi)
+	case aOK != bOK:
+		if aOK {
+			return -1
+		}
+		return 1
+	default:
+		return strings.Compare(a.Name, b.Name)
+	}
+}
+
+func completionIndex(p *corev1.Pod) (int, bool) {
+	v, ok := p.Labels[batchv1.JobCompletionIndexAnnotation]
+	if !ok {
+		return 0, false
+	}
+	n, err := strconv.Atoi(v)
+	return n, err == nil
 }
 
 // Workload predicates
