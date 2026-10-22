@@ -51,7 +51,9 @@ func (s *defaultSimulatorFactory) NewSimulator(_ context.Context, _ []*corev1.No
 
 func (s *defaultSimulatorFactory) TrackPod(_ context.Context, _ *corev1.Pod) {}
 
-func (s *defaultSimulatorFactory) UntrackPod(_ context.Context, _ client.ObjectKey) {}
+func (s *defaultSimulatorFactory) UntrackPod(_ context.Context, _ client.ObjectKey) string {
+	return ""
+}
 
 func (s *defaultSimulator) FindFeasibleNodes(
 	ctx context.Context,
