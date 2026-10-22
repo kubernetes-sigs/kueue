@@ -181,6 +181,8 @@ func TestReconcileRequeue(t *testing.T) {
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Annotation(kueue.WorkloadSliceNameAnnotation, "wl").
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "ns/wl").
+					// A deactivated replacement is never admitted, so it is not pending
+					// and does not prevent the PodsReady timeout eviction of wl.
 					Active(false).
 					Obj(),
 			},
