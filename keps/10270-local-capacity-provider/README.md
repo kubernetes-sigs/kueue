@@ -11,6 +11,7 @@
     - [Story 2: New nodes sit idle until someone edits quota](#story-2-new-nodes-sit-idle-until-someone-edits-quota)
     - [Story 3: Team shares must follow a pool that changes size](#story-3-team-shares-must-follow-a-pool-that-changes-size)
     - [Story 4: Quota lags behind nodes moved between clusters](#story-4-quota-lags-behind-nodes-moved-between-clusters)
+    - [Story 5: MultiKueue worker quotas drift from the workers' nodes](#story-5-multikueue-worker-quotas-drift-from-the-workers-nodes)
   - [Notes/Constraints/Caveats](#notesconstraintscaveats)
   - [Risks and Mitigations](#risks-and-mitigations)
     - [Quota based on current nodes blocks ProvisioningRequest scale-up](#quota-based-on-current-nodes-blocks-provisioningrequest-scale-up)
@@ -106,6 +107,8 @@ which was closed in favour of building on DQO.
 - Counting capacity that does not exist yet, such as autoscaler maximums or
   ProvisioningRequests.
 - Evicting running workloads when capacity drops.
+- Aggregating worker-cluster capacity into MultiKueue manager quota, which
+  [KEP-9988](../9988-multikueue-manager-quota-automation/README.md) covers.
 
 ## Proposal
 
@@ -219,6 +222,25 @@ With this KEP, both clusters run the setup from Story 1 or 2 with the same
 flavor labels. Cordoning a node on A removes it from A's quota immediately, and
 when it joins B and becomes Ready, B's quota grows. At every step, each cluster's
 quota matches the nodes it actually has.
+
+#### Story 5: MultiKueue worker quotas drift from the workers' nodes
+
+As a batch administrator running MultiKueue across several worker clusters, I
+want each worker to admit only what its nodes can run. Today every worker's
+`nominalQuota` is edited by hand, so a worker that loses nodes still admits
+dispatched workloads that then stay Pending, while a worker that gains nodes
+leaves them idle.
+
+With this KEP, each worker runs the setup from Story 1 or 2, so its quota follows
+its own nodes. A worker that lost capacity no longer admits the workload, and
+MultiKueue runs it on a worker that still has capacity. The manager needs no
+change.
+
+Summing the workers' node-derived quota into the manager's quota is not part of
+this KEP. It belongs to the MultiKueue capacity provider of
+[KEP-9988](../9988-multikueue-manager-quota-automation/README.md), which must
+read the workers' `effectiveQuotas`: with DQO, a worker's spec `nominalQuota` may
+hold only a ratio (Story 3).
 
 ### Notes/Constraints/Caveats
 
