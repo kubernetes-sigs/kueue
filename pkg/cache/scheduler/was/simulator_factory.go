@@ -213,6 +213,6 @@ func (s *wasSimulatorFactory) TrackPod(ctx context.Context, pod *corev1.Pod) {
 	s.pods.track(pod)
 }
 
-func (s *wasSimulatorFactory) UntrackPod(_ context.Context, key client.ObjectKey) {
-	s.pods.untrack(key)
+func (s *wasSimulatorFactory) UntrackPod(_ context.Context, key client.ObjectKey) string {
+	return s.pods.untrack(key)
 }
