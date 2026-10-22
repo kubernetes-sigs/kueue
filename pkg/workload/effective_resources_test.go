@@ -39,6 +39,12 @@ func TestEffectivePodSpecs(t *testing.T) {
 	runtimeClass := utiltesting.MakeRuntimeClass("kata", "handler").
 		PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}).
 		Obj()
+	mixedRuntimeClass := utiltesting.MakeRuntimeClass("mixed", "handler").
+		PodOverhead(corev1.ResourceList{
+			corev1.ResourceCPU:    resource.MustParse("100m"),
+			corev1.ResourceMemory: resource.MustParse("2Gi"),
+		}).
+		Obj()
 	limitRange := utiltesting.MakeLimitRange("limits", "ns").
 		WithValue("Default", corev1.ResourceCPU, "4").
 		WithValue("DefaultRequest", corev1.ResourceCPU, "2").
@@ -91,6 +97,54 @@ func TestEffectivePodSpecs(t *testing.T) {
 					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
 			},
 		},
+		"runtime class overhead overrides smaller PodSet overhead": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).
+					Limit(corev1.ResourceCPU, "3").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}).
+					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
+			},
+		},
+		"larger PodSet overhead overrides runtime class overhead": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}).
+					Limit(corev1.ResourceCPU, "3").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}).
+					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
+			},
+		},
+		"runtime class overhead is merged per resource": {
+			wl: utiltestingapi.MakeWorkload("wl", "ns").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("mixed").
+					PodOverHead(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("1Gi"),
+					}).
+					Limit(corev1.ResourceCPU, "3").Obj()).
+				Obj(),
+			wantPodSpecs: []corev1.PodSpec{
+				utiltestingapi.MakePodSet("main", 1).
+					RuntimeClass("mixed").
+					PodOverHead(corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse("500m"),
+						corev1.ResourceMemory: resource.MustParse("2Gi"),
+					}).
+					Limit(corev1.ResourceCPU, "3").Request(corev1.ResourceCPU, "3").Template.Spec,
+			},
+		},
 		"missing runtime class": {
 			wl: utiltestingapi.MakeWorkload("wl", "ns").
 				PodSets(*utiltestingapi.MakePodSet("main", 1).
@@ -135,7 +189,7 @@ func TestEffectivePodSpecs(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			cl := utiltesting.NewClientBuilder().
-				WithObjects(runtimeClass, limitRange).
+				WithObjects(runtimeClass, mixedRuntimeClass, limitRange).
 				WithIndex(&corev1.LimitRange{}, indexer.LimitRangeHasContainerOrPodType, indexer.IndexLimitRangeHasContainerOrPodType).
 				Build()
 			ctx, _ := utiltesting.ContextWithLog(t)
@@ -200,13 +254,13 @@ func TestEffectivePodSpecsKeepsOnlyAdjustedSpecs(t *testing.T) {
 				WithValue("DefaultRequest", corev1.ResourceCPU, "2").
 				Obj())},
 		},
-		"own overhead": {
+		"PodSet overhead already exceeds runtime class overhead": {
 			podSet: utiltestingapi.MakePodSet("main", 1).
 				RuntimeClass("kata").
-				PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}).
+				PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")}).
 				Request(corev1.ResourceCPU, "1").
 				Obj(),
-			inputs: AdjustmentInputs{PodOverheads: map[string]corev1.ResourceList{"kata": {corev1.ResourceCPU: resource.MustParse("2")}}},
+			inputs: AdjustmentInputs{PodOverheads: map[string]corev1.ResourceList{"kata": {corev1.ResourceCPU: resource.MustParse("1")}}},
 		},
 		"runtime class overhead": {
 			podSet: utiltestingapi.MakePodSet("main", 1).
