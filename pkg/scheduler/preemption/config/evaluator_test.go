@@ -491,7 +491,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 			preemptorCq:    "a",
 			wantCandidates: []string{"a1"},
 		},
-		"rule with matching preemptor priority class selector and candidate priority notMatchNames": {
+		"rule with matching preemptor priority class selector and candidate priorityClassSelector": {
 			clusterQueues: baseCqs,
 			config: *utiltestingalpha.MakePreemptionConfig("test").
 				Rules(
@@ -499,13 +499,19 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 						"priority-class-rule",
 						kueuealpha.Always,
 						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
-							PriorityNotMatchNames("protected-priority").
+							PriorityClassSourceRef(kueuealpha.WorkloadPriorityClassGroup, kueuealpha.WorkloadPriorityClassKind).
+							PriorityClassIn("low-priority", "protected-priority").
+							PriorityClassNotIn("protected-priority").
 							Obj(),
-					).PreemptorPriorityClassMatchNames("high-priority").Obj(),
+					).
+						PreemptorPriorityClassSourceRef(kueuealpha.WorkloadPriorityClassGroup, kueuealpha.WorkloadPriorityClassKind).
+						PreemptorPriorityClassIn("high-priority").
+						Obj(),
 				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").WorkloadPriorityClassRef("low-priority").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").WorkloadPriorityClassRef("protected-priority").SimpleReserveQuota("a", "default", now).Obj(),
+				*unitWl.Clone().Name("a3").PodPriorityClassRef("low-priority").SimpleReserveQuota("a", "default", now).Obj(),
 			},
 			preemptorWl:    unitWl.Clone().Name("a-incoming").WorkloadPriorityClassRef("high-priority").Obj(),
 			preemptorCq:    "a",
@@ -519,12 +525,29 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 						"priority-class-rule",
 						kueuealpha.Always,
 						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
-					).PreemptorPriorityClassNotMatchNames("low-priority").Obj(),
+					).PreemptorPriorityClassNotIn("low-priority").Obj(),
 				).Obj(),
 			admitted: []kueue.Workload{
 				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
 			},
 			preemptorWl:    unitWl.Clone().Name("a-incoming").WorkloadPriorityClassRef("low-priority").Obj(),
+			preemptorCq:    "a",
+			wantCandidates: []string{},
+		},
+		"rule does not apply because preemptor priority class sourceRef does not match": {
+			clusterQueues: baseCqs,
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rules(
+					utiltestingalpha.MakePreemptionRule(
+						"priority-class-rule",
+						kueuealpha.Always,
+						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
+					).PreemptorPriorityClassSourceRef(kueuealpha.WorkloadPriorityClassGroup, kueuealpha.WorkloadPriorityClassKind).Obj(),
+				).Obj(),
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			preemptorWl:    unitWl.Clone().Name("a-incoming").PodPriorityClassRef("high-priority").Obj(),
 			preemptorCq:    "a",
 			wantCandidates: []string{},
 		},

@@ -31,29 +31,30 @@ import (
 
 type priorityGetter func(log logr.Logger, wl *workload.Info) int64
 
-type priorityComparisonFilter struct {
+type priorityFilter struct {
 	log               logr.Logger
+	mode              kueuealpha.PreemptionConfigPriorityMode
 	comparison        kueuealpha.NumericComparison
 	priorityFn        priorityGetter
 	preemptorPriority int64
 }
 
-// NewPriorityComparisonFilter creates a WorkloadFilter to evaluate candidate workloads
-// based on the priority mode and comparison against the preemptor workload.
-func NewPriorityComparisonFilter(log logr.Logger, mode kueuealpha.PreemptionConfigPriorityMode, comparison kueuealpha.NumericComparison, preemptor *workload.Info) (WorkloadFilter, *FilterBuildError) {
-	if !isSupportedComparison(comparison) {
+// NewPriorityFilter creates a WorkloadFilter to evaluate candidate workloads
+// based on the priority constraint compared against the preemptor workload.
+func NewPriorityFilter(log logr.Logger, constraint kueuealpha.PreemptionConfigPriorityConstraint, preemptor *workload.Info) (WorkloadFilter, *FilterBuildError) {
+	if !isSupportedComparison(constraint.Comparison) {
 		return nil, &FilterBuildError{
 			Filter: FilterPriority,
 			Reason: ReasonUnsupportedComparison,
-			Err:    fmt.Errorf("unsupported comparison %q", comparison),
+			Err:    fmt.Errorf("unsupported comparison %q", constraint.Comparison),
 		}
 	}
 
-	filterLog := log.WithValues("filter", "Priority", "mode", mode, "comparison", comparison)
+	filterLog := log.WithValues("filter", "Priority", "mode", constraint.Mode, "comparison", constraint.Comparison)
 	preemptorLog := filterLog.WithValues("preemptor", klog.KObj(preemptor.Obj))
 
 	var priorityFn priorityGetter
-	switch mode {
+	switch constraint.Mode {
 	case kueuealpha.Base:
 		priorityFn = func(_ logr.Logger, wl *workload.Info) int64 {
 			return int64(priority.Priority(wl.Obj))
@@ -66,22 +67,23 @@ func NewPriorityComparisonFilter(log logr.Logger, mode kueuealpha.PreemptionConf
 		return nil, &FilterBuildError{
 			Filter: FilterPriority,
 			Reason: ReasonUnsupportedMode,
-			Err:    fmt.Errorf("unsupported mode %q", mode),
+			Err:    fmt.Errorf("unsupported mode %q", constraint.Mode),
 		}
 	}
 
 	preemptorPriority := priorityFn(preemptorLog, preemptor)
 
-	return &priorityComparisonFilter{
+	return &priorityFilter{
 		log:               filterLog,
-		comparison:        comparison,
+		mode:              constraint.Mode,
+		comparison:        constraint.Comparison,
 		priorityFn:        priorityFn,
 		preemptorPriority: preemptorPriority,
 	}, nil
 }
 
 // Matches evaluates a candidate workload's priority against the preemptor's priority.
-func (f *priorityComparisonFilter) Matches(wl *workload.Info) bool {
+func (f *priorityFilter) Matches(wl *workload.Info) bool {
 	candLog := f.log.WithValues("candidate", klog.KObj(wl.Obj))
 	candPriority := f.priorityFn(candLog, wl)
 	return matchesComparison(candLog, &f.comparison, candPriority, f.preemptorPriority)
@@ -92,7 +94,7 @@ type priorityClassFilter struct {
 }
 
 // NewPriorityClassFilter creates a WorkloadFilter to evaluate candidate workloads
-// based on their priority class name.
+// based on their priority class.
 func NewPriorityClassFilter(selector kueuealpha.PreemptionConfigPriorityClassSelector) WorkloadFilter {
 	return &priorityClassFilter{
 		selector: selector,
@@ -104,15 +106,36 @@ func (f *priorityClassFilter) Matches(wl *workload.Info) bool {
 	return MatchesPriorityClassSelector(&f.selector, wl)
 }
 
-// MatchesPriorityClassSelector evaluates whether a workload's spec.priorityClassRef.name
+func isEmptyPriorityClassSelector(selector *kueuealpha.PreemptionConfigPriorityClassSelector) bool {
+	return selector == nil || (selector.SourceRef == nil && len(selector.NameExpressions) == 0)
+}
+
+// MatchesPriorityClassSelector evaluates whether a workload's spec.priorityClassRef
 // matches the given PreemptionConfigPriorityClassSelector.
 func MatchesPriorityClassSelector(selector *kueuealpha.PreemptionConfigPriorityClassSelector, wl *workload.Info) bool {
-	if selector == nil {
+	if isEmptyPriorityClassSelector(selector) {
 		return true
 	}
-	name := patching.PriorityClassName(wl.Obj)
-	if len(selector.MatchNames) > 0 && !slices.Contains(selector.MatchNames, name) {
-		return false
+	if selector.SourceRef != nil {
+		ref := wl.Obj.Spec.PriorityClassRef
+		if ref == nil || string(ref.Group) != string(selector.SourceRef.Group) || string(ref.Kind) != string(selector.SourceRef.Kind) {
+			return false
+		}
 	}
-	return !slices.Contains(selector.NotMatchNames, name)
+	name := patching.PriorityClassName(wl.Obj)
+	for _, req := range selector.NameExpressions {
+		switch req.Operator {
+		case kueuealpha.PriorityClassSelectorOpIn:
+			if name == "" || !slices.Contains(req.Values, name) {
+				return false
+			}
+		case kueuealpha.PriorityClassSelectorOpNotIn:
+			if name != "" && slices.Contains(req.Values, name) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }

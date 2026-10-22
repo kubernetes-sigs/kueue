@@ -21,24 +21,26 @@ package v1alpha1
 // PreemptionConfigPriorityClassSelectorApplyConfiguration represents a declarative configuration of the PreemptionConfigPriorityClassSelector type for use
 // with apply.
 //
-// PreemptionConfigPriorityClassSelector filters workloads by their priority class name
-// (matched against the Workload's spec.priorityClassRef.name, which is populated by Kueue
+// PreemptionConfigPriorityClassSelector filters workloads by their priority class
+// (matched against the Workload's spec.priorityClassRef, which is populated by Kueue
 // for both WorkloadPriorityClass and Pod PriorityClass).
+// When both sourceRef and nameExpressions are specified, a workload must satisfy both (logical AND).
 // When WorkloadPriorityClassDefaulting is enabled and a "default" WorkloadPriorityClass exists,
 // or when a globalDefault Pod PriorityClass is configured, its name (e.g., "default") can be used
-// in matchNames or notMatchNames to match or exclude workloads that do not explicitly specify a priority class.
+// in nameExpressions to match or exclude workloads that do not explicitly specify a priority class.
 type PreemptionConfigPriorityClassSelectorApplyConfiguration struct {
-	// matchNames is an allowlist of PriorityClass or WorkloadPriorityClass names.
-	// If specified, a workload matches only if its spec.priorityClassRef.name equals
-	// any name in this list (OR semantics); if specified workloads without a priorityClassRef do not match. If not specified does not impose any class names restrictions on workloads.
+	// sourceRef filters workloads by the API group and kind of their priority class
+	// (matched against Workload.spec.priorityClassRef.group and Workload.spec.priorityClassRef.kind;
+	// workloads without a priorityClassRef do not match when sourceRef is set).
+	// If omitted, priority classes of any supported source (WorkloadPriorityClass or Pod PriorityClass) match.
 	//
-	MatchNames []string `json:"matchNames,omitempty"`
-	// notMatchNames is a denylist of PriorityClass or WorkloadPriorityClass names.
-	// If specified, a workload matches only if its spec.priorityClassRef.name does not equal
-	// any name in this list; workloads without a priorityClassRef always match. If not specified does not impose any class names restrictions on workloads.
-	// If both matchNames and notMatchNames are specified, both conditions must be satisfied (AND semantics).
+	SourceRef *PriorityClassSourceRefApplyConfiguration `json:"sourceRef,omitempty"`
+	// nameExpressions is a list of priority class name selector requirements
+	// (matched against Workload.spec.priorityClassRef.name). The requirements are ANDed.
+	// If omitted, no priority class name restrictions are enforced.
+	// When set, nameExpressions must contain at least one requirement.
 	//
-	NotMatchNames []string `json:"notMatchNames,omitempty"`
+	NameExpressions []PriorityClassSelectorRequirementApplyConfiguration `json:"nameExpressions,omitempty"`
 }
 
 // PreemptionConfigPriorityClassSelectorApplyConfiguration constructs a declarative configuration of the PreemptionConfigPriorityClassSelector type for use with
@@ -47,22 +49,23 @@ func PreemptionConfigPriorityClassSelector() *PreemptionConfigPriorityClassSelec
 	return &PreemptionConfigPriorityClassSelectorApplyConfiguration{}
 }
 
-// WithMatchNames adds the given value to the MatchNames field in the declarative configuration
-// and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the MatchNames field.
-func (b *PreemptionConfigPriorityClassSelectorApplyConfiguration) WithMatchNames(values ...string) *PreemptionConfigPriorityClassSelectorApplyConfiguration {
-	for i := range values {
-		b.MatchNames = append(b.MatchNames, values[i])
-	}
+// WithSourceRef sets the SourceRef field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the SourceRef field is set to the value of the last call.
+func (b *PreemptionConfigPriorityClassSelectorApplyConfiguration) WithSourceRef(value *PriorityClassSourceRefApplyConfiguration) *PreemptionConfigPriorityClassSelectorApplyConfiguration {
+	b.SourceRef = value
 	return b
 }
 
-// WithNotMatchNames adds the given value to the NotMatchNames field in the declarative configuration
+// WithNameExpressions adds the given value to the NameExpressions field in the declarative configuration
 // and returns the receiver, so that objects can be build by chaining "With" function invocations.
-// If called multiple times, values provided by each call will be appended to the NotMatchNames field.
-func (b *PreemptionConfigPriorityClassSelectorApplyConfiguration) WithNotMatchNames(values ...string) *PreemptionConfigPriorityClassSelectorApplyConfiguration {
+// If called multiple times, values provided by each call will be appended to the NameExpressions field.
+func (b *PreemptionConfigPriorityClassSelectorApplyConfiguration) WithNameExpressions(values ...*PriorityClassSelectorRequirementApplyConfiguration) *PreemptionConfigPriorityClassSelectorApplyConfiguration {
 	for i := range values {
-		b.NotMatchNames = append(b.NotMatchNames, values[i])
+		if values[i] == nil {
+			panic("nil value passed to WithNameExpressions")
+		}
+		b.NameExpressions = append(b.NameExpressions, *values[i])
 	}
 	return b
 }

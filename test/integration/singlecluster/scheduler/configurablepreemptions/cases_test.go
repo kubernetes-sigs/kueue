@@ -106,8 +106,8 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 					kueuealpha.QuotaFeasibleAndInsufficientTopology,
 					kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 						Priority: &kueuealpha.PreemptionConfigPriorityConstraint{
-							Mode:       new(kueuealpha.Boosted),
-							Comparison: new(kueuealpha.LessThanOrEqual),
+							Mode:       kueuealpha.Boosted,
+							Comparison: kueuealpha.LessThanOrEqual,
 						},
 						Scope: kueuealpha.AnyClusterQueue,
 						NumericLabels: []kueuealpha.PreemptionConfigNumericLabelConstraint{
@@ -398,7 +398,8 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 					kueuealpha.InsufficientQuota,
 					kueuetestalpha1.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
 						Priority(kueuealpha.Base, kueuealpha.LessThan).
-						PriorityMatchNames("low-priority").
+						PriorityClassSourceRef(kueuealpha.WorkloadPriorityClassGroup, kueuealpha.WorkloadPriorityClassKind).
+						PriorityClassIn("low-priority").
 						Obj(),
 				).
 				Obj()

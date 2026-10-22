@@ -57,10 +57,11 @@ func NewCandidateFilters(
 	if len(nErrs) > 0 {
 		errs = append(errs, nErrs...)
 	}
-	wlPriorityFilters, err := buildPriorityFilters(log, selector.Priority, preemptor)
+	wlPriorityFilter, err := buildPriorityFilter(log, selector.Priority, preemptor)
 	if err != nil {
 		errs = append(errs, err)
 	}
+	wlPriorityClassFilter := buildPriorityClassFilter(selector.PriorityClassSelector)
 
 	if len(errs) > 0 {
 		return CandidateFilters{}, errs
@@ -78,7 +79,12 @@ func NewCandidateFilters(
 		wlFilters = append(wlFilters, wlLabelFilter)
 	}
 	wlFilters = append(wlFilters, wlNumericFilters...)
-	wlFilters = append(wlFilters, wlPriorityFilters...)
+	if wlPriorityFilter != nil {
+		wlFilters = append(wlFilters, wlPriorityFilter)
+	}
+	if wlPriorityClassFilter != nil {
+		wlFilters = append(wlFilters, wlPriorityClassFilter)
+	}
 
 	return CandidateFilters{
 		CQFilters: cqFilters,
@@ -164,26 +170,24 @@ func buildWorkloadLabelFilter(
 	return NewWorkloadLabelFilter(ls), nil
 }
 
-func buildPriorityFilters(
+func buildPriorityFilter(
 	log logr.Logger,
 	priority *kueuealpha.PreemptionConfigPriorityConstraint,
 	preemptor *workload.Info,
-) ([]WorkloadFilter, *FilterBuildError) {
+) (WorkloadFilter, *FilterBuildError) {
 	if priority == nil {
 		return nil, nil
 	}
-	var filters []WorkloadFilter
-	if priority.Mode != nil && priority.Comparison != nil {
-		f, err := NewPriorityComparisonFilter(log, *priority.Mode, *priority.Comparison, preemptor)
-		if err != nil {
-			return nil, err
-		}
-		filters = append(filters, f)
+	return NewPriorityFilter(log, *priority, preemptor)
+}
+
+func buildPriorityClassFilter(
+	selector *kueuealpha.PreemptionConfigPriorityClassSelector,
+) WorkloadFilter {
+	if isEmptyPriorityClassSelector(selector) {
+		return nil
 	}
-	if len(priority.MatchNames) > 0 || len(priority.NotMatchNames) > 0 {
-		filters = append(filters, NewPriorityClassFilter(priority.PreemptionConfigPriorityClassSelector))
-	}
-	return filters, nil
+	return NewPriorityClassFilter(*selector)
 }
 
 func buildClusterQueueLabelFilter(

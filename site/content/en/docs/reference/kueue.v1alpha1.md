@@ -744,7 +744,8 @@ If not specified, no upper bound is enforced.</p>
 - [PreemptionConfigPreemptionRule](#kueue-x-k8s-io-v1alpha1-PreemptionConfigPreemptionRule)
 
 
-<p>PreemptionConfigPreemptionCandidateSelector defines the selection criteria for workloads that are candidates for preemption.</p>
+<p>PreemptionConfigPreemptionCandidateSelector defines the selection criteria for workloads that are candidates for preemption.
+All specified criteria within a candidate selector are combined using logical AND (a candidate workload must satisfy all set fields).</p>
 
 
 <table class="table">
@@ -791,6 +792,15 @@ Accepts all if not set.</p>
    <p>priority defines the requirements for the priority of candidates.
 Workloads not matching those requirements will not be considered as preemption candidates.
 If nil, no priority requirements are enforced.</p>
+</td>
+</tr>
+<tr><td><code>priorityClassSelector</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PreemptionConfigPriorityClassSelector"><code>PreemptionConfigPriorityClassSelector</code></a>
+</td>
+<td>
+   <p>priorityClassSelector filters candidate workloads by their priority class
+(matched against spec.priorityClassRef).
+Accepts all if not set.</p>
 </td>
 </tr>
 </tbody>
@@ -851,6 +861,16 @@ and the candidate workloads eligible for preemption.</p>
 using this rule. Accepts all workloads if not set.</p>
 </td>
 </tr>
+<tr><td><code>preemptorPriorityClassSelector</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PreemptionConfigPriorityClassSelector"><code>PreemptionConfigPriorityClassSelector</code></a>
+</td>
+<td>
+   <p>preemptorPriorityClassSelector filters which preempting workloads can activate this rule
+based on their priority class (matched against spec.priorityClassRef).
+When set alongside preemptorSelector, a preempting workload must satisfy both selectors (logical AND).
+If omitted or empty, workloads of any priority class can trigger this rule.</p>
+</td>
+</tr>
 <tr><td><code>activationPolicy,omitzero</code> <B>[Required]</B><br/>
 <a href="#kueue-x-k8s-io-v1alpha1-PreemptionConfigActivationPolicy"><code>PreemptionConfigActivationPolicy</code></a>
 </td>
@@ -866,6 +886,53 @@ candidates to preemption evaluation.</p>
    <p>candidateSelectors specifies the selection rules for workloads that are candidates for preemption.
 Candidates resulting from multiple selectors are summed into one set.
 No selectors result in an empty candidate set, thereby disallowing any preemptions with this rule.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PreemptionConfigPriorityClassSelector`     {#kueue-x-k8s-io-v1alpha1-PreemptionConfigPriorityClassSelector}
+    
+
+**Appears in:**
+
+- [PreemptionConfigPreemptionCandidateSelector](#kueue-x-k8s-io-v1alpha1-PreemptionConfigPreemptionCandidateSelector)
+
+- [PreemptionConfigPreemptionRule](#kueue-x-k8s-io-v1alpha1-PreemptionConfigPreemptionRule)
+
+
+<p>PreemptionConfigPriorityClassSelector filters workloads by their priority class
+(matched against the Workload's spec.priorityClassRef, which is populated by Kueue
+for both WorkloadPriorityClass and Pod PriorityClass).
+When both sourceRef and nameExpressions are specified, a workload must satisfy both (logical AND).
+When WorkloadPriorityClassDefaulting is enabled and a &quot;default&quot; WorkloadPriorityClass exists,
+or when a globalDefault Pod PriorityClass is configured, its name (e.g., &quot;default&quot;) can be used
+in nameExpressions to match or exclude workloads that do not explicitly specify a priority class.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>sourceRef</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PriorityClassSourceRef"><code>PriorityClassSourceRef</code></a>
+</td>
+<td>
+   <p>sourceRef filters workloads by the API group and kind of their priority class
+(matched against Workload.spec.priorityClassRef.group and Workload.spec.priorityClassRef.kind;
+workloads without a priorityClassRef do not match when sourceRef is set).
+If omitted, priority classes of any supported source (WorkloadPriorityClass or Pod PriorityClass) match.</p>
+</td>
+</tr>
+<tr><td><code>nameExpressions</code><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PriorityClassSelectorRequirement"><code>[]PriorityClassSelectorRequirement</code></a>
+</td>
+<td>
+   <p>nameExpressions is a list of priority class name selector requirements
+(matched against Workload.spec.priorityClassRef.name). The requirements are ANDed.
+If omitted, no priority class name restrictions are enforced.
+When set, nameExpressions must contain at least one requirement.</p>
 </td>
 </tr>
 </tbody>
@@ -946,6 +1013,124 @@ Possible values are:</p>
 </td>
 <td>
    <p>rules specifies preemption candidate selection rules.</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PriorityClassGroup`     {#kueue-x-k8s-io-v1alpha1-PriorityClassGroup}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PriorityClassSourceRef](#kueue-x-k8s-io-v1alpha1-PriorityClassSourceRef)
+
+
+<p>PriorityClassGroup indicates the API group of the PriorityClass object.</p>
+
+
+
+
+## `PriorityClassKind`     {#kueue-x-k8s-io-v1alpha1-PriorityClassKind}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PriorityClassSourceRef](#kueue-x-k8s-io-v1alpha1-PriorityClassSourceRef)
+
+
+<p>PriorityClassKind is the kind of the PriorityClass object.</p>
+
+
+
+
+## `PriorityClassSelectorOperator`     {#kueue-x-k8s-io-v1alpha1-PriorityClassSelectorOperator}
+    
+(Alias of `string`)
+
+**Appears in:**
+
+- [PriorityClassSelectorRequirement](#kueue-x-k8s-io-v1alpha1-PriorityClassSelectorRequirement)
+
+
+<p>PriorityClassSelectorOperator is the set of operators that can be used in a PriorityClassSelectorRequirement.</p>
+
+
+
+
+## `PriorityClassSelectorRequirement`     {#kueue-x-k8s-io-v1alpha1-PriorityClassSelectorRequirement}
+    
+
+**Appears in:**
+
+- [PreemptionConfigPriorityClassSelector](#kueue-x-k8s-io-v1alpha1-PreemptionConfigPriorityClassSelector)
+
+
+<p>PriorityClassSelectorRequirement is a selector that contains values and an operator
+that relates the priority class name (Workload.spec.priorityClassRef.name) to the set of values.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>operator</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PriorityClassSelectorOperator"><code>PriorityClassSelectorOperator</code></a>
+</td>
+<td>
+   <p>operator represents a priority class name's relationship to a set of values.
+Valid operators are In and NotIn.</p>
+</td>
+</tr>
+<tr><td><code>values</code> <B>[Required]</B><br/>
+<code>[]string</code>
+</td>
+<td>
+   <p>values is an array of priority class names (matched against Workload.spec.priorityClassRef.name).
+For In, a workload matches only if its spec.priorityClassRef.name equals any value in this list
+(workloads without a priorityClassRef do not match).
+For NotIn, a workload matches only if its spec.priorityClassRef.name does not equal any value
+in this list (workloads without a priorityClassRef always match).</p>
+</td>
+</tr>
+</tbody>
+</table>
+
+## `PriorityClassSourceRef`     {#kueue-x-k8s-io-v1alpha1-PriorityClassSourceRef}
+    
+
+**Appears in:**
+
+- [PreemptionConfigPriorityClassSelector](#kueue-x-k8s-io-v1alpha1-PreemptionConfigPriorityClassSelector)
+
+
+<p>PriorityClassSourceRef identifies the API group and kind of a priority class source.</p>
+
+
+<table class="table">
+<thead><tr><th width="30%">Field</th><th>Description</th></tr></thead>
+<tbody>
+    
+  
+<tr><td><code>group</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PriorityClassGroup"><code>PriorityClassGroup</code></a>
+</td>
+<td>
+   <p>group is the API group of the PriorityClass object.
+Use &quot;kueue.x-k8s.io&quot; for WorkloadPriorityClass.
+Use &quot;scheduling.k8s.io&quot; for Pod PriorityClass.</p>
+</td>
+</tr>
+<tr><td><code>kind</code> <B>[Required]</B><br/>
+<a href="#kueue-x-k8s-io-v1alpha1-PriorityClassKind"><code>PriorityClassKind</code></a>
+</td>
+<td>
+   <p>kind is the kind of the PriorityClass object.
+Use &quot;WorkloadPriorityClass&quot; for group &quot;kueue.x-k8s.io&quot;.
+Use &quot;PriorityClass&quot; for group &quot;scheduling.k8s.io&quot;.</p>
 </td>
 </tr>
 </tbody>

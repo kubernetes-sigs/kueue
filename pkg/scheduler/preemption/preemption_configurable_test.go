@@ -638,8 +638,14 @@ func TestConfigurablePreemptions(t *testing.T) {
 				Rules(
 					utiltestingalpha.MakePreemptionRule("priority-class-rule", kueuealpha.Always,
 						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
-							PriorityMatchNames("low-priority").Obj(),
-					).PreemptorPriorityClassMatchNames("high-priority").Obj(),
+							PriorityClassSourceRef(kueuealpha.WorkloadPriorityClassGroup, kueuealpha.WorkloadPriorityClassKind).
+							PriorityClassIn("low-priority", "scavenger").
+							PriorityClassNotIn("protected-low").
+							Obj(),
+					).
+						PreemptorPriorityClassSourceRef(kueuealpha.WorkloadPriorityClassGroup, kueuealpha.WorkloadPriorityClassKind).
+						PreemptorPriorityClassIn("high-priority").
+						Obj(),
 				).
 				Obj(),
 			admitted: []kueue.Workload{

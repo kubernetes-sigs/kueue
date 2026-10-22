@@ -84,6 +84,10 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1alpha1.PreemptionConfigPriorityConstraintApplyConfiguration{}
 	case v1alpha1.SchemeGroupVersion.WithKind("PreemptionConfigSpec"):
 		return &kueuev1alpha1.PreemptionConfigSpecApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PriorityClassSelectorRequirement"):
+		return &kueuev1alpha1.PriorityClassSelectorRequirementApplyConfiguration{}
+	case v1alpha1.SchemeGroupVersion.WithKind("PriorityClassSourceRef"):
+		return &kueuev1alpha1.PriorityClassSourceRefApplyConfiguration{}
 
 		// Group=kueue.x-k8s.io, Version=v1beta2
 	case v1beta2.SchemeGroupVersion.WithKind("Admission"):

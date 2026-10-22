@@ -341,21 +341,21 @@ func (r *PreemptionRuleWrapper) PreemptorSelector(ls *metav1.LabelSelector) *Pre
 	return r
 }
 
-// PreemptorPriorityClassMatchNames sets MatchNames on the rule's PreemptorPriorityClassSelector.
-func (r *PreemptionRuleWrapper) PreemptorPriorityClassMatchNames(names ...string) *PreemptionRuleWrapper {
-	if r.PreemptorPriorityClassSelector == nil {
-		r.PreemptorPriorityClassSelector = &kueuealpha.PreemptionConfigPriorityClassSelector{}
-	}
-	r.PreemptorPriorityClassSelector.MatchNames = names
+// PreemptorPriorityClassSourceRef sets SourceRef on the rule's PreemptorPriorityClassSelector.
+func (r *PreemptionRuleWrapper) PreemptorPriorityClassSourceRef(group kueuealpha.PriorityClassGroup, kind kueuealpha.PriorityClassKind) *PreemptionRuleWrapper {
+	setPriorityClassSourceRef(&r.PreemptorPriorityClassSelector, group, kind)
 	return r
 }
 
-// PreemptorPriorityClassNotMatchNames sets NotMatchNames on the rule's PreemptorPriorityClassSelector.
-func (r *PreemptionRuleWrapper) PreemptorPriorityClassNotMatchNames(names ...string) *PreemptionRuleWrapper {
-	if r.PreemptorPriorityClassSelector == nil {
-		r.PreemptorPriorityClassSelector = &kueuealpha.PreemptionConfigPriorityClassSelector{}
-	}
-	r.PreemptorPriorityClassSelector.NotMatchNames = names
+// PreemptorPriorityClassIn appends an In requirement to the rule's PreemptorPriorityClassSelector.
+func (r *PreemptionRuleWrapper) PreemptorPriorityClassIn(names ...string) *PreemptionRuleWrapper {
+	appendPriorityClassRequirement(&r.PreemptorPriorityClassSelector, kueuealpha.PriorityClassSelectorOpIn, names...)
+	return r
+}
+
+// PreemptorPriorityClassNotIn appends a NotIn requirement to the rule's PreemptorPriorityClassSelector.
+func (r *PreemptionRuleWrapper) PreemptorPriorityClassNotIn(names ...string) *PreemptionRuleWrapper {
+	appendPriorityClassRequirement(&r.PreemptorPriorityClassSelector, kueuealpha.PriorityClassSelectorOpNotIn, names...)
 	return r
 }
 
@@ -390,29 +390,28 @@ func (w *CandidateSelectorWrapper) ClusterQueueSelector(cqs *metav1.LabelSelecto
 
 // Priority sets the priority constraint for preemption candidates.
 func (w *CandidateSelectorWrapper) Priority(mode kueuealpha.PreemptionConfigPriorityMode, cmp kueuealpha.NumericComparison) *CandidateSelectorWrapper {
-	if w.PreemptionConfigPreemptionCandidateSelector.Priority == nil {
-		w.PreemptionConfigPreemptionCandidateSelector.Priority = &kueuealpha.PreemptionConfigPriorityConstraint{}
+	w.PreemptionConfigPreemptionCandidateSelector.Priority = &kueuealpha.PreemptionConfigPriorityConstraint{
+		Mode:       mode,
+		Comparison: cmp,
 	}
-	w.PreemptionConfigPreemptionCandidateSelector.Priority.Mode = new(mode)
-	w.PreemptionConfigPreemptionCandidateSelector.Priority.Comparison = new(cmp)
 	return w
 }
 
-// PriorityMatchNames sets matchNames on the candidate priority constraint.
-func (w *CandidateSelectorWrapper) PriorityMatchNames(names ...string) *CandidateSelectorWrapper {
-	if w.PreemptionConfigPreemptionCandidateSelector.Priority == nil {
-		w.PreemptionConfigPreemptionCandidateSelector.Priority = &kueuealpha.PreemptionConfigPriorityConstraint{}
-	}
-	w.PreemptionConfigPreemptionCandidateSelector.Priority.MatchNames = names
+// PriorityClassSourceRef sets SourceRef on the candidate's PriorityClassSelector.
+func (w *CandidateSelectorWrapper) PriorityClassSourceRef(group kueuealpha.PriorityClassGroup, kind kueuealpha.PriorityClassKind) *CandidateSelectorWrapper {
+	setPriorityClassSourceRef(&w.PriorityClassSelector, group, kind)
 	return w
 }
 
-// PriorityNotMatchNames sets notMatchNames on the candidate priority constraint.
-func (w *CandidateSelectorWrapper) PriorityNotMatchNames(names ...string) *CandidateSelectorWrapper {
-	if w.PreemptionConfigPreemptionCandidateSelector.Priority == nil {
-		w.PreemptionConfigPreemptionCandidateSelector.Priority = &kueuealpha.PreemptionConfigPriorityConstraint{}
-	}
-	w.PreemptionConfigPreemptionCandidateSelector.Priority.NotMatchNames = names
+// PriorityClassIn appends an In requirement to the candidate's PriorityClassSelector.
+func (w *CandidateSelectorWrapper) PriorityClassIn(names ...string) *CandidateSelectorWrapper {
+	appendPriorityClassRequirement(&w.PriorityClassSelector, kueuealpha.PriorityClassSelectorOpIn, names...)
+	return w
+}
+
+// PriorityClassNotIn appends a NotIn requirement to the candidate's PriorityClassSelector.
+func (w *CandidateSelectorWrapper) PriorityClassNotIn(names ...string) *CandidateSelectorWrapper {
+	appendPriorityClassRequirement(&w.PriorityClassSelector, kueuealpha.PriorityClassSelectorOpNotIn, names...)
 	return w
 }
 
@@ -425,4 +424,32 @@ func (w *CandidateSelectorWrapper) NumericLabels(constraints ...kueuealpha.Preem
 // Obj returns the inner PreemptionConfigPreemptionCandidateSelector.
 func (w *CandidateSelectorWrapper) Obj() kueuealpha.PreemptionConfigPreemptionCandidateSelector {
 	return w.PreemptionConfigPreemptionCandidateSelector
+}
+
+func setPriorityClassSourceRef(
+	selector **kueuealpha.PreemptionConfigPriorityClassSelector,
+	group kueuealpha.PriorityClassGroup,
+	kind kueuealpha.PriorityClassKind,
+) {
+	if *selector == nil {
+		*selector = &kueuealpha.PreemptionConfigPriorityClassSelector{}
+	}
+	(*selector).SourceRef = &kueuealpha.PriorityClassSourceRef{
+		Group: group,
+		Kind:  kind,
+	}
+}
+
+func appendPriorityClassRequirement(
+	selector **kueuealpha.PreemptionConfigPriorityClassSelector,
+	operator kueuealpha.PriorityClassSelectorOperator,
+	names ...string,
+) {
+	if *selector == nil {
+		*selector = &kueuealpha.PreemptionConfigPriorityClassSelector{}
+	}
+	(*selector).NameExpressions = append((*selector).NameExpressions, kueuealpha.PriorityClassSelectorRequirement{
+		Operator: operator,
+		Values:   names,
+	})
 }

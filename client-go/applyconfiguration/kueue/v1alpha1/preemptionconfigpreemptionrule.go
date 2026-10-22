@@ -36,7 +36,8 @@ type PreemptionConfigPreemptionRuleApplyConfiguration struct {
 	//
 	PreemptorSelector *v1.LabelSelectorApplyConfiguration `json:"preemptorSelector,omitempty"`
 	// preemptorPriorityClassSelector filters which preempting workloads can activate this rule
-	// based on their spec.priorityClassRef.name.
+	// based on their priority class (matched against spec.priorityClassRef).
+	// When set alongside preemptorSelector, a preempting workload must satisfy both selectors (logical AND).
 	// If omitted or empty, workloads of any priority class can trigger this rule.
 	//
 	PreemptorPriorityClassSelector *PreemptionConfigPriorityClassSelectorApplyConfiguration `json:"preemptorPriorityClassSelector,omitempty"`
