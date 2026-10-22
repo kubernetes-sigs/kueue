@@ -260,6 +260,12 @@ func (p *PodWrapper) NodeSelector(k, v string) *PodWrapper {
 	return p
 }
 
+// SchedulingGroup makes the Pod belong to the given PodGroup.
+func (p *PodWrapper) SchedulingGroup(podGroupName string) *PodWrapper {
+	p.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{PodGroupName: &podGroupName}
+	return p
+}
+
 func (p *PodWrapper) RequiredDuringSchedulingIgnoredDuringExecution(nodeSelectorTerms []corev1.NodeSelectorTerm) *PodWrapper {
 	if p.Spec.Affinity == nil {
 		p.Spec.Affinity = &corev1.Affinity{}
@@ -424,6 +430,12 @@ func (p *PodWrapper) CreationTimestamp(t time.Time) *PodWrapper {
 func (p *PodWrapper) DeletionTimestamp(t time.Time) *PodWrapper {
 	timestamp := metav1.NewTime(t).Rfc3339Copy()
 	p.Pod.DeletionTimestamp = &timestamp
+	return p
+}
+
+// DeletionGracePeriod sets the deletion grace period recorded by the API server.
+func (p *PodWrapper) DeletionGracePeriod(seconds int64) *PodWrapper {
+	p.DeletionGracePeriodSeconds = &seconds
 	return p
 }
 

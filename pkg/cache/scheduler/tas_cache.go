@@ -161,8 +161,9 @@ func (t *tasCache) TrackPod(ctx context.Context, pod *corev1.Pod) {
 }
 
 // UntrackPod notifies the scheduling simulator that a pod has been removed.
-func (t *tasCache) UntrackPod(ctx context.Context, key client.ObjectKey) {
-	t.simulatorFactory.UntrackPod(ctx, key)
+// Returns the node name when a tracked pod is removed.
+func (t *tasCache) UntrackPod(ctx context.Context, key client.ObjectKey) string {
+	return t.simulatorFactory.UntrackPod(ctx, key)
 }
 
 func (t *tasCache) SyncNode(node *corev1.Node) {

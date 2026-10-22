@@ -24,6 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	componentconfigv1alpha1 "k8s.io/component-base/config/v1alpha1"
+
+	"sigs.k8s.io/kueue/pkg/features"
 )
 
 const (
@@ -197,7 +199,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					CertDir: overwriteWebhookCertDir,
 				},
 				Metrics: ControllerMetrics{
-					BindAddress: overwriteMetricBindAddress,
+					AccessControlMode: new(MetricsAccessControlModeNone),
+					BindAddress:       overwriteMetricBindAddress,
 					LocalQueueMetrics: &LocalQueueMetrics{
 						Enable: false,
 					},
@@ -226,7 +229,8 @@ func TestSetDefaults_Configuration(t *testing.T) {
 					CertDir: overwriteWebhookCertDir,
 				},
 				Metrics: ControllerMetrics{
-					BindAddress: overwriteMetricBindAddress,
+					AccessControlMode: new(MetricsAccessControlModeNone),
+					BindAddress:       overwriteMetricBindAddress,
 					LocalQueueMetrics: &LocalQueueMetrics{
 						Enable: false,
 					},
@@ -733,6 +737,31 @@ func TestSetDefaults_Configuration(t *testing.T) {
 			SetDefaults_Configuration(tc.original)
 			if diff := cmp.Diff(tc.want, tc.original); diff != "" {
 				t.Errorf("unexpected error (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestSetDefaults_ConfigurationMetricsAccessControl(t *testing.T) {
+	cases := map[string]struct {
+		gate bool
+		mode *MetricsAccessControlMode
+		want *MetricsAccessControlMode
+	}{
+		"unset without gate":              {},
+		"unset with gate":                 {gate: true, want: new(MetricsAccessControlModeDelegated)},
+		"explicit delegated without gate": {mode: new(MetricsAccessControlModeDelegated), want: new(MetricsAccessControlModeDelegated)},
+		"explicit none without gate":      {mode: new(MetricsAccessControlModeNone), want: new(MetricsAccessControlModeNone)},
+		"explicit none with gate":         {gate: true, mode: new(MetricsAccessControlModeNone), want: new(MetricsAccessControlModeNone)},
+		"explicit empty with gate":        {gate: true, mode: new(MetricsAccessControlMode("")), want: new(MetricsAccessControlMode(""))},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.MetricsAccessControl, tc.gate)
+			cfg := &Configuration{Metrics: ControllerMetrics{AccessControlMode: tc.mode}}
+			SetDefaults_Configuration(cfg)
+			if diff := cmp.Diff(tc.want, cfg.Metrics.AccessControlMode); diff != "" {
+				t.Errorf("unexpected metrics access control mode (-want,+got):\n%s", diff)
 			}
 		})
 	}

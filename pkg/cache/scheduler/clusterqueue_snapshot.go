@@ -230,6 +230,7 @@ func (c *ClusterQueueSnapshot) FindTopologyAssignmentsForWorkload(
 	if opts.simulateEmpty {
 		spreadCountsOpts = []TopologySpreadCountsOption{WithSpreadCountsSimulateEmpty(true)}
 	}
+
 	for _, tasFlavor := range slices.Sorted(maps.Keys(tasRequestsByFlavor)) {
 		flavorTASRequests := tasRequestsByFlavor[tasFlavor]
 		// We assume the `tasFlavor` is already in the snapshot as this was

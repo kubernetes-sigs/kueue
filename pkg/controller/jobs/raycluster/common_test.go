@@ -45,6 +45,7 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingrayutil "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjobutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
+	testingrayserviceutil "sigs.k8s.io/kueue/pkg/util/testingjobs/rayservice"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -871,6 +872,26 @@ func TestUpdatePodSets(t *testing.T) {
 				*utiltestingapi.MakePodSet("workers", 3).Obj(),
 			},
 		},
+		"RayService child RayCluster absent on the manager - counts fall back to the MultiKueue runtime annotation": {
+			podSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 3).Obj(),
+			},
+			object: testingrayserviceutil.MakeService("rayservice-owner", "ns").
+				ManagedBy(kueue.MultiKueueControllerName).
+				Annotation("kueue.x-k8s.io/elastic-job", "true").
+				Annotation(RayClusterPodsetReplicaSizesAnnotation, `[{"name":"workers","count":5}]`).
+				Obj(),
+			enableInTreeAutoscaling:              new(true),
+			enableMultiKueueRayInTreeAutoscaling: true,
+			rayClusterName:                       "nonexistent-child",
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
+				*utiltestingapi.MakePodSet("workers", 5).
+					PodIndexLabel(new(rayutils.RayWorkerReplicaIndexKey)).
+					SubGroupCount(new(int32(5))).Obj(),
+			},
+		},
 		"empty rayClusterName - no update": {
 			podSets: []kueue.PodSet{
 				*utiltestingapi.MakePodSet(headGroupPodSetName, 1).Obj(),
@@ -1228,6 +1249,81 @@ func TestUpdateRayClusterSpecToRunWithPodSetsInfo(t *testing.T) {
 							Spec: corev1.PodSpec{
 								Containers:   []corev1.Container{{Name: "worker2"}},
 								NodeSelector: map[string]string{"node-type": "worker2"},
+							},
+						},
+					},
+				},
+			},
+		},
+		"pod-index-offset 0 is set on Pod templates in a PodSet group": {
+			rayClusterSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{kueue.PodSetGroupName: "group"},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers1",
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{kueue.PodSetGroupName: "group"},
+							},
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker1"}},
+							},
+						},
+					},
+					{
+						GroupName: "workers2",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker2"}},
+							},
+						},
+					},
+				},
+			},
+			podSetsInfo: []podset.PodSetInfo{{}, {}, {}},
+			wantSpec: &rayv1.RayClusterSpec{
+				HeadGroupSpec: rayv1.HeadGroupSpec{
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Annotations: map[string]string{
+								kueue.PodSetGroupName:          "group",
+								kueue.PodIndexOffsetAnnotation: "0",
+							},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{{Name: "head"}},
+						},
+					},
+				},
+				WorkerGroupSpecs: []rayv1.WorkerGroupSpec{
+					{
+						GroupName: "workers1",
+						Template: corev1.PodTemplateSpec{
+							ObjectMeta: metav1.ObjectMeta{
+								Annotations: map[string]string{
+									kueue.PodSetGroupName:          "group",
+									kueue.PodIndexOffsetAnnotation: "0",
+								},
+							},
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker1"}},
+							},
+						},
+					},
+					{
+						GroupName: "workers2",
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{{Name: "worker2"}},
 							},
 						},
 					},

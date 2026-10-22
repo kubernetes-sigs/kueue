@@ -75,6 +75,10 @@ var _ = ginkgo.AfterSuite(func() {
 	fwk.Teardown()
 })
 
+// clusterQueueWatchers are passed to the core controllers by the next
+// manager setup. Tests that set it must reset it.
+var clusterQueueWatchers []core.ClusterQueueUpdateWatcher
+
 func managerSetupWithConfig(
 	controllersCfg *config.Configuration,
 	resourceTransformations ...config.ResourceTransformation,
@@ -125,7 +129,10 @@ func managerSetupWithClientTransform(
 			queues,
 			cCache,
 			controllersCfg,
-			core.SetupControllersOpts{PreemptionExpectations: preemptionExpectations},
+			core.SetupControllersOpts{
+				PreemptionExpectations: preemptionExpectations,
+				ClusterQueueWatchers:   clusterQueueWatchers,
+			},
 		)
 		gomega.Expect(err).ToNot(gomega.HaveOccurred(), "Core controller", failedCtrl)
 
@@ -156,7 +163,7 @@ func managerSetupWithClientTransform(
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 			scheduler.WithFairSharing(controllersCfg.FairSharing),
 		)
-		err = sched.Start(ctx)
+		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }

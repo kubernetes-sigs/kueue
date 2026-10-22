@@ -416,6 +416,71 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 			wantEvents: nil,
 		},
+		"job with WaitForPodsReadyAnnotation annotation when feature gate disabled should not propagate annotation": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: false},
+			req:          baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":100}`).
+				Obj(),
+			podSets: basePodSets,
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().
+					Name("job-test-job-ce737").
+					Obj(),
+			},
+		},
+		"elastic job with WaitForPodsReadyAnnotation annotation when feature gate disabled should not propagate annotation": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:  true,
+				features.WorkloadLevelWaitForPodsReady: false,
+			},
+			req: baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":200}`).
+				Obj(),
+			podSets: basePodSets,
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-3991b").
+					Annotations(map[string]string{
+						workloadslicing.EnabledAnnotationKey: workloadslicing.EnabledAnnotationValue,
+						kueue.WorkloadSliceNameAnnotation:    "job-test-job-3991b",
+					}).
+					Obj(),
+			},
+		},
+		"should not propagate WaitForPodsReadyAnnotation annotation to an existing workload nor emit an event when feature gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.WorkloadLevelWaitForPodsReady: false},
+			req:          baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":200}`).
+				Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").Obj(),
+			},
+		},
+		"elastic job should not propagate WaitForPodsReadyAnnotation annotation to an existing workload nor emit an event when feature gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:  true,
+				features.WorkloadLevelWaitForPodsReady: false,
+			},
+			req: baseReq,
+			job: baseJob.Clone().
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(constants.WaitForPodsReadyAnnotation, `{"timeoutSeconds":200}`).
+				Obj(),
+			podSets: basePodSets,
+			objs: []client.Object{
+				baseWl.Clone().Name("job-test-job-1").Obj(),
+			},
+			wantWorkloads: []kueue.Workload{
+				*baseWl.Clone().Name("job-test-job-1").Obj(),
+			},
+		},
 		"running admitted elastic job does not refresh PodSets or emit another admission event": {
 			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices: true,
@@ -608,7 +673,7 @@ func TestReconcileGenericJob(t *testing.T) {
 				},
 			},
 		},
-		"waitForPodsReady disabled does not add the workload annotation": {
+		"waitForPodsReady without scheduling tracking adds the workload annotation": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: true,
 				features.TopologyAwareScheduling:            false,
@@ -661,9 +726,11 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 			wantPodSets: []podset.PodSetInfo{
 				{
-					Name:        "main",
-					Count:       1,
-					Annotations: map[string]string{},
+					Name:  "main",
+					Count: 1,
+					Annotations: map[string]string{
+						kueue.WorkloadAnnotation: "job-test-job-1",
+					},
 					Labels: map[string]string{
 						kueueconstants.ClusterQueueLabel: "default-cq",
 						kueueconstants.LocalQueueLabel:   "test-lq",
@@ -673,7 +740,7 @@ func TestReconcileGenericJob(t *testing.T) {
 				},
 			},
 		},
-		"scheduling tracking disabled does not add the workload annotation": {
+		"workload annotation is added when all related feature gates are disabled": {
 			featureGates: map[featuregate.Feature]bool{
 				features.WaitForPodsReadyUnscheduledTimeout: false,
 				features.TopologyAwareScheduling:            false,
@@ -729,9 +796,11 @@ func TestReconcileGenericJob(t *testing.T) {
 			},
 			wantPodSets: []podset.PodSetInfo{
 				{
-					Name:        "main",
-					Count:       1,
-					Annotations: map[string]string{},
+					Name:  "main",
+					Count: 1,
+					Annotations: map[string]string{
+						kueue.WorkloadAnnotation: "job-test-job-1",
+					},
 					Labels: map[string]string{
 						kueueconstants.ClusterQueueLabel: "default-cq",
 						kueueconstants.LocalQueueLabel:   "test-lq",

@@ -2122,3 +2122,27 @@ func TestStopAndRemoveClusterClearsStatusMetric(t *testing.T) {
 		t.Errorf("expected worker2 to still be reported as active, got %v", got)
 	}
 }
+
+func TestShouldWatchClusterProfiles(t *testing.T) {
+	cases := map[string]struct {
+		gateEnabled bool
+		crdPresent  bool
+		want        bool
+	}{
+		"gate off, crd absent":  {gateEnabled: false, crdPresent: false, want: false},
+		"gate off, crd present": {gateEnabled: false, crdPresent: true, want: false},
+		// Regression for issue 17133: gate on without the CRD must not register
+		// the watch, otherwise cache sync fails and the manager exits.
+		"gate on, crd absent":  {gateEnabled: true, crdPresent: false, want: false},
+		"gate on, crd present": {gateEnabled: true, crdPresent: true, want: true},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.MultiKueueClusterProfile, tc.gateEnabled)
+			c := &clustersReconciler{clusterProfileCRDPresent: tc.crdPresent}
+			if got := c.shouldWatchClusterProfiles(); got != tc.want {
+				t.Errorf("shouldWatchClusterProfiles() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

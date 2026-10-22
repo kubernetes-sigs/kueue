@@ -24,7 +24,6 @@ import (
 	"os"
 	"slices"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	apiextensionsclient "k8s.io/apiextensions-apiserver/pkg/client/clientset/clientset"
@@ -272,29 +271,39 @@ func Load(scheme *runtime.Scheme, configFile string) (ctrl.Options, configapi.Co
 // returns Forbidden instead of NotFound and the manager exits.
 // +kubebuilder:rbac:groups="apiextensions.k8s.io",resources=customresourcedefinitions,resourceNames=clusterprofiles.multicluster.x-k8s.io,verbs=get
 
-// ConfigureClusterProfileCache creates the CRD client from kubeConfig and delegates
-// to ConfigureClusterProfileCacheWithClient. Keeping this wrapper preserves the
+// ClusterProfileCRDPresent creates the CRD client from kubeConfig and delegates
+// to clusterProfileCRDPresentWithClient. Keeping this wrapper preserves the
 // original API while enabling dependency injection via the WithClient function.
-func ConfigureClusterProfileCache(ctx context.Context, log logr.Logger, options *ctrl.Options, kubeConfig *rest.Config, cfg configapi.Configuration) error {
+// It reports whether the ClusterProfile CRD is installed so the caller can avoid
+// registering a ClusterProfile watch with no backing cache entry. The downstream
+// cache configuration is decoupled into ConfigureClusterProfileCache.
+func ClusterProfileCRDPresent(ctx context.Context, kubeConfig *rest.Config) (bool, error) {
 	crdClient, err := apiextensionsclient.NewForConfig(kubeConfig)
 	if err != nil {
-		return fmt.Errorf("failed creating the CRD client: %w", err)
+		return false, fmt.Errorf("failed creating the CRD client: %w", err)
 	}
-	return configureClusterProfileCacheWithClient(ctx, log, options, crdClient, cfg)
+	return clusterProfileCRDPresentWithClient(ctx, crdClient)
 }
 
-func configureClusterProfileCacheWithClient(ctx context.Context, log logr.Logger, options *ctrl.Options, crdClient apiextensionsclient.Interface, cfg configapi.Configuration) error {
+func clusterProfileCRDPresentWithClient(ctx context.Context, crdClient apiextensionsclient.Interface) (bool, error) {
 	crd, err := crdClient.ApiextensionsV1().CustomResourceDefinitions().Get(ctx, "clusterprofiles.multicluster.x-k8s.io", metav1.GetOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			log.Info("Skipping MultiKueue ClusterProfile setup as the ClusterProfile CRD is not installed")
-			return nil
+			return false, nil
 		}
-		return fmt.Errorf("failed loading the ClusterProfile CRD: %w", err)
+		return false, fmt.Errorf("failed loading the ClusterProfile CRD: %w", err)
 	}
 	if servedVersions := servedCRDVersions(crd); !slices.Contains(servedVersions, inventoryv1alpha2.GroupVersion.Version) {
-		return fmt.Errorf("the ClusterProfile CRD does not serve %s, which Kueue requires; served versions: %v", inventoryv1alpha2.GroupVersion, servedVersions)
+		return false, fmt.Errorf("the ClusterProfile CRD does not serve %s, which Kueue requires; served versions: %v", inventoryv1alpha2.GroupVersion, servedVersions)
 	}
+	return true, nil
+}
+
+// ConfigureClusterProfileCache registers the ClusterProfile cache entry on the
+// manager options. It must only be called when the ClusterProfile CRD is present
+// (see ClusterProfileCRDPresent) and runs before NewManager, so it mutates the
+// cache options rather than using the manager's RESTMapper.
+func ConfigureClusterProfileCache(options *ctrl.Options, cfg configapi.Configuration) {
 	if options.Cache.ByObject == nil {
 		options.Cache.ByObject = make(map[ctrlclient.Object]ctrlcache.ByObject)
 	}
@@ -303,7 +312,6 @@ func configureClusterProfileCacheWithClient(ctx context.Context, log logr.Logger
 			*cfg.Namespace: {},
 		},
 	}
-	return nil
 }
 
 func servedCRDVersions(crd *apiextensionsv1.CustomResourceDefinition) []string {
