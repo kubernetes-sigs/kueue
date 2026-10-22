@@ -22,6 +22,7 @@ import (
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -35,6 +36,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/equality"
+	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -80,6 +83,7 @@ type RayCluster rayv1.RayCluster
 var _ jobframework.GenericJob = (*RayCluster)(nil)
 var _ jobframework.JobWithManagedBy = (*RayCluster)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayCluster)(nil)
+var _ jobframework.JobWithPodsReadyWorkload = (*RayCluster)(nil)
 
 func (j *RayCluster) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
 	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
@@ -155,7 +159,29 @@ func (j *RayCluster) Finished(ctx context.Context) (message string, success, fin
 }
 
 func (j *RayCluster) PodsReady(ctx context.Context, _ client.Client) bool {
+	if isAnElasticJob((*rayv1.RayCluster)(j)) {
+		// Workers waiting for scale-up quota must not prevent the admitted head
+		// from becoming ready. State may also retain an earlier Ready value
+		// after the head becomes unready, so use the head condition directly.
+		return apimeta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.HeadPodReady))
+	}
 	return j.Status.State == rayv1.Ready
+}
+
+func (j *RayCluster) PodsReadyWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) (*kueue.Workload, error) {
+	if !isAnElasticJob((*rayv1.RayCluster)(j)) || workload.IsAdmitted(wl) || jobframework.PrebuiltWorkloadNameFor(j.Object()) != "" {
+		return wl, nil
+	}
+	// A pending scale-up is selected for reconciliation, but the retained
+	// admitted slice still needs readiness updates while its quota is in use.
+	active, err := workloadslicing.FindLatestActiveWorkload(ctx, c, j.Object(), j.GVK())
+	if err != nil {
+		return nil, err
+	}
+	if active != nil && workload.IsAdmitted(active) {
+		return active, nil
+	}
+	return wl, nil
 }
 
 // GetWorkloadNameExtraPart folds the worker-reflected RayCluster generation

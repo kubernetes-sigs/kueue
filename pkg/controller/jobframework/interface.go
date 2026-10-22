@@ -191,6 +191,14 @@ type JobWithCustomWorkloadConditions interface {
 	CustomWorkloadConditions(wl *kueue.Workload) ([]metav1.Condition, bool)
 }
 
+// JobWithPodsReadyWorkload selects the Workload whose readiness should be updated
+// when it differs from the Workload selected for job reconciliation.
+type JobWithPodsReadyWorkload interface {
+	// PodsReadyWorkload returns a non-nil Workload to receive PodsReady updates.
+	// The selected Workload does not change the rest of job reconciliation.
+	PodsReadyWorkload(ctx context.Context, c client.Client, wl *kueue.Workload) (*kueue.Workload, error)
+}
+
 // JobWithCustomEquivalenceOptions is an optional interface that should be implemented
 // by generic jobs when custom ComparePodSetsOption need to be passed to EquivalentToWorkload.
 type JobWithCustomEquivalenceOptions interface {
