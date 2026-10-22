@@ -203,28 +203,27 @@ precedence, including an empty string; merge structured overrides when YAML is a
 {{- end }}
 {{- end }}
 
-{{/*
-Resolve a ControllerManager port as the runtime does: a missing or null section or
-value, or a non-positive port, falls back to the default.
-*/}}
-{{- define "kueue.networkPolicy.port" -}}
-{{- $port := get (get .config .section | default dict) .key | default 0 | int -}}
-{{- ternary $port .default (gt $port 0) -}}
-{{- end }}
-
 {{/* ControllerManager ingress ports follow its configuration rather than chart defaults. */}}
 {{- define "kueue.networkPolicy.managerIngress" -}}
 {{- $config := include "kueue.managerConfig" . | fromYaml -}}
 {{- $metricsAddress := get (get $config "metrics" | default dict) "bindAddress" | default ":8443" -}}
 {{- $healthAddress := get (get $config "health" | default dict) "healthProbeBindAddress" | default ":8081" -}}
+{{- $webhookPort := get (get $config "webhook" | default dict) "port" | default 9443 | int -}}
+{{- $visibility := get $config "visibilityServer" | default dict -}}
+{{- $visibilityPort := 8082 -}}
+{{- if and (hasKey $visibility "bindPort") (ne $visibility.bindPort nil) -}}
+{{- $visibilityPort = int $visibility.bindPort -}}
+{{- end -}}
 {{- with .Values.networkPolicy.extraIngress }}
 {{ toYaml . }}
 {{- end }}
 - ports:
+{{- if gt $webhookPort 0 }}
     - protocol: TCP
-      port: {{ include "kueue.networkPolicy.port" (dict "config" $config "section" "webhook" "key" "port" "default" 9443) }}
+      port: {{ $webhookPort }}
+{{- end }}
     - protocol: TCP
-      port: {{ include "kueue.networkPolicy.port" (dict "config" $config "section" "visibilityServer" "key" "bindPort" "default" 8082) }}
+      port: {{ $visibilityPort }}
 {{- if ne $metricsAddress "0" }}
 - ports:
     - protocol: TCP

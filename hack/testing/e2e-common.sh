@@ -998,7 +998,7 @@ function cluster_kueue_deploy {
     fi
 
     if e2e_is_truthy "${E2E_NETWORK_POLICIES:-}" && [ "$E2E_USE_HELM" != 'true' ]; then
-        $KUSTOMIZE build "${ROOT_DIR}/config/networkpolicy" | kubectl apply --kubeconfig="$1" --server-side -f -
+        build_and_apply_kueue_manifests "$1" "${ROOT_DIR}/config/networkpolicy"
     fi
 
     wait_for_kueue_controller_operator "$1"

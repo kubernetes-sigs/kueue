@@ -166,7 +166,7 @@ tests:
             - protocol: TCP
               port: 8082
 
-  - it: should use default ports for a negative webhook port
+  - it: should omit the webhook port when it is negative
     template: networkpolicy/manager-ingress.yaml
     set:
       networkPolicy.enabled: true
@@ -175,8 +175,10 @@ tests:
           port: -1
     asserts:
       - equal:
-          path: spec.ingress[0].ports[0].port
-          value: 9443
+          path: spec.ingress[0].ports
+          value:
+            - protocol: TCP
+              port: 8082
 
   - it: should use default ports for null config sections
     template: networkpolicy/manager-ingress.yaml
