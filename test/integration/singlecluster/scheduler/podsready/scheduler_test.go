@@ -422,7 +422,8 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 	var _ = ginkgo.Context("RequeueState reset on sustained PodsReady", ginkgo.Label("feature:resetrequeuestateonpodsready"), func() {
 		ginkgo.BeforeEach(func() {
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ResetRequeueStateOnPodsReady, true)
-			podsReadyTimeout = behavioral.ShortTimeout
+			// Leaves time to mark the re-admitted workload PodsReady before this timeout evicts it again.
+			podsReadyTimeout = 3 * time.Second
 			requeueingBackoffLimitCount = new(int32(2))
 		})
 

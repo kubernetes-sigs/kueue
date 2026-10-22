@@ -1289,9 +1289,9 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 
 // reconcileRequeueStateReset clears the requeueState of an admitted Workload
 // whose PodsReady condition has been True for at least the resolved
-// WaitForPodsReady timeout. The window restarts on every transition of PodsReady
-// to True. It returns the time left until the window is complete, or 0 if the
-// requeueState does not apply or was just cleared.
+// WaitForPodsReady timeout. The window starts at the later of the admission and
+// the last transition of PodsReady to True. It returns the time left until the
+// window is complete, or 0 if the requeueState does not apply or was just cleared.
 func (r *WorkloadReconciler) reconcileRequeueStateReset(ctx context.Context, wl *kueue.Workload) (time.Duration, error) {
 	if !features.Enabled(features.ResetRequeueStateOnPodsReady) {
 		return 0, nil
@@ -1312,7 +1312,14 @@ func (r *WorkloadReconciler) reconcileRequeueStateReset(ctx context.Context, wl 
 	if !ok {
 		return 0, nil
 	}
-	if recheckAfter := r.remainingUntil(podsReadyCond.LastTransitionTime.Add(timeout)); recheckAfter > 0 {
+	// Measure from the later of the admission and the transition to PodsReady=True: a True
+	// condition kept from an earlier admission does not count. The job reconciler resets it
+	// only on its next reconcile, so a quick re-admission can leave it in place.
+	readySince := podsReadyCond.LastTransitionTime.Time
+	if admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time; admittedAt.After(readySince) {
+		readySince = admittedAt
+	}
+	if recheckAfter := r.remainingUntil(readySince.Add(timeout)); recheckAfter > 0 {
 		return recheckAfter, nil
 	}
 
