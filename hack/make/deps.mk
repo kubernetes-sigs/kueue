@@ -88,7 +88,8 @@ golangci-lint: gomod-download-tools ## Download golangci-lint locally if necessa
 
 .PHONY: golangci-lint-kal
 golangci-lint-kal: golangci-lint ## Build golangci-lint-kal from custom configuration.
-	cd hack/testing/kal-linter; $(NETWORK_INSTALL_RETRY) $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
+	# The custom builder runs in golangci-lint's module; keep Kueue's selected Go toolchain.
+	cd hack/testing/kal-linter; $(NETWORK_INSTALL_RETRY) GOTOOLCHAIN=$(shell $(GO_CMD) env GOVERSION) $(GOLANGCI_LINT) custom; mv bin/golangci-lint-kube-api-linter $(BIN_DIR)
 
 .PHONY: controller-gen
 controller-gen: gomod-download-tools ## Download controller-gen locally if necessary.
@@ -315,4 +316,5 @@ KUEUECTL_DOCS = $(BIN_DIR)/kueuectl-docs
 
 .PHONY: kueuectl-docs
 kueuectl-docs: generate-code ## kueuectl-docs imports generated packages (apis/config, client-go).
-	$(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(KUEUECTL_DOCS) ./cmd/kueuectl-docs/main.go
+# Match the CLI's CGO setting so host-platform dependencies can share build-cache entries.
+	CGO_ENABLED=$(CGO_ENABLED) $(GO_BUILD_ENV) $(GO_CMD) build -ldflags="$(LD_FLAGS)" -o $(KUEUECTL_DOCS) ./cmd/kueuectl-docs/main.go

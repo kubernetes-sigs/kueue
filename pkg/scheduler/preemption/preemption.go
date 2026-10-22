@@ -88,6 +88,36 @@ type PreemptionStrategy struct {
 	// The context is shared across all iterations of this strategy's candidates.
 	// Warning: Eeach time a candidate is yielded, it is preempted from the active context.
 	pCtx *preemptionCtx
+	// verify checks whether the final target set satisfies this strategy's invariants.
+	// If nil, any target set that fits is valid. It returns whether the target set is valid
+	// and an optional failure reason.
+	verify func(targets []*Target) (bool, string)
+}
+
+type strategyOption func(*PreemptionStrategy)
+
+func withVerify(verify func(targets []*Target) (bool, string)) strategyOption {
+	return func(ps *PreemptionStrategy) {
+		ps.verify = verify
+	}
+}
+
+func newPreemptionStrategy(
+	candidates iter.Seq[*Target],
+	allowBorrowing bool,
+	pCtx *preemptionCtx,
+	opts ...strategyOption,
+) PreemptionStrategy {
+	ps := PreemptionStrategy{
+		candidates:     candidates,
+		allowBorrowing: allowBorrowing,
+		pCtx:           pCtx,
+	}
+	for _, opt := range opts {
+		opt(&ps)
+	}
+
+	return ps
 }
 
 type preemptionCtx struct {
@@ -180,7 +210,7 @@ func (p *Preemptor) buildContext(
 			},
 			TAS: wl.TASUsage(),
 		},
-		configurableEvaluator: p.newConfigurableEvaluator(ctx, log, cq),
+		configurableEvaluator: p.newConfigurableEvaluator(ctx, log, cq, &wl),
 	}
 }
 
@@ -188,11 +218,11 @@ func (p *Preemptor) buildContext(
 // PreemptionConfig must not be re-read for each of them.
 // Returns nil if the ConfigurablePreemptions feature is disabled, or the ClusterQueue
 // references no PreemptionConfig.
-func (p *Preemptor) newConfigurableEvaluator(ctx context.Context, log logr.Logger, cq *schdcache.ClusterQueueSnapshot) *configurable.PreemptionEvaluator {
+func (p *Preemptor) newConfigurableEvaluator(ctx context.Context, log logr.Logger, cq *schdcache.ClusterQueueSnapshot, preemptor *workload.Info) *configurable.PreemptionEvaluator {
 	if !features.Enabled(features.ConfigurablePreemptions) || cq == nil || cq.PreemptionConfigName == nil {
 		return nil
 	}
-	return configurable.NewEvaluatorForPreemptionConfig(ctx, log, p.clock, p.client, *cq.PreemptionConfigName, p.candidatesOrdering(log, cq.Name))
+	return configurable.NewEvaluatorForPreemptionConfig(ctx, log, p.client, *cq.PreemptionConfigName, preemptor, p.candidatesOrdering(log, cq.Name))
 }
 
 // candidatesOrdering returns the order in which the preemption candidates are
@@ -357,6 +387,17 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 			targets = append(targets, candidate)
 			if workloadFits(ctx, strategy.pCtx, strategy.allowBorrowing) {
 				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
+				if strategy.verify != nil {
+					if valid, reason := strategy.verify(targets); !valid {
+						if logV := log.V(6); logV.Enabled() {
+							logV.Info("Discarding preemption targets: strategy verification failed",
+								"preemptingWorkload", klog.KObj(strategy.pCtx.preemptor.Obj),
+								"targets", logging.GetObjectReferences(targets),
+								"reason", reason)
+						}
+						break
+					}
+				}
 				restoreSnapshot(strategy.pCtx.snapshot, targets)
 				if logV := log.V(6); logV.Enabled() {
 					logV.Info("Preemption succeeded",
@@ -380,8 +421,8 @@ func restoreSnapshot(snapshot *schdcache.Snapshot, targets []*Target) {
 	}
 }
 
+// fillBackWorkloads checks in the reverse order if any of the workloads can be added back.
 func fillBackWorkloads(ctx context.Context, preemptionCtx *preemptionCtx, targets []*Target, allowBorrowing bool) []*Target {
-	// In the reverse order, check if any of the workloads can be added back.
 	for i := len(targets) - 2; i >= 0; i-- {
 		preemptionCtx.snapshot.AddWorkload(targets[i].WorkloadInfo)
 		if workloadFits(ctx, preemptionCtx, allowBorrowing) {
@@ -564,13 +605,16 @@ func queueUnderNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx)
 	return true
 }
 
-// queueWithinNominalInResourcesNeedingPreemption checks whether the
-// preemptor CQ's usage is at or below nominal quota (usage <= nominal)
-// for all flavor-resources needing preemption.
-// The difference from queueUnderNominalInResourcesNeedingPreemption is
-// that this treats usage exactly equal to nominal as "within nominal."
-func queueWithinNominalInResourcesNeedingPreemption(preemptionCtx *preemptionCtx) bool {
-	for fr := range preemptionCtx.frsNeedPreemption {
+// queueWithinNominalInRequestedResources checks whether the preemptor CQ's
+// usage is at or below nominal quota (usage <= nominal) for all positive
+// flavor-resource requests assigned to the incoming workload.
+// The difference from queueUnderNominalInResourcesNeedingPreemption is that
+// this treats usage exactly equal to nominal as "within nominal."
+func queueWithinNominalInRequestedResources(preemptionCtx *preemptionCtx) bool {
+	for fr, request := range preemptionCtx.workloadUsage.Quota.Assigned {
+		if request.CmpInt64(0) <= 0 {
+			continue
+		}
 		if preemptionCtx.preemptorCQ.Borrowing(fr) {
 			return false
 		}

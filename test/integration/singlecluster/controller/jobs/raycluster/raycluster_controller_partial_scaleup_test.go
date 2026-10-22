@@ -75,6 +75,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 	// production. envtest runs no KubeRay operator, so the spec drives the scale event itself,
 	// exactly like the existing scale-up/scale-down specs in this package do.
 	scaleFirstWorkerGroup := func(rayCluster *rayv1.RayCluster, replicas int32) {
+		ginkgo.GinkgoHelper()
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(rayCluster), rayCluster)).Should(gomega.Succeed())
 			rayCluster.Spec.WorkerGroupSpecs[0].Replicas = new(replicas)
@@ -130,7 +131,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 			Queue(localQueue.Name).
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			FirstWorkerGroupReplicas(5, 10, 10).
+			FirstWorkerGroupReplicas(5, 5, 12).
 			Obj()
 
 		// -------------------------------------------------------------------------------------
@@ -487,7 +488,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 			Queue(localQueue.Name).
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			FirstWorkerGroupReplicas(5, 10, 10).
+			FirstWorkerGroupReplicas(5, 5, 10).
 			Obj()
 
 		ginkgo.By("admitting the raycluster at 5 workers")
@@ -560,7 +561,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 			Queue(localQueue.Name).
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			FirstWorkerGroupReplicas(5, 10, 10).
+			FirstWorkerGroupReplicas(5, 5, 10).
 			Obj()
 
 		ginkgo.By("admitting the raycluster at 5 workers")
@@ -630,7 +631,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 			Queue(localQueue.Name).
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			FirstWorkerGroupReplicas(5, 10, 10).
+			FirstWorkerGroupReplicas(5, 5, 10).
 			Obj()
 
 		ginkgo.By("admitting the raycluster at 5 workers")
@@ -700,7 +701,7 @@ var _ = ginkgo.Describe("RayCluster with partial replica scale-up for elastic jo
 			SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 			Queue(localQueue.Name).
 			RequestWorkerGroup(corev1.ResourceCPU, "1").
-			FirstWorkerGroupReplicas(5, 10, 10).
+			FirstWorkerGroupReplicas(5, 5, 10).
 			Obj()
 
 		ginkgo.By("admitting the raycluster at 5 workers")

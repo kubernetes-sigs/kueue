@@ -180,16 +180,16 @@ func TestConfigurablePreemptions(t *testing.T) {
 				Obj(),
 		}
 	}
-	tasAdmittedWl := func(name, node string) kueue.Workload {
+	tasAdmittedWlIn := func(name string, cq kueue.ClusterQueueReference, flavor kueue.ResourceFlavorReference, node string) kueue.Workload {
 		return *utiltestingapi.MakeWorkload(name, "").
 			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
 				Request(corev1.ResourceCPU, "1").
 				PreferredTopologyRequest(corev1.LabelHostname).
 				Obj()).
 			ReserveQuotaAt(
-				utiltestingapi.MakeAdmission("a").
+				utiltestingapi.MakeAdmission(cq).
 					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
-						Assignment(corev1.ResourceCPU, "tas-default", "1").
+						Assignment(corev1.ResourceCPU, flavor, "1").
 						TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
 							Domain(utiltas.TopologyDomainAssignment{Count: 1, Values: []string{node}}).
 							Obj()).
@@ -199,6 +199,21 @@ func TestConfigurablePreemptions(t *testing.T) {
 			).
 			Obj()
 	}
+	tasAdmittedWl := func(name, node string) kueue.Workload {
+		return tasAdmittedWlIn(name, "a", "tas-default", node)
+	}
+	// tasOverlapFlavor selects the same nodes as tasFlavor, so that, with
+	// TASHandleOverlappingFlavors, the usage of either flavor also counts on the
+	// nodes of the other one.
+	tasOverlapFlavor := utiltestingapi.MakeResourceFlavor("tas-overlap").
+		NodeLabel("tas-node", "true").
+		TopologyName("tas-single-level").
+		Obj()
+	tasOverlapCQ := utiltestingapi.MakeClusterQueue("b").
+		Cohort("all").
+		ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-overlap").
+			Resource(corev1.ResourceCPU, "4").Obj()).
+		Obj()
 	tasIncomingWl := utiltestingapi.MakeWorkload("a_incoming", "").
 		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 2).
 			Request(corev1.ResourceCPU, "1").
@@ -219,6 +234,10 @@ func TestConfigurablePreemptions(t *testing.T) {
 	topologyTriggerConfig := configWithTrigger(
 		kueuealpha.QuotaFeasibleAndInsufficientTopology,
 		utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).Obj(),
+	)
+	anyClusterQueueTopologyTriggerConfig := configWithTrigger(
+		kueuealpha.QuotaFeasibleAndInsufficientTopology,
+		utiltestingalpha.MakeCandidateSelector(kueuealpha.AnyClusterQueue).Obj(),
 	)
 
 	cases := map[string]struct {
@@ -961,6 +980,69 @@ func TestConfigurablePreemptions(t *testing.T) {
 			assignment:    tasAssignment,
 			targetCQ:      "a",
 			wantPreempted: sets.New[workload.Reference](),
+		},
+		"QuotaFeasibleAndInsufficientTopology trigger selects workloads of an overlapping flavor": {
+			clusterQueues:   append(tasCQs("4"), tasOverlapCQ),
+			resourceFlavors: []*kueue.ResourceFlavor{tasFlavor, tasOverlapFlavor},
+			topologies:      []*kueue.Topology{tasTopology},
+			nodes:           tasNodes,
+			config:          anyClusterQueueTopologyTriggerConfig,
+			admitted: []kueue.Workload{
+				tasAdmittedWlIn("b1", "b", "tas-overlap", "x1"),
+				tasAdmittedWlIn("b2", "b", "tas-overlap", "x2"),
+			},
+			// The ClusterQueue has no usage, but the workloads of the overlapping
+			// flavor hold 1 of the 2 CPUs of both nodes, so the 2 pods of the
+			// incoming workload don't fit on the same node.
+			incoming:      tasIncomingWl,
+			assignment:    tasAssignment,
+			targetCQ:      "a",
+			wantPreempted: sets.New[workload.Reference]("/b1"),
+			wantReasons: map[workload.Reference]string{
+				"/b1": kueue.ConfigurablePreemptionReason,
+			},
+			wantConfigurableReasonsData: map[workload.Reference]*policy.ConfigurablePreemptionReasonData{
+				"/b1": {
+					ConfigName:                policy.PreemptionConfigReference(defaultConfigName),
+					RuleNameToSelectorIndexes: map[policy.PreemptionConfigRuleReference][]int{"test-rule-one": {0}},
+				},
+			},
+		},
+		"fair sharing: QuotaFeasibleAndInsufficientTopology trigger selects workloads of an overlapping flavor": {
+			clusterQueues:   append(tasCQs("4"), tasOverlapCQ),
+			resourceFlavors: []*kueue.ResourceFlavor{tasFlavor, tasOverlapFlavor},
+			topologies:      []*kueue.Topology{tasTopology},
+			nodes:           tasNodes,
+			config:          anyClusterQueueTopologyTriggerConfig,
+			fairSharing:     &config.FairSharing{},
+			admitted: []kueue.Workload{
+				tasAdmittedWlIn("b1", "b", "tas-overlap", "x1"),
+				tasAdmittedWlIn("b2", "b", "tas-overlap", "x2"),
+			},
+			incoming:      tasIncomingWl,
+			assignment:    tasAssignment,
+			targetCQ:      "a",
+			wantPreempted: sets.New[workload.Reference]("/b1"),
+			wantReasons: map[workload.Reference]string{
+				"/b1": kueue.ConfigurablePreemptionReason,
+			},
+		},
+		"QuotaFeasibleAndInsufficientTopology trigger keeps the candidates of overlapping flavors not needed to fit the topology": {
+			clusterQueues:   append(tasCQs("4"), tasOverlapCQ),
+			resourceFlavors: []*kueue.ResourceFlavor{tasFlavor, tasOverlapFlavor},
+			topologies:      []*kueue.Topology{tasTopology},
+			nodes:           tasNodes,
+			config:          anyClusterQueueTopologyTriggerConfig,
+			admitted: []kueue.Workload{
+				tasAdmittedWlIn("b1", "b", "tas-overlap", "x1"),
+				tasAdmittedWl("a2", "x2"),
+				tasAdmittedWlIn("b2", "b", "tas-overlap", "x2"),
+			},
+			// Preempting b1 frees the node x1, so a2 and b2 are kept on x2.
+			incoming:      tasIncomingWl,
+			assignment:    tasAssignment,
+			targetCQ:      "a",
+			wantPreempted: sets.New[workload.Reference]("/b1"),
 		},
 	}
 

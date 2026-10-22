@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -79,7 +80,7 @@ type Assignment struct {
 // UpdateForTASResult updates the Assignment with the TAS result
 func (a *Assignment) UpdateForTASResult(log logr.Logger, cq *schdcache.ClusterQueueSnapshot, wl *workload.Info, result schdcache.TASAssignmentsResult) {
 	for psName, psResult := range result {
-		psAssignment := a.podSetAssignmentByName(psName)
+		psAssignment := a.PodSetAssignmentByName(psName)
 		psAssignment.TopologyAssignment = psResult.TopologyAssignment
 		if psResult.TopologyAssignment != nil && psAssignment.DelayedTopologyRequest != nil {
 			psAssignment.DelayedTopologyRequest = new(kueue.DelayedTopologyRequestStateReady)
@@ -88,10 +89,30 @@ func (a *Assignment) UpdateForTASResult(log logr.Logger, cq *schdcache.ClusterQu
 	a.Usage.TAS = a.ComputeTASNetUsage(log, cq, wl, nil)
 }
 
+// ResolvePodSetFailure updates the status of the given PodSet and adjusts
+// the RepresentativeMode of the PodSet and the Assignment at large.
+func (a *Assignment) ResolvePodSetFailure(psRef kueue.PodSetReference, targetMode FlavorAssignmentMode, failStatus *Status) {
+	psAssignment := a.PodSetAssignmentByName(psRef)
+	psAssignment.Status = *failStatus
+	// update the mode for all flavors and the representative mode
+	a.demoteTo(targetMode)
+	psAssignment.demoteTo(targetMode)
+}
+
+// SetRepresentativeMode updates the representative mode
+// and flavor assignment modes across all registered PodSets.
 func (a *Assignment) SetRepresentativeMode(mode FlavorAssignmentMode) {
 	a.representativeMode = &mode
 	for i := range a.PodSets {
 		a.PodSets[i].updateMode(mode)
+	}
+}
+
+// demoteTo demotes representative mode of asssignment to the targeted mode.
+// Can only lower the mode (e.g. Fit to Preempt).
+func (a *Assignment) demoteTo(targetMode FlavorAssignmentMode) {
+	if targetMode < *a.representativeMode {
+		a.representativeMode = new(targetMode)
 	}
 }
 
@@ -178,7 +199,7 @@ func (a *Assignment) RequiresBorrowing() bool {
 	return a.Borrowing > 0
 }
 
-func (a *Assignment) podSetAssignmentByName(psName kueue.PodSetReference) *PodSetAssignment {
+func (a *Assignment) PodSetAssignmentByName(psName kueue.PodSetReference) *PodSetAssignment {
 	if idx := slices.IndexFunc(a.PodSets, func(ps PodSetAssignment) bool { return ps.Name == psName }); idx != -1 {
 		return &a.PodSets[idx]
 	}
@@ -186,7 +207,7 @@ func (a *Assignment) podSetAssignmentByName(psName kueue.PodSetReference) *PodSe
 }
 
 func (a *Assignment) updateMode(psName kueue.PodSetReference, mode FlavorAssignmentMode) {
-	if psAssignment := a.podSetAssignmentByName(psName); psAssignment != nil {
+	if psAssignment := a.PodSetAssignmentByName(psName); psAssignment != nil {
 		psAssignment.updateMode(mode)
 		a.representativeMode = new(mode)
 	}
@@ -241,7 +262,17 @@ func (a *Assignment) Message() string {
 	return builder.String()
 }
 
-func (a *Assignment) ToAPI(log logr.Logger) []kueue.PodSetAssignment {
+func (a *Assignment) ToAPI(log logr.Logger, wl *kueue.Workload) []kueue.PodSetAssignment {
+	if workload.NeedsSecondPass(wl) {
+		result := wl.Status.Admission.DeepCopy().PodSetAssignments
+		for i := range result {
+			if psa := a.PodSetAssignmentByName(result[i].Name); psa != nil {
+				result[i].TopologyAssignment = tas.V1Beta2From(psa.TopologyAssignment, tas.WithLogger(log))
+				result[i].DelayedTopologyRequest = psa.DelayedTopologyRequest
+			}
+		}
+		return result
+	}
 	psFlavors := make([]kueue.PodSetAssignment, len(a.PodSets))
 	for i := range psFlavors {
 		psFlavors[i] = a.PodSets[i].toAPI(log)
@@ -256,7 +287,7 @@ func (a *Assignment) TotalRequestsFor(log logr.Logger, wl *workload.Info) resour
 	usage := make(resources.FlavorResourceQuantities)
 	for _, ps := range wl.TotalRequests {
 		// The assignment lists PodSets in group order, which can differ from wl.TotalRequests.
-		psAssignment := a.podSetAssignmentByName(ps.Name)
+		psAssignment := a.PodSetAssignmentByName(ps.Name)
 		if psAssignment == nil {
 			log.V(1).Info("PodSet not found in the assignment while computing preemption requests", "podSet", ps.Name)
 			continue
@@ -305,7 +336,7 @@ func (a *Assignment) psError(psAssignment *PodSetAssignment, err error) {
 }
 
 func (a *Assignment) append(psIdx int, requests resources.Requests, psAssignment *PodSetAssignment) {
-	flavorIdx := make(map[corev1.ResourceName]int, len(psAssignment.Flavors))
+	triedFlavors := make(map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference], len(psAssignment.Flavors))
 	a.PodSets = append(a.PodSets, *psAssignment)
 	for resource, flvAssignment := range psAssignment.Flavors {
 		if flvAssignment.borrow > a.Borrowing {
@@ -325,14 +356,11 @@ func (a *Assignment) append(psIdx int, requests resources.Requests, psAssignment
 		}
 
 		a.Usage.Quota.Assigned[fr] = a.Usage.Quota.Assigned[fr].Add(requestAmount)
-		flavorIdx[resource] = flvAssignment.TriedFlavorIdx
+		triedFlavors[resource] = flvAssignment.TriedFlavors
 	}
 	// The next attempt resumes each PodSet by its position in the Workload, not by the
 	// order in which the groups were assigned.
-	if missing := psIdx + 1 - len(a.FlavorScanState.LastTriedFlavorIndexes); missing > 0 {
-		a.FlavorScanState.LastTriedFlavorIndexes = append(a.FlavorScanState.LastTriedFlavorIndexes, make([]map[corev1.ResourceName]int, missing)...)
-	}
-	a.FlavorScanState.LastTriedFlavorIndexes[psIdx] = flavorIdx
+	a.FlavorScanState.RecordPodSet(psIdx, triedFlavors)
 }
 
 // findOldPodSetRequest returns the resource request from the old workload slice
@@ -409,6 +437,16 @@ func NewStatus(reasons ...string) *Status {
 	}
 }
 
+func (s *Status) WithError(err error) *Status {
+	s.err = err
+	return s
+}
+
+func (s *Status) WithNoFitReason(reason string) *Status {
+	s.noFitReason = reason
+	return s
+}
+
 func (s *Status) IsFit() bool {
 	return s == nil || (s.err == nil && len(s.reasons) == 0)
 }
@@ -481,11 +519,13 @@ func (psa *PodSetAssignment) updateMode(newMode FlavorAssignmentMode) {
 	}
 }
 
-func (psa *PodSetAssignment) reason(reason string) {
-	psa.Status.reasons = append(psa.Status.reasons, reason)
+func (psa *PodSetAssignment) demoteTo(targetMode FlavorAssignmentMode) {
+	for _, flvAssignment := range psa.Flavors {
+		flvAssignment.Mode = min(flvAssignment.Mode, targetMode)
+	}
 }
 
-func (psa *PodSetAssignment) markFlavorAttempt(flavor kueue.ResourceFlavorReference, mode FlavorAssignmentMode, reason string) {
+func (psa *PodSetAssignment) MarkFlavorAttempt(flavor kueue.ResourceFlavorReference, mode FlavorAssignmentMode, reason string) {
 	for i := range psa.FlavorAssignmentAttempts {
 		if psa.FlavorAssignmentAttempts[i].Flavor == flavor {
 			psa.FlavorAssignmentAttempts[i].Mode = mode
@@ -557,10 +597,10 @@ func (m FlavorAssignmentMode) String() string {
 }
 
 type FlavorAssignment struct {
-	Name           kueue.ResourceFlavorReference
-	Mode           FlavorAssignmentMode
-	TriedFlavorIdx int
-	borrow         int
+	Name         kueue.ResourceFlavorReference
+	Mode         FlavorAssignmentMode
+	TriedFlavors sets.Set[kueue.ResourceFlavorReference]
+	borrow       int
 }
 
 // FlavorAssignmentAttempt captures one attempted flavor and its worst-case outcome

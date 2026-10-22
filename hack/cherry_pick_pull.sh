@@ -20,6 +20,14 @@
 # meta.) Assumes you care about pulls from remote "upstream" and
 # checks them out to a branch named:
 #  automated-cherry-pick-of-<pr>-<target branch>-<timestamp>
+#
+# Each PR is cherry-picked as a single squashed commit (the PR's net change,
+# built with 'git commit-tree' and applied with 'git cherry-pick --no-commit')
+# rather than replaying every commit with 'git am', so conflicts for large
+# multi-commit PRs are resolved once instead of per commit.
+#
+# If this script misbehaves, hack/legacy_cherry_pick_pull.sh preserves the
+# original per-commit ('git am') behavior as a fallback.
 
 set -o errexit
 set -o nounset
@@ -112,12 +120,12 @@ declare -r NEWBRANCHUNIQ
 echo "+++ Creating local branch ${NEWBRANCHUNIQ}"
 
 cleanbranch=""
-gitamcleanup=false
+pickcleanup=false
 function return_to_kansas {
-  if [[ "${gitamcleanup}" == "true" ]]; then
+  if [[ "${pickcleanup}" == "true" ]]; then
     echo
-    echo "+++ Aborting in-progress git am."
-    git am --abort >/dev/null 2>&1 || true
+    echo "+++ Aborting in-progress squashed cherry-pick."
+    git reset -q --hard HEAD >/dev/null 2>&1 || true
   fi
 
   # return to the starting branch and delete the PR text file
@@ -175,46 +183,152 @@ EOF
 git checkout -b "${NEWBRANCHUNIQ}" "${BRANCH}"
 cleanbranch="${NEWBRANCHUNIQ}"
 
-gitamcleanup=true
+pickcleanup=true
 for pull in "${PULLS[@]}"; do
-  echo "+++ Downloading patch to /tmp/${pull}.patch (in case you need to do this again)"
+  # Read every PR field in one API call, then parse locally with 'jq'.
+  pr_json=$(gh pr view "$pull" --json title,baseRefOid,author,commits,body,labels)
+  # set the subject first so we can use it as the squashed commit message
+  subject=$(jq -r '.title' <<<"${pr_json}")
+  SUBJECTS+=("#${pull}: ${subject}")
 
-  curl -o "/tmp/${pull}.patch" -sSL "https://github.com/${MAIN_REPO_ORG}/${MAIN_REPO_NAME}/pull/${pull}.patch"
+  echo "+++ Fetching PR ${pull} head"
+  git fetch "${UPSTREAM_REMOTE}" "pull/${pull}/head"
+  PR_HEAD=$(git rev-parse FETCH_HEAD)
+  # A shallow clone can silently truncate 'git log PR_BASE..PR_HEAD' (dropping
+  # Co-authored-by trailers) and make 'git merge-base' fail. Unshallow before
+  # either is used, and fail loudly if the fetch does not complete.
+  if [[ "$(git rev-parse --is-shallow-repository)" == "true" ]]; then
+    git fetch --unshallow "${UPSTREAM_REMOTE}" || {
+      echo "!!! Repository is shallow and 'git fetch --unshallow' failed. Aborting." >&2
+      exit 1
+    }
+  fi
+  # Squash only the PR's own changes: compute the fork point against the PR's
+  # own base commit, not an assumed default branch. A PR based on a release
+  # branch (e.g. a cherry-pick into release-0.15 now going to release-0.14)
+  # would otherwise merge-base against main and pull in the whole release
+  # history. baseRefOid stays fetchable by SHA even after the base branch is
+  # deleted.
+  pr_base_oid=$(jq -r '.baseRefOid' <<<"${pr_json}")
+  git fetch "${UPSTREAM_REMOTE}" "${pr_base_oid}"
+  PR_BASE=$(git merge-base "${PR_HEAD}" "${pr_base_oid}")
+
+  # Squash the PR's changes into one commit (tree = PR_HEAD, parent = PR_BASE),
+  # then cherry-pick it onto the release branch. cherry-pick uses the merge
+  # machinery rather than 'git apply', so a delete/modify conflict - the target
+  # deleted a file the PR edits, or the PR deletes a file the target edits - is
+  # recorded as an unmerged path the user can resolve, not a hard apply failure.
+  # It also handles binary files natively, so no diff-flag tuning is needed.
+  squashed_commit=$(git commit-tree "${PR_HEAD}^{tree}" -p "${PR_BASE}" -m "${subject}")
   echo
-  echo "+++ About to attempt cherry pick of PR. To reattempt:"
-  echo "  $ git am -3 /tmp/${pull}.patch"
+  echo "+++ About to cherry-pick the squashed PR. To reattempt:"
+  echo "  $ git cherry-pick --no-commit ${squashed_commit}"
   echo
-  git am -3 "/tmp/${pull}.patch" || {
-    conflicts=false
-    while unmerged=$(git status --porcelain | grep ^U) && [[ -n ${unmerged} ]] \
-      || [[ -e "${REBASEMAGIC}" ]]; do
-      conflicts=true # <-- We should have detected conflicts once
+  if ! git cherry-pick --no-commit "${squashed_commit}"; then
+    # --diff-filter=U catches every unmerged state (UU, AA, DD, AU, DU, ...),
+    # unlike 'grep ^U' which misses AA/DD/AU/DU. A cherry-pick that fails without
+    # leaving conflicts is a hard error, not a resolve prompt: abort before it
+    # can commit an incomplete tree.
+    if [[ -z "$(git diff --name-only --diff-filter=U)" ]]; then
+      git cherry-pick --quit
+      echo "!!! Cherry-pick failed for PR ${pull} with no conflicts to resolve. Aborting." >&2
+      exit 1
+    fi
+    while [[ -n "$(git diff --name-only --diff-filter=U)" ]]; do
       echo
       echo "+++ Conflicts detected:"
       echo
-      (git status --porcelain | grep ^U) || echo "!!! None. Did you git am --continue?"
+      # --no-pager: a straight 'git diff' starts the pager, and with a LESS that
+      # lacks -F/-X the list is cleared on quit and never stays on screen.
+      git --no-pager diff --name-only --diff-filter=U
       echo
-      echo "+++ Please resolve the conflicts in another window (and remember to 'git add / git am --continue')"
+      echo "+++ Please resolve the conflicts in another window (and remember to 'git add'/'git rm' resolved files)."
       read -p "+++ Proceed (anything other than 'y' aborts the cherry-pick)? [y/n] " -r
       echo
       if ! [[ "${REPLY}" =~ ^[yY]$ ]]; then
+        git cherry-pick --quit
         echo "Aborting." >&2
         exit 1
       fi
     done
+  fi
 
-    if [[ "${conflicts}" != "true" ]]; then
-      echo "!!! git am failed, likely because of an in-progress 'git am' or 'git rebase'"
-      exit 1
-    fi
-  }
+  # Clear the cherry-pick sequencer state while keeping the staged changes.
+  git cherry-pick --quit
 
-  # set the subject
-  subject=$(gh pr view "$pull" --json title --jq '.["title"]')
-  SUBJECTS+=("#${pull}: ${subject}")
+  # A cherry-pick that left nothing staged and no conflicts is a real error,
+  # not something to commit.
+  if git diff --cached --quiet; then
+    echo "!!! Nothing staged for PR ${pull}; the cherry-pick produced no changes. Aborting."
+    exit 1
+  fi
+
+  # Author the squashed commit as the PR author, mirroring GitHub's squash-merge
+  # on main (not whoever runs the script). Resolve the PR author's name/email
+  # from the PR commit whose GitHub login matches the PR author; fall back to the
+  # oldest commit's author when no commit email maps to that login.
+  pr_author_login=$(jq -r '.author.login' <<<"${pr_json}")
+  author=$(jq -r "[.commits[].authors[] | select(.login == \"${pr_author_login}\") | \"\(.name) <\(.email)>\"] | first // empty" <<<"${pr_json}")
+  if [[ -z "${author}" ]]; then
+    # 'sed -n 1p' (not 'head -n1') reads the whole stream: 'head' closes the
+    # pipe after one line, so on a large range 'git log' gets SIGPIPE and
+    # 'pipefail'/'errexit' would abort before the commit.
+    author=$(git log --no-merges --reverse --format='%an <%ae>' "${PR_BASE}..${PR_HEAD}" | sed -n '1p')
+  fi
+
+  # Number of the PR's own commits (merges excluded).
+  commit_count=$(git rev-list --no-merges --count "${PR_BASE}..${PR_HEAD}")
+
+  # Every other commit author, plus any existing Co-authored-by trailers, becomes
+  # a Co-authored-by trailer so GitHub still credits them; the PR author is the
+  # commit author, not a co-author.
+  # 'awk' (not 'grep') filters so a PR with no co-authors yields an empty result
+  # without a non-zero exit that 'set -o pipefail'/'errexit' would turn into an
+  # abort. '|| exit 1' on each 'git log' still aborts on a real history failure
+  # rather than silently dropping authors.
+  coauthors=$(
+    {
+      git log --no-merges --format='Co-authored-by: %an <%ae>' "${PR_BASE}..${PR_HEAD}" || exit 1
+      git log --no-merges --format='%(trailers:key=Co-authored-by)' "${PR_BASE}..${PR_HEAD}" || exit 1
+    } | awk -v primary="Co-authored-by: ${author}" '
+      tolower($0) ~ /^co-authored-by:/ && tolower($0) != tolower(primary)
+    ' | sort -u
+  )
+
+  if [[ "${commit_count}" -eq 1 ]]; then
+    # Single-commit PR: keep the original commit message verbatim.
+    message=$(git log --no-merges --format='%B' "${PR_BASE}..${PR_HEAD}")
+  else
+    # Multi-commit PR: the PR title is the subject (a leading '#<pull>:' would be
+    # dropped as a comment on cleanup, and bare '#' refs are disallowed in Kueue
+    # commit messages), with each commit's subject and body kept as a bullet.
+    commit_bodies=$(git log --no-merges --reverse --format='* %s%n%w(0,2,2)%b' "${PR_BASE}..${PR_HEAD}")
+    message=$(printf '%s\n\n%s' "${subject}" "${commit_bodies}")
+  fi
+
+  # Merge the collected Co-authored-by trailers into the message's existing
+  # trailer block via 'git interpret-trailers' rather than appending a second
+  # block: a verbatim single-commit message may already carry a Co-authored-by,
+  # and a separate block would duplicate authors and make '--parse' drop the
+  # original trailers (e.g. Signed-off-by). 'addIfDifferent' skips exact dupes.
+  if [[ -n "${coauthors}" ]]; then
+    trailer_args=()
+    while IFS= read -r line; do
+      [[ -n "${line}" ]] && trailer_args+=(--trailer "${line}")
+    done <<< "${coauthors}"
+    # --no-divider: without it 'git interpret-trailers' treats a bare '---' line
+    # as end-of-input and would add trailers above it, duplicating a trailer a
+    # single-commit message already carries below the divider.
+    message=$(printf '%s\n' "${message}" | git interpret-trailers --no-divider --if-exists addIfDifferent --if-missing add "${trailer_args[@]}")
+  fi
+
+  # Create a single commit for the whole PR. '--author' sets the PR author; '-s'
+  # adds the running user's Signed-off-by to record who did the cherry-pick
+  # (the per-commit sign-offs are lost on squash).
+  git commit -s --author="${author}" -m "${message}"
 
   # set the release note
-  release_note=$(gh pr view "$pull" --json body --jq '.["body"]' | awk '/```release-note/{f=1;next} /```/{f=0} f')
+  release_note=$(jq -r '.body' <<<"${pr_json}" | awk '/```release-note/{f=1;next} /```/{f=0} f')
   RELEASE_NOTES+=("${release_note}")
 
   # collect kind/* labels from the original PR
@@ -222,12 +336,9 @@ for pull in "${PULLS[@]}"; do
     if [[ -n "${label}" ]]; then
       KIND_LABELS+=("${label}")
     fi
-  done < <(gh pr view "$pull" --json labels --jq '.labels[].name | select(startswith("kind/"))')
-
-  # remove the patch file from /tmp
-  rm -f "/tmp/${pull}.patch"
+  done < <(jq -r '.labels[].name | select(startswith("kind/"))' <<<"${pr_json}")
 done
-gitamcleanup=false
+pickcleanup=false
 
 # Re-generate docs (if needed)
 if [[ -n "${REGENERATE_DOCS}" ]]; then

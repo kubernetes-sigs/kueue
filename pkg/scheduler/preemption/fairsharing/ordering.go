@@ -21,10 +21,12 @@ import (
 
 	"github.com/go-logr/logr"
 	"k8s.io/apimachinery/pkg/util/sets"
+	klog "k8s.io/klog/v2"
 	"k8s.io/utils/clock"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/resources"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/policy"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
@@ -49,6 +51,8 @@ type TargetClusterQueueOrdering struct {
 	// ancestor Cohorts of the preemptor ClusterQueue.
 	preemptorAncestors sets.Set[*schdcache.CohortSnapshot]
 
+	frsNeedPreemption sets.Set[resources.FlavorResource]
+
 	clusterQueueToTarget map[kueue.ClusterQueueReference][]*workload.Info
 
 	// pruned nodes are nodes which we are certain will never
@@ -61,12 +65,19 @@ type TargetClusterQueueOrdering struct {
 	log                 logr.Logger
 }
 
-func MakeClusterQueueOrdering(cq *schdcache.ClusterQueueSnapshot, candidates []*workload.Info, log logr.Logger, clk clock.Clock) TargetClusterQueueOrdering {
+func MakeClusterQueueOrdering(
+	cq *schdcache.ClusterQueueSnapshot,
+	candidates []*workload.Info,
+	frsNeedPreemption sets.Set[resources.FlavorResource],
+	log logr.Logger,
+	clk clock.Clock,
+) TargetClusterQueueOrdering {
 	t := TargetClusterQueueOrdering{
 		clock: clk,
 
 		preemptorCq:        cq,
 		preemptorAncestors: sets.New[*schdcache.CohortSnapshot](),
+		frsNeedPreemption:  frsNeedPreemption,
 
 		clusterQueueToTarget: make(map[kueue.ClusterQueueReference][]*workload.Info),
 
@@ -131,8 +142,60 @@ func (t *TargetClusterQueueOrdering) onPathFromRootToPreemptorCQ(cohort *schdcac
 	return t.preemptorAncestors.Has(cohort)
 }
 
+func (t *TargetClusterQueueOrdering) candidateBorrowsFromLCA(cq *schdcache.ClusterQueueSnapshot, fr resources.FlavorResource) bool {
+	if !cq.Borrowing(fr) {
+		return false
+	}
+	for cohort := range cq.PathParentToRoot() {
+		if t.preemptorAncestors.Has(cohort) {
+			break
+		}
+		if !cohort.Borrowing(fr) {
+			return false
+		}
+	}
+	return true
+}
+
+func (t *TargetClusterQueueOrdering) candidateUsesBorrowedResource(cq *schdcache.ClusterQueueSnapshot, wl *workload.Info) bool {
+	if cq == t.preemptorCq {
+		return true
+	}
+	for _, ps := range wl.TotalRequests {
+		for res, flv := range ps.Flavors {
+			fr := resources.FlavorResource{Flavor: flv, Resource: res}
+			if len(t.frsNeedPreemption) > 0 && !t.frsNeedPreemption.Has(fr) {
+				continue
+			}
+			if t.candidateBorrowsFromLCA(cq, fr) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (t *TargetClusterQueueOrdering) hasWorkload(cq *schdcache.ClusterQueueSnapshot) bool {
-	return len(t.clusterQueueToTarget[cq.GetName()]) > 0
+	cqName := cq.GetName()
+	for len(t.clusterQueueToTarget[cqName]) > 0 {
+		if t.candidateUsesBorrowedResource(cq, t.clusterQueueToTarget[cqName][0]) {
+			return true
+		}
+		if logV := t.log.V(6); logV.Enabled() {
+			logV.Info("Skipping candidate workload whose flavor-resources are not borrowed",
+				"clusterQueue", cqName,
+				"workload", klog.KObj(t.clusterQueueToTarget[cqName][0].Obj))
+		}
+		t.clusterQueueToTarget[cqName] = t.clusterQueueToTarget[cqName][1:]
+	}
+	return false
+}
+
+func (t *TargetClusterQueueOrdering) isBorrowing(drs schdcache.DRS) bool {
+	if len(t.frsNeedPreemption) > 0 {
+		return drs.IsBorrowingOnAny(t.frsNeedPreemption)
+	}
+	return drs.IsBorrowing()
 }
 
 // nextTarget is a recursive algorithm for finding the next
@@ -153,7 +216,7 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		// we can't prune the preemptor ClusterQueue itself,
 		// until it runs out of candidates.
 		switch {
-		case (!drs.IsBorrowing() && cq != t.preemptorCq) || !t.hasWorkload(cq):
+		case (!t.isBorrowing(drs) && cq != t.preemptorCq) || !t.hasWorkload(cq):
 			t.prunedClusterQueues.Insert(cq)
 			if logV := t.log.V(6); logV.Enabled() {
 				logV.Info("Pruning ClusterQueue during Target ordering", "clusterQueue", cq.GetName(), "drs", drs)
@@ -186,7 +249,7 @@ func (t *TargetClusterQueueOrdering) nextTarget(cohort *schdcache.CohortSnapshot
 		// subtree, or a possible preemption within Preemptor
 		// CQ itself.  We will only prune such a Cohort if all
 		// of its children have been pruned.
-		if !drs.IsBorrowing() && !t.onPathFromRootToPreemptorCQ(cohort) {
+		if !t.isBorrowing(drs) && !t.onPathFromRootToPreemptorCQ(cohort) {
 			t.prunedCohorts.Insert(cohort)
 			if logV := t.log.V(6); logV.Enabled() {
 				logV.Info("Pruning Cohort during Target ordering", "cohort", cohort.GetName(), "drs", drs)

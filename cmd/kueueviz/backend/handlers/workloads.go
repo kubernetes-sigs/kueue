@@ -22,6 +22,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -102,6 +103,14 @@ func (h *Handlers) fetchWorkloadDetails(ctx context.Context, namespace, workload
 	if localQueueName != "" {
 		lq := &kueueapi.LocalQueue{}
 		err = h.client.Get(ctx, ctrlclient.ObjectKey{Namespace: namespace, Name: localQueueName}, lq)
+		if apierrors.IsNotFound(err) {
+			// The LocalQueue can be deleted while its Workloads remain. Keep
+			// the details page working and fall back to the admission, if any.
+			err = nil
+			if w.Status.Admission != nil {
+				lq.Spec.ClusterQueue = w.Status.Admission.ClusterQueue
+			}
+		}
 		if err != nil {
 			return nil, fmt.Errorf("error fetching local queue %s: %v", localQueueName, err)
 		}

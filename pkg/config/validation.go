@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"maps"
 	"net"
+	"net/netip"
 	"regexp"
 	"slices"
 	"strings"
@@ -107,6 +108,7 @@ func Validate(c *configapi.Configuration, scheme *runtime.Scheme, integrationMan
 	allErrs = append(allErrs, validateTLS(c)...)
 	allErrs = append(allErrs, validateVisibilityServer(c)...)
 	allErrs = append(allErrs, validateCustomLabels(c)...)
+	allErrs = append(allErrs, validateMetrics(c.Metrics)...)
 	allErrs = append(allErrs, validateQuotaCheckStrategy(c)...)
 	return allErrs
 }
@@ -481,8 +483,10 @@ func validateAdmissionFairSharing(c *configapi.Configuration) field.ErrorList {
 	return allErrs
 }
 
-// reservedResourceNameMsg repeats the Workload webhook's wording for the same refusal; the two are not linked.
-const reservedResourceNameMsg = "the key is reserved for internal kueue use"
+// reservedResourceNameError mirrors the Workload webhook's error for a pods key.
+func reservedResourceNameError(path *field.Path) *field.Error {
+	return field.Invalid(path, corev1.ResourcePods, "the key is reserved for internal kueue use")
+}
 
 func validateResourceTransformations(c *configapi.Configuration) field.ErrorList {
 	res := c.Resources
@@ -508,19 +512,13 @@ func validateResourceTransformations(c *configapi.Configuration) field.ErrorList
 		// because the refusal exits the manager on a file that used to load.
 		if refuseReserved {
 			if transform.Input == corev1.ResourcePods {
-				allErrs = append(allErrs, field.Invalid(
-					resourceTransformationPath.Index(idx).Child("input"),
-					transform.Input, reservedResourceNameMsg))
+				allErrs = append(allErrs, reservedResourceNameError(resourceTransformationPath.Index(idx).Child("input")))
 			}
 			if _, ok := transform.Outputs[corev1.ResourcePods]; ok {
-				allErrs = append(allErrs, field.Invalid(
-					resourceTransformationPath.Index(idx).Child("outputs").Key(string(corev1.ResourcePods)),
-					corev1.ResourcePods, reservedResourceNameMsg))
+				allErrs = append(allErrs, reservedResourceNameError(resourceTransformationPath.Index(idx).Child("outputs").Key(string(corev1.ResourcePods))))
 			}
 			if transform.MultiplyBy == corev1.ResourcePods {
-				allErrs = append(allErrs, field.Invalid(
-					resourceTransformationPath.Index(idx).Child("multiplyBy"),
-					transform.MultiplyBy, reservedResourceNameMsg))
+				allErrs = append(allErrs, reservedResourceNameError(resourceTransformationPath.Index(idx).Child("multiplyBy")))
 			}
 		}
 	}
@@ -559,7 +557,7 @@ func validateDeviceClassMappings(c *configapi.Configuration) field.ErrorList {
 		// The mapper is only built with DRA on, so until then the name is dormant
 		// and refusing it would fail an upgrade over an entry that does nothing.
 		if refuseReserved && features.Enabled(features.KueueDRAIntegration) && mapping.Name == corev1.ResourcePods {
-			allErrs = append(allErrs, field.Invalid(mappingPath.Child("name"), mapping.Name, reservedResourceNameMsg))
+			allErrs = append(allErrs, reservedResourceNameError(mappingPath.Child("name")))
 		}
 
 		if seenResourceNames.Has(mapping.Name) {
@@ -960,6 +958,32 @@ func validateCIdentifier(id string, fldPath *field.Path) field.ErrorList {
 	}
 	for _, msg := range content.IsCIdentifier(id) {
 		allErrs = append(allErrs, field.Invalid(fldPath, id, msg))
+	}
+	return allErrs
+}
+
+func validateMetrics(metrics configapi.ControllerMetrics) field.ErrorList {
+	modePath := field.NewPath("metrics", "accessControlMode")
+	if !features.Enabled(features.MetricsAccessControl) {
+		if metrics.AccessControlMode != nil {
+			return field.ErrorList{field.Forbidden(modePath, "requires the MetricsAccessControl feature gate")}
+		}
+		return nil
+	}
+	mode := ptr.Deref(metrics.AccessControlMode, configapi.MetricsAccessControlModeDelegated)
+	if mode != configapi.MetricsAccessControlModeDelegated && mode != configapi.MetricsAccessControlModeNone {
+		return field.ErrorList{field.NotSupported(modePath, mode, []configapi.MetricsAccessControlMode{
+			configapi.MetricsAccessControlModeDelegated, configapi.MetricsAccessControlModeNone,
+		})}
+	}
+	if mode != configapi.MetricsAccessControlModeNone || metrics.BindAddress == "0" {
+		return nil
+	}
+	var allErrs field.ErrorList
+	address, err := netip.ParseAddrPort(metrics.BindAddress)
+	if err != nil || !address.Addr().Unmap().IsLoopback() || address.Port() == 0 {
+		allErrs = append(allErrs, field.Invalid(field.NewPath("metrics", "bindAddress"), metrics.BindAddress,
+			"accessControlMode None requires a literal loopback IP and numeric port in the range 1–65535 (for example 127.0.0.1:8443 or [::1]:8443); use Delegated for other addresses"))
 	}
 	return allErrs
 }

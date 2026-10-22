@@ -86,6 +86,7 @@ func runJobController(opts *managerSetupOpts) {
 }
 
 func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		integrationManager := jobcontrollers.NewIntegrationManager()
 		var opts managerSetupOpts
@@ -156,7 +157,7 @@ func managerSetup(options ...managerSetupOption) framework.ManagerSetup {
 				mgr.GetEventRecorder(constants.AdmissionName),
 				scheduler.WithPreemptionExpectations(preemptionExpectations),
 			)
-			err = sched.Start(ctx)
+			err = mgr.Add(sched)
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}

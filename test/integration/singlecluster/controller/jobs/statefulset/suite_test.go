@@ -72,6 +72,7 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	return func(ctx context.Context, mgr manager.Manager) {
 		integrationManager := jobcontrollers.NewIntegrationManager()
 		err := indexer.Setup(ctx, mgr.GetFieldIndexer())
@@ -132,7 +133,7 @@ func managerSetup(opts ...jobframework.Option) framework.ManagerSetup {
 			mgr.GetEventRecorder(constants.AdmissionName),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 		)
-		err = sched.Start(ctx)
+		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 		err = statefulset.SetupWebhook(mgr, setupOpts...)

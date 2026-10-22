@@ -69,6 +69,7 @@ var _ = ginkgo.AfterSuite(func() {
 })
 
 func managerAndSchedulerSetup(configuration *config.Configuration) framework.ManagerSetup {
+	ginkgo.GinkgoHelper()
 	if configuration == nil {
 		configuration = &config.Configuration{}
 	}
@@ -121,7 +122,7 @@ func managerAndSchedulerSetup(configuration *config.Configuration) framework.Man
 
 		sched := scheduler.New(queues, cCache, mgr.GetClient(),
 			mgr.GetEventRecorder(constants.AdmissionName), scheduler.WithPreemptionExpectations(preemptionExpectations))
-		err = sched.Start(ctx)
+		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
 }
