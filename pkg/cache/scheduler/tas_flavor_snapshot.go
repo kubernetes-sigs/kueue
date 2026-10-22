@@ -49,7 +49,10 @@ import (
 )
 
 var (
-	errCodeAssumptionsViolated = errors.New("code assumptions violated")
+	errCodeAssumptionsViolated  = errors.New("code assumptions violated")
+	errInvalidNodeSelector      = errors.New("invalid node selectors")
+	errInvalidRequiredAffinity  = errors.New("invalid affinity node selectors")
+	errInvalidPreferredAffinity = errors.New("invalid preferred node affinity terms")
 )
 
 // obligationMask identifies what else a domain must hold alongside whole slices.
@@ -1126,9 +1129,9 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		state.multiLayerConstraints = utiltas.PodSetSliceRequiredTopologyConstraints(workersTasPodSetRequests.PodSet.TopologyRequest)
 	}
 
-	podRequirements, reason := s.buildPodRequirements(info, workersTasPodSetRequests.PodSet)
-	if reason != "" {
-		return nil, reason
+	podRequirements, err := s.buildPodRequirements(info, workersTasPodSetRequests.PodSet)
+	if err != nil {
+		return nil, err.Error()
 	}
 	requirements.podRequirements = podRequirements
 	if s.isLowestLevelNode && features.Enabled(features.TASCacheNodeMatchResults) && wl != nil && wl.UID != "" {
@@ -1143,15 +1146,15 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		if reason != "" {
 			return nil, reason
 		}
-		leaderPodRequirements, reason := s.buildPodRequirements(leaderInfo, leaderTasPodSetRequests.PodSet)
-		if reason != "" {
-			return nil, reason
+		leaderPodRequirements, err := s.buildPodRequirements(leaderInfo, leaderTasPodSetRequests.PodSet)
+		if err != nil {
+			return nil, err.Error()
 		}
 		requirements.leader.podRequirements = &leaderPodRequirements
 	}
 
 	// phase 1 - determine the number of pods and slices which can fit in each topology domain
-	err := s.fillInCounts(ctx, requirements, state)
+	err = s.fillInCounts(ctx, requirements, state)
 	if err != nil {
 		return nil, fmt.Sprintf("unable to calculate domain capacities for PodSet %s, error: %s", info.Name, err.Error())
 	}
@@ -2130,15 +2133,16 @@ func podSetInfo(tasPodSetRequests TASPodSetRequests) (podset.PodSetInfo, string)
 
 // buildPodRequirements turns a PodSet into the node filters TAS applies to it, in the
 // field form the default simulator reads and in the Pod template the scheduler library
-// reads. A non-empty second return value is the reason the PodSet cannot be placed.
-func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet *kueue.PodSet) (simulator.PodRequirements, string) {
+// reads. A non-nil second return value is the error explaining why the PodSet cannot be
+// placed.
+func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet *kueue.PodSet) (simulator.PodRequirements, error) {
 	var podRequirements simulator.PodRequirements
 	podRequirements.Tolerations = utiltolerations.Merge(info.Tolerations, s.tolerations)
 
 	if s.isLowestLevelNode {
 		sel, err := labels.ValidatedSelectorFromSet(info.NodeSelector)
 		if err != nil {
-			return podRequirements, fmt.Sprintf("invalid node selectors: %s, reason: %s", info.NodeSelector, err)
+			return podRequirements, fmt.Errorf("%w: %s, reason: %w", errInvalidNodeSelector, info.NodeSelector, err)
 		}
 		podRequirements.Selector = sel
 	} else {
@@ -2149,7 +2153,7 @@ func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet 
 		if requiredAffinity := info.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution; requiredAffinity != nil {
 			affinitySelector, err := nodeaffinity.NewNodeSelector(requiredAffinity)
 			if err != nil {
-				return podRequirements, fmt.Sprintf("invalid affinity node selectors: %s, reason: %s", requiredAffinity, err)
+				return podRequirements, fmt.Errorf("%w: %s, reason: %w", errInvalidRequiredAffinity, requiredAffinity, err)
 			}
 			podRequirements.AffinitySelector = affinitySelector
 		}
@@ -2158,7 +2162,7 @@ func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet 
 			if len(preferredAffinity) > 0 {
 				prefTerms, err := nodeaffinity.NewPreferredSchedulingTerms(preferredAffinity)
 				if err != nil {
-					return podRequirements, fmt.Sprintf("invalid preferred node affinity terms: %v, reason: %s", preferredAffinity, err)
+					return podRequirements, fmt.Errorf("%w: %v, reason: %w", errInvalidPreferredAffinity, preferredAffinity, err)
 				}
 				podRequirements.PreferredSchedulingTerms = prefTerms
 			}
@@ -2171,7 +2175,7 @@ func (s *TASFlavorSnapshot) buildPodRequirements(info podset.PodSetInfo, podSet 
 	podRequirements.PodTemplate = podSet.Template.DeepCopy()
 	podRequirements.PodTemplate.Spec.Tolerations = podRequirements.Tolerations
 	podRequirements.PodTemplate.Spec.NodeSelector = info.NodeSelector
-	return podRequirements, ""
+	return podRequirements, nil
 }
 
 // fillLeaderFeasibleLeaves records which leaves suit the leader. It asks about every
