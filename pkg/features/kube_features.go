@@ -943,6 +943,12 @@ const (
 	// workloads are only looked up by UID-based names. When disabled, the controller falls back to checking
 	// for legacy-named workloads.
 	DisableStatefulSetWorkloadNameFallback featuregate.Feature = "DisableStatefulSetWorkloadNameFallback"
+
+	// owner: @vivekk16
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/11952-disaggregatedset-integration
+	//
+	// Enables the LeaderWorkerSet's DisaggregatedSet integration.
+	DisaggregatedSetIntegration featuregate.Feature = "DisaggregatedSetIntegration"
 )
 
 func init() {
@@ -1467,6 +1473,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 
 	DisableStatefulSetWorkloadNameFallback: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta}, // GA in 0.22
+	},
+
+	DisaggregatedSetIntegration: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
 	},
 }
 
