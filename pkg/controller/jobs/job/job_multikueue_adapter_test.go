@@ -701,6 +701,63 @@ func Test_multiKueueAdapter_SyncJob(t *testing.T) {
 				deferred: true,
 			},
 		},
+		// Regression tests for re-dispatch scenario where the worker Job restarts
+		// with failed=0 but the manager already has non-zero failed counter.
+		// The old wholesale status copy was rejected by the K8s 1.35+ API server
+		// (RejectDecreasingFailedCounter). mergeJobStatus clamps it to max(local, remote).
+		"RedispatchWithDecreasingFailed_LocalUnsuspended": {
+			args: args{
+				// Local (manager) Job is unsuspended, failed=1 from previous dispatch.
+				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
+					Suspend(false).
+					Failed(1).
+					Obj()).Build(),
+				// Remote (worker) Job is the NEW dispatch: failed=0, active=2.
+				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
+					Suspend(false).
+					Active(2).
+					Obj()).Build(),
+				key: client.ObjectKeyFromObject(newJob().Obj()),
+			},
+			want: want{
+				// Manager Job must keep failed=1 (not decrease to 0), and pick up active=2.
+				localJob: newJob().
+					Suspend(false).
+					Failed(1).
+					Active(2).
+					Obj(),
+				remoteJob: newJob().
+					Suspend(false).
+					Active(2).
+					Obj(),
+			},
+		},
+		"RedispatchWithDecreasingFailed_LocalSuspendedRemoteFinished": {
+			args: args{
+				// Local (manager) Job is suspended, failed=2.
+				localClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
+					Failed(2).
+					Obj()).Build(),
+				// Remote Job finished successfully with failed=0.
+				remoteClient: fake.NewClientBuilder().WithScheme(schema).WithObjects(newJob().
+					Condition(batchv1.JobCondition{
+						Type:   batchv1.JobComplete,
+						Status: corev1.ConditionTrue,
+					}).
+					Obj()).Build(),
+				key: client.ObjectKeyFromObject(newJob().Obj()),
+			},
+			want: want{
+				// Manager keeps failed=2 (monotonic) but picks up the Complete condition.
+				localJob: newJob().
+					Failed(2).
+					Condition(batchv1.JobCondition{
+						Type:   batchv1.JobComplete,
+						Status: corev1.ConditionTrue,
+					}).
+					Obj(),
+			},
+		},
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
