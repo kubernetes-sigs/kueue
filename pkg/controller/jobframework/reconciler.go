@@ -627,6 +627,7 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 				log.Error(err, "Finding the admitted workload slice to update PodsReady on while a scale-up is pending", "pendingWorkload", klog.KObj(wl))
 				return ctrl.Result{}, err
 			}
+			// Without a retained slice, the unadmitted probe keeps the target and reports WaitForStart.
 			if retained != nil {
 				podsReadyTarget = retained
 			}

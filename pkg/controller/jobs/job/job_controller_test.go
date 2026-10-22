@@ -179,7 +179,7 @@ func TestPodsReady(t *testing.T) {
 	}
 }
 
-func TestPartialScaleUpGrantedCount(t *testing.T) {
+func TestPodsReadyWithPartialScaleUp(t *testing.T) {
 	const (
 		jobName = "job"
 		jobUID  = types.UID("test-uid")
@@ -187,14 +187,19 @@ func TestPartialScaleUpGrantedCount(t *testing.T) {
 	)
 	jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
 
-	jobTemplate := utiltestingjob.MakeJob(jobName, jobNs)
+	// The Job's spec already asks for the full 10 pods while admission may grant fewer.
+	jobTemplate := utiltestingjob.MakeJob(jobName, jobNs).Parallelism(10).Completions(10)
 
 	elasticPartialAnnotations := map[string]string{
 		constants.ElasticJobAnnotation:                   "true",
 		constants.ElasticJobScaleUpStrategyAnnotationKey: constants.ElasticJobScaleUpStrategyPartial,
 	}
+	partialScaleUpGates := map[featuregate.Feature]bool{
+		features.ElasticJobsViaWorkloadSlices:                          true,
+		features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+	}
 
-	grantedWorkload := func(granted int32) *kueue.Workload {
+	grantedWorkload := func(granted int32, admitted bool) *kueue.Workload {
 		return utiltestingapi.MakeWorkload("wl", jobNs).
 			Finalizers(kueue.ResourceInUseFinalizerName).
 			Annotations(map[string]string{constants.ElasticJobAnnotation: "true"}).
@@ -206,7 +211,7 @@ func TestPartialScaleUpGrantedCount(t *testing.T) {
 					Obj(),
 				time.Now(),
 			).
-			AdmittedAt(true, time.Now()).
+			AdmittedAt(admitted, time.Now()).
 			Obj()
 	}
 
@@ -214,61 +219,78 @@ func TestPartialScaleUpGrantedCount(t *testing.T) {
 		featureGates   map[featuregate.Feature]bool
 		jobAnnotations map[string]string
 		activeWorkload *kueue.Workload
-		wantGranted    int32
-		wantOk         bool
+		readyPods      int32
+		wantPodsReady  bool
 	}{
-		"workload slices feature gate off": {
+		"workload slices feature gate off: the full count is required": {
 			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices:                          false,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
 			},
 			jobAnnotations: elasticPartialAnnotations,
-			activeWorkload: grantedWorkload(7),
+			activeWorkload: grantedWorkload(7, true),
+			readyPods:      7,
+			wantPodsReady:  false,
 		},
-		"partial scale-up feature gate off": {
+		"partial scale-up feature gate off: the full count is required": {
 			featureGates: map[featuregate.Feature]bool{
 				features.ElasticJobsViaWorkloadSlices:                          true,
 				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
 			},
 			jobAnnotations: elasticPartialAnnotations,
-			activeWorkload: grantedWorkload(7),
+			activeWorkload: grantedWorkload(7, true),
+			readyPods:      7,
+			wantPodsReady:  false,
 		},
-		"strategy annotation is not partial": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
-				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
-			},
+		"strategy annotation is not partial: the full count is required": {
+			featureGates: partialScaleUpGates,
 			jobAnnotations: map[string]string{
 				constants.ElasticJobAnnotation: "true",
 			},
-			activeWorkload: grantedWorkload(7),
+			activeWorkload: grantedWorkload(7, true),
+			readyPods:      7,
+			wantPodsReady:  false,
 		},
-		"no active workload": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
-				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
-			},
+		"no active workload: the full count is required": {
+			featureGates:   partialScaleUpGates,
 			jobAnnotations: elasticPartialAnnotations,
+			readyPods:      7,
+			wantPodsReady:  false,
 		},
-		"active workload granted a partial count": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
-				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
-			},
+		"active workload is not admitted: the full count is required": {
+			featureGates:   partialScaleUpGates,
 			jobAnnotations: elasticPartialAnnotations,
-			activeWorkload: grantedWorkload(7),
-			wantGranted:    7,
-			wantOk:         true,
+			activeWorkload: grantedWorkload(7, false),
+			readyPods:      7,
+			wantPodsReady:  false,
 		},
-		"active workload granted the full count": {
-			featureGates: map[featuregate.Feature]bool{
-				features.ElasticJobsViaWorkloadSlices:                          true,
-				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
-			},
+		"active workload granted a partial count: not enough pods ready": {
+			featureGates:   partialScaleUpGates,
 			jobAnnotations: elasticPartialAnnotations,
-			activeWorkload: grantedWorkload(10),
-			wantGranted:    10,
-			wantOk:         true,
+			activeWorkload: grantedWorkload(7, true),
+			readyPods:      5,
+			wantPodsReady:  false,
+		},
+		"active workload granted a partial count: granted pods ready": {
+			featureGates:   partialScaleUpGates,
+			jobAnnotations: elasticPartialAnnotations,
+			activeWorkload: grantedWorkload(7, true),
+			readyPods:      7,
+			wantPodsReady:  true,
+		},
+		"active workload granted the full count: granted count is not enough": {
+			featureGates:   partialScaleUpGates,
+			jobAnnotations: elasticPartialAnnotations,
+			activeWorkload: grantedWorkload(10, true),
+			readyPods:      7,
+			wantPodsReady:  false,
+		},
+		"active workload granted the full count: all pods ready": {
+			featureGates:   partialScaleUpGates,
+			jobAnnotations: elasticPartialAnnotations,
+			activeWorkload: grantedWorkload(10, true),
+			readyPods:      10,
+			wantPodsReady:  true,
 		},
 	}
 
@@ -278,7 +300,7 @@ func TestPartialScaleUpGrantedCount(t *testing.T) {
 				features.SetFeatureGateDuringTest(t, gate, enabled)
 			}
 
-			j := jobTemplate.Clone().UID(string(jobUID))
+			j := jobTemplate.Clone().UID(string(jobUID)).Ready(tc.readyPods)
 			for k, v := range tc.jobAnnotations {
 				j.SetAnnotation(k, v)
 			}
@@ -293,12 +315,8 @@ func TestPartialScaleUpGrantedCount(t *testing.T) {
 			kClient := clientBuilder.Build()
 
 			ctx, _ := utiltesting.ContextWithLog(t)
-			granted, ok := jj.partialScaleUpGrantedCount(ctx, kClient)
-			if ok != tc.wantOk {
-				t.Fatalf("unexpected ok: got %v, want %v", ok, tc.wantOk)
-			}
-			if ok && granted != tc.wantGranted {
-				t.Errorf("unexpected granted count: got %d, want %d", granted, tc.wantGranted)
+			if got := jj.PodsReady(ctx, kClient); got != tc.wantPodsReady {
+				t.Errorf("Unexpected PodsReady (want: %v, got: %v)", tc.wantPodsReady, got)
 			}
 		})
 	}
