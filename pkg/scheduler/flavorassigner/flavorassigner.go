@@ -130,6 +130,27 @@ const (
 	fit
 )
 
+type TASMode struct {
+	PreemptionMode preemptionMode
+	Reasons        []string
+}
+
+type TASFlavorKey struct {
+	GroupKey tas.PodSetGroupKey
+	Flavor   kueue.ResourceFlavorReference
+}
+
+// TASFlavorModes tracks TAS mode downgrades keyed by PodSet group and flavor name.
+type TASFlavorModes map[TASFlavorKey]TASMode
+
+func (m TASFlavorModes) ModeForGroup(groupKey tas.PodSetGroupKey, flavor kueue.ResourceFlavorReference) (TASMode, bool) {
+	if m == nil {
+		return TASMode{}, false
+	}
+	mode, ok := m[TASFlavorKey{GroupKey: groupKey, Flavor: flavor}]
+	return mode, ok
+}
+
 // isPreferred returns true if mode a is better than b according to the selected policy
 func isPreferred(a, b granularMode, fungibilityConfig kueue.FlavorFungibility) bool {
 	if a.preemptionMode == noFit {
@@ -291,6 +312,17 @@ func (a *FlavorAssigner) AssignFlavors(
 	log logr.Logger,
 	counts []int32,
 ) Assignment {
+	return a.AssignFlavorsWithTASModes(ctx, log, counts, nil)
+}
+
+// AssignFlavorsWithTASModes performs quota-based flavor selection, applying any TAS
+// mode downgrades in tasModes to allow TryNextFlavor fallback.
+func (a *FlavorAssigner) AssignFlavorsWithTASModes(
+	ctx context.Context,
+	log logr.Logger,
+	counts []int32,
+	tasModes TASFlavorModes,
+) Assignment {
 	// Second-pass requests follow admission order, while counts and flavor scan state
 	// follow spec order. Use the request's spec index for the lookups below.
 	specIndexes := podset.SpecIndexes(a.wl.Obj.Spec.PodSets, a.wl.TotalRequests,
@@ -440,11 +472,11 @@ func (a *FlavorAssigner) AssignFlavors(
 				continue
 			}
 
-			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, probeRequests, zeroCount, resName, quotaUsage, assignedRequests)
+			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, probeRequests, zeroCount, resName, quotaUsage, assignedRequests, tasModes)
 			if probeRequests != nil && len(flavors) == 0 && !status.IsError() {
 				// The probe is a preference, not an admission barrier for zero-count PodSets.
 				probeReason := status.Message()
-				flavors, status, considered = a.findFlavorForPodSets(ctx, log, psIDs, requests, nil, zeroCount, resName, quotaUsage, assignedRequests)
+				flavors, status, considered = a.findFlavorForPodSets(ctx, log, psIDs, requests, nil, zeroCount, resName, quotaUsage, assignedRequests, tasModes)
 				if len(flavors) > 0 && !status.IsError() {
 					if assignment.ZeroCountFlavorFallback != "" {
 						assignment.ZeroCountFlavorFallback += " "
@@ -500,8 +532,22 @@ func (a *FlavorAssigner) AssignFlavors(
 
 // AssignTopology updates the assignment based on topology requirements.
 func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, assignment *Assignment) {
+	a.AssignTopologyWithModes(ctx, log, assignment, nil)
+}
+
+// AssignTopologyWithModes runs TAS placement for the given assignment. When a flavor
+// was selected purely on quota but fails topology placement and
+// whenCanPreempt: TryNextFlavor is set, the failure is recorded in tasModes
+// and the function returns true, signalling the caller to retry quota-based
+// flavor selection with the downgrade taken into account.
+func (a *FlavorAssigner) AssignTopologyWithModes(
+	ctx context.Context,
+	log logr.Logger,
+	assignment *Assignment,
+	tasModes TASFlavorModes,
+) bool {
 	if !features.Enabled(features.TopologyAwareScheduling) {
-		return
+		return false
 	}
 	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && a.replaceWorkloadSlice != nil {
 		// Elastic placement accounts for the previous assignment itself.
@@ -513,6 +559,12 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 	if assignment.RepresentativeMode() == Fit {
 		result := a.cq.FindTopologyAssignmentsForWorkload(ctx, tasRequests, schdcache.WithWorkloadInfo(a.wl))
 		if failure := result.Failure(); failure != nil {
+			// Flavor fit quota but cannot fit TAS without preemption; if
+			// TryNextFlavor is in effect, record the downgrade and retry.
+			if a.shouldRetryFlavorAssignmentAfterTASFailure() &&
+				a.downgradeTASFlavorMode(tasModes, failure, preempt) {
+				return true
+			}
 			// There is at least one PodSet which does not fit
 			assignment.ResolvePodSetFailure(
 				failure.PodSetName,
@@ -535,6 +587,10 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 		if failure := result.Failure(); failure != nil {
 			// There is at least one PodSet which does not fit even if
 			// all workloads are preempted.
+			if a.shouldRetryFlavorAssignmentAfterTASFailure() &&
+				a.downgradeTASFlavorMode(tasModes, failure, noFit) {
+				return true
+			}
 			psAssignment := assignment.PodSetAssignmentByName(failure.PodSetName)
 			if features.Enabled(features.UnadmittedWorkloadsObservability) {
 				psAssignment.MarkFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
@@ -548,6 +604,46 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 			assignment.updateModeForTASRequests(tasRequests, Preempt)
 		}
 	}
+	return false
+}
+
+// downgradeTASFlavorMode records a TAS failure for the failing flavor in tasModes
+// at targetMode, only if the mode would be a downgrade from whatever is already
+// recorded. Returns true when a new downgrade was recorded (triggering a retry).
+func (a *FlavorAssigner) downgradeTASFlavorMode(
+	tagModes TASFlavorModes,
+	failure *schdcache.FailureInfo,
+	targetMode preemptionMode,
+) bool {
+	if failure == nil || tagModes == nil {
+		return false
+	}
+	psIdx := slices.IndexFunc(a.wl.Obj.Spec.PodSets, func(s kueue.PodSet) bool {
+		return s.Name == failure.PodSetName
+	})
+	if psIdx == -1 {
+		return false
+	}
+	groupKey := tas.GroupKeyForPodSet(&a.wl.Obj.Spec.PodSets[psIdx])
+	key := TASFlavorKey{GroupKey: groupKey, Flavor: failure.Flavor}
+	current, exists := tagModes[key]
+	if !exists || current.PreemptionMode > targetMode {
+		tagModes[key] = TASMode{
+			PreemptionMode: targetMode,
+			Reasons:        []string{failure.Reason},
+		}
+		return true
+	}
+	return false
+}
+
+// shouldRetryFlavorAssignmentAfterTASFailure returns true when the retry
+// machinery is safe to use: FlavorFungibility enabled, not a nomination-mapping
+// run, and not a failed-node replacement (which has its own fallback path).
+func (a *FlavorAssigner) shouldRetryFlavorAssignmentAfterTASFailure() bool {
+	return features.Enabled(features.FlavorFungibility) &&
+		!a.shouldRespectNominationMapping() &&
+		!workload.HasUnhealthyNodes(a.wl.Obj)
 }
 
 // resolvePodSetFlavors returns the flavors podSet should be assigned, given the flavors
@@ -703,6 +799,7 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 	resName corev1.ResourceName,
 	assignmentUsage resources.FlavorResourceQuantities,
 	assignedRequests resources.FlavorResourceQuantities,
+	tasModes TASFlavorModes,
 ) (ResourceAssignment, *Status, FlavorAssignmentAttempts) {
 	resourceGroup := a.cq.RGByResource(resName)
 	if resourceGroup == nil {
@@ -850,6 +947,29 @@ func (a *FlavorAssigner) findFlavorForPodSets(
 
 		if representativeMode.preemptionMode > noPreemptionCandidates {
 			triedFlavors.Delete(fName)
+		}
+
+		// Apply any TAS mode downgrade recorded from a previous attempt for this
+		// flavor. When flavor-a fit quota (mode=fit) but later failed TAS
+		// placement, downgradeTASFlavorMode recorded it as preempt/noFit.
+		// Capping representativeMode here makes shouldTryNextFlavor return true
+		// (when whenCanPreempt: TryNextFlavor is set), so the loop keeps going
+		// and evaluates flavor-b.
+		if representativeMode.preemptionMode > noFit && len(psIDs) > 0 {
+			groupKey := tas.GroupKeyForPodSet(&a.wl.Obj.Spec.PodSets[psIDs[0]])
+			if tasM, ok := tasModes.ModeForGroup(groupKey, fName); ok {
+				if tasM.PreemptionMode < representativeMode.preemptionMode {
+					representativeMode.preemptionMode = tasM.PreemptionMode
+					for _, asgn := range assignments {
+						asgn.Mode = tasM.PreemptionMode.flavorAssignmentMode()
+					}
+					flavorQuotaReasons = append(flavorQuotaReasons, tasM.Reasons...)
+					status.reasons = append(status.reasons, tasM.Reasons...)
+					if tasM.PreemptionMode == noFit {
+						flavorNoFitReason = mostSevereReason(flavorNoFitReason, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
+					}
+				}
+			}
 		}
 
 		consideredFlavors.AddRepresentativeModeFlavorAttempt(fName, representativeMode.preemptionMode, maxBorrow, flavorQuotaReasons, flavorNoFitReason)
