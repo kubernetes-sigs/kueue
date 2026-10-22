@@ -1213,7 +1213,7 @@ Implementation of the following candidate selector fields and constraints to hav
 
 Expose the implementation under feature gate "ConfigurablePreemptions", integration should not change in any way the existing preemption logic.
 
-**Step 2.** Implement additional candidate selectors (time-based execution and creation duration selectors).
+**Step 2.** Implement additional candidate selectors (priority class selectors, time-based execution and creation duration selectors).
 
 **Step 3.** Implement fair sharing, borrowing based rules, and custom candidate ordering.
 
