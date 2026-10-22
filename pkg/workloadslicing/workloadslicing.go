@@ -290,7 +290,7 @@ func ScaledUp(workload *kueue.Workload) bool {
 
 // HasPendingReplacement reports whether wl's chain has an active, non-evicted,
 // not finished slice that replaces wl. Such a slice means the job's desired
-// size has changed, so wl's pods are not expected to all become ready.
+// size has changed.
 func HasPendingReplacement(ctx context.Context, clnt client.Client, wl *kueue.Workload) (bool, error) {
 	if !IsElasticWorkload(wl) {
 		return false, nil
