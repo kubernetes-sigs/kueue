@@ -226,6 +226,33 @@ type Info struct {
 	// NominationMapping is the mapping of PodSets resources and their flavors
 	// based on the nomination phase.
 	NominationMapping PodSetResourcesToFlavors
+
+	// IsPartialPreemptionJob indicates whether this workload is an elastic job that has
+	// opted in to partial preemption (PartialPreemption gate on + annotation set).
+	// Computed once at Info construction time so comparators and iterators avoid
+	// per-call featureGate lookups and annotation map access.
+	IsPartialPreemptionJob bool
+
+	// HasPendingReclaimTarget indicates whether this workload has any admitted PodSet with
+	// an in-flight partial-preemption reclaim target above its current count.
+	HasPendingReclaimTarget bool
+
+	// PreemptionTargetSlot records this workload's index in the preemption targets slice within a
+	// single attempt (sentinel-0 encoded: 0 = unset). Owned by the preemption package.
+	PreemptionTargetSlot int
+}
+
+// SetPreemptionTargetSlot stores idx as the slot, sentinel-0 encoded (idx+1).
+func (i *Info) SetPreemptionTargetSlot(idx int) {
+	i.PreemptionTargetSlot = idx + 1
+}
+
+// GetPreemptionTargetSlot returns the stored slot and whether it was set.
+func (i *Info) GetPreemptionTargetSlot() (int, bool) {
+	if i.PreemptionTargetSlot == 0 {
+		return 0, false
+	}
+	return i.PreemptionTargetSlot - 1, true
 }
 
 type PodSetResources struct {
@@ -339,6 +366,8 @@ func (i *Info) Update(log logr.Logger, wl *kueue.Workload, opts ...InfoOption) {
 	if i.shouldUpdateDerivedFields(prev) {
 		i.updateDerivedFields(log, options.skipSchedulingHash)
 	}
+	i.IsPartialPreemptionJob = IsPartialPreemptionJob(wl)
+	i.HasPendingReclaimTarget = HasPendingReclaimTargetCount(wl)
 }
 
 // schedulingHashInputs is what an Info's SchedulingHash was computed from,
@@ -750,7 +779,7 @@ func podSetsCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
 	})
 }
 
-func podSetsCountsAfterReclaim(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
+func PodSetsCountsAfterReclaim(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
 	totalCounts := podSetsCounts(wl)
 	if !features.Enabled(features.ReclaimablePods) {
 		return totalCounts
@@ -799,7 +828,7 @@ func totalRequestsFromPodSets(wi *Info, info *InfoOptions) []PodSetResources {
 		return nil
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
-	currentCounts := podSetsCountsAfterReclaim(wl)
+	currentCounts := PodSetsCountsAfterReclaim(wl)
 	for i, ps := range wl.Spec.PodSets {
 		count := currentCounts[ps.Name]
 		setRes := PodSetResources{
@@ -840,7 +869,7 @@ func totalRequestsFromAdmission(wi *Info) []PodSetResources {
 		return nil
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
-	currentCounts := podSetsCountsAfterReclaim(wl)
+	currentCounts := PodSetsCountsAfterReclaim(wl)
 	totalCounts := podSetsCounts(wl)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		setRes := PodSetResources{
@@ -919,7 +948,7 @@ func SetConditionAndUpdate(ctx context.Context,
 	}
 	return workloadpatching.PatchStatus(ctx, c, wl, client.FieldOwner(managerPrefix+"-"+condition.Type), func(wl *kueue.Workload) (bool, error) {
 		return apimeta.SetStatusCondition(&wl.Status.Conditions, condition), nil
-	})
+	}, workloadpatching.WithLooseOnApply(), workloadpatching.WithRetryOnConflict())
 }
 
 const PodsNotReadyMessage = "Not all pods are ready or succeeded"
@@ -1807,21 +1836,26 @@ func IsElasticWorkload(wl *kueue.Workload) bool {
 }
 
 // MinCountsUsable reports whether PodSet.MinCount is honored for the given Workload, i.e. whether
-// the workload may be partially admitted. MinCount is populated by two independent mechanisms, each
-// with its own feature gate: PartialAdmission (classic, e.g. batch/Job's job-min-parallelism) and
-// ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp (elastic partial scale-up).
+// the workload may be partially admitted or partially preempted. MinCount is populated by three
+// independent mechanisms, each with its own feature gate: PartialAdmission (classic, e.g.
+// batch/Job's job-min-parallelism), ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp (elastic
+// partial scale-up), and PartialPreemption (elastic partial scale-down to shed replicas towards
+// MinCount instead of a full eviction).
 //
 // Both the scheduler and the job reconciler must agree on this predicate: the reconciler clears
 // MinCounts it reports as unusable, so a looser check in the scheduler would admit on values the
 // reconciler already erased.
 //
-// The elastic branch cannot narrow further to workloads that actually opted into the "partial"
-// scale-up strategy, because the elastic-job-scale-up-strategy annotation is set on the Job and is
-// not propagated to the Workload. Opting in is instead enforced where MinCount is produced, so an
-// "atomic" workload reaches the scheduler with no MinCount to act on.
+// The elastic scale-up branch cannot narrow further to workloads that actually opted into the
+// "partial" scale-up strategy, because the elastic-job-scale-up-strategy annotation is set on the
+// Job and is not propagated to the Workload. Opting in is instead enforced where MinCount is
+// produced, so an "atomic" workload reaches the scheduler with no MinCount to act on. The
+// partial-preemption branch, by contrast, is narrowed to opted-in workloads via
+// IsPartialPreemptionJob, whose annotation is propagated to the Workload.
 func MinCountsUsable(wl *kueue.Workload) bool {
 	return features.Enabled(features.PartialAdmission) ||
-		(features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) && IsElasticWorkload(wl))
+		(features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) && IsElasticWorkload(wl)) ||
+		IsPartialPreemptionJob(wl)
 }
 
 // UnadmittedWorkloadReasonWithFallback returns the granularReason if the UnadmittedWorkloadsObservability

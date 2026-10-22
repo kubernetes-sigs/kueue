@@ -254,7 +254,7 @@ func TestPlan(t *testing.T) {
 
 			preemptor := preemption.New(
 				utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
-				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil,
+				clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil, 0, false,
 			)
 			assigner := flavorassigner.New(
 				wl, snapshot.ClusterQueue(tasTestCQ), snapshot.ResourceFlavors, false,

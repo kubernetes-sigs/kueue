@@ -184,6 +184,12 @@ func (c *ClusterQueueSnapshot) PotentialAvailable(fr resources.FlavorResource) r
 	return potentialAvailable(c, fr)
 }
 
+// InDebt reports whether fr's usage exceeds its available capacity. This is the
+// deficit that Available clamps to zero.
+func (c *ClusterQueueSnapshot) InDebt(fr resources.FlavorResource) bool {
+	return available(c, fr).Sign() < 0
+}
+
 func (c *ClusterQueueSnapshot) GetName() kueue.ClusterQueueReference {
 	return c.Name
 }

@@ -156,6 +156,7 @@ func managerAndSchedulerSetup(
 			),
 			scheduler.WithAdmissionFairSharing(admissionFairSharing),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
+			scheduler.WithOnDemandPreemption(true),
 		)
 		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())

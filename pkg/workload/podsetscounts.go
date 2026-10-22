@@ -90,7 +90,7 @@ func ExtractGrantedPodSetCountsAfterReclaim(wl *kueue.Workload) PodSetsCounts {
 	if granted == nil {
 		return nil
 	}
-	current := podSetsCountsAfterReclaim(wl)
+	current := PodSetsCountsAfterReclaim(wl)
 	for name, count := range granted {
 		granted[name] = min(count, current[name])
 	}

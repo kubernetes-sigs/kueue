@@ -46,6 +46,7 @@ type CandidateIterator interface {
 type candidateIterator struct {
 	candidates                        []*candidateElem
 	runIndex                          int
+	roundHasRemainingCandidate        bool
 	frsNeedPreemption                 sets.Set[resources.FlavorResource]
 	snapshot                          *schdcache.Snapshot
 	noCandidateFromOtherQueues        bool
@@ -152,28 +153,50 @@ func newCandidateIterator(
 // Next allows to iterate over the ordered sequence of candidates, with the reason
 // for eviction returned together with a candidate.
 func (c *candidateIterator) Next(borrow bool) (*workload.Info, string) {
-	if c.runIndex >= len(c.candidates) {
-		return nil, ""
+	round := 0
+	for {
+		for c.runIndex < len(c.candidates) {
+			candidate := c.candidates[c.runIndex]
+			c.runIndex++
+			current := c.currentWorkload(candidate)
+			if current == nil {
+				continue
+			}
+			if !c.candidateIsValid(current, candidate, borrow) {
+				continue
+			}
+			// A workload with an existing reclaim target can be returned for pending-target
+			// handling, but it must not keep the iterator scanning rounds because handling it
+			// does not produce further preemption progress.
+			if current.HasPendingReclaimTarget {
+				if round > 0 {
+					continue
+				}
+			} else if current.IsPartialPreemptionJob {
+				c.roundHasRemainingCandidate = true
+			}
+			return current, candidate.preemptionVariant.PreemptionReason()
+		}
+		round++
+		if !c.roundHasRemainingCandidate {
+			return nil, ""
+		}
+		c.runIndex = 0
+		c.roundHasRemainingCandidate = false
 	}
-	candidate := c.candidates[c.runIndex]
-	c.runIndex++
-	if !c.candidateIsValid(candidate, borrow) {
-		return c.Next(borrow)
-	}
-	return candidate.wl, candidate.preemptionVariant.PreemptionReason()
 }
 
 // candidateIsValid checks if candidate is valid,
 // as eg. some candidates can only be considered without borrowing
 // Also, preemption of candidates might invalidate other candidates
-func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bool) bool {
-	if c.hierarchicalReclaimCtx.Cq.Name == candidate.wl.ClusterQueue {
+func (c *candidateIterator) candidateIsValid(wl *workload.Info, candidate *candidateElem, borrow bool) bool {
+	if c.hierarchicalReclaimCtx.Cq.Name == wl.ClusterQueue {
 		return true
 	}
 	if borrow && candidate.preemptionVariant == ReclaimWithoutBorrowing {
 		return false
 	}
-	cq := c.snapshot.ClusterQueue(candidate.wl.ClusterQueue)
+	cq := c.snapshot.ClusterQueue(wl.ClusterQueue)
 	if schdcache.IsWithinNominalInResources(cq, c.frsNeedPreemption) {
 		return false
 	}
@@ -190,7 +213,15 @@ func (c *candidateIterator) candidateIsValid(candidate *candidateElem, borrow bo
 }
 
 // Reset moves the candidate iterator back to the starting position.
-// It is required to reset the iterator before each run.
 func (c *candidateIterator) Reset() {
 	c.runIndex = 0
+	c.roundHasRemainingCandidate = false
+}
+
+func (c *candidateIterator) currentWorkload(candidate *candidateElem) *workload.Info {
+	cq := c.snapshot.ClusterQueue(candidate.wl.ClusterQueue)
+	if cq == nil {
+		return nil
+	}
+	return cq.Workloads[workload.Key(candidate.wl.Obj)]
 }

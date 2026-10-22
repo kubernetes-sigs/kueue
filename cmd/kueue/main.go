@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 
 	zaplog "go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -722,6 +723,8 @@ func setupScheduler(
 		scheduler.WithPodsReadyRequeuingTimestamp(podsReadyRequeuingTimestamp(cfg)),
 		scheduler.WithFairSharing(cfg.FairSharing),
 		scheduler.WithAdmissionFairSharing(cfg.AdmissionFairSharing),
+		scheduler.WithPartialPreemptionTimeout(partialPreemptionTimeout(cfg)),
+		scheduler.WithOnDemandPreemption(enableOnDemandPreemption(cfg)),
 		scheduler.WithQuotaCheckStrategy(quotaCheckStrategy(cfg)),
 		scheduler.WithRoleTracker(roleTracker),
 		scheduler.WithPreemptionExpectations(preemptionExpectations),
@@ -772,6 +775,17 @@ func blockForPodsReady(cfg *configapi.Configuration) bool {
 	return waitforpodsready.Enabled(cfg.WaitForPodsReady) &&
 		cfg.WaitForPodsReady.BlockAdmission != nil &&
 		*cfg.WaitForPodsReady.BlockAdmission
+}
+
+func partialPreemptionTimeout(cfg *configapi.Configuration) time.Duration {
+	if cfg.PartialPreemption != nil && cfg.PartialPreemption.Timeout != nil {
+		return cfg.PartialPreemption.Timeout.Duration
+	}
+	return 0
+}
+
+func enableOnDemandPreemption(cfg *configapi.Configuration) bool {
+	return cfg.PartialPreemption != nil && cfg.PartialPreemption.EnableOnDemandPreemption
 }
 
 func podsReadyRequeuingTimestamp(cfg *configapi.Configuration) configapi.RequeuingTimestamp {

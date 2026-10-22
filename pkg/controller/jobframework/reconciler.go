@@ -733,6 +733,18 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	// 9. handle partial preemption.
+	// If the workload has a pending ReclaimTargetCount, the scheduler asked the job to
+	// scale down to that target count. Drive the scale-down by asking the job runtime to
+	// reduce its replicas toward the target.
+	if ppJob, ok := job.(JobWithPartialPreemption); ok && workload.HasPendingReclaimTargetCount(wl) {
+		log.V(3).Info("Handling partial preemption scale-down")
+		if err := ppJob.RespondToPartialPreemption(ctx, r.client, wl); err != nil {
+			log.Error(err, "Responding to partial preemption")
+			return ctrl.Result{}, err
+		}
+	}
+
 	// Workload is admitted and job is running, nothing to do. For elastic jobs,
 	// pod ungating is handled by the ElasticJobUngater controller.
 	log.V(3).Info("Job running with admitted workload, nothing to do")
@@ -1793,9 +1805,12 @@ func EquivalentToWorkload(ctx context.Context, c client.Client, job GenericJob, 
 	}
 	jobPodSets := clearUnusableMinCounts(getPodSets, wl)
 
-	opts := make([]equality.ComparePodSetsOption, 0, 3)
+	opts := make([]equality.ComparePodSetsOption, 0, 4)
 	if workload.IsAdmitted(wl) {
 		opts = append(opts, equality.WithIgnoreTolerations())
+	}
+	if workload.HasPendingReclaimTargetCount(wl) {
+		opts = append(opts, equality.WithIgnoreCount())
 	}
 	if !features.Enabled(features.TopologyAwareScheduling) {
 		opts = append(opts, equality.WithIgnoreTopologyRequest())
@@ -2168,6 +2183,13 @@ func (r *JobReconciler) prepareWorkload(ctx context.Context, job GenericJob, wl 
 
 	if err := PrepareWorkloadPriority(ctx, r.client, r.record, job.Object(), wl, getCustomPriorityClassFuncFromJob(job)); err != nil {
 		return err
+	}
+
+	if job.Object().GetAnnotations()[constants.PartialPreemptionAnnotation] == "true" {
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, constants.PartialPreemptionAnnotation, "true")
+	}
+	if maxReclaimedCount := job.Object().GetAnnotations()[constants.PartialPreemptionMaxReclaimedCountAnnotation]; maxReclaimedCount != "" {
+		metav1.SetMetaDataAnnotation(&wl.ObjectMeta, constants.PartialPreemptionMaxReclaimedCountAnnotation, maxReclaimedCount)
 	}
 
 	// Elastic jobs only get their elastic annotation in prepareWorkloadSlice, so it must run before
