@@ -44,7 +44,7 @@
 
 ## Summary
 
-Add an optional way of allowing partial scale up for elastic workloads if the full scale up could not be admitted due to quota constraints. Only `RayJob`, `RayService`, and `RayCluster` integrations will initially support this feature.
+Add an optional way of allowing partial scale up for elastic workloads if the full scale up could not be admitted due to quota constraints. Only `batch/v1 Job`, `RayJob`, `RayService`, and `RayCluster` integrations will initially support this feature.
 
 ## Motivation
 
@@ -55,7 +55,7 @@ In elastic workloads (such as RayJob with autoscaling), jobs dynamically scale u
 - Provide an opt-in mechanism for elastic jobs to partially scale up when requested scale-up capacity exceeds available quota.
 - Opportunistically scale up the remaining requested pods as quota becomes available.
 - Support multi-podset elastic jobs (e.g., RayJob with multiple worker groups).
-- Support partial scale up  for `RayJob`, `RayService`, and `RayCluster` integrations.
+- Support partial scale up for `batch/v1 Job`, `RayJob`, `RayService`, and `RayCluster` integrations.
 
 ### Non-Goals
 
@@ -64,7 +64,7 @@ In elastic workloads (such as RayJob with autoscaling), jobs dynamically scale u
 
 ## Proposal
 
-Using partial admission mechanism to support partial scale up for elastic workloads (`RayJob`, `RayService`, `RayCluster`).
+Using partial admission mechanism to support partial scale up for elastic workloads (`batch/v1 Job`, `RayJob`, `RayService`, `RayCluster`).
 
 ### User Stories
 
@@ -94,7 +94,7 @@ Every Workload is defined by two per-PodSet count vectors, read for every PodSet
 - **Baseline** (`baseline[i]`): the lowest count the PodSet can be reduced to, given by `spec.podSets[i].minCount`. When `minCount` is unset, `baseline[i] = target[i]` — the PodSet cannot be reduced below its target (see `ps0` in [Example of RayJob with multiple PodSets](#example-of-rayjob-with-multiple-podsets)). For a scale-up replacement Workload, the scheduler also takes the replaced Workload into account: while it is admitted, its granted count (`status.admission.podSetAssignments[i].count`) is used as the baseline, so the scale-up must grow past what is already running.
 - **Target** (`target[i]`): the requested count in the Workload's spec, `spec.podSets[i].count`.
 
-The job controller (the per-job-kind reconciler that builds the Workload for RayJob/RayCluster/RayService) sets `minCount` to the initial count for the initial Workload. For a scale-up replacement Workload (a workload-slice replacement, annotated via `kueue.x-k8s.io/workload-slice-replacement-for`), it copies `minCount` forward from the replaced Workload, matching PodSets by name and capping at the new `count`. So `minCount` keeps the count the job was originally admitted at, and it is the baseline whenever there is no admitted predecessor (after eviction, or while the predecessor waits for admission checks).
+The job controller (the per-job-kind reconciler that builds the Workload for batch/v1 Job/RayJob/RayCluster/RayService) sets `minCount` to the initial count for the initial Workload. For a scale-up replacement Workload (a workload-slice replacement, annotated via `kueue.x-k8s.io/workload-slice-replacement-for`), it copies `minCount` forward from the replaced Workload, matching PodSets by name and capping at the new `count`. So `minCount` keeps the count the job was originally admitted at, and it is the baseline whenever there is no admitted predecessor (after eviction, or while the predecessor waits for admission checks).
 
 The reducer returns an assignment (`granted[i]`) satisfying, for every PodSet `i`:
 
@@ -270,11 +270,12 @@ Note, that PodsReady() for Ray jobs rely on RayCluster.Status.State value, so th
 `batch/v1 Job` already scales through Workload slices by changing `.spec.parallelism` ([KEP-77](../77-dynamically-sized-jobs/README.md)). Partial scale up builds on that flow and works as for RayJob/RayService/RayCluster, with these Job-specific details:
 
 - **Target count.** The PodSet count is `min(.spec.parallelism, .spec.completions)`, as the Job never runs more Pods than `.spec.completions` ([Controlling parallelism](https://kubernetes.io/docs/concepts/workloads/controllers/job/#controlling-parallelism)). A `NonIndexed` Job scales up by raising `.spec.parallelism`. An `Indexed` Job scales up the same way below `.spec.completions`.
-In order to scale beyond it `.spec.completions` and `.spec.parallelism` must be raised together, to the same value ([Elastic Indexed Jobs](https://kubernetes.io/docs/concepts/workloads/controllers/job/#elastic-indexed-jobs)). Kueue adds no constraint on either field.
+To scale beyond `.spec.completions`, raise `.spec.completions` and `.spec.parallelism` together, to the same value ([Elastic Indexed Jobs](https://kubernetes.io/docs/concepts/workloads/controllers/job/#elastic-indexed-jobs)). Kueue adds no constraint on either field.
 
 - **Ungating order.** For `Indexed` Jobs, the `ElasticJobUngater` ungates the lowest `batch.kubernetes.io/job-completion-index` first, so indexes start in the order the Job controller creates them. The name-based order used for other Pods sorts indexes lexicographically (index `10` before `2`), which can delay low indexes behind higher ones. `NonIndexed` Job Pods keep the existing name-based order.
 
 - **`PodsReady()`.** A Job's `PodsReady()` counts individual Pods and compares that count against the full target. Kueue changes it to compare against the granted PodSet count while the Job is partially admitted.
+While the full-size scale-up slice is pending, the `PodsReady` condition is set on the admitted slice, which may hold only the granted count, and never on the pending slice. This is the same for every scale-up ([KEP-77](../77-dynamically-sized-jobs/README.md#podsready-condition)).
 
 ### Partial ScaleUp for multiple PodSets
 

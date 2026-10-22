@@ -22,6 +22,7 @@
       - [Preemption Disambiguation.](#preemption-disambiguation)
       - [Resource Flavors](#resource-flavors)
     - [Garbage Collection of Preempted Workload Slices](#garbage-collection-of-preempted-workload-slices)
+    - [PodsReady Condition](#podsready-condition)
   - [Pod Scheduling Gates](#pod-scheduling-gates)
   - [Topology Aware Scheduling Integration](#topology-aware-scheduling-integration)
     - [Pod Identification Across Slices](#pod-identification-across-slices)
@@ -260,6 +261,13 @@ similar to how `revisionHistoryLimit` is used in Kubernetes Deployments to manag
 Preempted Workload slices that fail admission requirements are not marked as Finished, as they were never actually started (i.e., never admitted or executed). 
 
 Similar to current functionality, all Workloads associated with a Job (including slices) will be deleted when the parent Job is removed.
+
+#### PodsReady Condition
+
+While a scale-up slice is pending, the `PodsReady` condition stays on the admitted slice.
+The pending slice never gets the condition, because it is not admitted.
+This holds for every scale-up, not only partial ones.
+When the pending slice is admitted, it replaces the admitted slice and `PodsReady` is set on it as for any admitted Workload.
 
 ### Pod Scheduling Gates
 
