@@ -469,11 +469,12 @@ Requested functionalities from the community can be satisfied with the following
              priority:
                mode: "Boosted"
                comparison: "LessThan"
-             minExecutionSeconds: 900
+             executionTime:
+               minSeconds: 900
    ```
 
 5. **SLA protection based on workload creation time:**
-   Model SLA requirements by only preempting recently created workloads (e.g., created less than 1 hour ago) to avoid preemption of older workloads nearing SLA completion deadlines:
+   Model SLA requirements by only preempting recently created workloads (e.g., created less than 1 hour ago) to avoid preemption of older workloads nearing SLA completion deadlines. Available since v0.21:
    ```yaml
    spec:
      rules:
@@ -485,7 +486,8 @@ Requested functionalities from the community can be satisfied with the following
              priority:
                mode: "Boosted"
                comparison: "LessThan"
-             maxTimeFromCreationSeconds: 3600
+             timeFromCreation:
+               maxSeconds: 3600
    ```
 6. **Use boosted priority comparison only within the same ClusterQueue** ([Issue #13414](https://github.com/kubernetes-sigs/kueue/issues/13414))
    Use a configuration with two rules: candidates within the same ClusterQueue (`WithinClusterQueue`) compare priorities using `Boosted` mode, while cross-queue candidates (`WithinParentCohort` or `WithinCohortTree`) compare priorities using `Base` mode.
@@ -786,43 +788,56 @@ type PreemptionConfigPreemptionCandidateSelector struct {
   
   // minExecutionSeconds specifies the minimum runtime a candidate workload must have been running for.
   // Accepts any execution time if not set.
+  // executionTime defines the requirements for candidates based on cumulative execution time.
+  // A workload's cumulative execution time is the total time spent in the Admitted=True
+  // state across admission cycles.
+  // Workloads not matching these requirements will not be considered as preemption candidates.
+  // If nil, no execution time requirements are enforced.
+  //
+  // +optional
+  ExecutionTime *PreemptionConfigTimeConstraint `json:"executionTime,omitempty"`
+
+  // timeFromCreation defines the requirements for candidates based on workload age since creation.
+  // A workload's time from creation is the elapsed duration measured from metadata.creationTimestamp
+  // until the time of preemption evaluation.
+  // Workloads not matching these requirements will not be considered as preemption candidates.
+  // If nil, no creation time requirements are enforced.
+  //
+  // +optional
+  TimeFromCreation *PreemptionConfigTimeConstraint `json:"timeFromCreation,omitempty"`
+}
+
+// PreemptionConfigTimeConstraint describes the rules for filtering preemption candidates based on a
+// time duration metric, such as cumulative execution time or age since creation.
+// For example, this can be used to protect newly admitted workloads from immediate preemption by
+// setting minSeconds on executionTime, or to protect older workloads near completion by setting
+// maxSeconds on timeFromCreation.
+// Multiple fields are joined using AND-rule (all specified bounds and comparisons have to be satisfied).
+//
+// +kubebuilder:validation:XValidation:rule="!has(self.minSeconds) || !has(self.maxSeconds) || self.minSeconds <= self.maxSeconds",message="minSeconds must be less than or equal to maxSeconds"
+type PreemptionConfigTimeConstraint struct {
+  // minSeconds specifies the minimum duration (inclusive) a candidate workload must have
+  // accumulated for the time metric to be considered for preemption.
+  // If not specified, no lower bound is enforced.
   //
   // +optional
   // +kubebuilder:validation:Minimum=0
-  MinExecutionSeconds *int32 `json:"minExecutionSeconds,omitempty"`
+  MinSeconds *int32 `json:"minSeconds,omitempty"`
 
-  // maxExecutionSeconds specifies the maximum runtime a candidate workload can have been running for.
-  // Accepts any execution time if not set.
+  // maxSeconds specifies the maximum duration (inclusive) a candidate workload can have
+  // accumulated for the time metric to be considered for preemption.
+  // If not specified, no upper bound is enforced.
   //
   // +optional
   // +kubebuilder:validation:Minimum=0
-  MaxExecutionSeconds *int32 `json:"maxExecutionSeconds,omitempty"`
+  MaxSeconds *int32 `json:"maxSeconds,omitempty"`
 
-  // executionTimeRelation defines how the candidate's execution time compares to the preemptor's.
-  // Accepts any execution time if not set.
+  // comparison defines how the candidate's duration compares to the preemptor's
+  // duration for the same time metric.
+  // If not specified, no relative comparison against the preemptor is enforced.
   //
   // +optional
-  ExecutionTimeRelation *NumericComparison `json:"executionTimeRelation,omitempty"`
-
-  // minTimeFromCreationSeconds specifies the minimum age of the workload from creation timestamp.
-  // Accepts any time from creation if not set.
-  //
-  // +optional
-  // +kubebuilder:validation:Minimum=0
-  MinTimeFromCreationSeconds *int32 `json:"minTimeFromCreationSeconds,omitempty"`
-
-  // maxTimeFromCreationSeconds specifies the maximum age of the workload from creation timestamp.
-  // Accepts any time from creation if not set.
-  //
-  // +optional
-  // +kubebuilder:validation:Minimum=0
-  MaxTimeFromCreationSeconds *int32 `json:"maxTimeFromCreationSeconds,omitempty"`
-
-  // timeFromCreationRelation defines how the candidate's creation time compares to the preemptor's.
-  // Accepts any time from creation if not set.
-  //
-  // +optional
-  TimeFromCreationRelation *NumericComparison `json:"timeFromCreationRelation,omitempty"`
+  Comparison *NumericComparison `json:"comparison,omitempty"`
 }
 
 
