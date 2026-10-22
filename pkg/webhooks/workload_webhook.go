@@ -581,18 +581,15 @@ func validateTASSliceSize(tr *kueue.PodSetTopologyRequest, path *field.Path) fie
 // remain possible after WAS deep integration is enabled.
 func validatePreferredTopologyForWAS(ps, oldPS *kueue.PodSet, path *field.Path) field.ErrorList {
 	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		// not open, return nil
 		return nil
 	}
 
 	tr := ps.TopologyRequest
 	if tr == nil || tr.Preferred == nil {
-		// not exist tr, reuturn nil
 		return nil
 	}
 
 	if oldPS != nil && oldPS.TopologyRequest != nil && ptr.Equal(tr.Preferred, oldPS.TopologyRequest.Preferred) {
-		// old podSet not exist tr, return nil
 		return nil
 	}
 
