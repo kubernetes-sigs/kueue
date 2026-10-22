@@ -277,8 +277,9 @@ class MainTest(unittest.TestCase):
             comment_file = temp_path / "comment.md"
             body_file = temp_path / "body.md"
             output_file = temp_path / "output.md"
+            success_comment_file = temp_path / "success_comment.md"
             comment_file.write_text(
-                "/set-release-note\nnew note", encoding="utf-8"
+                "/set-release-note\nFirst line\nSecond line", encoding="utf-8"
             )
             body_file.write_text("Summary\n", encoding="utf-8")
 
@@ -293,13 +294,19 @@ class MainTest(unittest.TestCase):
                     str(body_file),
                     "--output-file",
                     str(output_file),
+                    "--success-comment-file",
+                    str(success_comment_file),
                 ],
             ):
                 self.assertEqual(0, set_release_note.main())
 
             self.assertEqual(
-                "Summary\n\n```release-note\nnew note\n```\n",
+                "Summary\n\n```release-note\nFirst line\nSecond line\n```\n",
                 output_file.read_text(encoding="utf-8"),
+            )
+            self.assertEqual(
+                "✅ The release note was updated to:\n\n```release-note\nFirst line\nSecond line\n```\n",
+                success_comment_file.read_text(encoding="utf-8"),
             )
 
     def test_reports_validation_error(self) -> None:

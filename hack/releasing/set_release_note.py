@@ -272,7 +272,7 @@ def set_release_note(pr_body: str, release_note: str) -> str:
     if len(spans) > 1:
         raise ValueError("The pull request body contains multiple release-note blocks.")
 
-    new_block = f"```release-note\n{release_note}\n```"
+    new_block = release_note_block(release_note)
     if spans:
         start, end = spans[0]
         updated_body = f"{pr_body[:start]}{new_block}{pr_body[end:]}"
@@ -288,12 +288,27 @@ def set_release_note(pr_body: str, release_note: str) -> str:
     return updated_body
 
 
+def release_note_block(release_note: str) -> str:
+    """Wrap the release note in the fenced block used by the PR template."""
+    return f"```release-note\n{release_note}\n```"
+
+
+def success_comment(release_note: str) -> str:
+    """Build the confirmation comment, showing the note that was set.
+
+    Text after another command is not part of the note, so the author can
+    check here what was kept. The note never contains a fence.
+    """
+    return f"✅ The release note was updated to:\n\n{release_note_block(release_note)}\n"
+
+
 def main() -> int:
     """Read file arguments and generate the updated pull request body."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--comment-file", required=True, type=Path)
     parser.add_argument("--body-file", required=True, type=Path)
     parser.add_argument("--output-file", required=True, type=Path)
+    parser.add_argument("--success-comment-file", type=Path)
     args = parser.parse_args()
 
     try:
@@ -305,6 +320,10 @@ def main() -> int:
         parser.exit(1, f"{error}\n")
 
     args.output_file.write_text(updated_body, encoding="utf-8")
+    if args.success_comment_file is not None:
+        args.success_comment_file.write_text(
+            success_comment(release_note), encoding="utf-8"
+        )
     return 0
 
 
