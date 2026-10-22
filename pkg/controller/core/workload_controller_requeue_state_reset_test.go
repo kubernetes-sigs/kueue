@@ -51,13 +51,13 @@ func TestReconcileRequeueStateReset(t *testing.T) {
 		requeuingBackoffMaxDuration: time.Hour,
 	}
 
-	// readyWl returns an admitted workload which is PodsReady for the
-	// given duration and carries a requeueState left by earlier evictions.
-	readyWl := func(readyFor time.Duration) *utiltestingapi.WorkloadWrapper {
+	// admittedWl returns a workload admitted admittedFor ago, whose PodsReady condition
+	// turned True readyFor ago, and which carries a requeueState left by earlier evictions.
+	admittedWl := func(admittedFor, readyFor time.Duration) *utiltestingapi.WorkloadWrapper {
 		return utiltestingapi.MakeWorkload("wl", "ns").
 			ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "ownername", "owneruid").
-			ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now).
-			AdmittedAt(true, now).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("q1").Obj(), now.Add(-admittedFor)).
+			AdmittedAt(true, now.Add(-admittedFor)).
 			Condition(metav1.Condition{
 				Type:               kueue.WorkloadPodsReady,
 				Status:             metav1.ConditionTrue,
@@ -66,6 +66,12 @@ func TestReconcileRequeueStateReset(t *testing.T) {
 				LastTransitionTime: metav1.NewTime(now.Add(-readyFor)),
 			}).
 			RequeueState(new(int32(3)), nil)
+	}
+
+	// readyWl returns a workload which is PodsReady for the given duration. It was
+	// admitted a minute before that, as the pods need time to become ready.
+	readyWl := func(readyFor time.Duration) *utiltestingapi.WorkloadWrapper {
+		return admittedWl(readyFor+time.Minute, readyFor)
 	}
 
 	// notReadyWl is an admitted workload which waits for its pods to start and
@@ -77,6 +83,21 @@ func TestReconcileRequeueStateReset(t *testing.T) {
 		Message:            "Not all pods are ready or succeeded",
 		LastTransitionTime: metav1.NewTime(now.Add(-time.Minute)),
 	})
+
+	// recoveringWl waits for a failed pod to recover, and has done so for longer than
+	// the timeout. No recoveryTimeout is configured, so it is not timed out.
+	recoveringWl := readyWl(10 * time.Minute).Condition(metav1.Condition{
+		Type:               kueue.WorkloadPodsReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             kueue.WorkloadWaitForRecovery,
+		Message:            "At least one pod has failed, waiting for recovery",
+		LastTransitionTime: metav1.NewTime(now.Add(-10 * time.Minute)),
+	})
+
+	// readmittedWl was re-admitted 30s ago. Its PodsReady condition is still True
+	// from the previous admission 10m ago, because the job reconciler has not
+	// reset it yet.
+	readmittedWl := admittedWl(30*time.Second, 10*time.Minute)
 
 	// evictedWl has been preempted but is still admitted while it drains, and
 	// its PodsReady condition is left over from before the eviction.
@@ -147,6 +168,15 @@ func TestReconcileRequeueStateReset(t *testing.T) {
 			},
 			wantResult: reconcile.Result{},
 		},
+		"should measure the window from the admission when PodsReady is still True from an earlier admission": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ResetRequeueStateOnPodsReady: true,
+			},
+			reconcilerOpts: []Option{WithWaitForPodsReady(timeoutConfig)},
+			workload:       readmittedWl.Clone().Obj(),
+			wantWorkload:   readmittedWl.Clone().Obj(),
+			wantResult:     reconcile.Result{RequeueAfter: 4*time.Minute + 30*time.Second},
+		},
 		"should keep the requeueState when PodsReady is False": {
 			featureGates: map[featuregate.Feature]bool{
 				features.ResetRequeueStateOnPodsReady: true,
@@ -154,7 +184,16 @@ func TestReconcileRequeueStateReset(t *testing.T) {
 			reconcilerOpts: []Option{WithWaitForPodsReady(timeoutConfig)},
 			workload:       notReadyWl.Clone().Obj(),
 			wantWorkload:   notReadyWl.Clone().Obj(),
-			wantResult:     reconcile.Result{RequeueAfter: 5 * time.Minute},
+			wantResult:     reconcile.Result{RequeueAfter: 4 * time.Minute},
+		},
+		"should keep the requeueState when PodsReady has been False for longer than the timeout": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ResetRequeueStateOnPodsReady: true,
+			},
+			reconcilerOpts: []Option{WithWaitForPodsReady(timeoutConfig)},
+			workload:       recoveringWl.Clone().Obj(),
+			wantWorkload:   recoveringWl.Clone().Obj(),
+			wantResult:     reconcile.Result{},
 		},
 		"should not reset the requeueState when no waitForPodsReady timeout is configured": {
 			featureGates: map[featuregate.Feature]bool{
@@ -188,8 +227,8 @@ func TestReconcileRequeueStateReset(t *testing.T) {
 				features.ResetRequeueStateOnPodsReady: false,
 			},
 			reconcilerOpts: []Option{WithWaitForPodsReady(timeoutConfig)},
-			workload:       notReadyWl.Clone().MaximumExecutionTimeSeconds(60).Obj(),
-			wantWorkload:   notReadyWl.Clone().MaximumExecutionTimeSeconds(60).Obj(),
+			workload:       notReadyWl.Clone().MaximumExecutionTimeSeconds(120).Obj(),
+			wantWorkload:   notReadyWl.Clone().MaximumExecutionTimeSeconds(120).Obj(),
 			wantResult:     reconcile.Result{RequeueAfter: time.Minute},
 		},
 		"should requeue at the maximumExecutionTime when it is due before the requeueState reset": {
@@ -197,8 +236,8 @@ func TestReconcileRequeueStateReset(t *testing.T) {
 				features.ResetRequeueStateOnPodsReady: true,
 			},
 			reconcilerOpts: []Option{WithWaitForPodsReady(timeoutConfig)},
-			workload:       readyWl(2 * time.Minute).MaximumExecutionTimeSeconds(60).Obj(),
-			wantWorkload:   readyWl(2 * time.Minute).MaximumExecutionTimeSeconds(60).Obj(),
+			workload:       readyWl(2 * time.Minute).MaximumExecutionTimeSeconds(240).Obj(),
+			wantWorkload:   readyWl(2 * time.Minute).MaximumExecutionTimeSeconds(240).Obj(),
 			wantResult:     reconcile.Result{RequeueAfter: time.Minute},
 		},
 		"should requeue at the requeueState reset when it is due before the maximumExecutionTime": {
@@ -206,8 +245,8 @@ func TestReconcileRequeueStateReset(t *testing.T) {
 				features.ResetRequeueStateOnPodsReady: true,
 			},
 			reconcilerOpts: []Option{WithWaitForPodsReady(timeoutConfig)},
-			workload:       readyWl(4*time.Minute + 30*time.Second).MaximumExecutionTimeSeconds(120).Obj(),
-			wantWorkload:   readyWl(4*time.Minute + 30*time.Second).MaximumExecutionTimeSeconds(120).Obj(),
+			workload:       readyWl(4*time.Minute + 30*time.Second).MaximumExecutionTimeSeconds(450).Obj(),
+			wantWorkload:   readyWl(4*time.Minute + 30*time.Second).MaximumExecutionTimeSeconds(450).Obj(),
 			wantResult:     reconcile.Result{RequeueAfter: 30 * time.Second},
 		},
 		"should not reset the requeueState of an evicted workload which is still admitted": {
