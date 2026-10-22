@@ -4,7 +4,6 @@ authors:
   - "@vicentefb"
   - "@ichekrygin"
   - "@sohankunkerkar"
-  - "@zhengchenyu"
 status: provisional
 creation-date: 2024-03-14
 reviewers:
@@ -31,8 +30,8 @@ milestone:
 
 see-also:
   - "/keps/2724-topology-aware-scheduling"
+  - "/keps/12100-partial-scaleup-for-elasticjob"
 
 feature-gates:
   - name: ElasticJobsViaWorkloadSlices
   - name: ElasticJobsViaWorkloadSlicesWithTAS
-  - name: ElasticJobsViaWorkloadResize
