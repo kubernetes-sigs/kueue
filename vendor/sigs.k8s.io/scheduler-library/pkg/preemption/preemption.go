@@ -61,9 +61,6 @@ func EvaluateWorkloadPreemption(
 	}
 
 	for v := range opts.PotentialVictims {
-		if v == nil || len(v.Pods()) == 0 {
-			continue
-		}
 		sv, err := newSimPreemptionVictim(v)
 		if err != nil {
 			return nil, nil, fwk.AsStatus(err)
@@ -99,8 +96,8 @@ type simPreemptionVictim struct {
 var _ upstreampreemption.PreemptionVictim = (*simPreemptionVictim)(nil)
 
 func newSimPreemptionVictim(v PreemptionVictim) (*simPreemptionVictim, error) {
-	if v == nil {
-		return nil, fmt.Errorf("preemption victim cannot be nil")
+	if v == nil || len(v.Pods()) == 0 {
+		return nil, fmt.Errorf("preemption victim cannot be nil nor empty")
 	}
 	rawPods := v.Pods()
 	podInfos := make([]fwk.PodInfo, 0, len(rawPods))
