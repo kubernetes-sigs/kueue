@@ -44,9 +44,9 @@ function gh() {
 }
 '''
         scripts = {
-            "prepare all": ("prepare_pull.sh", 'if [[ "$TARGET" == "all"', "all", 2),
-            "prepare release": ("prepare_pull.sh", 'if [[ "$TARGET" == "all"', "release", 1),
-            "prepare main": ("prepare_pull.sh", 'if [[ "$TARGET" == "all"', "main", 1),
+            "prepare all": ("prepare_pull.sh", "function prepare_release_pr() {", "all", 2),
+            "prepare release": ("prepare_pull.sh", "function prepare_release_pr() {", "release", 1),
+            "prepare main": ("prepare_pull.sh", "function prepare_release_pr() {", "main", 1),
             "promote": ("promote_pull.sh", 'K8S_IO_BRANCH="', "", 1),
             "CI": ("ci_pull.sh", 'CI_BRANCH="', "", 1),
         }
