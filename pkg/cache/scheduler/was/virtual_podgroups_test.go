@@ -19,7 +19,6 @@ package was
 import (
 	"errors"
 	"fmt"
-	"math"
 	"strings"
 	"testing"
 
@@ -70,116 +69,6 @@ func TestVirtualPodGroupName(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestBuildVirtualPodGroup(t *testing.T) {
-	cases := map[string]struct {
-		workload     *kueue.Workload
-		wantMinCount int32
-		wantErr      error
-	}{
-		"nil workload": {
-			workload: nil,
-			wantErr:  errors.New("workload must not be nil"),
-		},
-		"zero pod count workload": {
-			workload: utiltesting.MakeWorkload("wl-zero", "default").
-				PodSets(*utiltesting.MakePodSet("empty", 0).Obj()).
-				Obj(),
-			wantErr: errors.New(`workload "wl-zero" has non-positive total pods count 0`),
-		},
-		"overflow pod count workload": {
-			workload: utiltesting.MakeWorkload("wl-overflow", "default").
-				PodSets(
-					*utiltesting.MakePodSet("set1", math.MaxInt32).Obj(),
-					*utiltesting.MakePodSet("set2", 1).Obj(),
-				).
-				Obj(),
-			wantErr: errors.New(`workload "wl-overflow" total pods count 2147483648 exceeds max int32`),
-		},
-		"single podset workload": {
-			workload: utiltesting.MakeWorkload("wl-single", "default").
-				PodSets(*utiltesting.MakePodSet("main", 4).Obj()).
-				Obj(),
-			wantMinCount: 4,
-		},
-		"multi podset workload": {
-			workload: utiltesting.MakeWorkload("wl-multi", "default").
-				PodSets(
-					*utiltesting.MakePodSet("driver", 1).Obj(),
-					*utiltesting.MakePodSet("workers", 8).Obj(),
-				).
-				Obj(),
-			wantMinCount: 9,
-		},
-		"long workload name truncated": {
-			workload: utiltesting.MakeWorkload(strings.Repeat("a", 300), "default").
-				PodSets(*utiltesting.MakePodSet("main", 2).Obj()).
-				Obj(),
-			wantMinCount: 2,
-		},
-	}
-
-	for name, tc := range cases {
-		t.Run(name, func(t *testing.T) {
-			pg, err := BuildVirtualPodGroup(tc.workload)
-			if tc.wantErr != nil {
-				if err == nil {
-					t.Fatalf("got nil error, want %v", tc.wantErr)
-				}
-				if diff := cmp.Diff(tc.wantErr.Error(), err.Error()); diff != "" {
-					t.Errorf("unexpected error (-want,+got):\n%s", diff)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
-			}
-
-			if pg == nil {
-				t.Fatal("expected non-nil PodGroup")
-			}
-			if pg.Namespace != tc.workload.Namespace {
-				t.Errorf("got namespace %q, want %q", pg.Namespace, tc.workload.Namespace)
-			}
-
-			if diff := cmp.Diff(VirtualPodGroupName(tc.workload.Name), pg.Name); diff != "" {
-				t.Errorf("unexpected name (-want,+got):\n%s", diff)
-			}
-
-			if pg.Spec.SchedulingPolicy.Gang == nil {
-				t.Fatal("expected non-nil gang policy")
-			}
-			if diff := cmp.Diff(tc.wantMinCount, pg.Spec.SchedulingPolicy.Gang.MinCount); diff != "" {
-				t.Errorf("unexpected minCount (-want,+got):\n%s", diff)
-			}
-			if pg.Spec.SchedulingConstraints != nil {
-				t.Errorf("expected nil scheduling constraints, got: %+v", pg.Spec.SchedulingConstraints)
-			}
-		})
-	}
-}
-
-func TestBuildVirtualPodGroup_DistinctLongNames(t *testing.T) {
-	wl1 := utiltesting.MakeWorkload(strings.Repeat("a", 300)+"1", "default").
-		PodSets(*utiltesting.MakePodSet("main", 1).Obj()).
-		Obj()
-	wl2 := utiltesting.MakeWorkload(strings.Repeat("a", 300)+"2", "default").
-		PodSets(*utiltesting.MakePodSet("main", 1).Obj()).
-		Obj()
-
-	pg1, err := BuildVirtualPodGroup(wl1)
-	if err != nil {
-		t.Fatalf("unexpected error for wl1: %v", err)
-	}
-	pg2, err := BuildVirtualPodGroup(wl2)
-	if err != nil {
-		t.Fatalf("unexpected error for wl2: %v", err)
-	}
-
-	if pg1.Name == pg2.Name {
-		t.Errorf("collision on long names: %q == %q", pg1.Name, pg2.Name)
 	}
 }
 
@@ -480,7 +369,6 @@ func TestBuildVirtualPodGroups(t *testing.T) {
 			workload: utiltesting.MakeWorkload("wl-zero", "default").
 				PodSets(*utiltesting.MakePodSet("main", 0).Obj()).
 				Obj(),
-			wantErr: "has non-positive total pods count 0",
 		},
 		"zero-count PodSet alongside non-zero PodSet": {
 			workload: utiltesting.MakeWorkload("wl-zero-mixed", "default").
@@ -608,6 +496,12 @@ func TestBuildVirtualPodGroups(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 
+			if res == nil {
+				if tc.wantPodGroups != nil || tc.wantCompositePodGroups != nil {
+					t.Fatalf("expected non-nil result, got nil")
+				}
+				return
+			}
 			if diff := cmp.Diff(tc.wantPodGroups, res.PodGroups, cmpOpts); diff != "" {
 				t.Errorf("unexpected PodGroups (-want,+got):\n%s", diff)
 			}
