@@ -623,49 +623,53 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 			},
 		)
 
-		ginkgo.It("Should ignore the change if Workload is Admitted and the ProvisioningRequest's condition is set to BookingExpired", framework.SlowSpec, func() {
-			ginkgo.By("Setting the quota reservation to the workload", func() {
-				integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
-			})
+		ginkgo.When("Workload is Admitted and synced to the manager cache", func() {
+			ginkgo.It("Should ignore the change if the ProvisioningRequest's condition is set to BookingExpired", framework.SlowSpec, func() {
+				ginkgo.By("Setting the quota reservation to the workload", func() {
+					integration.SetQuotaReservation(ctx, k8sClient, wlKey, admission)
+				})
 
-			ginkgo.By("Setting the provisioning request as Provisioned", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).To(gomega.Succeed())
-					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
-						Type:   autoscaling.Provisioned,
-						Status: metav1.ConditionTrue,
-						Reason: autoscaling.Provisioned,
-					})
-					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			})
+				ginkgo.By("Setting the provisioning request as Provisioned", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).To(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.Provisioned,
+							Status: metav1.ConditionTrue,
+							Reason: autoscaling.Provisioned,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
 
-			ginkgo.By("Checking if the workload is Admitted", func() {
-				gomega.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, &updatedWl)
-				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, &updatedWl)
-			})
+				ginkgo.By("Checking if the AdmissionCheck is Ready", func() {
+					behavioral.ExpectAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
+				})
 
-			ginkgo.By("Setting the provisioning request as BookingExpired", func() {
-				// wait a bit to make it almost certain that the provisioning controller already sees the workload as admitted.
-				time.Sleep(100 * time.Millisecond)
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
-					apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
-						Type:   autoscaling.BookingExpired,
-						Status: metav1.ConditionTrue,
-						Reason: autoscaling.BookingExpired,
-					})
-					g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			})
+				ginkgo.By("Checking if the workload is Admitted", func() {
+					gomega.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+					integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, &updatedWl)
+					behavioral.ExpectWorkloadsToBeAdmitted(ctx, managerClient, &updatedWl)
+				})
 
-			ginkgo.By("Checking if the admission check is still ready and workload is admitted", func() {
-				gomega.Consistently(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
-					g.Expect(workload.IsAdmitted(&updatedWl)).To(gomega.BeTrue())
-				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
-				behavioral.ConsistentlyAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
+				ginkgo.By("Setting the provisioning request as BookingExpired", func() {
+					gomega.Eventually(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, provReqKey, &createdRequest)).Should(gomega.Succeed())
+						apimeta.SetStatusCondition(&createdRequest.Status.Conditions, metav1.Condition{
+							Type:   autoscaling.BookingExpired,
+							Status: metav1.ConditionTrue,
+							Reason: autoscaling.BookingExpired,
+						})
+						g.Expect(k8sClient.Status().Update(ctx, &createdRequest)).Should(gomega.Succeed())
+					}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				})
+
+				ginkgo.By("Checking if the admission check is still ready and workload is admitted", func() {
+					gomega.Consistently(func(g gomega.Gomega) {
+						g.Expect(k8sClient.Get(ctx, wlKey, &updatedWl)).To(gomega.Succeed())
+						g.Expect(workload.IsAdmitted(&updatedWl)).To(gomega.BeTrue())
+					}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+					behavioral.ConsistentlyAdmissionCheckState(ctx, k8sClient, wlKey, ac.Name, kueue.CheckStateReady)
+				})
 			})
 		})
 
