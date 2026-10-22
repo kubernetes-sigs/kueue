@@ -1283,9 +1283,10 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 		return recheckAfter, nil
 	}
 
-	// A pending scale-up slice changes the desired Pods, so the admitted slice
-	// may never get all of its Pods ready (e.g. new pods are scheduling-gated).
-	// Recheck later in case the pending slice goes away.
+	// While a replacement slice is pending, the job's PodsReady() reflects the
+	// replacement's desired Pods rather than the Pods admitted for this slice,
+	// so this slice's PodsReady condition can drift. Do not evict on it, and
+	// recheck later in case the pending slice goes away.
 	pendingReplacement, err := workloadslicing.HasPendingReplacement(ctx, r.client, wl)
 	if err != nil {
 		return 0, err
