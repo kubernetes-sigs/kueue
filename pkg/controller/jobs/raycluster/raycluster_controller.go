@@ -22,6 +22,7 @@ import (
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	rayutils "github.com/ray-project/kuberay/ray-operator/controllers/ray/utils"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -155,6 +156,12 @@ func (j *RayCluster) Finished(ctx context.Context) (message string, success, fin
 }
 
 func (j *RayCluster) PodsReady(ctx context.Context, _ client.Client) bool {
+	if isAnElasticJob((*rayv1.RayCluster)(j)) {
+		// Workers waiting for scale-up quota must not prevent the admitted head
+		// from becoming ready. State may also retain an earlier Ready value
+		// after the head becomes unready, so use the head condition directly.
+		return apimeta.IsStatusConditionTrue(j.Status.Conditions, string(rayv1.HeadPodReady))
+	}
 	return j.Status.State == rayv1.Ready
 }
 
