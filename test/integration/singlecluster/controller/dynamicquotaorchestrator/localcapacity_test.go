@@ -197,16 +197,15 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 		defaultFlavor := utiltestingapi.MakeResourceFlavor("default").Obj()
 		ginkgo.By("Orchestrating an overlapping flavor", func() {
 			behavioral.MustCreate(ctx, k8sClient, defaultFlavor)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
+			})
 			gomega.Eventually(func(g gomega.Gomega) {
 				latest := &kueuealpha.CapacityProvider{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(provider), latest)).To(gomega.Succeed())
 				latest.Spec.OrchestratedFlavors = append(latest.Spec.OrchestratedFlavors, kueuealpha.CapacityProviderOrchestratedFlavor{Name: "default"})
 				g.Expect(k8sClient.Update(ctx, latest)).To(gomega.Succeed())
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			ginkgo.DeferCleanup(func() {
-				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, defaultFlavor, true)
-			})
-
 			gomega.Eventually(func(g gomega.Gomega) {
 				latest := &kueuealpha.CapacityProvider{}
 				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(provider), latest)).To(gomega.Succeed())
@@ -245,6 +244,9 @@ var _ = ginkgo.Describe("Local-capacity CapacityProvider controller", ginkgo.Lab
 
 		ginkgo.By("Creating a second provider for the same flavor", func() {
 			behavioral.MustCreate(ctx, k8sClient, duplicate)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, duplicate, true)
+			})
 			expectProviderReason(kueuealpha.CapacityProviderReasonMisconfigured)
 		})
 
