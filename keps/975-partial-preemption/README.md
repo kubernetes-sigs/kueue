@@ -17,7 +17,7 @@
   - [Two-phase model: request != release](#two-phase-model-request--release)
   - [Workload API](#workload-api)
   - [Opt-in annotation](#opt-in-annotation)
-  - [Reusing minCount](#reusing-mincount)
+  - [ReclaimMinCount](#reclaimmincount)
   - [Scheduler / Preemption](#scheduler--preemption)
     - [Eligibility](#eligibility)
     - [Candidate ordering](#candidate-ordering)
@@ -44,7 +44,8 @@ of its Pods are torn down. For elastic workloads that can run at a reduced size 
 application whose executor count can shrink), whole eviction is unnecessarily disruptive.
 
 **Partial Preemption** lets Kueue reclaim quota from an elastic, opted-in Workload by asking it to
-scale one PodSet down to a selected target count at or above `minCount`, instead of evicting it.
+scale one PodSet down to a selected target count at or above its `ReclaimMinCount`, instead of
+evicting it.
 The scheduler selects the largest target count that lets the preemptor fit, so it reclaims only the
 replicas needed whenever possible. The victim keeps running at a smaller size and is never
 suspended. The feature is alpha and gated by the `PartialPreemption` feature gate; when the gate is
@@ -65,7 +66,7 @@ job runtime to **act** on it, while the quota accounting stays correct throughou
 ### Goals
 
 - Provide an opt-in mechanism where preemption of an elastic Workload reclaims quota by scaling one
-  of its PodSets down towards `minCount`, rather than evicting the whole Workload.
+  of its PodSets down towards its `ReclaimMinCount`, rather than evicting the whole Workload.
 - Guarantee no quota over-subscription at any point during the scale-down.
 - Keep the mechanism framework-agnostic in Kueue: Kueue only expresses intent; any controller/driver
   that honors the signal can benefit.
@@ -178,8 +179,9 @@ KubeRay deletes the Ray cluster, and when the RayJob is admitted again, the clus
 
 ### Notes/Constraints/Caveats
 
-- The victim must opt in (annotation), have exactly one PodSet with `minCount` set, and currently be
-  using more than `minCount`. Otherwise it is treated as a normal (whole-eviction) preemption target.
+- The victim must opt in (annotation), have exactly one PodSet with `ReclaimMinCount` set, and
+  currently be using more than `ReclaimMinCount`. Otherwise it is treated as a normal
+  (whole-eviction) preemption target.
 - `reclaimTargetCount` is owned by Kueue and is not a user-set field. An in-flight target is kept
   unchanged until the runtime converges and the Workload controller clears it.
 - Partial preemption interoperates with elastic-job scale-down. Admission `count` and
@@ -230,9 +232,23 @@ sequenceDiagram
 
 ### Workload API
 
-Add an optional, Kueue-owned field to `PodSetAssignment`:
+Add an optional, job-set field to `PodSet`, and an optional, Kueue-owned field to
+`PodSetAssignment`:
 
 ```go
+type PodSet struct {
+    // ...
+
+    // reclaimMinCount is the lowest count partial preemption may reduce this PodSet to. If unset,
+    // this PodSet cannot be the target of partial preemption and the Workload falls back to
+    // whole-eviction preemption. This is an alpha field and requires enabling the
+    // PartialPreemption feature gate.
+    //
+    // +optional
+    // +kubebuilder:validation:Minimum=0
+    ReclaimMinCount *int32 `json:"reclaimMinCount,omitempty"`
+}
+
 type PodSetAssignment struct {
     // ...
 
@@ -254,20 +270,23 @@ A Workload opts in via an annotation, e.g. `kueue.x-k8s.io/partial-preemption: "
 integration layer sets it on the Job; the jobframework reconciler propagates it onto the Workload so
 that the scheduler only ever needs to look at the Workload.
 
-### Reusing minCount
+### ReclaimMinCount
 
-Partial preemption reuses the existing `PodSet.MinCount` (see
-[KEP-420](/keps/420-partial-admission)) as the scale-down floor. The current partial-preemption
-algorithm requires exactly one PodSet with `minCount`; if there are zero or multiple such PodSets,
-the Workload falls back to normal whole-eviction handling.
+The scale-down floor is its own field, `PodSet.ReclaimMinCount`, set by the job integration rather
+than reused from an existing field. A PodSet may be eligible for partial admission, partial
+preemption, both, or neither, independently, and a framework may legitimately want different
+floors for each (for example, a Ray worker group admitted down to 0 replicas but only ever
+preempted down to 4). The current partial-preemption algorithm requires exactly one PodSet with
+`ReclaimMinCount` set; if there are zero or multiple such PodSets, the Workload falls back to
+normal whole-eviction handling.
 
 ### Scheduler / Preemption
 
 #### Eligibility
 
 A candidate is eligible for partial preemption when: the `PartialPreemption` gate is enabled, the
-Workload carries the opt-in annotation with value `"true"`, exactly one PodSet has `minCount` set,
-and its effective used count is above `minCount`. The used count comes from
+Workload carries the opt-in annotation with value `"true"`, exactly one PodSet has `ReclaimMinCount`
+set, and its effective used count is above `ReclaimMinCount`. The used count comes from
 `workload.Info.TotalRequests`; an existing lower `reclaimTargetCount` is used as the effective count
 for simulation.
 
@@ -281,8 +300,8 @@ preferred. Priority still dominates, and with the gate off these criteria are no
 #### Target selection
 
 By default, for an eligible candidate the scheduler reduces the PodSet straight to its per-round
-floor: the PodSet's `minCount`, or higher if the optional max-reclaimed-count annotation caps how
-much a single round may reclaim. If the candidate alone is insufficient, later candidates can
+floor: the PodSet's `ReclaimMinCount`, or higher if the optional max-reclaimed-count annotation caps
+how much a single round may reclaim. If the candidate alone is insufficient, later candidates can
 contribute; reductions can accumulate across multiple victims and repeated candidate rounds. An
 existing in-flight target is simulated and preserved until it clears. If partial reductions are
 still insufficient, a candidate that has reached its floor can later be handled as a normal
@@ -320,7 +339,7 @@ to the converged spec count.
 Kueue only expresses intent; a cooperating runtime does the work. The contract for an integration:
 
 1. Set the opt-in annotation on the Job when the workload can tolerate partial preemption.
-2. Populate `minCount` for the elastic PodSet (the scale-down floor).
+2. Populate `ReclaimMinCount` for the elastic PodSet (the scale-down floor).
 3. Watch the Workload's `reclaimTargetCount` and cap the PodSet's desired size at
    `min(desired, admittedCount, reclaimTargetCount)`.
 4. After the actual Pods converge to the target or below, lower the Workload spec count. The
