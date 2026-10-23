@@ -1314,7 +1314,7 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 
 	ginkgo.It("Should not evict the admitted slice on PodsReady timeout while a scale-up slice waits for quota", framework.SlowSpec, func() {
 		// Long enough for the scale-up slice to be created before the timeout expires.
-		const podsReadyTimeout = 10 * time.Second
+		const podsReadyTimeout = 5 * time.Second
 		fwk.StopManager(ctx)
 		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.RayClusterHeadPodReady, true)
 		waitForPodsReady := &configapi.WaitForPodsReady{
@@ -1370,17 +1370,6 @@ var _ = ginkgo.Describe("RayCluster with elastic jobs via workload-slices suppor
 				return replaced != nil && *replaced == workload.Key(initialSlice) &&
 					!workload.HasQuotaReservation(&wl) && !workloadfinish.IsFinished(&wl)
 			})))
-		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-
-		ginkgo.By("the head becomes ready")
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(testRayCluster), testRayCluster)).Should(gomega.Succeed())
-			apimeta.SetStatusCondition(&testRayCluster.Status.Conditions, metav1.Condition{
-				Type:   string(rayv1.HeadPodReady),
-				Status: metav1.ConditionTrue,
-				Reason: "HeadPodRunningAndReady",
-			})
-			g.Expect(k8sClient.Status().Update(ctx, testRayCluster)).Should(gomega.Succeed())
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("the initial slice is not evicted after the PodsReady timeout expires")
