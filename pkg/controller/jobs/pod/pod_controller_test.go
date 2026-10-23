@@ -738,6 +738,62 @@ func TestRun(t *testing.T) {
 				{Key: types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault}, EventType: corev1.EventTypeNormal, Reason: jobframework.ReasonStarted},
 			},
 		},
+		"RuntimeClass overhead increase keeps an oversized replacement pod gated": {
+			featureGates: verifyRoleRequests,
+			initObjects:  []client.Object{kataRuntimeClass},
+			wl: utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+				PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(roleA), 2).
+					Request(corev1.ResourceCPU, "1").RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")}).Obj()).
+				Admission(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(roleA)).
+					Count(2).ResourceUsage(corev1.ResourceCPU, "2200m").Obj()).Obj()).Obj(),
+			pods:     []corev1.Pod{runtimeClassPod(true)},
+			runInfo:  runInfoRoleA,
+			isGroup:  true,
+			wantPods: []corev1.Pod{runtimeClassPod(true)},
+			wantEvents: []utiltesting.EventRecord{{
+				Key:       types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault},
+				EventType: corev1.EventTypeWarning,
+				Reason:    ReasonPodExceedsRoleRequests,
+				Message:   `Pod "p1" requests more cpu than podset "role-a" reserves`,
+			}},
+		},
+		"RuntimeClass overhead increase still allows a pod fitting the original role": {
+			featureGates: verifyRoleRequests,
+			initObjects: []client.Object{utiltesting.MakeRuntimeClass("kata", "kata").
+				PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("1")}).Obj()},
+			wl: utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+				PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(roleA), 2).
+					Request(corev1.ResourceCPU, "1").RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).Obj()).
+				Admission(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(roleA)).
+					Count(2).ResourceUsage(corev1.ResourceCPU, "3").Obj()).Obj()).Obj(),
+			pods:     []corev1.Pod{runtimeClassPod(true)},
+			runInfo:  runInfoRoleA,
+			isGroup:  true,
+			wantPods: []corev1.Pod{runtimeClassPod(false)},
+			wantEvents: []utiltesting.EventRecord{{
+				Key: types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault}, EventType: corev1.EventTypeNormal, Reason: jobframework.ReasonStarted,
+			}},
+		},
+		"RuntimeClass overhead decrease preserves the original role overhead": {
+			featureGates: verifyRoleRequests,
+			initObjects: []client.Object{utiltesting.MakeRuntimeClass("kata", "kata").
+				PodOverhead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("100m")}).Obj()},
+			wl: utiltestingapi.MakeWorkload("wl", metav1.NamespaceDefault).
+				PodSets(*utiltestingapi.MakePodSet(kueue.NewPodSetReference(roleA), 2).
+					Request(corev1.ResourceCPU, "1").RuntimeClass("kata").
+					PodOverHead(corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m")}).Obj()).
+				Admission(utiltestingapi.MakeAdmission("cq").PodSets(utiltestingapi.MakePodSetAssignment(kueue.NewPodSetReference(roleA)).
+					Count(2).ResourceUsage(corev1.ResourceCPU, "3").Obj()).Obj()).Obj(),
+			pods:     []corev1.Pod{runtimeClassPod(true)},
+			runInfo:  runInfoRoleA,
+			isGroup:  true,
+			wantPods: []corev1.Pod{runtimeClassPod(false)},
+			wantEvents: []utiltesting.EventRecord{{
+				Key: types.NamespacedName{Name: "p1", Namespace: metav1.NamespaceDefault}, EventType: corev1.EventTypeNormal, Reason: jobframework.ReasonStarted,
+			}},
+		},
 		"PodIntegrationVerifyRoleRequests=false ungates a forged oversized pod": {
 			featureGates: map[featuregate.Feature]bool{features.PodIntegrationVerifyRoleRequests: false},
 			wl:           wlWithRoleA("1"),
