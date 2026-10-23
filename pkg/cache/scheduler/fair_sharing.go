@@ -61,10 +61,14 @@ func NegativeDRS() DRS {
 	return DRS{unweightedRatio: -1, dominantResource: "", fairWeight: defaultWeight}
 }
 
-// IsZero returns whether the DRS unweighted ratio is 0, which is also the
-// case for a node borrowing only what its Cohort has nothing lendable for.
+// IsZero returns whether the DRS unweighted ratio is 0.
 func (d DRS) IsZero() bool {
 	return d.unweightedRatio == 0
+}
+
+// isPosInf returns whether the DRS unweighted ratio is positive infinity.
+func (d DRS) isPosInf() bool {
+	return math.IsInf(d.unweightedRatio, 1)
 }
 
 // IsBorrowing returns whether the node's current usage exceeds
@@ -95,7 +99,7 @@ func (d DRS) isWeightZero() bool {
 }
 
 func (d DRS) PreciseWeightedShare() float64 {
-	if d.ZeroWeightBorrows() {
+	if d.ZeroWeightBorrows() || d.isPosInf() {
 		return math.Inf(1)
 	}
 	if d.IsZero() {
@@ -184,7 +188,7 @@ func dominantResourceShare(node dominantResourceShareNode, wlReq resources.Flavo
 	// always a Cohort, because of the early return above.
 	lendable := node.parentHRN().getResourceNode().Lendable
 	for rName, b := range borrowing {
-		if lr := lendable[rName]; lr.CmpInt64(0) > 0 {
+		if lr := lendable[rName]; lr.CmpInt64(0) >= 0 {
 			ratio := b.PerThousandOf(lr)
 			// Use alphabetical order to get a deterministic resource name.
 			if ratio > drs.unweightedRatio || (ratio == drs.unweightedRatio && rName < drs.dominantResource) {

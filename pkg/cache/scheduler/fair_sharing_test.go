@@ -392,8 +392,8 @@ func TestDominantResourceShare(t *testing.T) {
 				{
 					Name:      "cq",
 					NodeType:  nodeTypeCq,
-					DrName:    corev1.ResourceCPU,
-					DrValue:   300, // (1+4-2)*1000/10
+					DrName:    "example.com/gpu",
+					DrValue:   math.MaxInt64,
 					Borrowing: true,
 				},
 				{
@@ -786,8 +786,7 @@ func TestDominantResourceShare(t *testing.T) {
 				},
 			},
 		},
-		// The Cohort lends nothing of the resource, so the ratio stays 0 while
-		// cq borrows 1 above its nominal quota.
+		// The Cohort lends nothing of the resource, so the ratio will be infinite
 		"zero weight borrowing only a resource with nothing lendable": {
 			usage: resources.FlavorResourceQuantities{
 				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(3),
@@ -809,7 +808,7 @@ func TestDominantResourceShare(t *testing.T) {
 						Obj(),
 				).Obj(),
 			want: []fairSharingResult{
-				{Name: "cq", NodeType: nodeTypeCq, DrValue: math.MaxInt64, Borrowing: true},
+				{Name: "cq", NodeType: nodeTypeCq, DrValue: math.MaxInt64, DrName: "example.com/gpu", Borrowing: true},
 				{Name: "lending-cq", NodeType: nodeTypeCq},
 				{Name: "test-cohort", NodeType: nodeTypeCohort},
 			},
@@ -835,7 +834,7 @@ func TestDominantResourceShare(t *testing.T) {
 						Obj(),
 				).Obj(),
 			want: []fairSharingResult{
-				{Name: "cq", NodeType: nodeTypeCq, Borrowing: true},
+				{Name: "cq", NodeType: nodeTypeCq, DrValue: math.MaxInt64, DrName: "example.com/gpu", Borrowing: true},
 				{Name: "lending-cq", NodeType: nodeTypeCq},
 				{Name: "test-cohort", NodeType: nodeTypeCohort},
 			},
@@ -861,8 +860,90 @@ func TestDominantResourceShare(t *testing.T) {
 				).Obj(),
 			},
 			want: []fairSharingResult{
-				{Name: "cq", NodeType: nodeTypeCq, Borrowing: true},
-				{Name: "child-cohort", NodeType: nodeTypeCohort, DrValue: math.MaxInt64, Borrowing: true},
+				{Name: "cq", NodeType: nodeTypeCq, DrValue: math.MaxInt64, DrName: "example.com/gpu", Borrowing: true},
+				{Name: "child-cohort", NodeType: nodeTypeCohort, DrValue: math.MaxInt64, DrName: "example.com/gpu", Borrowing: true},
+				{Name: "root", NodeType: nodeTypeCohort},
+			},
+		},
+		"large weight borrowing only a resource with nothing lendable": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(1),
+			},
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Cohort("child-cohort").
+				FairWeight(resource.MustParse("1e308")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("0").Append().
+						Obj(),
+				).Obj(),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("child-cohort").FairWeight(resource.MustParse("1e308")).Parent("root").Obj(),
+				utiltestingapi.MakeCohort("root").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("0").Append().
+						Obj(),
+				).Obj(),
+			},
+			want: []fairSharingResult{
+				{Name: "cq", NodeType: nodeTypeCq, DrValue: math.MaxInt64, DrName: "example.com/gpu", Borrowing: true},
+				{Name: "child-cohort", NodeType: nodeTypeCohort, DrValue: math.MaxInt64, DrName: "example.com/gpu", Borrowing: true},
+				{Name: "root", NodeType: nodeTypeCohort},
+			},
+		},
+		// 1e400 is +Inf as a float64
+		"infinite weight borrowing only a resource with nothing lendable": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(1),
+			},
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Cohort("child-cohort").
+				FairWeight(resource.MustParse("1e400")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("0").Append().
+						Obj(),
+				).Obj(),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("child-cohort").FairWeight(resource.MustParse("1e400")).Parent("root").Obj(),
+				utiltestingapi.MakeCohort("root").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("0").Append().
+						Obj(),
+				).Obj(),
+			},
+			want: []fairSharingResult{
+				{Name: "cq", NodeType: nodeTypeCq, DrValue: math.MaxInt64, DrName: "example.com/gpu", Borrowing: true},
+				{Name: "child-cohort", NodeType: nodeTypeCohort, DrValue: math.MaxInt64, DrName: "example.com/gpu", Borrowing: true},
+				{Name: "root", NodeType: nodeTypeCohort},
+			},
+		},
+		"alphabetical name order tie-breaking with nothing lendable for dominant resource": {
+			usage: resources.FlavorResourceQuantities{
+				{Flavor: "default", Resource: "example.com/gpu"}: resources.NewAmount(1),
+				{Flavor: "default", Resource: "example.com/cpu"}: resources.NewAmount(1),
+			},
+			clusterQueue: utiltestingapi.MakeClusterQueue("cq").
+				Cohort("child-cohort").
+				FairWeight(resource.MustParse("1")).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("0").Append().
+						ResourceQuotaWrapper("example.com/cpu").NominalQuota("0").Append().
+						Obj(),
+				).Obj(),
+			cohorts: []*kueue.Cohort{
+				utiltestingapi.MakeCohort("child-cohort").FairWeight(resource.MustParse("1")).Parent("root").Obj(),
+				utiltestingapi.MakeCohort("root").ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").
+						ResourceQuotaWrapper("example.com/gpu").NominalQuota("0").Append().
+						ResourceQuotaWrapper("example.com/cpu").NominalQuota("0").Append().
+						Obj(),
+				).Obj(),
+			},
+			want: []fairSharingResult{
+				{Name: "cq", NodeType: nodeTypeCq, DrValue: math.MaxInt64, DrName: "example.com/cpu", Borrowing: true},
+				{Name: "child-cohort", NodeType: nodeTypeCohort, DrValue: math.MaxInt64, DrName: "example.com/cpu", Borrowing: true},
 				{Name: "root", NodeType: nodeTypeCohort},
 			},
 		},
@@ -1401,6 +1482,16 @@ func TestCompareDRS(t *testing.T) {
 		"two floored shares tie": {
 			a:    DRS{fairWeight: 1e308, unweightedRatio: 1000.0 / 9e18, borrowing: true},
 			b:    DRS{fairWeight: math.Inf(1), unweightedRatio: 1000, borrowing: true},
+			want: 0,
+		},
+		"one has +inf ratio": {
+			a:    DRS{fairWeight: 1, unweightedRatio: 0, borrowing: true},
+			b:    DRS{fairWeight: 1, unweightedRatio: math.Inf(1), borrowing: true},
+			want: -1,
+		},
+		"both are +inf ratio": {
+			a:    DRS{fairWeight: 1, unweightedRatio: math.Inf(1), borrowing: true},
+			b:    DRS{fairWeight: 1, unweightedRatio: math.Inf(1), borrowing: true},
 			want: 0,
 		},
 	}
