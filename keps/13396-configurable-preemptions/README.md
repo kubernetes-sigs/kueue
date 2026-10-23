@@ -68,7 +68,7 @@ updates.
 
 This KEP introduces **Configurable Preemptions** in Kueue through the `PreemptionConfig` cluster-scoped CRD (with rate-limiting guardrails via `PreemptionLimit` deferred to future work).
 This enables declarative preemption policies for scenarios unsupported by existing heuristics, including topology defragmentation, mission-critical "hero" workloads, and business SLA constraints.
-With `PreemptionConfig`, administrators can configure explicit triggers (quota or topology constraints) and candidate selectors (such as priority relations, priority class selectors, queue relations, workload label selectors, and custom numeric labels, with quota-based candidate selectors, minimal trigger duration, time-based candidate duration selectors, custom ordering, per-selector per-CQ priority queues, and `PreemptionLimit` deferred to future work). In the initial iteration, candidate evaluation reuses the default ordering rules from classical/fair sharing preemption. In Alpha, `PreemptionConfig` is referenced via an annotation on the `ClusterQueue` (`kueue.x-k8s.io/preemption-config-name`), keeping the defaulting of `spec.preemption` intact; configurable preemption candidates are appended after the classical/fair sharing preemption candidates. For Beta+, as `PreemptionConfig` achieves full feature parity with classical/fair sharing preemption, both strategies will become mutually exclusive via a formal API field, and the annotation will be retired.
+With `PreemptionConfig`, administrators can configure explicit triggers (quota or topology constraints) and candidate selectors (such as priority relations, queue relations, workload label selectors, custom numeric labels, with quota-based candidate selectors, minimal trigger duration, custom ordering, per-selector per-CQ priority queues, and `PreemptionLimit` deferred to future work). In the initial iteration, candidate evaluation reuses the default ordering rules from classical/fair sharing preemption. In Alpha, `PreemptionConfig` is referenced via an annotation on the `ClusterQueue` (`kueue.x-k8s.io/preemption-config-name`), keeping the defaulting of `spec.preemption` intact; configurable preemption candidates are appended after the classical/fair sharing preemption candidates. For Beta+, as `PreemptionConfig` achieves full feature parity with classical/fair sharing preemption, both strategies will become mutually exclusive via a formal API field, and the annotation will be retired.
 
 ## Motivation
 
@@ -387,7 +387,7 @@ Thanks to the elevated preemption privileges, the hero job will be able to preem
 
 #### Story 3 - Business driven preemption rules
 
-Requested functionalities from the community can be satisfied with the following configurations (with quota-based selectors in item 3 and time-based duration selectors in items 4 & 5 deferred to [Future Work](FUTURE_WORK.md)):
+Requested functionalities from the community can be satisfied with the following configurations (with quota-based selectors in item 3 deferred to [Future Work](FUTURE_WORK.md)):
 
 1. **Resource requests/limits based preemption (filtering by resource size):**
    Protect large, long-running batch workloads from preemption by ensuring only "small" workloads (e.g. workloads requesting at most 8 GPUs or 32 CPU cores) are eligible as preemption candidates using custom numeric labels with `maxValue`:
@@ -455,8 +455,8 @@ Requested functionalities from the community can be satisfied with the following
                      - "batch-low"
    ```
 
-4. **Minimal execution duration before preemption ([Issue #9596](https://github.com/kubernetes-sigs/kueue/issues/9596)):** _(Deferred to [Future Work](FUTURE_WORK.md#time-based-candidate-selectors-execution-and-creation-duration))_
-   Avoid preempting workloads that just started by requiring candidates to have run for a minimum duration (e.g. at least 15 minutes):
+4. **Minimal execution duration before preemption ([Issue #9596](https://github.com/kubernetes-sigs/kueue/issues/9596)):**
+   Avoid preempting workloads that just started by requiring candidates to have run for a minimum duration (e.g. at least 15 minutes). Available since v0.21:
 
    ```yaml
    spec:
@@ -469,11 +469,12 @@ Requested functionalities from the community can be satisfied with the following
              priority:
                mode: "Boosted"
                comparison: "LessThan"
-             minExecutionDuration: "15m"
+             executionTime:
+               minSeconds: 900
    ```
 
-5. **SLA protection based on workload creation time:** _(Deferred to [Future Work](FUTURE_WORK.md#time-based-candidate-selectors-execution-and-creation-duration))_
-   Model SLA requirements by only preempting recently created workloads (e.g., created less than 1 hour ago) to avoid preemption of older workloads nearing SLA completion deadlines:
+5. **SLA protection based on workload creation time:**
+   Model SLA requirements by only preempting recently created workloads (e.g., created at most 1 hour ago) to avoid preemption of older workloads nearing SLA completion deadlines. Available since v0.21:
    ```yaml
    spec:
      rules:
@@ -485,7 +486,8 @@ Requested functionalities from the community can be satisfied with the following
              priority:
                mode: "Boosted"
                comparison: "LessThan"
-             maxTimeFromCreationDuration: "1h"
+             timeFromCreation:
+               maxSeconds: 3600
    ```
 6. **Use boosted priority comparison only within the same ClusterQueue** ([Issue #13414](https://github.com/kubernetes-sigs/kueue/issues/13414))
    Use a configuration with two rules: candidates within the same ClusterQueue (`WithinClusterQueue`) compare priorities using `Boosted` mode, while cross-queue candidates (`WithinParentCohort` or `WithinCohortTree`) compare priorities using `Base` mode.
@@ -783,6 +785,57 @@ type PreemptionConfigPreemptionCandidateSelector struct {
   //
   // +optional
   PriorityClassSelector *PreemptionConfigPriorityClassSelector `json:"priorityClassSelector,omitempty"`
+  
+  // executionTime defines the requirements for candidates based on cumulative execution time.
+  // A workload's cumulative execution time is the total time spent in the Admitted=True
+  // state across admission cycles. It is a sum of previous execution time and current execution time.
+  // Workloads not matching these requirements will not be considered as preemption candidates.
+  // If nil, no execution time requirements are enforced.
+  //
+  // +optional
+  ExecutionTime *PreemptionConfigTimeConstraint `json:"executionTime,omitempty"`
+
+  // timeFromCreation defines the requirements for candidates based on workload age since creation.
+  // A workload's time from creation is the elapsed duration measured from metadata.creationTimestamp
+  // until the time of preemption evaluation.
+  // Workloads not matching these requirements will not be considered as preemption candidates.
+  // If nil, no creation time requirements are enforced.
+  //
+  // +optional
+  TimeFromCreation *PreemptionConfigTimeConstraint `json:"timeFromCreation,omitempty"`
+}
+
+// PreemptionConfigTimeConstraint describes the rules for filtering preemption candidates based on a
+// time duration metric, such as cumulative execution time or age since creation.
+// For example, this can be used to protect newly admitted workloads from immediate preemption by
+// setting minSeconds on executionTime, or to protect older workloads near completion by setting
+// maxSeconds on timeFromCreation.
+// Multiple fields are joined using AND-rule (all specified bounds and comparisons have to be satisfied).
+//
+// +kubebuilder:validation:XValidation:rule="!has(self.minSeconds) || !has(self.maxSeconds) || self.minSeconds <= self.maxSeconds",message="minSeconds must be less than or equal to maxSeconds"
+type PreemptionConfigTimeConstraint struct {
+  // minSeconds specifies the minimum duration (inclusive) a candidate workload must have
+  // accumulated for the time metric to be considered for preemption.
+  // If not specified, no lower bound is enforced.
+  //
+  // +optional
+  // +kubebuilder:validation:Minimum=0
+  MinSeconds *int32 `json:"minSeconds,omitempty"`
+
+  // maxSeconds specifies the maximum duration (inclusive) a candidate workload can have
+  // accumulated for the time metric to be considered for preemption.
+  // If not specified, no upper bound is enforced.
+  //
+  // +optional
+  // +kubebuilder:validation:Minimum=0
+  MaxSeconds *int32 `json:"maxSeconds,omitempty"`
+
+  // comparison defines how the candidate's duration compares to the preemptor's
+  // duration for the same time metric.
+  // If not specified, no relative comparison against the preemptor is enforced.
+  //
+  // +optional
+  Comparison *NumericComparison `json:"comparison,omitempty"`
 }
 
 
@@ -1158,15 +1211,17 @@ Implementation of the following candidate selector fields and constraints to hav
 
 Expose the implementation under feature gate "ConfigurablePreemptions", integration should not change in any way the existing preemption logic.
 
-**Step 2.** Implement fair sharing, borrowing based rules, and custom candidate ordering.
+**Step 2.** Implement additional candidate selectors (priority class selectors, time-based execution and creation duration selectors).
+
+**Step 3.** Implement fair sharing, borrowing based rules, and custom candidate ordering.
 
 Create performance test suite for preemptions to validate current implementation.
 
-**Step 3.** Reimplement existing classical and fair sharing rules using the new API to achieve full feature parity, enforce mutual exclusivity between strategies, introduce a formal API field on `ClusterQueueSpec` for Beta, and retire the Alpha annotation.
+**Step 4.** Reimplement existing classical and fair sharing rules using the new API to achieve full feature parity, enforce mutual exclusivity between strategies, introduce a formal API field on `ClusterQueueSpec` for Beta, and retire the Alpha annotation.
 
-**Step 4.** Implement additional candidate selectors (time-based execution and creation duration selectors) and minimum trigger duration (`minTriggerRequiredDuration`).
+**Step 5.** Implement minimum trigger duration (`minTriggerRequiredDuration`).
 
-**Step 5.** Future design and implementation of preemption rate limiting (`PreemptionLimit`).
+**Step 6.** Future design and implementation of preemption rate limiting (`PreemptionLimit`).
 
 <!--
 Major milestones in the lifecycle of a KEP should be tracked in this section.
