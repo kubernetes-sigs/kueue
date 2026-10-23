@@ -306,11 +306,34 @@ func evaluateSelectorsOnDevice(ctx context.Context, selectors []dracel.Compilati
 	return true, nil
 }
 
-// buildDeviceListFromSlices extracts all devices from ResourceSlices into CEL device representations.
+// buildDeviceListFromSlices extracts devices from complete pools at their latest
+// generation, keeping pools from different drivers separate.
 func buildDeviceListFromSlices(slices []resourcev1.ResourceSlice) []dracel.Device {
+	slicesByDriver := make(map[string][]resourcev1.ResourceSlice)
+	for i := range slices {
+		driver := slices[i].Spec.Driver
+		slicesByDriver[driver] = append(slicesByDriver[driver], slices[i])
+	}
+
+	eligibleSlices := sets.New[string]()
+	for driver, driverSlices := range slicesByDriver {
+		for _, pool := range groupSlicesByPool(driverSlices, driver) {
+			if !pool.isComplete() {
+				continue
+			}
+			for i := range pool.slices {
+				eligibleSlices.Insert(pool.slices[i].Name)
+			}
+		}
+	}
+
+	// Preserve listing order because matching reserves devices greedily across requests.
 	var devices []dracel.Device
 	for i := range slices {
 		slice := &slices[i]
+		if !eligibleSlices.Has(slice.Name) {
+			continue
+		}
 		for j := range slice.Spec.Devices {
 			dev := &slice.Spec.Devices[j]
 			devices = append(devices, dracel.Device{

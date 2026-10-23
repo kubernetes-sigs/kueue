@@ -43,6 +43,18 @@ func Test_GetResourceRequests(t *testing.T) {
 		DeviceRequest("device-request", "test-deviceclass-1", 2).
 		Obj()
 
+	celPoolTemplate := utiltesting.MakeResourceClaimTemplate("claim-tmpl-1", "ns1").
+		DeviceRequest("device-request", "test-deviceclass-1", 2).
+		WithCELSelectors("true").
+		Obj()
+	celPoolError := field.ErrorList{field.InternalError(
+		field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"),
+		errors.New(""),
+	)}
+	celPoolResources := map[kueue.PodSetReference]corev1.ResourceList{
+		"main": {"res-1": resource.MustParse("2")},
+	}
+
 	claim := utiltesting.MakeResourceClaim("claim-2", "ns1").
 		DeviceRequest("device-request", "test-deviceclass-2", 1).
 		Obj()
@@ -79,12 +91,13 @@ func Test_GetResourceRequests(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		modifyWL     func(w *kueue.Workload)
-		extraObjects []runtime.Object
-		lookup       func(corev1.ResourceName) (corev1.ResourceName, bool)
-		want         map[kueue.PodSetReference]corev1.ResourceList
-		wantErr      field.ErrorList
+		name          string
+		claimTemplate *resourcev1.ResourceClaimTemplate
+		modifyWL      func(w *kueue.Workload)
+		extraObjects  []runtime.Object
+		lookup        func(corev1.ResourceName) (corev1.ResourceName, bool)
+		want          map[kueue.PodSetReference]corev1.ResourceList
+		wantErr       field.ErrorList
 	}{
 		{
 			name: "Single claim template with single device",
@@ -276,6 +289,170 @@ func Test_GetResourceRequests(t *testing.T) {
 					"res-1": resource.MustParse("1"),
 				},
 			},
+		},
+		{
+			name:          "CEL pool validation excludes stale devices from a complete newer generation",
+			claimTemplate: celPoolTemplate,
+			lookup:        defaultLookup,
+			extraObjects: []runtime.Object{
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				utiltesting.MakeResourceSlice("a-old", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("old-0").
+					Obj(),
+				utiltesting.MakeResourceSlice("z-new", "test-driver").
+					Pool("pool-1", 2, 1).
+					Device("new-0").
+					Obj(),
+			},
+			wantErr: celPoolError,
+		},
+		{
+			name:          "CEL pool validation excludes stale slices listed after the latest generation",
+			claimTemplate: celPoolTemplate,
+			lookup:        defaultLookup,
+			extraObjects: []runtime.Object{
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				utiltesting.MakeResourceSlice("a-new", "test-driver").
+					Pool("pool-1", 2, 1).
+					Device("new-0").
+					Obj(),
+				utiltesting.MakeResourceSlice("z-old", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("old-0").
+					Obj(),
+			},
+			wantErr: celPoolError,
+		},
+		{
+			name:          "CEL pool validation excludes an incomplete latest generation and does not fall back",
+			claimTemplate: celPoolTemplate,
+			lookup:        defaultLookup,
+			extraObjects: []runtime.Object{
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				utiltesting.MakeResourceSlice("a-old", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("old-0").
+					Device("old-1").
+					Obj(),
+				utiltesting.MakeResourceSlice("z-new", "test-driver").
+					Pool("pool-1", 2, 2).
+					Device("new-0").
+					Device("new-1").
+					Obj(),
+			},
+			wantErr: celPoolError,
+		},
+		{
+			name:          "CEL pool validation excludes an incomplete pool without older slices",
+			claimTemplate: celPoolTemplate,
+			lookup:        defaultLookup,
+			extraObjects: []runtime.Object{
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				utiltesting.MakeResourceSlice("slice-1", "test-driver").
+					Pool("pool-1", 1, 2).
+					Device("dev-0").
+					Device("dev-1").
+					Obj(),
+			},
+			wantErr: celPoolError,
+		},
+		{
+			name:          "CEL pool validation accepts all slices of the complete latest generation",
+			claimTemplate: celPoolTemplate,
+			lookup:        defaultLookup,
+			extraObjects: []runtime.Object{
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				utiltesting.MakeResourceSlice("a-old", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("old-0").
+					Obj(),
+				utiltesting.MakeResourceSlice("b-new", "test-driver").
+					Pool("pool-1", 2, 2).
+					Device("new-0").
+					Obj(),
+				utiltesting.MakeResourceSlice("c-new", "test-driver").
+					Pool("pool-1", 2, 2).
+					Device("new-1").
+					Obj(),
+			},
+			want: celPoolResources,
+		},
+		{
+			name:          "CEL pool validation keeps complete pools when another pool is incomplete",
+			claimTemplate: celPoolTemplate,
+			lookup:        defaultLookup,
+			extraObjects: []runtime.Object{
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				utiltesting.MakeResourceSlice("slice-1", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Device("dev-1").
+					Obj(),
+				utiltesting.MakeResourceSlice("slice-2", "test-driver").
+					Pool("pool-2", 2, 2).
+					Device("other-0").
+					Obj(),
+			},
+			want: celPoolResources,
+		},
+		{
+			name:          "CEL pool validation treats identically named pools from different drivers independently",
+			claimTemplate: celPoolTemplate,
+			lookup:        defaultLookup,
+			extraObjects: []runtime.Object{
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				utiltesting.MakeResourceSlice("slice-1", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Obj(),
+				utiltesting.MakeResourceSlice("slice-2", "other-driver").
+					Pool("pool-1", 2, 1).
+					Device("dev-0").
+					Obj(),
+			},
+			want: celPoolResources,
+		},
+		{
+			name: "CEL pool validation preserves device order for overlapping requests across pools",
+			claimTemplate: utiltesting.MakeResourceClaimTemplate("claim-tmpl-1", "ns1").
+				DeviceRequest("any", "test-deviceclass-1", 1).
+				WithCELSelectors("true").
+				DeviceRequest("selected", "test-deviceclass-1", 1).
+				WithCELSelectors(`device.attributes["test-driver"].selected == "true"`).
+				Obj(),
+			lookup: defaultLookup,
+			extraObjects: []runtime.Object{
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				utiltesting.MakeResourceSlice("a-unselected", "test-driver").
+					Pool("pool-1", 1, 1).
+					Device("dev-0").
+					Attribute("test-driver/selected", "false").
+					Obj(),
+				utiltesting.MakeResourceSlice("z-selected", "test-driver").
+					Pool("pool-2", 1, 1).
+					Device("dev-1").
+					Attribute("test-driver/selected", "true").
+					Obj(),
+			},
+			want: celPoolResources,
+		},
+		{
+			name:          "CEL pool validation includes slices without devices in the completeness check",
+			claimTemplate: celPoolTemplate,
+			lookup:        defaultLookup,
+			extraObjects: []runtime.Object{
+				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
+				utiltesting.MakeResourceSlice("slice-1", "test-driver").
+					Pool("pool-1", 1, 2).
+					Device("dev-0").
+					Device("dev-1").
+					Obj(),
+				utiltesting.MakeResourceSlice("slice-2", "test-driver").
+					Pool("pool-1", 1, 2).
+					Obj(),
+			},
+			want: celPoolResources,
 		},
 		{
 			name: "CEL selectors pre-filtered by DeviceClass selectors",
@@ -639,7 +816,11 @@ func Test_GetResourceRequests(t *testing.T) {
 				testMapper = mapper
 			}
 
-			objs := []client.Object{tmpl, claim}
+			claimTemplate := tmpl
+			if tc.claimTemplate != nil {
+				claimTemplate = tc.claimTemplate
+			}
+			objs := []client.Object{claimTemplate, claim}
 			if tc.extraObjects != nil {
 				for _, o := range tc.extraObjects {
 					objs = append(objs, o.(client.Object))
