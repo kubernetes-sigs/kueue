@@ -319,6 +319,33 @@ func TestPodSetsInfo(t *testing.T) {
 				},
 			},
 		},
+		"elastic job with partial scale-up does not rewrite parallelism": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
+				Parallelism(5).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+				Obj()),
+			runInfo: []podset.PodSetInfo{
+				{
+					Count: 3,
+				},
+			},
+			wantUnsuspended: utiltestingjob.MakeJob("job", "ns").
+				Parallelism(5).
+				SetAnnotation(constants.ElasticJobAnnotation, "true").
+				SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+				Suspend(false).
+				Obj(),
+			restoreInfo: []podset.PodSetInfo{
+				{
+					Count: 5,
+				},
+			},
+		},
 		"noInfoOnRun": {
 			job: (*Job)(utiltestingjob.MakeJob("job", "ns").
 				Parallelism(5).
@@ -400,6 +427,63 @@ func TestPodSets(t *testing.T) {
 				jobTemplate.Clone().
 					Parallelism(3).
 					SetAnnotation(JobMinParallelismAnnotation, "2147483648").
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
+					Obj(),
+			},
+		},
+		"elastic job with partial scale-up strategy seeds MinCount equal to Count": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:                               false,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					SetAnnotation(constants.ElasticJobAnnotation, "true").
+					SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
+					SetMinimumCount(3).
+					Obj(),
+			},
+		},
+		"elastic job without partial scale-up strategy does not seed MinCount": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:                               false,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					SetAnnotation(constants.ElasticJobAnnotation, "true").
+					Obj(),
+			),
+			wantPodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).
+					PodSpec(*jobTemplate.Clone().Spec.Template.Spec.DeepCopy()).
+					Obj(),
+			},
+		},
+		"elastic job with partial scale-up strategy but feature gate disabled does not seed MinCount": {
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:                               false,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
+			},
+			job: (*Job)(
+				jobTemplate.Clone().
+					Parallelism(3).
+					SetAnnotation(constants.ElasticJobAnnotation, "true").
+					SetAnnotation(constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial).
 					Obj(),
 			),
 			wantPodSets: []kueue.PodSet{
