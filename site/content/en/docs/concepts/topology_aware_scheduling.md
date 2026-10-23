@@ -68,6 +68,13 @@ domain (like a given rack) by:
 - subtracting the usage coming from all other non-TAS Pods (owned mainly by
   DaemonSets, but also including static Pods, Deployments, etc.).
 
+A Pod can request a resource which no Node publishes, like the memory of a
+virtual GPU managed by a scheduler extender. Kueue has no capacity to count such
+a request against, so TAS ignores it and places the Pod by its other requests;
+whether the resource is available is decided by the scheduler which places the
+Pod. A resource which some Node publishes is still counted on every Node, so a
+Pod requesting it is not placed on a Node which does not have it.
+
 ### Admin-facing APIs
 
 As an admin, in order to enable the feature you need to:
