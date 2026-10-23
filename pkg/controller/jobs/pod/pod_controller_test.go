@@ -34,6 +34,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -63,6 +64,7 @@ import (
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingdeployment "sigs.k8s.io/kueue/pkg/util/testingjobs/deployment"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
@@ -1769,6 +1771,10 @@ func TestReconciler(t *testing.T) {
 		Queue(localUserQueueName).
 		Request(corev1.ResourceCPU, "1").
 		Image("", nil)
+	noQueuePodWrapper := testingpod.MakePod("pod", "ns").
+		UID("test-uid").
+		Request(corev1.ResourceCPU, "1").
+		Image("", nil)
 
 	podUID := "dc85db45"
 	emptyGroupOwner := &appsv1.StatefulSet{
@@ -1812,6 +1818,7 @@ func TestReconciler(t *testing.T) {
 	testCases := map[string]struct {
 		reconcileKey           *types.NamespacedName
 		initObjects            []client.Object
+		interceptors           interceptor.Funcs
 		pods                   []corev1.Pod
 		wantPods               []corev1.Pod
 		workloads              []kueue.Workload
@@ -1820,10 +1827,11 @@ func TestReconciler(t *testing.T) {
 		workloadCmpOpts        cmp.Options
 		excessPodsExpectations []keyUIDs
 		// If true, the test will delete workloads before running reconcile
-		deleteWorkloads   bool
-		wantEvents        []utiltesting.EventRecord
-		reconcilerOptions []jobframework.Option
-		featureGates      map[featuregate.Feature]bool
+		deleteWorkloads       bool
+		wantEvents            []utiltesting.EventRecord
+		wantExcessPodsDeleted []testingmetrics.MetricDataPoint
+		reconcilerOptions     []jobframework.Option
+		featureGates          map[featuregate.Feature]bool
 	}{
 		"scheduling gate is removed and node selector is added if workload is admitted": {
 			initObjects: []client.Object{
@@ -6364,6 +6372,156 @@ func TestReconciler(t *testing.T) {
 			workloadCmpOpts: defaultWorkloadCmpOpts,
 		},
 		"excess pods before wl creation, youngest pods are deleted": {
+			initObjects: []client.Object{
+				utiltestingapi.MakeLocalQueue(localUserQueueName, "ns").ClusterQueue("nonexistent-cq").Obj(),
+			},
+			pods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					CreationTimestamp(now).
+					Obj(),
+				*basePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					CreationTimestamp(now.Add(time.Minute)).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*basePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					CreationTimestamp(now).
+					Obj(),
+			},
+			workloads: []kueue.Workload{},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Queue(localUserQueueName).
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+				{
+					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "ExcessPodDeleted",
+					Message:   "Excess pod deleted",
+				},
+			},
+			wantExcessPodsDeleted: []testingmetrics.MetricDataPoint{{
+				Labels: map[string]string{"cluster_queue": "", "replica_role": roletracker.RoleStandalone},
+				Value:  1,
+			}},
+		},
+		"excess pods without a queue name, youngest pods are deleted": {
+			reconcilerOptions: []jobframework.Option{
+				jobframework.WithManageJobsWithoutQueueName(true),
+				jobframework.WithManagedJobsNamespaceSelector(labels.Everything()),
+			},
+			pods: []corev1.Pod{
+				*noQueuePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					CreationTimestamp(now).
+					Obj(),
+				*noQueuePodWrapper.
+					Clone().
+					Name("pod2").
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					CreationTimestamp(now.Add(time.Minute)).
+					Obj(),
+			},
+			wantPods: []corev1.Pod{
+				*noQueuePodWrapper.
+					Clone().
+					ManagedByKueueLabel().
+					KueueFinalizer().
+					KueueSchedulingGate().
+					GroupNameLabel("test-group").
+					GroupTotalCount("1").
+					CreationTimestamp(now).
+					Obj(),
+			},
+			workloads: []kueue.Workload{},
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("test-group", "ns").Group().Finalizers(kueue.ResourceInUseFinalizerName).
+					PodSets(
+						*utiltestingapi.MakePodSet(kueue.NewPodSetReference(podUID), 1).
+							Request(corev1.ResourceCPU, "1").
+							SchedulingGates(corev1.PodSchedulingGate{Name: podconstants.SchedulingGateName}).
+							PodIndexLabel(new(kueue.PodGroupPodIndexLabel)).
+							Obj(),
+					).
+					Priority(0).
+					OwnerReference(corev1.SchemeGroupVersion.WithKind("Pod"), "pod", "test-uid").
+					Obj(),
+			},
+			workloadCmpOpts: defaultWorkloadCmpOpts,
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "pod", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "CreatedWorkload",
+					Message:   "Created Workload: ns/test-group",
+				},
+				{
+					Key:       types.NamespacedName{Name: "pod2", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "ExcessPodDeleted",
+					Message:   "Excess pod deleted",
+				},
+			},
+			wantExcessPodsDeleted: []testingmetrics.MetricDataPoint{{
+				Labels: map[string]string{"cluster_queue": "", "replica_role": roletracker.RoleStandalone},
+				Value:  1,
+			}},
+		},
+		"excess pods are deleted but not counted when the LocalQueue lookup fails": {
+			interceptors: interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, ok := obj.(*kueue.LocalQueue); ok {
+						return errors.New("injected LocalQueue lookup error")
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -6515,10 +6673,18 @@ func TestReconciler(t *testing.T) {
 					Message:   "Excess pod deleted",
 				},
 			},
+			wantExcessPodsDeleted: []testingmetrics.MetricDataPoint{{
+				Labels: map[string]string{"cluster_queue": "", "replica_role": roletracker.RoleStandalone},
+				Value:  1,
+			}},
 		},
 		// In this case, group-total-count is equal to the number of pods in the cluster.
 		// But one of the roles is missing, and another role has an excess pod.
 		"excess pods in pod set after admission, youngest pods are deleted": {
+			initObjects: []client.Object{
+				utiltestingapi.MakeLocalQueue(localUserQueueName, "ns").ClusterQueue(clusterQueueName).Obj(),
+				utiltestingapi.MakeClusterQueue(clusterQueueName).Obj(),
+			},
 			pods: []corev1.Pod{
 				*basePodWrapper.
 					Clone().
@@ -6606,6 +6772,10 @@ func TestReconciler(t *testing.T) {
 					Message:   "Excess pod deleted",
 				},
 			},
+			wantExcessPodsDeleted: []testingmetrics.MetricDataPoint{{
+				Labels: map[string]string{"cluster_queue": clusterQueueName, "replica_role": roletracker.RoleStandalone},
+				Value:  1,
+			}},
 		},
 		"waiting to observe previous deletion of excess pod, no pods are deleted": {
 			pods: []corev1.Pod{
@@ -6790,6 +6960,10 @@ func TestReconciler(t *testing.T) {
 					Message:   "Excess pod deleted",
 				},
 			},
+			wantExcessPodsDeleted: []testingmetrics.MetricDataPoint{{
+				Labels: map[string]string{"cluster_queue": "", "replica_role": roletracker.RoleStandalone},
+				Value:  1,
+			}},
 		},
 		// If an excess pod is already deleted and finalized, but an external finalizer blocks
 		// pod deletion, kueue should ignore such a pod, when creating a workload.
@@ -9813,9 +9987,9 @@ func TestReconciler(t *testing.T) {
 
 				ctx, log := utiltesting.ContextWithLog(t)
 
-				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
-					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
-				})
+				interceptors := tc.interceptors
+				interceptors.SubResourceApply = utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration
+				clientBuilder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptors)
 				indexer := utiltesting.AsIndexer(clientBuilder)
 				if err := SetupIndexes(ctx, indexer); err != nil {
 					t.Fatalf("Could not setup indexes: %v", err)
@@ -9864,6 +10038,7 @@ func TestReconciler(t *testing.T) {
 				} else {
 					reconcileRequest = reconcileRequestForPod(&tc.pods[0])
 				}
+				metrics.ExcessPodsDeletedTotal.Reset()
 				_, err = reconciler.Reconcile(ctx, reconcileRequest)
 
 				if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
@@ -9905,6 +10080,11 @@ func TestReconciler(t *testing.T) {
 
 				if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.SortSlices(utiltesting.SortEvents)); diff != "" {
 					t.Errorf("unexpected events (-want/+got):\n%s", diff)
+				}
+
+				gotExcessPodsDeleted := testingmetrics.CollectFilteredGaugeVec(metrics.ExcessPodsDeletedTotal, nil)
+				if diff := cmp.Diff(tc.wantExcessPodsDeleted, gotExcessPodsDeleted, cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Unexpected kueue_excess_pods_deleted_total (-want,+got):\n%s", diff)
 				}
 			})
 		}
