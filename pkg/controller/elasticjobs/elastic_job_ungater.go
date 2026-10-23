@@ -17,7 +17,6 @@ limitations under the License.
 package elasticjobs
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -54,7 +53,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
-	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -73,9 +71,8 @@ type elasticJobUngater struct {
 var _ reconcile.Reconciler = (*elasticJobUngater)(nil)
 var _ predicate.TypedPredicate[*kueue.Workload] = (*elasticJobUngater)(nil)
 
-// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;update;patch
 
 func SetupWithManager(mgr ctrl.Manager, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker, customLabels *metrics.CustomLabels) (string, error) {
 	r := &elasticJobUngater{
@@ -136,12 +133,6 @@ func (r *elasticJobUngater) Reconcile(ctx context.Context, req reconcile.Request
 	sliceKey := types.NamespacedName{Namespace: active.Namespace, Name: workloadslicing.SliceName(active)}
 	if !r.expectationsStore.Satisfied(log, sliceKey) {
 		return reconcile.Result{}, errPendingUngateOps
-	}
-
-	if targets := workload.PendingReclaimTargetCounts(active); len(targets) > 0 {
-		if err := r.reclaimPods(ctx, active, targets); err != nil {
-			return reconcile.Result{}, err
-		}
 	}
 
 	pods, err := r.podsToUngate(ctx, active)
@@ -281,8 +272,8 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 	}
 
 	granted := workload.ExtractGrantedPodSetCounts(wl)
-	// The pods above a pending reclaim target are being deleted.
-	for ps, target := range workload.PendingReclaimTargetCounts(wl) {
+	// Partial preemption stops the pods above the reclaim targets, and the job recreates them.
+	for ps, target := range workload.ReclaimTargetCounts(wl) {
 		granted[ps] = min(granted[ps], target)
 	}
 	gatedPerPodSet := make(map[kueue.PodSetReference][]*corev1.Pod)
@@ -338,53 +329,6 @@ func (r *elasticJobUngater) podsToUngate(ctx context.Context, wl *kueue.Workload
 		gated = append(gated, toUngate...)
 	}
 	return gated, nil
-}
-
-// reclaimPods deletes the newest ungated Pods above the pending reclaim targets
-// of a partially preempted slice. The job recreates them, and they stay gated
-// until a scale-up slice is admitted. Once the deleted Pods are gone, it lowers
-// the admitted counts to the targets, which releases their quota.
-func (r *elasticJobUngater) reclaimPods(ctx context.Context, wl *kueue.Workload, targets workload.PodSetsCounts) error {
-	pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl))
-	if err != nil {
-		return fmt.Errorf("listing pods for workload slice: %w", err)
-	}
-	livePerPodSet := make(map[kueue.PodSetReference][]*corev1.Pod)
-	for _, p := range pods {
-		if utilpod.IsTerminated(p) || utilpod.HasGate(p, kueue.ElasticJobSchedulingGate) {
-			continue
-		}
-		ps := kueue.PodSetReference(p.Labels[constants.PodSetLabel])
-		livePerPodSet[ps] = append(livePerPodSet[ps], p)
-	}
-	reclaimed := true
-	var toDelete []*corev1.Pod
-	for ps, target := range targets {
-		live := livePerPodSet[ps]
-		if int32(len(live)) <= target {
-			continue
-		}
-		// Terminating Pods still hold their quota.
-		reclaimed = false
-		live = slices.DeleteFunc(live, func(p *corev1.Pod) bool { return p.DeletionTimestamp != nil })
-		if extra := int32(len(live)) - target; extra > 0 {
-			slices.SortFunc(live, func(a, b *corev1.Pod) int {
-				return cmp.Or(b.CreationTimestamp.Compare(a.CreationTimestamp.Time), strings.Compare(b.Name, a.Name))
-			})
-			toDelete = append(toDelete, live[:extra]...)
-		}
-	}
-	log := ctrl.LoggerFrom(ctx)
-	if reclaimed {
-		log.V(3).Info("releasing the quota reclaimed by partial preemption", "reclaimTargetCounts", targets)
-		return workloadpatching.PatchAdmissionStatus(ctx, r.client, wl, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return workload.ReleaseReclaimedQuota(wl), nil
-		}, workloadpatching.WithLooseOnApply())
-	}
-	return parallelize.Until(ctx, len(toDelete), func(i int) error {
-		log.V(3).Info("deleting elastic pod above the reclaim target count", "pod", klog.KObj(toDelete[i]))
-		return client.IgnoreNotFound(r.client.Delete(ctx, toDelete[i]))
-	})
 }
 
 // Workload predicates

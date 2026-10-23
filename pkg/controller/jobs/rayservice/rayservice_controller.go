@@ -41,6 +41,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/equality"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
+	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -127,6 +129,7 @@ var _ jobframework.JobWithManagedBy = (*RayService)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayService)(nil)
 var _ jobframework.JobWithSkip = (*RayService)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayService)(nil)
+var _ jobframework.JobWithPartialStop = (*RayService)(nil)
 
 func (j *RayService) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
 	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
@@ -156,6 +159,10 @@ func (j *RayService) Suspend() {
 		return
 	}
 	j.Spec.Suspend = true
+}
+
+func (j *RayService) StopPartially(ctx context.Context, c client.Client, wl *kueue.Workload, targets workload.PodSetsCounts) (bool, error) {
+	return workloadslicing.DeletePodsAboveCounts(ctx, c, wl, targets)
 }
 
 // If GCS fault tolerance is enabled, a Redis cleanup K8s Job may be created to clean up the RayCluster's Redis namespace.

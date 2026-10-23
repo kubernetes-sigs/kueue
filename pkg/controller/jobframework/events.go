@@ -21,6 +21,7 @@ const (
 	ReasonStarted               = "Started"
 	ReasonSuspended             = "Suspended"
 	ReasonStopped               = "Stopped"
+	ReasonPartiallyStopped      = "PartiallyStopped"
 	ReasonDeleted               = "Deleted"
 	ReasonCreatedWorkload       = "CreatedWorkload"
 	ReasonDeletedWorkload       = "DeletedWorkload"

@@ -17,8 +17,6 @@ limitations under the License.
 package extended
 
 import (
-	"slices"
-
 	sparkv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
 	sparkcommon "github.com/kubeflow/spark-operator/v2/pkg/common"
 	"github.com/onsi/ginkgo/v2"
@@ -147,12 +145,8 @@ var _ = ginkgo.Describe("Partial preemption", ginkgo.Label("feature:partialpreem
 		})
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(slice), slice)).To(gomega.Succeed())
-			g.Expect(slice.Status.Admission).NotTo(gomega.BeNil())
-			i := slices.IndexFunc(slice.Status.Admission.PodSetAssignments, func(psa kueue.PodSetAssignment) bool { return psa.Name == podSetName })
-			g.Expect(i).NotTo(gomega.Equal(-1))
-			psa := slice.Status.Admission.PodSetAssignments[i]
 			g.Expect(workload.ReclaimTargetCounts(slice)).To(gomega.HaveKeyWithValue(podSetName, count), "the slice should shrink only by what prod-cq needs")
-			g.Expect(psa.Count).To(gomega.Equal(new(count)), "the reclaimed quota should be released")
+			g.Expect(workload.ExtractGrantedPodSetCountsAfterReclaim(slice)).To(gomega.HaveKeyWithValue(podSetName, count), "the reclaimed quota should be released")
 			g.Expect(slice.Status.Conditions).NotTo(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
 		}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
 		return prodJob

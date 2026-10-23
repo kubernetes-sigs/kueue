@@ -39,6 +39,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
 	"sigs.k8s.io/kueue/pkg/util/equality"
+	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -94,6 +96,7 @@ var _ jobframework.JobWithSkip = (*RayJob)(nil)
 var _ jobframework.JobWithCustomAnnotations = (*RayJob)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*RayJob)(nil)
 var _ jobframework.JobWithCustomEquivalenceOptions = (*RayJob)(nil)
+var _ jobframework.JobWithPartialStop = (*RayJob)(nil)
 
 func (j *RayJob) CustomEquivalenceOptions(_ context.Context, _ client.Client, _ *kueue.Workload) []equality.ComparePodSetsOption {
 	if !features.Enabled(features.KubeRayEvictOnInconsistentTopologyRequest) {
@@ -121,6 +124,10 @@ func (j *RayJob) IsActive() bool {
 
 func (j *RayJob) Suspend() {
 	j.Spec.Suspend = true
+}
+
+func (j *RayJob) StopPartially(ctx context.Context, c client.Client, wl *kueue.Workload, targets workload.PodSetsCounts) (bool, error) {
+	return workloadslicing.DeletePodsAboveCounts(ctx, c, wl, targets)
 }
 
 func (j *RayJob) Skip(ctx context.Context) bool {
