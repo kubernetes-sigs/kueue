@@ -57,6 +57,12 @@ const useWebSocket = (url) => {
   const fullUrl = buildWebSocketUrl(url);
 
   useEffect(() => {
+    // Drop the previous URL's data and ignore late events from its socket, so
+    // a page that switches to another object never shows the old one.
+    let active = true;
+    setData(null);
+    setError(null);
+
     const protocols = [WS_BASE_PROTOCOL];
     if (token) {
       protocols.push(`${WS_TOKEN_PROTOCOL_PREFIX}${encodeTokenForProtocol(token)}`);
@@ -65,11 +71,17 @@ const useWebSocket = (url) => {
     let handledErrorEvent = false;
 
     ws.onopen = () => {
+      if (!active) {
+        return;
+      }
       handledErrorEvent = false;
       setError(null);
     };
 
     ws.onmessage = (event) => {
+      if (!active) {
+        return;
+      }
       const result = parseWebSocketMessage(event.data);
       if (result.error) {
         setError(result.error);
@@ -79,6 +91,9 @@ const useWebSocket = (url) => {
     };
 
     ws.onerror = (err) => {
+      if (!active) {
+        return;
+      }
       handledErrorEvent = true;
       if (ws.readyState === WebSocket.CONNECTING) {
         setError('Failed to connect to WebSocket.');
@@ -89,7 +104,7 @@ const useWebSocket = (url) => {
     };
 
     ws.onclose = (event) => {
-      if (handledErrorEvent) {
+      if (!active || handledErrorEvent) {
         return;
       }
       switch (event.code) {
@@ -119,6 +134,7 @@ const useWebSocket = (url) => {
     };
 
     return () => {
+      active = false;
       ws.close(WS_CLOSE_NORMAL);
     };
   }, [fullUrl, token]);
