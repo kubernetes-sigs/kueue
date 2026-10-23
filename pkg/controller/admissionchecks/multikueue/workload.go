@@ -707,10 +707,11 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 
 	// 6c. No remote is admitted, so any status copied from an earlier remote is stale.
 	// Reset it here too: if quota is reserved again before a reconcile sees the
-	// workload without one, step 2 never runs. A failed reset is retried on a
-	// later reconcile instead of blocking the nomination.
-	if err := w.resetLocalStatus(ctx, group); err != nil {
-		log.V(2).Error(err, "Resetting local job status")
+	// workload without one, step 2 never runs. A failed reset does not block the
+	// nomination; its error is returned so that the reconcile is retried.
+	resetErr := w.resetLocalStatus(ctx, group)
+	if resetErr != nil {
+		log.V(2).Error(resetErr, "Resetting local job status")
 	}
 
 	// 7. Open the preemption gate if applicable
@@ -733,14 +734,14 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	// admission check is not yet Pending.
 	if workload.ShouldSkipClusterNomination(acs, group.local, group.IsElasticWorkload()) {
 		log.V(3).Info("Skipping cluster nomination phase")
-		return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, nil
+		return reconcile.Result{RequeueAfter: requeueAfterSynchronize}, resetErr
 	}
 
 	res, err := w.nominateAndSynchronizeWorkers(ctx, group)
 	if err == nil && (res.RequeueAfter == 0 || requeueAfterSynchronize < res.RequeueAfter) {
 		res.RequeueAfter = requeueAfterSynchronize
 	}
-	return res, err
+	return res, errors.Join(resetErr, err)
 }
 
 // resetLocalStatus resets the status copied from a remote object onto the local

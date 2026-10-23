@@ -2469,11 +2469,18 @@ func TestWlReconcileResetsLocalStatus(t *testing.T) {
 				ClusterName("worker1").
 				Obj(),
 		},
-		"reset error for wl with reservation does not block the nomination": {
+		"reset error for wl with reservation does not block the nomination and is returned": {
 			managersWorkload:    *baseWorkloadBuilder.Clone().ReserveQuotaAt(admission, now).Obj(),
 			resetErr:            resetErr,
 			wantResetKeys:       []types.NamespacedName{{Name: "job1", Namespace: TestNamespace}},
+			wantError:           resetErr,
 			wantWorker1Workload: true,
+		},
+		"reset error for wl with reservation is returned when the nomination is skipped": {
+			managersWorkload: *baseWorkloadBuilder.Clone().ReserveQuotaAt(admission, now).ClusterName("worker1").Obj(),
+			resetErr:         resetErr,
+			wantResetKeys:    []types.NamespacedName{{Name: "job1", Namespace: TestNamespace}},
+			wantError:        resetErr,
 		},
 	}
 
