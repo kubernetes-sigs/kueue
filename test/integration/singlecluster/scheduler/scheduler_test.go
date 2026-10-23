@@ -3234,7 +3234,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 0)
 
-			ginkgo.By("Restart the LocalQueue by setting its stopPolicy to None")
+			ginkgo.By("Restart the LocalQueue by removing its stopPolicy")
 			behavioral.UnsetLocalQueueStopPolicy(ctx, k8sClient, lq)
 
 			ginkgo.By("Checking the condition of LocalQueue is active")
