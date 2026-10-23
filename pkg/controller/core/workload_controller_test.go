@@ -1087,6 +1087,35 @@ type reconcileTestCase struct {
 	beforeReconcile           func(context.Context, client.Client, *qcache.Manager)
 }
 
+func TestUpdateElasticWorkloadWithClearedAdmission(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlices, true)
+	features.SetFeatureGateDuringTest(t, features.ElasticJobsViaWorkloadSlicesWithTAS, true)
+	now := time.Now().Truncate(time.Second)
+	oldWl := utiltestingapi.MakeWorkload("wl", "ns").
+		Annotation(constants.ElasticJobAnnotation, "true").
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").PodSets(
+			utiltestingapi.MakePodSetAssignment("main").Count(1).TopologyAssignment(
+				utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domains(utiltestingapi.MakeTopologyDomainAssignment([]string{"node"}, 1).Obj()).Obj(),
+			).Obj(),
+		).Obj(), now).
+		AdmittedAt(true, now).Obj()
+	newWl := oldWl.DeepCopy()
+	newWl.Status.Admission = nil
+	apimeta.RemoveStatusCondition(&newWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+
+	cl := utiltesting.NewClientBuilder().Build()
+	cqCache := schdcache.New(cl)
+	qManager := qcache.NewManagerForUnitTests(cl, cqCache)
+	reconciler := NewWorkloadReconciler(cl, qManager, cqCache, &utiltesting.EventRecorder{})
+	ctx, _ := utiltesting.ContextWithLog(t)
+	updated := reconciler.handleUpdate(ctx, event.TypedUpdateEvent[*kueue.Workload]{ObjectOld: oldWl, ObjectNew: newWl})
+
+	if !updated {
+		t.Fatal("Update rejected an elastic workload with cleared admission")
+	}
+}
+
 func TestUpdateSkipsRequeueForOnHoldWorkload(t *testing.T) {
 	now := time.Now().Truncate(time.Second)
 	fakeClock := testingclock.NewFakeClock(now)

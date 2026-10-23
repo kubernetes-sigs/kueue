@@ -58,6 +58,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 	workloadfinish "sigs.k8s.io/kueue/pkg/workload/finish"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
@@ -106,7 +107,7 @@ var _ predicate.TypedPredicate[*kueue.Workload] = (*topologyUngater)(nil)
 
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;update;patch;delete
 // +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads,verbs=get;list;watch
-// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get
+// +kubebuilder:rbac:groups=kueue.x-k8s.io,resources=workloads/status,verbs=get;patch
 
 func newTopologyUngater(c client.Client, roleTracker *roletracker.RoleTracker, customLabels *metrics.CustomLabels, opts ...topologyUngaterOption) *topologyUngater {
 	options := defaultOptions
@@ -207,6 +208,12 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 	if !r.expectationsStore.Satisfied(log, sliceKey) {
 		log.V(3).Info("There are pending ungate operations")
 		return reconcile.Result{}, errPendingUngateOps
+	}
+
+	if features.Enabled(features.ElasticJobsViaWorkloadSlicesWithTAS) && workload.IsElasticWorkload(wl) {
+		if updated, err := r.reconcileElasticShrink(ctx, wl); err != nil || updated {
+			return reconcile.Result{}, err
+		}
 	}
 
 	psNameToTopologyRequest := workload.PodSetNameToTopologyRequest(wl)
@@ -330,6 +337,90 @@ func (r *topologyUngater) Reconcile(ctx context.Context, req reconcile.Request) 
 		return e
 	})
 	return reconcile.Result{}, err
+}
+
+// reconcileElasticShrink releases domains only after the remaining Pods account
+// for the requested size after reclaim.
+func (r *topologyUngater) reconcileElasticShrink(ctx context.Context, wl *kueue.Workload) (bool, error) {
+	// Node recovery needs the assignment to find and clear unhealthyNodes entries.
+	if workload.HasUnhealthyNodes(wl) {
+		return false, nil
+	}
+	before := wl
+	wl = wl.DeepCopy()
+	counts := workload.ExtractPodSetCountsFromWorkload(wl)
+	if features.Enabled(features.ReclaimablePods) {
+		for name, reclaimed := range workload.ReclaimableCounts(wl) {
+			counts[name] -= min(reclaimed, counts[name])
+		}
+	}
+	changed := false
+	for i := range wl.Status.Admission.PodSetAssignments {
+		psa := &wl.Status.Admission.PodSetAssignments[i]
+		if psa.TopologyAssignment == nil {
+			continue
+		}
+		assignment := utiltas.InternalFrom(psa.TopologyAssignment)
+		count := counts[psa.Name]
+		if count >= utiltas.CountPodsInAssignment(assignment) {
+			continue
+		}
+		pods, err := workloadslicing.ListPodsForWorkloadSlice(ctx, r.client, wl.Namespace, workloadslicing.SliceName(wl),
+			client.MatchingLabels{constants.PodSetLabel: string(psa.Name)})
+		if err != nil {
+			return false, err
+		}
+		pods = slices.DeleteFunc(pods, utilpod.IsTerminated)
+		// Include terminating Pods until they disappear or become terminal.
+		// Fewer Pods may be a transient observation before replacements arrive.
+		if len(pods) != int(count) {
+			continue
+		}
+		domainCounts := make([]int32, len(assignment.Domains))
+		domainIndexes := make(map[utiltas.TopologyDomainID]int, len(assignment.Domains))
+		for j, domain := range assignment.Domains {
+			domainIndexes[utiltas.DomainID(domain.Values)] = j
+		}
+		for _, pod := range pods {
+			if pod.Spec.NodeName == "" {
+				return false, nil
+			}
+			node := &corev1.Node{}
+			if err := r.client.Get(ctx, types.NamespacedName{Name: pod.Spec.NodeName}, node); err != nil {
+				return false, err
+			}
+			for _, level := range assignment.Levels {
+				if _, found := node.Labels[level]; !found {
+					return false, nil
+				}
+			}
+			domainID := utiltas.DomainID(utiltas.LevelValues(assignment.Levels, node.Labels))
+			j, found := domainIndexes[domainID]
+			if !found || domainCounts[j] == assignment.Domains[j].Count {
+				return false, nil
+			}
+			domainCounts[j]++
+		}
+		for j := range assignment.Domains {
+			assignment.Domains[j].Count = domainCounts[j]
+		}
+		assignment.Domains = slices.DeleteFunc(assignment.Domains, func(domain utiltas.TopologyDomainAssignment) bool { return domain.Count == 0 })
+		if count == 0 {
+			psa.TopologyAssignment = nil
+		} else {
+			psa.TopologyAssignment = utiltas.V1Beta2From(assignment)
+		}
+		changed = true
+	}
+	if !changed {
+		return false, nil
+	}
+	// A concurrent resize or readmission invalidates the Pod observation.
+	err := workloadpatching.PatchAdmissionStatus(ctx, r.client, before, r.clock, func(current *kueue.Workload) (bool, error) {
+		current.Status.Admission = wl.Status.Admission
+		return true, nil
+	})
+	return err == nil, err
 }
 
 func (r *topologyUngater) Create(event event.TypedCreateEvent[*kueue.Workload]) bool {
