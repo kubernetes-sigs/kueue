@@ -40,6 +40,7 @@ import (
 	config "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -96,6 +97,8 @@ type PreemptionStrategy struct {
 	targetsByKey map[client.ObjectKey]*Target
 }
 
+var _ simulator.PreemptionFilter = (*PreemptionStrategy)(nil)
+
 type strategyOption func(*PreemptionStrategy)
 
 func withVerify(verify func(targets []*Target) (bool, string)) strategyOption {
@@ -136,28 +139,57 @@ func (ps *PreemptionStrategy) Candidates() iter.Seq[client.ObjectKey] {
 	}
 }
 
-// Reset restores any workloads still preempted in the strategy back to the snapshot.
-func (ps *PreemptionStrategy) Reset() {
-	for _, t := range ps.targetsByKey {
+func (ps *PreemptionStrategy) PreemptWorkload(wlKey client.ObjectKey) {
+	if t, ok := ps.targetsByKey[wlKey]; ok {
+		if _, inSnapshot := t.WorkloadCq.Workloads[workload.Key(t.WorkloadInfo.Obj)]; inSnapshot {
+			ps.pCtx.snapshot.RemoveWorkload(t.WorkloadInfo)
+		}
+	}
+}
+
+func (ps *PreemptionStrategy) UnpreemptWorkload(wlKey client.ObjectKey) {
+	if t, ok := ps.targetsByKey[wlKey]; ok {
 		if _, inSnapshot := t.WorkloadCq.Workloads[workload.Key(t.WorkloadInfo.Obj)]; !inSnapshot {
 			ps.pCtx.snapshot.AddWorkload(t.WorkloadInfo)
 		}
 	}
 }
 
-// Verify resolves the given preemptedWorkloads to their corresponding targets.
+func (ps *PreemptionStrategy) MayFit() bool {
+	return workloadQuotaFits(ps.pCtx, ps.allowBorrowing)
+}
+
+// Reset restores any workloads still preempted in the strategy back to the snapshot.
+func (ps *PreemptionStrategy) Reset() {
+	for wlKey := range ps.targetsByKey {
+		ps.UnpreemptWorkload(wlKey)
+	}
+}
+
+// Verify checks whether the given preemptedWorkloads satisfy quota and strategy
+// verification, and restores the snapshot before returning the corresponding targets.
 func (ps *PreemptionStrategy) Verify(preemptedWorkloads []client.ObjectKey) []*Target {
 	defer ps.Reset()
 	if len(preemptedWorkloads) == 0 {
 		return nil
 	}
+	ps.Reset()
 	targets := make([]*Target, 0, len(preemptedWorkloads))
 	for _, wlKey := range preemptedWorkloads {
 		t, ok := ps.targetsByKey[wlKey]
 		if !ok {
 			return nil
 		}
+		ps.PreemptWorkload(wlKey)
 		targets = append(targets, t)
+	}
+	if !ps.MayFit() {
+		return nil
+	}
+	if ps.verify != nil {
+		if valid, _ := ps.verify(targets); !valid {
+			return nil
+		}
 	}
 	return targets
 }

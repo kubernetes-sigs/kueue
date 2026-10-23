@@ -25,6 +25,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -325,6 +326,164 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Preemption", ginkgo.Label(e2e.S
 		ginkgo.By("verify neither running workload is preempted", func() {
 			gomega.Consistently(func(g gomega.Gomega) {
 				for _, wlKey := range []types.NamespacedName{highB1WlKey, lowB2WlKey} {
+					wl := &kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())
+					g.Expect(workloadevict.IsEvicted(wl)).To(gomega.BeFalse())
+				}
+			}, behavioral.ConsistentDuration, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should preempt a lower-priority Job when ClusterQueue quota is full even if nodes have free capacity", func() {
+		ginkgo.By("reduce ClusterQueue quota to 4 GPUs while cluster has 8 GPUs across 4 nodes", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: clusterQueue.Name}, clusterQueue)).To(gomega.Succeed())
+				clusterQueue.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("4")
+				g.Expect(k8sClient.Update(ctx, clusterQueue)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		// low-priority-job uses 4 GPUs (filling the 4-GPU ClusterQueue quota), leaving 2 nodes (4 GPUs) physically free.
+		_, lowWlKey := admitAndRunJob("low-priority-job", lowPriorityClass.Name, 4, nil)
+
+		highJob := testingjob.MakeJob("high-priority-job", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			WorkloadPriorityClass(highPriorityClass.Name).
+			Parallelism(2).
+			Completions(2).
+			RequestAndLimit(extraResource, "1").
+			TerminationGracePeriod(1).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, highJob)
+
+		highWlKey := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(highJob.Name, highJob.UID),
+			Namespace: ns.Name,
+		}
+
+		ginkgo.By("verify low-priority workload is preempted", func() {
+			behavioral.ExpectWorkloadsToBePreemptedByKeys(ctx, k8sClient, lowWlKey)
+		})
+
+		ginkgo.By("verify high-priority workload is admitted and running after preemption", func() {
+			behavioral.ExpectWorkloadsToBeAdmittedByKeysWithTimeout(ctx, k8sClient, behavioral.MediumTimeout, highWlKey)
+			expectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, highJob.Name, 2)
+		})
+	})
+
+	ginkgo.It("Should mark workload as WaitingForQuota and not preempt when reprieval causes fair-sharing verification to fail", func() {
+		blockB1 := map[string]string{utiltesting.DefaultBlockTopologyLevel: "b1"}
+
+		ginkgo.By("configure ClusterQueue in a fair-sharing cohort with 3 GPUs nominal quota and weight 2", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: clusterQueue.Name}, clusterQueue)).To(gomega.Succeed())
+				clusterQueue.Spec.CohortName = "fair-cohort"
+				clusterQueue.Spec.FairSharing = &kueue.FairSharing{
+					Weight: new(resource.MustParse("2")),
+				}
+				clusterQueue.Spec.ResourceGroups[0].Flavors[0].Resources[0].NominalQuota = resource.MustParse("3")
+				clusterQueue.Spec.Preemption = &kueue.ClusterQueuePreemption{
+					WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+					ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+				}
+				g.Expect(k8sClient.Update(ctx, clusterQueue)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		borrowerCQ := utiltestingapi.MakeClusterQueue("borrower-cq").
+			Cohort("fair-cohort").
+			FairWeight(resource.MustParse("1")).
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas("tas-flavor").
+					Resource(extraResource, "3").
+					Obj(),
+			).
+			Preemption(kueue.ClusterQueuePreemption{
+				WithinClusterQueue:  kueue.PreemptionPolicyLowerPriority,
+				ReclaimWithinCohort: kueue.PreemptionPolicyAny,
+			}).
+			Obj()
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, borrowerCQ)
+
+		borrowerLQ := utiltestingapi.MakeLocalQueue("borrower-lq", ns.Name).ClusterQueue(borrowerCQ.Name).Obj()
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, borrowerLQ)
+
+		defer func() {
+			gomega.Expect(behavioral.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, borrowerLQ, true)
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, borrowerCQ, true)
+		}()
+
+		// p-small uses 2 GPUs on block b1 in clusterQueue (nominal 3, weight 2).
+		_, pSmallWlKey := admitAndRunJob("p-small", lowPriorityClass.Name, 2, blockB1)
+
+		// t-hero uses 4 GPUs on block b2 in borrowerCQ (nominal 3, weight 1, borrowing 1 from cohort; old DRS = (1/6)/1 = 1/6).
+		// Total cohort usage is 2 + 4 = 6 GPUs (all 6 GPUs of cohort quota).
+		tHeroJob := testingjob.MakeJob("t-hero", ns.Name).
+			Queue(kueue.LocalQueueName(borrowerLQ.Name)).
+			WorkloadPriorityClass(lowPriorityClass.Name).
+			NodeSelector(utiltesting.DefaultBlockTopologyLevel, "b2").
+			Parallelism(4).
+			Completions(4).
+			RequestAndLimit(extraResource, "1").
+			TerminationGracePeriod(1).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, tHeroJob)
+		tHeroWlKey := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(tHeroJob.Name, tHeroJob.UID),
+			Namespace: ns.Name,
+		}
+		ginkgo.By("await admission and running pods of borrower job t-hero", func() {
+			behavioral.ExpectWorkloadsToBeAdmittedByKeys(ctx, k8sClient, tHeroWlKey)
+			expectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, tHeroJob.Name, 4)
+		})
+
+		// p-hero requests 4 GPUs on block b2 in clusterQueue.
+		// fairPreemptionStrategy proposes [p-small, t-hero] under LessThanInitialShare
+		// (with p-small evicted, clusterQueue DRS is ((4-3)/6)/2 = 1/12 < borrowerCQ old DRS 1/6).
+		// During simulation, ScheduleWorkload removes both, places p-hero (4 GPUs) on block b2,
+		// and reprieves p-small (2 GPUs on block b1) since 2 + 4 = 6 <= 6 cohort quota and b1 is untouched.
+		// However, filter.Verify([t-hero]) rejects the remaining target set because keeping p-small gives
+		// clusterQueue DRS ((6-3)/6)/2 = 1/4 > borrowerCQ old DRS 1/6.
+		pHeroJob := testingjob.MakeJob("p-hero", ns.Name).
+			Queue(kueue.LocalQueueName(localQueue.Name)).
+			WorkloadPriorityClass(highPriorityClass.Name).
+			NodeSelector(utiltesting.DefaultBlockTopologyLevel, "b2").
+			Parallelism(4).
+			Completions(4).
+			RequestAndLimit(extraResource, "1").
+			TerminationGracePeriod(1).
+			Image(e2e.GetAgnHostImage(), e2e.BehaviorWaitForDeletion).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, pHeroJob)
+		pHeroWlKey := types.NamespacedName{
+			Name:      workloadjob.GetWorkloadNameForJob(pHeroJob.Name, pHeroJob.UID),
+			Namespace: ns.Name,
+		}
+
+		ginkgo.By("verify p-hero waits for quota with WaitingForQuota reason", func() {
+			pHeroWl := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, pHeroWlKey, pHeroWl)).Should(gomega.Succeed())
+				g.Expect(pHeroWl.Status.Admission).Should(gomega.BeNil())
+				g.Expect(workload.HasQuotaReservation(pHeroWl)).Should(gomega.BeFalse())
+				cond := apimeta.FindStatusCondition(pHeroWl.Status.Conditions, kueue.WorkloadQuotaReserved)
+				g.Expect(cond).ShouldNot(gomega.BeNil())
+				g.Expect(cond).Should(gomega.BeComparableTo(&metav1.Condition{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionFalse,
+					Reason: kueue.WorkloadQuotaReservedReasonWaitingForQuota,
+				}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message", "ObservedGeneration")))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("verify neither running workload is preempted", func() {
+			gomega.Consistently(func(g gomega.Gomega) {
+				for _, wlKey := range []types.NamespacedName{pSmallWlKey, tHeroWlKey} {
 					wl := &kueue.Workload{}
 					g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
 					g.Expect(workload.IsAdmitted(wl)).To(gomega.BeTrue())

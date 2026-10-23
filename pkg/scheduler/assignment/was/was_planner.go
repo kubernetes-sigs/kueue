@@ -144,6 +144,7 @@ func (p *wasPlanner) scheduleWithPreemption(
 			ctx,
 			pods,
 			simulator.WithPreemptionCandidates(strategy.Candidates()),
+			simulator.WithPreemptionFilter(&strategy),
 		)
 		strategy.Reset()
 		if err != nil {
