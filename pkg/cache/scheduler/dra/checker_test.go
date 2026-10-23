@@ -624,6 +624,94 @@ func TestCheckerFindFeasibleNodes(t *testing.T) {
 			},
 			wantFeasible: []string{"gpu-node"},
 		},
+		// Capacity other shares consumed is not available, so 40Gi does not fit next to 60Gi of 80Gi.
+		"a shared device without enough capacity left filters out its node": {
+			objects: []runtime.Object{
+				testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+					NodeName("gpu-node").
+					Pool("gpu-pool", 1, 1).
+					Device("gpu-0").
+					AllowMultipleAllocations(true).
+					DeviceCapacity("memory", "80Gi", nil).
+					Obj(),
+				gpuDeviceClass,
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					WithCapacityRequests(map[string]string{"memory": "40Gi"}).
+					Obj(),
+				&resourceapi.ResourceClaim{
+					Name: "shared-claim", Namespace: "other",
+					Status: resourceapi.ResourceClaimStatus{
+						Allocation: &resourceapi.AllocationResult{
+							Devices: resourceapi.DeviceAllocationResult{
+								Results: []resourceapi.DeviceRequestAllocationResult{
+									{
+										Request: "gpu", Driver: "gpu.example.com", Pool: "gpu-pool", Device: "gpu-0",
+										ShareID:          new(types.UID("share-1")),
+										ConsumedCapacity: map[resourceapi.QualifiedName]resource.Quantity{"memory": resource.MustParse("60Gi")},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			podTemplate: &corev1.PodTemplateSpec{
+				Namespace: "default",
+				Spec: corev1.PodSpec{
+					Containers:     []corev1.Container{{Name: "c", Image: "busybox"}},
+					ResourceClaims: []corev1.PodResourceClaim{{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")}},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: gpuNode, id: "gpu-node"},
+			},
+			wantDRANoFit: 1,
+		},
+		// 20Gi fits next to 60Gi of 80Gi, so the device is not treated as fully consumed.
+		"a shared device with enough capacity left keeps its node": {
+			objects: []runtime.Object{
+				testingdra.MakeResourceSlice("gpu-node-slice", "gpu.example.com").
+					NodeName("gpu-node").
+					Pool("gpu-pool", 1, 1).
+					Device("gpu-0").
+					AllowMultipleAllocations(true).
+					DeviceCapacity("memory", "80Gi", nil).
+					Obj(),
+				gpuDeviceClass,
+				utiltesting.MakeResourceClaimTemplate("gpu-template", "default").
+					DeviceRequest("gpu", "gpu.example.com", 1).
+					WithCapacityRequests(map[string]string{"memory": "20Gi"}).
+					Obj(),
+				&resourceapi.ResourceClaim{
+					Name: "shared-claim", Namespace: "other",
+					Status: resourceapi.ResourceClaimStatus{
+						Allocation: &resourceapi.AllocationResult{
+							Devices: resourceapi.DeviceAllocationResult{
+								Results: []resourceapi.DeviceRequestAllocationResult{
+									{
+										Request: "gpu", Driver: "gpu.example.com", Pool: "gpu-pool", Device: "gpu-0",
+										ShareID:          new(types.UID("share-1")),
+										ConsumedCapacity: map[resourceapi.QualifiedName]resource.Quantity{"memory": resource.MustParse("60Gi")},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			podTemplate: &corev1.PodTemplateSpec{
+				Namespace: "default",
+				Spec: corev1.PodSpec{
+					Containers:     []corev1.Container{{Name: "c", Image: "busybox"}},
+					ResourceClaims: []corev1.PodResourceClaim{{Name: "gpu", ResourceClaimTemplateName: new("gpu-template")}},
+				},
+			},
+			candidates: []*testCandidate{
+				{node: gpuNode, id: "gpu-node"},
+			},
+			wantFeasible: []string{"gpu-node"},
+		},
 		// A pre-provisioned claim that is already allocated needs no second device:
 		// buildAllocatedState already counts the one it holds.
 		// The allocation says where it lives, so the Pod cannot go elsewhere.
