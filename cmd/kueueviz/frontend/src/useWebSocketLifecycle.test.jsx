@@ -70,6 +70,22 @@ describe('useWebSocket', () => {
     expect(result.current.data).toBeNull();
   });
 
+  it('never renders the previous data for the new URL', () => {
+    // Record every render, including the one before effects run.
+    const renders = [];
+    const { rerender } = renderHook(({ url }) => {
+      const result = useWebSocket(url);
+      renders.push({ url, data: result.data });
+      return result;
+    }, { initialProps: { url: '/ws/workload/ns-1/wl-1' } });
+    act(() => FakeWebSocket.instances[0].send({ name: 'wl-1' }));
+
+    rerender({ url: '/ws/workload/ns-1/wl-2' });
+
+    const staleRenders = renders.filter((r) => r.url.endsWith('wl-2') && r.data !== null);
+    expect(staleRenders).toEqual([]);
+  });
+
   it('ignores messages from the socket of the previous URL', () => {
     const { result, rerender } = renderHook(({ url }) => useWebSocket(url), {
       initialProps: { url: '/ws/workload/ns-1/wl-1' },

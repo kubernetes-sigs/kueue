@@ -51,17 +51,29 @@ export const parseWebSocketMessage = (raw) => {
 };
 
 const useWebSocket = (url) => {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
   const { token } = useAuth();
   const fullUrl = buildWebSocketUrl(url);
+  // Received data is keyed to its connection. When the URL or token changes,
+  // the old data is dropped in the same render, before anything is painted.
+  const connectionKey = `${token || ''}@${fullUrl}`;
+  const [received, setReceived] = useState({ key: connectionKey, data: null, error: null });
+  const isCurrent = received.key === connectionKey;
+  const data = isCurrent ? received.data : null;
+  const error = isCurrent ? received.error : null;
 
   useEffect(() => {
-    // Drop the previous URL's data and ignore late events from its socket, so
-    // a page that switches to another object never shows the old one.
+    // Ignore late events from the previous connection's socket.
     let active = true;
-    setData(null);
-    setError(null);
+    const update = (patch) => {
+      if (!active) {
+        return;
+      }
+      setReceived((prev) => ({
+        ...(prev.key === connectionKey ? prev : { data: null, error: null }),
+        key: connectionKey,
+        ...patch,
+      }));
+    };
 
     const protocols = [WS_BASE_PROTOCOL];
     if (token) {
@@ -75,7 +87,7 @@ const useWebSocket = (url) => {
         return;
       }
       handledErrorEvent = false;
-      setError(null);
+      update({ error: null });
     };
 
     ws.onmessage = (event) => {
@@ -84,9 +96,9 @@ const useWebSocket = (url) => {
       }
       const result = parseWebSocketMessage(event.data);
       if (result.error) {
-        setError(result.error);
+        update({ error: result.error });
       } else {
-        setData(result.data);
+        update({ data: result.data });
       }
     };
 
@@ -96,9 +108,9 @@ const useWebSocket = (url) => {
       }
       handledErrorEvent = true;
       if (ws.readyState === WebSocket.CONNECTING) {
-        setError('Failed to connect to WebSocket.');
+        update({ error: 'Failed to connect to WebSocket.' });
       } else {
-        setError('WebSocket connection failed.');
+        update({ error: 'WebSocket connection failed.' });
       }
       ws.close(WS_CLOSE_NORMAL);
     };
@@ -113,22 +125,22 @@ const useWebSocket = (url) => {
           // Normal closures, no error needed.
           break;
         case WS_CLOSE_POLICY_VIOLATION:
-          setError('WebSocket connection closed: Token expired or revoked. Please log in again.');
+          update({ error: 'WebSocket connection closed: Token expired or revoked. Please log in again.' });
           break;
         case WS_CLOSE_BAD_REQUEST:
-          setError(event.reason || 'WebSocket connection closed: Bad Request.');
+          update({ error: event.reason || 'WebSocket connection closed: Bad Request.' });
           break;
         case WS_CLOSE_UNAUTHORIZED:
-          setError(event.reason || 'WebSocket connection closed: Unauthorized.');
+          update({ error: event.reason || 'WebSocket connection closed: Unauthorized.' });
           break;
         case WS_CLOSE_SERVICE_UNAVAILABLE:
-          setError(event.reason || 'WebSocket connection closed: Service Unavailable.');
+          update({ error: event.reason || 'WebSocket connection closed: Service Unavailable.' });
           break;
         case WS_CLOSE_FORBIDDEN:
-          setError(event.reason || 'WebSocket connection closed: Forbidden.');
+          update({ error: event.reason || 'WebSocket connection closed: Forbidden.' });
           break;
         default:
-          setError(`WebSocket connection closed unexpectedly (code: ${event.code}). Please refresh the page.`);
+          update({ error: `WebSocket connection closed unexpectedly (code: ${event.code}). Please refresh the page.` });
           break;
       }
     };
@@ -137,7 +149,7 @@ const useWebSocket = (url) => {
       active = false;
       ws.close(WS_CLOSE_NORMAL);
     };
-  }, [fullUrl, token]);
+  }, [fullUrl, token, connectionKey]);
 
   return { data, error };
 };
