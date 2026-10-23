@@ -609,3 +609,7 @@ MultiKueue syncs the workload and its owning job to worker clusters, but
 synced. These must be created on each worker cluster separately. That support
 does not extend to `firstAvailable` requests. See the
 [limitations](/docs/concepts/dynamic_resource_allocation/#limitations).
+
+Mappings with `counter` or `capacity` sources also read `ResourceSlice` objects
+on the manager cluster. A manager cluster without those `ResourceSlice` objects
+keeps the workload inadmissible, so MultiKueue never dispatches it.
