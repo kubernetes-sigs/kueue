@@ -330,7 +330,7 @@ func TestIterateWithFirstFsStrategyLogging(t *testing.T) {
 			// soon as the incoming workload fits.
 			var targets []*Target
 			fits := false
-			retryCandidates, cont := iterateWithFirstFsStrategy(log, fixture.preemptionCtx, fixture.candidates, strategy, func(t *Target) bool {
+			retryCandidates, cont := iterateWithFirstFsStrategy(log, fixture.preemptionCtx, newPartialTargets(fixture.preemptionCtx.snapshot), fixture.candidates, strategy, func(t *Target) bool {
 				targets = append(targets, t)
 				revertSimulation := fixture.preemptionCtx.preemptorCQ.SimulateUsageRemoval(fixture.preemptionCtx.workloadUsage)
 				fits = workloadFits(ctx, fixture.preemptionCtx, true)
@@ -465,7 +465,7 @@ func TestIterateWithSecondFsStrategyLog(t *testing.T) {
 				{name: "b", candidates: 3, fairWeight: tc.fairWeight},
 			})
 
-			iterateWithSecondFsStrategy(log, fixture.preemptionCtx, fixture.candidates, func(*Target) bool { return true })
+			iterateWithSecondFsStrategy(log, fixture.preemptionCtx, newPartialTargets(fixture.preemptionCtx.snapshot), fixture.candidates, func(*Target) bool { return true })
 
 			entries := observed.FilterMessage(strategyLogMessage).All()
 			if len(entries) == 0 {

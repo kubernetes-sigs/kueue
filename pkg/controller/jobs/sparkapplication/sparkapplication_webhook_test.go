@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	sparkappv1beta2 "github.com/kubeflow/spark-operator/v2/api/v1beta2"
+	sparkcommon "github.com/kubeflow/spark-operator/v2/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -74,10 +75,18 @@ func TestValidateCreate(t *testing.T) {
 				MinExecutors:     new(int32(1)),
 				InitialExecutors: new(int32(2)),
 				MaxExecutors:     new(int32(3)),
-			}).Obj(),
-			wantErr: field.ErrorList{field.Forbidden(
-				field.NewPath("metadata", "annotations").Key(workloadslicing.EnabledAnnotationKey),
-				`elastic job is not supported for "sparkoperator.k8s.io/v1beta2, Kind=SparkApplication"`,
+			}).ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate}).Obj(),
+			wantErr: nil,
+		},
+		"elastic job without the ElasticJobSchedulingGate": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			sparkApp: testSparkApp.Clone().Queue("local-queue").Annotation(
+				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue,
+			).Obj(),
+			wantErr: field.ErrorList{field.Invalid(
+				executorSpecPath.Child("template").Child("spec").Child("schedulingGates"),
+				[]corev1.PodSchedulingGate(nil),
+				"an elastic job must have the ElasticJobSchedulingGate",
 			)}.ToAggregate(),
 		},
 		"base with TAS": {
@@ -124,6 +133,9 @@ func TestValidateCreate(t *testing.T) {
 
 func TestValidateUpdate(t *testing.T) {
 	testSparkApp := sparkapplicationtesting.MakeSparkApplication("test-sparkapp", "test").Suspend(false)
+	elasticSparkApp := testSparkApp.Clone().Queue("local-queue").
+		Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+		ExecutorSchedulingGates(corev1.PodSchedulingGate{Name: kueue.ElasticJobSchedulingGate})
 	testcases := map[string]struct {
 		oldSparkApp          *sparkappv1beta2.SparkApplication
 		newSparkApp          *sparkappv1beta2.SparkApplication
@@ -132,6 +144,16 @@ func TestValidateUpdate(t *testing.T) {
 		wantErr              error
 		maxTimeoutOnWorkload *metav1.Duration
 	}{
+		"elastic job must not drop the ElasticJobSchedulingGate": {
+			oldSparkApp:  elasticSparkApp.Clone().Obj(),
+			newSparkApp:  elasticSparkApp.Clone().ExecutorSchedulingGates().Obj(),
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true},
+			wantErr: field.ErrorList{field.Invalid(
+				executorSpecPath.Child("template").Child("spec").Child("schedulingGates"),
+				[]corev1.PodSchedulingGate(nil),
+				"an elastic job must have the ElasticJobSchedulingGate",
+			)}.ToAggregate(),
+		},
 		"queue name unchanged while unsuspended": {
 			oldSparkApp: testSparkApp.Clone().Queue("local-queue").Obj(),
 			newSparkApp: testSparkApp.Clone().Queue("local-queue").Label("test-label", "test-value").Obj(),
@@ -300,6 +322,21 @@ func TestDefault(t *testing.T) {
 			sparkApp:              testSparkApp.DeepCopy(),
 			wantSparkApp:          testSparkApp.DeepCopy(),
 			withDefaultLocalQueue: false,
+		},
+		"should gate the executors of an elastic SparkApplication": {
+			sparkApp: testSparkApp.Clone().Queue(testLocalQueue.Name).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Obj(),
+			wantSparkApp: testSparkApp.Clone().Queue(testLocalQueue.Name).
+				Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				Suspend(true).
+				ExecutorTemplate(&corev1.PodTemplateSpec{
+					Spec: corev1.PodSpec{
+						Containers:      []corev1.Container{{Name: sparkcommon.Spark3DefaultExecutorContainerName}},
+						SchedulingGates: []corev1.PodSchedulingGate{{Name: kueue.ElasticJobSchedulingGate}},
+					},
+				}).
+				Obj(),
 		},
 	}
 	for name, tc := range testCases {

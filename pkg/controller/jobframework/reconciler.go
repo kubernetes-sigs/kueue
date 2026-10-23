@@ -2055,6 +2055,11 @@ func prepareWorkloadSliceForScaleUp(ctx context.Context, c client.Client, job Ge
 			// while a retry against an unchanged level reuses the same one.
 			extra = fmt.Sprintf("%s-%d", extra, admitted)
 		}
+		// Partial preemption shrinks the slice without changing the job, so the
+		// scale-up name is keyed on the shrunk slice to differ from it.
+		if prevWl.Annotations[constants.PartiallyPreemptedAnnotation] == "true" {
+			extra = string(prevWl.UID)
+		}
 	}
 	return extra, nil
 }
