@@ -1521,11 +1521,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 
 		ginkgo.It("admits one workload from each LocalQueue when quota is limited", framework.SlowSpec, func() {
 			ginkgo.By("Pausing admissions to CQ")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).To(gomega.Succeed())
-				cq1.Spec.StopPolicy = new(kueue.Hold)
-				g.Expect(k8sClient.Update(ctx, cq1)).Should(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.Succeed())
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq1, kueue.Hold)
 
 			// this sync step is to stop a (rare, 2/1024 runs) race, where one of the
 			// workloads admits before the CQ is stoppped.
@@ -1550,11 +1546,7 @@ var _ = ginkgo.Describe("Scheduler", ginkgo.Label("feature:fairsharing"), func()
 			behavioral.ExpectPendingWorkloadsMetric(cq1, 0, 4)
 
 			ginkgo.By("Resuming admissions to CQ")
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq1), cq1)).To(gomega.Succeed())
-				cq1.Spec.StopPolicy = new(kueue.None)
-				g.Expect(k8sClient.Update(ctx, cq1)).Should(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.ShortInterval).Should(gomega.Succeed())
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq1, kueue.None)
 
 			ginkgo.By("Verifying one workload from each lq is admitted")
 			behavioral.ExpectWorkloadsToBeAdmittedCount(ctx, k8sClient, 1, lqAWls...)
