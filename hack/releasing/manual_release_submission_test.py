@@ -55,6 +55,9 @@ class ManualReleaseSubmissionTest(unittest.TestCase):
                     env = {
                         **os.environ,
                         "CALLS": str(calls), "PUSH_STATUS": push_status, "CREATE_STATUS": create_status,
+                        # These phases start after prepare has saved its checklist helper.
+                        "RELEASE_CHECKLIST_SCRIPT": str(REPO_ROOT / "hack/releasing/log_to_issue.py"),
+                        "KUBERNETES_SIGS_KUEUE_PATH": str(REPO_ROOT),
                         "DRY_RUN": "", "TARGET": "all", "FORK_REMOTE": "origin",
                         "RELEASE_VERSION": "v0.20.0", "RELEASE_BRANCH": "release-0.20", "MAJOR_MINOR": "0.20",
                         "RELEASE_ISSUE_NUMBER": "1", "RELEASE_ISSUE_NAME": "Release v0.20.0",
