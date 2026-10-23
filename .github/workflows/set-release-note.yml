@@ -80,7 +80,8 @@ jobs:
           if ! ERROR_MESSAGE=$(python3 hack/releasing/set_release_note.py \
             --comment-file comment.md \
             --body-file pr_body.md \
-            --output-file new_body.md 2>&1); then
+            --output-file new_body.md \
+            --success-comment-file success_comment.md 2>&1); then
             {
               echo 'error_message<<EOF'
               printf '❌ %s\n' "$ERROR_MESSAGE"
@@ -111,7 +112,7 @@ jobs:
           PR_NUMBER: ${{ github.event.issue.number }}
           TARGET_REPO: ${{ github.repository }}
         run: |
-          gh pr comment "$PR_NUMBER" --repo "$TARGET_REPO" --body '✅ The release note was updated.'
+          gh pr comment "$PR_NUMBER" --repo "$TARGET_REPO" --body-file success_comment.md
 
       - name: Report failure
         if: ${{ failure() }}
