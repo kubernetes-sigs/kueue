@@ -4152,6 +4152,13 @@ func runTASScheduleTestCases(t *testing.T, cfg tasScheduleTestConfig, cases map[
 					scenario[features.VectorizedResourceRequests],
 				),
 				func(t *testing.T) {
+					// The recording simulator is installed only when the case enables
+					// SchedulerLibraryIntegration, so simulator expectations set without
+					// the gate would never be checked.
+					hasSimulatorExpectations := tc.failSimulatorPreemption || tc.wantSimulatorPreemptions != nil || tc.wantSimulatorReleasedTogether != nil
+					if hasSimulatorExpectations && !tc.featureGates[features.SchedulerLibraryIntegration] {
+						t.Fatal("simulator expectations are set, but SchedulerLibraryIntegration is not enabled in featureGates")
+					}
 					features.SetFeatureGatesDuringTest(t, scenario)
 					features.SetFeatureGatesDuringTest(t, tc.featureGates)
 
