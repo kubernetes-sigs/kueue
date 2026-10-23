@@ -189,6 +189,7 @@ func (s *wasSimulatorFactory) NewSimulator(ctx context.Context, nodes []*corev1.
 	}
 	snapshot := &wasSimulator{
 		wasSnapshot:    clusterSnap,
+		pods:           tracker.pods,
 		podsByWorkload: tracker.workloadPods,
 	}
 	snapshot.emptyCluster.build = func(ctx context.Context) (*schedlib.ClusterSnapshot, error) {
