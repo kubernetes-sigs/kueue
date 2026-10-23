@@ -30,6 +30,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -62,6 +63,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
+	testingmetrics "sigs.k8s.io/kueue/pkg/util/testing/metrics"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 )
@@ -2096,9 +2098,18 @@ func TestClustersReconcilerWorkerClientConstruction(t *testing.T) {
 	}
 }
 
-func TestStopAndRemoveClusterClearsStatusMetric(t *testing.T) {
+func TestStopAndRemoveClusterClearsMetrics(t *testing.T) {
+	counters := map[string]*prometheus.CounterVec{
+		"dispatched": metrics.MultiKueueWorkloadsDispatchedTotal,
+		"admitted":   metrics.MultiKueueWorkloadsAdmittedTotal,
+		"evicted":    metrics.MultiKueueWorkloadsEvictedTotal,
+	}
 	metrics.MultiKueueClusterByStatus.Reset()
 	t.Cleanup(metrics.MultiKueueClusterByStatus.Reset)
+	for _, vec := range counters {
+		vec.Reset()
+		t.Cleanup(vec.Reset)
+	}
 
 	ctx, _ := utiltesting.ContextWithLog(t)
 	adapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
@@ -2108,8 +2119,12 @@ func TestStopAndRemoveClusterClearsStatusMetric(t *testing.T) {
 	)
 
 	// The same ClusterQueue references both workers.
-	metrics.ReportMultiKueueClusterStatus("cq1", "worker1", metav1.ConditionTrue, nil)
-	metrics.ReportMultiKueueClusterStatus("cq1", "worker2", metav1.ConditionTrue, nil)
+	for _, cluster := range []string{"worker1", "worker2"} {
+		metrics.ReportMultiKueueClusterStatus("cq1", cluster, metav1.ConditionTrue, nil)
+		metrics.ReportMultiKueueWorkloadDispatched("cq1", cluster, nil)
+		metrics.ReportMultiKueueWorkloadAdmitted("cq1", cluster, nil)
+		metrics.ReportMultiKueueWorkloadEvicted("cq1", cluster, kueue.WorkloadEvictedByPreemption, nil)
+	}
 
 	reconciler.stopAndRemoveCluster("worker1")
 
@@ -2120,6 +2135,14 @@ func TestStopAndRemoveClusterClearsStatusMetric(t *testing.T) {
 	}
 	if got := testutil.ToFloat64(metrics.MultiKueueClusterByStatus.WithLabelValues("cq1", "worker2", string(metav1.ConditionTrue), roletracker.RoleStandalone)); got != 1 {
 		t.Errorf("expected worker2 to still be reported as active, got %v", got)
+	}
+	for name, vec := range counters {
+		if got := len(testingmetrics.CollectFilteredGaugeVec(vec, map[string]string{"cluster": "worker1"})); got != 0 {
+			t.Errorf("expected worker1 %s series to be dropped, got %d series", name, got)
+		}
+		if got := len(testingmetrics.CollectFilteredGaugeVec(vec, map[string]string{"cluster": "worker2"})); got != 1 {
+			t.Errorf("expected worker2 %s series to remain, got %d series", name, got)
+		}
 	}
 }
 
