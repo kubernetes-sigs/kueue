@@ -95,7 +95,10 @@ func (r *Manager) EnsureWorkloadSlices(
 
 		// If counts match, return the existing workload slice or nil if the workload was partially admitted.
 		if jobPodSetsCounts.EqualTo(wlPodSetsCounts) {
-			if workload.IsAdmitted(wl) {
+			// A partial-preemption job is not probed for the rest, as the job reconciler
+			// lowers the job to the granted count instead, unless the job uses the
+			// partial scale-up strategy, which relies on the probe.
+			if workload.IsAdmitted(wl) && (!workload.IsPartialPreemptionJob(wl) || PartialScaleUpEnabled(jobObject)) {
 				for _, psa := range wl.Status.Admission.PodSetAssignments {
 					if wlPodSetsCounts[psa.Name] > *psa.Count {
 						// The workload was partially admitted, create the full scale up probe

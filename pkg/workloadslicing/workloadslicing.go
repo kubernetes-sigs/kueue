@@ -524,3 +524,11 @@ func FindReplacedSliceTarget(preemptor *kueue.Workload, targets []*preemption.Ta
 	}
 	return targets, nil
 }
+
+// PartialScaleUpEnabled reports whether the object takes the partial replica
+// scale-up path for its workload slices.
+func PartialScaleUpEnabled(object metav1.Object) bool {
+	return features.Enabled(features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp) &&
+		Enabled(object) &&
+		object.GetAnnotations()[constants.ElasticJobScaleUpStrategyAnnotationKey] == constants.ElasticJobScaleUpStrategyPartial
+}

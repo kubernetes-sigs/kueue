@@ -37,6 +37,36 @@ type Target struct {
 	// ConfigurablePreemptionReasonData stores data which resulted in eviction.
 	// Specified only when eviction is due to configurable preemption.
 	ConfigurablePreemptionReasonData *ConfigurablePreemptionReasonData
+
+	// PartialPreemption, when non-nil, indicates this target is preempted partially:
+	// instead of evicting the whole workload, its elastic PodSet is requested to scale
+	// down to the target count (>= minCount) via status.admission reclaimTargetCount. The
+	// workload keeps running at the reduced size; its quota is released only as the shed
+	// pods actually terminate. When nil, the target is preempted wholly (evicted).
+	PartialPreemption *PartialPreemptionTarget
+
+	// ReducedInfo is the reduced-usage workload.Info added to the snapshot in place of the full
+	// workload during the partial-preemption search. Used to correctly restore the snapshot
+	// (remove the reduced copy, add the full workload back). Set only together with
+	// PartialPreemption.
+	ReducedInfo *workload.Info
+}
+
+// WorkloadInfoForReplacement returns the full and reduced workload infos for a
+// partial target. The boolean is true only when the target is partial.
+func (t *Target) WorkloadInfoForReplacement() (full, reduced *workload.Info, partial bool) {
+	if t.ReducedInfo == nil {
+		return t.WorkloadInfo, nil, false
+	}
+	return t.WorkloadInfo, t.ReducedInfo, true
+}
+
+// PartialPreemptionTarget describes a partial-preemption reduction of a single PodSet.
+type PartialPreemptionTarget struct {
+	// PodSet is the elastic PodSet to scale down.
+	PodSet kueue.PodSetReference
+	// ReclaimTargetCount is the count the PodSet should be scaled down to (>= minCount).
+	ReclaimTargetCount int32
 }
 
 type ConfigurablePreemptionReasonData struct {

@@ -29,6 +29,7 @@ import (
 
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/raycluster"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -36,9 +37,10 @@ import (
 )
 
 var (
-	headGroupSpecsPath   = field.NewPath("spec", "rayClusterSpec", "headGroupSpec")
-	headGroupMetaPath    = headGroupSpecsPath.Child("template", "metadata")
-	workerGroupSpecsPath = field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs")
+	headGroupSpecsPath    = field.NewPath("spec", "rayClusterSpec", "headGroupSpec")
+	headGroupMetaPath     = headGroupSpecsPath.Child("template", "metadata")
+	workerGroupSpecsPath  = field.NewPath("spec", "rayClusterSpec", "workerGroupSpecs")
+	partialPreemptionPath = field.NewPath("metadata", "annotations").Key(constants.PartialPreemptionAnnotation)
 )
 
 type RayJobWebhook struct {
@@ -104,18 +106,22 @@ var _ admission.Validator[*rayv1.RayJob] = &RayJobWebhook{}
 func (w *RayJobWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RayJob) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload)
+	validationErrs, err := w.validateCreate(ctx, nil, obj, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
 	}
 	return nil, validationErrs.ToAggregate()
 }
 
-func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
+func (w *RayJobWebhook) validateCreate(ctx context.Context, oldJob, job *rayv1.RayJob, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*RayJob)(job)
 
 	if w.manageJobsWithoutQueueName || jobframework.QueueName(kueueJob) != "" {
+		// Ratchet only when the old job was already managed; otherwise adding a queue name would bypass it.
+		if oldJob == nil || (!w.manageJobsWithoutQueueName && jobframework.QueueName((*RayJob)(oldJob)) == "") || len(validatePartialPreemptionNotSet(oldJob)) == 0 {
+			allErrors = append(allErrors, validatePartialPreemptionNotSet(job)...)
+		}
 		spec := &job.Spec
 		specPath := field.NewPath("spec")
 		hasClusterSelector := len(spec.ClusterSelector) > 0
@@ -167,6 +173,16 @@ func (w *RayJobWebhook) validateCreate(ctx context.Context, job *rayv1.RayJob, m
 	return allErrors, nil
 }
 
+// validatePartialPreemptionNotSet rejects the partial-preemption opt-in, which is only supported
+// for a standalone RayCluster. Like other gated annotations, it is ignored while the
+// PartialPreemption gate is off.
+func validatePartialPreemptionNotSet(job metav1.Object) field.ErrorList {
+	if !features.Enabled(features.PartialPreemption) || job.GetAnnotations()[constants.PartialPreemptionAnnotation] != "true" {
+		return nil
+	}
+	return field.ErrorList{field.Forbidden(partialPreemptionPath, "partial preemption is only supported for a standalone RayCluster")}
+}
+
 func (w *RayJobWebhook) validateTopologyRequest(ctx context.Context, rayJob *rayv1.RayJob) (field.ErrorList, error) {
 	job := (*RayJob)(rayJob)
 	return raycluster.ValidateTopologyRequest(ctx, w.client, job, rayJob.Spec.RayClusterSpec, headGroupMetaPath, workerGroupSpecsPath)
@@ -182,7 +198,7 @@ func (w *RayJobWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *rayv
 	log := ctrl.LoggerFrom(ctx).WithName("rayjob-webhook")
 	log.V(5).Info("Validating update")
 	allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
-	validationErrs, err := w.validateCreate(ctx, newObj, nil)
+	validationErrs, err := w.validateCreate(ctx, oldObj, newObj, nil)
 	if err != nil {
 		return nil, err
 	}

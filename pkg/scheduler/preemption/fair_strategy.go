@@ -209,7 +209,14 @@ func verifyFairSharingTarget(
 	newShare := fairsharing.TargetNewShare(targetNode.DominantResourceShare())
 
 	revert := t.WorkloadCq.SimulateUsageAddition(t.WorkloadInfo.Usage())
+	// A partially preempted target keeps its reduced usage in the snapshot,
+	// so only the reclaimed part has to be added back.
+	revertReduced := func() {}
+	if t.ReducedInfo != nil {
+		revertReduced = t.WorkloadCq.SimulateUsageRemoval(t.ReducedInfo.Usage())
+	}
 	oldShare := fairsharing.TargetOldShare(targetNode.DominantResourceShare())
+	revertReduced()
 	revert()
 
 	for _, strategy := range strategies {
@@ -260,17 +267,21 @@ func iterateWithFirstFsStrategy(
 	for candCQ := range ordering.Iter() {
 		if candCQ.InClusterQueuePreemption() {
 			candWl := candCQ.PopWorkload()
-			if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InClusterQueueReason, WorkloadCq: candCQ.GetTargetCq()}) {
+			t := &Target{WorkloadInfo: candWl, Reason: kueue.InClusterQueueReason, WorkloadCq: candCQ.GetTargetCq()}
+			if !yield(t) {
 				return
 			}
+			requeueIfPartiallyPreempted(candCQ, candWl, t)
 			continue
 		}
 
 		if preemptorWithinNominal {
 			candWl := candCQ.PopWorkload()
-			if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortReclamationReason, WorkloadCq: candCQ.GetTargetCq()}) {
+			t := &Target{WorkloadInfo: candWl, Reason: kueue.InCohortReclamationReason, WorkloadCq: candCQ.GetTargetCq()}
+			if !yield(t) {
 				return
 			}
+			requeueIfPartiallyPreempted(candCQ, candWl, t)
 			continue
 		}
 
@@ -298,10 +309,12 @@ func iterateWithFirstFsStrategy(
 			passed := fsStrategy(preemptorNewShare, targetOldShare, targetNewShare)
 			strategyLog.record(candWl, targetNewShare, passed)
 			if passed {
-				if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortFairSharingReason, WorkloadCq: candCQ.GetTargetCq()}) {
+				t := &Target{WorkloadInfo: candWl, Reason: kueue.InCohortFairSharingReason, WorkloadCq: candCQ.GetTargetCq()}
+				if !yield(t) {
 					strategyLog.flush()
 					return
 				}
+				requeueIfPartiallyPreempted(candCQ, candWl, t)
 				// Might need to pick a different CQ due to changing values.
 				break
 			} else {
@@ -339,13 +352,30 @@ func iterateWithSecondFsStrategy(
 		// Due to API validation, we can only reach here if the second strategy is LessThanInitialShare,
 		// in which case the last parameter for the strategy function is irrelevant.
 		if passed {
-			if !yield(&Target{WorkloadInfo: candWl, Reason: kueue.InCohortFairSharingReason, WorkloadCq: candCQ.GetTargetCq()}) {
+			t := &Target{WorkloadInfo: candWl, Reason: kueue.InCohortFairSharingReason, WorkloadCq: candCQ.GetTargetCq()}
+			if !yield(t) {
 				return false
+			}
+			if requeueIfPartiallyPreempted(candCQ, candWl, t) {
+				continue
 			}
 		}
 		// There doesn't seem to be an scenario where
 		// it's possible to apply rule S2-b more than once in a CQ.
 		ordering.DropQueue(candCQ)
 	}
+	return true
+}
+
+// requeueIfPartiallyPreempted puts a partially preempted candidate back into its
+// ClusterQueue's candidates, so that it can be reduced further, or evicted as a
+// whole once it reached its minimum, if the preemptor still does not fit.
+// Candidates with an in-flight reclaim target are not requeued, as revisiting
+// them does not produce further progress.
+func requeueIfPartiallyPreempted(candCQ *fairsharing.TargetClusterQueue, candWl *workload.Info, t *Target) bool {
+	if t.PartialPreemption == nil || workload.HasReclaimTargetCount(candWl.Obj) {
+		return false
+	}
+	candCQ.RequeueWorkload(candWl)
 	return true
 }

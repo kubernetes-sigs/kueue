@@ -18,13 +18,17 @@ package raycluster
 
 import (
 	"context"
+	"fmt"
 	"slices"
+	"strconv"
 
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
+	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/validation/field"
+	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -32,6 +36,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	utilpod "sigs.k8s.io/kueue/pkg/util/pod"
@@ -43,6 +48,9 @@ var (
 	headGroupSpecsPath   = field.NewPath("spec", "headGroupSpec")
 	headGroupMetaPath    = headGroupSpecsPath.Child("template", "metadata")
 	workerGroupSpecsPath = field.NewPath("spec", "workerGroupSpecs")
+
+	partialPreemptionPath             = field.NewPath("metadata", "annotations").Key(constants.PartialPreemptionAnnotation)
+	partialPreemptionMaxReclaimedPath = field.NewPath("metadata", "annotations").Key(constants.PartialPreemptionMaxReclaimedCountAnnotation)
 )
 
 type RayClusterWebhook struct {
@@ -123,7 +131,7 @@ var _ admission.Validator[*rayv1.RayCluster] = &RayClusterWebhook{}
 func (w *RayClusterWebhook) ValidateCreate(ctx context.Context, obj *rayv1.RayCluster) (admission.Warnings, error) {
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(10).Info("Validating create")
-	validationErrs, err := w.validateCreate(ctx, obj, w.maxTimeoutOnWorkload)
+	validationErrs, err := w.validateCreate(ctx, nil, obj, w.maxTimeoutOnWorkload)
 	if err != nil {
 		return nil, err
 	}
@@ -135,7 +143,8 @@ func isAnElasticJob(job *rayv1.RayCluster) bool {
 	return features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.Enabled(job.GetObjectMeta())
 }
 
-func (w *RayClusterWebhook) validateCreate(ctx context.Context, job *rayv1.RayCluster, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
+// validateCreate validates job; oldJob is nil on create.
+func (w *RayClusterWebhook) validateCreate(ctx context.Context, oldJob, job *rayv1.RayCluster, maxTimeoutOnWorkload *metav1.Duration) (field.ErrorList, error) {
 	var allErrors field.ErrorList
 	kueueJob := (*RayCluster)(job)
 
@@ -147,6 +156,12 @@ func (w *RayClusterWebhook) validateCreate(ctx context.Context, job *rayv1.RayCl
 			allErrors = append(allErrors, validateElasticJob(job)...)
 		}
 		allErrors = append(allErrors, ValidateCreate(job, spec, specPath)...)
+		// Ratcheted on update when the old cluster was managed: one that is already invalid, e.g.
+		// created while the gate was off, stays updatable, so that Kueue can still suspend it.
+		// An unmanaged old cluster is not ratcheted, so adding a queue name cannot bypass it.
+		if oldJob == nil || (!w.manageJobsWithoutQueueName && jobframework.QueueName((*RayCluster)(oldJob)) == "") || len(validatePartialPreemption(oldJob)) == 0 {
+			allErrors = append(allErrors, validatePartialPreemption(job)...)
+		}
 	}
 
 	allErrors = append(allErrors, jobframework.ValidateJobOnCreate(kueueJob, maxTimeoutOnWorkload)...)
@@ -199,6 +214,72 @@ func validateElasticJob(job *rayv1.RayCluster) field.ErrorList {
 	return allErrors
 }
 
+func isPartialPreemptionOptedIn(job *rayv1.RayCluster) bool {
+	return job.GetAnnotations()[constants.PartialPreemptionAnnotation] == "true"
+}
+
+// validatePartialPreemption validates the partial-preemption opt-in annotations. Only a
+// single elastic worker group with the autoscaler off is supported, so that the floor
+// (MinCount = minReplicas) and the runtime shrink of its replicas are well defined.
+// Like other gated annotations, they are ignored while the PartialPreemption gate is off.
+func validatePartialPreemption(job *rayv1.RayCluster) field.ErrorList {
+	if !features.Enabled(features.PartialPreemption) || !isPartialPreemptionOptedIn(job) {
+		return nil
+	}
+	var allErrors field.ErrorList
+	annotations := job.GetAnnotations()
+
+	if v, ok := annotations[constants.PartialPreemptionMaxReclaimedCountAnnotation]; ok {
+		if n, err := strconv.ParseInt(v, 10, 32); err != nil || n <= 0 {
+			allErrors = append(allErrors, field.Invalid(partialPreemptionMaxReclaimedPath, v, "must be a positive 32-bit integer"))
+		}
+	}
+	if !isAnElasticJob(job) {
+		allErrors = append(allErrors, field.Invalid(partialPreemptionPath, "true",
+			fmt.Sprintf("requires an elastic job: enable the ElasticJobsViaWorkloadSlices feature gate and set the %q: %q annotation",
+				workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue)))
+	}
+	if isRayObjectManagedByMultiKueue(job) {
+		allErrors = append(allErrors, field.Forbidden(partialPreemptionPath, "partial preemption is not supported for a MultiKueue-managed job"))
+	}
+	if annotations[constants.ElasticJobScaleUpStrategyAnnotationKey] == constants.ElasticJobScaleUpStrategyPartial {
+		allErrors = append(allErrors, field.Invalid(partialPreemptionPath, "true",
+			fmt.Sprintf("is mutually exclusive with the %q: %q annotation: partial scale-up sets the worker PodSet minCount to its count, while partial preemption sets it to minReplicas",
+				constants.ElasticJobScaleUpStrategyAnnotationKey, constants.ElasticJobScaleUpStrategyPartial)))
+	}
+	if len(job.Spec.WorkerGroupSpecs) != 1 {
+		allErrors = append(allErrors, field.Invalid(workerGroupSpecsPath, len(job.Spec.WorkerGroupSpecs), "partial preemption requires exactly one worker group"))
+	} else if job.Spec.WorkerGroupSpecs[0].NumOfHosts > 1 {
+		allErrors = append(allErrors, field.Invalid(workerGroupSpecsPath.Index(0).Child("numOfHosts"),
+			job.Spec.WorkerGroupSpecs[0].NumOfHosts, "partial preemption requires numOfHosts to be at most 1"))
+	}
+	if ptr.Deref(job.Spec.EnableInTreeAutoscaling, false) {
+		allErrors = append(allErrors, field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), job.Spec.EnableInTreeAutoscaling, "partial preemption is not supported with in-tree autoscaling"))
+	}
+	return allErrors
+}
+
+// validatePartialPreemptionUpdate keeps the opt-in annotation immutable, since the Workload only
+// picks it up at creation, and, for an opted-in cluster, the worker groups' minReplicas, since
+// the Workload PodSet minCount derived from it is never refreshed.
+func validatePartialPreemptionUpdate(oldJob, newJob *rayv1.RayCluster) field.ErrorList {
+	// Checked even with the gate off: constructWorkload copies the annotation regardless of the gate.
+	allErrors := apivalidation.ValidateImmutableField(
+		newJob.GetAnnotations()[constants.PartialPreemptionAnnotation],
+		oldJob.GetAnnotations()[constants.PartialPreemptionAnnotation],
+		partialPreemptionPath)
+	if !features.Enabled(features.PartialPreemption) || !isPartialPreemptionOptedIn(oldJob) {
+		return allErrors
+	}
+	for i := range min(len(oldJob.Spec.WorkerGroupSpecs), len(newJob.Spec.WorkerGroupSpecs)) {
+		allErrors = append(allErrors, apivalidation.ValidateImmutableField(
+			ptr.Deref(newJob.Spec.WorkerGroupSpecs[i].MinReplicas, 0),
+			ptr.Deref(oldJob.Spec.WorkerGroupSpecs[i].MinReplicas, 0),
+			workerGroupSpecsPath.Index(i).Child("minReplicas"))...)
+	}
+	return allErrors
+}
+
 func (w *RayClusterWebhook) validateTopologyRequest(ctx context.Context, rayJob *RayCluster) (field.ErrorList, error) {
 	var allErrs field.ErrorList
 
@@ -236,7 +317,8 @@ func (w *RayClusterWebhook) ValidateUpdate(ctx context.Context, oldObj, newObj *
 	log := ctrl.LoggerFrom(ctx).WithName("raycluster-webhook")
 	log.V(5).Info("Validating update")
 	allErrors := jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)
-	validationErrs, err := w.validateCreate(ctx, newObj, nil)
+	allErrors = append(allErrors, validatePartialPreemptionUpdate(oldObj, newObj)...)
+	validationErrs, err := w.validateCreate(ctx, oldObj, newObj, nil)
 	if err != nil {
 		return nil, err
 	}

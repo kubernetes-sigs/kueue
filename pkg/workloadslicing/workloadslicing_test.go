@@ -45,6 +45,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/cache/hierarchy"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	"sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -1013,9 +1014,19 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 
 	errTest := errors.New("test error")
 
+	partiallyAdmittedWorkload := func() *utiltestingapi.WorkloadWrapper {
+		return utiltestingapi.MakeWorkload(testJobObject.Name+"-1", testJobObject.Namespace).
+			OwnerReference(testJobGVK, testJobObject.Name, string(testJobObject.UID)).
+			ResourceVersion("1").
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").SetMinimumCount(1).Obj()).
+			ReserveQuotaAt(utiltestingapi.MakeAdmission("default").PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Assignment(corev1.ResourceCPU, "default", "1").Count(2).Obj()).Obj(), now).
+			AdmittedAt(true, now)
+	}
+
 	tests := map[string]struct {
-		args args
-		want want
+		args         args
+		featureGates map[featuregate.Feature]bool
+		want         want
 	}{
 		"FailedListWorkloads": {
 			args: args{
@@ -1084,6 +1095,55 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 					ResourceVersion("1").
 					PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Request(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
+				compatible: true,
+			},
+		},
+		"OneWorkloadSlice_PartiallyAdmitted_ScaleUpProbe": {
+			args: args{
+				clnt:         testWorkloadClientBuilder().WithObjects(partiallyAdmittedWorkload().Obj()).Build(),
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
+				jobObject:    testJobObject,
+				jobObjectGVK: testJobGVK,
+			},
+			want: want{
+				compatible: true,
+			},
+		},
+		"OneWorkloadSlice_PartiallyAdmitted_PartialPreemption": {
+			args: args{
+				clnt: testWorkloadClientBuilder().WithObjects(
+					partiallyAdmittedWorkload().Annotation(constants.PartialPreemptionAnnotation, "true").Obj()).Build(),
+				jobPodSets:   []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
+				jobObject:    testJobObject,
+				jobObjectGVK: testJobGVK,
+			},
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			want: want{
+				workload:   partiallyAdmittedWorkload().Annotation(constants.PartialPreemptionAnnotation, "true").Obj(),
+				compatible: true,
+			},
+		},
+		"OneWorkloadSlice_PartiallyAdmitted_PartialPreemption_PartialScaleUp": {
+			args: args{
+				clnt: testWorkloadClientBuilder().WithObjects(
+					partiallyAdmittedWorkload().Annotation(constants.PartialPreemptionAnnotation, "true").Obj()).Build(),
+				jobPodSets: []kueue.PodSet{*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 3).Request(corev1.ResourceCPU, "1").Obj()},
+				jobObject: &batchv1.Job{
+					Name: "test",
+					UID:  testJobObject.UID,
+					Annotations: map[string]string{
+						EnabledAnnotationKey:                             EnabledAnnotationValue,
+						constants.ElasticJobScaleUpStrategyAnnotationKey: constants.ElasticJobScaleUpStrategyPartial,
+					},
+				},
+				jobObjectGVK: testJobGVK,
+			},
+			featureGates: map[featuregate.Feature]bool{
+				features.PartialPreemption:                                     true,
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			want: want{
 				compatible: true,
 			},
 		},
@@ -1736,6 +1796,9 @@ func TestEnsureWorkloadSlices(t *testing.T) {
 	}
 	for name, tt := range tests {
 		t.Run(name, func(t *testing.T) {
+			for fg, enabled := range tt.featureGates {
+				features.SetFeatureGateDuringTest(t, fg, enabled)
+			}
 			ctx, _ := utiltesting.ContextWithLog(t)
 			manager := Manager{Client: tt.args.clnt, Clock: fakeClock}
 			gotWorkload, gotCompatible, gotError := manager.EnsureWorkloadSlices(ctx, tt.args.jobPodSets, tt.args.jobObject, tt.args.jobObjectGVK)
@@ -2190,7 +2253,7 @@ func TestReplacedWorkloadSlice(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			features.SetFeatureGatesDuringTest(t, tt.featureGates)
 			targets, wl := ReplacedWorkloadSlice(tt.args.wl, tt.args.snap)
-			if diff := cmp.Diff(tt.want.targets, targets); diff != "" {
+			if diff := cmp.Diff(tt.want.targets, targets, cmpopts.IgnoreUnexported(preemption.Target{})); diff != "" {
 				t.Errorf("ReplacedWorkloadSlice() targets (+want,-got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tt.want.wl, wl); diff != "" {

@@ -33,6 +33,7 @@ import (
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	qcache "sigs.k8s.io/kueue/pkg/cache/queue"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -207,6 +208,134 @@ func TestValidateCreate(t *testing.T) {
 				SchedulingGate(kueue.ElasticJobSchedulingGate).
 				Obj(),
 			wantErr: nil,
+		},
+		"valid managed - partial preemption opt-in": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			wantErr: nil,
+		},
+		"valid managed - partial preemption annotations are ignored with the feature gate disabled": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: false},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				SetAnnotation(kueueconstants.PartialPreemptionMaxReclaimedCountAnnotation, "0").
+				Obj(),
+			wantErr: nil,
+		},
+		"valid managed - partial preemption max reclaimed count is ignored without opt-in": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(kueueconstants.PartialPreemptionMaxReclaimedCountAnnotation, "0").
+				Obj(),
+			wantErr: nil,
+		},
+		"invalid managed - partial preemption on a MultiKueue-managed job": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				ManagedBy(kueue.MultiKueueControllerName).
+				Obj(),
+			wantErr: field.ErrorList{field.Forbidden(field.NewPath("metadata", "annotations").Key(kueueconstants.PartialPreemptionAnnotation),
+				"partial preemption is not supported for a MultiKueue-managed job")}.ToAggregate(),
+		},
+		"invalid managed - partial preemption on a non-elastic job": {
+			featureGates: map[featuregate.Feature]bool{features.PartialPreemption: true},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata", "annotations").Key(kueueconstants.PartialPreemptionAnnotation),
+					"true",
+					fmt.Sprintf(
+						"requires an elastic job: enable the ElasticJobsViaWorkloadSlices feature gate and set the %q: %q annotation",
+						workloadslicing.EnabledAnnotationKey,
+						workloadslicing.EnabledAnnotationValue,
+					),
+				),
+			}.ToAggregate(),
+		},
+		"invalid managed - partial preemption with two worker groups": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			job: func() *rayv1.RayCluster {
+				c := testingrayutil.MakeCluster("job", "ns").Queue("queue").
+					SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+					SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+					SchedulingGate(kueue.ElasticJobSchedulingGate).
+					Obj()
+				second := *c.Spec.WorkerGroupSpecs[0].DeepCopy()
+				second.GroupName = "workers-group-1"
+				c.Spec.WorkerGroupSpecs = append(c.Spec.WorkerGroupSpecs, second)
+				return c
+			}(),
+			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec", "workerGroupSpecs"), 2, "partial preemption requires exactly one worker group")}.ToAggregate(),
+		},
+		"invalid managed - partial preemption with numOfHosts above one": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				WithNumOfHosts("workers-group-0", 2).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "workerGroupSpecs").Index(0).Child("numOfHosts"), int32(2), "partial preemption requires numOfHosts to be at most 1"),
+			}.ToAggregate(),
+		},
+		"invalid managed - partial preemption with partial scale-up strategy": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				SetAnnotation(kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyPartial).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(
+					field.NewPath("metadata", "annotations").Key(kueueconstants.PartialPreemptionAnnotation),
+					"true",
+					fmt.Sprintf("is mutually exclusive with the %q: %q annotation: partial scale-up sets the worker PodSet minCount to its count, while partial preemption sets it to minReplicas",
+						kueueconstants.ElasticJobScaleUpStrategyAnnotationKey, kueueconstants.ElasticJobScaleUpStrategyPartial),
+				),
+			}.ToAggregate(),
+		},
+		"invalid managed - partial preemption max reclaimed count is not positive": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				SetAnnotation(kueueconstants.PartialPreemptionMaxReclaimedCountAnnotation, "0").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "annotations").Key(kueueconstants.PartialPreemptionMaxReclaimedCountAnnotation), "0", "must be a positive 32-bit integer"),
+			}.ToAggregate(),
+		},
+		"valid managed - partial preemption max reclaimed count": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				SetAnnotation(kueueconstants.PartialPreemptionMaxReclaimedCountAnnotation, "2").
+				Obj(),
+			wantErr: nil,
+		},
+		"invalid managed - partial preemption with in-tree autoscaling": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			job: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				WithEnableAutoscaling(new(true)).
+				Obj(),
+			wantErr: field.ErrorList{field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), new(true), "partial preemption is not supported with in-tree autoscaling")}.ToAggregate(),
 		},
 		"invalid managed - too many worker groups": {
 			featureGates: map[featuregate.Feature]bool{features.WorkloadIdentifierAnnotations: false},
@@ -644,6 +773,12 @@ func TestValidateCreate(t *testing.T) {
 }
 
 func TestValidateUpdate(t *testing.T) {
+	validPartialPreemptionCluster := func() *testingrayutil.ClusterWrapper {
+		return testingrayutil.MakeCluster("job", "ns").Queue("queue").
+			Suspend(false).
+			SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+			SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true")
+	}
 	testcases := map[string]struct {
 		oldJob               *rayv1.RayCluster
 		newJob               *rayv1.RayCluster
@@ -657,6 +792,230 @@ func TestValidateUpdate(t *testing.T) {
 			oldJob: testingrayutil.MakeCluster("job", "ns").
 				Obj(),
 			newJob: testingrayutil.MakeCluster("job", "ns").
+				Obj(),
+			wantErr: nil,
+		},
+		"adding a queue name to an unmanaged cluster with an invalid partial preemption config is rejected": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			oldJob: testingrayutil.MakeCluster("job", "ns").
+				Suspend(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				WithWorkerGroups(rayv1.WorkerGroupSpec{GroupName: "a"}, rayv1.WorkerGroupSpec{GroupName: "b"}).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				WithWorkerGroups(rayv1.WorkerGroupSpec{GroupName: "a"}, rayv1.WorkerGroupSpec{GroupName: "b"}).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "workerGroupSpecs"), 2, "partial preemption requires exactly one worker group"),
+			}.ToAggregate(),
+		},
+		"invalid managed - partial preemption annotation should not be added while unsuspended": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			oldJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "annotations").Key(kueueconstants.PartialPreemptionAnnotation), "true", apivalidation.FieldImmutableErrorMsg),
+			}.ToAggregate(),
+		},
+		"invalid managed - partial preemption annotation should not be added while suspended": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			oldJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				WithWorkerGroups(rayv1.WorkerGroupSpec{GroupName: "a"}, rayv1.WorkerGroupSpec{GroupName: "b"}).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(true).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				WithWorkerGroups(rayv1.WorkerGroupSpec{GroupName: "a"}, rayv1.WorkerGroupSpec{GroupName: "b"}).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "annotations").Key(kueueconstants.PartialPreemptionAnnotation), "true", apivalidation.FieldImmutableErrorMsg),
+				field.Invalid(field.NewPath("spec", "workerGroupSpecs"), 2, "partial preemption requires exactly one worker group"),
+			}.ToAggregate(),
+		},
+		"invalid managed - partial preemption annotation should not be removed": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			oldJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				SchedulingGate(kueue.ElasticJobSchedulingGate).Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "annotations").Key(kueueconstants.PartialPreemptionAnnotation), "", apivalidation.FieldImmutableErrorMsg),
+			}.ToAggregate(),
+		},
+		"invalid managed - partial preemption worker minReplicas should not change": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			oldJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				SchedulingGate(kueue.ElasticJobSchedulingGate).FirstWorkerGroupReplicas(4, 1, 8).Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				SchedulingGate(kueue.ElasticJobSchedulingGate).FirstWorkerGroupReplicas(4, 2, 8).Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "workerGroupSpecs").Index(0).Child("minReplicas"), int32(2), apivalidation.FieldImmutableErrorMsg),
+			}.ToAggregate(),
+		},
+		"valid managed - worker minReplicas can change without partial preemption": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			oldJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				FirstWorkerGroupReplicas(4, 1, 8).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				FirstWorkerGroupReplicas(4, 2, 8).
+				Obj(),
+			wantErr: nil,
+		},
+		"valid managed - partial preemption worker replicas can be lowered": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			oldJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				SchedulingGate(kueue.ElasticJobSchedulingGate).FirstWorkerGroupReplicas(4, 1, 8).Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				SchedulingGate(kueue.ElasticJobSchedulingGate).FirstWorkerGroupReplicas(2, 1, 8).Obj(),
+			wantErr: nil,
+		},
+		"invalid managed - valid partial preemption cluster cannot add a worker group": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			oldJob:       validPartialPreemptionCluster().SchedulingGate(kueue.ElasticJobSchedulingGate).Obj(),
+			newJob: validPartialPreemptionCluster().
+				WithWorkerGroups(rayv1.WorkerGroupSpec{GroupName: "workers-group-0"}, rayv1.WorkerGroupSpec{GroupName: "b"}).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "workerGroupSpecs"), 2, "partial preemption requires exactly one worker group"),
+			}.ToAggregate(),
+		},
+		"invalid managed - valid partial preemption cluster cannot set numOfHosts above 1": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			oldJob:       validPartialPreemptionCluster().SchedulingGate(kueue.ElasticJobSchedulingGate).Obj(),
+			newJob: validPartialPreemptionCluster().
+				WithNumOfHosts("workers-group-0", 2).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "workerGroupSpecs").Index(0).Child("numOfHosts"), int32(2), "partial preemption requires numOfHosts to be at most 1"),
+			}.ToAggregate(),
+		},
+		"invalid managed - valid partial preemption cluster cannot enable in-tree autoscaling": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			oldJob:       validPartialPreemptionCluster().SchedulingGate(kueue.ElasticJobSchedulingGate).Obj(),
+			newJob: validPartialPreemptionCluster().
+				WithEnableAutoscaling(new(true)).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("spec", "enableInTreeAutoscaling"), new(true), "partial preemption is not supported with in-tree autoscaling"),
+			}.ToAggregate(),
+		},
+		"invalid managed - valid partial preemption cluster cannot set managedBy to MultiKueue": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			oldJob:       validPartialPreemptionCluster().SchedulingGate(kueue.ElasticJobSchedulingGate).Obj(),
+			newJob: validPartialPreemptionCluster().
+				ManagedBy(kueue.MultiKueueControllerName).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Forbidden(field.NewPath("metadata", "annotations").Key(kueueconstants.PartialPreemptionAnnotation), "partial preemption is not supported for a MultiKueue-managed job"),
+			}.ToAggregate(),
+		},
+		"invalid managed - valid partial preemption cluster cannot set an invalid max reclaimed count": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			oldJob:       validPartialPreemptionCluster().SchedulingGate(kueue.ElasticJobSchedulingGate).Obj(),
+			newJob: validPartialPreemptionCluster().
+				SetAnnotation(kueueconstants.PartialPreemptionMaxReclaimedCountAnnotation, "0").
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			wantErr: field.ErrorList{
+				field.Invalid(field.NewPath("metadata", "annotations").Key(kueueconstants.PartialPreemptionMaxReclaimedCountAnnotation), "0", "must be a positive 32-bit integer"),
+			}.ToAggregate(),
+		},
+		"valid managed - valid partial preemption cluster can be suspended and scaled": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			oldJob: validPartialPreemptionCluster().
+				FirstWorkerGroupReplicas(4, 1, 8).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			newJob: validPartialPreemptionCluster().
+				Suspend(true).
+				FirstWorkerGroupReplicas(2, 1, 8).
+				SetAnnotation("test-annotation", "test-value").
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			wantErr: nil,
+		},
+		"valid managed - invalid partial preemption cluster stays updatable": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: true, features.PartialPreemption: true},
+			oldJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				SetAnnotation(kueueconstants.PartialPreemptionMaxReclaimedCountAnnotation, "0").
+				WithWorkerGroups(rayv1.WorkerGroupSpec{GroupName: "a"}, rayv1.WorkerGroupSpec{GroupName: "b"}).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(false).
+				SetAnnotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				SetAnnotation(kueueconstants.PartialPreemptionMaxReclaimedCountAnnotation, "0").
+				WithWorkerGroups(rayv1.WorkerGroupSpec{GroupName: "a"}, rayv1.WorkerGroupSpec{GroupName: "b"}).
+				SchedulingGate(kueue.ElasticJobSchedulingGate).
+				Suspend(true).
+				Obj(),
+			wantErr: nil,
+		},
+		"valid managed - partial preemption cluster can be suspended with the feature gates disabled": {
+			featureGates: map[featuregate.Feature]bool{features.ElasticJobsViaWorkloadSlices: false, features.PartialPreemption: false},
+			oldJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(false).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				FirstWorkerGroupReplicas(4, 1, 8).
+				Obj(),
+			newJob: testingrayutil.MakeCluster("job", "ns").Queue("queue").
+				Suspend(true).
+				SetAnnotation(kueueconstants.PartialPreemptionAnnotation, "true").
+				FirstWorkerGroupReplicas(4, 1, 8).
 				Obj(),
 			wantErr: nil,
 		},
