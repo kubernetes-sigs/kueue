@@ -72,6 +72,10 @@ tags, and then generate with `hack/update-toc.sh`.
     - [Path Interactions](#path-interactions-1)
     - [Capacity Lifecycle Scenarios](#capacity-lifecycle-scenarios)
     - [Validation](#validation-1)
+  - [Node-allocatable resources](#node-allocatable-resources)
+    - [ClusterQueue accounting](#clusterqueue-accounting)
+    - [Kubernetes ResourceQuota interaction](#kubernetes-resourcequota-interaction)
+    - [Rejected ClusterQueue accounting](#rejected-clusterqueue-accounting)
   - [DRA Device Feasibility](#dra-device-feasibility)
     - [What the check does](#what-the-check-does)
     - [Device taints](#device-taints)
@@ -269,6 +273,8 @@ a simple device class named `gpu.example.com`. This will be the way to enforce q
   ResourceClaimTemplate or requests a DRA-backed extended resource.
 - Admins can enforce quota for `firstAvailable` requests whose alternatives all ask for the same
   `count` on one logical resource.
+- Admins have a stable `ClusterQueue` accounting policy for native node resources supplied
+  by DRA devices.
 
 ### Non-Goals
 
@@ -286,6 +292,8 @@ a simple device class named `gpu.example.com`. This will be the way to enforce q
   separately and neither reads the other's result. The only place they meet is the per-node
   device feasibility check in [DRA Device Feasibility](#dra-device-feasibility), which runs
   inside the TAS assignment.
+- Reproducing the exact native-resource amount that kube-scheduler resolves for a selected
+  DRA device in `ClusterQueue` quota.
 
 ## Proposal
 
@@ -311,6 +319,8 @@ scheduling. This includes:
    `capacity.requests` rounded per the device's `RequestPolicy`.
 8. Supporting quota for `firstAvailable` requests whose alternatives ask for the same `count` on
    one logical resource, behind `KueueDRAIntegrationPrioritizedList`.
+9. Keeping native node resources supplied by DRA devices out of the Workload's native-resource
+   `ClusterQueue` charge. The existing DRA logical resource remains the admission-time quota unit.
 
 More details are documented in [Design Details](#design-details)
 
@@ -1850,6 +1860,51 @@ inadmissible workload requeuing. No new controller logic is needed.
 - `KueueDRAIntegrationConsumableCapacity` requires `KueueDRAIntegration` to be enabled.
   Validated at startup in `pkg/config/validation.go`.
 
+### Node-allocatable resources
+
+Kubernetes KEP-5517 allows a DRA device to supply native node resources such as CPU,
+memory, ephemeral storage, or hugepages. The scheduler derives the exact resource amount
+from the selected device and persists it to Pod status during PreBind. The feature is Beta
+in Kubernetes 1.38 but remains disabled by default when MinCompatibilityVersion is 1.37.
+It is targeted to become enabled by default in Kubernetes 1.39, when MinCompatibilityVersion
+advances to 1.38.
+
+#### ClusterQueue accounting
+
+Kueue does not merge the translated native-resource amount into a Workload's CPU, memory,
+or other native-resource `ClusterQueue` charge. Kueue reserves quota before kube-scheduler
+selects a concrete device, so the exact translated amount is not available at admission
+time and can vary between candidate devices.
+
+Instead, the existing DRA path remains the quota source. ResourceClaimTemplates use the
+logical resource and accounting source configured by `deviceClassMappings`: device count,
+counter value, or consumable capacity. The extended-resource path uses the DeviceClass
+extended resource name or its configured logical mapping. Native resources requested
+directly in the Pod template remain part of the normal `ClusterQueue` charge.
+No Kueue API change is required because `deviceClassMappings` already defines the
+logical resource and accounting source.
+
+This produces a deterministic charge and avoids charging both the device abstraction and
+the native resources that the same allocation supplies. Administrators should give
+device-count mappings a distinct logical resource name rather than naming a count-based
+unit `cpu` or `memory`.
+
+#### Kubernetes ResourceQuota interaction
+
+When Kubernetes enables `DRANodeAllocatableResources` and supports `ResourceQuota`
+evaluation for the `Pod/status` subresource, namespace `ResourceQuota` separately
+accounts for the translated native resources during scheduler PreBind. This is
+independent of Kueue `ClusterQueue` quota. Consequently, where supported, Kueue can admit
+a Workload whose Pod later remains Pending or enters scheduler backoff when its namespace
+lacks native-resource quota for the selected device.
+
+#### Rejected ClusterQueue accounting
+
+Adding the translated amount to `ClusterQueue` quota was rejected because doing so would
+require predicting the scheduler's concrete device selection. Using a maximum across all
+matching devices would be deterministic but could substantially overcharge heterogeneous
+device pools and would duplicate the device's existing logical-resource charge.
+
 ### DRA Device Feasibility
 
 This section is gated behind the `KueueDRADeviceFeasibility` Kueue feature gate.
@@ -2258,6 +2313,8 @@ using mock ResourceClaimTemplates and DeviceClasses to simulate DRA workloads. K
 - Configuration validation: Testing device class conflict detection
 - Workload inadmissibility: Testing various error conditions and proper WorkloadInadmissible condition setting
 - Resource preprocessing: Verifying correct device count calculation from ResourceClaimTemplates
+- Resource preprocessing: Verifying that device count, counter, and capacity charges ignore
+  node-allocatable translations published by matching devices
 - Queue integration: Testing workload admission with preprocessed DRA resources
 - Extended Resources: Testing extended resource detection, DeviceClass lookup, and resource translation
 - Late DeviceClass creation: Testing workload inadmissibility when DeviceClass does not exist
@@ -2544,6 +2601,9 @@ each. It asserts that each alternative is allocated once and that the Workload i
   checking before admission, so quota is not reserved for unplaceable Workloads
 - Device taints in device feasibility: September 2026 by @sohankunkerkar, gated by
   `KueueDRAIntegrationDeviceTaints` so they graduate separately from the check
+- Node-allocatable resource accounting policy: September 2026 — kept translated native
+  resources out of `ClusterQueue` charges while documenting the separate Kubernetes
+  `ResourceQuota` behavior (see [#14401](https://github.com/kubernetes-sigs/kueue/issues/14401))
 
 **Key Design Evolution:**
 - **Original Design**: Standalone DynamicResourceAllocationConfig CRD with runtime ambiguity resolution
