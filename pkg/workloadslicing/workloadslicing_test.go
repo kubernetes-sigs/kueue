@@ -2222,54 +2222,71 @@ func TestHasPendingReplacement(t *testing.T) {
 		wantError          error
 	}{
 		"replacement waiting for quota": {
-			wl:       admitted,
-			existing: []client.Object{admitted, replacement.Clone().Obj()},
-			want:     true,
+			wl:        admitted,
+			existing:  []client.Object{admitted, replacement.Clone().Obj()},
+			want:      true,
+			wantError: nil,
 		},
 		"replacement holding quota before the slice is finished": {
 			wl: admitted,
 			existing: []client.Object{admitted, replacement.Clone().
 				ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
 				Obj()},
-			want: true,
+			want:      true,
+			wantError: nil,
 		},
 		"no replacement": {
-			wl:       admitted,
-			existing: []client.Object{admitted},
+			wl:        admitted,
+			existing:  []client.Object{admitted},
+			want:      false,
+			wantError: nil,
 		},
 		"replacement for another slice": {
 			wl: admitted,
 			existing: []client.Object{admitted, replacement.Clone().
 				Annotation(WorkloadSliceReplacementFor, "ns/other").
 				Obj()},
+			want:      false,
+			wantError: nil,
 		},
 		"deactivated replacement": {
 			wl: admitted,
 			// A deactivated replacement is never admitted, so it is not pending.
-			existing: []client.Object{admitted, replacement.Clone().Active(false).Obj()},
+			existing:  []client.Object{admitted, replacement.Clone().Active(false).Obj()},
+			want:      false,
+			wantError: nil,
 		},
 		"evicted replacement": {
-			wl:       admitted,
-			existing: []client.Object{admitted, replacement.Clone().EvictedAt(now).Obj()},
+			wl:        admitted,
+			existing:  []client.Object{admitted, replacement.Clone().EvictedAt(now).Obj()},
+			want:      false,
+			wantError: nil,
 		},
 		"finished replacement": {
-			wl:       admitted,
-			existing: []client.Object{admitted, replacement.Clone().FinishedAt(now).Obj()},
+			wl:        admitted,
+			existing:  []client.Object{admitted, replacement.Clone().FinishedAt(now).Obj()},
+			want:      false,
+			wantError: nil,
 		},
 		"non-elastic workload does not list workloads": {
-			wl:      utiltestingapi.MakeWorkload("chain", "ns").Obj(),
-			listErr: errListWorkloads,
+			wl:        utiltestingapi.MakeWorkload("chain", "ns").Obj(),
+			listErr:   errListWorkloads,
+			want:      false,
+			wantError: nil,
 		},
 		"elastic jobs disabled does not list workloads": {
 			disableElasticJobs: true,
 			wl:                 admitted,
 			existing:           []client.Object{admitted, replacement.Clone().Obj()},
 			listErr:            errListWorkloads,
+			want:               false,
+			wantError:          nil,
 		},
 		"listing workloads fails": {
 			wl:        admitted,
 			existing:  []client.Object{admitted},
 			listErr:   errListWorkloads,
+			want:      false,
 			wantError: errListWorkloads,
 		},
 	}
