@@ -409,7 +409,9 @@ func (r *variantReconciler) syncVariantEvictionStatus(ctx context.Context, paren
 				if !workloadevict.IsEvicted(parent) {
 					log.V(2).Info("Evicting parent", "parent", klog.KObj(parent))
 					err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(w *kueue.Workload) (bool, error) {
-						return workloadevict.SetEvictedCondition(w, r.clock.Now(), "VariantEvicted", "Admitted variant was evicted"), nil
+						evicted := workloadevict.SetEvictedCondition(w, r.clock.Now(), "VariantEvicted", "Admitted variant was evicted")
+						workloadevict.ResetChecksOnEviction(w, r.clock.Now())
+						return evicted, nil
 					})
 					if err != nil {
 						return false, fmt.Errorf("evicting parent: %w", err)
@@ -688,7 +690,9 @@ func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kue
 	case admittedVariant == nil && workload.IsAdmitted(parent):
 		log.V(2).Info("Parent admitted and no Variant is admitted, evicting parent", "parent", klog.KObj(parent))
 		err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
-			return workloadevict.SetEvictedCondition(wl, r.clock.Now(), "ConcurrentAdmission", "No variant is running"), nil
+			evicted := workloadevict.SetEvictedCondition(wl, r.clock.Now(), "ConcurrentAdmission", "No variant is running")
+			workloadevict.ResetChecksOnEviction(wl, r.clock.Now())
+			return evicted, nil
 		})
 		if err != nil {
 			return fmt.Errorf("clearing admission: %w", err)
@@ -719,9 +723,27 @@ func (r *variantReconciler) syncAdmissionStatus(ctx context.Context, parent *kue
 		}); err != nil {
 			return client.IgnoreNotFound(err)
 		}
+		if slices.ContainsFunc(parent.Status.AdmissionChecks, func(c kueue.AdmissionCheckState) bool { return c.State == kueue.CheckStateReady }) {
+			// The checks are reset when this controller evicts the Parent, but the Parent can also
+			// lose its quota reservation without an eviction, for example when its LocalQueue is
+			// deleted. Reset the leftover Ready checks first, as the pod set updates of a Ready
+			// check cannot change.
+			if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
+				workloadevict.ResetChecksOnEviction(wl, r.clock.Now())
+				return true, nil
+			}); err != nil {
+				return client.IgnoreNotFound(err)
+			}
+		}
 		if err := workloadpatching.PatchAdmissionStatus(ctx, r.client, parent, r.clock, func(wl *kueue.Workload) (bool, error) {
 			workload.SetQuotaReservation(wl, admittedVariant.Status.Admission, r.clock)
 			workload.SetAdmittedCondition(wl, r.clock.Now(), "Admitted", fmt.Sprintf("The variant %s is admitted", admittedVariant.Name))
+			// The Parent mirrors the admission checks of the admitted Variant, so that the job
+			// is started with their pod set updates.
+			wl.Status.AdmissionChecks = make([]kueue.AdmissionCheckState, len(admittedVariant.Status.AdmissionChecks))
+			for i := range admittedVariant.Status.AdmissionChecks {
+				admittedVariant.Status.AdmissionChecks[i].DeepCopyInto(&wl.Status.AdmissionChecks[i])
+			}
 			log.V(2).Info("Parent is not admitted but a variant is admitted, updating parent to admitted", "parent", klog.KObj(parent), "admittedVariant", klog.KObj(admittedVariant))
 			return true, nil
 		}); err != nil {
