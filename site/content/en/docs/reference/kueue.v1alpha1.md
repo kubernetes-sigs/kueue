@@ -509,7 +509,7 @@ but does not write effectiveQuotas status.</p>
    <p>effectiveCapacity is the combined capacity from the referenced providers.
 Each provider's capacity is multiplied by its effectiveCapacityMultiplier.
 DQO clears this field if any referenced provider is missing or does not
-have CapacitySynchronized=True.</p>
+report CapacitySynchronized=True for its current generation.</p>
 </td>
 </tr>
 </tbody>

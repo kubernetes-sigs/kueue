@@ -460,7 +460,8 @@ const (
     // DynamicQuotaOrchestratorReasonComputed indicates that effective capacity was aggregated successfully.
     DynamicQuotaOrchestratorReasonComputed string = "Computed"
 
-    // DynamicQuotaOrchestratorReasonProviderNotReady indicates a referenced CapacityProvider does not have CapacitySynchronized=True.
+    // DynamicQuotaOrchestratorReasonProviderNotReady indicates a referenced CapacityProvider is not synchronized
+    // or its CapacitySynchronized condition does not observe the current CapacityProvider generation.
     DynamicQuotaOrchestratorReasonProviderNotReady string = "ProviderNotReady"
 
     // DynamicQuotaOrchestratorReasonAggregationFailed indicates aggregation failed (e.g. multiplier application error, math overflow, or capacity limits exceeded).
@@ -497,7 +498,7 @@ Tracks whether aggregated capacity was successfully computed and written to `sta
 | Status | Reason | Description |
 |---|---|---|
 | `True` | `Computed` | Aggregated capacity calculated and written to `status.effectiveCapacity`. |
-| `False` | `ProviderNotReady` | One or more referenced `CapacityProvider` objects do not report `CapacitySynchronized=True`. |
+| `False` | `ProviderNotReady` | One or more referenced `CapacityProvider` objects lack `CapacitySynchronized=True` for their current `metadata.generation` (including a stale or unset `ObservedGeneration`). |
 | `False` | `AggregationFailed` | Aggregated capacity calculation failed (e.g. multiplier application error, arithmetic overflow, or exceeded flavor/resource limits). |
 | `False` | `Misconfigured` | One or more `CapacityProvider` objects referenced in `spec.capacityDiscovery.providers` do not exist. |
 
@@ -655,10 +656,12 @@ Tracks whether `status.capacity` is freshly synchronized with the observed capac
 
 | Status | Reason | Description |
 |---|---|---|
-| `True` | `Synchronized` | `status.capacity` is freshly synchronized with the observed capacity source. |
+| `True` | `Synchronized` | `status.capacity` is freshly synchronized with the observed capacity source for the current provider generation. |
 | `False` | `SourceUnavailable` | The provider controller cannot query or reach the backend source (e.g., node API, cloud endpoint, or MultiKueue worker cluster). |
 | `False` | `InvalidCapacity` | Discovered capacity contained negative, unparseable, or illegal resource quantities. |
 | `False` | `Misconfigured` | The `spec.parameters` reference or `spec.orchestratedFlavors` configuration is invalid. |
+
+Controllers publishing `CapacityProvider` status must set the `CapacitySynchronized` condition's `ObservedGeneration` to the provider's current `metadata.generation` when publishing capacity for the current specification. DQO treats a missing, zero, or mismatched generation as not ready for any nonzero current generation, even if the condition is `True`. Discovery resumes once a current-generation `True` condition is reported; existing applied effective quotas are not automatically revoked while discovery is not ready.
 
 This set of condition types and reasons is provisional for Alpha and will be re-evaluated in Beta based on user and operational feedback.
 
