@@ -570,7 +570,10 @@ An empty resources map means zero capacity for all resources of the flavor.</p>
 <a href="https://kubernetes.io/docs/reference/generated/kubernetes-api/v1.28/#resourcelist-v1-core"><code>k8s.io/api/core/v1.ResourceList</code></a>
 </td>
 <td>
-   <p>resources contains total capacity by resource name.
+   <p>resources contains total capacity by resource name, up to 64 distinct
+resources. If the referenced providers together report more distinct
+resources for the flavor, the DQO sets EffectiveCapacityComputed=False
+with reason AggregationFailed and clears status.effectiveCapacity.
 A resource that is not listed, including when the map is empty, has zero
 capacity for the flavor.</p>
 </td>

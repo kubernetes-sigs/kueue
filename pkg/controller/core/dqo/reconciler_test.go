@@ -62,6 +62,24 @@ func makeSynchronizedProvider(name, prefix string, n int) *kueuealpha.CapacityPr
 		Obj()
 }
 
+// makeProviderWithResources returns a synchronized CapacityProvider orchestrating
+// one flavor that reports 1 unit each of "example.com/<prefix>-00", ..., n resources.
+func makeProviderWithResources(name, flavor, prefix string, n int) *kueuealpha.CapacityProvider {
+	capacityFlavor := utiltestingalpha.MakeNormalizedCapacityFlavor(flavor)
+	for i := range n {
+		capacityFlavor.Resource(corev1.ResourceName(fmt.Sprintf("example.com/%s-%02d", prefix, i)), "1")
+	}
+	return utiltestingalpha.MakeCapacityProvider(name).
+		OrchestratedFlavors(flavor).
+		Condition(metav1.Condition{
+			Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+			Status: metav1.ConditionTrue,
+			Reason: kueuealpha.CapacityProviderReasonSynchronized,
+		}).
+		Capacity(utiltestingalpha.MakeNormalizedCapacity().Flavors(capacityFlavor.Obj()).Obj()).
+		Obj()
+}
+
 // makeEffectiveCapacityFlavors returns the expected effective capacity entries
 // for n flavors named "<prefix>-00", ..., each with 1 CPU.
 func makeEffectiveCapacityFlavors(prefix string, n int) []kueuealpha.EffectiveCapacityFlavor {
@@ -619,6 +637,54 @@ func TestDynamicQuotaOrchestratorReconcile(t *testing.T) {
 					Status:  metav1.ConditionFalse,
 					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonAggregationFailed,
 					Message: "Aggregated capacity covers 129 distinct flavors, which exceeds the supported limit of 128",
+				}).
+				Obj(),
+		},
+		"discovery-only: exactly 64 distinct resources in a flavor is accepted": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-res-at-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				makeProviderWithResources("cp-1", "f1", "a", 32),
+				makeProviderWithResources("cp-2", "f1", "b", 32),
+			},
+			wantDQO: func() *kueuealpha.DynamicQuotaOrchestrator {
+				flavor := utiltestingalpha.MakeEffectiveCapacityFlavor("f1")
+				for i := range 32 {
+					flavor.Resource(corev1.ResourceName(fmt.Sprintf("example.com/a-%02d", i)), "1")
+					flavor.Resource(corev1.ResourceName(fmt.Sprintf("example.com/b-%02d", i)), "1")
+				}
+				return utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-res-at-limit").
+					DiscoveryProvider("cp-1", nil).
+					DiscoveryProvider("cp-2", nil).
+					EffectiveCapacity(utiltestingalpha.MakeEffectiveCapacity().Flavors(*flavor.Obj()).Obj()).
+					Condition(metav1.Condition{
+						Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+						Status:  metav1.ConditionTrue,
+						Reason:  kueuealpha.DynamicQuotaOrchestratorReasonComputed,
+						Message: "Aggregated capacity successfully computed",
+					}).
+					Obj()
+			}(),
+		},
+		"discovery-only: more than 64 distinct resources in a flavor fails aggregation": {
+			dqo: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-res-over-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				Obj(),
+			capacityProviders: []*kueuealpha.CapacityProvider{
+				makeProviderWithResources("cp-1", "f1", "a", 64),
+				makeProviderWithResources("cp-2", "f1", "b", 1),
+			},
+			wantDQO: utiltestingalpha.MakeDynamicQuotaOrchestrator("dqo-res-over-limit").
+				DiscoveryProvider("cp-1", nil).
+				DiscoveryProvider("cp-2", nil).
+				Condition(metav1.Condition{
+					Type:    kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+					Status:  metav1.ConditionFalse,
+					Reason:  kueuealpha.DynamicQuotaOrchestratorReasonAggregationFailed,
+					Message: "Aggregated capacity for flavor \"f1\" covers 65 distinct resources, which exceeds the supported limit of 64",
 				}).
 				Obj(),
 		},
