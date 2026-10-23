@@ -2198,6 +2198,10 @@ is more valuable than CPU time for fair sharing purposes.
 
 DRA workloads are supported with MultiKueue through the existing workload synchronization mechanism. ResourceClaimTemplates must be deployed on worker clusters by users; they are not automatically synced.
 
+Counter and capacity sources charge from the `ResourceSlice` objects on the manager
+cluster. A manager cluster without them keeps the Workload inadmissible, so it is not
+dispatched.
+
 ### Test Plan
 
 [x] I/we understand the owners of the involved components may require updates to
