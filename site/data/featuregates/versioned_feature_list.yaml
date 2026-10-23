@@ -285,6 +285,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.17"
+- name: LWSAllowAddingTolerations
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: LWSImmutableGroupSize
   versionedSpecs:
   - default: true

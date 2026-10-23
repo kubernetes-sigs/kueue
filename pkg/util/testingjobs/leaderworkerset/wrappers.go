@@ -141,6 +141,12 @@ func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecAnnotation(k, v string) *Lead
 	return w
 }
 
+// WorkerTemplateSpecToleration adds a toleration to the pod template spec of the workers
+func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecToleration(t corev1.Toleration) *LeaderWorkerSetWrapper {
+	w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Tolerations = append(w.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Tolerations, t)
+	return w
+}
+
 // WorkerTemplateSpecQueue updates the queue name of the pod template spec of the LeaderWorkerSet
 func (w *LeaderWorkerSetWrapper) WorkerTemplateSpecQueue(q string) *LeaderWorkerSetWrapper {
 	return w.WorkerTemplateSpecLabel(constants.QueueLabel, q)
@@ -161,6 +167,12 @@ func (w *LeaderWorkerSetWrapper) LeaderTemplateSpecAnnotation(k, v string) *Lead
 		w.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations = make(map[string]string, 1)
 	}
 	w.Spec.LeaderWorkerTemplate.LeaderTemplate.Annotations[k] = v
+	return w
+}
+
+// LeaderTemplateSpecToleration adds a toleration to the pod template spec of the leader
+func (w *LeaderWorkerSetWrapper) LeaderTemplateSpecToleration(t corev1.Toleration) *LeaderWorkerSetWrapper {
+	w.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Tolerations = append(w.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec.Tolerations, t)
 	return w
 }
 

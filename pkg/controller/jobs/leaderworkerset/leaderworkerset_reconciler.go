@@ -28,6 +28,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -459,6 +460,11 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 		shouldUpdate = true
 	}
 
+	if features.Enabled(features.LWSAllowAddingTolerations) && syncTolerations(lws, wl) {
+		log.V(2).Info("LeaderWorkerSet changed tolerations, updating workload")
+		shouldUpdate = true
+	}
+
 	var admissionGatedByUpdated bool
 	if features.Enabled(features.AdmissionGatedBy) {
 		admissionGatedByUpdated = jobframework.PropagateAdmissionGatedByAnnotation(lws, wl)
@@ -495,6 +501,37 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	}
 
 	return nil
+}
+
+// syncTolerations copies the pod template tolerations to the Workload PodSets
+// and reports whether any PodSet changed. PodSets are immutable while the
+// Workload holds a quota reservation, so the Workload gets the new tolerations
+// once it is evicted. The Workload on a MultiKueue worker is a copy of the one
+// on the manager cluster, so it is left unchanged.
+func syncTolerations(lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) bool {
+	if _, isMultiKueueRemote := lws.Labels[kueue.MultiKueueOriginLabel]; isMultiKueueRemote || workload.HasQuotaReservation(wl) {
+		return false
+	}
+	templates := map[kueue.PodSetReference]*corev1.PodTemplateSpec{
+		kueue.DefaultPodSetName: &lws.Spec.LeaderWorkerTemplate.WorkerTemplate,
+	}
+	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate != nil {
+		templates = map[kueue.PodSetReference]*corev1.PodTemplateSpec{
+			leaderPodSetName: lws.Spec.LeaderWorkerTemplate.LeaderTemplate,
+			workerPodSetName: &lws.Spec.LeaderWorkerTemplate.WorkerTemplate,
+		}
+	}
+	var updated bool
+	for i := range wl.Spec.PodSets {
+		ps := &wl.Spec.PodSets[i]
+		template, found := templates[ps.Name]
+		if !found || equality.Semantic.DeepEqual(ps.Template.Spec.Tolerations, template.Spec.Tolerations) {
+			continue
+		}
+		ps.Template.Spec.Tolerations = slices.Clone(template.Spec.Tolerations)
+		updated = true
+	}
+	return updated
 }
 
 func (r *Reconciler) deleteWorkload(ctx context.Context, wl *kueue.Workload) error {
