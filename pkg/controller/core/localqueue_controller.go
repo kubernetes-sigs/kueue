@@ -300,7 +300,6 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 	oldStopPolicy := ptr.Deref(e.ObjectOld.Spec.StopPolicy, kueue.None)
 	newStopPolicy := ptr.Deref(e.ObjectNew.Spec.StopPolicy, kueue.None)
 	clusterQueueChanged := e.ObjectOld.Spec.ClusterQueue != e.ObjectNew.Spec.ClusterQueue
-	stoppingQueue := oldStopPolicy != newStopPolicy && newStopPolicy != kueue.None
 
 	switch {
 	case oldStopPolicy == newStopPolicy:
@@ -323,6 +322,11 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 			log.Error(err, "Failed to add localQueue to the queueing system")
 		}
 	default:
+		if customLabelsChanged || clusterQueueChanged {
+			if err := r.cache.UpdateLocalQueue(e.ObjectOld, e.ObjectNew); err != nil {
+				log.Error(err, "Failed to update localQueue in the cache")
+			}
+		}
 		r.queues.DeleteLocalQueue(log, e.ObjectOld)
 	}
 
@@ -333,7 +337,7 @@ func (r *LocalQueueReconciler) Update(e event.TypedUpdateEvent[*kueue.LocalQueue
 		clearLocalQueueMetrics(e.ObjectOld)
 	}
 
-	if newMetricsExposed && (customLabelsChanged || !oldMetricsExposed) && !stoppingQueue {
+	if newMetricsExposed && (customLabelsChanged || !oldMetricsExposed) {
 		r.resyncLocalQueueGaugeMetrics(e.ObjectNew)
 	}
 
