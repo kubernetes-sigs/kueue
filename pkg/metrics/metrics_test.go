@@ -495,6 +495,36 @@ func TestReportMultiKueueWorkloadEvicted(t *testing.T) {
 	}
 }
 
+func TestReportAndCleanupClusterQueueMultiKueueWorkloads(t *testing.T) {
+	leaderTracker := roletracker.NewFakeRoleTracker(roletracker.RoleLeader)
+	followerTracker := roletracker.NewFakeRoleTracker(roletracker.RoleFollower)
+
+	for _, tracker := range []*roletracker.RoleTracker{leaderTracker, followerTracker} {
+		for _, cluster := range []string{"cleanup-worker1", "cleanup-worker2"} {
+			ReportMultiKueueWorkloadDispatched("cleanup-cq1", cluster, tracker)
+			ReportMultiKueueWorkloadAdmitted("cleanup-cq1", cluster, tracker)
+			ReportMultiKueueWorkloadEvicted("cleanup-cq1", cluster, kueue.WorkloadEvictedByPreemption, tracker)
+		}
+	}
+	// cleanup-cq2 shares cleanup-worker1 with cleanup-cq1.
+	ReportMultiKueueWorkloadDispatched("cleanup-cq2", "cleanup-worker1", leaderTracker)
+	ReportMultiKueueWorkloadAdmitted("cleanup-cq2", "cleanup-worker1", leaderTracker)
+	ReportMultiKueueWorkloadEvicted("cleanup-cq2", "cleanup-worker1", kueue.WorkloadEvictedByPreemption, leaderTracker)
+
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsDispatchedTotal, 4, "cluster_queue", "cleanup-cq1")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsAdmittedTotal, 4, "cluster_queue", "cleanup-cq1")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsEvictedTotal, 4, "cluster_queue", "cleanup-cq1")
+
+	ClearClusterQueueMetrics("cleanup-cq1")
+
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsDispatchedTotal, 0, "cluster_queue", "cleanup-cq1")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsAdmittedTotal, 0, "cluster_queue", "cleanup-cq1")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsEvictedTotal, 0, "cluster_queue", "cleanup-cq1")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsDispatchedTotal, 1, "cluster_queue", "cleanup-cq2")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsAdmittedTotal, 1, "cluster_queue", "cleanup-cq2")
+	expectFilteredMetricsCount(t, MultiKueueWorkloadsEvictedTotal, 1, "cluster_queue", "cleanup-cq2")
+}
+
 func TestReportAndCleanupWorkloadEvictionLatency(t *testing.T) {
 	ReportWorkloadEvictionLatency("cq-preempt-unique", kueue.WorkloadEvictedByPreemption, time.Second, nil, nil)
 	n := testutil.CollectAndCount(WorkloadEvictionLatencySeconds)

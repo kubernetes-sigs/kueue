@@ -1382,6 +1382,9 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	PreemptedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"preempting_cluster_queue": cqName})
 	PreemptionTargetRecomputationsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	ReplacedWorkloadSlicesTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	MultiKueueWorkloadsDispatchedTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	MultiKueueWorkloadsAdmittedTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
+	MultiKueueWorkloadsEvictedTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	// Histogram vec, not cleared by gauge cleanup above.
 	WorkloadEvictionLatencySeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	PodSchedulingGateRemovalSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
