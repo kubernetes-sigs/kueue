@@ -118,6 +118,14 @@ func (r *IncrementalDispatcherReconciler) Reconcile(ctx context.Context, req ctr
 		return reconcile.Result{}, nil
 	}
 
+	// Only a new slice of an elastic Workload gets here with a cluster: it keeps the
+	// cluster of the slice it replaces, and the MultiKueue workload reconciler syncs
+	// it there. The API rejects nominated clusters next to a cluster name.
+	if wl.Status.ClusterName != nil {
+		log.V(3).Info("Workload is already assigned to a cluster, skip the reconciliation")
+		return reconcile.Result{}, nil
+	}
+
 	remoteClusters, err := admissioncheck.GetRemoteClusters(ctx, r.helper, mkAc.Name)
 	if err != nil {
 		log.Error(err, "Can not get workload group")
