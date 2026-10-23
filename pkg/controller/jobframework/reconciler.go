@@ -2315,6 +2315,17 @@ func (r *JobReconciler) ignoreUnretryableError(log logr.Logger, err error) error
 // It returns true if the workload was updated.
 func (r *JobReconciler) reconcilePodsReadyCondition(ctx context.Context, job GenericJob, wl *kueue.Workload) (bool, error) {
 	log := ctrl.LoggerFrom(ctx)
+	// While a replacement slice is pending, keep PodsReady on the admitted slice
+	// it replaces: the workload controller evaluates the PodsReady timeout there.
+	if WorkloadSliceEnabled(job) && !workload.IsAdmitted(wl) {
+		admittedWl, err := workloadslicing.FindLatestAdmittedWorkload(ctx, r.client, wl, true)
+		if err != nil {
+			return false, fmt.Errorf("finding the admitted workload slice for PodsReady: %w", err)
+		}
+		if admittedWl != nil {
+			wl = admittedWl
+		}
+	}
 	condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock, r.podsScheduledTrackingEnabled())
 	if workload.HasConditionWithTypeAndReason(wl, &condition) {
 		log.V(3).Info("No update for PodsReady condition")
