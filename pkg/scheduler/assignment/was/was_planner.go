@@ -140,19 +140,18 @@ func (p *wasPlanner) scheduleWithPreemption(
 	assignment flavorassigner.Assignment,
 ) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
 	for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, assignment) {
-		filter := strategy.NewPreemptionFilter()
 		placementSummary, failures, preemptedWorkloads, err := p.schedule(
 			ctx,
 			pods,
-			simulator.WithPreemptionCandidates(filter.Candidates()),
-			simulator.WithPreemptionFilter(filter),
+			simulator.WithPreemptionCandidates(strategy.Candidates()),
+			simulator.WithPreemptionFilter(&strategy),
 		)
-		filter.Reset()
+		strategy.Reset()
 		if err != nil {
 			return nil, nil, nil, err
 		}
 		if len(failures) == 0 {
-			if targets := filter.Verify(preemptedWorkloads); len(targets) > 0 {
+			if targets := strategy.Verify(preemptedWorkloads); len(targets) > 0 {
 				return placementSummary, nil, targets, nil
 			}
 		}

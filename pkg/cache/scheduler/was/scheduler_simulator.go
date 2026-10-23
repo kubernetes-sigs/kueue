@@ -29,7 +29,6 @@ import (
 	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/sets"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
@@ -208,42 +207,21 @@ func (s *wasSimulator) potentialVictims(candidates iter.Seq[client.ObjectKey]) i
 }
 
 type preemptionFilterAdapter struct {
-	filter    simulator.PreemptionFilter
-	preempted sets.Set[client.ObjectKey]
+	simulator.PreemptionFilter
 }
 
 var _ schedlib.PreemptionFilter = (*preemptionFilterAdapter)(nil)
 
-func newPreemptionFilterAdapter(filter simulator.PreemptionFilter) *preemptionFilterAdapter {
-	return &preemptionFilterAdapter{
-		filter:    filter,
-		preempted: sets.New[client.ObjectKey](),
-	}
-}
-
 func (a *preemptionFilterAdapter) PreemptVictim(victim schedlib.PreemptionVictim) {
-	if wlVictim, ok := victim.(*workloadVictim); ok && !a.preempted.Has(wlVictim.wlKey) {
-		a.filter.PreemptWorkload(wlVictim.wlKey)
-		a.preempted.Insert(wlVictim.wlKey)
+	if wlVictim, ok := victim.(*workloadVictim); ok {
+		a.PreemptWorkload(wlVictim.wlKey)
 	}
 }
 
 func (a *preemptionFilterAdapter) UnpreemptVictim(victim schedlib.PreemptionVictim) {
-	if wlVictim, ok := victim.(*workloadVictim); ok && a.preempted.Has(wlVictim.wlKey) {
-		a.filter.UnpreemptWorkload(wlVictim.wlKey)
-		a.preempted.Delete(wlVictim.wlKey)
+	if wlVictim, ok := victim.(*workloadVictim); ok {
+		a.UnpreemptWorkload(wlVictim.wlKey)
 	}
-}
-
-func (a *preemptionFilterAdapter) MayFit() bool {
-	return a.filter.MayFit()
-}
-
-func (a *preemptionFilterAdapter) reset() {
-	for wlKey := range a.preempted {
-		a.filter.UnpreemptWorkload(wlKey)
-	}
-	a.preempted.Clear()
 }
 
 func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, opts ...simulator.ScheduleOption) simulator.SchedulingResult {
@@ -254,9 +232,7 @@ func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*cor
 	scheduleOpts := simulator.BuildScheduleOptions(opts...)
 	var schedlibFilter schedlib.PreemptionFilter
 	if scheduleOpts.PreemptionFilter != nil {
-		filterAdapter := newPreemptionFilterAdapter(scheduleOpts.PreemptionFilter)
-		schedlibFilter = filterAdapter
-		defer filterAdapter.reset()
+		schedlibFilter = &preemptionFilterAdapter{PreemptionFilter: scheduleOpts.PreemptionFilter}
 	}
 
 	cluster := s.wasSnapshot

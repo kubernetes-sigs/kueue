@@ -93,7 +93,11 @@ type PreemptionStrategy struct {
 	// If nil, any target set that fits is valid. It returns whether the target set is valid
 	// and an optional failure reason.
 	verify func(targets []*Target) (bool, string)
+	// targetsByKey indexes candidates yielded via Candidates() by their workload key.
+	targetsByKey map[client.ObjectKey]*Target
 }
+
+var _ simulator.PreemptionFilter = (*PreemptionStrategy)(nil)
 
 type strategyOption func(*PreemptionStrategy)
 
@@ -113,6 +117,7 @@ func newPreemptionStrategy(
 		candidates:     candidates,
 		allowBorrowing: allowBorrowing,
 		pCtx:           pCtx,
+		targetsByKey:   make(map[client.ObjectKey]*Target),
 	}
 	for _, opt := range opts {
 		opt(&ps)
@@ -121,35 +126,12 @@ func newPreemptionStrategy(
 	return ps
 }
 
-// StrategyPreemptionFilter implements simulator.PreemptionFilter for a single
-// PreemptionStrategy, updating the strategy's ClusterQueue/Cohort snapshot as
-// candidate workloads are preempted or reprieved during simulation.
-type StrategyPreemptionFilter struct {
-	strategy      *PreemptionStrategy
-	targetsByKey  map[client.ObjectKey]*Target
-	preemptedKeys sets.Set[client.ObjectKey]
-}
-
-var _ simulator.PreemptionFilter = (*StrategyPreemptionFilter)(nil)
-
-// NewPreemptionFilter creates a StrategyPreemptionFilter for this strategy.
-func (ps *PreemptionStrategy) NewPreemptionFilter() *StrategyPreemptionFilter {
-	return &StrategyPreemptionFilter{
-		strategy:      ps,
-		targetsByKey:  make(map[client.ObjectKey]*Target),
-		preemptedKeys: sets.New[client.ObjectKey](),
-	}
-}
-
 // Candidates returns a lazy sequence of candidate workload keys for this strategy.
-// Because yielding a candidate from the strategy already removes it from the
-// strategy's snapshot, each yielded workload is recorded as preempted in the filter.
-func (f *StrategyPreemptionFilter) Candidates() iter.Seq[client.ObjectKey] {
+func (ps *PreemptionStrategy) Candidates() iter.Seq[client.ObjectKey] {
 	return func(yield func(client.ObjectKey) bool) {
-		for target := range f.strategy.candidates {
+		for target := range ps.candidates {
 			wlKey := client.ObjectKeyFromObject(target.WorkloadInfo.Obj)
-			f.targetsByKey[wlKey] = target
-			f.preemptedKeys.Insert(wlKey)
+			ps.targetsByKey[wlKey] = target
 			if !yield(wlKey) {
 				return
 			}
@@ -157,68 +139,58 @@ func (f *StrategyPreemptionFilter) Candidates() iter.Seq[client.ObjectKey] {
 	}
 }
 
-func (f *StrategyPreemptionFilter) PreemptWorkload(wlKey client.ObjectKey) {
-	if f.preemptedKeys.Has(wlKey) {
-		return
-	}
-	if t, ok := f.targetsByKey[wlKey]; ok {
-		f.strategy.pCtx.snapshot.RemoveWorkload(t.WorkloadInfo)
-		f.preemptedKeys.Insert(wlKey)
-	}
-}
-
-func (f *StrategyPreemptionFilter) UnpreemptWorkload(wlKey client.ObjectKey) {
-	if !f.preemptedKeys.Has(wlKey) {
-		return
-	}
-	if t, ok := f.targetsByKey[wlKey]; ok {
-		f.strategy.pCtx.snapshot.AddWorkload(t.WorkloadInfo)
-		f.preemptedKeys.Delete(wlKey)
-	}
-}
-
-func (f *StrategyPreemptionFilter) MayFit() bool {
-	return workloadQuotaFits(f.strategy.pCtx, f.strategy.allowBorrowing)
-}
-
-// Reset restores any workloads still preempted in the filter back to the snapshot.
-func (f *StrategyPreemptionFilter) Reset() {
-	for wlKey := range f.preemptedKeys {
-		if t, ok := f.targetsByKey[wlKey]; ok {
-			f.strategy.pCtx.snapshot.AddWorkload(t.WorkloadInfo)
+func (ps *PreemptionStrategy) PreemptWorkload(wlKey client.ObjectKey) {
+	if t, ok := ps.targetsByKey[wlKey]; ok {
+		if _, inSnapshot := t.WorkloadCq.Workloads[workload.Key(t.WorkloadInfo.Obj)]; inSnapshot {
+			ps.pCtx.snapshot.RemoveWorkload(t.WorkloadInfo)
 		}
 	}
-	f.preemptedKeys.Clear()
+}
+
+func (ps *PreemptionStrategy) UnpreemptWorkload(wlKey client.ObjectKey) {
+	if t, ok := ps.targetsByKey[wlKey]; ok {
+		if _, inSnapshot := t.WorkloadCq.Workloads[workload.Key(t.WorkloadInfo.Obj)]; !inSnapshot {
+			ps.pCtx.snapshot.AddWorkload(t.WorkloadInfo)
+		}
+	}
+}
+
+func (ps *PreemptionStrategy) MayFit() bool {
+	return workloadQuotaFits(ps.pCtx, ps.allowBorrowing)
+}
+
+// Reset restores any workloads still preempted in the strategy back to the snapshot.
+func (ps *PreemptionStrategy) Reset() {
+	for wlKey := range ps.targetsByKey {
+		ps.UnpreemptWorkload(wlKey)
+	}
 }
 
 // Verify checks whether the given preemptedWorkloads satisfy quota and strategy
 // verification, and restores the snapshot before returning the corresponding targets.
-func (f *StrategyPreemptionFilter) Verify(preemptedWorkloads []client.ObjectKey) []*Target {
-	f.Reset()
+func (ps *PreemptionStrategy) Verify(preemptedWorkloads []client.ObjectKey) []*Target {
+	defer ps.Reset()
 	if len(preemptedWorkloads) == 0 {
 		return nil
 	}
+	ps.Reset()
 	targets := make([]*Target, 0, len(preemptedWorkloads))
 	for _, wlKey := range preemptedWorkloads {
-		t, ok := f.targetsByKey[wlKey]
+		t, ok := ps.targetsByKey[wlKey]
 		if !ok {
-			f.Reset()
 			return nil
 		}
-		f.PreemptWorkload(wlKey)
+		ps.PreemptWorkload(wlKey)
 		targets = append(targets, t)
 	}
-	if !f.MayFit() {
-		f.Reset()
+	if !ps.MayFit() {
 		return nil
 	}
-	if f.strategy.verify != nil {
-		if valid, _ := f.strategy.verify(targets); !valid {
-			f.Reset()
+	if ps.verify != nil {
+		if valid, _ := ps.verify(targets); !valid {
 			return nil
 		}
 	}
-	f.Reset()
 	return targets
 }
 

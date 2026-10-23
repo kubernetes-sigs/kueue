@@ -1491,6 +1491,9 @@ func TestScheduleWorkload(t *testing.T) {
 			// ScheduleWorkload runs dry, so asking twice must give the same answer:
 			// the first call must not leave its Pods on the nodes.
 			for attempt := range 2 {
+				if opts := simulator.BuildScheduleOptions(tc.scheduleOpts...); opts.PreemptionFilter != nil {
+					opts.PreemptionFilter.(*fakePreemptionFilter).preempted.Clear()
+				}
 				got := schedulerSimulator.ScheduleWorkload(ctx, tc.pods, tc.scheduleOpts...)
 				if diff := cmp.Diff(&tc.wantError, &got.Error, cmpErrorMessage); diff != "" {
 					t.Errorf("attempt %d: unexpected error (-want,+got):\n%s", attempt, diff)
