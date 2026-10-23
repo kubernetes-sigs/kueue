@@ -20,7 +20,6 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -96,24 +95,16 @@ var _ = ginkgo.Describe("ClusterQueue pending workload custom metrics", ginkgo.L
 				return testingmetrics.CollectFilteredGaugeVec(metrics.PendingWorkloads, map[string]string{"cluster_queue": cq.Name})
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.ConsistOf(want))
 		}
-		setStopPolicy := func(policy kueue.StopPolicy) {
-			ginkgo.GinkgoHelper()
-			gomega.Eventually(func(g gomega.Gomega) {
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).To(gomega.Succeed())
-				cq.Spec.StopPolicy = new(policy)
-				g.Expect(k8sClient.Update(ctx, cq)).To(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-		}
 
 		ginkgo.By("reporting both workloads as active")
 		expectPendingMetrics(metrics.PendingStatusActive, "kind1", "kind2")
 
 		ginkgo.By("stopping the ClusterQueue and removing its active series")
-		setStopPolicy(kueue.Hold)
+		behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.Hold)
 		expectPendingMetrics(metrics.PendingStatusInadmissible, "kind1", "kind2")
 
 		ginkgo.By("resuming the ClusterQueue and removing its inadmissible series")
-		setStopPolicy(kueue.None)
+		behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.None)
 		expectPendingMetrics(metrics.PendingStatusActive, "kind1", "kind2")
 
 		ginkgo.By("deleting a workload while the ClusterQueue is active")
@@ -121,13 +112,13 @@ var _ = ginkgo.Describe("ClusterQueue pending workload custom metrics", ginkgo.L
 		expectPendingMetrics(metrics.PendingStatusActive, "kind1")
 
 		ginkgo.By("deleting the remaining workload while the ClusterQueue is stopped")
-		setStopPolicy(kueue.Hold)
+		behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.Hold)
 		expectPendingMetrics(metrics.PendingStatusInadmissible, "kind1")
 		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, wl1, true)
 		expectPendingMetrics(metrics.PendingStatusInadmissible)
 
 		ginkgo.By("resuming an empty ClusterQueue without recreating stale series")
-		setStopPolicy(kueue.None)
+		behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.None)
 		expectPendingMetrics(metrics.PendingStatusActive)
 	})
 })
