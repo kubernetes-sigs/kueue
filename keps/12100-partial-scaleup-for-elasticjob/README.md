@@ -27,6 +27,7 @@
   - [Probe lifecycle](#probe-lifecycle)
   - [Eviction and readmission behavior](#eviction-and-readmission-behavior)
   - [RayJob/RayService/RayCluster controller](#rayjobrayserviceraycluster-controller)
+  - [Job integration](#job-integration)
   - [Partial ScaleUp for multiple PodSets](#partial-scaleup-for-multiple-podsets)
     - [Order-Based policy (<code>order-based</code>)](#order-based-policy-order-based)
       - [Example of RayJob with multiple PodSets](#example-of-rayjob-with-multiple-podsets)
@@ -43,7 +44,7 @@
 
 ## Summary
 
-Add an optional way of allowing partial scale up for elastic workloads if the full scale up could not be admitted due to quota constraints. Only `RayJob`, `RayService`, and `RayCluster` integrations will initially support this feature.
+Add an optional way of allowing partial scale up for elastic workloads if the full scale up could not be admitted due to quota constraints. Only `batch/v1 Job`, `RayJob`, `RayService`, and `RayCluster` integrations will initially support this feature.
 
 ## Motivation
 
@@ -54,7 +55,7 @@ In elastic workloads (such as RayJob with autoscaling), jobs dynamically scale u
 - Provide an opt-in mechanism for elastic jobs to partially scale up when requested scale-up capacity exceeds available quota.
 - Opportunistically scale up the remaining requested pods as quota becomes available.
 - Support multi-podset elastic jobs (e.g., RayJob with multiple worker groups).
-- Support partial scale up  for `RayJob`, `RayService`, and `RayCluster` integrations.
+- Support partial scale up for `batch/v1 Job`, `RayJob`, `RayService`, and `RayCluster` integrations.
 
 ### Non-Goals
 
@@ -63,7 +64,7 @@ In elastic workloads (such as RayJob with autoscaling), jobs dynamically scale u
 
 ## Proposal
 
-Using partial admission mechanism to support partial scale up for elastic workloads (`RayJob`, `RayService`, `RayCluster`).
+Using partial admission mechanism to support partial scale up for elastic workloads (`batch/v1 Job`, `RayJob`, `RayService`, `RayCluster`).
 
 ### User Stories
 
@@ -93,7 +94,7 @@ Every Workload is defined by two per-PodSet count vectors, read for every PodSet
 - **Baseline** (`baseline[i]`): the lowest count the PodSet can be reduced to, given by `spec.podSets[i].minCount`. When `minCount` is unset, `baseline[i] = target[i]` — the PodSet cannot be reduced below its target (see `ps0` in [Example of RayJob with multiple PodSets](#example-of-rayjob-with-multiple-podsets)). For a scale-up replacement Workload, the scheduler also takes the replaced Workload into account: while it is admitted, its granted count (`status.admission.podSetAssignments[i].count`) is used as the baseline, so the scale-up must grow past what is already running.
 - **Target** (`target[i]`): the requested count in the Workload's spec, `spec.podSets[i].count`.
 
-The job controller (the per-job-kind reconciler that builds the Workload for RayJob/RayCluster/RayService) sets `minCount` to the initial count for the initial Workload. For a scale-up replacement Workload (a workload-slice replacement, annotated via `kueue.x-k8s.io/workload-slice-replacement-for`), it copies `minCount` forward from the replaced Workload, matching PodSets by name and capping at the new `count`. So `minCount` keeps the count the job was originally admitted at, and it is the baseline whenever there is no admitted predecessor (after eviction, or while the predecessor waits for admission checks).
+The job controller (the per-job-kind reconciler that builds the Workload for batch/v1 Job/RayJob/RayCluster/RayService) sets `minCount` to the initial count for the initial Workload. For a scale-up replacement Workload (a workload-slice replacement, annotated via `kueue.x-k8s.io/workload-slice-replacement-for`), it copies `minCount` forward from the replaced Workload, matching PodSets by name and capping at the new `count`. So `minCount` keeps the count the job was originally admitted at, and it is the baseline whenever there is no admitted predecessor (after eviction, or while the predecessor waits for admission checks).
 
 The reducer returns an assignment (`granted[i]`) satisfying, for every PodSet `i`:
 
@@ -256,13 +257,25 @@ Consequently, the reducer selects the counts for the probe between `minCount` an
 
 ### RayJob/RayService/RayCluster controller
 
-Only `RayJob`, `RayService`, and `RayCluster` integrations support the partial scale up feature (`batch/v1 Job` is not supported).
+`RayJob`, `RayService`, and `RayCluster` integrations support the partial scale up feature as described in this section; see [Job integration](#job-integration) below for `batch/v1 Job`.
 
 `RayCluster.workerGroupSpecs[i].replicas * numOfHosts` is translated to `PodSet.Count`. With partial scale up enabled, each worker group's `minCount` is set to its `PodSet.Count` in the initial Workload; `minReplicas` is not consulted.
 
 Scale up replacement Workloads get their `minCount` and baseline as described in [Baseline and target semantics](#baseline-and-target-semantics).
 
 Note, that PodsReady() for Ray jobs rely on RayCluster.Status.State value, so the partial scale up won't affect the PodsReady() value.
+
+### Job integration
+
+`batch/v1 Job` already scales through Workload slices by changing `.spec.parallelism` ([KEP-77](../77-dynamically-sized-jobs/README.md)). Partial scale up builds on that flow and works as for RayJob/RayService/RayCluster, with these Job-specific details:
+
+- **Target count.** The PodSet count is `min(.spec.parallelism, .spec.completions)`, as the Job never runs more Pods than `.spec.completions` ([Controlling parallelism](https://kubernetes.io/docs/concepts/workloads/controllers/job/#controlling-parallelism)). A `NonIndexed` Job scales up by raising `.spec.parallelism`. An `Indexed` Job scales up the same way below `.spec.completions`.
+To scale beyond `.spec.completions`, raise `.spec.completions` and `.spec.parallelism` together, to the same value ([Elastic Indexed Jobs](https://kubernetes.io/docs/concepts/workloads/controllers/job/#elastic-indexed-jobs)). Kueue adds no constraint on either field.
+
+- **Ungating order.** For `Indexed` Jobs, the `ElasticJobUngater` ungates the lowest `batch.kubernetes.io/job-completion-index` first, so indexes start in the order the Job controller creates them. The name-based order used for other Pods sorts indexes lexicographically (index `10` before `2`), which can delay low indexes behind higher ones. `NonIndexed` Job Pods keep the existing name-based order.
+
+- **`PodsReady()`.** A Job's `PodsReady()` counts individual Pods and compares that count against the full target. Kueue changes it to compare against the granted PodSet count while the Job is partially admitted.
+While the full-size scale-up slice is pending, the `PodsReady` condition is set on the admitted slice, which may hold only the granted count, and never on the pending slice. This is the same for every scale-up ([KEP-77](../77-dynamically-sized-jobs/README.md#podsready-condition)).
 
 ### Partial ScaleUp for multiple PodSets
 
@@ -397,6 +410,7 @@ The accepted number of pods in each PodSet is recorded in `workload.Status.Admis
 - Verifying that the progress check does not apply to a Workload with no admitted predecessor, so classic partial admission and post-eviction readmission can both land on `minCount`.
 - Verifying that a predecessor that holds quota but is not admitted (admission checks not `Ready`) neither imposes the progress check nor overrides the baseline, so the scale-up is not stalled.
 - Verifying ungater controller behavior when workloads are partially admitted.
+- Verifying the `ElasticJobUngater` ungates `Indexed` `batch/v1 Job` Pods in ascending `batch.kubernetes.io/job-completion-index` order, while `NonIndexed` Job Pods keep the existing name-based order.
 
 #### Integration tests
 
@@ -404,6 +418,8 @@ The accepted number of pods in each PodSet is recorded in `workload.Status.Admis
 - `test/integration/singlecluster/controller/jobs/raycluster/raycluster_controller_partial_scaleup_test.go`: a pending probe surviving a ClusterQueue drain or a preemption of its predecessor, readmission at `minCount` without requiring scale-up progress, probing resuming toward the target afterwards, and the probe staying pending while quota is below `minCount`.
 - `test/integration/singlecluster/controller/jobs/rayservice/rayservice_controller_partial_scaleup_test.go`: worker groups pinned to independently constrained ResourceFlavors — the giveback phase restoring a group that was drained on another group's behalf (Scenario D above), a group whose own flavor is exhausted not blocking a sibling that can still grow, and no admission at all when no group has room above its baseline.
 - `test/integration/singlecluster/controller/jobs/rayjob/rayjob_controller_partial_scaleup_test.go`: the same flow for the RayJob integration, whose workload slice naming differs.
+- `test/integration/singlecluster/controller/jobs/job/job_controller_partial_scaleup_test.go`: the same flow for `NonIndexed` `batch/v1 Job`s (scaling `.spec.parallelism` alone), including `PodsReady()` tracking the granted count while partially admitted.
+- `test/integration/singlecluster/controller/jobs/job/job_controller_partial_scaleup_test.go`: the same flow for `Indexed` `batch/v1 Job`s, additionally verifying ascending completion-index ungating order.
 
 #### E2E tests
 
