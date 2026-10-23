@@ -194,7 +194,9 @@ for instructions on configuring feature gates.
 
 By default, the node is assumed to have failed if it is missing (removed from the
 cluster), or if its `conditions.Status.Ready` is not `True` and the workload's Pods
-scheduled on that node are either terminated or terminating. A node with
+scheduled on that node are either terminated or terminating. A node is not
+considered failed when all of the workload's Pods assigned to it have succeeded,
+because none of them needs to run again. A node with
 still-running Pods is not considered failed, no matter how long its
 `conditions.Status.Ready` has not been `True`: nodes can recover after an arbitrary
 amount of time, and reassigning while the Pods are alive makes the stored assignment
@@ -258,7 +260,8 @@ tolerations added by admission checks.
 When the workload does not tolerate the taint, the node becomes a candidate for replacement.
 With `TASReplaceNodeOnPodTermination` enabled (the default), Kueue waits until the workload's
 Pods are no longer running on the node (they are terminating, terminated, or were never
-scheduled there) before treating it as failed; with `TASReplaceNodeOnPodTermination` disabled,
+scheduled there) before treating it as failed, unless all of the workload's Pods assigned to the
+node have succeeded; with `TASReplaceNodeOnPodTermination` disabled,
 the node is treated as failed as soon as the untolerated taint is observed. The two scheduling
 taint effects differ in how the Pods stop running:
 

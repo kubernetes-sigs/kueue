@@ -4993,6 +4993,59 @@ var _ = ginkgo.Describe("Topology Aware Scheduling", func() {
 						}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 					})
 				})
+
+				ginkgo.It("should NOT update UnhealthyNodes when node has NoSchedule taint and all assigned pods have succeeded", framework.SlowSpec, func() {
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnNodeTaints, true)
+					features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.TASReplaceNodeOnPodTermination, true)
+
+					var wl1 *kueue.Workload
+					nodeName := nodes[0].Name
+
+					ginkgo.By("creating a workload with a single pod assigned to nodeName", func() {
+						wl1 = utiltestingapi.MakeWorkload("wl1", ns.Name).
+							PodSets(*utiltestingapi.MakePodSet("worker", 1).
+								RequiredTopologyRequest(utiltesting.DefaultBlockTopologyLevel).
+								NodeSelector(map[string]string{corev1.LabelHostname: nodeName}).
+								Obj()).
+							Queue(kueue.LocalQueueName(localQueue.Name)).Request(corev1.ResourceCPU, "1").Obj()
+						behavioral.MustCreate(ctx, k8sClient, wl1)
+					})
+
+					ginkgo.By("verify the workload is admitted", func() {
+						behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					})
+
+					ginkgo.By("creating a succeeded pod for the workload on nodeName", func() {
+						pod := testingpod.MakePod("pod1", ns.Name).
+							Annotation(kueue.WorkloadAnnotation, wl1.Name).
+							NodeSelector(corev1.LabelHostname, nodeName).
+							NodeName(nodeName).
+							Obj()
+						behavioral.MustCreate(ctx, k8sClient, pod)
+
+						pod.Status.Phase = corev1.PodSucceeded
+						gomega.Expect(k8sClient.Status().Update(ctx, pod)).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("applying NoSchedule taint to the node", func() {
+						nodeToUpdate := &corev1.Node{}
+						gomega.Expect(k8sClient.Get(ctx, apitypes.NamespacedName{Name: nodeName}, nodeToUpdate)).Should(gomega.Succeed())
+						nodeToUpdate.Spec.Taints = append(nodeToUpdate.Spec.Taints, corev1.Taint{
+							Key:    "example.com/unschedulable",
+							Value:  "true",
+							Effect: corev1.TaintEffectNoSchedule,
+						})
+						gomega.Expect(k8sClient.Update(ctx, nodeToUpdate)).Should(gomega.Succeed())
+					})
+
+					ginkgo.By("verify UnhealthyNodes stays empty and the workload stays admitted", func() {
+						gomega.Consistently(func(g gomega.Gomega) {
+							g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl1), wl1)).To(gomega.Succeed())
+							g.Expect(wl1.Status.UnhealthyNodes).Should(gomega.BeEmpty())
+						}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+						behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl1)
+					})
+				})
 			})
 			ginkgo.When("TASBalancePlacement is enabled", func() {
 				var (
