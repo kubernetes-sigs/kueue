@@ -296,3 +296,134 @@ func TestPlan(t *testing.T) {
 		})
 	}
 }
+
+// TestPlan_TASWhenCanPreemptTryNextFlavor verifies issue #17396:
+// When a ClusterQueue has multiple TAS flavors and flavorFungibility.whenCanPreempt: TryNextFlavor,
+// if the first flavor fits by quota but requires preemption in TAS, Plan must evaluate the next flavor
+// and admit on it without preemption instead of immediately preempting lower-priority workloads.
+func TestPlan_TASWhenCanPreemptTryNextFlavor(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.TopologyAwareScheduling, true)
+	features.SetFeatureGateDuringTest(t, features.FlavorFungibility, true)
+
+	const (
+		flavorA = "tas-flavor-a"
+		flavorB = "tas-flavor-b"
+		nodeA   = "node-a"
+		nodeB   = "node-b"
+	)
+
+	log := testr.New(t)
+	ctx := ctrllog.IntoContext(t.Context(), log)
+
+	cache := schdcache.New(utiltesting.NewFakeClient())
+	cache.AddOrUpdateTopology(log, utiltestingapi.MakeTopology("topology").Levels(corev1.LabelHostname).Obj())
+
+	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(flavorA).
+		NodeLabel("flavor", flavorA).TopologyName("topology").Obj())
+	cache.AddOrUpdateResourceFlavor(log, utiltestingapi.MakeResourceFlavor(flavorB).
+		NodeLabel("flavor", flavorB).TopologyName("topology").Obj())
+
+	cache.TASCache().SyncNode(testingnode.MakeNode(nodeA).
+		Label("flavor", flavorA).
+		Label(corev1.LabelHostname, nodeA).
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("6"),
+			corev1.ResourcePods: resource.MustParse("32"),
+		}).
+		Ready().
+		Obj())
+
+	cache.TASCache().SyncNode(testingnode.MakeNode(nodeB).
+		Label("flavor", flavorB).
+		Label(corev1.LabelHostname, nodeB).
+		StatusAllocatable(corev1.ResourceList{
+			corev1.ResourceCPU:  resource.MustParse("6"),
+			corev1.ResourcePods: resource.MustParse("32"),
+		}).
+		Ready().
+		Obj())
+
+	// ClusterQueue has TryNextFlavor for preemption, with both flavors in the resource group.
+	cqObj := utiltestingapi.MakeClusterQueue(tasTestCQ).
+		Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+		FlavorFungibility(kueue.FlavorFungibility{WhenCanPreempt: kueue.TryNextFlavor}).
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas(flavorA).Resource(corev1.ResourceCPU, "10").Obj(),
+			*utiltestingapi.MakeFlavorQuotas(flavorB).Resource(corev1.ResourceCPU, "10").Obj(),
+		).
+		Obj()
+
+	if err := cache.AddClusterQueue(ctx, cqObj); err != nil {
+		t.Fatalf("adding ClusterQueue: %v", err)
+	}
+
+	// Admitted lower-priority victim occupies 4 CPU on nodeA (flavorA), leaving 2 CPU free.
+	victimWL := utiltestingapi.MakeWorkload("victim", "default").
+		Priority(lowPriority).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "4").
+			Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission(tasTestCQ).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, flavorA, "4").
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{nodeA}, 1).Obj()).
+					Obj()).
+				Obj()).
+			Obj(), time.Now()).
+		Obj()
+
+	if !cache.AddOrUpdateWorkload(ctx, log, victimWL) {
+		t.Fatalf("adding victim workload to cache")
+	}
+
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("building snapshot: %v", err)
+	}
+
+	// Incoming workload requests 4 CPU with hostname topology requirement.
+	// Quota fits on flavorA (10 total - 4 used = 6 free >= 4), but topology only has 2 CPU free on nodeA.
+	// FlavorB has 10 quota and nodeB has 6 CPU completely free, so it fits without preemption.
+	wl := workload.NewInfo(log, utiltestingapi.MakeWorkload("incoming", "default").
+		Priority(incomingPriority).
+		PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+			RequiredTopologyRequest(corev1.LabelHostname).
+			Request(corev1.ResourceCPU, "4").
+			Obj()).
+		Obj())
+	wl.ClusterQueue = tasTestCQ
+
+	preemptor := preemption.New(
+		utiltesting.NewFakeClient(), workload.Ordering{}, &utiltesting.EventRecorder{}, nil, false,
+		clocktesting.NewFakeClock(time.Now()), nil, preemptexpectations.New(), nil,
+	)
+	assigner := flavorassigner.New(
+		wl, snapshot.ClusterQueue(tasTestCQ), snapshot.ResourceFlavors, false,
+		preemption.NewOracle(preemptor, snapshot), nil,
+		configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0,
+	)
+
+	initialAssignment := assigner.AssignFlavors(ctx, log, nil)
+	// Quota-only check initially chooses flavorA because it fits quota.
+	if gotFlavor := initialAssignment.PodSets[0].Flavors[corev1.ResourceCPU].Name; gotFlavor != flavorA {
+		t.Fatalf("Initial AssignFlavors() chose flavor %s, want %s", gotFlavor, flavorA)
+	}
+
+	planner := NewPlanner(wl, snapshot, preemptor, assigner)
+	gotPlan := planner.Plan(ctx, &initialAssignment)
+
+	if !gotPlan.CanFit() {
+		t.Errorf("Plan() CanFit() = false, want true")
+	}
+	if gotMode := gotPlan.Assignment.RepresentativeMode(); gotMode != flavorassigner.Fit {
+		t.Errorf("Plan() RepresentativeMode() = %v, want %v", gotMode, flavorassigner.Fit)
+	}
+	if len(gotPlan.PreemptionTargets) != 0 {
+		t.Errorf("Plan() unexpectedly preempted targets %v, want none", targetNames(gotPlan.PreemptionTargets))
+	}
+	if gotFlavor := gotPlan.Assignment.PodSets[0].Flavors[corev1.ResourceCPU].Name; gotFlavor != flavorB {
+		t.Errorf("Plan() assigned flavor %s, want %s (fell back without preemption)", gotFlavor, flavorB)
+	}
+}
