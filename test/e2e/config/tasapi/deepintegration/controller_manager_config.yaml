@@ -3,8 +3,11 @@ kind: Configuration
 integrations:
   frameworks:
   - "batch/job"
+  - "jobset.x-k8s.io/jobset"
 featureGates:
   SchedulerLibraryIntegration: true
   SchedulerLibraryDeepIntegration: true
-  # GenericWorkload is a Kubernetes-level (non-Kueue) feature gate.
+  # GenericWorkload, CompositePodGroup, and TopologyAwareWorkloadScheduling are Kubernetes-level (non-Kueue) feature gates.
   GenericWorkload: true
+  CompositePodGroup: true
+  TopologyAwareWorkloadScheduling: true

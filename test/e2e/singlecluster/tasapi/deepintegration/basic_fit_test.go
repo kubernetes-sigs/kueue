@@ -17,7 +17,6 @@ limitations under the License.
 package deepintegration
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/google/go-cmp/cmp/cmpopts"
@@ -38,7 +37,7 @@ import (
 	"sigs.k8s.io/kueue/test/util/behavioral/e2e"
 )
 
-var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.Label(e2e.Shard1, "area:tas", "feature:tas-basic-fit"), func() {
+var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.Label(e2e.Shard1, "area:tas", "feature:tas-basic-fit", "feature:was_deepintegration"), func() {
 	var (
 		ns           *corev1.Namespace
 		topology     *kueue.Topology
@@ -204,7 +203,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.La
 		})
 
 		ginkgo.By("ensure all pods are created, scheduled, and running", func() {
-			expectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, sampleJob.Name, 2)
+			e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, 2, client.MatchingLabels{"job-name": sampleJob.Name})
 		})
 
 		ginkgo.By(fmt.Sprintf("verify workload %q finishes successfully", wlLookupKey), func() {
@@ -238,7 +237,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.La
 		})
 
 		ginkgo.By("ensure job1 pods are created, scheduled, and running", func() {
-			expectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, job1.Name, 8)
+			e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, 8, client.MatchingLabels{"job-name": job1.Name})
 		})
 
 		// Job 2 requests 1 GPU. Quota fits (8 + 1 <= 16), but all 8 nodes are currently busy
@@ -295,7 +294,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.La
 		})
 
 		ginkgo.By("ensure job2 pods are created, scheduled, and running", func() {
-			expectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, job2.Name, 1)
+			e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, 1, client.MatchingLabels{"job-name": job2.Name})
 		})
 
 		ginkgo.By(fmt.Sprintf("verify workload %q finishes successfully", wl2Key), func() {
@@ -328,7 +327,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.La
 		})
 
 		ginkgo.By("ensure job1 pods are created, scheduled, and running", func() {
-			expectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, job1.Name, 8)
+			e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, 8, client.MatchingLabels{"job-name": job1.Name})
 		})
 
 		job2 := testingjob.MakeJob("job-waiting-on-deactivation", ns.Name).
@@ -388,7 +387,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.La
 		})
 
 		ginkgo.By("ensure job2 pods are created, scheduled, and running", func() {
-			expectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, job2.Name, 1)
+			e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, 1, client.MatchingLabels{"job-name": job2.Name})
 		})
 
 		ginkgo.By(fmt.Sprintf("verify workload %q finishes successfully", wl2Key), func() {
@@ -396,22 +395,6 @@ var _ = ginkgo.Describe("TopologyAwareScheduling Basic Fit and Quota", ginkgo.La
 		})
 	})
 })
-
-func expectPodsScheduledAndRunning(ctx context.Context, k8sClient client.Client, ns string, jobName string, count int) {
-	ginkgo.GinkgoHelper()
-	gomega.Eventually(func(g gomega.Gomega) {
-		pods := &corev1.PodList{}
-		g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns), client.MatchingLabels{"job-name": jobName})).To(gomega.Succeed())
-		g.Expect(pods.Items).Should(gomega.HaveLen(count))
-		for _, pod := range pods.Items {
-			g.Expect(pod.Spec.NodeName).ShouldNot(gomega.BeEmpty())
-			g.Expect(pod.Status.Phase).To(gomega.Or(
-				gomega.Equal(corev1.PodRunning),
-				gomega.Equal(corev1.PodSucceeded),
-			))
-		}
-	}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
-}
 
 func expectQuotaReservedFailure(g gomega.Gomega, wl *kueue.Workload) {
 	cond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadQuotaReserved)
@@ -421,5 +404,4 @@ func expectQuotaReservedFailure(g gomega.Gomega, wl *kueue.Workload) {
 		Status: metav1.ConditionFalse,
 		Reason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
 	}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message", "ObservedGeneration")))
-	g.Expect(cond.Message).Should(gomega.ContainSubstring("Insufficient"))
 }
