@@ -272,6 +272,53 @@ func TestRestorePodSetsInfo(t *testing.T) {
 	}
 }
 
+func TestRunWithPodSetsInfo(t *testing.T) {
+	testCases := map[string]struct {
+		job         *kftraining.PyTorchJob
+		podSetsInfo []podset.PodSetInfo
+		wantJob     *kftraining.PyTorchJob
+	}{
+		"pod-index-offset 0 is set on Pod templates in a PodSet group": {
+			job: testingpytorchjob.MakePyTorchJob("pytorchjob", "ns").
+				PyTorchReplicaSpecsDefault().
+				PodAnnotation(kftraining.PyTorchJobReplicaTypeMaster, kueue.PodSetGroupName, "group").
+				PodAnnotation(kftraining.PyTorchJobReplicaTypeWorker, kueue.PodSetGroupName, "group").
+				Obj(),
+			podSetsInfo: []podset.PodSetInfo{{}, {}},
+			wantJob: testingpytorchjob.MakePyTorchJob("pytorchjob", "ns").
+				PyTorchReplicaSpecsDefault().
+				PodAnnotation(kftraining.PyTorchJobReplicaTypeMaster, kueue.PodSetGroupName, "group").
+				PodAnnotation(kftraining.PyTorchJobReplicaTypeMaster, kueue.PodIndexOffsetAnnotation, "0").
+				PodAnnotation(kftraining.PyTorchJobReplicaTypeWorker, kueue.PodSetGroupName, "group").
+				PodAnnotation(kftraining.PyTorchJobReplicaTypeWorker, kueue.PodIndexOffsetAnnotation, "0").
+				Suspend(false).
+				Obj(),
+		},
+		"pod-index-offset is not set on Pod templates outside a PodSet group": {
+			job: testingpytorchjob.MakePyTorchJob("pytorchjob", "ns").
+				PyTorchReplicaSpecsDefault().
+				Obj(),
+			podSetsInfo: []podset.PodSetInfo{{}, {}},
+			wantJob: testingpytorchjob.MakePyTorchJob("pytorchjob", "ns").
+				PyTorchReplicaSpecsDefault().
+				Suspend(false).
+				Obj(),
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+			if err := fromObject(tc.job).RunWithPodSetsInfo(ctx, nil, tc.podSetsInfo); err != nil {
+				t.Fatalf("RunWithPodSetsInfo() failed: %v", err)
+			}
+			if diff := cmp.Diff(tc.wantJob, tc.job); diff != "" {
+				t.Errorf("Unexpected job after RunWithPodSetsInfo (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestPodSets(t *testing.T) {
 	testCases := map[string]struct {
 		job          *kftraining.PyTorchJob

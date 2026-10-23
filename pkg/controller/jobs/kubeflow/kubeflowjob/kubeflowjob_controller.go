@@ -72,6 +72,7 @@ func (j *KubeflowJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, p
 		if err := podset.Merge(log, &replica.ObjectMeta, &replica.Spec, info); err != nil {
 			return err
 		}
+		jobframework.DefaultPodIndexOffsetForPodSetGroup(&replica.ObjectMeta)
 	}
 	return nil
 }
