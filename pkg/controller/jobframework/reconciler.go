@@ -619,7 +619,21 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 	// handle a job when waitForPodsReady is enabled, and it is the main job
 	if r.waitForPodsReady || waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
 		log.V(3).Info("Handling a job when waitForPodsReady is enabled")
-		updated, err := r.reconcilePodsReadyCondition(ctx, job, wl)
+		// A pending scale-up probe is not admitted, so PodsReady belongs to the admitted slice it will replace.
+		podsReadyTarget := wl
+		if workloadslicing.Enabled(object) && workloadslicing.ScaledUp(wl) && !workload.IsAdmitted(wl) {
+			retained, err := workloadslicing.FindLatestActiveWorkload(ctx, r.client, object, job.GVK())
+			if err != nil {
+				log.Error(err, "Finding the admitted workload slice to update PodsReady on while a scale-up is pending", "pendingWorkload", klog.KObj(wl))
+				return ctrl.Result{}, err
+			}
+			// Without a retained slice, the unadmitted probe keeps the target and reports WaitForStart.
+			if retained != nil {
+				podsReadyTarget = retained
+			}
+		}
+
+		updated, err := r.reconcilePodsReadyCondition(ctx, job, podsReadyTarget)
 		if err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}

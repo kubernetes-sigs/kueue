@@ -42,6 +42,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
@@ -173,6 +174,149 @@ func TestPodsReady(t *testing.T) {
 			got := tc.job.PodsReady(ctx, nil)
 			if tc.want != got {
 				t.Errorf("Unexpected response (want: %v, got: %v)", tc.want, got)
+			}
+		})
+	}
+}
+
+func TestPodsReadyWithPartialScaleUp(t *testing.T) {
+	const (
+		jobName = "job"
+		jobUID  = types.UID("test-uid")
+		jobNs   = "ns"
+	)
+	jobGVK := batchv1.SchemeGroupVersion.WithKind("Job")
+
+	// The Job's spec already asks for the full 10 pods while admission may grant fewer.
+	jobTemplate := utiltestingjob.MakeJob(jobName, jobNs).Parallelism(10).Completions(10)
+
+	elasticPartialAnnotations := map[string]string{
+		constants.ElasticJobAnnotation:                   "true",
+		constants.ElasticJobScaleUpStrategyAnnotationKey: constants.ElasticJobScaleUpStrategyPartial,
+	}
+	partialScaleUpGates := map[featuregate.Feature]bool{
+		features.ElasticJobsViaWorkloadSlices:                          true,
+		features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+	}
+
+	grantedWorkload := func(granted int32, admitted bool) *kueue.Workload {
+		return utiltestingapi.MakeWorkload("wl", jobNs).
+			Finalizers(kueue.ResourceInUseFinalizerName).
+			Annotations(map[string]string{constants.ElasticJobAnnotation: "true"}).
+			ControllerReference(jobGVK, jobName, string(jobUID)).
+			PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 10).Obj()).
+			ReserveQuotaAt(
+				utiltestingapi.MakeAdmission("cq").
+					PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).Count(granted).Obj()).
+					Obj(),
+				time.Now(),
+			).
+			AdmittedAt(admitted, time.Now()).
+			Obj()
+	}
+
+	testCases := map[string]struct {
+		featureGates   map[featuregate.Feature]bool
+		jobAnnotations map[string]string
+		activeWorkload *kueue.Workload
+		readyPods      int32
+		wantPodsReady  bool
+	}{
+		"workload slices feature gate off: the full count is required": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                          false,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: true,
+			},
+			jobAnnotations: elasticPartialAnnotations,
+			activeWorkload: grantedWorkload(7, true),
+			readyPods:      7,
+			wantPodsReady:  false,
+		},
+		"partial scale-up feature gate off: the full count is required": {
+			featureGates: map[featuregate.Feature]bool{
+				features.ElasticJobsViaWorkloadSlices:                          true,
+				features.ElasticJobsViaWorkloadSlicesWithPartialReplicaScaleUp: false,
+			},
+			jobAnnotations: elasticPartialAnnotations,
+			activeWorkload: grantedWorkload(7, true),
+			readyPods:      7,
+			wantPodsReady:  false,
+		},
+		"strategy annotation is not partial: the full count is required": {
+			featureGates: partialScaleUpGates,
+			jobAnnotations: map[string]string{
+				constants.ElasticJobAnnotation: "true",
+			},
+			activeWorkload: grantedWorkload(7, true),
+			readyPods:      7,
+			wantPodsReady:  false,
+		},
+		"no active workload: the full count is required": {
+			featureGates:   partialScaleUpGates,
+			jobAnnotations: elasticPartialAnnotations,
+			readyPods:      7,
+			wantPodsReady:  false,
+		},
+		"active workload is not admitted: the full count is required": {
+			featureGates:   partialScaleUpGates,
+			jobAnnotations: elasticPartialAnnotations,
+			activeWorkload: grantedWorkload(7, false),
+			readyPods:      7,
+			wantPodsReady:  false,
+		},
+		"active workload granted a partial count: not enough pods ready": {
+			featureGates:   partialScaleUpGates,
+			jobAnnotations: elasticPartialAnnotations,
+			activeWorkload: grantedWorkload(7, true),
+			readyPods:      5,
+			wantPodsReady:  false,
+		},
+		"active workload granted a partial count: granted pods ready": {
+			featureGates:   partialScaleUpGates,
+			jobAnnotations: elasticPartialAnnotations,
+			activeWorkload: grantedWorkload(7, true),
+			readyPods:      7,
+			wantPodsReady:  true,
+		},
+		"active workload granted the full count: granted count is not enough": {
+			featureGates:   partialScaleUpGates,
+			jobAnnotations: elasticPartialAnnotations,
+			activeWorkload: grantedWorkload(10, true),
+			readyPods:      7,
+			wantPodsReady:  false,
+		},
+		"active workload granted the full count: all pods ready": {
+			featureGates:   partialScaleUpGates,
+			jobAnnotations: elasticPartialAnnotations,
+			activeWorkload: grantedWorkload(10, true),
+			readyPods:      10,
+			wantPodsReady:  true,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			for gate, enabled := range tc.featureGates {
+				features.SetFeatureGateDuringTest(t, gate, enabled)
+			}
+
+			j := jobTemplate.Clone().UID(string(jobUID)).Ready(tc.readyPods)
+			for k, v := range tc.jobAnnotations {
+				j.SetAnnotation(k, v)
+			}
+			jj := (*Job)(j.Obj())
+
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithIndex(&kueue.Workload{}, indexer.WorkloadSliceNameKey, indexer.IndexWorkloadSliceName).
+				WithIndex(&kueue.Workload{}, indexer.OwnerReferenceIndexKey(jobGVK), indexer.WorkloadOwnerIndexFunc(jobGVK))
+			if tc.activeWorkload != nil {
+				clientBuilder = clientBuilder.WithObjects(tc.activeWorkload)
+			}
+			kClient := clientBuilder.Build()
+
+			ctx, _ := utiltesting.ContextWithLog(t)
+			if got := jj.PodsReady(ctx, kClient); got != tc.wantPodsReady {
+				t.Errorf("Unexpected PodsReady (want: %v, got: %v)", tc.wantPodsReady, got)
 			}
 		})
 	}
