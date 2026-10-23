@@ -3887,11 +3887,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 			})
 
 			ginkgo.By("Draining the ClusterQueue to evict the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
-					cq.Spec.StopPolicy = new(kueue.HoldAndDrain)
-					g.Expect(k8sClient.Update(ctx, cq)).Should(gomega.Succeed())
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.HoldAndDrain)
 			})
 
 			ginkgo.By("Checking that workload was evicted by the stopped ClusterQueue", func() {
@@ -3926,11 +3922,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 			})
 
 			ginkgo.By("Resuming the ClusterQueue", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
-					cq.Spec.StopPolicy = new(kueue.None)
-					g.Expect(k8sClient.Update(ctx, cq)).Should(gomega.Succeed())
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.None)
 			})
 
 			ginkgo.By("Waiting for the workload to be requeued after ClusterQueue restart", func() {
@@ -3972,11 +3964,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 			})
 
 			ginkgo.By("Draining the ClusterQueue to evict the workload", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
-					cq.Spec.StopPolicy = new(kueue.HoldAndDrain)
-					g.Expect(k8sClient.Update(ctx, cq)).Should(gomega.Succeed())
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.HoldAndDrain)
 			})
 
 			ginkgo.By("Checking that workload was evicted by the stopped ClusterQueue", func() {
@@ -4012,11 +4000,7 @@ var _ = ginkgo.Describe("Pod controller interacting with scheduler", ginkgo.Labe
 			})
 
 			ginkgo.By("Resuming the ClusterQueue", func() {
-				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), cq)).Should(gomega.Succeed())
-					cq.Spec.StopPolicy = new(kueue.None)
-					g.Expect(k8sClient.Update(ctx, cq)).Should(gomega.Succeed())
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.None)
 			})
 
 			ginkgo.By("Waiting for the workload to be requeued after ClusterQueue restart", func() {
