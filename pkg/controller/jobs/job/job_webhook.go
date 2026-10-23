@@ -147,7 +147,7 @@ func (w *JobWebhook) validateCreate(ctx context.Context, job *Job) (field.ErrorL
 	allErrs = append(allErrs, w.validatePartialAdmissionCreate(job)...)
 	allErrs = append(allErrs, w.validateSyncCompletionCreate(job)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := w.validateTopologyRequest(ctx, job)
+		validationErrs, err := w.validateTopologyRequest(ctx, job, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -225,7 +225,7 @@ func (w *JobWebhook) validateUpdate(ctx context.Context, oldJob, newJob *Job) (f
 	allErrs = append(allErrs, jobframework.ValidateJobOnUpdate(oldJob, newJob, w.queues.DefaultLocalQueueExist, w.maxTimeoutOnWorkload)...)
 	allErrs = append(allErrs, validatePartialAdmissionUpdate(oldJob, newJob)...)
 	if features.Enabled(features.TopologyAwareScheduling) {
-		validationErrs, err := w.validateTopologyRequest(ctx, newJob)
+		validationErrs, err := w.validateTopologyRequest(ctx, newJob, oldJob)
 		if err != nil {
 			return nil, err
 		}
@@ -247,7 +247,10 @@ func validatePartialAdmissionUpdate(oldJob, newJob *Job) field.ErrorList {
 	return allErrs
 }
 
-func (w *JobWebhook) validateTopologyRequest(ctx context.Context, job *Job) (field.ErrorList, error) {
+// validateTopologyRequest validates the TAS annotations on a Job. oldJob is nil
+// on create and set on update, so checks that must tolerate an unchanged
+// annotation on an existing Job can compare against it.
+func (w *JobWebhook) validateTopologyRequest(ctx context.Context, job, oldJob *Job) (field.ErrorList, error) {
 	validationErrs := jobframework.ValidateTASPodSetRequest(replicaMetaPath, &job.Spec.Template.ObjectMeta)
 	if validationErrs != nil {
 		return validationErrs, nil
@@ -263,6 +266,20 @@ func (w *JobWebhook) validateTopologyRequest(ctx context.Context, job *Job) (fie
 		if _, hasPreferred := job.Spec.Template.Annotations[kueue.PodSetPreferredTopologyAnnotation]; hasPreferred {
 			return field.ErrorList{field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
 				"preferred topology is not supported with elastic jobs")}, nil
+		}
+	}
+
+	// The scheduler library does not place Pods for a preferred topology
+	// request, so reject new or changed requests during admission rather than
+	// accepting the Job and failing its Workload creation afterwards.
+	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
+		if _, hasPreferred := job.Spec.Template.Annotations[kueue.PodSetPreferredTopologyAnnotation]; hasPreferred {
+			unchanged := oldJob != nil &&
+				oldJob.Spec.Template.Annotations[kueue.PodSetPreferredTopologyAnnotation] == job.Spec.Template.Annotations[kueue.PodSetPreferredTopologyAnnotation]
+			if !unchanged {
+				return field.ErrorList{field.Forbidden(replicaMetaPath.Child("annotations", kueue.PodSetPreferredTopologyAnnotation),
+					fmt.Sprintf("preferred topology is not supported when the %s feature gate is enabled", features.SchedulerLibraryDeepIntegration))}, nil
+			}
 		}
 	}
 
