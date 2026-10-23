@@ -1362,10 +1362,21 @@ func ClearPendingWorkloads(cqName kueue.ClusterQueueReference, pendingStatus str
 	PendingWorkloads.DeleteLabelValues(labels...)
 }
 
+// ClearClusterQueueGaugeMetrics removes the cluster_queue-scoped gauges for cq.
+// Cache and resource gauges are cleared by ClearCacheMetrics and
+// ClearClusterQueueResourceMetrics. Counters and histograms are left intact
+// because they cannot be re-recorded from cache state.
+func ClearClusterQueueGaugeMetrics(cq kueue.ClusterQueueReference) {
+	clearScopedGaugeMetrics(gaugeCleanupScopeClusterQueue, prometheus.Labels{"cluster_queue": string(cq)})
+}
+
+// ClearClusterQueueMetrics removes the cluster_queue-scoped gauges and all
+// counters and histograms for cq. Counters and histograms cannot be
+// re-recorded, so on a custom label change use ClearClusterQueueGaugeMetrics
+// instead.
 func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	cqName := string(cq)
-	// Clears all cluster_queue-scoped gauges for cqName.
-	clearScopedGaugeMetrics(gaugeCleanupScopeClusterQueue, prometheus.Labels{"cluster_queue": cqName})
+	ClearClusterQueueGaugeMetrics(cq)
 	QuotaReservedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	QuotaReservedWaitTime.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 	FinishedWorkloadsTotal.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
@@ -1387,9 +1398,20 @@ func ClearClusterQueueMetrics(cq kueue.ClusterQueueReference) {
 	PodSchedulingGateRemovalSeconds.DeletePartialMatch(prometheus.Labels{"cluster_queue": cqName})
 }
 
+// ClearLocalQueueGaugeMetrics removes the LocalQueue-scoped gauges for lq.
+// Cache and resource gauges are cleared by ClearLocalQueueCacheMetrics and
+// ClearLocalQueueResourceMetrics. Counters and histograms are left intact
+// because they cannot be re-recorded from cache state.
+func ClearLocalQueueGaugeMetrics(lq LocalQueueReference) {
+	clearScopedGaugeMetrics(gaugeCleanupScopeLocalQueue, prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace})
+}
+
+// ClearLocalQueueMetrics removes the LocalQueue-scoped gauges and all counters
+// and histograms for lq. Counters and histograms cannot be re-recorded, so on a
+// custom label change use ClearLocalQueueGaugeMetrics instead.
 func ClearLocalQueueMetrics(lq LocalQueueReference) {
 	lbls := prometheus.Labels{"name": string(lq.Name), "namespace": lq.Namespace}
-	clearScopedGaugeMetrics(gaugeCleanupScopeLocalQueue, lbls)
+	ClearLocalQueueGaugeMetrics(lq)
 	LocalQueueQuotaReservedWorkloadsTotal.DeletePartialMatch(lbls)
 	LocalQueueQuotaReservedWaitTime.DeletePartialMatch(lbls)
 	LocalQueueFinishedWorkloadsTotal.DeletePartialMatch(lbls)
