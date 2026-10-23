@@ -729,7 +729,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 				behavioral.ExpectPendingWorkloadsMetric(prodClusterQ, 0, 0)
 				behavioral.ExpectAdmittedWorkloadsTotalMetric(prodClusterQ, "", 0)
 
-				behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, prodQueue, new(kueue.None))
+				behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, prodQueue, kueue.None)
 
 				ginkgo.By("checking the workloads with high priority get admitted")
 				behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, wlHigh1, wlHigh2)
@@ -3116,7 +3116,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 
 			ginkgo.By("Holding the LocalQueue")
-			behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, queue, new(kueue.Hold))
+			behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, queue, kueue.Hold)
+			behavioral.ExpectLQByStatusMetric(queue, metav1.ConditionFalse)
 
 			drainClusterQueue()
 			expectEvictedByClusterQueueStopped(wl)
@@ -3190,7 +3191,7 @@ var _ = ginkgo.Describe("Scheduler", func() {
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 			ginkgo.By("Stopping the LocalQueue")
-			behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, new(kueue.HoldAndDrain))
+			behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, kueue.HoldAndDrain)
 
 			behavioral.ExpectEvictedWorkloadsTotalMetric(cq.Name, kueue.WorkloadEvictedByLocalQueueStopped, "", "", 1)
 			behavioral.ExpectEvictedWorkloadsOnceTotalMetric(cq.Name, kueue.WorkloadEvictedByLocalQueueStopped, "", "", 1)
@@ -3233,8 +3234,8 @@ var _ = ginkgo.Describe("Scheduler", func() {
 
 			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 0)
 
-			ginkgo.By("Restart the LocalQueue by removing its stopPolicy")
-			behavioral.SetLocalQueueStopPolicy(ctx, k8sClient, lq, nil)
+			ginkgo.By("Restart the LocalQueue by setting its stopPolicy to None")
+			behavioral.UnsetLocalQueueStopPolicy(ctx, k8sClient, lq)
 
 			ginkgo.By("Checking the condition of LocalQueue is active")
 			gomega.Eventually(func(g gomega.Gomega) {
