@@ -35,7 +35,21 @@ The Workload is admitted once all [AdmissionCheckStates](/docs/concepts/admissio
   - The system marks the AdmissionCheck as `Rejected`
   - It evicts the Workload.
   - It releases the reserved quota. 
-  - It deactivates the Workload and to requeue it, the user needs to set the `.status.active` field to `true`.
+  - It deactivates the Workload. To requeue it, the user needs to set the `.spec.active` field to `true`.
+
+The following diagram shows the complete admission cycle for a Workload that uses the
+[`ProvisioningRequest`](/docs/concepts/admission_check/provisioning_request/) AdmissionCheck,
+including the retry loop:
+
+<div class="diagram-surface p-3 rounded-3 border text-center">
+  <img src="/images/prov-req-admission-cycle.svg" class="img-fluid"
+       alt="Admission cycle for a Workload that uses a ProvisioningRequest, including the retry loop after a Failed or BookingExpired request">
+</div>
+
+Because the Workload is requeued between attempts, the quota reserved for the previous
+attempt is released before the next one starts. Each retry creates a new
+`ProvisioningRequest` with an `-attempt<N>` suffix, and the backoff is controlled by
+[`retryStrategy`](/docs/concepts/admission_check/provisioning_request/#retry-strategy).
 
 ## What's Next?
 

@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 760" role="img" aria-labelledby="title desc" font-family="Helvetica, Arial, sans-serif">
+  <title id="title">ProvisioningRequest admission cycle</title>
+  <desc id="desc">State diagram of the two-phase admission cycle for a Workload that uses a ProvisioningRequest AdmissionCheck. Quota is reserved, a ProvisioningRequest is created for the current attempt, and the nodes are provisioned before the Workload is admitted. A Failed or BookingExpired request is retried after the backoff until retries are exhausted, and a revoked capacity marks the Workload Inactive.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#000"/>
+    </marker>
+  </defs>
+
+  <!-- start -->
+  <circle cx="260" cy="55" r="6" fill="#000"/>
+  <path d="M260 61 L260 86" fill="none" stroke="#000" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="272" y="60" font-size="12" fill="#000">Workload queued</text>
+
+  <!-- main path -->
+  <rect x="160" y="90" width="200" height="70" rx="9" fill="#cfe2f3" stroke="#000" stroke-width="1.5"/>
+  <text x="260" y="130" font-size="16" text-anchor="middle" fill="#000">Quota reserved</text>
+
+  <rect x="160" y="230" width="200" height="70" rx="9" fill="#cfe2f3" stroke="#000" stroke-width="1.5"/>
+  <text x="260" y="263" font-size="16" text-anchor="middle" fill="#000">ProvisioningRequest</text>
+  <text x="260" y="283" font-size="13" text-anchor="middle" fill="#000">pending (attempt N)</text>
+
+  <rect x="160" y="370" width="200" height="70" rx="9" fill="#cfe2f3" stroke="#000" stroke-width="1.5"/>
+  <text x="260" y="410" font-size="16" text-anchor="middle" fill="#000">Accepted</text>
+
+  <rect x="160" y="510" width="200" height="70" rx="9" fill="#cfe2f3" stroke="#000" stroke-width="1.5"/>
+  <text x="260" y="550" font-size="16" text-anchor="middle" fill="#000">Provisioned</text>
+
+  <rect x="160" y="650" width="200" height="70" rx="9" fill="#cfe2f3" stroke="#000" stroke-width="1.5"/>
+  <text x="260" y="690" font-size="16" text-anchor="middle" fill="#000">Admitted</text>
+
+  <!-- failure and terminal states -->
+  <rect x="480" y="230" width="200" height="70" rx="9" fill="#cfe2f3" stroke="#000" stroke-width="1.5"/>
+  <text x="580" y="270" font-size="16" text-anchor="middle" fill="#000">Failed</text>
+
+  <rect x="480" y="370" width="200" height="70" rx="9" fill="#cfe2f3" stroke="#000" stroke-width="1.5"/>
+  <text x="580" y="403" font-size="16" text-anchor="middle" fill="#000">Rejected</text>
+  <text x="580" y="423" font-size="13" text-anchor="middle" fill="#000">Workload deactivated</text>
+
+  <rect x="480" y="510" width="200" height="70" rx="9" fill="#cfe2f3" stroke="#000" stroke-width="1.5"/>
+  <text x="580" y="550" font-size="16" text-anchor="middle" fill="#000">BookingExpired</text>
+
+  <rect x="480" y="650" width="200" height="70" rx="9" fill="#cfe2f3" stroke="#000" stroke-width="1.5"/>
+  <text x="580" y="683" font-size="16" text-anchor="middle" fill="#000">CapacityRevoked</text>
+  <text x="580" y="703" font-size="13" text-anchor="middle" fill="#000">Workload marked Inactive</text>
+
+  <!-- retry state -->
+  <rect x="760" y="395" width="160" height="70" rx="9" fill="#cfe2f3" stroke="#000" stroke-width="1.5"/>
+  <text x="840" y="418" font-size="16" text-anchor="middle" fill="#000">Retry</text>
+  <text x="840" y="436" font-size="11" text-anchor="middle" fill="#000">backoff per</text>
+  <text x="840" y="450" font-size="11" text-anchor="middle" fill="#000">retryStrategy</text>
+
+  <!-- transitions -->
+  <path d="M260 160 L260 226" fill="none" stroke="#000" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="272" y="197" font-size="12" fill="#000">create request (attempt N)</text>
+
+  <path d="M260 300 L260 366" fill="none" stroke="#000" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <path d="M260 440 L260 506" fill="none" stroke="#000" stroke-width="1.6" marker-end="url(#arrow)"/>
+
+  <path d="M260 580 L260 646" fill="none" stroke="#000" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="272" y="625" font-size="12" fill="#000">AdmissionCheck Ready</text>
+
+  <path d="M360 265 L476 265" fill="none" stroke="#000" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="420" y="257" font-size="11" text-anchor="middle" fill="#000">cannot provision</text>
+
+  <path d="M580 300 L580 366" fill="none" stroke="#000" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="590" y="338" font-size="11" fill="#000">retries exhausted</text>
+
+  <path d="M360 545 L476 545" fill="none" stroke="#000" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="420" y="524" font-size="11" text-anchor="middle" fill="#000">reservation expires</text>
+  <text x="420" y="537" font-size="11" text-anchor="middle" fill="#000">before admission</text>
+
+  <path d="M360 685 L476 685" fill="none" stroke="#000" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="420" y="676" font-size="11" text-anchor="middle" fill="#000">capacity withdrawn</text>
+
+  <!-- retry loop -->
+  <path d="M680 265 L720 265 L720 415 L756 415" fill="none" stroke="#000" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="726" y="281" font-size="11" fill="#000">retries remain</text>
+
+  <path d="M680 545 L720 545 L720 445 L756 445" fill="none" stroke="#000" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="726" y="561" font-size="11" fill="#000">treated like Failed</text>
+
+  <path d="M840 395 L840 125 L364 125" fill="none" stroke="#000" stroke-width="1.6" marker-end="url(#arrow)"/>
+  <text x="600" y="118" font-size="12" text-anchor="middle" fill="#000">backoff elapses, Workload requeued</text>
+  <text x="600" y="140" font-size="11" text-anchor="middle" fill="#000">(quota released)</text>
+</svg>
