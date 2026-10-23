@@ -366,7 +366,22 @@ func matchesPreemptor(rule *kueuealpha.PreemptionConfigPreemptionRule, preemptor
 	if err != nil || !matches {
 		return false, err
 	}
-	return filters.MatchesPriorityClassSelector(rule.PreemptorPriorityClassSelector, preemptor), nil
+	return workloadMatchesPriorityClassSelector(rule.PreemptorPriorityClassSelector, preemptor)
+}
+
+func workloadMatchesPriorityClassSelector(selector *kueuealpha.PreemptionConfigPriorityClassSelector, wlInfo *workload.Info) (bool, *filters.FilterBuildError) {
+	if selector == nil {
+		return true, nil
+	}
+	filter, err := filters.NewPriorityClassFilter(*selector)
+	if err != nil {
+		return false, &filters.FilterBuildError{
+			Filter: filters.FilterPreemptorPriorityClassSelector,
+			Reason: err.Reason,
+			Err:    err.Err,
+		}
+	}
+	return filter.Matches(wlInfo), nil
 }
 
 // workloadMatchesSelector returns whether the labels of the workload match the

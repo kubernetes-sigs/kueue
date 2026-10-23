@@ -61,7 +61,10 @@ func NewCandidateFilters(
 	if err != nil {
 		errs = append(errs, err)
 	}
-	wlPriorityClassFilter := buildPriorityClassFilter(selector.PriorityClassSelector)
+	wlPriorityClassFilter, err := buildPriorityClassFilter(selector.PriorityClassSelector)
+	if err != nil {
+		errs = append(errs, err)
+	}
 
 	if len(errs) > 0 {
 		return CandidateFilters{}, errs
@@ -183,9 +186,9 @@ func buildPriorityFilter(
 
 func buildPriorityClassFilter(
 	selector *kueuealpha.PreemptionConfigPriorityClassSelector,
-) WorkloadFilter {
+) (WorkloadFilter, *FilterBuildError) {
 	if isEmptyPriorityClassSelector(selector) {
-		return nil
+		return nil, nil
 	}
 	return NewPriorityClassFilter(*selector)
 }

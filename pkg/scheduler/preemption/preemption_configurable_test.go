@@ -655,6 +655,9 @@ func TestConfigurablePreemptions(t *testing.T) {
 					SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a2").
 					WorkloadPriorityClassRef("low-priority").
+					// Set higher numeric priority than a1 on purpose so a2 comes after a1 in the
+					// default candidate ordering, ensuring the test fails if PriorityClassSelector
+					// does not filter out a1.
 					Priority(50).
 					SimpleReserveQuota("a", "default", now).Obj(),
 			},

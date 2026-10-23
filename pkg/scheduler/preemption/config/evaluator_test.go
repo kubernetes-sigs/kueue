@@ -130,6 +130,35 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 				},
 			},
 		},
+		"returns error for preemptor priority class selector with unsupported operator": {
+			clusterQueues: baseCqs,
+			config: *utiltestingalpha.MakePreemptionConfig("test").
+				Rules(
+					kueuealpha.PreemptionConfigPreemptionRule{
+						Name:             "test",
+						ActivationPolicy: kueuealpha.PreemptionConfigActivationPolicy{Trigger: kueuealpha.Always},
+						PreemptorPriorityClassSelector: &kueuealpha.PreemptionConfigPriorityClassSelector{
+							NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+								{
+									Operator: kueuealpha.PriorityClassSelectorOperator("invalid"),
+									Values:   []string{"high-priority"},
+								},
+							},
+						},
+					},
+				).Obj(),
+			admitted: []kueue.Workload{
+				*unitWl.Clone().Name("a1").SimpleReserveQuota("a", "default", now).Obj(),
+			},
+			preemptorWl: unitWl.Clone().Name("a-incoming").Obj(),
+			preemptorCq: "a",
+			wantErrs: []*filters.FilterBuildError{
+				{
+					Filter: filters.FilterPreemptorPriorityClassSelector,
+					Reason: filters.ReasonUnsupportedOperator,
+				},
+			},
+		},
 		"returns error for candidate selector with invalid label selector operator": {
 			clusterQueues: baseCqs,
 			config: *utiltestingalpha.MakePreemptionConfig("test").
@@ -500,8 +529,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 						kueuealpha.Always,
 						utiltestingalpha.MakeCandidateSelector(kueuealpha.WithinClusterQueue).
 							PriorityClassSourceRef(kueuealpha.WorkloadPriorityClassGroup, kueuealpha.WorkloadPriorityClassKind).
-							PriorityClassIn("low-priority", "protected-priority").
-							PriorityClassNotIn("protected-priority").
+							PriorityClassIn("low-priority").
 							Obj(),
 					).
 						PreemptorPriorityClassSourceRef(kueuealpha.WorkloadPriorityClassGroup, kueuealpha.WorkloadPriorityClassKind).
@@ -513,7 +541,7 @@ func TestPreemptionEvaluatorCandidates(t *testing.T) {
 				*unitWl.Clone().Name("a2").WorkloadPriorityClassRef("protected-priority").SimpleReserveQuota("a", "default", now).Obj(),
 				*unitWl.Clone().Name("a3").PodPriorityClassRef("low-priority").SimpleReserveQuota("a", "default", now).Obj(),
 			},
-			preemptorWl:    unitWl.Clone().Name("a-incoming").WorkloadPriorityClassRef("high-priority").Obj(),
+			preemptorWl:    unitWl.Clone().Name("a-incoming").Request(corev1.ResourceCPU, "3").WorkloadPriorityClassRef("high-priority").Obj(),
 			preemptorCq:    "a",
 			wantCandidates: []string{"a1"},
 		},

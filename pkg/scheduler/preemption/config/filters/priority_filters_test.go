@@ -262,6 +262,7 @@ func TestPriorityClassFilter_Matches(t *testing.T) {
 		selector                  kueuealpha.PreemptionConfigPriorityClassSelector
 		candidatePriorityClassRef *kueue.PriorityClassRef
 		wantMatch                 bool
+		wantBuildErr              *FilterBuildError
 	}{
 		"NameExpressions In only: matching WorkloadPriorityClass matches": {
 			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
@@ -507,6 +508,21 @@ func TestPriorityClassFilter_Matches(t *testing.T) {
 			candidatePriorityClassRef: nil,
 			wantMatch:                 false,
 		},
+		"Unknown/unsupported operator returns build error": {
+			selector: kueuealpha.PreemptionConfigPriorityClassSelector{
+				NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+					{
+						Operator: kueuealpha.PriorityClassSelectorOperator("InvalidOp"),
+						Values:   []string{"low-priority"},
+					},
+				},
+			},
+			candidatePriorityClassRef: kueue.NewWorkloadPriorityClassRef("low-priority"),
+			wantBuildErr: &FilterBuildError{
+				Filter: FilterPriorityClassSelector,
+				Reason: ReasonUnsupportedOperator,
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -518,20 +534,18 @@ func TestPriorityClassFilter_Matches(t *testing.T) {
 			}
 			candidate := workload.NewInfo(log, candBuilder.Obj())
 
-			filter := NewPriorityClassFilter(tc.selector)
+			filter, err := NewPriorityClassFilter(tc.selector)
+			if diff := cmp.Diff(tc.wantBuildErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Fatalf("NewPriorityClassFilter() build error (-want +got):\n%s", diff)
+			}
+			if tc.wantBuildErr != nil {
+				return
+			}
 			if got := filter.Matches(candidate); got != tc.wantMatch {
 				t.Errorf("Matches(candidate) = %v, want %v", got, tc.wantMatch)
 			}
 		})
 	}
-
-	t.Run("nil selector in MatchesPriorityClassSelector matches unconditionally", func(t *testing.T) {
-		_, log := utiltesting.ContextWithLog(t)
-		wl := workload.NewInfo(log, utiltestingapi.MakeWorkload("preemptor", "ns").Obj())
-		if !MatchesPriorityClassSelector(nil, wl) {
-			t.Errorf("MatchesPriorityClassSelector(nil, wl) = false, want true")
-		}
-	})
 }
 
 func TestPriorityFilter_PriorityBoost(t *testing.T) {

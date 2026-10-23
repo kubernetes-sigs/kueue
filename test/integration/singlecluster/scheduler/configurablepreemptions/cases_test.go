@@ -468,8 +468,8 @@ var _ = ginkgo.Describe("ConfigurablePreemptions", ginkgo.Label("feature:configu
 					Request(corev1.ResourceCPU, "1").
 					Obj()
 				behavioral.MustCreate(ctx, k8sClient, wlHigh2)
-				behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlHigh2, wlLow)
 				gomega.Consistently(func(g gomega.Gomega) {
+					behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wlHigh2, wlLow)
 					g.Expect(behavioral.FilterEvictedWorkloads(ctx, k8sClient, wlMid, wlHigh1)).To(gomega.BeEmpty())
 				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 				behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wlHigh1, wlMid)

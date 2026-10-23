@@ -93,37 +93,46 @@ type priorityClassFilter struct {
 	selector kueuealpha.PreemptionConfigPriorityClassSelector
 }
 
-// NewPriorityClassFilter creates a WorkloadFilter to evaluate candidate workloads
-// based on their priority class.
-func NewPriorityClassFilter(selector kueuealpha.PreemptionConfigPriorityClassSelector) WorkloadFilter {
-	return &priorityClassFilter{
-		selector: selector,
+func isSupportedPriorityClassOperator(operator kueuealpha.PriorityClassSelectorOperator) bool {
+	switch operator {
+	case kueuealpha.PriorityClassSelectorOpIn, kueuealpha.PriorityClassSelectorOpNotIn:
+		return true
+	default:
+		return false
 	}
 }
 
-// Matches evaluates a candidate workload against the priority class selector.
-func (f *priorityClassFilter) Matches(wl *workload.Info) bool {
-	return MatchesPriorityClassSelector(&f.selector, wl)
+// NewPriorityClassFilter creates a WorkloadFilter to evaluate candidate workloads
+// based on their priority class.
+func NewPriorityClassFilter(selector kueuealpha.PreemptionConfigPriorityClassSelector) (WorkloadFilter, *FilterBuildError) {
+	for _, req := range selector.NameExpressions {
+		if !isSupportedPriorityClassOperator(req.Operator) {
+			return nil, &FilterBuildError{
+				Filter: FilterPriorityClassSelector,
+				Reason: ReasonUnsupportedOperator,
+				Err:    fmt.Errorf("unsupported operator %q", req.Operator),
+			}
+		}
+	}
+	return &priorityClassFilter{
+		selector: selector,
+	}, nil
 }
 
 func isEmptyPriorityClassSelector(selector *kueuealpha.PreemptionConfigPriorityClassSelector) bool {
 	return selector == nil || (selector.SourceRef == nil && len(selector.NameExpressions) == 0)
 }
 
-// MatchesPriorityClassSelector evaluates whether a workload's spec.priorityClassRef
-// matches the given PreemptionConfigPriorityClassSelector.
-func MatchesPriorityClassSelector(selector *kueuealpha.PreemptionConfigPriorityClassSelector, wl *workload.Info) bool {
-	if isEmptyPriorityClassSelector(selector) {
-		return true
-	}
-	if selector.SourceRef != nil {
+// Matches evaluates a candidate workload against the priority class selector.
+func (f *priorityClassFilter) Matches(wl *workload.Info) bool {
+	if f.selector.SourceRef != nil {
 		ref := wl.Obj.Spec.PriorityClassRef
-		if ref == nil || string(ref.Group) != string(selector.SourceRef.Group) || string(ref.Kind) != string(selector.SourceRef.Kind) {
+		if ref == nil || string(ref.Group) != string(f.selector.SourceRef.Group) || string(ref.Kind) != string(f.selector.SourceRef.Kind) {
 			return false
 		}
 	}
 	name := patching.PriorityClassName(wl.Obj)
-	for _, req := range selector.NameExpressions {
+	for _, req := range f.selector.NameExpressions {
 		switch req.Operator {
 		case kueuealpha.PriorityClassSelectorOpIn:
 			if name == "" || !slices.Contains(req.Values, name) {

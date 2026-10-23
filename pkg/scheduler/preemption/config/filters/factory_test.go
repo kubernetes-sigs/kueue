@@ -308,10 +308,6 @@ func TestNewCandidateFilters(t *testing.T) {
 			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
 				Scope: kueuealpha.WithinClusterQueue,
 				PriorityClassSelector: &kueuealpha.PreemptionConfigPriorityClassSelector{
-					SourceRef: &kueuealpha.PriorityClassSourceRef{
-						Group: kueuealpha.WorkloadPriorityClassGroup,
-						Kind:  kueuealpha.WorkloadPriorityClassKind,
-					},
 					NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
 						{
 							Operator: kueuealpha.PriorityClassSelectorOpIn,
@@ -328,10 +324,6 @@ func TestNewCandidateFilters(t *testing.T) {
 				WLFilters: []WorkloadFilter{
 					&priorityClassFilter{
 						selector: kueuealpha.PreemptionConfigPriorityClassSelector{
-							SourceRef: &kueuealpha.PriorityClassSourceRef{
-								Group: kueuealpha.WorkloadPriorityClassGroup,
-								Kind:  kueuealpha.WorkloadPriorityClassKind,
-							},
 							NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
 								{
 									Operator: kueuealpha.PriorityClassSelectorOpIn,
@@ -478,6 +470,26 @@ func TestNewCandidateFilters(t *testing.T) {
 				{
 					Filter: FilterPriority,
 					Reason: ReasonUnsupportedComparison,
+				},
+			},
+		},
+		"PriorityClassSelector with invalid operator returns error": {
+			selector: &kueuealpha.PreemptionConfigPreemptionCandidateSelector{
+				Scope: kueuealpha.WithinClusterQueue,
+				PriorityClassSelector: &kueuealpha.PreemptionConfigPriorityClassSelector{
+					NameExpressions: []kueuealpha.PriorityClassSelectorRequirement{
+						{
+							Operator: kueuealpha.PriorityClassSelectorOperator("InvalidOp"),
+							Values:   []string{"low-priority"},
+						},
+					},
+				},
+			},
+			preemptor: preemptor,
+			wantErrs: []*FilterBuildError{
+				{
+					Filter: FilterPriorityClassSelector,
+					Reason: ReasonUnsupportedOperator,
 				},
 			},
 		},
