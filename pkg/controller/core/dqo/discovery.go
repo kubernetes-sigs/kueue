@@ -34,6 +34,10 @@ import (
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
+// maxEffectiveCapacityResourcesPerFlavor must match the CEL size rule on
+// EffectiveCapacityFlavor.Resources in apis/kueue/v1alpha1/dynamicquotaorchestrator_types.go.
+const maxEffectiveCapacityResourcesPerFlavor = 64
+
 // providerNotReadyMessage returns why the CapacityProvider's capacity cannot be
 // trusted, or "" if CapacitySynchronized=True for the current generation.
 // A spec update increments Generation without clearing the previous condition
@@ -102,6 +106,17 @@ func (r *Reconciler) reconcileDiscovery(ctx context.Context, orchestrator *kueue
 
 	effectiveCapacityFlavors := make([]kueuealpha.EffectiveCapacityFlavor, 0, len(aggregatedCapacity))
 	for _, flavorName := range slices.Sorted(maps.Keys(aggregatedCapacity)) {
+		if n := len(aggregatedCapacity[flavorName]); n > maxEffectiveCapacityResourcesPerFlavor {
+			r.setDiscoveryCondition(
+				orchestrator,
+				metav1.ConditionFalse,
+				kueuealpha.DynamicQuotaOrchestratorReasonAggregationFailed,
+				fmt.Sprintf("Aggregated capacity for flavor %q covers %d distinct resources, which exceeds the supported limit of %d",
+					flavorName, n, maxEffectiveCapacityResourcesPerFlavor),
+			)
+			orchestrator.Status.EffectiveCapacity = nil
+			return nil
+		}
 		effectiveCapacityFlavors = append(effectiveCapacityFlavors, kueuealpha.EffectiveCapacityFlavor{
 			Name:      flavorName,
 			Resources: aggregatedCapacity[flavorName],

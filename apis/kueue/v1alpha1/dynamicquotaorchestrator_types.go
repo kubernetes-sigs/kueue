@@ -151,7 +151,10 @@ type EffectiveCapacityFlavor struct {
 	// +required
 	Name ResourceFlavorReference `json:"name"`
 
-	// resources contains total capacity by resource name.
+	// resources contains total capacity by resource name, up to 64 distinct
+	// resources. If the referenced providers together report more distinct
+	// resources for the flavor, the DQO sets EffectiveCapacityComputed=False
+	// with reason AggregationFailed and clears status.effectiveCapacity.
 	// A resource that is not listed, including when the map is empty, has zero
 	// capacity for the flavor.
 	//
