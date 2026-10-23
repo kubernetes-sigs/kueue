@@ -399,14 +399,20 @@ fi
 
 if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
     export CLUSTERPROFILE_CRD=${ROOT_DIR}/dep-crds/clusterprofile/multicluster.x-k8s.io_clusterprofiles.yaml
-    # Only one secretreader image is ever needed per suite. From k8s 1.35 image volumes are
-    # enabled by default, so the official image can be mounted directly; on older versions we
-    # use the self-built image whose binary an init container copies into a shared volume,
-    # because the official image does not ship a "cp" command.
-    if e2e_supports_image_volume; then
-        export CLUSTERPROFILE_PLUGIN_IMAGE=registry.k8s.io/cluster-inventory-api/secretreader:${CLUSTERPROFILE_VERSION}
-    else
-        export CLUSTERPROFILE_PLUGIN_IMAGE=us-central1-docker.pkg.dev/k8s-staging-images/kueue/secretreader-plugin:${CLUSTERPROFILE_PLUGIN_IMAGE_VERSION}
+    # Only one secretreader delivery method is ever needed per suite. From k8s 1.35 image volumes
+    # are enabled by default, so the official image is mounted directly and must be preloaded.
+    # On older versions an init container extracts the binary from the official image with crane
+    # (the official image does not ship a "cp" command), so the crane image is preloaded instead.
+    export CLUSTERPROFILE_PLUGIN_IMAGE=registry.k8s.io/cluster-inventory-api/secretreader:${CLUSTERPROFILE_VERSION}
+    if ! e2e_supports_image_volume; then
+        # Honor a user-supplied E2E_TEST_CRANE_IMAGE as the pull reference; otherwise use the
+        # Dockerfile pin. Pull by digest and strip it only for the tag referenced by kind and the pod spec.
+        if [[ -z "${E2E_TEST_CRANE_IMAGE:-}" ]]; then
+            E2E_TEST_CRANE_IMAGE_WITH_SHA=$(grep '^FROM' "${ROOT_DIR}/hack/testing/crane/Dockerfile" | awk '{print $2}')
+        else
+            E2E_TEST_CRANE_IMAGE_WITH_SHA=${E2E_TEST_CRANE_IMAGE}
+        fi
+        export E2E_TEST_CRANE_IMAGE=${E2E_TEST_CRANE_IMAGE_WITH_SHA%%@*}
     fi
 fi
 
@@ -792,7 +798,12 @@ function prepare_docker_images {
         e2e_docker_pull_if_needed "${PROMETHEUS_IMAGE}"
     fi
     if [[ -n ${CLUSTERPROFILE_VERSION:-} ]]; then
-        e2e_docker_pull_if_needed "${CLUSTERPROFILE_PLUGIN_IMAGE}"
+        if ! e2e_supports_image_volume; then
+            e2e_docker_pull_if_needed "${E2E_TEST_CRANE_IMAGE_WITH_SHA}"
+            docker tag "${E2E_TEST_CRANE_IMAGE_WITH_SHA}" "${E2E_TEST_CRANE_IMAGE}"
+        else
+            e2e_docker_pull_if_needed "${CLUSTERPROFILE_PLUGIN_IMAGE}"
+        fi
     fi
 }
 
@@ -810,7 +821,11 @@ function cluster_kind_load {
     fi
 
     if [[ -n "${CLUSTERPROFILE_VERSION:-}" ]]; then
-        cluster_kind_load_image "$cluster" "${CLUSTERPROFILE_PLUGIN_IMAGE}"
+        if ! e2e_supports_image_volume; then
+            cluster_kind_load_image "$cluster" "${E2E_TEST_CRANE_IMAGE}"
+        else
+            cluster_kind_load_image "$cluster" "${CLUSTERPROFILE_PLUGIN_IMAGE}"
+        fi
     fi
 }
 
