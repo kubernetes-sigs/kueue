@@ -35,6 +35,9 @@ tags, build the mdtoc tool with `make mdtoc` and then generate the TOC with `hac
 - [Design Details](#design-details)
   - [Proposed API](#proposed-api)
   - [Limit Enforcement](#limit-enforcement)
+    - [Greedy Candidate Evaluation](#greedy-candidate-evaluation)
+    - [Interaction with Backfilling](#interaction-with-backfilling)
+    - [Comparison with Post-Selection Verification Alternative](#comparison-with-post-selection-verification-alternative)
   - [In-Memory State Management](#in-memory-state-management)
   - [Re-computation of Preemption Targets Upon Preemption Limits Consumption Overlap](#re-computation-of-preemption-targets-upon-preemption-limits-consumption-overlap)
   - [Workload Requeuing When No Candidates Are Available](#workload-requeuing-when-no-candidates-are-available)
@@ -201,6 +204,7 @@ spec:
 3. **Increasing time window**: Because expired preemption timestamps are periodically trimmed from the in-memory map based on the active sliding window, if a user updates a `PreemptionLimit` to increase `limitWindowSeconds`, events that occurred prior to the previously configured window will have already been pruned and will not be retroactively taken into account.
 4. **Deleted and recreated objects**: Preemption events are tracked in-memory by entity key (`namespace/name` for Workloads, or name for ClusterQueues) rather than by UID. Consequently, objects in the same namespace and with the same name will be treated as the same object, and preemption limits for them will not be reset if an object is deleted and recreated within the active time window.
 5. **Reset on spec changes to scope or selectors**: If a `PreemptionLimit` is modified such that its `scope`, `configSelector`, `preemptorClusterQueueSelector`, or `preemptedClusterQueueSelector` changes, its limits are reset by clearing all recorded in-memory preemption event timestamps for that limit.
+6. **Rejection of valid candidate sets due to enforcement algorithm limitations**: Because limits are evaluated greedily during the forward candidate search before the backfilling process runs, some candidate sets that would be under the limits after backfilling can be rejected if earlier candidates greedily exhaust the limit allowance before larger, sufficient candidates are evaluated (see [Interaction with Backfilling](#interaction-with-backfilling)).
 
 ### Risks and Mitigations
 
@@ -356,6 +360,46 @@ type PreemptionLimitCount struct {
 ### Limit Enforcement
 
 A `PreemptionLimit` limits the number of preemptions that can occur within its configured scope. During scheduling, the preemption evaluator checks proposed preemptions against all applicable limit objects, allowing an eviction to proceed only if sufficient preemption allowance remains. If a preemption falls within the scope of multiple limits, quota must be available in all of them. If the `ConfigurablePreemptionLimits` feature gate is disabled, Configurable Preemptions will not be constrained by any limits defined in the cluster.
+
+#### Greedy Candidate Evaluation
+
+To respect active limits during candidate searching, a **greedy algorithm** is used:
+- When considering each preemption candidate from the ordered candidate stream, Kueue evaluates whether admitting/preempting that candidate is allowed by all applicable active limits.
+- If it is not allowed, the candidate is skipped and candidate evaluation proceeds to subsequent candidates.
+- If it is allowed, the candidate is selected, and its eviction is accounted for in subsequent candidate evaluations.
+
+#### Interaction with Backfilling
+
+Because Kueue utilizes a backfilling algorithm in preemptions (`fillBackWorkloads`) to find a minimal set of preemption targets after the preemptor fits, evaluating limits greedily during candidate selection can lead to situations where a candidate set that would be under the limits after the backfilling process is rejected because limits were "greedily" consumed during the forward search.
+
+For example (where the number in each candidate name denotes its quota):
+- **Needed quota**: 4
+- **Limit**: 1 preemption allowed
+- **Candidates**: `C1` (quota 1), `C4` (quota 4)
+- **Execution**:
+  1. `C1` (quota 1) is evaluated: allowed by the limit, consumes the 1 allowed preemption. Total quota freed = 1.
+  2. `C4` (quota 4) is evaluated: skipped because the limit of 1 is already exhausted.
+  3. The search terminates having only freed 1 quota (needed 4), so candidate searching fails.
+- After the backfilling process, `C4` alone would have provided enough quota, allowing `C1` to be added back and leaving only `C4` (1 preemption, which satisfies the limit of 1). However, because the limit was greedily consumed by `C1`, `C4` was skipped and never reached the backfill stage.
+
+#### Comparison with Post-Selection Verification Alternative
+
+The natural alternative — verification that a found set of candidates is within the limits after candidate selection and backfilling — also fails to find some valid candidate sets.
+
+For example (where the prefix denotes the ClusterQueue and the number denotes candidate quota):
+- **Needed quota**: 4
+- **Limit per preempted CQ**: 1
+- **Candidates**: `A2`, `A2`, `B2`, `B2` (where `A2` candidates have quota 2 in ClusterQueue A, and `B2` candidates have quota 2 in ClusterQueue B)
+- **Execution under post-selection verification**:
+  1. Candidate search greedily accumulates candidates to satisfy quota: after considering the first two `A` candidates (`A2` + `A2`), the needed quota of 4 is reached.
+  2. Because quota is reached, the search stops.
+  3. Backfilling cannot remove either candidate because both are required to meet quota 4.
+  4. Post-selection verification evaluates the candidate set `{A2, A2}`: it contains 2 preemptions from ClusterQueue A, which violates the limit of 1 preemption per preempted CQ. The candidate set is blocked by the limits and preemption fails.
+- In contrast, the **greedy algorithm** successfully finds a correct candidate set in this case:
+  1. First `A2` (quota 2): evaluated and allowed by CQ A's limit (limit capacity becomes 0). Quota freed: 2.
+  2. Second `A2` (quota 2): evaluated, but skipped because CQ A's limit is already exhausted.
+  3. First `B2` (quota 2): evaluated and allowed by CQ B's limit (limit capacity becomes 0). Quota freed: 4.
+  4. Quota is satisfied with candidate set `{A2, B2}`, which cleanly satisfies the limit of 1 per preempted CQ.
 
 ### In-Memory State Management
 
