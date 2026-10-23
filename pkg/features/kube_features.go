@@ -957,6 +957,7 @@ var defaultFeatureGateDependencies = map[featuregate.Feature][]featuregate.Featu
 	ElasticJobsViaWorkloadSlicesForSparkApplication:     {ElasticJobsViaWorkloadSlices, SparkApplicationIntegration},
 	SchedulerLibraryIntegration:                         {TopologyAwareScheduling},
 	SchedulerLibraryDeepIntegration:                     {SchedulerLibraryIntegration},
+	PartialPreemption:                                   {ElasticJobsViaWorkloadSlices, ReclaimablePods},
 }
 
 // defaultVersionedFeatureGates consists of all known Kueue-specific feature keys.

@@ -1502,8 +1502,6 @@ func (r *WorkloadReconciler) handleUpdate(ctx context.Context, e event.TypedUpda
 		})
 	case prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted && !equality.Semantic.DeepEqual(e.ObjectOld.Status.ReclaimablePods, e.ObjectNew.Status.ReclaimablePods),
 		features.Enabled(features.ElasticJobsViaWorkloadSlices) && workloadslicing.ScaledDown(workload.ExtractPodSetCountsFromWorkload(e.ObjectOld), workload.ExtractPodSetCountsFromWorkload(e.ObjectNew)),
-		features.Enabled(features.PartialPreemption) && prevStatus == workload.StatusAdmitted && status == workload.StatusAdmitted &&
-			workloadslicing.ScaledDown(workload.ExtractGrantedPodSetCounts(e.ObjectOld), workload.ExtractGrantedPodSetCounts(e.ObjectNew)),
 		workload.PriorityChanged(log, e.ObjectOld, e.ObjectNew):
 		// trigger the move of associated inadmissibleWorkloads, if there are any.
 		r.queues.QueueAssociatedInadmissibleWorkloadsAfter(ctx, wlKey, func() {

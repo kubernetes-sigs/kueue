@@ -590,6 +590,13 @@ func (r *JobReconciler) ReconcileGenericJob(ctx context.Context, req ctrl.Reques
 		return ctrl.Result{}, err
 	}
 
+	// 3.1 shrink the job down to the reclaim target counts of partial preemption
+	if partialJob, ok := job.(JobWithPartialStop); ok && features.Enabled(features.PartialPreemption) && workload.IsAdmitted(wl) && !workloadevict.IsEvicted(wl) {
+		if targets := workload.PendingReclaimTargetCounts(wl); len(targets) > 0 {
+			return r.stopJobPartially(ctx, job, partialJob, wl, targets)
+		}
+	}
+
 	// 4. update reclaimable counts if implemented by the job
 	jobRecl, implementsReclaimable := job.(JobWithReclaimablePods)
 	// The webhook rejects lowering reclaimablePods while the workload holds quota,
@@ -853,6 +860,29 @@ func (r *JobReconciler) hasLiveManagedOwner(ctx context.Context, wl *kueue.Workl
 	}
 
 	return false, nil
+}
+
+// stopJobPartially brings the job down to the reclaim targets of partial preemption.
+// Once the Pods above them are gone, it marks those Pods reclaimable, which releases their quota.
+func (r *JobReconciler) stopJobPartially(ctx context.Context, job GenericJob, partialJob JobWithPartialStop, wl *kueue.Workload, targets workload.PodSetsCounts) (ctrl.Result, error) {
+	stopped, err := partialJob.StopPartially(ctx, r.client, wl, targets)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if stopped {
+		r.record.Eventf(job.Object(), nil, corev1.EventTypeNormal, ReasonPartiallyStopped, "PartiallyStopped",
+			"Stopping the pods above the reclaim target counts %v of workload '%s'", targets, workload.Key(wl))
+	}
+	above, err := workloadslicing.PodsAboveCounts(ctx, r.client, wl, targets)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if above {
+		// Pod deletions don't trigger the reconciler, so check again later.
+		return ctrl.Result{RequeueAfter: constants.UpdatesBatchPeriod}, nil
+	}
+	ctrl.LoggerFrom(ctx).V(3).Info("Releasing the quota reclaimed by partial preemption", "reclaimTargetCounts", targets)
+	return ctrl.Result{}, workload.UpdateReclaimablePods(ctx, r.client, wl, workload.ReclaimablePodsForTargets(wl, targets))
 }
 
 func (r *JobReconciler) clearAdmissionAfterEviction(ctx context.Context, job GenericJob, wl *kueue.Workload) error {

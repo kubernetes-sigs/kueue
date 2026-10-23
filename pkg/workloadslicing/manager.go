@@ -102,6 +102,10 @@ func (r *Manager) EnsureWorkloadSlices(
 						return nil, true, nil
 					}
 				}
+				// Partial preemption released the quota of some pods, create the scale up probe to regrow them.
+				if workload.IsPartiallyPreempted(wl) && len(workload.PendingReclaimTargetCounts(wl)) == 0 {
+					return nil, true, nil
+				}
 			}
 			return wl, true, nil
 		}

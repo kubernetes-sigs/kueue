@@ -24,11 +24,9 @@ import (
 	"strings"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/resources"
 )
 
 // IsPartiallyPreempted reports whether partial preemption shrank, or is
@@ -66,42 +64,34 @@ func SetReclaimTargetCounts(wl *kueue.Workload, targets PodSetsCounts) {
 }
 
 // PendingReclaimTargetCounts returns the reclaim target counts of the PodSets
-// that are still admitted above them, so their quota is not released yet.
+// that are still charged above them, so their quota is not released yet.
 func PendingReclaimTargetCounts(wl *kueue.Workload) PodSetsCounts {
-	if wl.Status.Admission == nil {
-		return nil
-	}
-	targets := ReclaimTargetCounts(wl)
+	granted := ExtractGrantedPodSetCountsAfterReclaim(wl)
 	var pending PodSetsCounts
-	counts := ExtractPodSetCountsFromWorkload(wl)
-	for _, psa := range wl.Status.Admission.PodSetAssignments {
-		if target, found := targets[psa.Name]; found && target < ptr.Deref(psa.Count, counts[psa.Name]) {
+	for name, target := range ReclaimTargetCounts(wl) {
+		if count, found := granted[name]; found && target < count {
 			if pending == nil {
 				pending = make(PodSetsCounts)
 			}
-			pending[psa.Name] = target
+			pending[name] = target
 		}
 	}
 	return pending
 }
 
-// ReleaseReclaimedQuota lowers the admitted counts, with their resource usage,
-// to the pending reclaim targets. It returns whether any count changed.
-func ReleaseReclaimedQuota(wl *kueue.Workload) bool {
-	targets := PendingReclaimTargetCounts(wl)
+// ReclaimablePodsForTargets returns the reclaimable Pods of wl with each PodSet
+// in targets marked reclaimable down to its target count, which releases the
+// quota of the Pods above it.
+func ReclaimablePodsForTargets(wl *kueue.Workload, targets PodSetsCounts) []kueue.ReclaimablePod {
 	counts := ExtractPodSetCountsFromWorkload(wl)
-	for i := range wl.Status.Admission.PodSetAssignments {
-		psa := &wl.Status.Admission.PodSetAssignments[i]
-		target, found := targets[psa.Name]
-		if !found {
-			continue
+	reclaimable := slices.Clone(wl.Status.ReclaimablePods)
+	for _, name := range slices.Sorted(maps.Keys(targets)) {
+		count := counts[name] - targets[name]
+		if i := slices.IndexFunc(reclaimable, func(rp kueue.ReclaimablePod) bool { return rp.Name == name }); i != -1 {
+			reclaimable[i].Count = max(reclaimable[i].Count, count)
+		} else {
+			reclaimable = append(reclaimable, kueue.ReclaimablePod{Name: name, Count: count})
 		}
-		admitted := PodSetResources{
-			Requests: resources.NewRequestsFromResourceList(psa.ResourceUsage),
-			Count:    ptr.Deref(psa.Count, counts[psa.Name]),
-		}
-		psa.ResourceUsage = admitted.ScaledTo(target).Requests.ToResourceList(resources.NewResourceFormatter())
-		psa.Count = new(target)
 	}
-	return len(targets) > 0
+	return reclaimable
 }

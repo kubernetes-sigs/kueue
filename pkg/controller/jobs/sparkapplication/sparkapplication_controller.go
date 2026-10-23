@@ -37,6 +37,8 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/podset"
+	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 var (
@@ -73,6 +75,7 @@ type SparkApplication sparkv1beta2.SparkApplication
 
 var _ jobframework.GenericJob = (*SparkApplication)(nil)
 var _ jobframework.ElasticWorkloadNameProvider = (*SparkApplication)(nil)
+var _ jobframework.JobWithPartialStop = (*SparkApplication)(nil)
 
 func (j *SparkApplication) Object() client.Object {
 	return (*sparkv1beta2.SparkApplication)(j)
@@ -88,6 +91,10 @@ func (j *SparkApplication) IsActive() bool {
 
 func (j *SparkApplication) Suspend() {
 	j.Spec.Suspend = new(true)
+}
+
+func (j *SparkApplication) StopPartially(ctx context.Context, c client.Client, wl *kueue.Workload, targets workload.PodSetsCounts) (bool, error) {
+	return workloadslicing.DeletePodsAboveCounts(ctx, c, wl, targets)
 }
 
 func (j *SparkApplication) GVK() schema.GroupVersionKind {

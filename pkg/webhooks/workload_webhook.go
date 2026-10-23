@@ -406,7 +406,7 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 	if workload.HasQuotaReservation(newObj) && workload.HasQuotaReservation(oldObj) {
 		allErrs = append(allErrs, validateReclaimablePodsUpdate(newObj, oldObj, field.NewPath("status", "reclaimablePods"))...)
 	}
-	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, workload.ReclaimTargetCounts(newObj), field.NewPath("status", "admission"))...)
+	allErrs = append(allErrs, validateAdmissionUpdate(newObj.Status.Admission, oldObj.Status.Admission, field.NewPath("status", "admission"))...)
 	allErrs = append(allErrs, validateImmutablePodSetUpdates(newObj, oldObj, statusPath.Child("admissionChecks"))...)
 	allErrs = append(allErrs, validateClusterNameUpdate(newObj, oldObj, statusPath)...)
 
@@ -418,8 +418,8 @@ func ValidateWorkloadUpdate(newObj, oldObj *kueue.Workload) field.ErrorList {
 }
 
 // validateAdmissionUpdate validates that admission can be set or unset, but the
-// fields within can't change, except for counts lowered to their reclaim targets.
-func validateAdmissionUpdate(new, old *kueue.Admission, reclaimTargets workload.PodSetsCounts, path *field.Path) field.ErrorList {
+// fields within can't change.
+func validateAdmissionUpdate(new, old *kueue.Admission, path *field.Path) field.ErrorList {
 	if old == nil || new == nil {
 		return nil
 	}
@@ -431,17 +431,6 @@ func validateAdmissionUpdate(new, old *kueue.Admission, reclaimTargets workload.
 		for i := range new.PodSetAssignments {
 			old.PodSetAssignments[i].TopologyAssignment = new.PodSetAssignments[i].TopologyAssignment
 			old.PodSetAssignments[i].DelayedTopologyRequest = new.PodSetAssignments[i].DelayedTopologyRequest
-		}
-	}
-	if features.Enabled(features.PartialPreemption) && len(new.PodSetAssignments) == len(old.PodSetAssignments) {
-		// Allow partial preemption to lower count, with its usage, to the reclaim target.
-		for i := range new.PodSetAssignments {
-			newPSA, oldPSA := &new.PodSetAssignments[i], &old.PodSetAssignments[i]
-			target, found := reclaimTargets[newPSA.Name]
-			if found && newPSA.Count != nil && oldPSA.Count != nil && *newPSA.Count < *oldPSA.Count && *newPSA.Count == target {
-				oldPSA.Count = newPSA.Count
-				oldPSA.ResourceUsage = newPSA.ResourceUsage
-			}
 		}
 	}
 	return apivalidation.ValidateImmutableField(new, old, path)
