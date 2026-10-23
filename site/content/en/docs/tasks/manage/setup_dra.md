@@ -612,4 +612,4 @@ DRA workloads are supported with [MultiKueue](/docs/concepts/multikueue), except
 
 MultiKueue syncs the workload and its owning job to worker clusters, but `ResourceClaimTemplate` and `DeviceClass` objects are not automatically synced. These must be created on each worker cluster separately.
 
-For device-count mappings, the manager cluster does not need `ResourceSlice` objects, because the worker cluster runs the CEL device availability check. Counter-based and capacity-based mappings still need `ResourceSlice` objects on the manager.
+For device-count mappings, the manager cluster does not need `ResourceSlice` objects, because the worker cluster runs the CEL device availability check. Counter-based and capacity-based mappings still need `ResourceSlice` objects on the manager. Without them, the workload stays inadmissible, so MultiKueue never dispatches it.
