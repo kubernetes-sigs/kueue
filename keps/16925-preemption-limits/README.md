@@ -429,9 +429,9 @@ To make this possible:
 
 ### Workload Requeuing When No Candidates Are Available
 
-If a workload cannot be admitted due to encountering preemption limits, a timestamp will be returned from the candidate-finding function. This timestamp indicates when the first encountered blocking limit will become available again, so that candidate searching can proceed further.
+If a workload cannot be admitted due to active preemption limits, the candidate-finding function returns a retry timestamp indicating when candidate searching can be retried. When this timestamp elapses, Kueue invokes `NotifyRetryInadmissible` for the workload's ClusterQueue, moving the workload from the inadmissible queue back to the active queue heap so scheduling can proceed.
 
-To requeue the workload, `NotifyRetryInadmissible` will be used with the workload's ClusterQueue when the time elapses, moving the workload from the inadmissible queue back to the active queue heap so scheduling can be retried.
+The returned timestamp corresponds to the **first encountered blocking limit** that halts or restricts candidate searching, rather than the limit whose expiration would fully unblock the workload. The primary goal of this timestamp is to ensure that the candidate search will be able to make forward progress or have an opportunity to consider additional candidates. The returned timestamp is generally earlier than or equal to the actual time when the workload can be fully scheduled. This heuristic does not attempt to calculate exact, optimal unblocking times as limits may be consumed by other scheduled workloads.
 
 
 ### Observability
