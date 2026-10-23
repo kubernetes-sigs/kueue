@@ -33,7 +33,7 @@ Please do not remove items from the checklist
     - Upload the files in the `release-artifacts` folder to the draft release.
     - Generate openvex data.
     - Generate the SBOM and add it to the release.
-  - [ ] Promote images and Helm Charts to production:
+  - [ ] Promote images and Helm Charts to production: <!-- step:wait-for-prod-images -->
     - [ ] Run `GITHUB_USER=<your-user> ./hack/releasing/promote_pull.sh $VERSION` to submit the promotion PR
     - [ ] Wait for the PR to be merged <!-- K8S_IO_PULL --> <!-- example kubernetes/k8s.io#7899 -->
     - [ ] Use `/wait-for-prod-images` to verify that the promoted images are available. <!-- step:wait-for-prod-images -->
