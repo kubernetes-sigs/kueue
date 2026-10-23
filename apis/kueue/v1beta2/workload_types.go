@@ -957,6 +957,14 @@ const (
 	// This also includes exceeding ClusterQueue nominal + borrowingLimit constraints.
 	WorkloadQuotaReservedReasonExceedsMaxQuota = "ExceedsMaxQuota"
 
+	// WorkloadQuotaReservedReasonUnrecordableResourceUsage indicates that an admitted
+	// PodSet total cannot be stored in PodSetAssignment.resourceUsage. A Quantity holds
+	// at most MaxInt64 in the unit it reports, so a non-CPU total past that, or a CPU
+	// total past MaxInt64 cores, would be written back capped. The workload is not
+	// admitted: the cache must not rebuild usage from the cap, and the admission is
+	// not retried when the capped value is not divisible by the Pod count.
+	WorkloadQuotaReservedReasonUnrecordableResourceUsage = "UnrecordableResourceUsage"
+
 	// WorkloadQuotaReservedReasonTopologyPlacementFailed indicates that the workload has topology
 	// requirements that cannot be satisfied with the current cluster topology usage.
 	WorkloadQuotaReservedReasonTopologyPlacementFailed = "TopologyPlacementFailed"
