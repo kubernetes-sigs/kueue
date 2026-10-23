@@ -84,6 +84,24 @@ The unit of scaling is a LWS group. By changing the number of `replicas` in the 
 or delete entire groups of Pods. As a result of scale up the newly created group of Pods is
 suspended by a scheduling gate, until the corresponding Workload is admitted.
 
+### d. Updating the Pod templates
+
+While Kueue manages a LeaderWorkerSet, it rejects changes to the fields of the Pod templates
+that affect admission, such as the resource requests, the `nodeSelector` or the `affinity`.
+
+Since Kueue v0.21, you can change the `tolerations` in the Pod templates, for example to tolerate a new node taint:
+- You can add tolerations at any time.
+  Kueue copies them to each Workload that does not hold a quota reservation,
+  so the Workload can be admitted to the nodes that require them.
+  A Workload that holds a quota reservation keeps its tolerations until it is evicted.
+- You can remove or change tolerations only while no Workload of the LeaderWorkerSet holds a quota reservation,
+  because the new Pods could fail to run on the nodes that Kueue assigned to an admitted Workload.
+  If a Workload is admitted while such a change is applied, Kueue evicts it with the `PodTemplateChanged` reason
+  and admits it again with the new tolerations.
+
+To turn this off, disable the `LWSMutableTolerations`
+[feature gate](/docs/getting-started/installation/#feature-gates-for-alpha-and-beta-features).
+
 ## Example
 Here is a sample LeaderWorkerSet:
 

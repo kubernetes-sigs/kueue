@@ -291,6 +291,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: LWSMutableTolerations
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: ManagedJobsNamespaceSelectorAlwaysRespected
   versionedSpecs:
   - default: false

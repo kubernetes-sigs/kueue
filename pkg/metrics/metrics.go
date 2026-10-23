@@ -611,6 +611,7 @@ The label 'reason' can have the following values:
 - "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
 - "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
 - "Deactivated" means that the workload was evicted because spec.active is set to false.
+- "PodTemplateChanged" means that the workload was evicted because the pod template of its job changed, and the new pods might not run on the nodes assigned at admission.
 The label 'underlying_cause' can have the following values:
 - "" means that the value in 'reason' label is the root cause for eviction.
 - "AdmissionCheck" means that the workload was evicted by Kueue due to a rejected admission check.
@@ -765,6 +766,7 @@ The label 'reason' can have the following values:
 - "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
 - "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
 - "Deactivated" means that the workload was evicted because spec.active is set to false.
+- "PodTemplateChanged" means that the workload was evicted because the pod template of its job changed, and the new pods might not run on the nodes assigned at admission.
 The label 'underlying_cause' can have the following values:
 - "" means that the value in 'reason' label is the root cause for eviction.
 - "WaitForStart" means that the pods have not been ready since admission, or the workload is not admitted.
@@ -797,6 +799,7 @@ The label 'reason' can have the following values:
 - "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
 - "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
 - "Deactivated" means that the workload was evicted because spec.active is set to false.
+- "PodTemplateChanged" means that the workload was evicted because the pod template of its job changed, and the new pods might not run on the nodes assigned at admission.
 The label 'underlying_cause' can have the following values:
 - "" means that the value in 'reason' label is the root cause for eviction.
 - "WaitForStart" means that the pods have not been ready since admission, or the workload is not admitted.
@@ -821,6 +824,7 @@ The label 'reason' can have the following values:
 - "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
 - "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
 - "Deactivated" means that the workload was evicted because spec.active is set to false.
+- "PodTemplateChanged" means that the workload was evicted because the pod template of its job changed, and the new pods might not run on the nodes assigned at admission.
 The label 'underlying_cause' can have the following values:
 - "" means that the value in 'reason' label is the root cause for eviction.
 - "WaitForStart" means that the pods have not been ready since admission, or the workload is not admitted.
@@ -860,7 +864,8 @@ The label 'reason' can have the following values:
 - "ClusterQueueStopped" means that the workload was evicted because the ClusterQueue is stopped.
 - "LocalQueueStopped" means that the workload was evicted because the LocalQueue is stopped.
 - "NodeFailures" means that the workload was evicted due to node failures when using TopologyAwareScheduling.
-- "Deactivated" means that the workload was evicted because spec.active is set to false.`,
+- "Deactivated" means that the workload was evicted because spec.active is set to false.
+- "PodTemplateChanged" means that the workload was evicted because the pod template of its job changed, and the new pods might not run on the nodes assigned at admission.`,
 			Buckets: generateExponentialBuckets(14),
 		}, append([]string{"cluster_queue", "reason", "replica_role"}, clusterQueueMetricsLabels...),
 	)

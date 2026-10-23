@@ -22,6 +22,7 @@ import (
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -243,6 +244,13 @@ func (wh *Webhook) ValidateUpdate(ctx context.Context, oldObj, newObj *leaderwor
 			&oldLeaderWorkerSet.Spec.LeaderWorkerTemplate.WorkerTemplate,
 			workerTemplatePath,
 		)...)
+		if features.Enabled(features.LWSMutableTolerations) {
+			tolerationErrs, err := validateRemovedTolerations(ctx, wh.client, oldObj, newObj)
+			if err != nil {
+				return nil, err
+			}
+			allErrs = append(allErrs, tolerationErrs...)
+		}
 		if features.Enabled(features.LWSImmutableGroupSize) {
 			// Immutable while managed: Workload updates never recompute PodSets,
 			// so growing Size would ungate extra pods without accounting for quota.
@@ -347,7 +355,60 @@ func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec
 	if newPodTemplateSpec == nil || oldPodTemplateSpec == nil {
 		allErrors = append(allErrors, apivalidation.ValidateImmutableField(newPodTemplateSpec, oldPodTemplateSpec, fieldPath)...)
 	} else {
-		allErrors = append(allErrors, jobframework.ValidateImmutablePodGroupPodSpec(&newPodTemplateSpec.Spec, &oldPodTemplateSpec.Spec, fieldPath.Child("spec"))...)
+		newPodSpec, oldPodSpec := newPodTemplateSpec.Spec, oldPodTemplateSpec.Spec
+		if features.Enabled(features.LWSMutableTolerations) {
+			// Tolerations do not change the quota. Removed tolerations are validated
+			// by validateRemovedTolerations.
+			newPodSpec.Tolerations, oldPodSpec.Tolerations = nil, nil
+		}
+		allErrors = append(allErrors, jobframework.ValidateImmutablePodGroupPodSpec(&newPodSpec, &oldPodSpec, fieldPath.Child("spec"))...)
 	}
 	return allErrors
+}
+
+// validateRemovedTolerations allows removing or changing tolerations only while
+// no Workload of the LeaderWorkerSet holds a quota reservation. An admitted
+// Workload keeps its tolerations, so the new pods might not run on the nodes
+// that Kueue assigned to it.
+func validateRemovedTolerations(ctx context.Context, c client.Client, oldLWS, newLWS *leaderworkersetv1.LeaderWorkerSet) (field.ErrorList, error) {
+	var paths []*field.Path
+	if removesTolerations(newLWS.Spec.LeaderWorkerTemplate.LeaderTemplate, oldLWS.Spec.LeaderWorkerTemplate.LeaderTemplate) {
+		paths = append(paths, leaderTemplatePath.Child("spec", "tolerations"))
+	}
+	if removesTolerations(&newLWS.Spec.LeaderWorkerTemplate.WorkerTemplate, &oldLWS.Spec.LeaderWorkerTemplate.WorkerTemplate) {
+		paths = append(paths, workerTemplatePath.Child("spec", "tolerations"))
+	}
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	hasQuotaReservation, err := hasWorkloadWithQuotaReservation(ctx, c, oldLWS)
+	if err != nil || !hasQuotaReservation {
+		return nil, err
+	}
+	var allErrs field.ErrorList
+	for _, path := range paths {
+		allErrs = append(allErrs, field.Forbidden(path, "existing tolerations cannot be removed or changed while a Workload of the LeaderWorkerSet holds a quota reservation"))
+	}
+	return allErrs, nil
+}
+
+// removesTolerations reports whether any toleration of the old template is
+// missing from the new one.
+func removesTolerations(newTemplate, oldTemplate *corev1.PodTemplateSpec) bool {
+	if newTemplate == nil || oldTemplate == nil {
+		return false
+	}
+	return !tolerationsContainAll(newTemplate.Spec.Tolerations, oldTemplate.Spec.Tolerations)
+}
+
+// tolerationsContainAll reports whether tolerations contain every toleration of want.
+func tolerationsContainAll(tolerations, want []corev1.Toleration) bool {
+	for _, w := range want {
+		if !slices.ContainsFunc(tolerations, func(t corev1.Toleration) bool {
+			return equality.Semantic.DeepEqual(t, w)
+		}) {
+			return false
+		}
+	}
+	return true
 }

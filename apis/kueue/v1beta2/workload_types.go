@@ -1143,6 +1143,11 @@ const (
 	// manager cluster.
 	WorkloadEvictedOnManagerCluster = "EvictedOnManagerCluster"
 
+	// WorkloadEvictedByPodTemplateChange indicates that the workload was evicted
+	// because the pod template of its job changed, and the new pods might not run
+	// on the nodes assigned at admission.
+	WorkloadEvictedByPodTemplateChange = "PodTemplateChanged"
+
 	// WorkloadSliceReplaced indicates that the workload instance was
 	// replaced with a new workload slice.
 	WorkloadSliceReplaced = "WorkloadSliceReplaced"

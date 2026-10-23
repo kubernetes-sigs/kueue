@@ -820,8 +820,9 @@ func (r *JobReconciler) clearAdmissionAfterEviction(ctx context.Context, job Gen
 		if evCond == nil || evCond.Status != metav1.ConditionTrue {
 			return false, nil
 		}
-		// The requeued condition status is true only for preemption or node failures.
-		setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures)
+		// The requeued condition status is true only for preemption, node failures or pod template changes.
+		setRequeued := (evCond.Reason == kueue.WorkloadEvictedByPreemption) || (evCond.Reason == kueue.WorkloadEvictedDueToNodeFailures) ||
+			(evCond.Reason == kueue.WorkloadEvictedByPodTemplateChange)
 		// A pod-owned Workload dies with its pod; requeuing it would recompute an assignment nothing can consume
 		// (placement drift). A pod that is still suspended (gated) has nothing placed and Stop leaves it in place.
 		// Its Workload must be requeued or both stay stuck.
