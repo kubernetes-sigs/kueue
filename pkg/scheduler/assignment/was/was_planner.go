@@ -30,7 +30,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	wassim "sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	"sigs.k8s.io/kueue/pkg/constants"
-	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
 	"sigs.k8s.io/kueue/pkg/workload"
@@ -120,21 +119,11 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 }
 
 func recordSimulationFailures(assignment *flavorassigner.Assignment, failures podSetFailureSummary) {
+	statuses := make(map[kueue.PodSetReference]*flavorassigner.Status, len(failures))
 	for psRef, summary := range failures {
-		assignment.ResolvePodSetFailure(
-			psRef,
-			flavorassigner.NoFit,
-			summary.asStatus().WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed),
-		)
+		statuses[psRef] = summary.asStatus().WithNoFitReason(kueue.WorkloadQuotaReservedReasonSimulationFailed)
 	}
-	if features.Enabled(features.UnadmittedWorkloadsObservability) {
-		for psRef := range failures {
-			psa := assignment.PodSetAssignmentByName(psRef)
-			for _, flv := range psa.Flavors {
-				psa.MarkFlavorAttempt(flv.Name, flavorassigner.NoFit, kueue.WorkloadQuotaReservedReasonSimulationFailed)
-			}
-		}
-	}
+	assignment.ResolvePodSetFailures(statuses, flavorassigner.NoFit)
 }
 
 // groupByPodSet groups the PodPlacements by PodSet
