@@ -1068,14 +1068,14 @@ func TestScheduleWorkload(t *testing.T) {
 
 	cases := map[string]struct {
 		// nodes overrides the default two 4-CPU nodes when set.
-		nodes           []*corev1.Node
-		existingPods    []*corev1.Pod
-		podGroups       []*schedulingv1beta1.PodGroup
-		pods            []*corev1.Pod
-		simulatorOpts   []testSimulatorOption
-		commitedTargets []client.ObjectKey
-		wantPlacements  simulator.PodPlacements
-		wantError       error
+		nodes            []*corev1.Node
+		existingPods     []*corev1.Pod
+		podGroups        []*schedulingv1beta1.PodGroup
+		pods             []*corev1.Pod
+		simulatorOpts    []testSimulatorOption
+		committedTargets []client.ObjectKey
+		wantPlacements   simulator.PodPlacements
+		wantError        error
 	}{
 		"no pods: no placements": {
 			wantPlacements: simulator.PodPlacements{},
@@ -1222,7 +1222,7 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p2"): {Node: "node2"},
 			},
 		},
-		"pods blocked by commited preempton targets are placed correctly": {
+		"pods blocked by committed preemption targets are placed correctly": {
 			existingPods: []*corev1.Pod{
 				testingpod.MakePod("victim1-pod", ns).
 					UID("victim1-pod-uid").
@@ -1244,7 +1244,7 @@ func TestScheduleWorkload(t *testing.T) {
 				workloadPod("p1", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj(),
 				workloadPod("p2", "pg").NodeSelector(corev1.LabelHostname, "node2").Obj(),
 			},
-			commitedTargets: []client.ObjectKey{key("victim1"), key("victim2")},
+			committedTargets: []client.ObjectKey{key("victim1"), key("victim2")},
 			wantPlacements: simulator.PodPlacements{
 				key("p1"): {Node: "node1"},
 				key("p2"): {Node: "node2"},
@@ -1272,8 +1272,8 @@ func TestScheduleWorkload(t *testing.T) {
 			schedulerSimulator.podsByWorkload = tracker.workloadPods
 
 			var scheduleOpts []simulator.ScheduleOption
-			if tc.commitedTargets != nil {
-				scheduleOpts = append(scheduleOpts, simulator.WithCommitedTargets(tc.commitedTargets))
+			if tc.committedTargets != nil {
+				scheduleOpts = append(scheduleOpts, simulator.WithCommittedTargets(tc.committedTargets))
 			}
 
 			// ScheduleWorkload runs dry, so asking twice must give the same answer:

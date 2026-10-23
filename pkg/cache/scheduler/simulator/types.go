@@ -92,23 +92,23 @@ func BuildScheduleOptions(opts []ScheduleOption) (*ScheduleOptions, error) {
 	for _, opt := range opts {
 		opt(o)
 	}
-	if err := validateCommitedTargets(o); err != nil {
+	if err := validateCommittedTargets(o); err != nil {
 		return nil, err
 	}
 	return o, nil
 }
 
-func WithCommitedTargets(targets []client.ObjectKey) ScheduleOption {
+func WithCommittedTargets(targets []client.ObjectKey) ScheduleOption {
 	return func(opts *ScheduleOptions) {
 		opts.CommittedTargets = targets
 	}
 }
 
-func validateCommitedTargets(o *ScheduleOptions) error {
+func validateCommittedTargets(o *ScheduleOptions) error {
 	present := sets.New[client.ObjectKey]()
 	for _, t := range o.CommittedTargets {
 		if present.Has(t) {
-			return fmt.Errorf("commited preemption target listed twice: %s", t)
+			return fmt.Errorf("committed preemption target listed twice: %s", t)
 		}
 		present.Insert(t)
 	}

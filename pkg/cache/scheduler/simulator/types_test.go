@@ -37,23 +37,23 @@ func TestBuildScheduleOptions(t *testing.T) {
 			wantOptions: &ScheduleOptions{},
 		},
 		"unique committed targets: ok": {
-			opts:        []ScheduleOption{WithCommitedTargets([]client.ObjectKey{wl1, wl2})},
+			opts:        []ScheduleOption{WithCommittedTargets([]client.ObjectKey{wl1, wl2})},
 			wantOptions: &ScheduleOptions{CommittedTargets: []client.ObjectKey{wl1, wl2}},
 		},
 		"same name in different namespaces: ok": {
-			opts:        []ScheduleOption{WithCommitedTargets([]client.ObjectKey{wl1, wl1OtherNs})},
+			opts:        []ScheduleOption{WithCommittedTargets([]client.ObjectKey{wl1, wl1OtherNs})},
 			wantOptions: &ScheduleOptions{CommittedTargets: []client.ObjectKey{wl1, wl1OtherNs}},
 		},
 		"later option overrides earlier committed targets: ok": {
 			opts: []ScheduleOption{
-				WithCommitedTargets([]client.ObjectKey{wl1}),
-				WithCommitedTargets([]client.ObjectKey{wl1, wl2}),
+				WithCommittedTargets([]client.ObjectKey{wl1}),
+				WithCommittedTargets([]client.ObjectKey{wl1, wl2}),
 			},
 			wantOptions: &ScheduleOptions{CommittedTargets: []client.ObjectKey{wl1, wl2}},
 		},
 		"duplicate committed target result in a validation error": {
-			opts:    []ScheduleOption{WithCommitedTargets([]client.ObjectKey{wl1, wl2, wl1})},
-			wantErr: "commited preemption target listed twice: ns/wl1",
+			opts:    []ScheduleOption{WithCommittedTargets([]client.ObjectKey{wl1, wl2, wl1})},
+			wantErr: "committed preemption target listed twice: ns/wl1",
 		},
 	}
 	for name, tc := range cases {
