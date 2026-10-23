@@ -22,8 +22,13 @@ import (
 	rayv1 "github.com/ray-project/kuberay/ray-operator/apis/ray/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	kueueconstants "sigs.k8s.io/kueue/pkg/constants"
 	"sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/jobframework"
 	"sigs.k8s.io/kueue/pkg/controller/jobs/rayjob"
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
@@ -159,6 +164,52 @@ var _ = ginkgo.Describe("RayJob Webhook", func() {
 				delete(createdJob.Labels, constants.QueueLabel)
 				gomega.Expect(k8sClient.Update(ctx, createdJob)).Should(gomega.Succeed())
 			})
+		})
+	})
+
+	ginkgo.When("With manageJobsWithoutQueueName enabled", func() {
+		ginkgo.BeforeEach(func() {
+			fwk.StartManager(ctx, cfg, managerSetup(func(mgr ctrl.Manager, opts ...jobframework.Option) error {
+				reconciler, err := rayjob.NewReconciler(ctx, mgr.GetClient(), mgr.GetFieldIndexer(),
+					mgr.GetEventRecorder(kueueconstants.JobControllerName), opts...)
+				if err != nil {
+					return err
+				}
+				if err := rayjob.SetupIndexes(ctx, mgr.GetFieldIndexer()); err != nil {
+					return err
+				}
+				if err := reconciler.SetupWithManager(mgr); err != nil {
+					return err
+				}
+				jobframework.ProcessOptions(opts...).IntegrationManager.EnableIntegration(rayjob.FrameworkName)
+				return rayjob.SetupRayJobWebhook(mgr, opts...)
+			}, jobframework.WithManageJobsWithoutQueueName(true)))
+			ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "rayjob-")
+		})
+
+		ginkgo.AfterEach(func() {
+			gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+			fwk.StopManager(ctx)
+		})
+
+		ginkgo.It("should leave a RayJob using an existing cluster unsuspended and without a Workload", func() {
+			job := testingjob.MakeJob("rayjob-selector-only", ns.Name).
+				ClusterSelector(map[string]string{"ray.io/cluster": "existing-cluster"}).
+				RayClusterSpec(nil).
+				Suspend(false).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, job)
+
+			createdJob := &rayv1.RayJob{}
+			lookupKey := client.ObjectKeyFromObject(job)
+
+			gomega.Consistently(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+				g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
+				workloads := &kueue.WorkloadList{}
+				g.Expect(k8sClient.List(ctx, workloads, client.InNamespace(ns.Name))).Should(gomega.Succeed())
+				g.Expect(workloads.Items).Should(gomega.BeEmpty())
+			}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
 		})
 	})
 })

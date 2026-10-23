@@ -58,6 +58,19 @@ func TestDefault(t *testing.T) {
 				Suspend(false).
 				Obj(),
 		},
+		"unmanaged - with cluster selector": {
+			oldJob: testingrayutil.MakeJob("job", "ns").
+				ClusterSelector(map[string]string{"ray.io/cluster": "shared-cluster"}).
+				RayClusterSpec(nil).
+				Suspend(false).
+				Obj(),
+			newJob: testingrayutil.MakeJob("job", "ns").
+				ClusterSelector(map[string]string{"ray.io/cluster": "shared-cluster"}).
+				RayClusterSpec(nil).
+				Suspend(false).
+				Obj(),
+			manageAll: true,
+		},
 		"managed - by config": {
 			oldJob: testingrayutil.MakeJob("job", "ns").
 				Suspend(false).
