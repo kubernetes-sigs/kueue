@@ -288,31 +288,6 @@ func ScaledUp(workload *kueue.Workload) bool {
 	return ReplacementForKey(workload) != nil
 }
 
-// HasPendingReplacement reports whether wl's chain has an active, non-evicted,
-// not finished slice that replaces wl. Such a slice means the job's desired
-// size has changed.
-func HasPendingReplacement(ctx context.Context, clnt client.Client, wl *kueue.Workload) (bool, error) {
-	if !IsElasticWorkload(wl) {
-		return false, nil
-	}
-	list := &kueue.WorkloadList{}
-	if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace),
-		client.MatchingFields{indexer.WorkloadSliceNameKey: SliceName(wl)}); err != nil {
-		return false, err
-	}
-	key := workload.Key(wl)
-	for i := range list.Items {
-		candidate := &list.Items[i]
-		replaced := ReplacementForKey(candidate)
-		if replaced == nil || *replaced != key || !workload.IsActive(candidate) ||
-			workloadevict.IsEvicted(candidate) || workloadfinish.IsFinished(candidate) {
-			continue
-		}
-		return true, nil
-	}
-	return false, nil
-}
-
 // FinishReplacedWorkloadSlices finds the workload slices that should have been
 // replaced and finishes them.
 func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clock, wl *kueue.Workload) error {
