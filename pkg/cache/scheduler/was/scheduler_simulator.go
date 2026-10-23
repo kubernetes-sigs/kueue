@@ -138,7 +138,7 @@ func (s *wasSimulator) PreemptWorkload(ctx context.Context, wlKey client.ObjectK
 	// Pods with indeterminate workloads are not stored in s.podsByWorkload and are omitted from preemptions.
 	// This means the simulation may be more restrictive than the real scheduler would be,
 	// if the preempted workload has pods that do not identify with it directly.
-	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.podsByWorkload.getPodsForWorkload(wlKey))
+	unpreempt, err := s.wasSnapshot.PreemptPods(ctx, s.podsByWorkload[wlKey].toSlice())
 	if err != nil {
 		return nil, fmt.Errorf("failed to preempt workload's pods from WAS snapshot: %w", err)
 	}
@@ -156,13 +156,23 @@ func (s *wasSimulator) Simulate(ctx context.Context, fn func()) error {
 	})
 }
 
-func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
+func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, options ...simulator.ScheduleOption) simulator.SchedulingResult {
 	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		return simulator.SchedulingResult{Error: errScheduleWorkloadNotAllowed}
 	}
 
+	opts, err := simulator.BuildScheduleOptions(options)
+	if err != nil {
+		return simulator.SchedulingResult{Error: fmt.Errorf("ScheduleWorkload() error when processing ScheduleOptions: %w", err)}
+	}
+
+	libOpts := schedlib.ScheduleWorkloadOptions{DryRun: true}
+	for _, preemptedWlKey := range opts.CommittedTargets {
+		libOpts.CommittedVictims = append(libOpts.CommittedVictims, s.podsByWorkload.getWorkload(preemptedWlKey))
+	}
+
 	workloadPods = copyWithDefaultScheduler(workloadPods...)
-	wasResult := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, schedlib.ScheduleWorkloadOptions{DryRun: true})
+	wasResult := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, libOpts)
 	if wasResult.Status.IsError() {
 		return simulator.SchedulingResult{Error: wasResult.Status.AsError()}
 	}

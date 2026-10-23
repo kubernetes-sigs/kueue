@@ -744,7 +744,7 @@ func TestSnapshotVirtualPodsDeduplication(t *testing.T) {
 	}
 	wasSim := schedulerSimulator.(*wasSimulator)
 
-	pods := wasSim.podsByWorkload.getPodsForWorkload(types.NamespacedName{Namespace: "default", Name: "wl1"})
+	pods := wasSim.podsByWorkload[types.NamespacedName{Namespace: "default", Name: "wl1"}].toSlice()
 	if len(pods) != 2 {
 		t.Fatalf("Expected 2 pods in podsByWorkload, got %d", len(pods))
 	}
@@ -1068,13 +1068,14 @@ func TestScheduleWorkload(t *testing.T) {
 
 	cases := map[string]struct {
 		// nodes overrides the default two 4-CPU nodes when set.
-		nodes          []*corev1.Node
-		existingPods   []*corev1.Pod
-		podGroups      []*schedulingv1beta1.PodGroup
-		pods           []*corev1.Pod
-		simulatorOpts  []testSimulatorOption
-		wantPlacements simulator.PodPlacements
-		wantError      error
+		nodes           []*corev1.Node
+		existingPods    []*corev1.Pod
+		podGroups       []*schedulingv1beta1.PodGroup
+		pods            []*corev1.Pod
+		simulatorOpts   []testSimulatorOption
+		commitedTargets []client.ObjectKey
+		wantPlacements  simulator.PodPlacements
+		wantError       error
 	}{
 		"no pods: no placements": {
 			wantPlacements: simulator.PodPlacements{},
@@ -1221,6 +1222,34 @@ func TestScheduleWorkload(t *testing.T) {
 				key("p2"): {Node: "node2"},
 			},
 		},
+		"pods blocked by commited preempton targets are placed correctly": {
+			existingPods: []*corev1.Pod{
+				testingpod.MakePod("victim1-pod", ns).
+					UID("victim1-pod-uid").
+					Annotation(kueue.WorkloadAnnotation, "victim1").
+					NodeName("node1").
+					StatusPhase(corev1.PodRunning).
+					Port(8080, 8080, corev1.ProtocolTCP).
+					Obj(),
+				testingpod.MakePod("victim2-pod", ns).
+					UID("victim2-pod-uid").
+					Annotation(kueue.WorkloadAnnotation, "victim2").
+					NodeName("node2").
+					StatusPhase(corev1.PodRunning).
+					Port(8080, 8080, corev1.ProtocolTCP).
+					Obj(),
+			},
+			podGroups: []*schedulingv1beta1.PodGroup{gangPodGroup("pg", 2)},
+			pods: []*corev1.Pod{
+				workloadPod("p1", "pg").NodeSelector(corev1.LabelHostname, "node1").Obj(),
+				workloadPod("p2", "pg").NodeSelector(corev1.LabelHostname, "node2").Obj(),
+			},
+			commitedTargets: []client.ObjectKey{key("victim1"), key("victim2")},
+			wantPlacements: simulator.PodPlacements{
+				key("p1"): {Node: "node1"},
+				key("p2"): {Node: "node2"},
+			},
+		},
 	}
 
 	for name, tc := range cases {
@@ -1236,11 +1265,22 @@ func TestScheduleWorkload(t *testing.T) {
 				caseNodes = tc.nodes
 			}
 			schedulerSimulator := newTestSimulatorWithPodGroups(ctx, t, caseNodes, tc.existingPods, tc.podGroups, tc.simulatorOpts...)
+			tracker := &podTracker{pods: make(podsByKey), workloadPods: make(podsByWorkload)}
+			for _, p := range tc.existingPods {
+				tracker.track(p)
+			}
+			schedulerSimulator.podsByWorkload = tracker.workloadPods
+
+			var scheduleOpts []simulator.ScheduleOption
+			if tc.commitedTargets != nil {
+				scheduleOpts = append(scheduleOpts, simulator.WithCommitedTargets(tc.commitedTargets))
+			}
 
 			// ScheduleWorkload runs dry, so asking twice must give the same answer:
-			// the first call must not leave its Pods on the nodes.
+			// the first call must not leave its Pods on the nodes, nor keep the
+			// committed targets released.
 			for attempt := range 2 {
-				got := schedulerSimulator.ScheduleWorkload(ctx, tc.pods)
+				got := schedulerSimulator.ScheduleWorkload(ctx, tc.pods, scheduleOpts...)
 				if diff := cmp.Diff(&tc.wantError, &got.Error, cmpErrorMessage); diff != "" {
 					t.Errorf("attempt %d: unexpected error (-want,+got):\n%s", attempt, diff)
 				}

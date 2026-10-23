@@ -25,12 +25,19 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	schedlib "sigs.k8s.io/scheduler-library/pkg/upstreamsync/snapshot"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
 )
 
+var _ schedlib.PreemptionVictim = (*workload)(nil)
+
 type podsByKey map[client.ObjectKey]*corev1.Pod
 type podsByWorkload map[client.ObjectKey]podsByKey
+type workload struct {
+	key  client.ObjectKey
+	pods []*corev1.Pod
+}
 
 // podTracker maintains pod state for scheduler plugins that need
 // existing pod information.
@@ -40,14 +47,11 @@ type podTracker struct {
 	workloadPods podsByWorkload
 }
 
-func (m podsByWorkload) getPodsForWorkload(wlKey client.ObjectKey) []*corev1.Pod {
-	if len(m) == 0 {
+func (p podsByKey) toSlice() []*corev1.Pod {
+	if len(p) == 0 {
 		return nil
 	}
-	if podSet, ok := m[wlKey]; ok {
-		return slices.Collect(maps.Values(podSet))
-	}
-	return nil
+	return slices.Collect(maps.Values(p))
 }
 
 func (m podsByWorkload) recordPod(wlKey client.ObjectKey, podKey client.ObjectKey, pod *corev1.Pod) {
@@ -69,11 +73,21 @@ func (m podsByWorkload) forgetPod(wlKey client.ObjectKey, podKey client.ObjectKe
 	}
 }
 
-func (p podsByKey) toSlice() []*corev1.Pod {
-	if len(p) == 0 {
+func (m podsByWorkload) getWorkload(wlKey client.ObjectKey) *workload {
+	if len(m) == 0 {
 		return nil
 	}
-	return slices.Collect(maps.Values(p))
+	return &workload{
+		key:  wlKey,
+		pods: m[wlKey].toSlice(),
+	}
+}
+
+func (wl *workload) Pods() []*corev1.Pod {
+	if wl == nil {
+		return nil
+	}
+	return wl.pods
 }
 
 func (t *podTracker) copy() *podTracker {

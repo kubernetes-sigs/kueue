@@ -17,9 +17,12 @@ limitations under the License.
 package simulator
 
 import (
+	"fmt"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -74,9 +77,43 @@ type PodRequirements struct {
 	SimulateEmpty bool
 }
 
-type scheduleOptions struct{}
+type ScheduleOptions struct {
+	// CommittedTargets lists the ObjectKeys of workloads that have
+	// already been established as preemption targets, but have not yet been
+	// recorded as preempted.
+	// The list should never contain duplicate keys.
+	CommittedTargets []client.ObjectKey
+}
 
-type ScheduleOption func(*scheduleOptions)
+type ScheduleOption func(*ScheduleOptions)
+
+func BuildScheduleOptions(opts []ScheduleOption) (*ScheduleOptions, error) {
+	o := &ScheduleOptions{}
+	for _, opt := range opts {
+		opt(o)
+	}
+	if err := validateCommitedTargets(o); err != nil {
+		return nil, err
+	}
+	return o, nil
+}
+
+func WithCommitedTargets(targets []client.ObjectKey) ScheduleOption {
+	return func(opts *ScheduleOptions) {
+		opts.CommittedTargets = targets
+	}
+}
+
+func validateCommitedTargets(o *ScheduleOptions) error {
+	present := sets.New[client.ObjectKey]()
+	for _, t := range o.CommittedTargets {
+		if present.Has(t) {
+			return fmt.Errorf("commited preemption target listed twice: %s", t)
+		}
+		present.Insert(t)
+	}
+	return nil
+}
 
 // SchedulingResult encapsulates the node assignments for the pods of the Workload.
 type SchedulingResult struct {
