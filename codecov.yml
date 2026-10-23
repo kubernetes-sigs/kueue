@@ -1,0 +1,22 @@
+# Unit coverage is a review aid. Status checks stay informational so a
+# drop in coverage does not fail CI and is not a merge gate.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+ignore:
+  # Third-party and generated trees inflate the denominator.
+  - "vendor/**"
+  - "client-go/**"
+  # deepcopy, conversion, defaults, and OpenAPI.
+  - "**/zz_generated.*"
+  # Generated protobuf. Present under vendor; kept so a future .pb.go is ignored too.
+  - "**/*.pb.go"
+  # Generated gomock and the kueuectl test-only fake client.
+  - "internal/mocks/**"
+  - "cmd/kueuectl/app/testing/**"

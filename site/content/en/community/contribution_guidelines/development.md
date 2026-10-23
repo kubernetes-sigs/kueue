@@ -121,3 +121,7 @@ go tool cover -html=artifacts/cover.out
 # Print a per-function summary
 go tool cover -func=artifacts/cover.out
 ```
+
+### Publishing to Codecov
+
+Unit profiles can be published to [Codecov](https://app.codecov.io/gh/kubernetes-sigs/kueue). The dashboard fills in once uploads succeed. Local commands are unchanged: `make test`, then `go tool cover`.
