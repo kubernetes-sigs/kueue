@@ -234,6 +234,8 @@ func ForKind(kind schema.GroupVersionKind) interface{} {
 		return &kueuev1beta2.WorkloadApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("WorkloadPriorityClass"):
 		return &kueuev1beta2.WorkloadPriorityClassApplyConfiguration{}
+	case v1beta2.SchemeGroupVersion.WithKind("WorkloadReplacement"):
+		return &kueuev1beta2.WorkloadReplacementApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("WorkloadSchedulingStatsEviction"):
 		return &kueuev1beta2.WorkloadSchedulingStatsEvictionApplyConfiguration{}
 	case v1beta2.SchemeGroupVersion.WithKind("WorkloadSpec"):

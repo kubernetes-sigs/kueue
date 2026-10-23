@@ -56,6 +56,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
 	controllerconsts "sigs.k8s.io/kueue/pkg/controller/constants"
+	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	podconstants "sigs.k8s.io/kueue/pkg/controller/jobs/pod/constants"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/metrics"
@@ -1167,11 +1168,16 @@ func (r *JobReconciler) ensureOneWorkload(ctx context.Context, job GenericJob, o
 			return nil, err
 		}
 
-		if workloadslicing.Enabled(object) {
+		if WorkloadSliceEnabled(job) {
+			list := &kueue.WorkloadList{}
+			if err := r.client.List(ctx, list, client.InNamespace(wl.Namespace),
+				client.MatchingFields{indexer.WorkloadSliceNameKey: workloadslicing.SliceName(wl)}); err != nil {
+				return nil, err
+			}
 			// TODO(kevin85421): Currently this only handles slices that the scheduler
 			// failed to finish after admitting the replacement. More cases may need
 			// to be handled in the future.
-			if err := workloadslicing.FinishReplacedWorkloadSlices(ctx, r.client, r.clock, wl); err != nil {
+			if err := r.workloadSlices.FinishReplacedWorkloadSlices(ctx, list.Items); err != nil {
 				return nil, err
 			}
 		}

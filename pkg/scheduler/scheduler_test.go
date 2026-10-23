@@ -6047,6 +6047,7 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Replaces("foo-1").
 					ClusterName("worker-a").
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
 					ResourceVersion("2").
@@ -6326,6 +6327,7 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Replaces("foo-1").
 					Annotation(workloadslicing.EnabledAnnotationKey, "true").
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
 					ResourceVersion("2").
@@ -6454,6 +6456,7 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Replaces("foo-1").
 					Annotation(workloadslicing.EnabledAnnotationKey, workloadslicing.EnabledAnnotationValue).
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
 					Queue("partial-lq").
@@ -6950,6 +6953,7 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("foo-2", "sales").
+					Replaces("foo-1").
 					Annotation(workloadslicing.EnabledAnnotationKey, "true").
 					Annotation(workloadslicing.WorkloadSliceReplacementFor, "sales/foo-1").
 					ResourceVersion("2").
@@ -7277,6 +7281,7 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("grow", "default").
+					Replaces("old").
 					Queue("lq-a").
 					Creation(now.Add(-3*time.Minute)).
 					PodSets(*utiltestingapi.MakePodSet("one", 8).Request(corev1.ResourceCPU, "1").Obj()).
@@ -7660,6 +7665,7 @@ func TestSchedule(t *testing.T) {
 					}).
 					Obj(),
 				*utiltestingapi.MakeWorkload("grow", "default").
+					Replaces("old").
 					Queue("lq-a").
 					Creation(now.Add(-3*time.Minute)).
 					PodSets(*utiltestingapi.MakePodSet("one", 6).Request(corev1.ResourceCPU, "1").Obj()).
