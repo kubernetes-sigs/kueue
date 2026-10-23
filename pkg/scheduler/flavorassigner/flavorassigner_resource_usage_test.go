@@ -114,7 +114,7 @@ func TestAssignFlavorsRecordsOnlyTotalsAQuantityCanStore(t *testing.T) {
 				resources.NewResourceFormatter(),
 				0,
 			)
-			got := assigner.AssignFlavors(ctx, log, nil)
+			got := assigner.Assign(ctx, nil)
 			if got.RepresentativeMode() != tc.wantMode {
 				t.Fatalf("RepresentativeMode() = %s, want %s; message %q", got.RepresentativeMode(), tc.wantMode, got.Message())
 			}
@@ -130,7 +130,7 @@ func TestAssignFlavorsRecordsOnlyTotalsAQuantityCanStore(t *testing.T) {
 				if !usage.Equal(resource.MustParse(tc.wantUsage)) {
 					t.Errorf("resourceUsage candidate %s, want %s", usage.String(), tc.wantUsage)
 				}
-				assigned := got.Usage.Quota.Assigned[resources.FlavorResource{Flavor: "default", Resource: gpu}]
+				assigned := got.Usage.Quota[resources.FlavorResource{Flavor: "default", Resource: gpu}]
 				if !assigned.Equal(resources.AmountFromQuantity(gpu, resource.MustParse(tc.wantUsage))) {
 					t.Errorf("assigned usage %s, want %s", assigned, tc.wantUsage)
 				}
@@ -139,8 +139,8 @@ func TestAssignFlavorsRecordsOnlyTotalsAQuantityCanStore(t *testing.T) {
 			if got.NoFitReason != tc.wantReason {
 				t.Errorf("NoFitReason = %q, want %q", got.NoFitReason, tc.wantReason)
 			}
-			if len(got.Usage.Quota.Assigned) != 0 {
-				t.Errorf("assigned usage = %v, want none", got.Usage.Quota.Assigned)
+			if len(got.Usage.Quota) != 0 {
+				t.Errorf("assigned usage = %v, want none", got.Usage.Quota)
 			}
 			if len(got.PodSets) != 1 || len(got.PodSets[0].Flavors) != 0 {
 				t.Errorf("PodSet flavors = %#v, want none", got.PodSets)
@@ -214,7 +214,7 @@ func TestUnrecordableUsageOutranksAWorseFlavorAttempt(t *testing.T) {
 		resources.NewResourceFormatter(),
 		0,
 	)
-	got := assigner.AssignFlavors(ctx, log, nil)
+	got := assigner.Assign(ctx, nil)
 	if got.NoFitReason != kueue.WorkloadQuotaReservedReasonUnrecordableResourceUsage {
 		t.Fatalf("NoFitReason = %q, want %q; message %q", got.NoFitReason, kueue.WorkloadQuotaReservedReasonUnrecordableResourceUsage, got.Message())
 	}

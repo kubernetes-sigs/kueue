@@ -142,6 +142,10 @@ var _ = ginkgo.Describe("Scheduler requests past a Quantity", func() {
 	)
 
 	ginkgo.BeforeEach(func() {
+		// On 0.19 this gate is off, so a quota failure is recorded as Pending.
+		// The condition reason below is the granular one.
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.UnadmittedWorkloadsObservability, true)
+
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "quantity-")
 
 		flavor = utiltestingapi.MakeResourceFlavor("quantity-flavor").Obj()
