@@ -1851,6 +1851,35 @@ var _ = ginkgo.Describe("Provisioning", ginkgo.Label("controller:provisioning", 
 	})
 })
 
+var _ = ginkgo.Describe("ProvisioningRequestConfig retry strategy validation", ginkgo.Label("controller:provisioning", "area:admissionchecks", "feature:provisioning"), func() {
+	baseConfig := utiltestingapi.MakeProvisioningRequestConfig("prov-config-validation").ProvisioningClass("provisioning-class")
+
+	ginkgo.DescribeTable("Creating a ProvisioningRequestConfig with a retry strategy field",
+		func(prc *kueue.ProvisioningRequestConfig, wantInvalid bool) {
+			if wantInvalid {
+				gomega.Expect(k8sClient.Create(ctx, prc)).Should(utiltesting.BeInvalidError())
+				return
+			}
+			behavioral.MustCreate(ctx, k8sClient, prc)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, prc, true)
+			})
+		},
+		ginkgo.Entry("rejects negative backoffBaseSeconds",
+			baseConfig.Clone().BaseBackoff(-1).Obj(), true),
+		ginkgo.Entry("accepts zero backoffBaseSeconds",
+			baseConfig.Clone().BaseBackoff(0).Obj(), false),
+		ginkgo.Entry("rejects negative backoffMaxSeconds",
+			baseConfig.Clone().MaxBackoff(-1).Obj(), true),
+		ginkgo.Entry("accepts zero backoffMaxSeconds",
+			baseConfig.Clone().MaxBackoff(0).Obj(), false),
+		ginkgo.Entry("rejects negative backoffLimitCount",
+			baseConfig.Clone().RetryLimit(-1).Obj(), true),
+		ginkgo.Entry("accepts zero backoffLimitCount",
+			baseConfig.Clone().RetryLimit(0).Obj(), false),
+	)
+})
+
 var _ = ginkgo.Describe("Provisioning with scheduling", ginkgo.Label("controller:provisioning", "area:admissionchecks", "feature:provisioning"), func() {
 	var (
 		ns             *corev1.Namespace
