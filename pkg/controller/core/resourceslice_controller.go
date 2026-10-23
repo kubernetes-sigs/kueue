@@ -38,35 +38,35 @@ import (
 )
 
 type ResourceSliceReconciler struct {
-	qManager       *qcache.Manager
-	cache          *schdcache.Cache
-	drivers        sets.Set[string]
-	quotaResources sets.Set[corev1.ResourceName]
-	roleTracker    *roletracker.RoleTracker
+	qManager *qcache.Manager
+	cache    *schdcache.Cache
+	// Mapping quota resources by driver limits notifications to affected ClusterQueues.
+	quotaResourcesByDriver map[string]sets.Set[corev1.ResourceName]
+	roleTracker *roletracker.RoleTracker
 }
 
 var _ reconcile.Reconciler = (*ResourceSliceReconciler)(nil)
 
 func NewResourceSliceReconciler(qManager *qcache.Manager, cache *schdcache.Cache, cfg *configapi.Configuration, roleTracker *roletracker.RoleTracker) *ResourceSliceReconciler {
-	drivers := sets.New[string]()
-	quotaResources := sets.New[corev1.ResourceName]()
+	quotaResourcesByDriver := make(map[string]sets.Set[corev1.ResourceName])
 
 	if cfg.Resources != nil {
 		for _, m := range cfg.Resources.DeviceClassMappings {
 			for _, s := range m.Sources {
 				if driver := sourceDriver(s); driver != "" {
-					drivers.Insert(driver)
-					quotaResources.Insert(m.Name)
+					if quotaResourcesByDriver[driver] == nil {
+						quotaResourcesByDriver[driver] = sets.New[corev1.ResourceName]()
+					}
+					quotaResourcesByDriver[driver].Insert(m.Name)
 				}
 			}
 		}
 	}
 	return &ResourceSliceReconciler{
-		qManager:       qManager,
-		cache:          cache,
-		drivers:        drivers,
-		quotaResources: quotaResources,
-		roleTracker:    roleTracker,
+		qManager:               qManager,
+		cache:                  cache,
+		quotaResourcesByDriver: quotaResourcesByDriver,
+		roleTracker:            roleTracker,
 	}
 }
 
@@ -82,27 +82,44 @@ func sourceDriver(s configapi.DeviceClassSourceConfig) string {
 
 func (r *ResourceSliceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := ctrl.LoggerFrom(ctx)
-	log.V(3).Info("Reconcile ResourceSlice", "resourceSlice", req.NamespacedName)
-	if cqNames := r.cache.ClusterQueuesForResources(r.quotaResources); cqNames.Len() > 0 {
+	// Reconcile is keyed by driver, not ResourceSlice name. The event handler
+	// retains the driver even if the ResourceSlice is already deleted, and
+	// coalesces changes to multiple slices from the same driver.
+	log.V(3).Info("Reconcile ResourceSlice driver", "driver", req.Name)
+	if cqNames := r.cache.ClusterQueuesForResources(r.quotaResourcesByDriver[req.Name]); cqNames.Len() > 0 {
 		qcache.NotifyRetryInadmissible(r.qManager, cqNames)
 	}
 	return ctrl.Result{}, nil
 }
 
 func (r *ResourceSliceReconciler) Create(e event.TypedCreateEvent[*resourcev1.ResourceSlice]) bool {
-	return r.drivers.Has(e.Object.Spec.Driver)
+	_, configured := r.quotaResourcesByDriver[e.Object.Spec.Driver]
+	return configured
 }
 
 func (r *ResourceSliceReconciler) Update(e event.TypedUpdateEvent[*resourcev1.ResourceSlice]) bool {
-	return r.drivers.Has(e.ObjectNew.Spec.Driver)
+	_, oldConfigured := r.quotaResourcesByDriver[e.ObjectOld.Spec.Driver]
+	_, newConfigured := r.quotaResourcesByDriver[e.ObjectNew.Spec.Driver]
+	return oldConfigured || newConfigured
 }
 
 func (r *ResourceSliceReconciler) Delete(e event.TypedDeleteEvent[*resourcev1.ResourceSlice]) bool {
-	return r.drivers.Has(e.Object.Spec.Driver)
+	_, configured := r.quotaResourcesByDriver[e.Object.Spec.Driver]
+	return configured
 }
 
 func (r *ResourceSliceReconciler) Generic(event.TypedGenericEvent[*resourcev1.ResourceSlice]) bool {
 	return false
+}
+
+// mapResourceSliceToDriver preserves the driver across deletion events, when
+// looking the ResourceSlice up again during Reconcile would fail. On updates,
+// TypedEnqueueRequestsFromMapFunc calls this for both old and new objects.
+func (r *ResourceSliceReconciler) mapResourceSliceToDriver(_ context.Context, slice *resourcev1.ResourceSlice) []reconcile.Request {
+	if _, configured := r.quotaResourcesByDriver[slice.Spec.Driver]; !configured {
+		return nil
+	}
+	return []reconcile.Request{{Name: slice.Spec.Driver}}
 }
 
 func SetupResourceSliceIndexer(ctx context.Context, indexer client.FieldIndexer) error {
@@ -121,7 +138,7 @@ func (r *ResourceSliceReconciler) SetupWithManager(mgr ctrl.Manager, cfg *config
 		WatchesRawSource(source.TypedKind(
 			mgr.GetCache(),
 			&resourcev1.ResourceSlice{},
-			&handler.TypedEnqueueRequestForObject[*resourcev1.ResourceSlice]{},
+			handler.TypedEnqueueRequestsFromMapFunc(r.mapResourceSliceToDriver),
 			r,
 		)).
 		WithOptions(controller.Options{
