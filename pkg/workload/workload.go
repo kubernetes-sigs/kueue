@@ -668,20 +668,14 @@ func Key(w *kueue.Workload) Reference {
 	return NewReference(w.Namespace, w.Name)
 }
 
-func reclaimableCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
+func reclaimableCounts(wl *kueue.Workload) PodSetsCounts {
 	return utilslices.ToMap(wl.Status.ReclaimablePods, func(i int) (kueue.PodSetReference, int32) {
 		return wl.Status.ReclaimablePods[i].Name, wl.Status.ReclaimablePods[i].Count
 	})
 }
 
-func podSetsCounts(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
-	return utilslices.ToMap(wl.Spec.PodSets, func(i int) (kueue.PodSetReference, int32) {
-		return wl.Spec.PodSets[i].Name, wl.Spec.PodSets[i].Count
-	})
-}
-
-func podSetsCountsAfterReclaim(wl *kueue.Workload) map[kueue.PodSetReference]int32 {
-	totalCounts := podSetsCounts(wl)
+func podSetsCountsAfterReclaim(wl *kueue.Workload) PodSetsCounts {
+	totalCounts := ExtractPodSetCountsFromWorkload(wl)
 	if !features.Enabled(features.ReclaimablePods) {
 		return totalCounts
 	}
@@ -771,7 +765,7 @@ func totalRequestsFromAdmission(wi *Info) []PodSetResources {
 	}
 	res := make([]PodSetResources, 0, len(wl.Spec.PodSets))
 	currentCounts := podSetsCountsAfterReclaim(wl)
-	totalCounts := podSetsCounts(wl)
+	totalCounts := ExtractPodSetCountsFromWorkload(wl)
 	for _, psa := range wl.Status.Admission.PodSetAssignments {
 		setRes := PodSetResources{
 			Name:     psa.Name,
