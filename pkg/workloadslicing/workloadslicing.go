@@ -40,6 +40,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
+	slicesutil "sigs.k8s.io/kueue/pkg/util/slices"
 	"sigs.k8s.io/kueue/pkg/workload"
 	"sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
@@ -163,23 +164,35 @@ func WithFinishedWorkloads() FindLatestAdmittedWorkloadSliceOption {
 	}
 }
 
+func listMatchingWorkloadSlices(
+	ctx context.Context,
+	c client.Client,
+	namespace, sliceName string,
+	keep func(*kueue.Workload) bool,
+) ([]kueue.Workload, error) {
+	list := &kueue.WorkloadList{}
+	if err := c.List(ctx, list, client.InNamespace(namespace),
+		client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
+		return nil, err
+	}
+	return slicesutil.Pick(list.Items, keep), nil
+}
+
 func FindLatestAdmittedWorkloadForSlice(ctx context.Context, c client.Client, namespace, sliceName string, options ...FindLatestAdmittedWorkloadSliceOption) (*kueue.Workload, error) {
 	opts := findLatestAdmittedWorkloadSliceOptions{}
 	for _, option := range options {
 		option(&opts)
 	}
-	wls := &kueue.WorkloadList{}
-	if err := c.List(ctx, wls, client.InNamespace(namespace),
-		client.MatchingFields{indexer.WorkloadSliceNameKey: sliceName}); err != nil {
+	wls, err := listMatchingWorkloadSlices(ctx, c, namespace, sliceName, func(wl *kueue.Workload) bool {
+		return workload.IsAdmitted(wl) && (opts.includeFinished || !workloadfinish.IsFinished(wl)) && !workloadevict.IsEvicted(wl) &&
+			(!opts.excludeVariants || !features.Enabled(features.ConcurrentAdmission) || !concurrentadmission.IsVariant(wl))
+	})
+	if err != nil {
 		return nil, err
 	}
 	var latestAdmittedWl *kueue.Workload
-	for i := range wls.Items {
-		wl := &wls.Items[i]
-		if !workload.IsAdmitted(wl) || (!opts.includeFinished && workloadfinish.IsFinished(wl)) || workloadevict.IsEvicted(wl) ||
-			(opts.excludeVariants && features.Enabled(features.ConcurrentAdmission) && concurrentadmission.IsVariant(wl)) {
-			continue
-		}
+	for i := range wls {
+		wl := &wls[i]
 		if latestAdmittedWl == nil || wl.CreationTimestamp.After(latestAdmittedWl.CreationTimestamp.Time) ||
 			(wl.CreationTimestamp.Equal(&latestAdmittedWl.CreationTimestamp) && cmp.Compare(wl.UID, latestAdmittedWl.UID) > 0) {
 			latestAdmittedWl = wl
@@ -291,21 +304,22 @@ func ScaledUp(workload *kueue.Workload) bool {
 // FinishReplacedWorkloadSlices finds the workload slices that should have been
 // replaced and finishes them.
 func FinishReplacedWorkloadSlices(ctx context.Context, clnt client.Client, clk clock.Clock, wl *kueue.Workload) error {
-	list := &kueue.WorkloadList{}
-	if err := clnt.List(ctx, list, client.InNamespace(wl.Namespace),
-		client.MatchingFields{indexer.WorkloadSliceNameKey: SliceName(wl)}); err != nil {
+	wls, err := listMatchingWorkloadSlices(ctx, clnt, wl.Namespace, SliceName(wl), func(candidate *kueue.Workload) bool {
+		return !workloadfinish.IsFinished(candidate)
+	})
+	if err != nil {
 		return fmt.Errorf("failed to find prebuilt workload slices: %w", err)
 	}
 	log := ctrl.LoggerFrom(ctx)
 	replaced := sets.New[workload.Reference]()
-	for i := range list.Items {
-		if key := replacementTarget(&list.Items[i]); key != nil {
+	for i := range wls {
+		if key := replacementTarget(&wls[i]); key != nil {
 			replaced.Insert(*key)
 		}
 	}
-	for i := range list.Items {
-		predecessor := &list.Items[i]
-		if !replaced.Has(workload.Key(predecessor)) || workloadfinish.IsFinished(predecessor) {
+	for i := range wls {
+		predecessor := &wls[i]
+		if !replaced.Has(workload.Key(predecessor)) {
 			continue
 		}
 		log.V(2).Info("Finishing workload slice that was not finished by the scheduler", "workload", workload.Key(predecessor))
