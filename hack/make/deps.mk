@@ -32,7 +32,6 @@ HUGO_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' git
 MDTOC_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/mdtoc)
 HELM_DOCS_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' github.com/norwoodj/helm-docs)
 MOCKGEN_VERSION ?= $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' go.uber.org/mock)
-CLUSTERPROFILE_VERSION=$(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f '{{.Version}}' sigs.k8s.io/cluster-inventory-api)
 
 # Versions for external controllers
 JOBSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/jobset)
@@ -42,6 +41,7 @@ KUBEFLOW_MPI_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/ku
 KUBERAY_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/ray-project/kuberay/ray-operator)
 APPWRAPPER_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/project-codeflare/appwrapper)
 LEADERWORKERSET_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/lws)
+CLUSTERPROFILE_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/cluster-inventory-api)
 SPARKOPERATOR_VERSION = $(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/kubeflow/spark-operator/v2)
 CERTMANAGER_VERSION=$(shell $(GO_CMD) list -m -f "{{.Version}}" github.com/cert-manager/cert-manager)
 DRA_EXAMPLE_DRIVER_VERSION = $(shell cd $(TOOLS_DIR); $(GO_CMD) list -m -f "{{.Version}}" sigs.k8s.io/dra-example-driver)
