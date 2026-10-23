@@ -1,0 +1,43 @@
+title: MultiKueue Capacity Provider
+kep-number: 17401
+authors:
+  - "@JanKaczmarski"
+status: provisional
+creation-date: 2026-10-19
+reviewers:
+  - "@olekzabl"
+  - "@j-skiba"
+  - "@sohankunkerkar"
+  - "@amy"
+approvers:
+  - "@tenzen-y"
+  - "@mimowo"
+
+see-also:
+  - "keps/9988-multikueue-manager-quota-automation"
+  - "keps/12382-dynamic-quota-orchestration"
+
+# The target maturity stage in the current dev cycle for this KEP.
+stage: alpha
+
+# The most recent milestone for which work toward delivery of this KEP has been
+# done. This can be the current (upcoming) milestone, if it is being actively
+# worked on.
+latest-milestone: "v0.21"
+
+# The milestone at which this feature was, or is targeted to be, at each stage.
+milestone:
+  alpha: "v0.21"
+  beta: "TBD"
+  stable: "TBD"
+
+# The following PRR answers are required at alpha release
+# List the feature gate name and the components for which it must be enabled
+feature-gates:
+  - name: MultiKueueCapacityProvider
+    components: kueue-controller-manager
+disable-supported: true
+
+# The following PRR answers are required at beta release
+# metrics:
+#   - my_feature_metric
