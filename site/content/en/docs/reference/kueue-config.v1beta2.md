@@ -506,9 +506,23 @@ Possible values are:</p>
 <ul>
 <li>Delegated: each request needs a bearer token that passes TokenReview and SubjectAccessReview.</li>
 <li>None: no authentication or authorization. For enabled metrics, requires the
-loopback IP and port in bindAddress.
+loopback IP and port in bindAddress.</li>
+<li>ClientCertificateOrBearer: a trusted client certificate or bearer token
+identifies the caller; SubjectAccessReview still authorizes metrics access.
+Requires clientCAFile.
 Defaults to Delegated when the feature gate is enabled.</li>
 </ul>
+</td>
+</tr>
+<tr><td><code>clientCAFile</code><br/>
+<code>string</code>
+</td>
+<td>
+   <p>ClientCAFile identifies a public PEM CA bundle used to authenticate metrics clients.
+Requires the MetricsAccessControl feature gate.
+Required only in ClientCertificateOrBearer mode and forbidden in other modes.
+Unset or null preserves the existing mode contract. The absolute path is read
+at startup; valid bundle contents are reloaded without restarting the manager.</p>
 </td>
 </tr>
 <tr><td><code>bindAddress</code><br/>
