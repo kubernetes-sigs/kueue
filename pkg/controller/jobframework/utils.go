@@ -43,7 +43,6 @@ import (
 	"sigs.k8s.io/kueue/pkg/util/orderedgroups"
 	utilqueue "sigs.k8s.io/kueue/pkg/util/queue"
 	"sigs.k8s.io/kueue/pkg/util/roletracker"
-	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 )
 
 // PodSetReplicaSize is a minimal representation of a PodSet for the
@@ -259,14 +258,8 @@ func SetMultiKueueMeta(obj client.Object, workloadName, origin string) {
 
 // NewWorkload creates a new Workload object with the specified name,
 // associated object, pod sets, and label keys to copy.
-func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy, annotationsToCopy sets.Set[string]) *kueue.Workload {
+func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKeysToCopy, annotationsToCopy sets.Set[string], wfpr *kueue.WaitForPodsReady) *kueue.Workload {
 	annotations := admissioncheck.FilterProvReqAnnotations(obj.GetAnnotations())
-	if waitforpodsready.WorkloadLevelWaitForPodsReadyEnabled() {
-		annotation := obj.GetAnnotations()[controllerconstants.WaitForPodsReadyAnnotation]
-		if annotation != "" {
-			annotations[controllerconstants.WaitForPodsReadyAnnotation] = annotation
-		}
-	}
 	if features.Enabled(features.CustomMetricLabels) {
 		maps.Copy(&annotations, maps.FilterKeys(obj.GetAnnotations(), annotationsToCopy.UnsortedList()))
 	}
@@ -280,6 +273,7 @@ func NewWorkload(name string, obj client.Object, podSets []kueue.PodSet, labelKe
 			QueueName:                   QueueNameForObject(obj),
 			PodSets:                     podSets,
 			MaximumExecutionTimeSeconds: MaximumExecutionTimeSecondsForObject(obj),
+			WaitForPodsReady:            wfpr,
 		},
 	}
 }

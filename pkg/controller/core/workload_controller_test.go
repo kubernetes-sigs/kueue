@@ -54,7 +54,6 @@ import (
 	queueafs "sigs.k8s.io/kueue/pkg/cache/queue/afs"
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/constants"
-	controllerconstants "sigs.k8s.io/kueue/pkg/controller/constants"
 	utilindexer "sigs.k8s.io/kueue/pkg/controller/core/indexer"
 	"sigs.k8s.io/kueue/pkg/dra"
 	"sigs.k8s.io/kueue/pkg/features"
@@ -877,9 +876,9 @@ func TestAdmittedNotReadyWorkload(t *testing.T) {
 				features.WorkloadLevelWaitForPodsReady: true,
 			},
 			workload: kueue.Workload{
-				ObjectMeta: metav1.ObjectMeta{
-					Annotations: map[string]string{
-						controllerconstants.WaitForPodsReadyAnnotation: `{"timeoutSeconds": 300}`,
+				Spec: kueue.WorkloadSpec{
+					WaitForPodsReady: &kueue.WaitForPodsReady{
+						TimeoutSeconds: new(int64(300)),
 					},
 				},
 				Status: kueue.WorkloadStatus{

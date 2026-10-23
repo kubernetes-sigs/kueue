@@ -358,7 +358,12 @@ func (r *Reconciler) constructWorkload(lws *leaderworkersetv1.LeaderWorkerSet, w
 	if err != nil {
 		return nil, err
 	}
-	createdWorkload := podcontroller.NewGroupWorkload(workloadName, lws, podSets, r.labelKeysToCopy, r.annotationsToCopy)
+	wfpr, err := waitforpodsready.ParseWaitForPodsReady(lws)
+	if err != nil {
+		return nil, err
+	}
+
+	createdWorkload := podcontroller.NewGroupWorkload(workloadName, lws, podSets, r.labelKeysToCopy, r.annotationsToCopy, wfpr)
 
 	if createdWorkload.Labels == nil {
 		createdWorkload.Labels = make(map[string]string, 1)

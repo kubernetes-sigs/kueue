@@ -48,6 +48,7 @@ import (
 	clientutil "sigs.k8s.io/kueue/pkg/util/client"
 	"sigs.k8s.io/kueue/pkg/util/slices"
 	utiltolerations "sigs.k8s.io/kueue/pkg/util/tolerations"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 )
 
 var (
@@ -227,11 +228,16 @@ func (t *TrainJob) PodSets(ctx context.Context, c client.Client) ([]kueue.PodSet
 		return nil, err
 	}
 
+	wfpr, err := waitforpodsready.ParseWaitForPodsReady(t.Object())
+	if err != nil {
+		return nil, err
+	}
+
 	// Run a dry-run create of a throwaway workload to set the podset defaults
 	// Podsets must be defaulted because Kueue later uses them to match workloads.
 	// Workloads coming from the API server are already defaulted, so without defaulting these podsets, matching would fail.
 	// Use a generated name, because a dry-run create still fails if a Workload with the same name exists.
-	wl := jobframework.NewWorkload("", t.Object(), podsets, nil, nil)
+	wl := jobframework.NewWorkload("", t.Object(), podsets, nil, nil, wfpr)
 	wl.GenerateName = t.Name + "-"
 	if err := c.Create(ctx, wl, &client.CreateOptions{DryRun: []string{metav1.DryRunAll}}); err != nil {
 		return nil, err

@@ -1404,7 +1404,7 @@ func PropagateAdmissionGatedByAnnotation(obj client.Object, wl *kueue.Workload) 
 }
 
 // UpdateWaitForPodsReady propagates the WaitForPodsReady annotation from the job object
-// to its associated workload. Emits an event only if the annotation was actually changed
+// to its associated workload spec. Emits an event only if the annotation was actually changed
 // and the update succeeded.
 // The function returnes immediately if the WorkloadLevelWaitForPodsReady feature is not enabled.
 func UpdateWaitForPodsReady(ctx context.Context, c client.Client, r events.EventRecorder, obj client.Object, wl *kueue.Workload) error {
@@ -1429,35 +1429,32 @@ func UpdateWaitForPodsReady(ctx context.Context, c client.Client, r events.Event
 }
 
 // PropagateWaitForPodsReadyAnnotation copies the WaitForPodsReady annotation from the given object to
-// workload object but only in memory. It does not persist the changes to the API server.
+// workload object spec but only in memory. It does not persist the changes to the API server. If an old
+// wait-for-pods-ready annotation exists on the workload, it's deleted.
 func PropagateWaitForPodsReadyAnnotation(obj client.Object, wl *kueue.Workload) (bool, error) {
-	jobCfg, err := waitforpodsready.ParseAnnotation(obj.GetAnnotations()[controllerconsts.WaitForPodsReadyAnnotation])
+	// Remove annotation as is being moved to workload Spec.
+	annotation := obj.GetAnnotations()[controllerconsts.WaitForPodsReadyAnnotation]
+	if annotation != "" {
+		delete(wl.Annotations, controllerconsts.WaitForPodsReadyAnnotation)
+	}
+
+	desiredCfg, err := waitforpodsready.ParseWaitForPodsReady(obj)
 	if err != nil {
 		return false, err
 	}
-
-	wlCfg, err := waitforpodsready.ParseAnnotation(wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation])
-
-	if err == nil && apiequality.Semantic.DeepEqual(wlCfg, jobCfg) {
+	if apiequality.Semantic.DeepEqual(wl.Spec.WaitForPodsReady, desiredCfg) {
 		return false, nil
 	}
 
-	if wl.Annotations == nil {
-		wl.Annotations = make(map[string]string)
-	}
-	if jobCfg == nil {
-		delete(wl.Annotations, controllerconsts.WaitForPodsReadyAnnotation)
-	} else {
-		wl.Annotations[controllerconsts.WaitForPodsReadyAnnotation] = obj.GetAnnotations()[controllerconsts.WaitForPodsReadyAnnotation]
-	}
+	wl.Spec.WaitForPodsReady = desiredCfg
 	return true, nil
 }
 
-// RecordWaitForPodsReadyUpdateEvent records a successful WaitForPodsReady annotation
+// RecordWaitForPodsReadyUpdateEvent records a successful WaitForPodsReady spec
 // update to a workload.
 func RecordWaitForPodsReadyUpdateEvent(r events.EventRecorder, obj client.Object) {
 	r.Eventf(obj, nil, corev1.EventTypeNormal, ReasonUpdatedWorkload, ReasonUpdatedWorkload,
-		"Updated workload WaitForPodsReady annotation to %s", obj.GetAnnotations()[controllerconsts.WaitForPodsReadyAnnotation],
+		"Updated workload spec WaitForPodsReady to %s", obj.GetAnnotations()[controllerconsts.WaitForPodsReadyAnnotation],
 	)
 }
 
@@ -1992,7 +1989,12 @@ func ConstructWorkload(ctx context.Context, c client.Client, job GenericJob, lab
 		}
 	}
 
-	wl := NewWorkload(newWorkloadName(job, extra), object, podSets, labelKeysToCopy, annotationsToCopy)
+	wfpr, err := waitforpodsready.ParseWaitForPodsReady(job.Object())
+	if err != nil {
+		return nil, err
+	}
+
+	wl := NewWorkload(newWorkloadName(job, extra), object, podSets, labelKeysToCopy, annotationsToCopy, wfpr)
 	if wl.Labels == nil {
 		wl.Labels = make(map[string]string)
 	}
