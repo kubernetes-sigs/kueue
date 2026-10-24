@@ -13,7 +13,6 @@ tool (
 	gotest.tools/gotestsum
 	helm.sh/helm/v4/cmd/helm
 	k8s.io/code-generator
-	sigs.k8s.io/cluster-inventory-api/plugins/secretreader/cmd/plugin
 	sigs.k8s.io/controller-runtime/tools/setup-envtest
 	sigs.k8s.io/controller-tools/cmd/controller-gen
 	sigs.k8s.io/kind
@@ -517,7 +516,6 @@ require (
 	mvdan.cc/unparam v0.0.0-20260823230713-2fa3d841b0c8 // indirect
 	oras.land/oras-go/v2 v2.6.2 // indirect
 	rsc.io/qr v0.2.0 // indirect
-	sigs.k8s.io/cluster-inventory-api v0.2.0 // indirect
 	sigs.k8s.io/controller-runtime v0.25.2 // indirect
 	sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730 // indirect
 	sigs.k8s.io/kustomize/api v0.21.3 // indirect

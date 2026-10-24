@@ -233,6 +233,11 @@ func (c *ContainerWrapper) Command(cmd ...string) *ContainerWrapper {
 	return c
 }
 
+func (c *ContainerWrapper) WithSecurityContext(securityContext *corev1.SecurityContext) *ContainerWrapper {
+	c.SecurityContext = securityContext
+	return c
+}
+
 type PodTemplateWrapper struct {
 	corev1.PodTemplate
 }

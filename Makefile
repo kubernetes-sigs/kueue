@@ -49,8 +49,6 @@ IMAGE_TAG_KUEUEVIZ_FRONTEND := $(IMAGE_REPO_KUEUEVIZ_FRONTEND):$(GIT_TAG)
 IMAGE_TAG_KUEUE_POPULATOR := $(IMAGE_REPO_KUEUE_POPULATOR):$(GIT_TAG)
 IMAGE_TAG_KUEUE_PRIORITY_BOOSTER := $(IMAGE_REPO_KUEUE_PRIORITY_BOOSTER):$(GIT_TAG)
 
-CLUSTERPROFILE_PLUGIN_IMAGE_VERSION ?= 0.0.1
-
 PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
 BIN_DIR ?= $(PROJECT_DIR)/bin
 ARTIFACTS ?= $(PROJECT_DIR)/artifacts
@@ -633,20 +631,3 @@ ray-project-mini-image-build-push: ray-project-mini-image-build
 kind-ray-project-mini-image-build: RAY_PLATFORMS=$(HOST_IMAGE_PLATFORM)
 kind-ray-project-mini-image-build: PUSH=--load
 kind-ray-project-mini-image-build: ray-project-mini-image-build
-
-# Build the secretreader-plugin image
-.PHONY: secretreader-plugin-image-build
-secretreader-plugin-image-build: IMAGE_BUILD_CMD := $(IMAGE_BUILD_RETRY) $(IMAGE_BUILD_CMD)
-secretreader-plugin-image-build:
-	$(IMAGE_BUILD_CMD) \
-		-t $(IMAGE_REGISTRY)/secretreader-plugin:$(CLUSTERPROFILE_PLUGIN_IMAGE_VERSION) \
-		--platform=$(PLATFORMS) \
-		--build-arg PLUGIN_VERSION=$(CLUSTERPROFILE_VERSION) \
-		$(PUSH) \
-		-f hack/testing/secretreader/Dockerfile ./
-
-# The step is required for local e2e test run
-.PHONY: kind-secretreader-plugin-image-build
-kind-secretreader-plugin-image-build: PLATFORMS=$(HOST_IMAGE_PLATFORM)
-kind-secretreader-plugin-image-build: PUSH=--load
-kind-secretreader-plugin-image-build: secretreader-plugin-image-build
