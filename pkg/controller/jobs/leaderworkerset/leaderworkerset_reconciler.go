@@ -28,6 +28,7 @@ import (
 	"golang.org/x/sync/errgroup"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -35,6 +36,7 @@ import (
 	"k8s.io/client-go/tools/events"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2"
+	"k8s.io/utils/clock"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -64,6 +66,7 @@ import (
 	utilstatefulset "sigs.k8s.io/kueue/pkg/util/statefulset"
 	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
 )
 
 const (
@@ -89,6 +92,7 @@ type Reconciler struct {
 	managedJobsNamespaceSelector labels.Selector
 	roleTracker                  *roletracker.RoleTracker
 	customLabels                 *metrics.CustomLabels
+	clock                        clock.Clock
 }
 
 const controllerName = "leaderworkerset"
@@ -107,6 +111,7 @@ func NewReconciler(_ context.Context, client client.Client, _ client.FieldIndexe
 		managedJobsNamespaceSelector: options.ManagedJobsNamespaceSelector,
 		roleTracker:                  options.RoleTracker,
 		customLabels:                 options.CustomLabels,
+		clock:                        options.Clock,
 	}, nil
 }
 
@@ -459,6 +464,17 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 		shouldUpdate = true
 	}
 
+	if features.Enabled(features.LWSMutableTolerations) && !isMultiKueueRemote(lws) {
+		if workload.HasQuotaReservation(wl) {
+			if !workloadevict.IsEvicted(wl) && hasRemovedOrChangedTolerations(lws, wl) {
+				return r.evictForChangedTolerations(ctx, wl)
+			}
+		} else if syncTolerations(lws, wl) {
+			log.V(2).Info("LeaderWorkerSet changed tolerations, updating workload")
+			shouldUpdate = true
+		}
+	}
+
 	var admissionGatedByUpdated bool
 	if features.Enabled(features.AdmissionGatedBy) {
 		admissionGatedByUpdated = jobframework.PropagateAdmissionGatedByAnnotation(lws, wl)
@@ -495,6 +511,75 @@ func (r *Reconciler) updateWorkload(ctx context.Context, lws *leaderworkersetv1.
 	}
 
 	return nil
+}
+
+// isMultiKueueRemote reports whether the LeaderWorkerSet was created by MultiKueue
+// on a worker cluster. Its Workloads are copies of the ones on the manager
+// cluster, so their tolerations are left unchanged.
+func isMultiKueueRemote(lws *leaderworkersetv1.LeaderWorkerSet) bool {
+	_, found := lws.Labels[kueue.MultiKueueOriginLabel]
+	return found
+}
+
+func podTemplatesByPodSet(lws *leaderworkersetv1.LeaderWorkerSet) map[kueue.PodSetReference]*corev1.PodTemplateSpec {
+	if lws.Spec.LeaderWorkerTemplate.LeaderTemplate == nil {
+		return map[kueue.PodSetReference]*corev1.PodTemplateSpec{
+			kueue.DefaultPodSetName: &lws.Spec.LeaderWorkerTemplate.WorkerTemplate,
+		}
+	}
+	return map[kueue.PodSetReference]*corev1.PodTemplateSpec{
+		leaderPodSetName: lws.Spec.LeaderWorkerTemplate.LeaderTemplate,
+		workerPodSetName: &lws.Spec.LeaderWorkerTemplate.WorkerTemplate,
+	}
+}
+
+// syncTolerations copies the pod template tolerations to the PodSets of a
+// Workload that holds no quota reservation, and reports whether any PodSet
+// changed.
+func syncTolerations(lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) bool {
+	templates := podTemplatesByPodSet(lws)
+	var updated bool
+	for i := range wl.Spec.PodSets {
+		ps := &wl.Spec.PodSets[i]
+		template, found := templates[ps.Name]
+		if !found || equality.Semantic.DeepEqual(ps.Template.Spec.Tolerations, template.Spec.Tolerations) {
+			continue
+		}
+		ps.Template.Spec.Tolerations = slices.Clone(template.Spec.Tolerations)
+		updated = true
+	}
+	return updated
+}
+
+// hasRemovedOrChangedTolerations reports whether a PodSet has a toleration that
+// its pod template no longer has in the same form, because it was removed or
+// changed. The webhook rejects such a change while a Workload holds a quota
+// reservation, but a Workload can be admitted between the webhook check and the
+// update.
+func hasRemovedOrChangedTolerations(lws *leaderworkersetv1.LeaderWorkerSet, wl *kueue.Workload) bool {
+	templates := podTemplatesByPodSet(lws)
+	return slices.ContainsFunc(wl.Spec.PodSets, func(ps kueue.PodSet) bool {
+		template, found := templates[ps.Name]
+		return found && !tolerationsContainAll(template.Spec.Tolerations, ps.Template.Spec.Tolerations)
+	})
+}
+
+// evictForChangedTolerations evicts an admitted Workload whose tolerations were
+// removed or changed in the pod templates, because the new pods might not run on
+// the nodes assigned to it. PodSets are immutable while the Workload holds a quota
+// reservation, so syncTolerations updates them once the quota is released.
+func (r *Reconciler) evictForChangedTolerations(ctx context.Context, wl *kueue.Workload) error {
+	log := ctrl.LoggerFrom(ctx).WithValues("workload", klog.KObj(wl))
+	log.V(2).Info("Evicting workload because LeaderWorkerSet removed or changed tolerations")
+	// The LocalQueue metrics configuration lives in the scheduler cache, which
+	// this reconciler has no access to, so LocalQueue eviction metrics are skipped.
+	err := workloadevict.Evict(ctx, r.client, r.record, wl, kueue.WorkloadEvictedByPodTemplateChange,
+		"The LeaderWorkerSet removed or changed tolerations in its pod templates", "",
+		r.clock, false, r.roleTracker, r.customLabels)
+	if err != nil {
+		log.Error(err, "Failed to evict workload")
+	}
+	return err
 }
 
 func (r *Reconciler) deleteWorkload(ctx context.Context, wl *kueue.Workload) error {

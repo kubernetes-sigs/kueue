@@ -1028,6 +1028,133 @@ func TestValidateUpdate(t *testing.T) {
 				Size(2).
 				Obj(),
 		},
+		"add tolerations when managed": {
+			featureGates: map[featuregate.Feature]bool{features.LWSMutableTolerations: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				LeaderTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				LeaderTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+				LeaderTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+				WorkerTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+				Obj(),
+		},
+		"add tolerations when managed and the feature gate is disabled": {
+			featureGates: map[featuregate.Feature]bool{features.LWSMutableTolerations: false},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				LeaderTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				LeaderTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+				LeaderTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+				WorkerTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: leaderTemplatePath.Child("spec", "tolerations").String(),
+				},
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: workerTemplatePath.Child("spec", "tolerations").String(),
+				},
+			}.ToAggregate(),
+		},
+		"remove tolerations when no Workload holds a quota reservation": {
+			featureGates: map[featuregate.Feature]bool{features.LWSMutableTolerations: true},
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadName("test-uid", "test-lws", "0"), "").
+					OwnerReference(gvk, "test-lws", "test-uid").
+					Obj(),
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				UID("test-uid").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				LeaderTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				UID("test-uid").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Obj(),
+		},
+		"remove tolerations when a Workload holds a quota reservation": {
+			featureGates: map[featuregate.Feature]bool{features.LWSMutableTolerations: true},
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadName("test-uid", "test-lws", "0"), "").
+					OwnerReference(gvk, "test-lws", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+					Obj(),
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				UID("test-uid").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				LeaderTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists}).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				UID("test-uid").
+				LeaderTemplate(corev1.PodTemplateSpec{}).
+				Queue("test-queue").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: leaderTemplatePath.Child("spec", "tolerations").String(),
+				},
+			}.ToAggregate(),
+		},
+		"change tolerationSeconds when a Workload holds a quota reservation": {
+			featureGates: map[featuregate.Feature]bool{features.LWSMutableTolerations: true},
+			objs: []runtime.Object{
+				utiltestingapi.MakeWorkload(GetWorkloadName("test-uid", "test-lws", "0"), "").
+					OwnerReference(gvk, "test-lws", "test-uid").
+					ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), time.Now()).
+					Obj(),
+			},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				UID("test-uid").
+				Queue("test-queue").
+				WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoExecute, TolerationSeconds: new(int64(10))}).
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				UID("test-uid").
+				Queue("test-queue").
+				WorkerTemplateSpecToleration(corev1.Toleration{Key: "old", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoExecute, TolerationSeconds: new(int64(20))}).
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeForbidden,
+					Field: workerTemplatePath.Child("spec", "tolerations").String(),
+				},
+			}.ToAggregate(),
+		},
+		"add tolerations and change resources when managed": {
+			featureGates: map[featuregate.Feature]bool{features.LWSMutableTolerations: true},
+			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				Obj(),
+			newObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
+				Queue("test-queue").
+				WorkerTemplateSpecToleration(corev1.Toleration{Key: "new", Operator: corev1.TolerationOpExists}).
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:  field.ErrorTypeInvalid,
+					Field: workerTemplatePath.Child("spec", "containers").Index(0).Child("resources", "requests").String(),
+				},
+			}.ToAggregate(),
+		},
 		"change size when unmanaged": {
 			oldObj: testingleaderworkerset.MakeLeaderWorkerSet("test-lws", "").
 				LeaderTemplate(corev1.PodTemplateSpec{}).

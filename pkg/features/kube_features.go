@@ -908,6 +908,16 @@ const (
 	// Verifies fair sharing preemption targets after fillBackWorkloads
 	// to prevent preemption loops caused by temporary share deflation.
 	FairSharingVerifyFinalTargets featuregate.Feature = "FairSharingVerifyFinalTargets"
+
+	// owner: @mbobrovskyi
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/15570
+	//
+	// Allows changing the tolerations in the pod templates of a LeaderWorkerSet managed
+	// by Kueue. Tolerations can be added at any time, and removed or changed only while
+	// no Workload of the LeaderWorkerSet holds a quota reservation. Kueue copies the
+	// tolerations to each Workload that holds no quota reservation, and evicts an
+	// admitted Workload whose tolerations were removed from the pod templates.
+	LWSMutableTolerations featuregate.Feature = "LWSMutableTolerations"
 )
 
 func init() {
@@ -1402,6 +1412,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 
 	PodIntegrationVerifyRoleRequests: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
+	},
+
+	LWSMutableTolerations: {
 		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 }

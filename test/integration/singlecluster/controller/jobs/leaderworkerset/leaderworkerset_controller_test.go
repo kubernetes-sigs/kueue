@@ -285,6 +285,101 @@ var _ = ginkgo.Describe("LeaderWorkerSet controller", ginkgo.Label("job:leaderwo
 		})
 	})
 
+	ginkgo.It("Should allow changing tolerations only while no Workload holds a quota reservation", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.LWSMutableTolerations, true)
+
+		ginkgo.By("adding a taint to the flavor", func() {
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(fl), fl)).To(gomega.Succeed())
+				fl.Spec.NodeTaints = []corev1.Taint{{Key: "example.com/new", Effect: corev1.TaintEffectNoSchedule}}
+				g.Expect(k8sClient.Update(ctx, fl)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		oldToleration := corev1.Toleration{Key: "example.com/old", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
+		lws := testinglws.MakeLeaderWorkerSet("test-lws", ns.Name).
+			Queue(lq.Name).
+			Request(corev1.ResourceCPU, "100m").
+			RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+			WorkerTemplateSpecToleration(oldToleration).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, lws)
+
+		wlKey := types.NamespacedName{Name: leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"), Namespace: ns.Name}
+		behavioral.ExpectWorkloadsToBePendingByKeys(ctx, k8sClient, wlKey)
+
+		newToleration := corev1.Toleration{Key: "example.com/new", Operator: corev1.TolerationOpExists, Effect: corev1.TaintEffectNoSchedule}
+
+		ginkgo.By("replacing the toleration while the Workload is pending", func() {
+			createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).To(gomega.Succeed())
+				createdLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Tolerations = []corev1.Toleration{newToleration}
+				g.Expect(k8sClient.Update(ctx, createdLWS)).To(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking the Workload gets the toleration and a quota reservation", func() {
+			wl := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).To(gomega.Succeed())
+				g.Expect(wl.Spec.PodSets).To(gomega.HaveLen(1))
+				g.Expect(wl.Spec.PodSets[0].Template.Spec.Tolerations).To(gomega.ConsistOf(newToleration))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cq.Name, wlKey)
+		})
+
+		ginkgo.By("removing the toleration while the Workload holds a quota reservation", func() {
+			createdLWS := &leaderworkersetv1.LeaderWorkerSet{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(lws), createdLWS)).To(gomega.Succeed())
+				createdLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec.Tolerations = nil
+				g.Expect(k8sClient.Update(ctx, createdLWS, client.DryRunAll)).To(gomega.SatisfyAll(
+					utiltesting.BeForbiddenError(),
+					gomega.MatchError(gomega.ContainSubstring("existing tolerations cannot be removed or changed")),
+				))
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+	})
+
+	ginkgo.It("Should requeue the Workload evicted because of a pod template change", func() {
+		features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.FinishOrphanedWorkloads, true)
+
+		lws := testinglws.MakeLeaderWorkerSet("test-lws", ns.Name).
+			Queue(lq.Name).
+			Request(corev1.ResourceCPU, "100m").
+			RolloutStrategy(leaderworkersetv1.RollingUpdateStrategyType).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, lws)
+
+		wlKey := types.NamespacedName{Name: leaderworkerset.GetWorkloadName(lws.UID, lws.Name, "0"), Namespace: ns.Name}
+		behavioral.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cq.Name, wlKey)
+
+		ginkgo.By("evicting the Workload because of a pod template change", func() {
+			wl := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(workloadpatching.PatchAdmissionStatus(ctx, k8sClient, wl, behavioral.RealClock, func(wl *kueue.Workload) (bool, error) {
+					return workloadevict.SetEvictedCondition(
+						wl,
+						behavioral.RealClock.Now(),
+						kueue.WorkloadEvictedByPodTemplateChange,
+						"The LeaderWorkerSet removed or changed tolerations in its pod templates",
+					), nil
+				})).Should(gomega.Succeed())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		})
+
+		ginkgo.By("checking the Workload is requeued and gets a quota reservation again", func() {
+			wl := &kueue.Workload{}
+			gomega.Eventually(func(g gomega.Gomega) {
+				g.Expect(k8sClient.Get(ctx, wlKey, wl)).Should(gomega.Succeed())
+				g.Expect(wl.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadRequeued, kueue.WorkloadEvictedByPodTemplateChange))
+			}, behavioral.LongTimeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.ExpectWorkloadsToHaveQuotaReservationByKey(ctx, k8sClient, cq.Name, wlKey)
+		})
+	})
+
 	ginkgo.It("Should reject changing the queue-name while the Workload holds a quota reservation", func() {
 		lq2 := utiltestingapi.MakeLocalQueue("lq2", ns.Name).ClusterQueue(cq.Name).Obj()
 		behavioral.MustCreate(ctx, k8sClient, lq2)
