@@ -153,6 +153,69 @@ var _ = ginkgo.Describe("DynamicQuotaOrchestrator controller", ginkgo.Label("con
 		})
 	})
 
+	ginkgo.It("Should wait for the current CapacityProvider spec generation before discovering capacity", func() {
+		cp := utiltestingalpha.MakeCapacityProvider("generation-cp").
+			ControllerName("example.com/test-provider").
+			OrchestratedFlavors("f1").
+			Capacity(utiltestingalpha.MakeNormalizedCapacity().
+				Flavors(utiltestingalpha.MakeNormalizedCapacityFlavor("f1").
+					Resource(corev1.ResourceCPU, "16").Obj()).Obj()).
+			Condition(metav1.Condition{
+				Type:   kueuealpha.CapacityProviderCapacitySynchronized,
+				Status: metav1.ConditionTrue,
+				Reason: kueuealpha.CapacityProviderReasonSynchronized,
+			}).Obj()
+		cps = append(cps, cp)
+		createCapacityProvider(ctx, k8sClient, cp)
+
+		dqo = utiltestingalpha.MakeDynamicQuotaOrchestrator("generation-dqo").
+			DiscoveryProvider(cp.Name, nil).Obj()
+		behavioral.MustCreate(ctx, k8sClient, dqo)
+
+		key := types.NamespacedName{Name: dqo.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			var got kueuealpha.DynamicQuotaOrchestrator
+			g.Expect(k8sClient.Get(ctx, key, &got)).To(gomega.Succeed())
+			g.Expect(got.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(
+				kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+				kueuealpha.DynamicQuotaOrchestratorReasonComputed))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Changing the provider spec without updating its reported capacity")
+		var latestCP kueuealpha.CapacityProvider
+		gomega.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cp), &latestCP)).To(gomega.Succeed())
+		previousGeneration := latestCP.Generation
+		latestCP.Spec.OrchestratedFlavors = append(latestCP.Spec.OrchestratedFlavors,
+			kueuealpha.CapacityProviderOrchestratedFlavor{Name: "f2"})
+		gomega.Expect(k8sClient.Update(ctx, &latestCP)).To(gomega.Succeed())
+		gomega.Expect(latestCP.Generation).To(gomega.BeNumerically(">", previousGeneration))
+
+		gomega.Eventually(func(g gomega.Gomega) {
+			var got kueuealpha.DynamicQuotaOrchestrator
+			g.Expect(k8sClient.Get(ctx, key, &got)).To(gomega.Succeed())
+			g.Expect(got.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(
+				kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+				kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady))
+			g.Expect(got.Status.EffectiveCapacity).To(gomega.BeNil())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("Publishing capacity synchronized for the updated generation")
+		setCapacityProviderCapacity(ctx, k8sClient, cp,
+			utiltestingalpha.MakeNormalizedCapacity().Flavors(
+				utiltestingalpha.MakeNormalizedCapacityFlavor("f1").Resource(corev1.ResourceCPU, "16").Obj(),
+				utiltestingalpha.MakeNormalizedCapacityFlavor("f2").Resource(corev1.ResourceCPU, "8").Obj(),
+			).Obj())
+		gomega.Eventually(func(g gomega.Gomega) {
+			var got kueuealpha.DynamicQuotaOrchestrator
+			g.Expect(k8sClient.Get(ctx, key, &got)).To(gomega.Succeed())
+			g.Expect(got.Status.Conditions).To(utiltesting.HaveConditionStatusTrueAndReason(
+				kueuealpha.DynamicQuotaOrchestratorEffectiveCapacityComputed,
+				kueuealpha.DynamicQuotaOrchestratorReasonComputed))
+			g.Expect(got.Status.EffectiveCapacity).ToNot(gomega.BeNil())
+			g.Expect(got.Status.EffectiveCapacity.Flavors).To(gomega.HaveLen(2))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
 	ginkgo.It("Should transition condition between Computed and ProviderNotReady when CapacityProvider synchronization changes", func() {
 		cp := utiltestingalpha.MakeCapacityProvider("transition-cp").
 			ControllerName("example.com/test-provider").
@@ -1358,6 +1421,11 @@ func createCapacityProvider(
 		for i := range status.Conditions {
 			if status.Conditions[i].LastTransitionTime.IsZero() {
 				status.Conditions[i].LastTransitionTime = metav1.Now()
+			}
+			// The initial condition was constructed before the API server
+			// assigned the first generation to the provider.
+			if status.Conditions[i].ObservedGeneration == 0 {
+				status.Conditions[i].ObservedGeneration = cp.Generation
 			}
 		}
 		cp.Status = *status

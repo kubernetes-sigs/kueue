@@ -34,6 +34,22 @@ import (
 	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
 )
 
+// providerNotReadyMessage returns why the CapacityProvider's capacity cannot be
+// trusted, or "" if CapacitySynchronized=True for the current generation.
+// A spec update increments Generation without clearing the previous condition
+// or reported capacity, so a True condition from an older generation is stale.
+func providerNotReadyMessage(cp *kueuealpha.CapacityProvider) string {
+	cond := apimeta.FindStatusCondition(cp.Status.Conditions, kueuealpha.CapacityProviderCapacitySynchronized)
+	switch {
+	case cond == nil || cond.Status != metav1.ConditionTrue:
+		return fmt.Sprintf("CapacityProvider %q is not synchronized", cp.Name)
+	case cond.ObservedGeneration != cp.Generation:
+		return fmt.Sprintf("CapacityProvider %q synchronization is stale (observedGeneration=%d, currentGeneration=%d)",
+			cp.Name, cond.ObservedGeneration, cp.Generation)
+	}
+	return ""
+}
+
 // reconcileDiscovery performs Phase 1 reconciliation: aggregates normalized capacities across referenced CapacityProviders.
 func (r *Reconciler) reconcileDiscovery(ctx context.Context, orchestrator *kueuealpha.DynamicQuotaOrchestrator) error {
 	aggregatedCapacity := make(map[kueuealpha.ResourceFlavorReference]corev1.ResourceList)
@@ -54,12 +70,12 @@ func (r *Reconciler) reconcileDiscovery(ctx context.Context, orchestrator *kueue
 			return err
 		}
 
-		if !apimeta.IsStatusConditionTrue(capacityProvider.Status.Conditions, kueuealpha.CapacityProviderCapacitySynchronized) {
+		if message := providerNotReadyMessage(&capacityProvider); message != "" {
 			r.setDiscoveryCondition(
 				orchestrator,
 				metav1.ConditionFalse,
 				kueuealpha.DynamicQuotaOrchestratorReasonProviderNotReady,
-				fmt.Sprintf("CapacityProvider %q is not synchronized", providerContribution.Name),
+				message,
 			)
 			orchestrator.Status.EffectiveCapacity = nil
 			return nil
