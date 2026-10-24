@@ -53,6 +53,8 @@ var (
 		{name: "clusterqueue", aliases: []string{"cq"}},
 		{name: "localqueue", aliases: []string{"lq"}},
 		{name: "resourceflavor", aliases: []string{"rf"}},
+		{name: "cohort", aliases: []string{"ch"}},
+		{name: "topology", aliases: []string{"topo"}},
 	}
 )
 
