@@ -1379,7 +1379,16 @@ function install_lws {
     fi
 
     cluster_kind_load_image "${name}" "${LEADERWORKERSET_IMAGE/#v}"
-    e2e_kubectl_apply_url "${LEADERWORKERSET_MANIFEST}" --kubeconfig="${kubeconfig}"
+    if e2e_is_truthy "${LEADERWORKERSET_GANG_SCHEDULING:-false}"; then
+        # spec.scheduling needs LWS to run with the Kubernetes scheduler provider and its WorkloadAwareScheduling gate.
+        local manifest
+        manifest=$(e2e_download_url "${LEADERWORKERSET_MANIFEST}") || return 1
+        printf '%s\n' "${manifest}" |
+        $YQ '(select(.kind == "ConfigMap" and .metadata.name == "lws-manager-config") | .data["controller_manager_config.yaml"]) |= (from_yaml | .gangSchedulingManagement.schedulerProvider = "kubernetes" | .featureGates.WorkloadAwareScheduling = true | to_yaml)' |
+        kubectl apply --server-side -f - --kubeconfig="${kubeconfig}"
+    else
+        e2e_kubectl_apply_url "${LEADERWORKERSET_MANIFEST}" --kubeconfig="${kubeconfig}"
+    fi
     e2e_wait_for_operator_in_install "${kubeconfig}" "${ns}" "${deployment_name}"
 }
 

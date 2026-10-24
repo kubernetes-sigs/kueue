@@ -254,3 +254,9 @@ func (w *LeaderWorkerSetWrapper) RolloutStrategy(strategy leaderworkersetv1.Roll
 	}
 	return w
 }
+
+// Scheduling sets the Workload-Aware Scheduling configuration of the LeaderWorkerSet.
+func (w *LeaderWorkerSetWrapper) Scheduling(scheduling *leaderworkersetv1.LeaderWorkerSetScheduling) *LeaderWorkerSetWrapper {
+	w.Spec.Scheduling = scheduling
+	return w
+}
