@@ -50,23 +50,27 @@ by making authentication and authorization optional for loopback listeners,
 while retaining its TLS requirement. HTTP and non-loopback unauthenticated
 access are outside its scope.
 
-A proposed authenticated follow-up lets remote scrapers reuse existing client
-certificates while retaining metrics authorization. Its delivery and staging are
-separate from the initial loopback-only implementation.
+A proposed authenticated follow-up supports two alternative authentication
+methods: the existing bearer token or a trusted client certificate. A scraper
+using a client certificate does not need a bearer token. Both methods remain
+subject to Kubernetes RBAC authorization for `GET /metrics`. Delivery and staging
+are separate from the initial loopback-only implementation.
 
 ## Motivation
 
-Some platforms add a metrics scraper container to the Kueue controller manager
-Pod as part of their monitoring setup. This sidecar shares the manager's network
-namespace and reaches the metrics endpoint through loopback.
+There are two independent use cases:
 
-Currently, Kueue's metrics endpoint accepts only bearer tokens that pass
-TokenReview and SubjectAccessReview, with no client-certificate option for
-metrics requests.
+- **Loopback-only unauthenticated scraping.** Some platforms add a metrics scraper
+  sidecar to the Kueue controller manager Pod. The administrator trusts the shared
+  network namespace and wants a loopback-only endpoint without authentication.
+- **Remote client-certificate scraping.** Remote collectors cannot reach the
+  pod-local loopback listener. Some already have platform-issued client
+  certificates and want to authenticate with those identities instead of
+  provisioning another bearer credential. They still require Kubernetes RBAC
+  permission to read metrics; this use case does not require the loopback opt-out.
 
-Remote collectors cannot reach the pod-local loopback listener. Some already
-have platform-issued client certificates and want to reuse those identities
-without another bearer credential or disabling metrics authorization.
+For authenticated metrics requests, Kueue currently accepts bearer tokens that
+pass TokenReview and SubjectAccessReview, with no client-certificate option.
 
 ### Why existing authentication cannot simply be configured
 
@@ -82,8 +86,10 @@ accepts. Client-certificate metrics authentication is not supported today (see
   or metrics TokenReview/SubjectAccessReview calls.
 - Retain authenticated HTTPS by default and reject unsafe opt-out addresses.
 - Preserve verified HTTPS, serving-certificate rotation, and webhook behavior.
-- Define a client-certificate-authenticated follow-up for remote scrapers,
-  retaining metrics authorization and existing bearer-only compatibility.
+- Define an authenticated follow-up for remote scrapers supporting either the
+  existing bearer-token method or a new client-certificate method. A scraper
+  using a client certificate does not need a bearer token. Kubernetes RBAC
+  authorization for `GET /metrics` applies to both methods.
 
 ### Non-Goals
 
@@ -269,14 +275,37 @@ type ControllerMetrics struct {
 }
 ```
 
-Example after that extension is implemented and its gate is enabled:
+Example using externally managed serving certificates, after that extension is
+implemented and its gate is enabled:
 
 ```yaml
+internalCertManagement:
+  enable: false
 metrics:
   accessControlMode: ClientCertificateOrBearer
   bindAddress: ":8443"
   clientCAFile: /etc/kueue/metrics-client-ca/ca.crt
 ```
+
+The default controller-runtime fallback is a self-signed serving certificate for
+`localhost` and `127.0.0.1`, not a certificate a remote scraper can verify against
+the metrics Service's DNS name out of the box. For this example, supply the
+serving certificate and private key at `/etc/kueue/metrics/certs/tls.crt` and
+`/etc/kueue/metrics/certs/tls.key`. The serving certificate must cover the name
+used by the scraper; configure the scraper to trust its issuing CA and verify
+that name without skipping TLS verification.
+
+`clientCAFile` is a separate trust setting: it contains the public CA bundle used
+by Kueue to verify the scraper's client certificate. It does not configure the
+scraper's trust of Kueue's serving certificate, and must not contain a CA private
+key.
+
+Disabling internal certificate management also requires externally managed
+webhook and visibility serving certificates and their existing CA wiring. Follow
+[Configure Prometheus with TLS](../../site/content/en/docs/tasks/manage/productization/prometheus.md)
+for the deployment setup; setting the flag alone does not provision certificates.
+This example uses the existing external-certificate path, not a new requirement
+or certificate-management change imposed by the authentication mode.
 
 #### Validation
 
@@ -379,8 +408,10 @@ review APIs must cover the credential table, prove certificate identity reaches
 SubjectAccessReview with no TokenReview call, and test leaf/CA rotation, reused
 connections, and malformed bundle updates. Extend the certificate-management E2E
 job with remote certificate/no-token scraping, denied identities, rotation, and
-bearer-only compatibility; restore shared configuration afterward. These are
-follow-up tests, not prerequisites for initial `None`.
+bearer-only compatibility. Require verification of the serving CA and matching
+server name; an untrusted serving CA or name mismatch must fail even with a valid
+client certificate. Restore shared configuration afterward. These are follow-up
+tests, not prerequisites for initial `None`.
 
 ### Graduation Criteria
 
