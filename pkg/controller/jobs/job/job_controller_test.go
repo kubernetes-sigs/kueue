@@ -1150,7 +1150,8 @@ func TestReconciler(t *testing.T) {
 		},
 		"Pod queue labels are not set when AssignQueueLabelsForPods is disabled": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
+				features.TopologyAwareScheduling:     false,
+				features.SchedulerLibraryIntegration: false,
 
 				features.AssignQueueLabelsForPods: false,
 			},
@@ -1181,7 +1182,8 @@ func TestReconciler(t *testing.T) {
 		},
 		"Pod cluster queue label is not set when cluster queue name is too long": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
+				features.TopologyAwareScheduling:     false,
+				features.SchedulerLibraryIntegration: false,
 
 				features.AssignQueueLabelsForPods: true,
 			},
@@ -1298,7 +1300,8 @@ func TestReconciler(t *testing.T) {
 		},
 		"when workload is admitted the PodSetUpdates are propagated to job": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
+				features.TopologyAwareScheduling:     false,
+				features.SchedulerLibraryIntegration: false,
 
 				features.AssignQueueLabelsForPods: true,
 			},
@@ -2680,7 +2683,8 @@ func TestReconciler(t *testing.T) {
 		},
 		"when workload is admitted the PodSetUpdates values matching for key": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
+				features.TopologyAwareScheduling:     false,
+				features.SchedulerLibraryIntegration: false,
 
 				features.AssignQueueLabelsForPods: true,
 			},
@@ -2794,7 +2798,8 @@ func TestReconciler(t *testing.T) {
 		},
 		"suspended job with matching admitted workload is unsuspended": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
+				features.TopologyAwareScheduling:     false,
+				features.SchedulerLibraryIntegration: false,
 
 				features.AssignQueueLabelsForPods: true,
 			},
@@ -2895,7 +2900,8 @@ func TestReconciler(t *testing.T) {
 		},
 		"suspended job with partial admission and admitted workload is unsuspended": {
 			featureGates: map[featuregate.Feature]bool{
-				features.TopologyAwareScheduling: false,
+				features.TopologyAwareScheduling:     false,
+				features.SchedulerLibraryIntegration: false,
 
 				features.AssignQueueLabelsForPods: true,
 			},
