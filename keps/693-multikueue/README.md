@@ -187,6 +187,13 @@ deployments with very high job throughput (above 1M jobs per day).
   deletion can remove objects, including Pods and their logs, sooner. This feature
   postpones MultiKueue-initiated cleanup; it does not guarantee log availability.
 
+* Worker-side self-cleanup policies, such as a propagated `ttlSecondsAfterFinished`
+  or RayJob `DeleteSelf`, can delete a remote object before its terminal status
+  reaches the manager, which then dispatches the job again. This race is tracked in
+  [issue #14779](https://github.com/kubernetes-sigs/kueue/issues/14779) and is
+  independent of retention. Retention starts only after the manager Workload
+  finishes, which is after the final status sync, so it does not widen the race.
+
 ## Design Details
 MultiKueue will be enabled on a cluster queue using the admission check fields.
 Just like ProvisioningRequest, MultiKueue will have its own configuration, 
@@ -525,9 +532,11 @@ The manager-side `objectRetentionPolicies.workloads` policy from
 [KEP-1618](../1618-optional-gc-of-workloads/README.md) stays a separate field: there
 `nil` means never delete, while for remote objects `nil` must keep today's immediate
 cleanup. Deleting the manager Workload, including by that policy, ends remote
-retention, so that policy caps how long remote objects can be kept. The orphan
-garbage collector (`gcInterval`) is unchanged and still deletes remote objects only
-when their manager Workload no longer exists.
+retention, so that policy caps how long remote objects can be kept. Deleting the
+manager Job has the same effect, including deletion by the job retention policy
+proposed in [KEP-14672](https://github.com/kubernetes-sigs/kueue/pull/15247). The
+orphan garbage collector (`gcInterval`) is unchanged and still deletes remote
+objects only when their manager Workload no longer exists.
 
 Expiry cleanup uses the current `MultiKueueConfig` worker list, so the worker, its
 `MultiKueueCluster`, and its credentials must stay configured until cleanup
@@ -755,3 +764,18 @@ For completed remote object retention, alternatives considered are:
   has to be recreated anyway.
 * Block the new run until the leftover expires. Retention exists for inspection
   and should not delay new work.
+* Leave remote objects in place after completion and let each worker clean them up,
+  for example with job TTLs. This needs no global timer, respects the policies
+  defined on each job and worker, and does not depend on the manager's worker list.
+  However, MultiKueue can drop `ttlSecondsAfterFinished` from worker Jobs because
+  of the early-deletion race described in Risks and Mitigations, and several
+  integrations have no self-cleanup policy on the object, so worker-side cleanup
+  alone cannot bound worker storage today.
+* Keep only the feature gate for Alpha, without a configuration field. With the
+  gate enabled, MultiKueue stops deleting remote objects when the manager Workload
+  succeeds or fails; the other cleanup cases stay immediate. The objects remain
+  until the manager Job or Workload is deleted, for example by
+  `objectRetentionPolicies.workloads.afterFinished`, or until the worker removes
+  them. This avoids a new API and a second retention setting, but remote objects
+  cannot outlive the manager Workload, and with default manager settings they
+  remain as long as the manager Job exists.
