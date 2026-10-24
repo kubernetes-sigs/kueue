@@ -1176,7 +1176,7 @@ func TestScheduleErrorHandling(t *testing.T) {
 	cases := map[string]tasScheduleTestCase{
 		"error on initial getAssignments for a workload that requires preemption": {
 			// The quota is used by a lower-priority Workload, so the initial
-			// assignment is Preempt, which the WAS planner rejects with an error
+			// assignment is Preempt, and ScheduleWorkload fails with an error
 			// during nomination. No preemption is issued.
 			nodes:           singleNode,
 			topologies:      []kueue.Topology{defaultSingleLevelTopology},
@@ -1187,6 +1187,13 @@ func TestScheduleErrorHandling(t *testing.T) {
 					ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").
 						Resource(corev1.ResourceCPU, "1").Obj()).
 					Obj(),
+			},
+			simulatorOverride: func() simulator.SchedulerSimulator {
+				return &mockWorkloadScheduler{
+					placementNode: "x1",
+					injectError:   errors.New("injected initial assignment failure"),
+					swFailAt:      1,
+				}
 			},
 			workloads: []kueue.Workload{
 				*utiltestingapi.MakeWorkload("high", "default").
@@ -1230,7 +1237,7 @@ func TestScheduleErrorHandling(t *testing.T) {
 						Type:               kueue.WorkloadQuotaReserved,
 						Status:             metav1.ConditionFalse,
 						Reason:             kueue.WorkloadQuotaReservedReasonAssignmentError,
-						Message:            "WAS Planner does not support preemptions",
+						Message:            "failed to schedule workload: injected initial assignment failure",
 						LastTransitionTime: metav1.NewTime(now),
 					}).
 					Condition(metav1.Condition{

@@ -32,6 +32,7 @@ import (
 	schedulerconfig "k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/backend/cache"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultbinder"
+	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/defaultpreemption"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeaffinity"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/nodeports"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/noderesources"
@@ -115,16 +116,27 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 			Args: &schedulerconfig.NodeAffinityArgs{},
 		},
 	}
+	var podGroupPostFilter []schedulerconfig.Plugin
 	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
 		nodeFilters = append(nodeFilters, schedulerconfig.Plugin{Name: noderesources.Name})
-		config = append(config, schedulerconfig.PluginConfig{
-			Name: noderesources.Name,
-			Args: &schedulerconfig.NodeResourcesFitArgs{
-				ScoringStrategy: &schedulerconfig.ScoringStrategy{
-					Type: schedulerconfig.LeastAllocated,
+		podGroupPostFilter = append(podGroupPostFilter, schedulerconfig.Plugin{Name: defaultpreemption.Name})
+		config = append(config,
+			schedulerconfig.PluginConfig{
+				Name: noderesources.Name,
+				Args: &schedulerconfig.NodeResourcesFitArgs{
+					ScoringStrategy: &schedulerconfig.ScoringStrategy{
+						Type: schedulerconfig.LeastAllocated,
+					},
 				},
 			},
-		})
+			schedulerconfig.PluginConfig{
+				Name: defaultpreemption.Name,
+				Args: &schedulerconfig.DefaultPreemptionArgs{
+					MinCandidateNodesPercentage: 10,
+					MinCandidateNodesAbsolute:   100,
+				},
+			},
+		)
 	}
 	return &schedulerconfig.KubeSchedulerConfiguration{
 		Profiles: []schedulerconfig.KubeSchedulerProfile{
@@ -146,6 +158,9 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 					},
 					PreFilter: schedulerconfig.PluginSet{
 						Enabled: nodeFilters,
+					},
+					PodGroupPostFilter: schedulerconfig.PluginSet{
+						Enabled: podGroupPostFilter,
 					},
 				},
 				PluginConfig: config,
