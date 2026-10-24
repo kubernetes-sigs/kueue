@@ -133,7 +133,7 @@ func TestBuildVisibilityCertRotatorConfig(t *testing.T) {
 			namespace:          "kueue-system",
 			want: rotatorFields{
 				SecretKey:      types.NamespacedName{Namespace: "kueue-system", Name: "kueue-visibility-server-cert"},
-				CertDir:        "/visibility",
+				CertDir:        "/visibility-certs",
 				DNSName:        "kueue-visibility-server.kueue-system.svc",
 				ControllerName: "visibility-cert-rotator",
 				Webhooks:       []cert.WebhookInfo{{Type: cert.APIService, Name: "v1beta2.visibility.kueue.x-k8s.io"}},
@@ -144,7 +144,7 @@ func TestBuildVisibilityCertRotatorConfig(t *testing.T) {
 			namespace:          "batch",
 			want: rotatorFields{
 				SecretKey:      types.NamespacedName{Namespace: "batch", Name: "prod-kueue-visibility-server-cert"},
-				CertDir:        "/visibility",
+				CertDir:        "/visibility-certs",
 				DNSName:        "prod-kueue-visibility-server.batch.svc",
 				ControllerName: "visibility-cert-rotator",
 				Webhooks:       []cert.WebhookInfo{{Type: cert.APIService, Name: "v1beta2.visibility.kueue.x-k8s.io"}},

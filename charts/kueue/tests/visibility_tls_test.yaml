@@ -48,13 +48,40 @@ tests:
       - contains:
           path: spec.template.spec.volumes
           content:
-            name: visibility
+            name: visibility-certs
             secret:
               defaultMode: 420
               secretName: RELEASE-NAME-kueue-visibility-server-cert
       - contains:
           path: spec.template.spec.containers[0].volumeMounts
           content:
+            mountPath: /visibility-certs
+            name: visibility-certs
+            readOnly: true
+
+  - it: should keep the deprecated visibility emptyDir for downgrades
+    template: manager/manager.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: visibility
+            emptyDir: {}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content:
             mountPath: /visibility
             name: visibility
-            readOnly: true
+
+  - it: should mount the visibility server Secret with cert-manager
+    template: manager/manager.yaml
+    set:
+      enableCertManager: true
+    asserts:
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: visibility-certs
+            secret:
+              defaultMode: 420
+              secretName: RELEASE-NAME-kueue-visibility-server-cert

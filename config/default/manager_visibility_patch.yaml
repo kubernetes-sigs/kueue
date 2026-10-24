@@ -18,9 +18,15 @@ spec:
           volumeMounts:
           - mountPath: /visibility
             name: visibility
+          - mountPath: /visibility-certs
+            name: visibility-certs
             readOnly: true
       volumes:
+      # Deprecated: unused, kept so a downgraded Kueue can write its self-signed
+      # certificate here. Remove in 0.22.
       - name: visibility
+        emptyDir: {}
+      - name: visibility-certs
         secret:
           defaultMode: 420
           secretName: kueue-visibility-server-cert
