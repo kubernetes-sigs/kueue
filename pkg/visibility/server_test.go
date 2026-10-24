@@ -34,9 +34,10 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 	bindPort := int32(8080)
 
 	tests := []struct {
-		name string
-		cfg  *configapi.Configuration
-		want wantVisibilityServerOptions
+		name                string
+		cfg                 *configapi.Configuration
+		want                wantVisibilityServerOptions
+		wantExternalCertDir bool
 	}{
 		{
 			name: "default visibility server config",
@@ -111,6 +112,7 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 				BindAddress: "127.0.0.1",
 				BindPort:    int(bindPort),
 			},
+			wantExternalCertDir: true,
 		},
 	}
 
@@ -121,8 +123,12 @@ func TestCreateVisibilityServerOptions(t *testing.T) {
 			gotOptions := createVisibilityServerOptions(tc.cfg)
 			got := collectVisibilityServerOptions(gotOptions)
 
-			tc.want.CertFile = certDir + "/tls.crt"
-			tc.want.KeyFile = certDir + "/tls.key"
+			dir := certDir
+			if tc.wantExternalCertDir {
+				dir = externalCertDir
+			}
+			tc.want.CertFile = dir + "/tls.crt"
+			tc.want.KeyFile = dir + "/tls.key"
 
 			if diff := cmp.Diff(tc.want, got); diff != "" {
 				t.Errorf("Unexpected options (-want,+got):\n%s", diff)
