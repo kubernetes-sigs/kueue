@@ -22,6 +22,7 @@ import (
 	"slices"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apivalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -347,7 +348,26 @@ func validateImmutablePodTemplateSpec(newPodTemplateSpec *corev1.PodTemplateSpec
 	if newPodTemplateSpec == nil || oldPodTemplateSpec == nil {
 		allErrors = append(allErrors, apivalidation.ValidateImmutableField(newPodTemplateSpec, oldPodTemplateSpec, fieldPath)...)
 	} else {
-		allErrors = append(allErrors, jobframework.ValidateImmutablePodGroupPodSpec(&newPodTemplateSpec.Spec, &oldPodTemplateSpec.Spec, fieldPath.Child("spec"))...)
+		newPodSpec, oldPodSpec := newPodTemplateSpec.Spec, oldPodTemplateSpec.Spec
+		if features.Enabled(features.LWSAllowAddingTolerations) {
+			// Admitted Workloads keep their tolerations, so only additions are allowed:
+			// removing a toleration could stop the new pods from running on the nodes
+			// that Kueue assigned.
+			allErrors = append(allErrors, validateOnlyAddedTolerations(newPodSpec.Tolerations, oldPodSpec.Tolerations, fieldPath.Child("spec", "tolerations"))...)
+			newPodSpec.Tolerations, oldPodSpec.Tolerations = nil, nil
+		}
+		allErrors = append(allErrors, jobframework.ValidateImmutablePodGroupPodSpec(&newPodSpec, &oldPodSpec, fieldPath.Child("spec"))...)
 	}
 	return allErrors
+}
+
+func validateOnlyAddedTolerations(newTolerations, oldTolerations []corev1.Toleration, fieldPath *field.Path) field.ErrorList {
+	for _, oldToleration := range oldTolerations {
+		if !slices.ContainsFunc(newTolerations, func(t corev1.Toleration) bool {
+			return equality.Semantic.DeepEqual(t, oldToleration)
+		}) {
+			return field.ErrorList{field.Forbidden(fieldPath, "existing tolerations cannot be removed or changed, only new tolerations can be added")}
+		}
+	}
+	return nil
 }
