@@ -1,0 +1,226 @@
+/*
+Copyright The Kubernetes Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package localcapacity
+
+import (
+	"fmt"
+	"maps"
+	"slices"
+	"strings"
+
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/util/sets"
+
+	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
+	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	utilresource "sigs.k8s.io/kueue/pkg/util/resource"
+	utiltas "sigs.k8s.io/kueue/pkg/util/tas"
+)
+
+// maxResourcesPerFlavor mirrors the CapacityProvider API validation limit.
+// The provider reports every allocatable resource of a flavor's nodes, so nodes
+// that advertise more than this many resources make the provider Misconfigured.
+const maxResourcesPerFlavor = 64
+
+// inputs is a consistent snapshot of everything the capacity computation depends on.
+type inputs struct {
+	// providers are all local-capacity CapacityProviders, used for overlap detection.
+	providers []kueuealpha.CapacityProvider
+	flavors   map[kueuealpha.ResourceFlavorReference]*kueue.ResourceFlavor
+	// topologyLevels are the node labels of each Topology's levels.
+	topologyLevels map[kueue.TopologyReference][]string
+	nodes          []corev1.Node
+}
+
+type result struct {
+	// capacity is the capacity to publish; only meaningful when misconfigured is empty.
+	capacity *kueuealpha.CapacityProviderNormalizedCapacity
+	// summary is a human-readable description of counted and excluded nodes.
+	summary string
+	// misconfigured, when non-empty, explains why capacity cannot be published.
+	misconfigured string
+}
+
+// computeCapacity sums the allocatable resources of eligible nodes for each
+// flavor orchestrated by the provider.
+//
+// A node counts toward a flavor when it matches all of the flavor's nodeLabels,
+// has a label for every level of the flavor's Topology, if any, and is Ready,
+// schedulable and not being deleted. Taints are not considered, because
+// workloads may tolerate them on their own.
+//
+// Every orchestrated flavor is published, with empty resources when it has no
+// eligible nodes; Dynamic Quota Orchestration treats unreported resources of an
+// orchestrated flavor as zero.
+//
+// Each node may count toward at most one flavor across all local-capacity
+// providers. Overlaps make the result misconfigured, so that DQO keeps the last
+// good quota instead of distributing double-counted capacity.
+func computeCapacity(provider *kueuealpha.CapacityProvider, in *inputs) result {
+	ownFlavors := make([]kueuealpha.ResourceFlavorReference, 0, len(provider.Spec.OrchestratedFlavors))
+	for _, f := range provider.Spec.OrchestratedFlavors {
+		ownFlavors = append(ownFlavors, f.Name)
+	}
+
+	// Validate the provider's own flavors.
+	var missing []string
+	for _, name := range ownFlavors {
+		if _, ok := in.flavors[name]; !ok {
+			missing = append(missing, string(name))
+		}
+	}
+	if len(missing) > 0 {
+		return result{misconfigured: fmt.Sprintf("ResourceFlavors not found: %s", strings.Join(missing, ", "))}
+	}
+	for _, name := range ownFlavors {
+		if topology := in.flavors[name].Spec.TopologyName; topology != nil {
+			if _, ok := in.topologyLevels[*topology]; !ok {
+				return result{misconfigured: fmt.Sprintf("Topology %q of ResourceFlavor %q not found", *topology, name)}
+			}
+		}
+	}
+
+	// Collect every flavor claimed by any local-capacity provider; a flavor
+	// claimed twice would be reported twice.
+	claimedBy := make(map[kueuealpha.ResourceFlavorReference][]string)
+	for _, p := range in.providers {
+		for _, f := range p.Spec.OrchestratedFlavors {
+			claimedBy[f.Name] = append(claimedBy[f.Name], p.Name)
+		}
+	}
+	for _, name := range ownFlavors {
+		if owners := claimedBy[name]; len(owners) > 1 {
+			slices.Sort(owners)
+			return result{misconfigured: fmt.Sprintf("ResourceFlavor %q is orchestrated by multiple local-capacity CapacityProviders: %s", name, strings.Join(owners, ", "))}
+		}
+	}
+	allFlavors := sets.List(sets.KeySet(claimedBy))
+	ownSet := sets.New(ownFlavors...)
+
+	totals := make(map[kueuealpha.ResourceFlavorReference]corev1.ResourceList, len(ownFlavors))
+	counted := make(map[kueuealpha.ResourceFlavorReference]int, len(ownFlavors))
+	excluded := make(map[string]int)
+	for i := range in.nodes {
+		node := &in.nodes[i]
+		var matched []kueuealpha.ResourceFlavorReference
+		for _, name := range allFlavors {
+			if rf, ok := in.flavors[name]; ok && nodeMatchesFlavor(node, rf, in.topologyLevels) {
+				matched = append(matched, name)
+			}
+		}
+		if !slices.ContainsFunc(matched, ownSet.Has) {
+			continue
+		}
+		// Overlap is checked before eligibility on purpose: overlapping nodeLabels
+		// are a configuration error whatever the node's current health.
+		if len(matched) > 1 {
+			return result{misconfigured: fmt.Sprintf("Node %q matches multiple orchestrated ResourceFlavors: %s", node.Name, joinFlavors(matched))}
+		}
+		if reason := ineligibleReason(node); reason != "" {
+			excluded[reason]++
+			continue
+		}
+		totals[matched[0]] = utilresource.MergeResourceListKeepSum(totals[matched[0]], node.Status.Allocatable)
+		counted[matched[0]]++
+	}
+
+	capacity := &kueuealpha.CapacityProviderNormalizedCapacity{
+		Flavors: []kueuealpha.CapacityProviderNormalizedCapacityFlavor{},
+	}
+	for _, name := range sets.List(ownSet) {
+		resources := totals[name]
+		if resources == nil {
+			resources = corev1.ResourceList{}
+		}
+		if len(resources) > maxResourcesPerFlavor {
+			return result{misconfigured: fmt.Sprintf("ResourceFlavor %q has %d resources, more than the maximum of %d", name, len(resources), maxResourcesPerFlavor)}
+		}
+		capacity.Flavors = append(capacity.Flavors, kueuealpha.CapacityProviderNormalizedCapacityFlavor{
+			Name:      name,
+			Resources: resources,
+		})
+	}
+	return result{capacity: capacity, summary: summarize(sets.List(ownSet), counted, excluded)}
+}
+
+// nodeMatchesFlavor uses the same rule as TAS: a node of a TAS flavor must also
+// have a label for every level of the flavor's Topology.
+// A flavor whose Topology is missing matches no node. Its own provider reports
+// it as misconfigured, so it must not cause overlaps for other providers.
+func nodeMatchesFlavor(node *corev1.Node, rf *kueue.ResourceFlavor, topologyLevels map[kueue.TopologyReference][]string) bool {
+	var levels []string
+	if rf.Spec.TopologyName != nil {
+		var ok bool
+		if levels, ok = topologyLevels[*rf.Spec.TopologyName]; !ok {
+			return false
+		}
+	}
+	return utiltas.NodeMatchesFlavor(node.Labels, rf.Spec.NodeLabels, levels)
+}
+
+// ineligibleReason returns why a node matching a flavor must not be counted, or "" if it is eligible.
+func ineligibleReason(node *corev1.Node) string {
+	switch {
+	case !node.DeletionTimestamp.IsZero():
+		return "Deleting"
+	case node.Spec.Unschedulable:
+		return "Unschedulable"
+	case !isNodeReady(node):
+		return "NotReady"
+	}
+	return ""
+}
+
+func isNodeReady(node *corev1.Node) bool {
+	for _, c := range node.Status.Conditions {
+		if c.Type == corev1.NodeReady {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
+}
+
+func joinFlavors(flavors []kueuealpha.ResourceFlavorReference) string {
+	names := make([]string, len(flavors))
+	for i, f := range flavors {
+		names[i] = string(f)
+	}
+	return strings.Join(names, ", ")
+}
+
+// summarize produces e.g. "h100: 10 nodes; a100: 1 node; excluded: NotReady=1".
+func summarize(flavors []kueuealpha.ResourceFlavorReference, counted map[kueuealpha.ResourceFlavorReference]int, excluded map[string]int) string {
+	parts := make([]string, 0, len(flavors)+1)
+	for _, name := range flavors {
+		parts = append(parts, fmt.Sprintf("%s: %s", name, pluralizeNodes(counted[name])))
+	}
+	if len(excluded) > 0 {
+		reasons := make([]string, 0, len(excluded))
+		for _, reason := range slices.Sorted(maps.Keys(excluded)) {
+			reasons = append(reasons, fmt.Sprintf("%s=%d", reason, excluded[reason]))
+		}
+		parts = append(parts, "excluded: "+strings.Join(reasons, ", "))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func pluralizeNodes(n int) string {
+	if n == 1 {
+		return "1 node"
+	}
+	return fmt.Sprintf("%d nodes", n)
+}
