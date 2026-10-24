@@ -1275,7 +1275,7 @@ func TestValidateUpdate(t *testing.T) {
 			wantValidationErrs: field.ErrorList{
 				field.Invalid(
 					field.NewPath("metadata", "annotations").Key(constants.WaitForPodsReadyAnnotation),
-					float64(3600),
+					`{"timeoutSeconds":3600}`,
 					"timeoutSeconds must be less than or equal to 60 seconds",
 				),
 			},

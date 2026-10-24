@@ -736,8 +736,9 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 	annotationPath := field.NewPath("metadata", "annotations").Key(constants.WaitForPodsReadyAnnotation)
 
 	testCases := map[string]struct {
-		annotation string
-		wantErr    field.ErrorList
+		annotation   string
+		wantErr      field.ErrorList
+		wantBadValue any
 	}{
 		"valid timeout only": {
 			annotation: `{"timeoutSeconds": 10}`,
@@ -795,6 +796,40 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 				},
 			},
 		},
+		// 36028797018963969 is 2^55+1: it used to wrap around to 1s and pass validation.
+		"timeout that would wrap around to a small duration is rejected": {
+			annotation: `{"timeoutSeconds": 36028797018963969}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "timeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+			wantBadValue: `{"timeoutSeconds": 36028797018963969}`,
+		},
+		"max int64 timeout is rejected as exceeding MaxTimeoutOnWorkload": {
+			annotation: `{"timeoutSeconds": 9223372036854775807}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "timeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+			wantBadValue: `{"timeoutSeconds": 9223372036854775807}`,
+		},
+		"recoveryTimeout that would wrap around to a small duration is rejected": {
+			annotation: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 36028797018963969}`,
+			wantErr: field.ErrorList{
+				&field.Error{
+					Type:   field.ErrorTypeInvalid,
+					Field:  annotationPath.String(),
+					Detail: "recoveryTimeoutSeconds must be less than or equal to 7200 seconds",
+				},
+			},
+			wantBadValue: `{"timeoutSeconds": 10, "recoveryTimeoutSeconds": 36028797018963969}`,
+		},
 		"timeoutSeconds set to string is rejected at admission time": {
 			annotation: `{"timeoutSeconds": "foo"}`,
 			wantErr: field.ErrorList{
@@ -824,6 +859,14 @@ func TestValidateJobOnCreateWaitForPodsReadyAnnotation(t *testing.T) {
 			gotErr := jobframework.ValidateJobOnCreate(mj, maxTimeout)
 			if diff := cmp.Diff(tc.wantErr, gotErr, cmpopts.IgnoreFields(field.Error{}, "BadValue")); diff != "" {
 				t.Errorf("Unexpected error (-want,+got):\n%s", diff)
+			}
+			if tc.wantBadValue != nil {
+				if len(gotErr) == 0 {
+					t.Fatalf("Expected an error with BadValue %v, got none", tc.wantBadValue)
+				}
+				if got := gotErr[0].BadValue; got != tc.wantBadValue {
+					t.Errorf("Unexpected BadValue: want %v, got %v", tc.wantBadValue, got)
+				}
 			}
 		})
 	}
