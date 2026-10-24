@@ -127,6 +127,14 @@ rules:
       - apps
     resources:
       - deployments
+    verbs:
+      - get
+      - list
+      - patch
+      - watch
+  - apiGroups:
+      - apps
+    resources:
       - replicasets
       - statefulsets
     verbs:

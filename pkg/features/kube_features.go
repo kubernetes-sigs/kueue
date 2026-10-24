@@ -453,6 +453,12 @@ const (
 	// and Kueue removes their finalizer.
 	FinalizeTerminatingPodGroups featuregate.Feature = "FinalizeTerminatingPodGroups"
 
+	// owner: @mblls
+	//
+	// When enabled, the pod controller pauses parent Deployments while their
+	// pods are scheduling-gated, preventing ProgressDeadlineExceeded.
+	DeploymentParentSuspension featuregate.Feature = "DeploymentParentSuspension"
+
 	// owner: @ShaanveerS
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/7259
@@ -1170,6 +1176,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FinalizeTerminatingPodGroups: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
+	},
+	DeploymentParentSuspension: {
+		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Alpha},
 	},
 	RejectUpdatesToCQWithInvalidOnFlavors: {
 		{Version: version.MustParse("0.18"), Default: false, PreRelease: featuregate.Alpha},
