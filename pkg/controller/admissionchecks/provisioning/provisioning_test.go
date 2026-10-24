@@ -17,6 +17,7 @@ limitations under the License.
 package provisioning
 
 import (
+	"cmp"
 	"math"
 	"strings"
 	"testing"
@@ -25,6 +26,8 @@ import (
 	autoscaling "k8s.io/autoscaler/cluster-autoscaler/apis/provisioningrequest/autoscaling.x-k8s.io/v1"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/controller/constants"
+	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 )
 
 const objectNameMaxLength = 253
@@ -114,5 +117,72 @@ func TestProvisioningRequestNameStablePrefixAcrossAttempts(t *testing.T) {
 	}
 	if got := getAttempt(logr.Discard(), pr2, workloadName, checkName); got != 2 {
 		t.Errorf("getAttempt(name2) = %d, want 2", got)
+	}
+}
+
+func TestProvReqSyncedWithConfig(t *testing.T) {
+	cases := map[string]struct {
+		annotations map[string]string
+		reqClass    string
+		reqParams   map[string]autoscaling.Parameter
+		cfgParams   map[string]kueue.Parameter
+		want        bool
+	}{
+		"config and request agree": {
+			reqParams: map[string]autoscaling.Parameter{"a": "1"},
+			cfgParams: map[string]kueue.Parameter{"a": "1"},
+			want:      true,
+		},
+		"class name differs": {
+			reqClass:  "other",
+			reqParams: map[string]autoscaling.Parameter{"a": "1"},
+			cfgParams: map[string]kueue.Parameter{"a": "1"},
+			want:      false,
+		},
+		"config changed a value": {
+			reqParams: map[string]autoscaling.Parameter{"a": "1"},
+			cfgParams: map[string]kueue.Parameter{"a": "2"},
+			want:      false,
+		},
+		"config added a parameter": {
+			reqParams: map[string]autoscaling.Parameter{"a": "1"},
+			cfgParams: map[string]kueue.Parameter{"a": "1", "b": "2"},
+			want:      false,
+		},
+		"config dropped a parameter": {
+			reqParams: map[string]autoscaling.Parameter{"a": "1", "b": "2"},
+			cfgParams: map[string]kueue.Parameter{"a": "1"},
+			want:      false,
+		},
+		"the workload put the extra parameter there": {
+			annotations: map[string]string{constants.ProvReqAnnotationPrefix + "b": "2"},
+			reqParams:   map[string]autoscaling.Parameter{"a": "1", "b": "2"},
+			cfgParams:   map[string]kueue.Parameter{"a": "1"},
+			want:        true,
+		},
+		"a workload annotation overrides a config parameter": {
+			annotations: map[string]string{constants.ProvReqAnnotationPrefix + "a": "9"},
+			reqParams:   map[string]autoscaling.Parameter{"a": "9"},
+			cfgParams:   map[string]kueue.Parameter{"a": "1"},
+			want:        true,
+		},
+		"the workload annotation changed after the request was created": {
+			annotations: map[string]string{constants.ProvReqAnnotationPrefix + "b": "3"},
+			reqParams:   map[string]autoscaling.Parameter{"a": "1", "b": "2"},
+			cfgParams:   map[string]kueue.Parameter{"a": "1"},
+			want:        false,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			wl := utiltestingapi.MakeWorkload("wl", TestNamespace).Annotations(tc.annotations).Obj()
+			req := &autoscaling.ProvisioningRequest{Spec: autoscaling.ProvisioningRequestSpec{
+				ProvisioningClassName: cmp.Or(tc.reqClass, "queued"), Parameters: tc.reqParams,
+			}}
+			prc := utiltestingapi.MakeProvisioningRequestConfig("config").ProvisioningClass("queued").Parameters(tc.cfgParams).Obj()
+			if got := provReqSyncedWithConfig(wl, req, prc); got != tc.want {
+				t.Errorf("provReqSyncedWithConfig() = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
