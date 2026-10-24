@@ -17,11 +17,18 @@ limitations under the License.
 package core
 
 import (
+	"context"
+	"errors"
 	"testing"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
@@ -33,38 +40,57 @@ import (
 )
 
 func TestAdmissionCheckReconcile(t *testing.T) {
+	errUpdate := errors.New("update failed")
 	cases := map[string]struct {
-		ac            *kueue.AdmissionCheck
-		clusterQueues []*kueue.ClusterQueue
-		deleted       bool
-		wantFinalizer bool
-		wantDeleted   bool
-		skipStore     bool
+		ac                 *kueue.AdmissionCheck
+		clusterQueues      []*kueue.ClusterQueue
+		deleted            bool
+		wantAdmissionCheck *kueue.AdmissionCheck
+		wantDeleted        bool
+		wantUpdates        int
+		skipStore          bool
+		updateErr          error
+		wantErr            error
 	}{
 		"adds finalizer when missing": {
-			ac:            utiltestingapi.MakeAdmissionCheck("check").Obj(),
-			wantFinalizer: true,
+			ac:                 utiltestingapi.MakeAdmissionCheck("check").Obj(),
+			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
+			wantUpdates:        1,
 		},
 		"no-op when finalizer already present": {
-			ac:            utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
-			wantFinalizer: true,
+			ac:                 utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
+			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
 		},
 		"keeps finalizer when deleted but still in use": {
 			ac: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
 			clusterQueues: []*kueue.ClusterQueue{
 				utiltestingapi.MakeClusterQueue("cq").AdmissionChecks("check").Obj(),
 			},
-			deleted:       true,
-			wantFinalizer: true,
+			deleted:            true,
+			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
 		},
 		"removes finalizer when deleted and not in use": {
 			ac:          utiltestingapi.MakeAdmissionCheck("check").Finalizers(kueue.ResourceInUseFinalizerName).Obj(),
 			deleted:     true,
 			wantDeleted: true,
+			wantUpdates: 1,
 		},
 		"ignores not-found AdmissionCheck": {
 			ac:        utiltestingapi.MakeAdmissionCheck("check").Obj(),
 			skipStore: true,
+		},
+		"returns error when Update fails while adding finalizer": {
+			ac:                 utiltestingapi.MakeAdmissionCheck("check").Obj(),
+			updateErr:          errUpdate,
+			wantErr:            errUpdate,
+			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Obj(),
+			wantUpdates:        1,
+		},
+		"ignores NotFound from Update while adding finalizer": {
+			ac:                 utiltestingapi.MakeAdmissionCheck("check").Obj(),
+			updateErr:          apierrors.NewNotFound(schema.GroupResource{Resource: "admissionchecks"}, "check"),
+			wantAdmissionCheck: utiltestingapi.MakeAdmissionCheck("check").Obj(),
+			wantUpdates:        1,
 		},
 	}
 
@@ -72,7 +98,17 @@ func TestAdmissionCheckReconcile(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ctx, _ := utiltesting.ContextWithLog(t)
 
-			builder := utiltesting.NewClientBuilder()
+			var gotUpdates int
+			builder := utiltesting.NewClientBuilder().WithInterceptorFuncs(interceptor.Funcs{
+				Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
+					gotUpdates++
+					if tc.updateErr != nil {
+						return tc.updateErr
+					}
+					return c.Update(ctx, obj, opts...)
+				},
+			})
+
 			if !tc.skipStore {
 				builder = builder.WithObjects(tc.ac)
 			}
@@ -96,8 +132,12 @@ func TestAdmissionCheckReconcile(t *testing.T) {
 
 			req := reconcile.Request{Name: tc.ac.Name}
 			_, err := reconciler.Reconcile(ctx, req)
-			if err != nil {
-				t.Fatalf("unexpected error: %v", err)
+			if diff := cmp.Diff(tc.wantErr, err, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("unexpected error (-want +got):\n%s", diff)
+			}
+
+			if gotUpdates != tc.wantUpdates {
+				t.Errorf("Update called %d times, want %d", gotUpdates, tc.wantUpdates)
 			}
 
 			if tc.skipStore {
@@ -117,9 +157,8 @@ func TestAdmissionCheckReconcile(t *testing.T) {
 				t.Fatalf("failed to get AdmissionCheck: %v", getErr)
 			}
 
-			gotFinalizer := controllerutil.ContainsFinalizer(got, kueue.ResourceInUseFinalizerName)
-			if gotFinalizer != tc.wantFinalizer {
-				t.Errorf("finalizer present = %v, want %v", gotFinalizer, tc.wantFinalizer)
+			if diff := cmp.Diff(tc.wantAdmissionCheck, got, cmpopts.IgnoreFields(metav1.ObjectMeta{}, "ResourceVersion", "DeletionTimestamp"), cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("unexpected AdmissionCheck (-want +got):\n%s", diff)
 			}
 		})
 	}
