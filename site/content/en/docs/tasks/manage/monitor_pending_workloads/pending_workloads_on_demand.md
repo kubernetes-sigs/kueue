@@ -22,6 +22,13 @@ Make sure the following conditions are met:
 - The kubectl command-line tool has communication with your cluster.
 - [Kueue is installed](/docs/installation) in version v0.6.0 or later.
 
+{{% alert title="Note" color="primary" %}}
+Starting in v0.21, the API server verifies the visibility server certificate. Before
+downgrading to an earlier version, follow
+[Downgrade to a version before v0.21](/docs/installation/#downgrade-to-a-version-before-v021),
+or the visibility API becomes unavailable.
+{{% /alert %}}
+
 ### Configure API Priority and Fairness:
 
 To install the [API Priority and Fairness](https://kubernetes.io/docs/concepts/cluster-administration/flow-control/) configuration for the visibility API apply manifests:
