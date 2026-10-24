@@ -147,6 +147,9 @@ func newWASSchedulerConfig() *schedulerconfig.KubeSchedulerConfiguration {
 					PreFilter: schedulerconfig.PluginSet{
 						Enabled: nodeFilters,
 					},
+					PlacementGenerate: schedulerconfig.PluginSet{
+						Enabled: []schedulerconfig.Plugin{{Name: "TopologyPlacementGenerator"}},
+					},
 				},
 				PluginConfig: config,
 			},

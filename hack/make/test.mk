@@ -381,6 +381,9 @@ test-e2e-was-deep-tas-baseline-basic-fit: GINKGO_ARGS=--label-filter="feature:ta
 test-e2e-was-deep-tas-baseline-basic-fit: test-tas-e2e-deepintegration
 
 .PHONY: test-tas-e2e-deepintegration
+test-tas-e2e-deepintegration: export JOBSET_VERSION := $(JOBSET_VERSION)
+test-tas-e2e-deepintegration: export LEADERWORKERSET_VERSION := $(LEADERWORKERSET_VERSION)
+test-tas-e2e-deepintegration: GINKGO_ARGS ?= --label-filter="feature:was_deepintegration"
 test-tas-e2e-deepintegration: setup-e2e-env run-test-tas-e2e-deepintegration-$(E2E_KIND_VERSION:kindest/node:v%=%)
 
 .PHONY: test-e2e-was-deep-tas-extended
@@ -561,7 +564,7 @@ run-test-tas-e2e-deepintegration-%:
 		E2E_MODE=$(E2E_MODE) \
 		E2E_SKIP_REINSTALL=$(E2E_SKIP_REINSTALL) \
 		E2E_ENFORCE_OPERATOR_UPDATE=$(E2E_ENFORCE_OPERATOR_UPDATE) \
-		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="singlecluster/tasapi/deepintegration" \
+		KIND_CLUSTER_FILE="kind-cluster-tas.yaml" E2E_TARGET_FOLDER="singlecluster/tasapi" \
 		E2E_CONFIG_FOLDER="tasapi/deepintegration" \
 		TEST_LOG_LEVEL=$(TEST_LOG_LEVEL) \
 		E2E_USE_HELM=$(E2E_USE_HELM) \

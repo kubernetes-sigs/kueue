@@ -54,6 +54,9 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	waitForAvailableStart := time.Now()
 	e2e.WaitForKueueAvailability(ctx, k8sClient)
+	if ginkgo.Label("feature:jobset", "feature:was_deepintegration").MatchesLabelFilter(ginkgo.GinkgoLabelFilter()) {
+		e2e.WaitForJobSetAvailability(ctx, k8sClient)
+	}
 	ginkgo.GinkgoLogr.Info(
 		"Kueue and all required operators are available in the cluster",
 		"waitingTime", time.Since(waitForAvailableStart),
