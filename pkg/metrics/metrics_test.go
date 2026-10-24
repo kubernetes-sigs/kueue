@@ -26,6 +26,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/utils/ptr"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
@@ -874,4 +875,51 @@ func TestWorkloadRecoveryWaitTimeMetrics(t *testing.T) {
 
 	ClearLocalQueueMetrics(lqRef)
 	expectFilteredMetricsCount(t, LocalQueueWorkloadRecoveryWaitTime, 0, "name", "lq-recovery-test", "namespace", "default")
+}
+
+func TestAdmittedWorkloadsTotalWithWorkloadCustomLabel(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.CustomMetricLabels, true)
+
+	wlType := ptr.To(configapi.SourceKindWorkload)
+	cl := NewCustomLabels([]configapi.ControllerMetricsCustomLabel{
+		{
+			Name:           "wl_type",
+			SourceLabelKey: "company.com/wl-type",
+			SourceKind:     wlType,
+			TrackedValues:  []string{"batch", "inference"},
+		},
+	})
+	// NewCustomLabels re-creates all package-global metric vectors with the custom
+	// labels, so restore all of them for subsequent tests.
+	t.Cleanup(func() { InitMetricVectors(nil) })
+
+	const cqName kueue.ClusterQueueReference = "cq-wl-label-test"
+
+	// batch workload
+	cl.Store(configapi.SourceKindWorkload, "ns/wl-batch", map[string]string{"company.com/wl-type": "batch"}, nil)
+	cqWlVals := cl.GetFor(map[configapi.SourceKind]string{
+		configapi.SourceKindClusterQueue: string(cqName),
+		configapi.SourceKindWorkload:     "ns/wl-batch",
+	})
+	AdmittedWorkload(cqName, "default", time.Second, cqWlVals, nil)
+
+	// inference workload
+	cl.Store(configapi.SourceKindWorkload, "ns/wl-inference", map[string]string{"company.com/wl-type": "inference"}, nil)
+	cqWlVals = cl.GetFor(map[configapi.SourceKind]string{
+		configapi.SourceKindClusterQueue: string(cqName),
+		configapi.SourceKindWorkload:     "ns/wl-inference",
+	})
+	AdmittedWorkload(cqName, "default", time.Second, cqWlVals, nil)
+
+	// untracked workload
+	cl.Store(configapi.SourceKindWorkload, "ns/wl-other", map[string]string{"company.com/wl-type": "finetune"}, nil)
+	cqWlVals = cl.GetFor(map[configapi.SourceKind]string{
+		configapi.SourceKindClusterQueue: string(cqName),
+		configapi.SourceKindWorkload:     "ns/wl-other",
+	})
+	AdmittedWorkload(cqName, "default", time.Second, cqWlVals, nil)
+
+	expectFilteredMetricsCount(t, AdmittedWorkloadsTotal, 1, "cluster_queue", string(cqName), "custom_wl_type", "batch")
+	expectFilteredMetricsCount(t, AdmittedWorkloadsTotal, 1, "cluster_queue", string(cqName), "custom_wl_type", "inference")
+	expectFilteredMetricsCount(t, AdmittedWorkloadsTotal, 1, "cluster_queue", string(cqName), "custom_wl_type", configapi.UntrackedCustomLabelValue)
 }
