@@ -55,3 +55,9 @@ func (p PreemptedWorkloads) MergeWithTargets(targets []*Target) PreemptedWorkloa
 func (p PreemptedWorkloads) Workloads() []*workload.Info {
 	return slices.Collect(maps.Values(p))
 }
+
+func (p PreemptedWorkloads) Delete(targets []*Target) {
+	for _, target := range targets {
+		delete(p, workload.Key(target.WorkloadInfo.Obj))
+	}
+}
