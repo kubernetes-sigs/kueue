@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	utiltesting "sigs.k8s.io/kueue/pkg/util/testing"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
+	testingraycluster "sigs.k8s.io/kueue/pkg/util/testingjobs/raycluster"
 	testingrayjob "sigs.k8s.io/kueue/pkg/util/testingjobs/rayjob"
 	"sigs.k8s.io/kueue/test/integration/framework"
 	"sigs.k8s.io/kueue/test/util/behavioral"
@@ -251,6 +252,64 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:ray", "area:jobs"), 
 		gomega.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
 		gomega.Eventually(func(g gomega.Gomega) {
 			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).To(gomega.Succeed())
+			g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+	})
+
+	ginkgo.It("Should keep the workload admitted while the RayCluster of a finished RayJob still exists", func() {
+		ginkgo.By("creating a job that retains its RayCluster after finishing")
+		job := testingrayjob.MakeJob(jobName, ns.Name).
+			TTLSecondsAfterFinished(600).
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, job)
+		setInitStatus(jobName, ns.Name)
+
+		createdJob := &rayv1.RayJob{}
+		lookupKey := types.NamespacedName{Name: jobName, Namespace: ns.Name}
+		createdWorkload := &kueue.Workload{}
+		wlLookupKey := types.NamespacedName{Name: workloadrayjob.GetWorkloadNameForRayJob(job.Name, job.UID), Namespace: ns.Name}
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("admitting the workload")
+		podSetAssignments := make([]kueue.PodSetAssignment, 0, len(createdWorkload.Spec.PodSets))
+		for _, ps := range createdWorkload.Spec.PodSets {
+			podSetAssignments = append(podSetAssignments, kueue.PodSetAssignment{Name: ps.Name})
+		}
+		admission := utiltestingapi.MakeAdmission("cluster-queue").PodSets(podSetAssignments...).Obj()
+		integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+		integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			g.Expect(createdJob.Spec.Suspend).Should(gomega.BeFalse())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("creating the RayCluster owned by the job")
+		rayCluster := testingraycluster.MakeCluster(jobName+"-raycluster", ns.Name).Obj()
+		gomega.Expect(ctrl.SetControllerReference(createdJob, rayCluster, k8sClient.Scheme())).Should(gomega.Succeed())
+		behavioral.MustCreate(ctx, k8sClient, rayCluster)
+
+		ginkgo.By("marking the job complete while the RayCluster is retained")
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, lookupKey, createdJob)).Should(gomega.Succeed())
+			createdJob.Status.RayClusterName = rayCluster.Name
+			createdJob.Status.JobDeploymentStatus = rayv1.JobDeploymentStatusComplete
+			createdJob.Status.JobStatus = rayv1.JobStatusSucceeded
+			g.Expect(k8sClient.Status().Update(ctx, createdJob)).Should(gomega.Succeed())
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+
+		ginkgo.By("checking the workload stays admitted and is not finished")
+		gomega.Consistently(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+			g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadAdmitted))
+			g.Expect(createdWorkload.Status.Conditions).ShouldNot(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+		}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+
+		ginkgo.By("checking the workload is finished once the RayCluster is deleted")
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, rayCluster, true)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
 			g.Expect(createdWorkload.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 	})

@@ -105,6 +105,17 @@ type JobWithFinalize interface {
 	Finalize(ctx context.Context, c client.Client) error
 }
 
+// JobWithPendingCleanup is an optional interface that should be implemented by generic jobs
+// whose controller releases the job's Pods asynchronously after the job reports that it has
+// finished, for example a RayJob that keeps its RayCluster for ttlSecondsAfterFinished.
+// While the cleanup is pending, the Workload is kept admitted so that its quota stays
+// reserved for the Pods that still exist. The job's reconciler must be triggered when the
+// cleanup completes, for example by watching the resources that are released.
+type JobWithPendingCleanup interface {
+	// CleanupPending returns true while resources of the finished job still exist.
+	CleanupPending(ctx context.Context, c client.Client) (bool, error)
+}
+
 // JobWithSkip is an optional interface that should be implemented by generic jobs
 // when reconciliation should be skipped depending on the job's state.
 type JobWithSkip interface {
