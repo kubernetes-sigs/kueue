@@ -66,6 +66,9 @@ var (
 		mutatingwebhook.PluginName,
 	}
 	certDir = cert.VisibilityCertDir
+	// externalCertDir is where InternalCertManagement documents mounting a third
+	// party certificate when internal cert management is disabled.
+	externalCertDir = "/visibility"
 )
 
 func init() {
@@ -105,8 +108,12 @@ func createVisibilityServerOptions(cfg *configapi.Configuration) *genericoptions
 		visibilityv1beta2.SchemeGroupVersion,
 	))
 	o.Etcd = nil
-	o.SecureServing.ServerCert.CertKey.CertFile = certDir + "/tls.crt"
-	o.SecureServing.ServerCert.CertKey.KeyFile = certDir + "/tls.key"
+	dir := externalCertDir
+	if cfg.InternalCertManagement != nil && *cfg.InternalCertManagement.Enable {
+		dir = certDir
+	}
+	o.SecureServing.ServerCert.CertKey.CertFile = dir + "/tls.crt"
+	o.SecureServing.ServerCert.CertKey.KeyFile = dir + "/tls.key"
 
 	applyVisibilityServerSecureServingOptions(o.SecureServing, cfg)
 
