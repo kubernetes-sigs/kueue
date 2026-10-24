@@ -17,10 +17,9 @@ limitations under the License.
 package podset
 
 import (
-	"errors"
-	"strings"
 	"testing"
 
+	"github.com/go-logr/logr"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
@@ -83,13 +82,11 @@ func TestFromAssignment(t *testing.T) {
 	cases := map[string]struct {
 		featureGates map[featuregate.Feature]bool
 
-		assignment        *kueue.PodSetAssignment
-		defaultCount      int32
-		flavors           []kueue.ResourceFlavor
-		wantError         error
-		wantErrorContains string
-		wantPermanent     bool
-		wantInfo          PodSetInfo
+		assignment   *kueue.PodSetAssignment
+		defaultCount int32
+		flavors      []kueue.ResourceFlavor
+		wantError    error
+		wantInfo     PodSetInfo
 	}{
 		"single flavor": {
 			assignment: &kueue.PodSetAssignment{
@@ -141,10 +138,15 @@ func TestFromAssignment(t *testing.T) {
 				},
 				Count: new(int32(2)),
 			},
-			defaultCount:      4,
-			flavors:           []kueue.ResourceFlavor{*conflictFlavorA.DeepCopy(), *conflictFlavorB.DeepCopy()},
-			wantErrorContains: "topology.kubernetes.io/zone",
-			wantPermanent:     true,
+			defaultCount: 4,
+			flavors:      []kueue.ResourceFlavor{*conflictFlavorA.DeepCopy(), *conflictFlavorB.DeepCopy()},
+			wantInfo: PodSetInfo{
+				Name:  "name",
+				Count: 2,
+				NodeSelector: map[string]string{
+					"topology.kubernetes.io/zone": "zone-a",
+				},
+			},
 		},
 		"stable flavor order": {
 			assignment: &kueue.PodSetAssignment{
@@ -296,23 +298,113 @@ func TestFromAssignment(t *testing.T) {
 			}
 			gotInfo, gotError := FromAssignment(ctx, client, tc.assignment, &podSet)
 
-			if tc.wantErrorContains != "" {
-				if gotError == nil || !strings.Contains(gotError.Error(), tc.wantErrorContains) {
-					t.Errorf("Unexpected error (-want contains %q, got %v)", tc.wantErrorContains, gotError)
-				}
-				if tc.wantPermanent && !errors.Is(gotError, ErrInvalidPodSetUpdate) {
-					t.Errorf("Expected a permanent PodSet update error, got: %v", gotError)
-				}
-			} else if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
+			if diff := cmp.Diff(tc.wantError, gotError); diff != "" {
 				t.Errorf("Unexpected error (-want/+got):\n%s", diff)
 			}
 
-			if tc.wantError == nil && tc.wantErrorContains == "" {
+			if tc.wantError == nil {
 				if diff := cmp.Diff(tc.wantInfo, gotInfo, cmpopts.EquateEmpty()); diff != "" {
 					t.Errorf("Unexpected info (-want/+got):\n%s", diff)
 				}
 			}
 		})
+	}
+}
+
+func TestMergeAdmissionCheckUpdate(t *testing.T) {
+	tests := map[string]struct {
+		base    PodSetInfo
+		updates []PodSetInfo
+		want    PodSetInfo
+	}{
+		"existing node selector value wins": {
+			base: PodSetInfo{
+				NodeSelector: map[string]string{"topology.kubernetes.io/zone": "zone-a"},
+			},
+			updates: []PodSetInfo{{
+				NodeSelector: map[string]string{"topology.kubernetes.io/zone": "zone-b"},
+			}},
+			want: PodSetInfo{
+				NodeSelector: map[string]string{"topology.kubernetes.io/zone": "zone-a"},
+			},
+		},
+		"first admission check wins": {
+			base: PodSetInfo{NodeSelector: map[string]string{}},
+			updates: []PodSetInfo{{
+				NodeSelector: map[string]string{"topology.kubernetes.io/zone": "zone-a"},
+			}, {
+				NodeSelector: map[string]string{"topology.kubernetes.io/zone": "zone-b"},
+			}},
+			want: PodSetInfo{
+				NodeSelector: map[string]string{"topology.kubernetes.io/zone": "zone-a"},
+			},
+		},
+		"non-conflicting values merge": {
+			base: PodSetInfo{
+				Labels:       map[string]string{"app": "worker"},
+				Annotations:  map[string]string{"owner": "team-a"},
+				NodeSelector: map[string]string{"arch": "amd64"},
+			},
+			updates: []PodSetInfo{{
+				Labels:       map[string]string{"injected": "true"},
+				Annotations:  map[string]string{"injected": "true"},
+				NodeSelector: map[string]string{"zone": "zone-a"},
+			}},
+			want: PodSetInfo{
+				Labels:       map[string]string{"app": "worker", "injected": "true"},
+				Annotations:  map[string]string{"owner": "team-a", "injected": "true"},
+				NodeSelector: map[string]string{"arch": "amd64", "zone": "zone-a"},
+			},
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			got := tc.base
+			for _, update := range tc.updates {
+				got.MergeAdmissionCheckUpdate(logr.Discard(), "check", update)
+			}
+			if diff := cmp.Diff(tc.want, got, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("MergeAdmissionCheckUpdate() mismatch (-want/+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestMergeAdmissionCheckUpdateWithBase(t *testing.T) {
+	info := PodSetInfo{
+		Labels:      map[string]string{"app": "worker"},
+		Annotations: map[string]string{"owner": "team-a"},
+	}
+	base := PodSetInfo{
+		Labels:       map[string]string{"label-key": "old-label-value"},
+		Annotations:  map[string]string{"ann-key": "old-ann-value"},
+		NodeSelector: map[string]string{"arch": "amd64"},
+	}
+	update := PodSetInfo{
+		Labels: map[string]string{
+			"label-key": "new-label-value",
+			"injected":  "true",
+		},
+		Annotations: map[string]string{
+			"ann-key":  "new-ann-value",
+			"injected": "true",
+		},
+		NodeSelector: map[string]string{
+			"arch": "arm64",
+			"zone": "zone-a",
+		},
+	}
+
+	info.MergeAdmissionCheckUpdateWithBase(logr.Discard(), "check", update, base)
+
+	want := PodSetInfo{
+		Labels:       map[string]string{"app": "worker", "injected": "true"},
+		Annotations:  map[string]string{"owner": "team-a", "injected": "true"},
+		NodeSelector: map[string]string{"zone": "zone-a"},
+	}
+	if diff := cmp.Diff(want, info, cmpopts.EquateEmpty()); diff != "" {
+		t.Errorf("MergeAdmissionCheckUpdateWithBase() mismatch (-want/+got):\n%s", diff)
 	}
 }
 

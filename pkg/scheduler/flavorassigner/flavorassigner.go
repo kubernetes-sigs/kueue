@@ -442,7 +442,7 @@ func (a *FlavorAssigner) AssignFlavors(
 				groupStatus.reasons = append(groupStatus.reasons, status.reasons...)
 			}
 		}
-		if groupFlavors != nil {
+		if groupFlavors != nil && features.Enabled(features.FailAdmissionOnConflictingFlavorLabels) {
 			if err := a.conflictingFlavors(groupFlavors); err != nil {
 				groupFlavors = nil
 				groupStatus = Status{

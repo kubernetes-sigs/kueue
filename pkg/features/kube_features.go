@@ -45,6 +45,14 @@ const (
 	// Enables flavor fungibility.
 	FlavorFungibility featuregate.Feature = "FlavorFungibility"
 
+	// owner: @bolubo
+	// issue: https://github.com/kubernetes-sigs/kueue/issues/14409
+	//
+	// Rejects pending workloads when two flavors assigned to the same PodSet assign
+	// different values to the same node label key. When disabled, FromAssignment
+	// resolves such conflicts deterministically.
+	FailAdmissionOnConflictingFlavorLabels featuregate.Feature = "FailAdmissionOnConflictingFlavorLabels"
+
 	// owner: @pbundyra
 	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/168-2-pending-workloads-visibility
 	//
@@ -961,6 +969,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	},
 	FlavorFungibility: {
 		{Version: version.MustParse("0.5"), Default: true, PreRelease: featuregate.Beta},
+	},
+	FailAdmissionOnConflictingFlavorLabels: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 	VisibilityOnDemand: {
 		{Version: version.MustParse("0.6"), Default: false, PreRelease: featuregate.Alpha},

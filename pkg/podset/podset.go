@@ -55,10 +55,11 @@ type PodSetInfo struct {
 }
 
 // FromAssignment returns a PodSetInfo based on the provided assignment and an error if unable
-// to get any of the referenced flavors, or if the node labels of two assigned flavors
-// disagree on the same key.
+// to get any of the referenced flavors. If assigned flavors disagree on a node label key, the
+// value from the first flavor in sorted resource order is kept.
 func FromAssignment(ctx context.Context, client client.Client, assignment *kueue.PodSetAssignment, podSet *kueue.PodSet) (PodSetInfo, error) {
 	processedFlvs := sets.New[kueue.ResourceFlavorReference]()
+	nodeLabelOwners := make(map[string]kueue.ResourceFlavorReference)
 	info := PodSetInfo{
 		Name:         assignment.Name,
 		NodeSelector: make(map[string]string),
@@ -66,6 +67,7 @@ func FromAssignment(ctx context.Context, client client.Client, assignment *kueue
 		Labels:       make(map[string]string),
 		Annotations:  make(map[string]string),
 	}
+	log := logr.FromContextOrDiscard(ctx)
 	if features.Enabled(features.TopologyAwareScheduling) && assignment.TopologyAssignment != nil {
 		// For implicit TAS we inject the "unconstrained" topology by default, even if unspecified.
 		if podSet.TopologyRequest == nil || (podSet.TopologyRequest.Preferred == nil &&
@@ -87,16 +89,21 @@ func FromAssignment(ctx context.Context, client client.Client, assignment *kueue
 		if err := client.Get(ctx, types.NamespacedName{Name: string(flvRef)}, &flv); err != nil {
 			return info, err
 		}
-		if err := utilmaps.HaveConflict(info.NodeSelector, flv.Spec.NodeLabels); err != nil {
-			// Flavor assignment normally rejects this combination before
-			// admission. Keep this check as a backstop for assignments made by
-			// older versions or other paths; a permanent error makes the Job
-			// fail fast (FailedToStart) and release the reserved quota instead
-			// of retrying while holding it.
-			return info, BadPodSetsUpdateError("nodeSelector",
-				fmt.Errorf("flavor %s for resource %s: node label conflict with another assigned flavor: %w", flvRef, resName, err))
+		for key, value := range flv.Spec.NodeLabels {
+			if old, found := info.NodeSelector[key]; found {
+				if old != value {
+					log.Info("Ignoring conflicting flavor node label",
+						"key", key,
+						"keptFlavor", nodeLabelOwners[key],
+						"ignoredFlavor", flvRef,
+						"keptValue", old,
+						"ignoredValue", value)
+				}
+				continue
+			}
+			info.NodeSelector[key] = value
+			nodeLabelOwners[key] = flvRef
 		}
-		utilmaps.Copy(&info.NodeSelector, flv.Spec.NodeLabels)
 		info.Tolerations = append(info.Tolerations, flv.Spec.Tolerations...)
 
 		processedFlvs.Insert(flvRef)
@@ -142,6 +149,58 @@ func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
 	utilmaps.Copy(&podSetInfo.Labels, o.Labels)
 	utilmaps.Copy(&podSetInfo.NodeSelector, o.NodeSelector)
 
+	podSetInfo.mergeTolerationsAndSchedulingGates(o)
+	return nil
+}
+
+// MergeAdmissionCheckUpdate merges a PodSetUpdate from an admission check.
+// Existing values win on conflict; later conflicting values are ignored and
+// logged so that an already admitted workload is not disrupted.
+func (podSetInfo *PodSetInfo) MergeAdmissionCheckUpdate(log logr.Logger, admissionCheck kueue.AdmissionCheckReference, o PodSetInfo) {
+	podSetInfo.mergeAdmissionCheckUpdate(log, admissionCheck, o, PodSetInfo{})
+}
+
+// MergeAdmissionCheckUpdateWithBase is MergeAdmissionCheckUpdate with an
+// additional base whose values also win over conflicting updates.
+func (podSetInfo *PodSetInfo) MergeAdmissionCheckUpdateWithBase(log logr.Logger, admissionCheck kueue.AdmissionCheckReference, o, base PodSetInfo) {
+	podSetInfo.mergeAdmissionCheckUpdate(log, admissionCheck, o, base)
+}
+
+func (podSetInfo *PodSetInfo) mergeAdmissionCheckUpdate(log logr.Logger, admissionCheck kueue.AdmissionCheckReference, o, base PodSetInfo) {
+	mergeStringMap(log, &podSetInfo.Annotations, o.Annotations, base.Annotations, admissionCheck, "annotation")
+	mergeStringMap(log, &podSetInfo.Labels, o.Labels, base.Labels, admissionCheck, "label")
+	mergeStringMap(log, &podSetInfo.NodeSelector, o.NodeSelector, base.NodeSelector, admissionCheck, "nodeSelector")
+	podSetInfo.mergeTolerationsAndSchedulingGates(o)
+}
+
+func mergeStringMap(log logr.Logger, dst *map[string]string, src, base map[string]string, admissionCheck kueue.AdmissionCheckReference, field string) {
+	if *dst == nil && src != nil {
+		*dst = make(map[string]string, len(src))
+	}
+	for key, value := range src {
+		if old, found := (*dst)[key]; found && old != value {
+			log.Info("Ignoring conflicting admission check podSetUpdate value",
+				"admissionCheck", admissionCheck,
+				"field", field,
+				"key", key,
+				"kept", old,
+				"ignored", value)
+			continue
+		}
+		if old, found := base[key]; found && old != value {
+			log.Info("Ignoring conflicting admission check podSetUpdate value",
+				"admissionCheck", admissionCheck,
+				"field", field,
+				"key", key,
+				"kept", old,
+				"ignored", value)
+			continue
+		}
+		(*dst)[key] = value
+	}
+}
+
+func (podSetInfo *PodSetInfo) mergeTolerationsAndSchedulingGates(o PodSetInfo) {
 	podSetInfo.Tolerations = utiltolerations.Merge(podSetInfo.Tolerations, o.Tolerations)
 	// make sure we don't duplicate schedulingGates
 	for _, t := range o.SchedulingGates {
@@ -149,7 +208,6 @@ func (podSetInfo *PodSetInfo) Merge(o PodSetInfo) error {
 			podSetInfo.SchedulingGates = append(podSetInfo.SchedulingGates, t)
 		}
 	}
-	return nil
 }
 
 // AddOrUpdateLabel adds or updates the label identified by k with value v

@@ -17,8 +17,6 @@ limitations under the License.
 package jobframework
 
 import (
-	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -100,42 +98,74 @@ func TestDeferAdmissionCheckNodeSelectorsToPods(t *testing.T) {
 	}
 }
 
-func TestGetPodSetsInfoFromStatusRejectsAdmissionCheckNodeSelectorConflict(t *testing.T) {
-	flavor := utiltestingapi.MakeResourceFlavor("flavor").
-		NodeLabel("topology.kubernetes.io/zone", "zone-a").
-		Obj()
-	cl := utiltesting.NewClientBuilder(kueue.AddToScheme).WithObjects(flavor).Build()
-	wl := utiltestingapi.MakeWorkload("workload", "default").
-		PodSets(*utiltestingapi.MakePodSet("main", 1).
-			Request(corev1.ResourceCPU, "1").
-			Obj()).
-		ReserveQuotaAt(
-			utiltestingapi.MakeAdmission("cq").
-				PodSets(utiltestingapi.MakePodSetAssignment("main").
-					Assignment(corev1.ResourceCPU, "flavor", "1").
-					Obj()).
-				Obj(), time.Now()).
-		AdmissionChecks(kueue.AdmissionCheckState{
-			Name:  "custom",
-			State: kueue.CheckStateReady,
-			PodSetUpdates: []kueue.PodSetUpdate{{
-				Name: "main",
-				NodeSelector: map[string]string{
-					"topology.kubernetes.io/zone": "zone-b",
-				},
+func TestGetPodSetsInfoFromStatusMergesAdmissionCheckNodeSelectorDeterministically(t *testing.T) {
+	tests := map[string]struct {
+		flavorLabels map[string]string
+		checks       []kueue.AdmissionCheckState
+		wantZone     string
+	}{
+		"flavor wins over admission check": {
+			flavorLabels: map[string]string{"topology.kubernetes.io/zone": "zone-a"},
+			checks: []kueue.AdmissionCheckState{{
+				Name:  "custom",
+				State: kueue.CheckStateReady,
+				PodSetUpdates: []kueue.PodSetUpdate{{
+					Name:         "main",
+					NodeSelector: map[string]string{"topology.kubernetes.io/zone": "zone-b"},
+				}},
 			}},
-		}).
-		Obj()
+			wantZone: "zone-a",
+		},
+		"first admission check wins": {
+			checks: []kueue.AdmissionCheckState{{
+				Name:  "first",
+				State: kueue.CheckStateReady,
+				PodSetUpdates: []kueue.PodSetUpdate{{
+					Name:         "main",
+					NodeSelector: map[string]string{"topology.kubernetes.io/zone": "zone-a"},
+				}},
+			}, {
+				Name:  "second",
+				State: kueue.CheckStateReady,
+				PodSetUpdates: []kueue.PodSetUpdate{{
+					Name:         "main",
+					NodeSelector: map[string]string{"topology.kubernetes.io/zone": "zone-b"},
+				}},
+			}},
+			wantZone: "zone-a",
+		},
+	}
 
-	_, err := getPodSetsInfoFromStatus(t.Context(), cl, wl)
-	if err == nil {
-		t.Fatal("getPodSetsInfoFromStatus() = nil error, want a permanent node selector conflict")
-	}
-	if !errors.Is(err, podset.ErrInvalidPodSetUpdate) {
-		t.Fatalf("getPodSetsInfoFromStatus() error = %v, want ErrInvalidPodSetUpdate", err)
-	}
-	if !strings.Contains(err.Error(), "topology.kubernetes.io/zone") {
-		t.Fatalf("error should name the conflicting key, got: %v", err)
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			flavor := utiltestingapi.MakeResourceFlavor("flavor").
+				NodeLabel("topology.kubernetes.io/zone", tc.flavorLabels["topology.kubernetes.io/zone"]).
+				Obj()
+			if tc.flavorLabels == nil {
+				flavor = utiltestingapi.MakeResourceFlavor("flavor").Obj()
+			}
+			cl := utiltesting.NewClientBuilder(kueue.AddToScheme).WithObjects(flavor).Build()
+			wl := utiltestingapi.MakeWorkload("workload", "default").
+				PodSets(*utiltestingapi.MakePodSet("main", 1).
+					Request(corev1.ResourceCPU, "1").
+					Obj()).
+				ReserveQuotaAt(
+					utiltestingapi.MakeAdmission("cq").
+						PodSets(utiltestingapi.MakePodSetAssignment("main").
+							Assignment(corev1.ResourceCPU, "flavor", "1").
+							Obj()).
+						Obj(), time.Now()).
+				AdmissionChecks(tc.checks...).
+				Obj()
+
+			info, err := getPodSetsInfoFromStatus(t.Context(), cl, wl, wl.Spec.PodSets)
+			if err != nil {
+				t.Fatalf("getPodSetsInfoFromStatus() error = %v", err)
+			}
+			if got := info[0].NodeSelector["topology.kubernetes.io/zone"]; got != tc.wantZone {
+				t.Errorf("node selector zone = %q, want %q", got, tc.wantZone)
+			}
+		})
 	}
 }
 

@@ -1434,7 +1434,7 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 			})
 		})
 
-		ginkgo.It("should not admit workload if there is a conflict in labels", framework.SlowSpec, func() {
+		ginkgo.It("should keep the existing label when the admission check conflicts", framework.SlowSpec, func() {
 			createdJob := &batchv1.Job{}
 			createdWorkload := &kueue.Workload{}
 			job := testingjob.MakeJob(jobName, ns.Name).
@@ -1489,22 +1489,18 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
-			ginkgo.By("verify the job is not started", func() {
-				gomega.Consistently(func(g gomega.Gomega) {
+			ginkgo.By("verify the job is admitted with the old label value", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, *jobLookupKey, createdJob)).Should(gomega.Succeed())
-					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(true)))
-				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("verify the job has the old label value", func() {
-				gomega.Expect(createdJob.Spec.Template.Labels).Should(gomega.HaveKeyWithValue("label-key", "old-label-value"))
+					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
+					g.Expect(createdJob.Spec.Template.Labels).Should(gomega.HaveKeyWithValue("label-key", "old-label-value"))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 
-		ginkgo.It("should not admit workload if there is a conflict in annotations", framework.SlowSpec, func() {
-			// Negative counterpart of the stale workload-slice annotation scenario:
-			// only Kueue-managed annotations are overwritten on job start; a conflict
-			// on a user-provided annotation remains a permanent failure.
+		ginkgo.It("should keep the existing annotation when the admission check conflicts", framework.SlowSpec, func() {
+			// Admission check updates are merged deterministically: the value
+			// already on the pod template wins over a conflicting update.
 			createdJob := &batchv1.Job{}
 			createdWorkload := &kueue.Workload{}
 			job := testingjob.MakeJob(jobName, ns.Name).
@@ -1559,20 +1555,12 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
 			})
 
-			ginkgo.By("verify the workload is finished with FailedToStart", func() {
+			ginkgo.By("verify the job is admitted with the old annotation value", func() {
 				gomega.Eventually(func(g gomega.Gomega) {
-					g.Expect(k8sClient.Get(ctx, *wlLookupKey, createdWorkload)).Should(gomega.Succeed())
-					g.Expect(createdWorkload.Status.Conditions).Should(
-						utiltesting.HaveConditionStatusTrueAndReason(kueue.WorkloadFinished, jobframework.FailedToStartFinishedReason))
-				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
-			})
-
-			ginkgo.By("verify the job stays suspended with the old annotation value", func() {
-				gomega.Consistently(func(g gomega.Gomega) {
 					g.Expect(k8sClient.Get(ctx, *jobLookupKey, createdJob)).Should(gomega.Succeed())
-					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(true)))
+					g.Expect(createdJob.Spec.Suspend).Should(gomega.Equal(new(false)))
 					g.Expect(createdJob.Spec.Template.Annotations).Should(gomega.HaveKeyWithValue("ann-key", "old-ann-value"))
-				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 			})
 		})
 	})
@@ -8503,6 +8491,9 @@ var _ = ginkgo.Describe("Job flavors with conflicting node labels", ginkgo.Order
 	})
 
 	ginkgo.BeforeEach(func() {
+		features.SetFeatureGatesDuringTest(ginkgo.GinkgoTB(), map[featuregate.Feature]bool{
+			features.FailAdmissionOnConflictingFlavorLabels: true,
+		})
 		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "flavor-conflict-")
 		flavorA = utiltestingapi.MakeResourceFlavor("flavor-zone-conflict-a").
 			NodeLabel("topology.kubernetes.io/zone", "zone-a").

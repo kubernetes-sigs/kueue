@@ -1202,6 +1202,9 @@ func TestAssignFlavors(t *testing.T) {
 						Obj(),
 				).
 				Obj(),
+			featureGates: map[featuregate.Feature]bool{
+				features.FailAdmissionOnConflictingFlavorLabels: true,
+			},
 			wantRepMode: NoFit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
@@ -5229,6 +5232,81 @@ func TestAssignFlavors(t *testing.T) {
 				flexAssertConsidered(t, tc.wantAssignment, assignment, cmpOpts...)
 			})
 		}
+	}
+}
+
+func TestAssignFlavorsConflictingNodeLabelsGateDisabled(t *testing.T) {
+	features.SetFeatureGateDuringTest(t, features.FailAdmissionOnConflictingFlavorLabels, false)
+	ctx, log := utiltesting.ContextWithLog(t)
+
+	flavors := map[kueue.ResourceFlavorReference]*kueue.ResourceFlavor{
+		"label-x-a":  utiltestingapi.MakeResourceFlavor("label-x-a").NodeLabel("x", "a").Obj(),
+		"label-xy-b": utiltestingapi.MakeResourceFlavor("label-xy-b").NodeLabel("x", "b").NodeLabel("y", "k").Obj(),
+	}
+	clusterQueue := utiltestingapi.MakeClusterQueue("test-clusterqueue").
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("label-x-a").
+				Resource(corev1.ResourceCPU, "4").
+				Obj(),
+		).
+		ResourceGroup(
+			*utiltestingapi.MakeFlavorQuotas("label-xy-b").
+				Resource(corev1.ResourceMemory, "4Mi").
+				Obj(),
+		).
+		Obj()
+	wl := &kueue.Workload{
+		Spec: kueue.WorkloadSpec{
+			PodSets: []kueue.PodSet{
+				*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).
+					Request(corev1.ResourceCPU, "1").
+					Request(corev1.ResourceMemory, "1Mi").
+					Obj(),
+			},
+		},
+	}
+	wlInfo := workload.NewInfo(log, wl)
+
+	cache := schdcache.New(utiltesting.NewFakeClient())
+	if err := cache.AddClusterQueue(ctx, clusterQueue); err != nil {
+		t.Fatalf("Failed to add CQ to cache: %v", err)
+	}
+	for _, flavor := range flavors {
+		cache.AddOrUpdateResourceFlavor(log, flavor)
+	}
+	snapshot, err := cache.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Failed to build cache snapshot: %v", err)
+	}
+	cq := snapshot.ClusterQueue(kueue.ClusterQueueReference(clusterQueue.Name))
+	if cq == nil {
+		t.Fatal("Failed to get CQ snapshot")
+	}
+
+	assigner := New(
+		wlInfo,
+		cq,
+		flavors,
+		false,
+		&testOracle{},
+		nil,
+		configapi.QuotaCheckBlockUndeclared,
+		resources.NewResourceFormatter(),
+		0,
+	)
+	assignment := assigner.AssignFlavors(ctx, log, nil)
+	if got := assignment.RepresentativeMode(); got != Fit {
+		t.Fatalf("RepresentativeMode() = %s, want %s", got, Fit)
+	}
+	if len(assignment.PodSets) != 1 {
+		t.Fatalf("PodSets length = %d, want 1", len(assignment.PodSets))
+	}
+	gotFlavors := assignment.PodSets[0].Flavors
+	if got := gotFlavors[corev1.ResourceCPU].Name; got != "label-x-a" {
+		t.Errorf("CPU flavor = %s, want label-x-a", got)
+	}
+	if got := gotFlavors[corev1.ResourceMemory].Name; got != "label-xy-b" {
+		t.Errorf("memory flavor = %s, want label-xy-b", got)
 	}
 }
 

@@ -460,12 +460,11 @@ func (r *nodeReconciler) podSetsWithEffectiveTolerationsOnNode(ctx context.Conte
 			return nil, err
 		}
 
+		baseInfo := podsetinfo.FromPodSet(effective)
 		for _, admissionCheck := range wl.Status.AdmissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
 				if podSetUpdate.Name == psa.Name {
-					if err := info.Merge(podsetinfo.FromUpdate(&podSetUpdate)); err != nil {
-						return nil, fmt.Errorf("in admission check %q: %w", admissionCheck.Name, err)
-					}
+					info.MergeAdmissionCheckUpdateWithBase(logr.FromContextOrDiscard(ctx), admissionCheck.Name, podsetinfo.FromUpdate(&podSetUpdate), baseInfo)
 					break
 				}
 			}
