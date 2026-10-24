@@ -213,7 +213,7 @@ func TestAssignFlavors(t *testing.T) {
 	cases := map[string]struct {
 		wlPods                     []kueue.PodSet
 		wlReclaimablePods          []kueue.ReclaimablePod
-		counts                     []int32
+		counts                     workload.PodSetsCounts
 		clusterQueue               kueue.ClusterQueue
 		clusterQueueUsage          resources.FlavorResourceQuantities
 		secondaryClusterQueue      *kueue.ClusterQueue
@@ -2616,7 +2616,7 @@ func TestAssignFlavors(t *testing.T) {
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("default").Resource("example.com/gpu", "7000000000000000000").Obj(),
 				).Obj(),
-			counts:      []int32{1},
+			counts:      workload.PodSetsCounts{kueue.DefaultPodSetName: 1},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
@@ -2641,7 +2641,7 @@ func TestAssignFlavors(t *testing.T) {
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("default").Resource("example.com/gpu", "7000000000000000000").Obj(),
 				).Obj(),
-			counts:      []int32{2},
+			counts:      workload.PodSetsCounts{kueue.DefaultPodSetName: 2},
 			wantRepMode: NoFit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
@@ -2666,6 +2666,41 @@ func TestAssignFlavors(t *testing.T) {
 				NoFitReason: "ExceedsMaxQuota",
 			},
 		},
+		"partial admission scales only the PodSets present in counts": {
+			wlPods: []kueue.PodSet{
+				*utiltestingapi.MakePodSet("a", 3).Request(corev1.ResourceCPU, "1").Obj(),
+				*utiltestingapi.MakePodSet("b", 2).Request(corev1.ResourceCPU, "1").Obj(),
+			},
+			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas("default").Resource(corev1.ResourceCPU, "10").Obj(),
+				).Obj(),
+			counts:      workload.PodSetsCounts{"a": 0},
+			wantRepMode: Fit,
+			wantAssignment: Assignment{
+				PodSets: []PodSetAssignment{
+					{
+						Name: "a",
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU: {Name: "default", Mode: Fit},
+						},
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("0")},
+						Count:    0,
+					},
+					{
+						Name: "b",
+						Flavors: ResourceAssignment{
+							corev1.ResourceCPU: {Name: "default", Mode: Fit},
+						},
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("2")},
+						Count:    2,
+					},
+				},
+				Usage: workload.Usage{Quota: workload.ResourceUsage{Assigned: resources.FlavorResourceQuantities{
+					{Flavor: "default", Resource: corev1.ResourceCPU}: resources.NewAmount(2_000),
+				}}},
+			},
+		},
 		// A successful zero-count probe does not retain retry progress, even when
 		// it selects a flavor before the end of the list.
 		"zero-count PodSet retains its probe with explicit counts": {
@@ -2679,7 +2714,7 @@ func TestAssignFlavors(t *testing.T) {
 					*utiltestingapi.MakeFlavorQuotas("two").Resource("example.com/gpu", "4").Obj(),
 					*utiltestingapi.MakeFlavorQuotas("three").Resource("example.com/gpu", "4").Obj(),
 				).Obj(),
-			counts:      []int32{0},
+			counts:      workload.PodSetsCounts{kueue.DefaultPodSetName: 0},
 			wantRepMode: Fit,
 			wantAssignment: Assignment{
 				PodSets: []PodSetAssignment{{
@@ -2705,7 +2740,7 @@ func TestAssignFlavors(t *testing.T) {
 					*utiltestingapi.MakeFlavorQuotas("two").Resource("example.com/gpu", "4").Obj(),
 					*utiltestingapi.MakeFlavorQuotas("three").Resource("example.com/gpu", "4").Obj(),
 				).Obj(),
-			counts: []int32{0},
+			counts: workload.PodSetsCounts{kueue.DefaultPodSetName: 0},
 			flavorScanState: &workload.FlavorScanState{
 				TriedFlavors: []map[corev1.ResourceName]sets.Set[kueue.ResourceFlavorReference]{
 					{"example.com/gpu": sets.New[kueue.ResourceFlavorReference]("one", "two")},
@@ -7617,7 +7652,7 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 	cases := map[string]struct {
 		wlPods            []kueue.PodSet
 		admission         *kueue.Admission
-		counts            []int32
+		counts            workload.PodSetsCounts
 		clusterQueue      kueue.ClusterQueue
 		wantPodSetFlavors map[kueue.PodSetReference]ResourceAssignment
 		wantPodSets       []kueue.PodSetReference
@@ -7939,8 +7974,7 @@ func TestAssignFlavors_LeaderWorkerSetTASFlavor(t *testing.T) {
 				utiltestingapi.MakePodSetAssignment("other").Count(3).Assignment(corev1.ResourceCPU, "tas-b", "3").
 					DelayedTopologyRequest(kueue.DelayedTopologyRequestStatePending).Obj(),
 			).Obj(),
-			// Counts follow the Workload's PodSet order, not the admission's.
-			counts: []int32{1, 2, 3},
+			counts: workload.PodSetsCounts{"leader": 1, "other": 2, "worker": 3},
 			clusterQueue: *utiltestingapi.MakeClusterQueue("test-clusterqueue").
 				ResourceGroup(
 					*utiltestingapi.MakeFlavorQuotas("tas-a").Resource(corev1.ResourceCPU, "10").Obj(),
