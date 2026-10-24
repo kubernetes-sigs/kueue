@@ -2399,7 +2399,7 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
-		"when workload is admitted and PodSetUpdates conflict between admission checks on labels, the workload is finished with failure": {
+		"when workload is admitted and PodSetUpdates conflict between admission checks on labels, the first value wins": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 
@@ -2407,7 +2407,12 @@ func TestReconciler(t *testing.T) {
 			},
 			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
-				Suspend(true).
+				Suspend(false).
+				PodLabel("ac-key", "ac-value1").
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2465,16 +2470,18 @@ func TestReconciler(t *testing.T) {
 							},
 						},
 					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  "FailedToStart",
-						Message: `in admission check "check2": invalid admission check PodSetUpdate: conflict for labels: conflict for key=ac-key, value1=ac-value1, value2=ac-value2`,
-					}).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+			},
 		},
-		"when workload is admitted and PodSetUpdates conflict between admission checks on annotations, the workload is finished with failure": {
+		"when workload is admitted and PodSetUpdates conflict between admission checks on annotations, the first value wins": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 
@@ -2482,7 +2489,12 @@ func TestReconciler(t *testing.T) {
 			},
 			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
-				Suspend(true).
+				Suspend(false).
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
+				PodAnnotation("ac-key", "ac-value1").
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2540,16 +2552,18 @@ func TestReconciler(t *testing.T) {
 							},
 						},
 					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  "FailedToStart",
-						Message: `in admission check "check2": invalid admission check PodSetUpdate: conflict for annotations: conflict for key=ac-key, value1=ac-value1, value2=ac-value2`,
-					}).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+			},
 		},
-		"when workload is admitted and PodSetUpdates conflict between admission checks on nodeSelector, the workload is finished with failure": {
+		"when workload is admitted and PodSetUpdates conflict between admission checks on nodeSelector, the first value wins": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 
@@ -2557,7 +2571,12 @@ func TestReconciler(t *testing.T) {
 			},
 			job: baseJobWrapper.DeepCopy(),
 			wantJob: *baseJobWrapper.Clone().
-				Suspend(true).
+				Suspend(false).
+				NodeSelector("ac-key", "ac-value1").
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2615,16 +2634,18 @@ func TestReconciler(t *testing.T) {
 							},
 						},
 					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  "FailedToStart",
-						Message: `in admission check "check2": invalid admission check PodSetUpdate: conflict for nodeSelector: conflict for key=ac-key, value1=ac-value1, value2=ac-value2`,
-					}).
 					Obj(),
 			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
+			},
 		},
-		"when workload is admitted and PodSetUpdates conflict between admission check nodeSelector and current node selector, the workload is finished with failure": {
+		"when workload is admitted and PodSetUpdates conflict with the current node selector, the current value wins": {
 			featureGates: map[featuregate.Feature]bool{
 				features.TopologyAwareScheduling: false,
 
@@ -2634,8 +2655,12 @@ func TestReconciler(t *testing.T) {
 				NodeSelector("provisioning", "spot").
 				Obj(),
 			wantJob: *baseJobWrapper.Clone().
-				Suspend(true).
+				Suspend(false).
 				NodeSelector("provisioning", "spot").
+				PodLabel(constants.PodSetLabel, string(kueue.DefaultPodSetName)).
+				PodLabel(constants.LocalQueueLabel, localQueueName).
+				PodLabel(constants.ClusterQueueLabel, clusterQueueName).
+				PodAnnotation(kueue.WorkloadAnnotation, "wl").
 				Obj(),
 			workloads: []kueue.Workload{
 				*baseWorkloadWrapper.Clone().
@@ -2669,13 +2694,15 @@ func TestReconciler(t *testing.T) {
 							},
 						},
 					}).
-					Condition(metav1.Condition{
-						Type:    kueue.WorkloadFinished,
-						Status:  metav1.ConditionTrue,
-						Reason:  "FailedToStart",
-						Message: `invalid admission check PodSetUpdate: conflict for nodeSelector: conflict for key=provisioning, value1=spot, value2=on-demand`,
-					}).
 					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       types.NamespacedName{Name: "job", Namespace: "ns"},
+					EventType: "Normal",
+					Reason:    "Started",
+					Message:   "Admitted by clusterQueue cq",
+				},
 			},
 		},
 		"when workload is admitted the PodSetUpdates values matching for key": {

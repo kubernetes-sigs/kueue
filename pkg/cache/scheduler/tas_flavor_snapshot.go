@@ -1487,10 +1487,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 		state.leaderCount = 1
 	}
 
-	info, reason := podSetInfo(workersTasPodSetRequests)
-	if reason != "" {
-		return nil, nil, reason
-	}
+	info := podSetInfo(ctx, workersTasPodSetRequests)
 
 	// If slice topology is not requested then we can assume that slice is a single pod
 	sliceSize, reason := getSliceSizeWithSinglePodAsDefault(workersTasPodSetRequests.PodSet.TopologyRequest)
@@ -1567,10 +1564,7 @@ func (s *TASFlavorSnapshot) findTopologyAssignment(
 	}
 
 	if leaderTasPodSetRequests != nil && features.Enabled(features.TASLeaderPodSetFeasibility) {
-		leaderInfo, reason := podSetInfo(*leaderTasPodSetRequests)
-		if reason != "" {
-			return nil, nil, reason
-		}
+		leaderInfo := podSetInfo(ctx, *leaderTasPodSetRequests)
 		leaderPodRequirements, err := s.buildPodRequirements(leaderInfo, leaderTasPodSetRequests.PodSet, workloadNamespace(wl))
 		if err != nil {
 			return nil, nil, err.Error()
@@ -2660,14 +2654,12 @@ func (s *TASFlavorSnapshot) forgetMatchingLeaves() {
 }
 
 // podSetInfo merges a PodSet with its updates into the form the node filters read.
-func podSetInfo(tasPodSetRequests TASPodSetRequests) (podset.PodSetInfo, string) {
+func podSetInfo(ctx context.Context, tasPodSetRequests TASPodSetRequests) podset.PodSetInfo {
 	info := podset.FromPodSet(tasPodSetRequests.PodSet)
 	for _, podSetUpdate := range tasPodSetRequests.PodSetUpdates {
-		if err := info.Merge(podset.FromUpdate(podSetUpdate)); err != nil {
-			return info, fmt.Sprintf("invalid podSetUpdate for PodSet %s, error: %s", tasPodSetRequests.PodSet.Name, err.Error())
-		}
+		info.MergeAdmissionCheckUpdate(logr.FromContextOrDiscard(ctx), "", podset.FromUpdate(podSetUpdate))
 	}
-	return info, ""
+	return info
 }
 
 // workloadNamespace returns the namespace the PodSet's claims live in, empty when

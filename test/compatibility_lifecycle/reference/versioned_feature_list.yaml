@@ -131,6 +131,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: FailAdmissionOnConflictingFlavorLabels
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: FailureRecoveryPolicy
   versionedSpecs:
   - default: false

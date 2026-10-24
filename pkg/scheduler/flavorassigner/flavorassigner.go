@@ -466,6 +466,15 @@ func (a *FlavorAssigner) AssignFlavors(
 				groupStatus.reasons = append(groupStatus.reasons, status.reasons...)
 			}
 		}
+		if groupFlavors != nil && features.Enabled(features.FailAdmissionOnConflictingFlavorLabels) {
+			if err := a.conflictingFlavors(groupFlavors); err != nil {
+				groupFlavors = nil
+				groupStatus = Status{
+					reasons:     []string{err.Error()},
+					noFitReason: kueue.WorkloadQuotaReservedReasonNoMatchingFlavor,
+				}
+			}
+		}
 
 		// The quota check kept this total exactly. resourceUsage is a Quantity,
 		// which cannot hold it, so writing the cap would make the cache account
@@ -512,6 +521,30 @@ func (a *FlavorAssigner) AssignFlavors(
 		return assignment
 	}
 	return assignment
+}
+
+// conflictingFlavors returns an error if the flavors selected for a pod set
+// assign different values to the same node label key.
+func (a *FlavorAssigner) conflictingFlavors(flavors ResourceAssignment) error {
+	merged := make(map[string]string)
+	owners := make(map[string]kueue.ResourceFlavorReference)
+	for _, resName := range slices.Sorted(maps.Keys(flavors)) {
+		fName := flavors[resName].Name
+		flv := a.resourceFlavors[fName]
+		if flv == nil {
+			continue
+		}
+		for key, value := range flv.Spec.NodeLabels {
+			if old, found := merged[key]; found && old != value {
+				return fmt.Errorf("flavors %s and %s have conflicting node labels: conflict for key=%s, value1=%s, value2=%s", owners[key], fName, key, old, value)
+			}
+		}
+		for key, value := range flv.Spec.NodeLabels {
+			merged[key] = value
+			owners[key] = fName
+		}
+	}
+	return nil
 }
 
 // AssignTopology updates the assignment based on topology requirements.

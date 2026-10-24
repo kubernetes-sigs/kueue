@@ -25,6 +25,7 @@ import (
 	"slices"
 	"strconv"
 
+	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 
@@ -168,9 +169,7 @@ func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count i
 	}
 
 	for _, u := range opts.PodSetUpdates {
-		if err := info.Merge(podset.FromUpdate(&u)); err != nil {
-			return nil, fmt.Errorf("failed to merge PodSetUpdate for PodSet %s: %w", ps.Name, err)
-		}
+		info.MergeAdmissionCheckUpdate(logr.Discard(), "", podset.FromUpdate(&u))
 	}
 
 	spec := baseSpec.DeepCopy()

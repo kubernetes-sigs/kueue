@@ -2661,10 +2661,10 @@ func TestFindTopologyAssignments(t *testing.T) {
 				wantReason: "no requested topology level: kubernetes.io/hostname",
 			}},
 		},
-		"podSetUpdate conflicts with the PodSet's own nodeSelector": {
+		"podSetUpdate conflicts with the PodSet's own nodeSelector; PodSet wins": {
 			// podSetInfo merges each PodSetUpdate into the PodSet before the node
-			// filters are built. A key present on both with a different value is a
-			// conflict, and the PodSet cannot be placed.
+			// filters are built. The value already on the PodSet wins over a
+			// conflicting update.
 			nodes:  defaultNodes,
 			levels: defaultTwoLevels,
 			podSets: []PodSetTestCase{{
@@ -2676,11 +2676,17 @@ func TestFindTopologyAssignments(t *testing.T) {
 					corev1.ResourceCPU: 1000,
 				},
 				count:        1,
-				nodeSelector: map[string]string{"example.com/pool": "a"},
+				nodeSelector: map[string]string{tasBlockLabel: "b1"},
 				podSetUpdates: []*kueue.PodSetUpdate{{
-					NodeSelector: map[string]string{"example.com/pool": "b"},
+					NodeSelector: map[string]string{tasBlockLabel: "b2"},
 				}},
-				wantReason: `invalid podSetUpdate for PodSet worker, error: invalid admission check PodSetUpdate: conflict for nodeSelector: conflict for key=example.com/pool, value1=a, value2=b`,
+				wantAssignment: &tas.TopologyAssignment{
+					Levels: defaultTwoLevels,
+					Domains: []tas.TopologyDomainAssignment{{
+						Values: []string{"b1", "r1"},
+						Count:  1,
+					}},
+				},
 			}},
 		},
 		"rack required; untolerated taint inside the rack; feature gate off": {

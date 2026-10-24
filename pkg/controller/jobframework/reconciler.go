@@ -1694,7 +1694,7 @@ func expectedRunningPodSets(ctx context.Context, c client.Client, wl *kueue.Work
 	if !workload.HasQuotaReservation(wl) {
 		return nil
 	}
-	info, err := getPodSetsInfoFromStatus(ctx, c, wl)
+	info, err := getPodSetsInfoFromStatus(ctx, c, wl, wl.Spec.PodSets)
 	if err != nil {
 		return nil
 	}
@@ -1798,7 +1798,11 @@ func (r *JobReconciler) updateWorkloadToMatchJob(ctx context.Context, job Generi
 
 // startJob will unsuspend the job, and also inject the node affinity.
 func (r *JobReconciler) startJob(ctx context.Context, job GenericJob, object client.Object, wl *kueue.Workload) error {
-	info, err := getPodSetsInfoFromStatus(ctx, r.client, wl)
+	basePodSets, err := job.PodSets(ctx, r.client)
+	if err != nil {
+		return err
+	}
+	info, err := getPodSetsInfoFromStatus(ctx, r.client, wl, basePodSets)
 	if err != nil {
 		return err
 	}
@@ -2184,7 +2188,7 @@ func extractPriorityFromPodSets(podSets []kueue.PodSet) string {
 
 // getPodSetsInfoFromStatus extracts podSetsInfo from workload status, based on
 // admission, and admission checks.
-func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload) ([]podset.PodSetInfo, error) {
+func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Workload, basePodSets []kueue.PodSet) ([]podset.PodSetInfo, error) {
 	if len(w.Status.Admission.PodSetAssignments) == 0 {
 		return nil, nil
 	}
@@ -2192,6 +2196,10 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 	assignments, err := podSetAssignmentsInSpecOrder(w)
 	if err != nil {
 		return nil, err
+	}
+	baseByName := make(map[kueue.PodSetReference]kueue.PodSet, len(basePodSets))
+	for i := range basePodSets {
+		baseByName[basePodSets[i].Name] = basePodSets[i]
 	}
 	podSetsInfo := make([]podset.PodSetInfo, len(assignments))
 
@@ -2215,12 +2223,15 @@ func getPodSetsInfoFromStatus(ctx context.Context, c client.Client, w *kueue.Wor
 			assignQueueLabels(ctx, info.Labels, w)
 		}
 
+		basePodSet := &w.Spec.PodSets[i]
+		if base, found := baseByName[psAssignment.Name]; found {
+			basePodSet = &base
+		}
+		baseInfo := podset.FromPodSet(basePodSet)
 		for _, admissionCheck := range w.Status.AdmissionChecks {
 			for _, podSetUpdate := range admissionCheck.PodSetUpdates {
 				if podSetUpdate.Name == info.Name {
-					if err := info.Merge(podset.FromUpdate(&podSetUpdate)); err != nil {
-						return nil, fmt.Errorf("in admission check %q: %w", admissionCheck.Name, err)
-					}
+					info.MergeAdmissionCheckUpdateWithBase(logr.FromContextOrDiscard(ctx), admissionCheck.Name, podset.FromUpdate(&podSetUpdate), baseInfo)
 					break
 				}
 			}
