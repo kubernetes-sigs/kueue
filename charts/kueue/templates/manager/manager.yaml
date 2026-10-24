@@ -98,6 +98,8 @@ spec:
           readOnly: true
         - mountPath: /visibility
           name: visibility
+        - mountPath: /visibility-certs
+          name: visibility-certs
           readOnly: true
         - mountPath: /controller_manager_config.yaml
           name: manager-config
@@ -163,8 +165,11 @@ spec:
           - key: tls.key
             path: tls.key
       {{- else }}
+      {{- /* Deprecated: unused, kept so a downgraded Kueue can write its self-signed certificate here. Remove in 0.22. */}}
       - name: visibility
+        emptyDir: {}
+      {{- end }}
+      - name: visibility-certs
         secret:
           defaultMode: 420
           secretName: {{ include "kueue.fullname" . }}-visibility-server-cert
-      {{- end }}

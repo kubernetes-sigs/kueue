@@ -40,7 +40,7 @@ const (
 	visibilitySecretSuffix  = "-visibility-server-cert"
 
 	// VisibilityCertDir is where the visibility server's serving certificate is mounted.
-	VisibilityCertDir = "/visibility"
+	VisibilityCertDir = "/visibility-certs"
 )
 
 // The webhook configuration resourceNames are deliberately unprefixed: each installer adds
