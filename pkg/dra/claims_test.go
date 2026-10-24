@@ -44,10 +44,6 @@ func Test_GetResourceRequests(t *testing.T) {
 		DeviceRequest("device-request", "test-deviceclass-1", 2).
 		Obj()
 
-	celPoolTemplate := utiltesting.MakeResourceClaimTemplate("claim-tmpl-1", "ns1").
-		DeviceRequest("device-request", "test-deviceclass-1", 2).
-		WithCELSelectors("true").
-		Obj()
 	celPoolError := field.ErrorList{field.InternalError(
 		field.NewPath("spec", "podSets").Index(0).Child("template", "spec", "resourceClaims").Index(0).Child("devices", "requests").Index(0).Child("exactly", "selectors"),
 		errors.New(""),
@@ -92,11 +88,10 @@ func Test_GetResourceRequests(t *testing.T) {
 	}
 
 	tests := []struct {
-		name          string
-		claimTemplate *resourcev1.ResourceClaimTemplate
-		modifyWL      func(w *kueue.Workload)
-		extraObjects  []runtime.Object
-		lookup        func(corev1.ResourceName) (corev1.ResourceName, bool)
+		name         string
+		modifyWL     func(w *kueue.Workload)
+		extraObjects []runtime.Object
+		lookup       func(corev1.ResourceName) (corev1.ResourceName, bool)
 		// mappings replaces the default res-1/res-2 mappings when set.
 		mappings     []configapi.DeviceClassMapping
 		featureGates map[featuregate.Feature]bool
@@ -321,10 +316,13 @@ func Test_GetResourceRequests(t *testing.T) {
 			},
 		},
 		{
-			name:          "CEL pool validation excludes stale devices from a complete newer generation",
-			claimTemplate: celPoolTemplate,
-			lookup:        defaultLookup,
+			name:   "CEL pool validation excludes stale devices from a complete newer generation",
+			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-1", 2).
+					WithCELSelectors("true").
+					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				testingdra.MakeResourceSlice("a-old", "test-driver").
 					Pool("pool-1", 1, 1).
@@ -335,13 +333,21 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("new-0").
 					Obj(),
 			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
+				}
+			},
 			wantErr: celPoolError,
 		},
 		{
-			name:          "CEL pool validation excludes stale slices listed after the latest generation",
-			claimTemplate: celPoolTemplate,
-			lookup:        defaultLookup,
+			name:   "CEL pool validation excludes stale slices listed after the latest generation",
+			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-1", 2).
+					WithCELSelectors("true").
+					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				testingdra.MakeResourceSlice("a-new", "test-driver").
 					Pool("pool-1", 2, 1).
@@ -352,13 +358,21 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("old-0").
 					Obj(),
 			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
+				}
+			},
 			wantErr: celPoolError,
 		},
 		{
-			name:          "CEL pool validation excludes an incomplete latest generation and does not fall back",
-			claimTemplate: celPoolTemplate,
-			lookup:        defaultLookup,
+			name:   "CEL pool validation excludes an incomplete latest generation and does not fall back",
+			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-1", 2).
+					WithCELSelectors("true").
+					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				testingdra.MakeResourceSlice("a-old", "test-driver").
 					Pool("pool-1", 1, 1).
@@ -371,13 +385,21 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("new-1").
 					Obj(),
 			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
+				}
+			},
 			wantErr: celPoolError,
 		},
 		{
-			name:          "CEL pool validation excludes an incomplete pool without older slices",
-			claimTemplate: celPoolTemplate,
-			lookup:        defaultLookup,
+			name:   "CEL pool validation excludes an incomplete pool without older slices",
+			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-1", 2).
+					WithCELSelectors("true").
+					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				testingdra.MakeResourceSlice("slice-1", "test-driver").
 					Pool("pool-1", 1, 2).
@@ -385,13 +407,21 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-1").
 					Obj(),
 			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
+				}
+			},
 			wantErr: celPoolError,
 		},
 		{
-			name:          "CEL pool validation accepts all slices of the complete latest generation",
-			claimTemplate: celPoolTemplate,
-			lookup:        defaultLookup,
+			name:   "CEL pool validation accepts all slices of the complete latest generation",
+			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-1", 2).
+					WithCELSelectors("true").
+					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				testingdra.MakeResourceSlice("a-old", "test-driver").
 					Pool("pool-1", 1, 1).
@@ -406,13 +436,21 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("new-1").
 					Obj(),
 			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
+				}
+			},
 			want: celPoolResources,
 		},
 		{
-			name:          "CEL pool validation keeps complete pools when another pool is incomplete",
-			claimTemplate: celPoolTemplate,
-			lookup:        defaultLookup,
+			name:   "CEL pool validation keeps complete pools when another pool is incomplete",
+			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-1", 2).
+					WithCELSelectors("true").
+					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				testingdra.MakeResourceSlice("slice-1", "test-driver").
 					Pool("pool-1", 1, 1).
@@ -424,13 +462,21 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("other-0").
 					Obj(),
 			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
+				}
+			},
 			want: celPoolResources,
 		},
 		{
-			name:          "CEL pool validation treats identically named pools from different drivers independently",
-			claimTemplate: celPoolTemplate,
-			lookup:        defaultLookup,
+			name:   "CEL pool validation treats identically named pools from different drivers independently",
+			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-1", 2).
+					WithCELSelectors("true").
+					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				testingdra.MakeResourceSlice("slice-1", "test-driver").
 					Pool("pool-1", 1, 1).
@@ -441,18 +487,23 @@ func Test_GetResourceRequests(t *testing.T) {
 					Device("dev-0").
 					Obj(),
 			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
+				}
+			},
 			want: celPoolResources,
 		},
 		{
-			name: "CEL pool validation preserves device order for overlapping requests across pools",
-			claimTemplate: utiltesting.MakeResourceClaimTemplate("claim-tmpl-1", "ns1").
-				DeviceRequest("any", "test-deviceclass-1", 1).
-				WithCELSelectors("true").
-				DeviceRequest("selected", "test-deviceclass-1", 1).
-				WithCELSelectors(`device.attributes["test-driver"].selected == "true"`).
-				Obj(),
+			name:   "CEL pool validation preserves device order for overlapping requests across pools",
 			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-overlap", "ns1").
+					DeviceRequest("any", "test-deviceclass-1", 1).
+					WithCELSelectors("true").
+					DeviceRequest("selected", "test-deviceclass-1", 1).
+					WithCELSelectors(`device.attributes["test-driver"].selected == "true"`).
+					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				testingdra.MakeResourceSlice("a-unselected", "test-driver").
 					Pool("pool-1", 1, 1).
@@ -465,13 +516,21 @@ func Test_GetResourceRequests(t *testing.T) {
 					Attribute("test-driver/selected", "true").
 					Obj(),
 			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-cel-overlap", ResourceClaimTemplateName: new("claim-tmpl-cel-overlap")},
+				}
+			},
 			want: celPoolResources,
 		},
 		{
-			name:          "CEL pool validation includes slices without devices in the completeness check",
-			claimTemplate: celPoolTemplate,
-			lookup:        defaultLookup,
+			name:   "CEL pool validation includes slices without devices in the completeness check",
+			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-1", 2).
+					WithCELSelectors("true").
+					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				testingdra.MakeResourceSlice("slice-1", "test-driver").
 					Pool("pool-1", 1, 2).
@@ -482,19 +541,32 @@ func Test_GetResourceRequests(t *testing.T) {
 					Pool("pool-1", 1, 2).
 					Obj(),
 			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
+				}
+			},
 			want: celPoolResources,
 		},
 		{
-			name:          "CEL pool validation excludes incomplete pools with a counter source",
-			claimTemplate: celPoolTemplate,
-			lookup:        defaultLookup,
+			name:   "CEL pool validation excludes incomplete pools with a counter source",
+			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-1", 2).
+					WithCELSelectors("true").
+					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				testingdra.MakeResourceSlice("slice-1", "test-driver").
 					Pool("pool-1", 1, 2).
 					Device("dev-0").
 					Device("dev-1").
 					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
+				}
 			},
 			mappings: []configapi.DeviceClassMapping{{
 				Name:             "res-1",
@@ -510,16 +582,24 @@ func Test_GetResourceRequests(t *testing.T) {
 			wantErr: celPoolError,
 		},
 		{
-			name:          "CEL pool validation excludes incomplete pools with a capacity source",
-			claimTemplate: celPoolTemplate,
-			lookup:        defaultLookup,
+			name:   "CEL pool validation excludes incomplete pools with a capacity source",
+			lookup: defaultLookup,
 			extraObjects: []runtime.Object{
+				utiltesting.MakeResourceClaimTemplate("claim-tmpl-cel-pool", "ns1").
+					DeviceRequest("device-request", "test-deviceclass-1", 2).
+					WithCELSelectors("true").
+					Obj(),
 				testingdra.MakeDeviceClass("test-deviceclass-1").Obj(),
 				testingdra.MakeResourceSlice("slice-1", "test-driver").
 					Pool("pool-1", 1, 2).
 					Device("dev-0").
 					Device("dev-1").
 					Obj(),
+			},
+			modifyWL: func(w *kueue.Workload) {
+				w.Spec.PodSets[0].Template.Spec.ResourceClaims = []corev1.PodResourceClaim{
+					{Name: "req-cel-pool", ResourceClaimTemplateName: new("claim-tmpl-cel-pool")},
+				}
 			},
 			mappings: []configapi.DeviceClassMapping{{
 				Name:             "res-1",
@@ -872,11 +952,7 @@ func Test_GetResourceRequests(t *testing.T) {
 				testMapper = mapper
 			}
 
-			claimTemplate := tmpl
-			if tc.claimTemplate != nil {
-				claimTemplate = tc.claimTemplate
-			}
-			objs := []client.Object{claimTemplate, claim}
+			objs := []client.Object{tmpl, claim}
 			if tc.extraObjects != nil {
 				for _, o := range tc.extraObjects {
 					objs = append(objs, o.(client.Object))
