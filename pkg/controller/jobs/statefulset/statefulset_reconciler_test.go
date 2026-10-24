@@ -349,6 +349,89 @@ func TestReconciler(t *testing.T) {
 					Obj(),
 			},
 		},
+		"should update WorkloadPriorityClass on an existing Workload": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Replicas(0).
+				Queue("lq").
+				WorkloadPriorityClass("high").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					OwnerReference(gvk, "sts", "sts-uid").
+					WorkloadPriorityClassRef("low").
+					Priority(10).
+					Obj(),
+			},
+			priorityClasses: []kueue.WorkloadPriorityClass{
+				*utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(100).Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Replicas(0).
+				Queue("lq").
+				WorkloadPriorityClass("high").
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					OwnerReference(gvk, "sts", "sts-uid").
+					WorkloadPriorityClassRef("high").
+					Priority(100).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadOnHold, Message: "StatefulSet scaled to zero; workload on hold",
+					}).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadAdmitted, Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadAdmittedReasonNoReservation, Message: "The workload has no reservation",
+					}).
+					Obj(),
+			},
+			wantEvents: []utiltesting.EventRecord{
+				{
+					Key:       client.ObjectKey{Name: "sts", Namespace: "ns"},
+					EventType: corev1.EventTypeNormal,
+					Reason:    jobframework.ReasonUpdatedWorkload,
+					Message:   fmt.Sprintf("Updated workload priority class: ns/%s", GetWorkloadName("sts-uid", "sts")),
+				},
+			},
+		},
+		"should not update manager-owned priority for a MultiKueue remote StatefulSet": {
+			stsKey: client.ObjectKey{Name: "sts", Namespace: "ns"},
+			statefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				WorkloadPriorityClass("low").
+				Label(kueue.MultiKueueOriginLabel, "manager").
+				Obj(),
+			workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					WorkloadPriorityClassRef("high").
+					Priority(100).
+					Obj(),
+			},
+			priorityClasses: []kueue.WorkloadPriorityClass{
+				*utiltestingapi.MakeWorkloadPriorityClass("low").PriorityValue(10).Obj(),
+			},
+			wantStatefulSet: statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Queue("lq").
+				WorkloadPriorityClass("low").
+				Label(kueue.MultiKueueOriginLabel, "manager").
+				DeepCopy(),
+			wantWorkloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+					Queue("lq").
+					OwnerReference(gvk, "sts", "sts-uid").
+					Annotation(controllerconstants.JobOwnerGVKAnnotation, gvk.String()).
+					Annotation(controllerconstants.JobOwnerNameAnnotation, "sts").
+					WorkloadPriorityClassRef("high").
+					Priority(100).
+					Obj(),
+			},
+		},
 		"should create workload when replicas > 0 and workload doesn't exist": {
 			wantEvents:   createdWorkloadEvents,
 			featureGates: map[featuregate.Feature]bool{features.TopologyAwareScheduling: false},
@@ -1497,7 +1580,6 @@ func TestReconciler(t *testing.T) {
 			for _, wl := range tc.workloads {
 				objs = append(objs, wl.DeepCopy())
 			}
-
 			for _, pc := range tc.priorityClasses {
 				objs = append(objs, pc.DeepCopy())
 			}
@@ -1558,6 +1640,161 @@ func TestReconciler(t *testing.T) {
 
 			if diff := cmp.Diff(tc.wantEvents, recorder.RecordedEvents, cmpopts.EquateEmpty(), cmpopts.SortSlices(utiltesting.SortEvents)); diff != "" {
 				t.Errorf("Events after reconcile (-want,+got):\n%s", diff)
+			}
+		})
+	}
+}
+
+func TestReconcilerReleasesReservationWhenPriorityUpdateFails(t *testing.T) {
+	ctx, _ := utiltesting.ContextWithLog(t)
+	now := time.Now()
+	sts := statefulsettesting.MakeStatefulSet("sts", "ns").
+		UID("sts-uid").
+		Replicas(0).
+		Queue("lq").
+		WorkloadPriorityClass("missing").
+		Obj()
+	wl := utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+		Queue("lq").
+		OwnerReference(gvk, "sts", "sts-uid").
+		WorkloadPriorityClassRef("low").
+		Priority(10).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("cq").Obj(), now).
+		AdmittedAt(true, now).
+		Obj()
+
+	clientBuilder := utiltesting.NewClientBuilder().
+		WithObjects(sts, wl).
+		WithStatusSubresource(sts, wl)
+	indexer := utiltesting.AsIndexer(clientBuilder)
+	if err := SetupIndexes(ctx, indexer); err != nil {
+		t.Fatalf("Could not setup indexes: %v", err)
+	}
+	cl := clientBuilder.Build()
+	reconciler, err := NewReconciler(ctx, cl, indexer, &utiltesting.EventRecorder{})
+	if err != nil {
+		t.Fatalf("NewReconciler() error: %v", err)
+	}
+
+	_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(sts)})
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("Reconcile() error = %v, want NotFound", err)
+	}
+
+	got := &kueue.Workload{}
+	if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), got); err != nil {
+		t.Fatalf("failed to get workload: %v", err)
+	}
+	if got.Status.Admission != nil {
+		t.Fatalf("expected admission to be released, got %+v", got.Status.Admission)
+	}
+	cond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadQuotaReserved)
+	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != kueue.WorkloadOnHold {
+		t.Fatalf("unexpected quota reserved condition: %+v", cond)
+	}
+}
+
+// A scale-up must not clear OnHold when the priority class the StatefulSet now
+// names cannot be resolved: the workload would go back into scheduling carrying
+// its old priority, and the retry cannot repair it because the hold is gone.
+func TestReconcilerKeepsOnHoldWhenPriorityUpdateFails(t *testing.T) {
+	testCases := map[string]struct {
+		stsPriorityClass string
+		classExists      bool
+		wantErr          bool
+		wantOnHold       bool
+		wantClassRef     string
+		wantPriority     int32
+	}{
+		"missing class keeps the workload on hold at its old priority": {
+			stsPriorityClass: "missing",
+			classExists:      false,
+			wantErr:          true,
+			wantOnHold:       true,
+			wantClassRef:     "low",
+			wantPriority:     10,
+		},
+		"resolvable class clears on hold and applies the new priority": {
+			stsPriorityClass: "high",
+			classExists:      true,
+			wantErr:          false,
+			wantOnHold:       false,
+			wantClassRef:     "high",
+			wantPriority:     100,
+		},
+	}
+
+	for name, tc := range testCases {
+		t.Run(name, func(t *testing.T) {
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			sts := statefulsettesting.MakeStatefulSet("sts", "ns").
+				UID("sts-uid").
+				Replicas(1).
+				Queue("lq").
+				WorkloadPriorityClass(tc.stsPriorityClass).
+				Obj()
+			wl := utiltestingapi.MakeWorkload(GetWorkloadName("sts-uid", "sts"), "ns").
+				Queue("lq").
+				OwnerReference(gvk, "sts", "sts-uid").
+				WorkloadPriorityClassRef("low").
+				Priority(10).
+				Condition(metav1.Condition{
+					Type:   kueue.WorkloadQuotaReserved,
+					Status: metav1.ConditionFalse,
+					Reason: kueue.WorkloadOnHold,
+				}).
+				Obj()
+
+			objects := []client.Object{sts, wl}
+			if tc.classExists {
+				objects = append(objects, utiltestingapi.MakeWorkloadPriorityClass("high").PriorityValue(100).Obj())
+			}
+
+			clientBuilder := utiltesting.NewClientBuilder().
+				WithObjects(objects...).
+				WithStatusSubresource(sts, wl)
+			indexer := utiltesting.AsIndexer(clientBuilder)
+			if err := SetupIndexes(ctx, indexer); err != nil {
+				t.Fatalf("Could not setup indexes: %v", err)
+			}
+			cl := clientBuilder.Build()
+			reconciler, err := NewReconciler(ctx, cl, indexer, &utiltesting.EventRecorder{})
+			if err != nil {
+				t.Fatalf("NewReconciler() error: %v", err)
+			}
+
+			_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(sts)})
+			if tc.wantErr && err == nil {
+				t.Fatalf("Reconcile() error = nil, want an error")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("Reconcile() error = %v, want nil", err)
+			}
+
+			got := &kueue.Workload{}
+			if err := cl.Get(ctx, client.ObjectKeyFromObject(wl), got); err != nil {
+				t.Fatalf("failed to get workload: %v", err)
+			}
+
+			cond := apimeta.FindStatusCondition(got.Status.Conditions, kueue.WorkloadQuotaReserved)
+			if cond == nil {
+				t.Fatalf("QuotaReserved condition not found")
+			}
+			onHold := cond.Status == metav1.ConditionFalse && cond.Reason == kueue.WorkloadOnHold
+			if onHold != tc.wantOnHold {
+				t.Errorf("OnHold = %t, want %t (condition %s/%s)", onHold, tc.wantOnHold, cond.Status, cond.Reason)
+			}
+
+			gotClassRef := ""
+			if got.Spec.PriorityClassRef != nil {
+				gotClassRef = got.Spec.PriorityClassRef.Name
+			}
+			if gotClassRef != tc.wantClassRef {
+				t.Errorf("priorityClassRef = %q, want %q", gotClassRef, tc.wantClassRef)
+			}
+			if got.Spec.Priority == nil || *got.Spec.Priority != tc.wantPriority {
+				t.Errorf("priority = %v, want %d", got.Spec.Priority, tc.wantPriority)
 			}
 		})
 	}
