@@ -308,7 +308,8 @@ func evaluateSelectorsOnDevice(ctx context.Context, selectors []dracel.Compilati
 
 // buildDeviceListFromSlices extracts devices from complete pools at their latest
 // generation, keeping pools from different drivers separate.
-func buildDeviceListFromSlices(slices []resourcev1.ResourceSlice) []dracel.Device {
+func buildDeviceListFromSlices(ctx context.Context, slices []resourcev1.ResourceSlice) []dracel.Device {
+	log := ctrl.LoggerFrom(ctx)
 	slicesByDriver := make(map[string][]resourcev1.ResourceSlice)
 	for i := range slices {
 		driver := slices[i].Spec.Driver
@@ -317,8 +318,9 @@ func buildDeviceListFromSlices(slices []resourcev1.ResourceSlice) []dracel.Devic
 
 	eligibleSlices := sets.New[string]()
 	for driver, driverSlices := range slicesByDriver {
-		for _, pool := range groupSlicesByPool(driverSlices, driver) {
+		for poolName, pool := range groupSlicesByPool(driverSlices, driver) {
 			if !pool.isComplete() {
+				log.V(4).Info("Skipping incomplete pool", "driver", driver, "pool", poolName)
 				continue
 			}
 			for i := range pool.slices {
@@ -486,7 +488,7 @@ func validateCELSelectorsAgainstDevices(
 		}
 	}
 
-	clusterDevices := buildDeviceListFromSlices(collectedSlices)
+	clusterDevices := buildDeviceListFromSlices(ctx, collectedSlices)
 	classCache := make(map[string]*resourcev1.DeviceClass)
 	matchedDevices := sets.New[int]()
 
