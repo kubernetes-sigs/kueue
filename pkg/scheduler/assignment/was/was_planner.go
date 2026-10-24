@@ -33,6 +33,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/assignment"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
+	"sigs.k8s.io/kueue/pkg/scheduler/preemption"
 	"sigs.k8s.io/kueue/pkg/workload"
 )
 
@@ -41,15 +42,17 @@ import (
 func NewPlanner(
 	wl *workload.Info,
 	snapshot *schedcache.Snapshot,
+	preemptor *preemption.Preemptor,
 ) assignment.Planner {
-	return &wasPlanner{wl: wl, snapshot: snapshot}
+	return &wasPlanner{wl: wl, snapshot: snapshot, preemptor: preemptor}
 }
 
 var _ assignment.Planner = (*wasPlanner)(nil)
 
 type wasPlanner struct {
-	wl       *workload.Info
-	snapshot *schedcache.Snapshot
+	wl        *workload.Info
+	snapshot  *schedcache.Snapshot
+	preemptor *preemption.Preemptor
 }
 
 func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner.Assignment, _ ...assignment.PlannerOption) (plan assignment.Plan) {
@@ -57,10 +60,6 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		Assignment: initialAssignment,
 	}
 	if plan.Assignment.RepresentativeMode() == flavorassigner.NoFit {
-		return
-	}
-	if plan.Assignment.RepresentativeMode() == flavorassigner.Preempt {
-		plan.Error = errors.New("WAS Planner does not support preemptions")
 		return
 	}
 
@@ -94,13 +93,16 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 		}
 	}()
 
-	schedulingResult := p.snapshot.SchedulerSimulator.ScheduleWorkload(ctx, pods)
-	if schedulingResult.Error != nil {
-		plan.Error = fmt.Errorf("failed to schedule workload: %w", schedulingResult.Error)
+	var placementSummary podSetPlacementSummary
+	var failures podSetFailureSummary
+	if plan.Assignment.RepresentativeMode() != flavorassigner.Preempt {
+		placementSummary, failures, _, plan.Error = p.schedule(ctx, pods)
+	} else {
+		placementSummary, failures, plan.PreemptionTargets, plan.Error = p.scheduleWithPreemption(ctx, pods, *plan.Assignment)
+	}
+	if plan.Error != nil {
 		return
 	}
-
-	placementSummary, failures := groupByPodSet(pods, schedulingResult.PodPlacements)
 
 	if len(failures) > 0 {
 		// Record the scheduling failures of Pods that failed to secure any Placement.
@@ -117,6 +119,52 @@ func (p *wasPlanner) Plan(ctx context.Context, initialAssignment *flavorassigner
 	tasAssignment := p.calculateTopologyAssignment(ctx, tasRequests, placementSummary)
 	plan.Assignment.UpdateForTASResult(log, cq, p.wl, tasAssignment)
 	return
+}
+
+func (p *wasPlanner) schedule(
+	ctx context.Context,
+	pods []*corev1.Pod,
+	opts ...simulator.ScheduleOption,
+) (podSetPlacementSummary, podSetFailureSummary, []client.ObjectKey, error) {
+	schedulingResult := p.snapshot.SchedulerSimulator.ScheduleWorkload(ctx, pods, opts...)
+	if schedulingResult.Error != nil {
+		return nil, nil, nil, fmt.Errorf("failed to schedule workload: %w", schedulingResult.Error)
+	}
+	placementSummary, failures := groupByPodSet(pods, schedulingResult.PodPlacements)
+	return placementSummary, failures, schedulingResult.PreemptedWorkloads, nil
+}
+
+func (p *wasPlanner) scheduleWithPreemption(
+	ctx context.Context,
+	pods []*corev1.Pod,
+	assignment flavorassigner.Assignment,
+) (podSetPlacementSummary, podSetFailureSummary, []*preemption.Target, error) {
+	for strategy := range p.preemptor.GetPreemptionStrategyIterator(ctx, *p.wl, p.snapshot, assignment) {
+		placementSummary, failures, preemptedWorkloads, err := p.schedule(
+			ctx,
+			pods,
+			simulator.WithPreemptionCandidates(strategy.Candidates()),
+			simulator.WithPreemptionFilter(&strategy),
+		)
+		strategy.Reset()
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if len(failures) == 0 {
+			if targets := strategy.Verify(preemptedWorkloads); len(targets) > 0 {
+				return placementSummary, nil, targets, nil
+			}
+		}
+	}
+
+	// No preemption targets succeeded. Simulate against an empty cluster to check
+	// if the workload can fit at all and, if so, reserve TAS resources while waiting
+	// for quota so lower-priority workloads do not admit ahead of it.
+	placementSummary, failures, _, err := p.schedule(ctx, pods, simulator.WithSimulateEmpty(true))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return placementSummary, failures, nil, nil
 }
 
 func recordSimulationFailures(assignment *flavorassigner.Assignment, failures podSetFailureSummary) {

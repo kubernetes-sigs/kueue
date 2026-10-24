@@ -1579,7 +1579,7 @@ func (s *Scheduler) getAssignments(ctx context.Context, wl *workload.Info, snap 
 
 	var planner assignment.Planner
 	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		planner = wasplanner.NewPlanner(wl, snap)
+		planner = wasplanner.NewPlanner(wl, snap, s.preemptor)
 	} else {
 		planner = nativeplanner.NewPlanner(wl, snap, s.preemptor, flvAssigner)
 	}

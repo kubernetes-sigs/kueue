@@ -30,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
 	workloadjob "sigs.k8s.io/kueue/pkg/controller/jobs/job"
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
@@ -421,5 +422,5 @@ func expectQuotaReservedFailure(g gomega.Gomega, wl *kueue.Workload) {
 		Status: metav1.ConditionFalse,
 		Reason: kueue.WorkloadQuotaReservedReasonSimulationFailed,
 	}, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "Message", "ObservedGeneration")))
-	g.Expect(cond.Message).Should(gomega.ContainSubstring("Insufficient"))
+	g.Expect(cond.Message).Should(gomega.ContainSubstring(was.FailedReasonSkipped))
 }
