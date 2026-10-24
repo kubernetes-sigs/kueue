@@ -49,6 +49,7 @@ import (
 	schdcache "sigs.k8s.io/kueue/pkg/cache/scheduler"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/simulator"
 	"sigs.k8s.io/kueue/pkg/cache/scheduler/was"
+	"sigs.k8s.io/kueue/pkg/constants"
 	tasindexer "sigs.k8s.io/kueue/pkg/controller/tas/indexer"
 	"sigs.k8s.io/kueue/pkg/features"
 	"sigs.k8s.io/kueue/pkg/scheduler/flavorassigner"
@@ -61,6 +62,7 @@ import (
 	testingnode "sigs.k8s.io/kueue/pkg/util/testingjobs/node"
 	testingpod "sigs.k8s.io/kueue/pkg/util/testingjobs/pod"
 	"sigs.k8s.io/kueue/pkg/workload"
+	"sigs.k8s.io/kueue/pkg/workloadslicing"
 )
 
 func TestShouldFailFastTASReplacement(t *testing.T) {
@@ -6572,6 +6574,98 @@ func TestScheduleForTASPreemption(t *testing.T) {
 					Obj(),
 			},
 		},
+	}
+	predecessor := utiltestingapi.MakeWorkload("old", "default").UID("old-uid").
+		Queue("tas-main").Priority(10).Annotation(constants.ElasticJobAnnotation, "true").
+		PodSets(*utiltestingapi.MakePodSet("workers", 2).
+			Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj()).
+		ReserveQuotaAt(utiltestingapi.MakeAdmission("tas-main").PodSets(
+			utiltestingapi.MakePodSetAssignment("workers").Count(2).
+				Assignment(corev1.ResourceCPU, "tas-default", "2").
+				TopologyAssignment(utiltestingapi.MakeTopologyAssignment([]string{corev1.LabelHostname}).
+					Domain(utiltestingapi.MakeTopologyDomainAssignment([]string{"x1"}, 2).Obj()).Obj()).Obj()).Obj(), now).
+		AdmittedAt(true, now)
+	victim := predecessor.Clone().Name("victim").UID("victim-uid").Priority(1)
+	delete(victim.Obj().Annotations, constants.ElasticJobAnnotation)
+	replacement := utiltestingapi.MakeWorkload("replacement", "default").UID("replacement-uid").JobUID("elastic-job").
+		Queue("tas-main").Priority(10).Annotation(constants.ElasticJobAnnotation, "true").
+		Annotation(workloadslicing.WorkloadSliceReplacementFor, string(workload.Key(predecessor.Obj()))).
+		Annotation(kueue.WorkloadSliceNameAnnotation, predecessor.Obj().Name).
+		PodSets(*utiltestingapi.MakePodSet("workers", 4).
+			Request(corev1.ResourceCPU, "1").UnconstrainedTopologyRequest().Obj())
+	preemptionMessage := "Preempted to accommodate a workload (UID: replacement-uid, JobUID: elastic-job) due to prioritization in the ClusterQueue; preemptor path: /tas-main; preemptee path: /tas-main"
+	for name, pressure := range map[string]struct {
+		quota      string
+		nodeCPU    string
+		fitMessage string
+	}{
+		"quota and topology pressure": {
+			quota: "4", nodeCPU: "4",
+			fitMessage: "couldn't assign flavors to pod set workers: insufficient unused quota for cpu in flavor tas-default, 2 more needed",
+		},
+		"topology pressure only": {
+			quota: "20", nodeCPU: "4",
+			fitMessage: "couldn't assign flavors to pod set workers: topology \"tas-single-level\" doesn't allow to fit any of 2 pod(s). Total nodes: 1; excluded: resource \"cpu\": 1",
+		},
+		"quota pressure only": {
+			quota: "4", nodeCPU: "20",
+			fitMessage: "couldn't assign flavors to pod set workers: insufficient unused quota for cpu in flavor tas-default, 2 more needed",
+		},
+	} {
+		cases["elastic replacement preempts with "+name] = tasScheduleTestCase{
+			featureGates: map[featuregate.Feature]bool{
+				features.TopologyAwareScheduling:             true,
+				features.ElasticJobsViaWorkloadSlices:        true,
+				features.ElasticJobsViaWorkloadSlicesWithTAS: true,
+			},
+			nodes: []corev1.Node{*testingnode.MakeNode("x1").
+				Label("tas-node", "true").Label(corev1.LabelHostname, "x1").
+				StatusAllocatable(corev1.ResourceList{
+					corev1.ResourceCPU:  resource.MustParse(pressure.nodeCPU),
+					corev1.ResourcePods: resource.MustParse("10"),
+				}).Ready().Obj()},
+			topologies:      []kueue.Topology{defaultSingleLevelTopology},
+			resourceFlavors: []kueue.ResourceFlavor{defaultTASFlavor},
+			clusterQueues: []kueue.ClusterQueue{*utiltestingapi.MakeClusterQueue("tas-main").
+				Preemption(kueue.ClusterQueuePreemption{WithinClusterQueue: kueue.PreemptionPolicyLowerPriority}).
+				ResourceGroup(*utiltestingapi.MakeFlavorQuotas("tas-default").Resource(corev1.ResourceCPU, pressure.quota).Obj()).Obj()},
+			workloads: []kueue.Workload{*predecessor.Clone().Obj(), *victim.Clone().Obj(), *replacement.Clone().Obj()},
+			wantWorkloads: []kueue.Workload{
+				*predecessor.Clone().Obj(),
+				*replacement.Clone().
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadQuotaReserved, Status: metav1.ConditionFalse,
+						Reason:             kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads,
+						Message:            pressure.fitMessage + ". Pending the preemption of 1 workload(s)",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadAdmitted, Status: metav1.ConditionFalse,
+						Reason: kueue.WorkloadAdmittedReasonNoReservation, Message: "The workload has no reservation",
+						LastTransitionTime: metav1.NewTime(now),
+					}).
+					ResourceRequests(kueue.PodSetRequest{Name: "workers", Resources: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("4")}}).
+					Obj(),
+				*victim.Clone().
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadEvicted, Status: metav1.ConditionTrue,
+						Reason: "Preempted", Message: preemptionMessage, LastTransitionTime: metav1.NewTime(now),
+					}).
+					Condition(metav1.Condition{
+						Type: kueue.WorkloadPreempted, Status: metav1.ConditionTrue,
+						Reason: "InClusterQueue", Message: preemptionMessage, LastTransitionTime: metav1.NewTime(now),
+					}).
+					SchedulingStatsEviction(kueue.WorkloadSchedulingStatsEviction{Reason: "Preempted", Count: 1}).Obj(),
+			},
+			wantLeft: map[kueue.ClusterQueueReference][]workload.Reference{"tas-main": {"default/replacement"}},
+			wantEvents: []utiltesting.EventRecord{
+				utiltesting.MakeEventRecord("default", "victim", "EvictedDueToPreempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "victim", "Preempted", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "replacement", "PreemptedWorkload", corev1.EventTypeNormal).Obj(),
+				utiltesting.MakeEventRecord("default", "replacement", kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads, corev1.EventTypeWarning).Obj(),
+			},
+			eventCmpOpts: cmp.Options{eventIgnoreMessage},
+		}
 	}
 	runTASScheduleTestCases(t, tasScheduleTestConfig{
 		queues: queues,
