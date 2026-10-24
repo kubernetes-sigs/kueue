@@ -877,17 +877,16 @@ func (r *WorkloadReconciler) Reconcile(ctx context.Context, req ctrl.Request) (r
 		if err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
+		requeueStateResetAfter, err := r.reconcileRequeueStateReset(ctx, &wl)
+		if err != nil {
+			return ctrl.Result{}, client.IgnoreNotFound(err)
+		}
 		maxExecRecheckAfter, err := r.reconcileMaxExecutionTime(ctx, &wl)
 		if err != nil {
 			return ctrl.Result{}, client.IgnoreNotFound(err)
 		}
 
-		// get the minimun non-zero value
-		recheckAfter := min(podsReadyRecheckAfter, maxExecRecheckAfter)
-		if recheckAfter == 0 {
-			recheckAfter = max(podsReadyRecheckAfter, maxExecRecheckAfter)
-		}
-		return ctrl.Result{RequeueAfter: recheckAfter}, nil
+		return ctrl.Result{RequeueAfter: earliestRecheck(podsReadyRecheckAfter, maxExecRecheckAfter, requeueStateResetAfter)}, nil
 	}
 
 	return ctrl.Result{}, nil
@@ -1310,6 +1309,57 @@ func (r *WorkloadReconciler) reconcileNotReadyTimeout(ctx context.Context, req c
 	)
 
 	return 0, err
+}
+
+// reconcileRequeueStateReset clears the requeueState of an admitted Workload
+// whose PodsReady condition has been True for at least the resolved
+// WaitForPodsReady timeout. The window starts at the later of the admission and
+// the last transition of PodsReady to True. It returns the time left until the
+// window is complete, or 0 if the requeueState does not apply or was just cleared.
+func (r *WorkloadReconciler) reconcileRequeueStateReset(ctx context.Context, wl *kueue.Workload) (time.Duration, error) {
+	if !features.Enabled(features.ResetRequeueStateOnPodsReady) {
+		return 0, nil
+	}
+	if wl.Status.RequeueState == nil || !workload.IsAdmitted(wl) {
+		return 0, nil
+	}
+	// An evicted Workload stays admitted while it drains, and its PodsReady condition
+	// can still be True with an old timestamp, so the drain time must not count as readiness.
+	if workloadevict.IsEvicted(wl) {
+		return 0, nil
+	}
+	podsReadyCond := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadPodsReady)
+	if podsReadyCond == nil || podsReadyCond.Status != metav1.ConditionTrue {
+		return 0, nil
+	}
+	timeout, _, ok := r.determineTimeouts(ctx, wl)
+	if !ok {
+		return 0, nil
+	}
+	// Measure from the later of the admission and the transition to PodsReady=True: a True
+	// condition kept from an earlier admission does not count. The job reconciler resets it
+	// only on its next reconcile, so a quick re-admission can leave it in place.
+	readySince := podsReadyCond.LastTransitionTime.Time
+	if admittedAt := apimeta.FindStatusCondition(wl.Status.Conditions, kueue.WorkloadAdmitted).LastTransitionTime.Time; admittedAt.After(readySince) {
+		readySince = admittedAt
+	}
+	if recheckAfter := r.remainingUntil(readySince.Add(timeout)); recheckAfter > 0 {
+		return recheckAfter, nil
+	}
+
+	previousCount := ptr.Deref(wl.Status.RequeueState.Count, 0)
+	// A merge patch, as in the deactivation path, because SSA cannot clear a field owned by another manager.
+	if err := clientutil.PatchStatus(ctx, r.client, wl, func() (bool, error) {
+		wl.Status.RequeueState = nil
+		return true, nil
+	}); err != nil {
+		return 0, client.IgnoreNotFound(err)
+	}
+
+	ctrl.LoggerFrom(ctx).V(2).Info("Cleared the requeueState after a sustained PodsReady period", "previousCount", previousCount, "timeout", timeout)
+	r.recorder.Eventf(wl, nil, corev1.EventTypeNormal, "RequeueStateReset", "RequeueStateReset",
+		"Reset the requeue count (was %d) after PodsReady was True for at least %s", previousCount, timeout)
+	return 0, nil
 }
 
 // triggerDeactivation trigger deactivation of workload
@@ -1820,6 +1870,18 @@ func (r *WorkloadReconciler) schedulingDeadline(wl *kueue.Workload, admittedAt t
 
 func (r *WorkloadReconciler) remainingUntil(deadline time.Time) time.Duration {
 	return max(deadline.Sub(r.clock.Now()), 0)
+}
+
+// earliestRecheck returns the smallest positive duration among the given recheck
+// delays, or 0 if none is positive.
+func earliestRecheck(durations ...time.Duration) time.Duration {
+	var earliest time.Duration
+	for _, d := range durations {
+		if d > 0 && (earliest == 0 || d < earliest) {
+			earliest = d
+		}
+	}
+	return earliest
 }
 
 type resourceUpdatesHandler struct {
