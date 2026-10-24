@@ -40,7 +40,9 @@ import (
 	utiltestingapi "sigs.k8s.io/kueue/pkg/util/testing/v1beta2"
 	testingjob "sigs.k8s.io/kueue/pkg/util/testingjobs/job"
 	"sigs.k8s.io/kueue/pkg/workload"
+	workloadconcurrentadmission "sigs.k8s.io/kueue/pkg/workload/concurrentadmission"
 	workloadevict "sigs.k8s.io/kueue/pkg/workload/evict"
+	workloadpatching "sigs.k8s.io/kueue/pkg/workload/patching"
 	"sigs.k8s.io/kueue/test/util/behavioral"
 )
 
@@ -533,7 +535,99 @@ var _ = ginkgo.Describe("MultiKueue with scheduler", ginkgo.Label("area:multikue
 
 	ginkgo.When("MultiKueueOrchestratedPreemption is enabled", func() {
 		ginkgo.BeforeEach(func() {
+			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.ConcurrentAdmission, true)
 			features.SetFeatureGateDuringTest(ginkgo.GinkgoTB(), features.MultiKueueOrchestratedPreemption, true)
+		})
+
+		ginkgo.It("Should propagate preemption gates through ConcurrentAdmission variants", func() {
+			reservationFlavor := utiltestingapi.MakeResourceFlavor("ca-reservation").Obj()
+			behavioral.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, reservationFlavor)
+			spotFlavor := utiltestingapi.MakeResourceFlavor("ca-spot").Obj()
+			behavioral.MustCreate(worker1TestCluster.ctx, worker1TestCluster.client, spotFlavor)
+
+			caCq := utiltestingapi.MakeClusterQueue("ca-cq").
+				ConcurrentAdmissionPolicy(kueue.ConcurrentAdmissionTryPreferredFlavors).
+				ResourceGroup(
+					*utiltestingapi.MakeFlavorQuotas(reservationFlavor.Name).Resource(corev1.ResourceCPU, "0").Obj(),
+					*utiltestingapi.MakeFlavorQuotas(spotFlavor.Name).Resource(corev1.ResourceCPU, "0").Obj(),
+				).Obj()
+			behavioral.CreateClusterQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, caCq)
+			ginkgo.DeferCleanup(func() {
+				behavioral.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, caCq, true)
+				behavioral.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, spotFlavor, true)
+				behavioral.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, reservationFlavor, true)
+			})
+
+			managerCaLq := utiltestingapi.MakeLocalQueue("ca-lq", managerNs.Name).ClusterQueue(managerCq.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(managerTestCluster.ctx, managerTestCluster.client, managerCaLq)
+			workerCaLq := utiltestingapi.MakeLocalQueue(managerCaLq.Name, worker1Ns.Name).ClusterQueue(caCq.Name).Obj()
+			behavioral.CreateLocalQueuesAndWaitForActive(worker1TestCluster.ctx, worker1TestCluster.client, workerCaLq)
+
+			job := testingjob.MakeJob("job-with-concurrent-admission", managerNs.Name).
+				Queue(kueue.LocalQueueName(managerCaLq.Name)).
+				RequestAndLimit(corev1.ResourceCPU, "1").
+				Obj()
+			behavioral.MustCreate(managerTestCluster.ctx, managerTestCluster.client, job)
+			wlKey := types.NamespacedName{
+				Name:      workloadjob.GetWorkloadNameForJob(job.Name, job.UID),
+				Namespace: managerNs.Name,
+			}
+
+			remoteParent := &kueue.Workload{}
+			var variants []kueue.Workload
+			ginkgo.By("Waiting for the remote parent and its variants", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlKey, remoteParent)).To(gomega.Succeed())
+					g.Expect(workloadconcurrentadmission.IsParent(remoteParent)).To(gomega.BeTrue())
+
+					list := &kueue.WorkloadList{}
+					g.Expect(worker1TestCluster.client.List(worker1TestCluster.ctx, list, client.InNamespace(worker1Ns.Name))).To(gomega.Succeed())
+					variants = nil
+					for i := range list.Items {
+						if workloadconcurrentadmission.GetParentWorkloadName(&list.Items[i]) == remoteParent.Name {
+							variants = append(variants, list.Items[i])
+						}
+					}
+					g.Expect(variants).To(gomega.HaveLen(2))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
+			ginkgo.By("Reporting a preemption signal from one variant", func() {
+				gomega.Expect(workloadpatching.PatchAdmissionStatus(
+					worker1TestCluster.ctx,
+					worker1TestCluster.client,
+					&variants[0],
+					behavioral.RealClock,
+					func(wl *kueue.Workload) (bool, error) {
+						return workload.SetBlockedOnPreemptionGatesCondition(
+							wl,
+							behavioral.RealClock.Now(),
+							kueue.PreemptionGated,
+							"Preemption is blocked by a preemption gate",
+						), nil
+					},
+					workloadpatching.WithRetryOnConflict(),
+				)).To(gomega.Succeed())
+			})
+
+			ginkgo.By("Verifying MultiKueue opens the parent gate and ConcurrentAdmission propagates it", func() {
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlKey, remoteParent)).To(gomega.Succeed())
+					g.Expect(workload.HasOpenPreemptionGate(remoteParent, constants.MultiKueuePreemptionGate)).To(gomega.BeTrue())
+
+					list := &kueue.WorkloadList{}
+					g.Expect(worker1TestCluster.client.List(worker1TestCluster.ctx, list, client.InNamespace(worker1Ns.Name))).To(gomega.Succeed())
+					variantsFound := 0
+					for i := range list.Items {
+						if workloadconcurrentadmission.GetParentWorkloadName(&list.Items[i]) != remoteParent.Name {
+							continue
+						}
+						variantsFound++
+						g.Expect(workload.HasOpenPreemptionGate(&list.Items[i], constants.MultiKueuePreemptionGate)).To(gomega.BeTrue())
+					}
+					g.Expect(variantsFound).To(gomega.Equal(2))
+				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+			})
 		})
 
 		ginkgo.It("Should treat manager-level and worker-level preemption gates independently", func() {
