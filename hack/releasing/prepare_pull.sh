@@ -100,7 +100,7 @@ if [[ "$#" -lt 1 ]]; then
   echo "    $0 --target release v0.13.2         # Create only release branch PR"
   echo "    $0 --target main v0.13.2            # Create only main branch PR"
   echo
-  echo "  Set the DRY_RUN environment var to skip git push and creating PR."
+  echo "  Set the DRY_RUN environment var to skip git push, PR creation and the release issue update."
   echo "  This is useful for creating patches to a release branch without making a PR."
   echo "  When DRY_RUN is set the script will leave you in a branch containing the commits."
   echo
@@ -327,11 +327,6 @@ EOF
 # $3 - local branch
 # $4 - pr name
 function push_and_create_pr() {
-  if [[ -n "${DRY_RUN}" ]]; then
-    echo "!!! Skipping git push and PR creation because you set DRY_RUN."
-    return
-  fi
-
   echo
   echo "+++ I'm about to do the following to push to GitHub (and I'm assuming ${FORK_REMOTE} is your personal fork):"
   echo
@@ -348,7 +343,9 @@ function push_and_create_pr() {
   fi
 }
 
-if [[ "$TARGET" == "all" || "$TARGET" == "release" ]]; then
+function prepare_release_pr() {
+  local PREPARE_RELEASE_BRANCH PREPARE_RELEASE_BRANCH_UNIQUE PREPARE_RELEASE_PR_NAME
+
   PREPARE_RELEASE_BRANCH="prepare-${RELEASE_BRANCH}"
   declare -r PREPARE_RELEASE_BRANCH
   PREPARE_RELEASE_BRANCH_UNIQUE="${PREPARE_RELEASE_BRANCH}-$(date +%s)"
@@ -358,8 +355,14 @@ if [[ "$TARGET" == "all" || "$TARGET" == "release" ]]; then
   declare -r PREPARE_RELEASE_PR_NAME
 
   prepare_local_branch "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH_UNIQUE}" "${PREPARE_RELEASE_PR_NAME}"
-  push_and_create_pr "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH_UNIQUE}" "${PREPARE_RELEASE_PR_NAME}"
 
+  if [[ -n "${DRY_RUN}" ]]; then
+    echo "!!! Skipping git push, PR creation and issue update because you set DRY_RUN."
+    # Return from this phase so --target all still prepares main.
+    return 0
+  fi
+
+  push_and_create_pr "${RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH}" "${PREPARE_RELEASE_BRANCH_UNIQUE}" "${PREPARE_RELEASE_PR_NAME}"
   PREPARE_RELEASE_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${PREPARE_RELEASE_PR_NAME}" | awk '{print $1}' || true)
   if [ -n "$PREPARE_RELEASE_PR_NUMBER" ]; then
     RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL_RELEASE -->/#${PREPARE_RELEASE_PR_NUMBER}}
@@ -367,6 +370,10 @@ if [[ "$TARGET" == "all" || "$TARGET" == "release" ]]; then
       echo "!!! Failed to edit release issue \"${RELEASE_ISSUE_NAME}\": gh issue edit command failed."
     }
   fi
+}
+
+if [[ "$TARGET" == "all" || "$TARGET" == "release" ]]; then
+  prepare_release_pr
 fi
 
 if [[ "$TARGET" == "all" || "$TARGET" == "main" ]]; then
@@ -378,8 +385,13 @@ if [[ "$TARGET" == "all" || "$TARGET" == "main" ]]; then
   UPDATE_MAIN_WITH_LATEST_PR_NAME="Update main with the latest ${RELEASE_VERSION}"
 
   prepare_local_branch main "${UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE}" "${UPDATE_MAIN_WITH_LATEST_PR_NAME}"
-  push_and_create_pr main "${UPDATE_MAIN_WITH_LATEST_BRANCH}" "${UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE}" "${UPDATE_MAIN_WITH_LATEST_PR_NAME}"
 
+  if [[ -n "${DRY_RUN}" ]]; then
+    echo "!!! Skipping git push, PR creation and issue update because you set DRY_RUN."
+    exit 0
+  fi
+
+  push_and_create_pr main "${UPDATE_MAIN_WITH_LATEST_BRANCH}" "${UPDATE_MAIN_WITH_LATEST_BRANCH_UNIQUE}" "${UPDATE_MAIN_WITH_LATEST_PR_NAME}"
   PREPARE_MAIN_PR_NUMBER=$(gh pr list --repo="${MAIN_REPO_ORG}/${MAIN_REPO_NAME}" | grep "${UPDATE_MAIN_WITH_LATEST_PR_NAME}" | awk '{print $1}' || true)
   if [ -n "$PREPARE_MAIN_PR_NUMBER" ]; then
     RELEASE_ISSUE_BODY=${RELEASE_ISSUE_BODY//<!-- PREPARE_PULL_MAIN -->/#${PREPARE_MAIN_PR_NUMBER}}
