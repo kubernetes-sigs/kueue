@@ -80,21 +80,22 @@ var (
 )
 
 type Scheduler struct {
-	queues                  *qcache.Manager
-	cache                   *schdcache.Cache
-	client                  client.Client
-	recorder                events.EventRecorder
-	admissionRoutineWrapper routine.Wrapper
-	preemptor               *preemption.Preemptor
-	workloadOrdering        workload.Ordering
-	fairSharing             *config.FairSharing
-	admissionFairSharing    *config.AdmissionFairSharing
-	quotaCheckStrategy      config.QuotaCheckStrategy
-	clock                   clock.Clock
-	roleTracker             *roletracker.RoleTracker
-	customLabels            *metrics.CustomLabels
-	resourceFormatter       *resources.ResourceFormatter
-	refillBudget            int
+	queues                              *qcache.Manager
+	cache                               *schdcache.Cache
+	client                              client.Client
+	recorder                            events.EventRecorder
+	admissionRoutineWrapper             routine.Wrapper
+	preemptor                           *preemption.Preemptor
+	workloadOrdering                    workload.Ordering
+	fairSharing                         *config.FairSharing
+	admissionFairSharing                *config.AdmissionFairSharing
+	quotaCheckStrategy                  config.QuotaCheckStrategy
+	clock                               clock.Clock
+	roleTracker                         *roletracker.RoleTracker
+	customLabels                        *metrics.CustomLabels
+	resourceFormatter                   *resources.ResourceFormatter
+	refillBudget                        int
+	failedTASReplacementRecoveryTimeout time.Duration
 
 	// schedulingCycle identifies the number of scheduling
 	// attempts since the last restart.
@@ -102,16 +103,17 @@ type Scheduler struct {
 }
 
 type options struct {
-	podsReadyRequeuingTimestamp config.RequeuingTimestamp
-	fairSharing                 *config.FairSharing
-	admissionFairSharing        *config.AdmissionFairSharing
-	quotaCheckStrategy          config.QuotaCheckStrategy
-	clock                       clock.Clock
-	roleTracker                 *roletracker.RoleTracker
-	preemptionExpectations      *expectations.Store
-	customLabels                *metrics.CustomLabels
-	resourceFormatter           *resources.ResourceFormatter
-	refillBudget                int
+	podsReadyRequeuingTimestamp         config.RequeuingTimestamp
+	fairSharing                         *config.FairSharing
+	admissionFairSharing                *config.AdmissionFairSharing
+	quotaCheckStrategy                  config.QuotaCheckStrategy
+	clock                               clock.Clock
+	roleTracker                         *roletracker.RoleTracker
+	preemptionExpectations              *expectations.Store
+	customLabels                        *metrics.CustomLabels
+	resourceFormatter                   *resources.ResourceFormatter
+	refillBudget                        int
+	failedTASReplacementRecoveryTimeout time.Duration
 }
 
 // Option configures the reconciler.
@@ -192,6 +194,15 @@ func WithRefillBudget(budget int) Option {
 	}
 }
 
+// WithFailedTASReplacementRecoveryTimeout sets the recovery timeout that
+// bounds deferral of a failed TAS replacement. A non-positive value disables
+// deferral so the scheduler falls back to fail-fast eviction.
+func WithFailedTASReplacementRecoveryTimeout(timeout time.Duration) Option {
+	return func(o *options) {
+		o.failedTASReplacementRecoveryTimeout = timeout
+	}
+}
+
 func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recorder events.EventRecorder, opts ...Option) *Scheduler {
 	options := defaultOptions
 	for _, opt := range opts {
@@ -220,15 +231,16 @@ func New(queues *qcache.Manager, cache *schdcache.Cache, cl client.Client, recor
 			options.preemptionExpectations,
 			options.customLabels,
 		),
-		admissionRoutineWrapper: routine.DefaultWrapper,
-		workloadOrdering:        wo,
-		clock:                   options.clock,
-		admissionFairSharing:    options.admissionFairSharing,
-		quotaCheckStrategy:      options.quotaCheckStrategy,
-		roleTracker:             options.roleTracker,
-		customLabels:            options.customLabels,
-		resourceFormatter:       options.resourceFormatter,
-		refillBudget:            options.refillBudget,
+		admissionRoutineWrapper:             routine.DefaultWrapper,
+		workloadOrdering:                    wo,
+		clock:                               options.clock,
+		admissionFairSharing:                options.admissionFairSharing,
+		quotaCheckStrategy:                  options.quotaCheckStrategy,
+		roleTracker:                         options.roleTracker,
+		customLabels:                        options.customLabels,
+		resourceFormatter:                   options.resourceFormatter,
+		refillBudget:                        options.refillBudget,
+		failedTASReplacementRecoveryTimeout: options.failedTASReplacementRecoveryTimeout,
 	}
 	return s
 }
@@ -516,6 +528,9 @@ func (s *Scheduler) processEntry(
 	}
 
 	if shouldFailFastTASReplacement(e.Obj, mode) {
+		if s.tryDeferFailedTASReplacement(ctx, log, e, snapshot) {
+			return
+		}
 		s.handleFailedTASReplacement(ctx, log, e)
 		return
 	}
@@ -620,6 +635,86 @@ func shouldFailFastTASReplacement(wl *kueue.Workload, mode flavorassigner.Flavor
 	return features.Enabled(features.TASFailedNodeReplacementFailFast) &&
 		workload.HasTopologyAssignmentWithUnhealthyNode(wl) &&
 		mode != flavorassigner.Fit
+}
+
+// tryDeferFailedTASReplacement reports whether a failed TAS replacement should
+// be deferred instead of fail-fast evicted. If in-flight evictions (workloads
+// already marked Evicted, but still holding usage in the snapshot) may free a
+// suitable placement shortly, we simulate their removal, recompute the
+// assignment, and defer with PendingPreemption semantics when the replacement
+// then fits. Otherwise fail-fast eviction is preserved.
+func (s *Scheduler) tryDeferFailedTASReplacement(ctx context.Context, log logr.Logger, e *entry, snapshot *schdcache.Snapshot) bool {
+	if !features.Enabled(features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions) {
+		return false
+	}
+	if s.failedTASReplacementRecoveryTimeout <= 0 {
+		return false
+	}
+	victims := inFlightEvictionVictims(snapshot)
+	if len(victims) == 0 {
+		return false
+	}
+	log.V(3).Info("Checking whether in-flight evictions free a suitable placement for the failed TAS replacement", "victims", len(victims))
+	// To get the projected cluster state after the in-flight evictions complete,
+	// simulate the removal of their workloads and their Pods: freeing the quota
+	// alone would leave the scheduling simulator still reporting the Pods and
+	// host ports they hold. The simulation is reverted below as the snapshot is
+	// shared across the scheduling cycle.
+	revertUsage := snapshot.SimulateWorkloadRemoval(victims)
+	revertPods := snapshot.SimulatePodRemoval(ctx, log, victims)
+	revertRemoval := func() {
+		revertPods()
+		revertUsage()
+	}
+	// Clear the flavor scan state so that the recomputation starts from the
+	// first flavor again, mirroring updateAssignmentIfNeeded.
+	e.FlavorScanState = nil
+	e.NominationMapping = e.readResourceToFlavorMapping()
+	newAssignment, newTargets, err := s.getAssignments(ctx, &e.Info, snapshot)
+	e.NominationMapping = nil
+	revertRemoval()
+	if err != nil {
+		log.Error(err, "Failed to recompute the assignment for the deferred replacement check")
+		return false
+	}
+	if newAssignment.RepresentativeMode() != flavorassigner.Fit {
+		return false
+	}
+	e.recordAssignment(newAssignment, newTargets)
+	e.assignment.SetRepresentativeMode(flavorassigner.DeferredFit)
+	e.inadmissibleMsg = "Workload has an unhealthy node, but will fit after in-flight evictions complete"
+	e.quotaReservedReason = kueue.WorkloadQuotaReservedReasonWaitingForPreemptedWorkloads
+	e.requeueReason = qcache.RequeueReasonPendingPreemption
+	// Clear the flavor scan state to force a full re-evaluation of all flavors
+	// in the next cycle, mirroring the DeferredFit branch.
+	e.FlavorScanState = nil
+	// Unlike the DeferredFit branch, we deliberately do not book the recomputed
+	// usage in the shared snapshot. The capacity freed by the in-flight
+	// evictions may already be claimed by a pending preemptor (the workload the
+	// victims were preempted for); booking it would invalidate that preemptor's
+	// current plan and make it pick additional preemption targets later in the
+	// same cycle. Nothing is lost by not booking: until the evictions complete,
+	// the victims still hold their usage, and a workload that can only fit by
+	// taking them as its own preemption targets is left waiting for those
+	// evictions instead of being admitted in the same cycle.
+	log.V(2).Info("Deferring failed TAS replacement; waiting for in-flight evictions to free capacity")
+	return true
+}
+
+// inFlightEvictionVictims returns the workloads that are marked Evicted but
+// still hold usage in the snapshot, i.e. the victims of in-flight evictions
+// that are expected to free capacity once they complete.
+func inFlightEvictionVictims(snapshot *schdcache.Snapshot) []*workload.Info {
+	var victims []*workload.Info
+	for _, cq := range snapshot.ClusterQueues() {
+		for _, w := range cq.Workloads {
+			usage := w.Usage()
+			if workloadevict.IsEvicted(w.Obj) && (len(usage.Quota.Assigned) > 0 || len(usage.TAS) > 0) {
+				victims = append(victims, w)
+			}
+		}
+	}
+	return victims
 }
 
 func (s *Scheduler) handleFailedTASReplacement(ctx context.Context, log logr.Logger, e *entry) {

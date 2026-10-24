@@ -3339,6 +3339,15 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 				},
 			},
 		},
+		"disabling TAS failed-node replacement does not require the deferral gate": {
+			featureGateMap: map[string]bool{
+				string(features.TopologyAwareScheduling):          true,
+				string(features.TASFailedNodeReplacement):         false,
+				string(features.TASFailedNodeReplacementFailFast): false,
+				string(features.TASReplaceNodeOnPodTermination):   false,
+				string(features.TASMultiLayerTopology):            false,
+			},
+		},
 		"TASFailedNodeReplacementFailFast requires both TopologyAwareScheduling and TASFailedNodeReplacement": {
 			featureGateMap: map[string]bool{
 				string(features.TopologyAwareScheduling):                     false,
@@ -3389,18 +3398,19 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 		},
 		"all TAS sub-features valid when TopologyAwareScheduling and TASFailedNodeReplacement enabled": {
 			featureGateMap: map[string]bool{
-				string(features.TopologyAwareScheduling):          true,
-				string(features.TASFailedNodeReplacement):         true,
-				string(features.TASFailedNodeReplacementFailFast): true,
-				string(features.TASReplaceNodeOnPodTermination):   true,
-				string(features.TASBalancedPlacement):             true,
-				string(features.TASReplaceNodeOnNodeTaints):       true,
-				string(features.TASMultiLayerTopology):            true,
-				string(features.TASRespectNodeAffinityPreferred):  true,
-				string(features.TASHandleOverlappingFlavors):      true,
-				string(features.TASGroupedPodSetSlicing):          true,
-				string(features.TASPartialSlices):                 true,
-				string(features.TASLeaderPodSetFeasibility):       false,
+				string(features.TopologyAwareScheduling):                                    true,
+				string(features.TASFailedNodeReplacement):                                   true,
+				string(features.TASFailedNodeReplacementFailFast):                           true,
+				string(features.TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions): true,
+				string(features.TASReplaceNodeOnPodTermination):                             true,
+				string(features.TASBalancedPlacement):                                       true,
+				string(features.TASReplaceNodeOnNodeTaints):                                 true,
+				string(features.TASMultiLayerTopology):                                      true,
+				string(features.TASRespectNodeAffinityPreferred):                            true,
+				string(features.TASHandleOverlappingFlavors):                                true,
+				string(features.TASGroupedPodSetSlicing):                                    true,
+				string(features.TASPartialSlices):                                           true,
+				string(features.TASLeaderPodSetFeasibility):                                 false,
 			},
 		},
 		"KueueDRAIntegrationExtendedResource requires KueueDRAIntegration": {
@@ -3442,7 +3452,9 @@ func TestLoadAndValidateFeatureGates(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			// Ensure clean up is registered for the feature gates to their default values
+			// LoadAndValidateFeatureGates mutates the process-wide gate state.
+			// Capture it here so each case starts from the real defaults, then
+			// restore it after the subtest.
 			features.SetFeatureGatesDuringTest(t, nil)
 			got := LoadAndValidateFeatureGates(tc.featureGatesCLI, tc.featureGateMap)
 			// Ignore "Detail" field when multiple feature gate dependency errors occur (or when ignoreDetail is set/Detail is empty),

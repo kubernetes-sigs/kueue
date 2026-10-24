@@ -665,6 +665,12 @@
     lockToDefault: false
     preRelease: Beta
     version: "0.20"
+- name: TASNodeReplacementDeferFailFastWhenUsefulInflightEvictions
+  versionedSpecs:
+  - default: true
+    lockToDefault: false
+    preRelease: Beta
+    version: "0.21"
 - name: TASPartialSlices
   versionedSpecs:
   - default: true

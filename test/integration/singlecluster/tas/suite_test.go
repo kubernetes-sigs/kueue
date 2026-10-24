@@ -42,6 +42,7 @@ import (
 	"sigs.k8s.io/kueue/pkg/scheduler"
 	preemptexpectations "sigs.k8s.io/kueue/pkg/scheduler/preemption/expectations"
 	"sigs.k8s.io/kueue/pkg/scheduler/preemption/fairsharing"
+	"sigs.k8s.io/kueue/pkg/util/waitforpodsready"
 	"sigs.k8s.io/kueue/pkg/util/webhook"
 	"sigs.k8s.io/kueue/pkg/webhooks"
 	"sigs.k8s.io/kueue/test/integration/framework"
@@ -162,10 +163,18 @@ func managerSetupWithClientTransform(
 			mgr.GetEventRecorder(constants.AdmissionName),
 			scheduler.WithPreemptionExpectations(preemptionExpectations),
 			scheduler.WithFairSharing(controllersCfg.FairSharing),
+			scheduler.WithFailedTASReplacementRecoveryTimeout(failedTASReplacementRecoveryTimeout(controllersCfg)),
 		)
 		err = mgr.Add(sched)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
+}
+
+func failedTASReplacementRecoveryTimeout(controllersCfg *config.Configuration) time.Duration {
+	if controllersCfg == nil || !waitforpodsready.Enabled(controllersCfg.WaitForPodsReady) || controllersCfg.WaitForPodsReady.RecoveryTimeout == nil {
+		return 0
+	}
+	return controllersCfg.WaitForPodsReady.RecoveryTimeout.Duration
 }
 
 func managerSetup(
