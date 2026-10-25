@@ -45,8 +45,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/certwatcher"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
 	configapi "sigs.k8s.io/kueue/apis/config/v1beta2"
 	kueuealpha "sigs.k8s.io/kueue/apis/kueue/v1alpha1"
@@ -160,6 +158,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Apply feature-gated defaults after the configured gates have been loaded.
+	scheme.Default(&cfg)
+
 	// Validates the configuration after it has been loaded and feature gates have been set.
 	if err := config.Validate(&cfg, scheme, integrationManager).ToAggregate(); err != nil {
 		setupLog.Error(err, "Unable to validate the configuration")
@@ -186,11 +187,7 @@ func main() {
 	// More info:
 	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.19.1/pkg/metrics/server
 	// - https://book.kubebuilder.io/reference/metrics.html
-	metricsServerOptions := metricsserver.Options{
-		BindAddress:    cfg.Metrics.BindAddress,
-		SecureServing:  true,
-		FilterProvider: filters.WithAuthenticationAndAuthorization,
-	}
+	metricsServerOptions := config.MetricsServerOptions(setupLog, cfg.Metrics)
 
 	parsedTLSConfig := &tlsconfig.TLS{}
 	if features.Enabled(features.TLSOptions) {

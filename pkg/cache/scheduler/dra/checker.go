@@ -22,6 +22,7 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/dynamic-resource-allocation/structured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -152,4 +153,12 @@ func (c *Checker) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGrou
 
 func (c *Checker) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
 	return c.inner.RemovePodGroup(ctx, pg)
+}
+
+func (c *Checker) AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	return c.inner.AddCompositePodGroup(ctx, cpg)
+}
+
+func (c *Checker) RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	return c.inner.RemoveCompositePodGroup(ctx, cpg)
 }

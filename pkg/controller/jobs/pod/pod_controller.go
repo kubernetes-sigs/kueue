@@ -490,31 +490,32 @@ func (p *Pod) PodSets(ctx context.Context, _ client.Client) ([]kueue.PodSet, err
 // preempted pods begin terminating.
 func (p *Pod) IsActive() bool {
 	for i := range p.list.Items {
-		pod := p.list.Items[i]
-
-		// Pods that are not in the Running phase are never considered Active.
-		if pod.Status.Phase != corev1.PodRunning {
-			continue
+		if active, _ := PodActivity(&p.list.Items[i], p.clock.Now()); active {
+			return true
 		}
-
-		if features.Enabled(features.FastQuotaReleaseInPodIntegration) && pod.DeletionTimestamp != nil {
-			continue
-		}
-
-		// If a pod is stuck terminating (e.g., due to a lost node), we should avoid
-		// counting as Active, as doing so could block the workload to release acquired quota.
-		if pod.DeletionTimestamp != nil && pod.DeletionGracePeriodSeconds != nil {
-			// For graceful deletion, the API server sets DeletionTimestamp to the
-			// end of the grace period.
-			if p.clock.Now().After(pod.DeletionTimestamp.Time) {
-				continue
-			}
-		}
-
-		// At this point, the pod is Running and not stuck terminating — count as active.
-		return true
 	}
 	return false
+}
+
+// PodActivity reports whether a Pod still consumes a reservation.
+// For an active Pod, recheckAfter is the delay until its known activity deadline.
+// A zero delay means that activity must be rechecked on a Pod event.
+func PodActivity(pod *corev1.Pod, now time.Time) (active bool, recheckAfter time.Duration) {
+	if pod.Status.Phase != corev1.PodRunning {
+		return false, 0
+	}
+	if features.Enabled(features.FastQuotaReleaseInPodIntegration) && pod.DeletionTimestamp != nil {
+		return false, 0
+	}
+	if pod.DeletionTimestamp == nil || pod.DeletionGracePeriodSeconds == nil {
+		return true, 0
+	}
+	// DeletionTimestamp already marks the end of the grace period.
+	deadline := pod.DeletionTimestamp.Time
+	if now.After(deadline) {
+		return false, 0
+	}
+	return true, deadline.Sub(now) + time.Nanosecond
 }
 
 func hasPodReadyTrue(conds []corev1.PodCondition) bool {
@@ -841,6 +842,8 @@ func (p *Pod) Load(ctx context.Context, c client.Client, key *types.NamespacedNa
 		// All group pods are terminating: once no Workload remains, finalize directly - re-creating one would re-adopt the group from admission-mutated specs and wedge finalizer removal (issue #15148).
 		for i := range p.list.Items {
 			if p.list.Items[i].DeletionTimestamp.IsZero() {
+				// A live pod represents the group: the list order is not stable across reconciles, and a terminating pod can carry another queue-name or priority.
+				p.pod = p.list.Items[i]
 				return jobframework.NewLoadResult(false, p.isFound), nil
 			}
 		}
@@ -1328,6 +1331,10 @@ func (p *Pod) removeExcessPods(ctx context.Context, c client.Client, r events.Ev
 			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
 			return err
 		}
+		if !removed && !pod.DeletionTimestamp.IsZero() {
+			// Nothing was patched or deleted, so don't wait for an event that may come only when the pod is gone.
+			p.excessPodExpectations.ObservedUID(log, p.key, pod.UID)
+		}
 		if removed {
 			log.V(3).Info("Finalized excess pod in group", "excessPod", klog.KObj(pod))
 		}
@@ -1443,9 +1450,14 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		return wl, nil
 	}
 
+	var terminatingPods []corev1.Pod
+	if features.Enabled(features.FinalizeTerminatingPodGroups) {
+		terminatingPods = p.dropTerminatingPods()
+	}
+
 	activePods, inactivePods := p.partitionPods()
 
-	if err := p.finalizePods(ctx, c, inactivePods); err != nil {
+	if err := p.finalizePods(ctx, c, append(inactivePods, terminatingPods...)); err != nil {
 		return nil, err
 	}
 
@@ -1510,6 +1522,21 @@ func (p *Pod) ConstructComposableWorkload(ctx context.Context, c client.Client, 
 		utilmaps.Copy(&wl.Annotations, annotationsToCopyList)
 	}
 	return wl, nil
+}
+
+// dropTerminatingPods removes from the group the pods that are being deleted but still count as
+// runnable, and returns them. Such a pod never runs again, but its spec carries the placement of
+// its earlier admission, so it must not shape a new Workload.
+func (p *Pod) dropTerminatingPods() []corev1.Pod {
+	var terminatingPods []corev1.Pod
+	p.list.Items = slices.DeleteFunc(p.list.Items, func(pod corev1.Pod) bool {
+		terminating := !pod.DeletionTimestamp.IsZero() && isPodRunnableOrSucceeded(&pod)
+		if terminating {
+			terminatingPods = append(terminatingPods, pod)
+		}
+		return terminating
+	})
+	return terminatingPods
 }
 
 // applyDeploymentJobUID replaces the Pod UID that ConstructWorkload put in the job-uid

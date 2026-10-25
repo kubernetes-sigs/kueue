@@ -394,6 +394,12 @@ const (
 	// Enable custom metadata labels on Kueue metrics
 	CustomMetricLabels featuregate.Feature = "CustomMetricLabels"
 
+	// owner: @ankushbbbr
+	// kep: https://github.com/kubernetes-sigs/kueue/tree/main/keps/16029-metrics-access-control
+	//
+	// Allows disabling metrics authentication and authorization on loopback listeners.
+	MetricsAccessControl featuregate.Feature = "MetricsAccessControl"
+
 	// owner: @everpeace
 	//
 	// pr: https://github.com/kubernetes-sigs/kueue/pull/7268#issuecomment-3890609376
@@ -440,9 +446,11 @@ const (
 	// owner: @anguszzzz
 	//
 	// issue: https://github.com/kubernetes-sigs/kueue/issues/15148
-	// When enabled, the Pod integration finalizes a pod group without creating a
-	// Workload when every pod of the group is terminating and no Workload remains
-	// for the group (introduced in https://github.com/kubernetes-sigs/kueue/pull/15154).
+	// When enabled, the Pod integration does not build pod group Workloads from
+	// terminating pods. A group whose pods are all terminating, with no Workload left,
+	// is finalized without one (introduced in https://github.com/kubernetes-sigs/kueue/pull/15154).
+	// A new group Workload is built without the pods that are being deleted on a node,
+	// and Kueue removes their finalizer.
 	FinalizeTerminatingPodGroups featuregate.Feature = "FinalizeTerminatingPodGroups"
 
 	// owner: @ShaanveerS
@@ -581,6 +589,14 @@ const (
 	// TODO(#12820): temporary workaround in the RayService integration. Remove once
 	// the generic FinishOrphanedWorkloads owner-deletion check lands.
 	DeferRayServiceFinalizationForRedisCleanup featuregate.Feature = "DeferRayServiceFinalizationForRedisCleanup"
+
+	// owner: @kevin85421
+	// pr: https://github.com/kubernetes-sigs/kueue/pull/17591
+	//
+	// Uses the HeadPodReady condition to determine RayCluster readiness instead of
+	// the cluster state, so unready workers do not block readiness of a usable head.
+	// Requires KubeRay v1.3.0 or later.
+	RayClusterHeadPodReady featuregate.Feature = "RayClusterHeadPodReady"
 
 	// owner: @kevin85421
 	// pr: https://github.com/kubernetes-sigs/kueue/pull/16094
@@ -1126,6 +1142,9 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	PodGroupSchedulingShapeOrdering: {
 		{Version: version.MustParse("0.20"), Default: true, PreRelease: featuregate.Beta},
 	},
+	MetricsAccessControl: {
+		{Version: version.MustParse("0.21"), Default: false, PreRelease: featuregate.Alpha},
+	},
 	CustomMetricLabels: {
 		{Version: version.MustParse("0.17"), Default: false, PreRelease: featuregate.Alpha},
 	},
@@ -1220,6 +1239,10 @@ var defaultVersionedFeatureGates = map[featuregate.Feature]featuregate.Versioned
 	DeferRayServiceFinalizationForRedisCleanup: {
 		{Version: version.MustParse("0.19"), Default: true, PreRelease: featuregate.Beta},
 		{Version: version.MustParse("0.20"), Default: false, PreRelease: featuregate.Deprecated}, // remove in 0.22
+	},
+
+	RayClusterHeadPodReady: {
+		{Version: version.MustParse("0.21"), Default: true, PreRelease: featuregate.Beta},
 	},
 
 	RayServiceValidateUpgradeStrategy: {

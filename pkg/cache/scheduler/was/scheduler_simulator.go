@@ -26,6 +26,7 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,6 +39,11 @@ import (
 const FailedReasonSkipped = "skipped"
 
 var _ simulator.SchedulerSimulator = (*wasSimulator)(nil)
+
+var (
+	errFindFeasibleNodesNotAllowed = errors.New("FindFeasibleNodes() not allowed when SchedulerLibraryDeepIntegration enabled")
+	errScheduleWorkloadNotAllowed  = errors.New("ScheduleWorkload() not allowed when SchedulerLibraryDeepIntegration disabled")
+)
 
 type wasSimulator struct {
 	// wasSnapshot is the cluster as it stands, with every tracked Pod on its node.
@@ -75,7 +81,7 @@ func (s *wasSimulator) FindFeasibleNodes(
 	stats *simulator.NodeExclusionStats,
 ) ([]simulator.MatchedCandidate, error) {
 	if features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		return nil, errors.New("FindFeasibleNodes() not allowed when SchedulerLibraryDeepIntegration enabled")
+		return nil, errFindFeasibleNodesNotAllowed
 	}
 	var candidateLeaves = make(map[string]simulator.MatchedCandidate)
 	var candidateNodeNames []string
@@ -152,20 +158,18 @@ func (s *wasSimulator) Simulate(ctx context.Context, fn func()) error {
 
 func (s *wasSimulator) ScheduleWorkload(ctx context.Context, workloadPods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
 	if !features.Enabled(features.SchedulerLibraryDeepIntegration) {
-		return simulator.SchedulingResult{
-			Error: errors.New("ScheduleWorkload() not allowed when SchedulerLibraryDeepIntegration disabled"),
-		}
+		return simulator.SchedulingResult{Error: errScheduleWorkloadNotAllowed}
 	}
 
 	workloadPods = copyWithDefaultScheduler(workloadPods...)
-	wasResults, err := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, schedlib.ScheduleWorkloadOptions{DryRun: true})
-	if err != nil {
-		return simulator.SchedulingResult{Error: err}
+	wasResult := s.wasSnapshot.ScheduleWorkload(ctx, workloadPods, schedlib.ScheduleWorkloadOptions{DryRun: true})
+	if wasResult.Status.IsError() {
+		return simulator.SchedulingResult{Error: wasResult.Status.AsError()}
 	}
 
 	// Parse scheduler-library results
 	placements := make(simulator.PodPlacements, len(workloadPods))
-	for _, podResult := range wasResults {
+	for _, podResult := range wasResult.PodResults {
 		podKey := client.ObjectKeyFromObject(podResult.Pod)
 		status := podResult.Status
 		if status.IsSuccess() {
@@ -195,6 +199,14 @@ func (s *wasSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.Po
 
 func (s *wasSimulator) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
 	return s.wasSnapshot.RemovePodGroup(ctx, pg)
+}
+
+func (s *wasSimulator) AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	return s.wasSnapshot.AddCompositePodGroup(ctx, cpg)
+}
+
+func (s *wasSimulator) RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	return s.wasSnapshot.RemoveCompositePodGroup(ctx, cpg)
 }
 
 func copyWithDefaultScheduler(pods ...*corev1.Pod) []*corev1.Pod {

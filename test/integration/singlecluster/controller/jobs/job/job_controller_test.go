@@ -729,6 +729,40 @@ var _ = ginkgo.Describe("Job controller", ginkgo.Label("job:batch", "area:jobs")
 			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 		})
 
+		ginkgo.It("Should not adopt a prebuilt workload which is already finished", func() {
+			// The workload was left finished by a deleted predecessor: it keeps the
+			// in-use finalizer but has no controller, so the job must not adopt it.
+			wl := utiltestingapi.MakeWorkload("wl", ns.Name).
+				PodSets(*utiltestingapi.MakePodSet(kueue.DefaultPodSetName, 1).Obj()).
+				Finalizers(kueue.ResourceInUseFinalizerName).
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, wl)
+
+			// Status is a subresource, so set the Finished condition via a status update.
+			ginkgo.By("Marking the prebuilt workload finished", func() {
+				integration.FinishWorkloads(ctx, k8sClient, wl)
+			})
+
+			job := testingjob.MakeJob("job", ns.Name).
+				Queue("main").
+				PrebuiltWorkloadLabel("wl").
+				Obj()
+			behavioral.MustCreate(ctx, k8sClient, job)
+
+			ginkgo.By("Checking the job stays suspended and the finished workload is not adopted", func() {
+				gomega.Consistently(func(g gomega.Gomega) {
+					createdJob := batchv1.Job{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(job), &createdJob)).To(gomega.Succeed())
+					g.Expect(ptr.Deref(createdJob.Spec.Suspend, false)).To(gomega.BeTrue())
+					createdWl := kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl), &createdWl)).To(gomega.Succeed())
+					g.Expect(createdWl.OwnerReferences).To(gomega.BeEmpty())
+					g.Expect(createdWl.Finalizers).To(gomega.ContainElement(kueue.ResourceInUseFinalizerName))
+					g.Expect(createdWl.Status.Conditions).Should(utiltesting.HaveConditionStatusTrue(kueue.WorkloadFinished))
+				}, behavioral.ConsistentDuration, behavioral.ShortInterval).Should(gomega.Succeed())
+			})
+		})
+
 		ginkgo.It("Should reconcile job when the workload is created later", func() {
 			container := corev1.Container{
 				Name:  "c",
@@ -6879,11 +6913,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("draining the ClusterQueue to evict the workload without deleting it")
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
-			clusterQueue.Spec.StopPolicy = new(kueue.HoldAndDrain)
-			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
-		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, clusterQueue, kueue.HoldAndDrain)
 
 		ginkgo.By("the workload slice is evicted and the job is suspended")
 		gomega.Eventually(func(g gomega.Gomega) {
@@ -6895,11 +6925,7 @@ var _ = ginkgo.Describe("Job with elastic jobs via workload-slices support", gin
 		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("resuming the ClusterQueue")
-		gomega.Eventually(func(g gomega.Gomega) {
-			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(clusterQueue), clusterQueue)).Should(gomega.Succeed())
-			clusterQueue.Spec.StopPolicy = new(kueue.None)
-			g.Expect(k8sClient.Update(ctx, clusterQueue)).Should(gomega.Succeed())
-		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+		behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, clusterQueue, kueue.None)
 
 		ginkgo.By("the same workload slice is re-admitted and the job restarts with the same slice name")
 		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, replacementSlice)

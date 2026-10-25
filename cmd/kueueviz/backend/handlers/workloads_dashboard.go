@@ -145,7 +145,6 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 	}
 
 	for _, workload := range items {
-		workloadName := workload.Name
 		workloadUID := workload.UID
 		workloadPods := podIndex.podsFor(&workload)
 
@@ -158,7 +157,7 @@ func (h *Handlers) fetchWorkloadsDashboardData(ctx context.Context, namespace st
 		}
 
 		// The frontend links to /workload/<namespace>/<name>.
-		workloadsByUID[workloadUID] = workload.Namespace + "/" + workloadName
+		workloadsByUID[workloadUID] = ctrlclient.ObjectKeyFromObject(&workload).String()
 		processedWorkloads = append(processedWorkloads, workloadResult{
 			Workload:   &workload,
 			Preemption: preemption,

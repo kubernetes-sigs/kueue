@@ -3699,3 +3699,42 @@ func TestFits(t *testing.T) {
 		}
 	}
 }
+
+func TestTASAssignmentsResultFailure(t *testing.T) {
+	cases := map[string]struct {
+		result TASAssignmentsResult
+		want   *FailureInfo
+	}{
+		"no PodSet failed": {
+			result: TASAssignmentsResult{
+				"leader":  {Flavor: "tas"},
+				"workers": {Flavor: "tas"},
+			},
+		},
+		"leader and workers fail with the same reason": {
+			result: TASAssignmentsResult{
+				"workers": {FailureReason: "does not fit", Flavor: "tas"},
+				"leader":  {FailureReason: "does not fit", Flavor: "tas"},
+			},
+			want: &FailureInfo{PodSetName: "leader", Reason: "does not fit", Flavor: "tas"},
+		},
+		"PodSets fail in different flavors": {
+			result: TASAssignmentsResult{
+				"ps-c": {FailureReason: "no fit in tas-a", Flavor: "tas-a"},
+				"ps-b": {FailureReason: "no fit in tas-b", Flavor: "tas-b"},
+				"ps-a": {Flavor: "tas-a"},
+			},
+			want: &FailureInfo{PodSetName: "ps-b", Reason: "no fit in tas-b", Flavor: "tas-b"},
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			// Map iteration order is random, so ask several times to catch an unstable pick.
+			for range 20 {
+				if diff := cmp.Diff(tc.want, tc.result.Failure()); diff != "" {
+					t.Fatalf("Failure() (-want,+got):\n%s", diff)
+				}
+			}
+		})
+	}
+}

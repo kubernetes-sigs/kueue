@@ -1522,24 +1522,14 @@ var _ = ginkgo.Describe("CustomMetricLabels", ginkgo.Label("controller:clusterqu
 			behavioral.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind2")
 
 			ginkgo.By("stopping the ClusterQueue to make it inactive")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedCq kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
-				updatedCq.Spec.StopPolicy = new(kueue.Hold)
-				g.Expect(k8sClient.Update(ctx, &updatedCq)).To(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.Hold)
 
 			ginkgo.By("verifying pending workloads are reported as inadmissible")
 			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 1, "ml-team", "kind1")
 			behavioral.ExpectPendingWorkloadsMetric(cq, 0, 1, "ml-team", "kind2")
 
 			ginkgo.By("resuming the ClusterQueue to make it active")
-			gomega.Eventually(func(g gomega.Gomega) {
-				var updatedCq kueue.ClusterQueue
-				g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(cq), &updatedCq)).To(gomega.Succeed())
-				updatedCq.Spec.StopPolicy = new(kueue.None)
-				g.Expect(k8sClient.Update(ctx, &updatedCq)).To(gomega.Succeed())
-			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			behavioral.SetClusterQueueStopPolicy(ctx, k8sClient, cq, kueue.None)
 
 			ginkgo.By("verifying they restore to active statuses")
 			behavioral.ExpectPendingWorkloadsMetric(cq, 1, 0, "ml-team", "kind1")

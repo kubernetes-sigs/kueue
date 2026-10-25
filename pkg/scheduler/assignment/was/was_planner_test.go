@@ -29,6 +29,8 @@ import (
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
+	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/component-base/featuregate"
 	clocktesting "k8s.io/utils/clock/testing"
@@ -76,15 +78,53 @@ const (
 type testSimulator struct {
 	simulator.SchedulerSimulator
 
-	result simulator.SchedulingResult
-	calls  int
+	result        simulator.SchedulingResult
+	calls         int
+	scheduledPods []*corev1.Pod
+	addedPGs      []*schedulingv1beta1.PodGroup
+	removedPGs    []*schedulingv1beta1.PodGroup
+	addedCPGs     []*schedulingv1alpha3.CompositePodGroup
+	removedCPGs   []*schedulingv1alpha3.CompositePodGroup
 }
 
 var _ simulator.SchedulerSimulator = (*testSimulator)(nil)
 
 func (f *testSimulator) ScheduleWorkload(_ context.Context, pods []*corev1.Pod, _ ...simulator.ScheduleOption) simulator.SchedulingResult {
 	f.calls++
+	f.scheduledPods = append(f.scheduledPods, pods...)
 	return f.result
+}
+
+func (f *testSimulator) AddPodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	f.addedPGs = append(f.addedPGs, pg)
+	if f.SchedulerSimulator != nil {
+		return f.SchedulerSimulator.AddPodGroup(ctx, pg)
+	}
+	return nil
+}
+
+func (f *testSimulator) RemovePodGroup(ctx context.Context, pg *schedulingv1beta1.PodGroup) error {
+	f.removedPGs = append(f.removedPGs, pg)
+	if f.SchedulerSimulator != nil {
+		return f.SchedulerSimulator.RemovePodGroup(ctx, pg)
+	}
+	return nil
+}
+
+func (f *testSimulator) AddCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	f.addedCPGs = append(f.addedCPGs, cpg)
+	if f.SchedulerSimulator != nil {
+		return f.SchedulerSimulator.AddCompositePodGroup(ctx, cpg)
+	}
+	return nil
+}
+
+func (f *testSimulator) RemoveCompositePodGroup(ctx context.Context, cpg *schedulingv1alpha3.CompositePodGroup) error {
+	f.removedCPGs = append(f.removedCPGs, cpg)
+	if f.SchedulerSimulator != nil {
+		return f.SchedulerSimulator.RemoveCompositePodGroup(ctx, cpg)
+	}
+	return nil
 }
 
 // podKey returns the key of the virtual Pod which the planner builds for the
@@ -615,5 +655,75 @@ func TestPlan(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestPlanVirtualPodGroupsHierarchy(t *testing.T) {
+	features.SetFeatureGatesDuringTest(t, map[featuregate.Feature]bool{
+		features.TopologyAwareScheduling:         true,
+		features.SchedulerLibraryDeepIntegration: true,
+	})
+
+	log := testr.New(t)
+	ctx := ctrllog.IntoContext(t.Context(), log)
+	snapshot := newTestSnapshot(ctx, t, log, cpuQuota(testFlavor, "20"))
+	testSim := &testSimulator{SchedulerSimulator: snapshot.SchedulerSimulator}
+	snapshot.SchedulerSimulator = testSim
+
+	podSetGroup := "group1"
+	wlObj := utiltestingapi.MakeWorkload(incomingName, testNamespace).
+		PodSets(
+			*utiltestingapi.MakePodSet("ps1", 2).
+				PodSetGroup(podSetGroup).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+			*utiltestingapi.MakePodSet("ps2", 2).
+				PodSetGroup(podSetGroup).
+				RequiredTopologyRequest(corev1.LabelHostname).
+				Request(corev1.ResourceCPU, "1").
+				Obj(),
+		).
+		Obj()
+	wl := workload.NewInfo(log, wlObj)
+	wl.ClusterQueue = testCQ
+
+	assigner := flavorassigner.New(
+		wl, snapshot.ClusterQueue(testCQ), snapshot.ResourceFlavors, false,
+		nil, nil,
+		configapi.QuotaCheckBlockUndeclared, resources.NewResourceFormatter(), 0,
+	)
+	assignment := assigner.AssignFlavors(ctx, log, nil)
+
+	planner := NewPlanner(wl, snapshot)
+	plan := planner.Plan(ctx, &assignment)
+	if plan.Error != nil {
+		t.Fatalf("Plan() unexpected error: %v", plan.Error)
+	}
+
+	// Verify CompositePodGroup was added and cleaned up
+	if len(testSim.addedCPGs) != 1 {
+		t.Errorf("expected 1 CompositePodGroup added, got %d", len(testSim.addedCPGs))
+	}
+	if len(testSim.removedCPGs) != 1 {
+		t.Errorf("expected 1 CompositePodGroup removed, got %d", len(testSim.removedCPGs))
+	}
+
+	// Verify PodGroups were added and cleaned up
+	if len(testSim.addedPGs) != 2 {
+		t.Errorf("expected 2 PodGroups added, got %d", len(testSim.addedPGs))
+	}
+	if len(testSim.removedPGs) != 2 {
+		t.Errorf("expected 2 PodGroups removed, got %d", len(testSim.removedPGs))
+	}
+
+	// Verify virtual pods were scheduled with leaf PodGroup references
+	if len(testSim.scheduledPods) != 4 {
+		t.Fatalf("expected 4 scheduled pods, got %d", len(testSim.scheduledPods))
+	}
+	for _, pod := range testSim.scheduledPods {
+		if pod.Spec.SchedulingGroup == nil || pod.Spec.SchedulingGroup.PodGroupName == nil {
+			t.Errorf("pod %s has no SchedulingGroup.PodGroupName", pod.Name)
+		}
 	}
 }

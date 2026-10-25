@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /*
 Copyright The Kubernetes Authors.
 
@@ -14,13 +15,18 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import '@testing-library/jest-dom/vitest';
+import React from 'react';
+import { cleanup, render, screen } from '@testing-library/react';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import * as useWebSocketModule from './useWebSocket';
 
 vi.mock('./useWebSocket', () => ({
   default: vi.fn(),
 }));
 
-import { compareEvents, formatEventTimestamp, getEventTimestamp } from './WorkloadDetail';
+import WorkloadDetail, { compareEvents, formatEventTimestamp, getEventTimestamp } from './WorkloadDetail';
 
 describe('formatEventTimestamp', () => {
   it('formats a valid timestamp in UTC', () => {
@@ -93,5 +99,42 @@ describe('compareEvents', () => {
     ];
 
     expect([...events].sort(compareEvents).map((event) => event.metadata.name)).toEqual(['c', 'a', 'b']);
+  });
+});
+
+describe('WorkloadDetail owner reference', () => {
+  afterEach(cleanup);
+  it('shows the owner reference from metadata', () => {
+    // Return the same objects on every render, as the real hook does.
+    const events = { data: [], error: null };
+    const workload = {
+      data: {
+        metadata: {
+          name: 'wl-1',
+          namespace: 'ns-1',
+          ownerReferences: [{ apiVersion: 'batch/v1', kind: 'Job', name: 'job-1', uid: 'job-uid-1' }],
+        },
+        spec: { queueName: 'lq-1' },
+        status: {},
+        clusterQueueName: 'cq-a',
+      },
+      error: null,
+    };
+    vi.mocked(useWebSocketModule.default).mockImplementation((url) =>
+      url.endsWith('/events') ? events : workload
+    );
+
+    render(
+      <MemoryRouter initialEntries={['/workload/ns-1/wl-1']}>
+        <Routes>
+          <Route path="/workload/:namespace/:workloadName" element={<WorkloadDetail />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText('API Version: batch/v1')).toBeInTheDocument();
+    expect(screen.getByText('Kind: Job')).toBeInTheDocument();
+    expect(screen.getByText('Name: job-1')).toBeInTheDocument();
+    expect(screen.getByText('UID: job-uid-1')).toBeInTheDocument();
   });
 });

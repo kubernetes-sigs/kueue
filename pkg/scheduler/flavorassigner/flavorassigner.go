@@ -63,6 +63,7 @@ const (
 	reasonSeverityTopologyPlacementFailed
 	reasonSeverityWaitingForQuota
 	reasonSeverityExceedsMaxQuota
+	reasonSeverityUnrecordableResourceUsage
 	reasonSeverityNoMatchingFlavor
 )
 
@@ -72,6 +73,8 @@ func reasonSeverity(reason string) int {
 		return reasonSeverityNoMatchingFlavor
 	case kueue.WorkloadQuotaReservedReasonExceedsMaxQuota:
 		return reasonSeverityExceedsMaxQuota
+	case kueue.WorkloadQuotaReservedReasonUnrecordableResourceUsage:
+		return reasonSeverityUnrecordableResourceUsage
 	case kueue.WorkloadQuotaReservedReasonWaitingForQuota:
 		return reasonSeverityWaitingForQuota
 	case kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed:
@@ -382,7 +385,28 @@ func (a *FlavorAssigner) AssignFlavors(
 	// The probe needs the earlier PodSets' full requests. Quota usage may only
 	// contain replacement deltas, including negative values for shrinking PodSets.
 	assignedRequests := make(resources.FlavorResourceQuantities)
+	// Pre-credit quota freed by shrinking PodSet groups so that growing PodSet
+	// groups evaluated earlier in Spec.PodSets order can use the released quota.
+	unvisitedShrinkingUsage := make(resources.FlavorResourceQuantities)
 	for _, podSets := range groupedRequests.InOrder {
+		for fr, delta := range a.groupShrinkingQuotaDeltas(podSets) {
+			unvisitedShrinkingUsage[fr] = unvisitedShrinkingUsage[fr].Add(delta)
+		}
+	}
+	for _, podSets := range groupedRequests.InOrder {
+		for fr, delta := range a.groupShrinkingQuotaDeltas(podSets) {
+			unvisitedShrinkingUsage[fr] = unvisitedShrinkingUsage[fr].Sub(delta)
+		}
+		quotaUsage := assignment.Usage.Quota.Assigned
+		if len(unvisitedShrinkingUsage) > 0 {
+			quotaUsage = maps.Clone(assignment.Usage.Quota.Assigned)
+			for fr, delta := range unvisitedShrinkingUsage {
+				if delta.Sign() != 0 {
+					quotaUsage[fr] = quotaUsage[fr].Add(delta)
+				}
+			}
+		}
+
 		requests := resources.NewRequests()
 		psIDs := make([]int, len(podSets))
 		for idx, podset := range podSets {
@@ -419,11 +443,11 @@ func (a *FlavorAssigner) AssignFlavors(
 				continue
 			}
 
-			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, probeRequests, zeroCount, resName, assignment.Usage.Quota.Assigned, assignedRequests)
+			flavors, status, considered := a.findFlavorForPodSets(ctx, log, psIDs, requests, probeRequests, zeroCount, resName, quotaUsage, assignedRequests)
 			if probeRequests != nil && len(flavors) == 0 && !status.IsError() {
 				// The probe is a preference, not an admission barrier for zero-count PodSets.
 				probeReason := status.Message()
-				flavors, status, considered = a.findFlavorForPodSets(ctx, log, psIDs, requests, nil, zeroCount, resName, assignment.Usage.Quota.Assigned, assignedRequests)
+				flavors, status, considered = a.findFlavorForPodSets(ctx, log, psIDs, requests, nil, zeroCount, resName, quotaUsage, assignedRequests)
 				if len(flavors) > 0 && !status.IsError() {
 					if assignment.ZeroCountFlavorFallback != "" {
 						assignment.ZeroCountFlavorFallback += " "
@@ -441,6 +465,19 @@ func (a *FlavorAssigner) AssignFlavors(
 			if status != nil {
 				groupStatus.reasons = append(groupStatus.reasons, status.reasons...)
 			}
+		}
+
+		// The quota check kept this total exactly. resourceUsage is a Quantity,
+		// which cannot hold it, so writing the cap would make the cache account
+		// for less than was admitted. An even Pod count then fails the workload
+		// webhook, and the scheduler would retry the same admission.
+		// The flavor that fit is still recorded as Fit. ResolveNoFitReason skips
+		// those attempts, so a worse NoFit attempt in the same resource group
+		// would replace UnrecordableResourceUsage on the Workload.
+		if status := unrecordableUsage(podSets, groupFlavors, a.resourceFormatter); status != nil {
+			downgradeUnrecordableFlavorAttempts(consideredFlavors, podSets, groupFlavors, a.resourceFormatter, status)
+			groupFlavors = nil
+			groupStatus = *status
 		}
 
 		finalConsidered := finalizeFlavorAssignmentAttempts(consideredFlavors)
@@ -518,8 +555,16 @@ func (a *FlavorAssigner) AssignTopology(ctx context.Context, log logr.Logger, as
 			if features.Enabled(features.UnadmittedWorkloadsObservability) {
 				psAssignment.MarkFlavorAttempt(failure.Flavor, NoFit, kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed)
 			}
-			// update the mode for all flavors and the representative mode
-			assignment.updateMode(failure.PodSetName, NoFit)
+			// Record the failure on the PodSet Status as well, not only on the flavor
+			// attempt. An empty Status reads as Fit, which would hide this failure both
+			// from ResolveNoFitReason and from the reported message whenever another
+			// PodSet is the one that is short of quota.
+			assignment.ResolvePodSetFailure(
+				failure.PodSetName,
+				NoFit,
+				NewStatus(failure.Reason).
+					WithNoFitReason(kueue.WorkloadQuotaReservedReasonTopologyPlacementFailed),
+			)
 		} else {
 			// Update TAS-related assignments to Preempt because preemptions might be needed
 			// in resources in which total unused quota is sufficient (Fit), but the
@@ -594,6 +639,45 @@ func podSetResourcesByName(podSets []workload.PodSetResources, name kueue.PodSet
 	return nil
 }
 
+// groupShrinkingQuotaDeltas returns the negative (new - old) quota deltas for
+// resources where this PodSet group shrinks relative to the replaced slice.
+func (a *FlavorAssigner) groupShrinkingQuotaDeltas(podSets []indexedPodSet) resources.FlavorResourceQuantities {
+	if !features.Enabled(features.ElasticJobsViaWorkloadSlices) || a.replaceWorkloadSlice == nil {
+		return nil
+	}
+	var deltas resources.FlavorResourceQuantities
+	for _, ips := range podSets {
+		oldPS := podSetResourcesByName(a.replaceWorkloadSlice.TotalRequests, ips.podSet.Name)
+		if oldPS == nil || oldPS.Requests == nil {
+			continue
+		}
+		if features.Enabled(features.ElasticJobsViaWorkloadSlicesFlavorChangeFromZero) && oldPS.Count == 0 {
+			continue
+		}
+		oldPS.Requests.ForEach(func(rName corev1.ResourceName, oldVal resources.Amount) {
+			oldFlavor, ok := oldPS.Flavors[rName]
+			if !ok {
+				return
+			}
+			var newVal resources.Amount
+			if ips.podSet.Requests != nil {
+				newVal = ips.podSet.Requests.ResourceValue(rName)
+			}
+			if deltas == nil {
+				deltas = make(resources.FlavorResourceQuantities)
+			}
+			fr := resources.FlavorResource{Flavor: oldFlavor, Resource: rName}
+			deltas[fr] = deltas[fr].Add(newVal.Sub(oldVal))
+		})
+	}
+	for fr, delta := range deltas {
+		if delta.Sign() >= 0 {
+			delete(deltas, fr)
+		}
+	}
+	return deltas
+}
+
 // probeRequestsFor checks one pod per PodSet only when the entire group is empty.
 // Otherwise, actual requests drive flavor selection: zero-count PodSets may
 // represent completed, reclaimed pods that will not run again.
@@ -612,6 +696,71 @@ func (a *FlavorAssigner) probeRequestsFor(podSets []indexedPodSet) resources.Req
 		probeRequests.Set(corev1.ResourcePods, resources.NewAmount(int64(len(podSets))))
 	}
 	return probeRequests
+}
+
+// unrecordableUsage reports a NoFit status when a total that would be copied into
+// resourceUsage does not survive a Quantity. Only resources that received a
+// flavor are written there; a total the quota check rejected never reaches this.
+func unrecordableUsage(podSets []indexedPodSet, groupFlavors ResourceAssignment, formatter *resources.ResourceFormatter) *Status {
+	if len(groupFlavors) == 0 {
+		return nil
+	}
+	var status *Status
+	for _, ps := range podSets {
+		if ps.podSet.Requests == nil {
+			continue
+		}
+		ps.podSet.Requests.ForEach(func(name corev1.ResourceName, val resources.Amount) {
+			if _, assigned := groupFlavors[name]; !assigned || formatter.HoldsAmount(name, val) {
+				return
+			}
+			if status == nil {
+				status = NewStatus()
+				status.noFitReason = kueue.WorkloadQuotaReservedReasonUnrecordableResourceUsage
+			}
+			status.appendf("resourceUsage cannot store the admitted total for %s (%s)", name, formatter.ExactAmountString(name, val))
+		})
+	}
+	return status
+}
+
+// downgradeUnrecordableFlavorAttempts records flavors that fit quota, but whose
+// totals cannot be stored, as NoFit. ResolveNoFitReason only consults NoFit
+// attempts, and within a resource group it keeps the least severe one.
+func downgradeUnrecordableFlavorAttempts(
+	considered map[kueue.ResourceFlavorReference]FlavorAssignmentAttempt,
+	podSets []indexedPodSet,
+	assigned ResourceAssignment,
+	formatter *resources.ResourceFormatter,
+	status *Status,
+) {
+	flavors := sets.New[kueue.ResourceFlavorReference]()
+	for _, ps := range podSets {
+		if ps.podSet.Requests == nil {
+			continue
+		}
+		ps.podSet.Requests.ForEach(func(name corev1.ResourceName, val resources.Amount) {
+			flavor, ok := assigned[name]
+			if !ok || flavor == nil || formatter.HoldsAmount(name, val) {
+				return
+			}
+			flavors.Insert(flavor.Name)
+		})
+	}
+	for flavor := range flavors {
+		attempt, ok := considered[flavor]
+		if !ok {
+			continue
+		}
+		attempt.Mode = NoFit
+		attempt.PreemptionPossibility = nil
+		attempt.Reasons = mergeUnique(attempt.Reasons, status.reasons)
+		slices.Sort(attempt.Reasons)
+		if features.Enabled(features.UnadmittedWorkloadsObservability) {
+			attempt.NoFitReason = status.noFitReason
+		}
+		considered[flavor] = attempt
+	}
 }
 
 func (a *FlavorAssigner) zeroCountFallbackMessage(podSets []indexedPodSet, flavors ResourceAssignment, resName corev1.ResourceName, probeReason string) string {

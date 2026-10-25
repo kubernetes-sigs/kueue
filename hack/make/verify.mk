@@ -16,6 +16,12 @@
 
 GO_FMT ?= gofmt
 CONTAINER_ENGINE ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
+# Map the host UID/GID even when they exceed Podman's default rootless ID range.
+ifeq ($(notdir $(CONTAINER_ENGINE)),podman)
+ifneq ($(shell id -u),0)
+CONTAINER_USERNS_OPTS ?= --userns=keep-id
+endif
+endif
 SKILLSAW_VERSION := $(shell grep '^FROM' "${TESTING_DIR}/skillsaw/Dockerfile" | cut -d: -f2 | cut -d@ -f1)
 SKILLSAW_IMAGE := "ghcr.io/stbenjam/skillsaw:${SKILLSAW_VERSION}"
 VERIFY_NPROCS ?= 8
@@ -130,13 +136,26 @@ verify-checks: verify-artifacts verify-ci-lint verify-lint-api verify-fmt-verify
 # Giving the wrapper its own recipe body is the only way to enforce ordering
 # without recursive $(MAKE).
 
+# Store in shell variable $(1) the tracked and untracked, non-ignored files
+# matching pathspecs $(2), one per line.
+# Unlike find, git ls-files does not descend into nested Git worktrees or clones
+# under the repo, so local checkouts there are not linted or formatted.
+# Files deleted from the working tree but still tracked are skipped.
+# Fail when git ls-files fails or nothing matches, so a check never passes
+# without inspecting any file. Exit explicitly: GNU Make 3.81 ignores .SHELLFLAGS.
+_ls_repo_files = $(1)=$$(git -c core.quotePath=false ls-files --cached --others --exclude-standard -- $(2)) || exit 1; \
+	$(1)=$$(printf '%s\n' "$$$(1)" | while IFS= read -r f; do if [ -e "$$f" ]; then printf '%s\n' "$$f"; fi; done); \
+	if [ -z "$$$(1)" ]; then echo "No files match: $(2)" >&2; exit 1; fi
+
 # Lint each module in parallel; drop generated packages (client-go/, internal/mocks/)
 # from the target list — golangci-lint's path/generated exclusions only filter reported
 # issues, not the analysis work, so they must be excluded before the linter runs.
 # Label module totals and command timings so parallel workers remain distinguishable.
 define _ci_lint_recipe
 @echo "Module lint concurrency: processes=$(CI_LINT_NPROCS), GOMAXPROCS=$${GOMAXPROCS:-default}"
-@find . \( -path ./site -o -path ./bin -o -path ./vendor \) -prune -false -o -name go.mod -exec dirname {} \; \
+@$(call _ls_repo_files,modules,'go.mod' '**/go.mod' ':!:site/' ':!:bin/' ':!:vendor/'); \
+	printf '%s\n' "$$modules" \
+	| xargs -n 1 dirname \
 	| xargs -P $(CI_LINT_NPROCS) -n 1 sh -c ' \
 		MAKE_TIMING_LABEL="lint module=$$2" MAKE_TIMING_COMMANDS=1 \
 			exec "$(PROJECT_DIR)/hack/make-timed-shell.sh" -c "$$1" sh "$$2"' sh ' \
@@ -159,7 +178,8 @@ $(GOLANGCI_LINT_KAL) run -v \
 endef
 
 define _fmt_verify_recipe
-@out=`$(GO_FMT) -l -d $$(find . \( -path ./vendor -o -path ./bin \) -prune -false -o -name '*.go' -print)`; \
+@$(call _ls_repo_files,go_files,'*.go' ':!:vendor/' ':!:bin/'); \
+out=`$(GO_FMT) -l -d $$go_files` || [ -n "$$out" ] || exit 1; \
 if [ -n "$$out" ]; then \
     echo "$$out"; \
     exit 1; \
@@ -205,6 +225,7 @@ $(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.n
 $(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.nodeSelector.nodetype=infra --set 'kueueViz.frontend.tolerations[0].key=node-role.kubernetes.io/master' --set 'kueueViz.frontend.tolerations[0].operator=Exists' --set 'kueueViz.frontend.tolerations[0].effect=NoSchedule' > /dev/null
 $(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.backend.priorityClassName="system-cluster-critical" > /dev/null
 $(HELM) template charts/kueue --set enableKueueViz=true --set kueueViz.frontend.priorityClassName="system-cluster-critical" > /dev/null
+$(HELM) template charts/kueue --set networkPolicy.enabled=true --set enableKueueViz=true > /dev/null
 endef
 
 define _helm_unit_test_recipe
@@ -236,7 +257,7 @@ endef
 # Validates skills against https://agentskills.io/specification
 define _skills_lint_recipe
 mkdir -p $(ARTIFACTS)
-$(CONTAINER_ENGINE) run --rm --user "$(shell id -u):$(shell id -g)" $(CONTAINER_SECURITY_OPTS) -v $(PROJECT_DIR):/workspace$(VOLUME_FLAGS) -v $(ARTIFACTS):/out$(VOLUME_FLAGS) $(SKILLSAW_IMAGE) -q --output /out/skillsaw-summary.html
+$(CONTAINER_ENGINE) run --rm $(CONTAINER_USERNS_OPTS) --user "$(shell id -u):$(shell id -g)" $(CONTAINER_SECURITY_OPTS) -v $(PROJECT_DIR):/workspace$(VOLUME_FLAGS) -v $(ARTIFACTS):/out$(VOLUME_FLAGS) $(SKILLSAW_IMAGE) -q --config /workspace/cmd/experimental/skills/.skillsaw.yaml --output /out/skillsaw-summary.html
 endef
 
 # ray-project-mini-image-build pip-installs ray==RAY_VERSION, but rayproject/ray also tags

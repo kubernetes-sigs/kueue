@@ -23,6 +23,7 @@ import (
 	"iter"
 
 	corev1 "k8s.io/api/core/v1"
+	schedulingv1alpha3 "k8s.io/api/scheduling/v1alpha3"
 	schedulingv1beta1 "k8s.io/api/scheduling/v1beta1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
@@ -53,7 +54,9 @@ func (s *defaultSimulatorFactory) NewSimulator(_ context.Context, _ []*corev1.No
 
 func (s *defaultSimulatorFactory) TrackPod(_ context.Context, _ *corev1.Pod) {}
 
-func (s *defaultSimulatorFactory) UntrackPod(_ context.Context, _ client.ObjectKey) {}
+func (s *defaultSimulatorFactory) UntrackPod(_ context.Context, _ client.ObjectKey) string {
+	return ""
+}
 
 func (s *defaultSimulator) FindFeasibleNodes(
 	ctx context.Context,
@@ -141,5 +144,13 @@ func (s *defaultSimulator) AddPodGroup(_ context.Context, _ *schedulingv1beta1.P
 }
 
 func (s *defaultSimulator) RemovePodGroup(_ context.Context, _ *schedulingv1beta1.PodGroup) error {
+	return nil
+}
+
+func (s *defaultSimulator) AddCompositePodGroup(_ context.Context, _ *schedulingv1alpha3.CompositePodGroup) error {
+	return nil
+}
+
+func (s *defaultSimulator) RemoveCompositePodGroup(_ context.Context, _ *schedulingv1alpha3.CompositePodGroup) error {
 	return nil
 }

@@ -155,6 +155,13 @@ func (g *wlGroup) bestMatchByCondition(conditionType string) (*metav1.Condition,
 	return bestMatchCond, bestMatchRemote
 }
 
+// jobHasMultipleWorkloads reports whether the job creates a workload per component,
+// e.g. one per LeaderWorkerSet group.
+func (g *wlGroup) jobHasMultipleWorkloads() bool {
+	_, ok := g.jobAdapter.(jobframework.MultiKueueMultiWorkloadAdapter)
+	return ok
+}
+
 // RemoveRemoteObjects deletes the remote controller object and workload for a cluster.
 // The controller object is deleted first to handle cases where GC has already removed
 // the remote workload.
@@ -164,12 +171,33 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 	if err := jobframework.DeleteRemoteObjectIfOwned(ctx, g.localClient, remoteClient, g.jobAdapter, g.controllerKey, origin); err != nil {
 		return fmt.Errorf("deleting remote controller object: %w", err)
 	}
+	return g.removeRemoteWorkload(ctx, cluster)
+}
 
+// removeUnsharedRemoteObjects deletes the remote workload for a cluster, and the remote
+// controller object unless another workload of the job still uses it. A job with several
+// workloads (e.g. a LeaderWorkerSet with a workload per group) has a single remote controller
+// object shared by all of them.
+func (g *wlGroup) removeUnsharedRemoteObjects(ctx context.Context, cluster string) error {
+	if g.jobHasMultipleWorkloads() {
+		shared, err := g.hasOtherWorkloadsOnCluster(ctx, cluster)
+		if err != nil {
+			return err
+		}
+		if shared {
+			return g.removeRemoteWorkload(ctx, cluster)
+		}
+	}
+	return g.RemoveRemoteObjects(ctx, cluster)
+}
+
+func (g *wlGroup) removeRemoteWorkload(ctx context.Context, cluster string) error {
 	remWl := g.remotes[cluster]
 	if remWl == nil {
 		return nil
 	}
 
+	remoteClient := g.remoteClients[cluster].getClient()
 	if controllerutil.RemoveFinalizer(remWl, kueue.ResourceInUseFinalizerName) {
 		if err := remoteClient.Update(ctx, remWl); err != nil {
 			return fmt.Errorf("removing remote workloads finalizer: %w", err)
@@ -182,6 +210,27 @@ func (g *wlGroup) RemoveRemoteObjects(ctx context.Context, cluster string) error
 	}
 	g.remotes[cluster] = nil
 	return nil
+}
+
+// hasOtherWorkloadsOnCluster reports whether another workload of the same job, not being
+// deleted, finished, or evicted, is admitted on or nominated to the cluster. It reads the
+// local workloads only, so that no remote cluster is listed.
+func (g *wlGroup) hasOtherWorkloadsOnCluster(ctx context.Context, cluster string) (bool, error) {
+	componentWorkloads, err := listComponentWorkloads(ctx, g.localClient, g.local)
+	if err != nil || componentWorkloads == nil {
+		return false, err
+	}
+	for i := range componentWorkloads.Items {
+		member := &componentWorkloads.Items[i]
+		if member.Name == g.local.Name || !member.DeletionTimestamp.IsZero() ||
+			workloadfinish.IsFinished(member) || !workload.HasQuotaReservation(member) {
+			continue
+		}
+		if workload.ClusterName(member) == cluster || slices.Contains(member.Status.NominatedClusterNames, cluster) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -257,10 +306,15 @@ func (w *wlReconciler) Reconcile(ctx context.Context, req reconcile.Request) (re
 
 	if isDeleted {
 		for cluster := range grp.remotes {
-			err := grp.RemoveRemoteObjects(ctx, cluster)
+			err := grp.removeUnsharedRemoteObjects(ctx, cluster)
 			if err != nil {
 				return reconcile.Result{}, err
 			}
+		}
+		// A scale down deletes this workload but leaves the other workloads of the job
+		// unchanged, so enqueue them to sync the shared remote controller object.
+		if grp.jobHasMultipleWorkloads() {
+			w.enqueueComponentWorkloads(ctx, wl)
 		}
 		// Remote workloads on unavailable clusters will be cleaned up by
 		// the per-cluster GC once the cluster reconnects.
@@ -387,7 +441,7 @@ func (w *wlReconciler) reconcileGroup(ctx context.Context, group *wlGroup) (reco
 	if group.IsFinished() || !workload.HasQuotaReservation(group.local) {
 		var errs []error
 		for rem := range group.remotes {
-			if err := group.RemoveRemoteObjects(ctx, rem); err != nil {
+			if err := group.removeUnsharedRemoteObjects(ctx, rem); err != nil {
 				errs = append(errs, err)
 				log.V(2).Error(err, "Deleting remote workload", "workerCluster", rem)
 			}
@@ -683,7 +737,7 @@ func isRemoteSpecOutOfSync(local, remote kueue.WorkloadSpec) bool {
 	return !equality.Semantic.DeepEqual(local, remote)
 }
 
-func (w *wlReconciler) listComponentWorkloads(ctx context.Context, wl *kueue.Workload) (*kueue.WorkloadList, error) {
+func listComponentWorkloads(ctx context.Context, c client.Client, wl *kueue.Workload) (*kueue.WorkloadList, error) {
 	log := ctrl.LoggerFrom(ctx)
 
 	ownerGVK, hasGVK := wl.Annotations[constants.JobOwnerGVKAnnotation]
@@ -706,7 +760,7 @@ func (w *wlReconciler) listComponentWorkloads(ctx context.Context, wl *kueue.Wor
 	}
 
 	componentWorkloads := &kueue.WorkloadList{}
-	if err := w.client.List(ctx, componentWorkloads,
+	if err := c.List(ctx, componentWorkloads,
 		client.InNamespace(wl.Namespace),
 		client.MatchingFields{indexer.OwnerReferenceUID: ownerUID},
 	); err != nil {
@@ -798,7 +852,7 @@ func (w *wlReconciler) allExpectedWorkloadsExist(ctx context.Context, wl *kueue.
 func (w *wlReconciler) enqueueComponentWorkloads(ctx context.Context, wl *kueue.Workload) {
 	log := ctrl.LoggerFrom(ctx)
 
-	componentWorkloads, err := w.listComponentWorkloads(ctx, wl)
+	componentWorkloads, err := listComponentWorkloads(ctx, w.client, wl)
 	if err != nil || componentWorkloads == nil {
 		return
 	}
@@ -853,7 +907,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 	log := ctrl.LoggerFrom(ctx).WithValues("op", "nominateAndSynchronizeWorkers")
 	log.V(3).Info("Nominate and Synchronize Worker Clusters")
 
-	componentWorkloads, err := w.listComponentWorkloads(ctx, group.local)
+	componentWorkloads, err := listComponentWorkloads(ctx, w.client, group.local)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
@@ -864,7 +918,7 @@ func (w *wlReconciler) nominateAndSynchronizeWorkers(ctx context.Context, group 
 		return reconcile.Result{}, nil
 	}
 
-	if _, ok := group.jobAdapter.(jobframework.MultiKueueMultiWorkloadAdapter); ok && componentWorkloads != nil {
+	if group.jobHasMultipleWorkloads() && componentWorkloads != nil {
 		allExist, err := w.allExpectedWorkloadsExist(ctx, group.local, group.jobAdapter, len(componentWorkloads.Items))
 		if err != nil {
 			return reconcile.Result{}, err

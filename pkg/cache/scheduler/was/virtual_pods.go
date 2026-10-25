@@ -139,6 +139,7 @@ type CandidatePodOptions struct {
 	FlavorNodeLabels  map[string]string
 	FlavorTolerations []corev1.Toleration
 	PodSetUpdates     []kueue.PodSetUpdate
+	LeafPGForPod      func(replicaIdx int) string
 }
 
 // CandidateVirtualPodsForPodSet returns candidate virtual pods for the specified count
@@ -182,6 +183,13 @@ func CandidateVirtualPodsForPodSet(wl *kueue.Workload, ps *kueue.PodSet, count i
 	pods := make([]*corev1.Pod, 0, count)
 	for replicaIdx := range int(count) {
 		pod := newVirtualPod(wl, string(ps.Name), replicaIdx, info.Labels, info.Annotations, spec, corev1.PodPending)
+		if opts.LeafPGForPod != nil {
+			if leafPG := opts.LeafPGForPod(replicaIdx); leafPG != "" {
+				pod.Spec.SchedulingGroup = &corev1.PodSchedulingGroup{
+					PodGroupName: new(leafPG),
+				}
+			}
+		}
 		pods = append(pods, pod)
 	}
 	return pods, nil

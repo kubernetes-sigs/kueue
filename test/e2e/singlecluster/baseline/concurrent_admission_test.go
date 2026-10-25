@@ -87,8 +87,10 @@ var _ = ginkgo.Describe("ConcurrentAdmission", ginkgo.Label("area:singlecluster"
 		ginkgo.AfterEach(func() {
 			gomega.Expect(behavioral.DeleteAllJobsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
 			gomega.Expect(behavioral.DeleteWorkloadsInNamespace(ctx, k8sClient, ns)).Should(gomega.Succeed())
-			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+			// The scheduler can assume a Variant recreated during teardown.
+			// Its delete event reaches the ClusterQueue only through the LocalQueue.
+			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, lq, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, reservationRF, true)
 			behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, spotRF, true)
 		})

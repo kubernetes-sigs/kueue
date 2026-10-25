@@ -1,0 +1,411 @@
+suite: test manager configuration precedence
+templates:
+  - manager.yaml
+release:
+  namespace: custom-system
+tests:
+  - it: should use the default selector when neither input is supplied with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+    asserts: &defaultSelector
+      - equal:
+          path: data["controller_manager_config.yaml"]
+          value: |
+            localQueueName: default
+            managedJobsNamespaceSelector:
+              matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: NotIn
+                values:
+                - kube-system
+                - custom-system
+
+  - it: should use the default selector when neither input is supplied with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+    asserts: *defaultSelector
+
+  - it: should use the default selector with empty structured overrides with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.structuredOverrides: {}
+    asserts: *defaultSelector
+
+  - it: should use the default selector with empty structured overrides with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.structuredOverrides: {}
+    asserts: *defaultSelector
+
+  - it: should inherit structured overrides when YAML is absent with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: &structuredSelector
+      - equal:
+          path: data["controller_manager_config.yaml"]
+          value: |
+            localQueueName: default
+            managedJobsNamespaceSelector:
+              matchLabels:
+                team: structured
+
+  - it: should inherit structured overrides when YAML is absent with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *structuredSelector
+
+  - it: should give YAML precedence over structured overrides with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.controllerManagerConfigYaml: |
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: legacy
+    asserts: &legacySelector
+      - equal:
+          path: data["controller_manager_config.yaml"]
+          value: |
+            localQueueName: default
+            managedJobsNamespaceSelector:
+              matchLabels:
+                team: legacy
+
+  - it: should give YAML precedence over structured overrides with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.controllerManagerConfigYaml: |
+        managedJobsNamespaceSelector:
+          matchLabels:
+            team: legacy
+    asserts: *legacySelector
+
+  - it: should give explicitly empty YAML precedence over structured overrides with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.controllerManagerConfigYaml: ""
+    asserts: *defaultSelector
+
+  - it: should give explicitly empty YAML precedence over structured overrides with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.controllerManagerConfigYaml: ""
+    asserts: *defaultSelector
+
+  - it: should give an explicit YAML empty map precedence over structured overrides with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.controllerManagerConfigYaml: "{}"
+    asserts: *defaultSelector
+
+  - it: should give an explicit YAML empty map precedence over structured overrides with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.controllerManagerConfigYaml: "{}"
+    asserts: *defaultSelector
+
+  - it: should preserve legacy malformed YAML behavior without selecting structured overrides with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.controllerManagerConfigYaml: "managedJobsNamespaceSelector: ["
+    asserts: *defaultSelector
+
+  - it: should preserve legacy malformed YAML behavior without selecting structured overrides with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+      kueue.managerConfig.controllerManagerConfigYaml: "managedJobsNamespaceSelector: ["
+    asserts: *defaultSelector
+
+  - it: should reject an unknown mode with the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: invalid
+    asserts: &unknownMode
+      - failedTemplate:
+          errorPattern: "(?s)mode.*must be one of"
+
+  - it: should reject an unknown mode with the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: invalid
+    asserts: *unknownMode
+
+  - it: should reject an unknown manager input with the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.typo: {}
+    asserts: &unknownInput
+      - failedTemplate:
+          errorPattern: "(?s)managerConfig.*typo.*not allowed"
+
+  - it: should reject an unknown manager input with the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.typo: {}
+    asserts: *unknownInput
+
+  - it: should reject non-map structured overrides with the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.structuredOverrides: invalid
+    asserts: &invalidOverrides
+      - failedTemplate:
+          errorPattern: "(?s)structuredOverrides.*object"
+
+  - it: should reject non-map structured overrides with the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.structuredOverrides: invalid
+    asserts: *invalidOverrides
+
+  - it: should validate unused structured overrides with YAML present with the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.controllerManagerConfigYaml: ""
+      kueue.managerConfig.structuredOverrides: invalid
+    asserts: *invalidOverrides
+
+  - it: should validate unused structured overrides with YAML present with the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.controllerManagerConfigYaml: ""
+      kueue.managerConfig.structuredOverrides: invalid
+    asserts: *invalidOverrides
+
+  - it: should reject non-string YAML even with structured overrides with the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.structuredOverrides: {}
+      kueue.managerConfig.controllerManagerConfigYaml: 123
+    asserts: &invalidYaml
+      - failedTemplate:
+          errorPattern: "(?s)controllerManagerConfigYaml.*string"
+
+  - it: should reject non-string YAML even with structured overrides with the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.structuredOverrides: {}
+      kueue.managerConfig.controllerManagerConfigYaml: 123
+    asserts: *invalidYaml
+
+  - it: should preserve the standalone fallback for legacy managerConfig null with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig: null
+    asserts: *defaultSelector
+
+  - it: should preserve the standalone fallback for legacy managerConfig false with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig: false
+    asserts: *defaultSelector
+
+  - it: should preserve the standalone fallback for legacy managerConfig "" with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig: ""
+    asserts: *defaultSelector
+
+  - it: should preserve the standalone fallback for legacy managerConfig [] with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig: []
+    asserts: *defaultSelector
+
+  - it: should preserve the standalone fallback for legacy managerConfig 0 with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig: 0
+    asserts: *defaultSelector
+
+  - it: should use structured selection despite supplied YAML with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.controllerManagerConfigYaml: "managedJobsNamespaceSelector: {matchLabels: {team: legacy}}"
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *structuredSelector
+
+  - it: should use structured selection despite supplied YAML with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.controllerManagerConfigYaml: "managedJobsNamespaceSelector: {matchLabels: {team: legacy}}"
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *structuredSelector
+
+  - it: should use structured selection despite empty YAML with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.controllerManagerConfigYaml: ""
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *structuredSelector
+
+  - it: should use structured selection despite empty YAML with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.controllerManagerConfigYaml: ""
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *structuredSelector
+
+  - it: should use defaults in structured mode without overrides despite supplied YAML with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.controllerManagerConfigYaml: "managedJobsNamespaceSelector: {matchLabels: {team: legacy}}"
+    asserts: *defaultSelector
+
+  - it: should use defaults in structured mode without overrides despite supplied YAML with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.controllerManagerConfigYaml: "managedJobsNamespaceSelector: {matchLabels: {team: legacy}}"
+    asserts: *defaultSelector
+
+  - it: should use YAML selection despite structured overrides with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.controllerManagerConfigYaml: "managedJobsNamespaceSelector: {matchLabels: {team: legacy}}"
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *legacySelector
+
+  - it: should use YAML selection despite structured overrides with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.controllerManagerConfigYaml: "managedJobsNamespaceSelector: {matchLabels: {team: legacy}}"
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *legacySelector
+
+  - it: should preserve empty YAML in YAML mode with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.controllerManagerConfigYaml: ""
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *defaultSelector
+
+  - it: should preserve empty YAML in YAML mode with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.controllerManagerConfigYaml: ""
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *defaultSelector
+
+  - it: should use defaults in YAML mode without YAML with the subchart disabled
+    documentIndex: 3
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *defaultSelector
+
+  - it: should use defaults in YAML mode without YAML with the subchart enabled
+    documentIndex: 3
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.structuredOverrides.managedJobsNamespaceSelector.matchLabels.team: structured
+    asserts: *defaultSelector
+
+  - it: should reject an empty mode with the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)mode.*must be one of"
+
+  - it: should reject a non-string mode with the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)mode.*string"
+
+  - it: should validate unused YAML in structured mode with the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.controllerManagerConfigYaml: 123
+    asserts: *invalidYaml
+
+  - it: should validate unused structured overrides in YAML mode with the subchart disabled
+    set:
+      kueue.enabled: false
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.structuredOverrides: invalid
+    asserts: *invalidOverrides
+
+  - it: should reject an empty mode with the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: ""
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)mode.*must be one of"
+
+  - it: should reject a non-string mode with the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: true
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?s)mode.*string"
+
+  - it: should validate unused YAML in structured mode with the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: structured
+      kueue.managerConfig.controllerManagerConfigYaml: 123
+    asserts: *invalidYaml
+
+  - it: should validate unused structured overrides in YAML mode with the subchart enabled
+    set:
+      kueue.enabled: true
+      kueue.managerConfig.mode: yaml
+      kueue.managerConfig.structuredOverrides: invalid
+    asserts: *invalidOverrides

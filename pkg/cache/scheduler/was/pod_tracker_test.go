@@ -170,3 +170,22 @@ func TestTrackPodDeepCopy(t *testing.T) {
 		t.Errorf("TrackPod did not deep copy pod (-want,+got):\n%s", diff)
 	}
 }
+
+func TestUntrackPodReturnsNodeName(t *testing.T) {
+	ctx := t.Context()
+	simulatorFactory, err := NewWASSimulatorFactory(klog.NewContext(ctx, logr.Discard()), nil)
+	if err != nil {
+		t.Fatalf("NewWASSimulatorFactory failed: %v", err)
+	}
+
+	podKey := types.NamespacedName{Namespace: "ns", Name: "pod1"}
+	pod := testingpod.MakePod("pod1", "ns").NodeName("node-a").Annotation(kueue.WorkloadAnnotation, "wl1").Obj()
+	simulatorFactory.TrackPod(ctx, pod)
+
+	if got := simulatorFactory.UntrackPod(ctx, podKey); got != "node-a" {
+		t.Errorf("UntrackPod() = %q, want %q", got, "node-a")
+	}
+	if got := simulatorFactory.UntrackPod(ctx, podKey); got != "" {
+		t.Errorf("second UntrackPod() = %q, want empty string", got)
+	}
+}

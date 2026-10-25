@@ -28,18 +28,30 @@ SHELLCHECK_IMAGE=$(grep '^FROM' "${CURRENT_DIR}/Dockerfile" | awk '{print $2}')
 scripts_to_check=()
 
 if [[ "$#" == 0 ]]; then
-  # Find all shell scripts excluding certain directories and patterns
+  # List tracked and untracked, non-ignored shell scripts excluding certain
+  # directories and patterns. Unlike find, git ls-files does not descend into
+  # nested Git worktrees or clones under the repo.
+  # Capture the listing first: a failure in a process substitution is not
+  # caught by errexit, and the loop would see an empty listing.
+  if ! listed_scripts=$(git -c core.quotePath=false ls-files --cached --others --exclude-standard -- '*.sh' \
+    ':!:_*' \
+    ':!:.git*' \
+    ':!:vendor*'); then
+    echo "Failed to list shell scripts with git ls-files" >&2
+    exit 1
+  fi
   while IFS=$'\n' read -r script; do
-    if ! git check-ignore -q "$script"; then
+    if [[ "$script" == third_party* && "$script" != third_party/forked* ]]; then
+      continue
+    fi
+    if [[ -e "$script" ]]; then
       scripts_to_check+=("$script")
     fi
-  done < <(find . -name "*.sh" \
-    -not \( \
-      -path ./_\*      -o \
-      -path ./.git\*   -o \
-      -path ./vendor\* -o \
-      \( -path ./third_party\* -a -not -path ./third_party/forked\* \) \
-    \))
+  done <<< "${listed_scripts}"
+  if [[ "${#scripts_to_check[@]}" == 0 ]]; then
+    echo "No shell scripts found to check" >&2
+    exit 1
+  fi
 fi
 
 # Download shellcheck-alpine from Docker Hub
