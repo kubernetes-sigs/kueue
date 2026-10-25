@@ -58,8 +58,6 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 		// before Reconcile, and expects Reconcile to clear it.
 		wantRoundStartTimeCleared bool
 	}{
-		// A NotFound never succeeds on retry, and controller-runtime requeues
-		// every request that returns an error, so Reconcile must not return it.
 		"workload not found": {
 			workload:                  nil,
 			wantRoundStartTimeCleared: true,
@@ -166,11 +164,14 @@ func TestIncrementalDispatcherReconciler_Reconcile(t *testing.T) {
 				rec.setRoundStartTime(req.NamespacedName, now.Add(-time.Minute))
 			}
 			ctx, _ := utiltesting.ContextWithLog(t)
-			_, gotErr := rec.Reconcile(ctx, req)
+			gotResult, gotErr := rec.Reconcile(ctx, req)
 			if diff := cmp.Diff(tc.wantErr, gotErr); diff != "" {
 				t.Errorf("Unexpected error (-want/+got)\n%s", diff)
 			}
 			if tc.wantRoundStartTimeCleared {
+				if diff := cmp.Diff(ctrl.Result{}, gotResult); diff != "" {
+					t.Errorf("Unexpected result (-want/+got)\n%s", diff)
+				}
 				if _, found := rec.getRoundStartTime(req.NamespacedName); found {
 					t.Error("Round start time was not cleared")
 				}
