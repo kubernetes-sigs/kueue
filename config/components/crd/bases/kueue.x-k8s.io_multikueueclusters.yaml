@@ -17,6 +17,10 @@ spec:
   scope: Cluster
   versions:
   - additionalPrinterColumns:
+    - description: New workload dispatch is disabled
+      jsonPath: .spec.unschedulable
+      name: Unschedulable
+      type: boolean
     - description: MultiKueueCluster is connected
       jsonPath: .status.conditions[?(@.type=='Active')].status
       name: Connected
@@ -94,6 +98,14 @@ spec:
                     must be set
                   rule: '[has(self.kubeConfig),has(self.clusterProfileRef)].filter(x,x==true).size()
                     == 1'
+              unschedulable:
+                default: false
+                description: |-
+                  unschedulable prevents MultiKueue from dispatching new workloads to this cluster.
+                  Workloads already dispatched to the cluster continue to be managed and may
+                  be admitted. This does not affect the cluster's Active condition.
+                  Requires the MultiKueueClusterCordon feature gate. Defaults to false.
+                type: boolean
             required:
             - clusterSource
             type: object

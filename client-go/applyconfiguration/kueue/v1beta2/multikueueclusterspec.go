@@ -21,6 +21,11 @@ package v1beta2
 // MultiKueueClusterSpecApplyConfiguration represents a declarative configuration of the MultiKueueClusterSpec type for use
 // with apply.
 type MultiKueueClusterSpecApplyConfiguration struct {
+	// unschedulable prevents MultiKueue from dispatching new workloads to this cluster.
+	// Workloads already dispatched to the cluster continue to be managed and may
+	// be admitted. This does not affect the cluster's Active condition.
+	// Requires the MultiKueueClusterCordon feature gate. Defaults to false.
+	Unschedulable *bool `json:"unschedulable,omitempty"`
 	// clusterSource is the source to connect to the cluster.
 	ClusterSource *ClusterSourceApplyConfiguration `json:"clusterSource,omitempty"`
 }
@@ -29,6 +34,14 @@ type MultiKueueClusterSpecApplyConfiguration struct {
 // apply.
 func MultiKueueClusterSpec() *MultiKueueClusterSpecApplyConfiguration {
 	return &MultiKueueClusterSpecApplyConfiguration{}
+}
+
+// WithUnschedulable sets the Unschedulable field in the declarative configuration to the given value
+// and returns the receiver, so that objects can be built by chaining "With" function invocations.
+// If called multiple times, the Unschedulable field is set to the value of the last call.
+func (b *MultiKueueClusterSpecApplyConfiguration) WithUnschedulable(value bool) *MultiKueueClusterSpecApplyConfiguration {
+	b.Unschedulable = &value
+	return b
 }
 
 // WithClusterSource sets the ClusterSource field in the declarative configuration to the given value
