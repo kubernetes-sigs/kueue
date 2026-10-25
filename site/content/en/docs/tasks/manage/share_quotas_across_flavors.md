@@ -215,7 +215,7 @@ A common requirement in scientific computing, engineering (EDA/CAE), and renderi
 
 Unlike proportional compute credits, software licenses are typically fixed per workload or pod (independent of CPU/memory requests) and are not tied to specific physical nodes.
 
-You can configure this setup directly using dedicated [ResourceGroups](/docs/concepts/cluster_queue#resource-groups) without needing resource transformations, a custom integration, or an `AdmissionCheck` controller.
+With Kueue's built-in workload integrations (such as batch/Job), quota requirements are derived directly from the container resource requests in the pod template. You can configure this setup using dedicated [ResourceGroups](/docs/concepts/cluster_queue#resource-groups) without needing custom integrations or `AdmissionCheck` controllers. Note that declaring license requests only on a standalone Workload CR is not supported with standard Job integration, because the Job controller reconciles and verifies that the Workload matches the Job's pod template.
 
 ### 1. Define the ResourceFlavors
 
@@ -305,6 +305,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: sample-licensed-job
+  namespace: default
   labels:
     kueue.x-k8s.io/queue-name: license-queue
 spec:
@@ -329,7 +330,9 @@ When Kueue evaluates this Job:
 - Once admitted, Kueue unsuspends the Job. The license quota remains reserved until the Job completes, at which point Kueue frees the license for the next queued workload.
 
 {{% alert title="Note on Pod Schedulability" color="primary" %}}
-In Kubernetes, extended resources declared in container `requests` are verified by `kube-scheduler` against each node's `allocatable` resources. Because software licenses are not tied to physical node capacity, cluster administrators typically run an extended resource daemonset or dummy device plugin that advertises the license resource on worker nodes so `kube-scheduler` permits pods to be placed on any suitable node.
+Because Kueue's built-in Job integration derives quota from container `requests`, extended resources like `example.com/license` must be present on the Job's containers. In Kubernetes, `kube-scheduler` verifies all container resource requests against each node's `allocatable` capacity.
+
+Since floating software licenses represent cluster-wide limits rather than physical node resources, worker nodes do not have this capacity by default. To allow `kube-scheduler` to schedule admitted pods, cluster administrators typically run a lightweight node daemon or dummy device plugin that advertises the license resource on worker nodes.
 {{% /alert %}}
 
 For more examples of resource transformations, see:
