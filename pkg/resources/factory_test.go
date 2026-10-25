@@ -124,6 +124,43 @@ func TestPodRequests(t *testing.T) {
 				corev1.ResourceMemory: resource.MustParse("8Gi"),
 			},
 		},
+		// Regression test for #14015.
+		"a negative sidecar does not spend what a container asked for": {
+			podSpec: corev1.PodSpec{
+				InitContainers: []corev1.Container{{
+					RestartPolicy: &restartAlways,
+					Resources: corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-3")},
+					},
+				}},
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+				}}},
+			},
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+		},
+		// Regression test for #14015.
+		"a negative pod-level request leaves the container aggregate standing": {
+			podSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+				}}},
+				Resources: &corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-3")},
+				},
+			},
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+		},
+		// Regression test for #14015.
+		"a negative overhead is read as zero": {
+			podSpec: corev1.PodSpec{
+				Containers: []corev1.Container{{Resources: corev1.ResourceRequirements{
+					Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+				}}},
+				Overhead: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("-3")},
+			},
+			want: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("8")},
+		},
 	}
 
 	for name, tc := range cases {
