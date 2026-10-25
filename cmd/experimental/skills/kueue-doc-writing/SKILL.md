@@ -54,13 +54,6 @@ intent and user stories, but it can describe a design that changed during
 implementation. If code and docs disagree, document the implemented behavior
 and call out the discrepancy for maintainers instead of guessing.
 
-Use repository searches to verify names and links:
-
-```shell
-rg -n "FeatureGateName|apiVersion:|kind:" pkg apis site/content/en site/static
-rg -n "KEP|feature-state|shortcode|related topic" site/content/en/docs keps
-```
-
 For API or configuration changes, inspect the type, validation, defaulting,
 feature gate, generated reference, and tests. For behavior changes, inspect
 observable status, events, logs, and metrics.
@@ -214,12 +207,8 @@ and results:
 
 If a check cannot run, state why, what was checked instead, and the remaining
 risk. Report previews, crawls, and generated references only when run.
-
-## Delivery format
-
-Report changed files and reader outcome, source evidence, validation commands
-and results, version or feature-state assumptions, and any open questions or
-operational follow-up.
+Report changed files and reader outcome, source evidence, validation results,
+version or feature-state assumptions, and open questions or operational follow-up.
 
 ## References
 
