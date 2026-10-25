@@ -43,6 +43,7 @@ aliases:
   dependency-approvers:
     - mbobrovskyi
     - pbundyra
+    - kannon92
   test-approvers:
     - mbobrovskyi
     - olekzabl
