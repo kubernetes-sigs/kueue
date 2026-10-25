@@ -5076,7 +5076,10 @@ var _ = ginkgo.Describe("Scheduler with multiple ResourceGroups for shared licen
 		behavioral.MustCreate(ctx, k8sClient, wl3)
 
 		ginkgo.By("Verifying workload 3 remains pending due to lack of license quota despite remaining CPU quota")
-		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
+		gomega.Eventually(func(g gomega.Gomega) {
+			g.Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(wl3), wl3)).To(gomega.Succeed())
+			g.Expect(wl3.Status.Conditions).To(utiltesting.HaveConditionStatusFalseAndReason(kueue.WorkloadQuotaReserved, kueue.WorkloadQuotaReservedReasonWaitingForQuota))
+		}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
 
 		ginkgo.By("Creating workload 4 requiring compute only (0 licenses)")
 		wl4 := utiltestingapi.MakeWorkload("wl4", ns.Name).

@@ -215,7 +215,7 @@ A common requirement in scientific computing, engineering (EDA/CAE), and renderi
 
 Unlike proportional compute credits, software licenses are typically fixed per workload or pod (independent of CPU/memory requests) and are not tied to specific physical nodes.
 
-You can configure this setup directly using dedicated [ResourceGroups](/docs/concepts/cluster_queue#resource-groups) without needing resource transformations.
+You can configure this setup directly using dedicated [ResourceGroups](/docs/concepts/cluster_queue#resource-groups) without needing resource transformations, a custom integration, or an `AdmissionCheck` controller.
 
 ### 1. Define the ResourceFlavors
 
@@ -245,11 +245,13 @@ metadata:
 spec: {}
 ```
 
-### 2. Configure the ClusterQueue with multiple ResourceGroups
+### 2. Configure the queuing infrastructure
 
 Create a ClusterQueue with two ResourceGroups:
 1. One for compute resources (`cpu`, `memory`) covering `on-demand` and `spot` flavors.
 2. One for the license resource covering the `license-flavor`.
+
+Also create a LocalQueue pointing to the ClusterQueue:
 
 ```yaml
 apiVersion: kueue.x-k8s.io/v1beta2
@@ -279,6 +281,14 @@ spec:
       resources:
       - name: "example.com/license"
         nominalQuota: 10
+---
+apiVersion: kueue.x-k8s.io/v1beta2
+kind: LocalQueue
+metadata:
+  namespace: default
+  name: license-queue
+spec:
+  clusterQueue: license-cluster-queue
 ```
 
 With this configuration:
@@ -296,7 +306,7 @@ kind: Job
 metadata:
   name: sample-licensed-job
   labels:
-    kueue.x-k8s.io/queue-name: team-queue
+    kueue.x-k8s.io/queue-name: license-queue
 spec:
   suspend: true
   template:
