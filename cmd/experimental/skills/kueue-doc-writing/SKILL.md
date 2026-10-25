@@ -28,8 +28,13 @@ Identify these items before editing a file:
 5. **Scope:** find the smallest existing page that should be updated. Create a
    new page only when the topic has a distinct audience and goal.
 
-Use [`site/content/en/docs/tasks/_index.md`](../../../../site/content/en/docs/tasks/_index.md)
-to choose audience wording and a destination. Keep one canonical explanation.
+Use the [documentation root](../../../../site/content/en/docs/_index.md) and the
+nearest section index for the selected page type, such as
+[`concepts/_index.md`](../../../../site/content/en/docs/concepts/_index.md),
+[`tasks/_index.md`](../../../../site/content/en/docs/tasks/_index.md), or
+[`reference/_index.md`](../../../../site/content/en/docs/reference/_index.md),
+to choose audience wording, navigation, and a destination. Keep one canonical
+explanation and link to it from related pages.
 
 ## Gather evidence
 
@@ -199,11 +204,14 @@ and results:
 - `make site-server` provides a local Hugo preview. Inspect desktop and mobile
   widths when layout or shortcodes change.
 - `make verify-skills-lint` validates this skill and the skills index.
-- `make toc-update` is required when changing a KEP or another document with a
-  generated `<!-- toc -->` block; it is not needed for ordinary site pages.
-- `make verify-docs-prereqs` regenerates checked-in documentation artifacts when
-  an API, CLI, metrics, or feature-gate source changed. Review the diff and
-  retain generated changes that belong to the request.
+- Before running `make toc-update` for a KEP or another document with a
+  generated `<!-- toc -->` block, ask the user for explicit confirmation. After
+  confirmation, inspect and report the resulting diff; ordinary site pages do
+  not need this command.
+- Before running `make verify-docs-prereqs`, ask the user for explicit
+  confirmation because it regenerates checked-in documentation artifacts when
+  API, CLI, metrics, or feature-gate sources change. After confirmation, inspect
+  and report the resulting diff, retaining only changes in the request.
 
 If a check cannot run, state why, what was checked instead, and the remaining
 risk. Report previews, crawls, and generated references only when run.
