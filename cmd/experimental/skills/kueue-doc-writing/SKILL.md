@@ -8,10 +8,8 @@ metadata:
 
 # Kueue Documentation Writing
 
-Use this skill to turn a Kueue feature or behavior into documentation that is
-accurate, discoverable, and useful to the intended reader. The output is a
-reviewable documentation change, not a generic explanation detached from the
-repository.
+Use this skill to turn a Kueue feature or behavior into accurate, discoverable
+documentation. Produce a reviewable repository change, not a generic explanation.
 
 ## Define the change before writing
 
@@ -30,13 +28,12 @@ Identify these items before editing a file:
 5. **Scope:** find the smallest existing page that should be updated. Create a
    new page only when the topic has a distinct audience and goal.
 
-Use the personas and navigation in [`site/content/en/docs/tasks/_index.md`](../../../../site/content/en/docs/tasks/_index.md)
-to choose audience wording and a destination. Keep one canonical explanation
-and link to it from related pages.
+Use [`site/content/en/docs/tasks/_index.md`](../../../../site/content/en/docs/tasks/_index.md)
+to choose audience wording and a destination. Keep one canonical explanation.
 
 ## Gather evidence
 
-Read the sources in this order and resolve disagreements explicitly:
+Read these sources in order and resolve disagreements explicitly:
 
 1. The current API types, feature gates, controller behavior, generated
    references, and tests in this repository.
@@ -45,7 +42,7 @@ Read the sources in this order and resolve disagreements explicitly:
 3. Existing Kueue concepts, tasks, examples, release notes, and versioned docs.
 4. Canonical Kubernetes documentation and the documentation style guidance
    linked in [References](#references).
-5. External project documentation only when Kueue depends on that project.
+5. External project documentation when Kueue depends on it.
 
 The current implementation is the source of truth for behavior. A KEP explains
 intent and user stories, but it can describe a design that changed during
@@ -59,10 +56,9 @@ rg -n "FeatureGateName|apiVersion:|kind:" pkg apis site/content/en site/static
 rg -n "KEP|feature-state|shortcode|related topic" site/content/en/docs keps
 ```
 
-For an API or configuration change, inspect the current type definition,
-validation, defaulting, feature gate, generated reference, and tests. For a
-behavior change, inspect the controller path and the conditions, events, logs,
-metrics, or status fields that a reader can observe.
+For API or configuration changes, inspect the type, validation, defaulting,
+feature gate, generated reference, and tests. For behavior changes, inspect the
+controller path and observable conditions, events, logs, metrics, or status.
 
 ## Convert a KEP into reader-facing content
 
@@ -78,9 +74,9 @@ Use the KEP as a map, not as text to copy verbatim:
 | Graduation Criteria | Feature state, version availability, and upgrade notes |
 | Risks and Alternatives | Include only when it affects operations |
 
-Preserve the user problem and the supported behavior. Move implementation-only
-details, abandoned alternatives, and internal function names out of user docs.
-Link to a KEP for design history when readers need that context.
+Preserve the user problem and supported behavior. Move implementation-only
+details, abandoned alternatives, and internal names out of user docs. Link to a
+KEP for design history when readers need that context.
 
 ## Choose a page structure
 
@@ -100,8 +96,8 @@ Follow the structure for the selected page type:
   explain how to interpret the output, then provide corrective actions and
   escalation information.
 
-Keep each page focused on one outcome. Split a page when it serves different
-personas, requires unrelated prerequisites, or has multiple independent goals.
+Keep each page focused on one outcome. Split pages for different personas,
+unrelated prerequisites, or independent goals.
 
 ## Write Kueue documentation
 
@@ -113,15 +109,14 @@ personas, requires unrelated prerequisites, or has multiple independent goals.
   update the nearest `_index.md` when the section uses an explicit list.
 - Use Hugo shortcodes already used by the site, such as `feature-state` and
   `include`, instead of inventing new markup.
-- Keep the English page canonical. Update versioned pages only when the behavior
-  and supported API differ for that release; do not copy `main` content into an
-  older version without checking compatibility.
+- Keep the English page canonical. Update versioned pages only when behavior or
+  supported APIs differ; check compatibility before copying `main` content.
 
 ### Terminology and style
 
 - Use the Kubernetes documentation style guide's U.S. English and sentence-case
   conventions.
-- Apply the core technical-writing practices from Google's
+- Apply Google's core technical-writing practices from its
   [Technical Writing resources](https://developers.google.com/tech-writing/resources):
   identify the audience and purpose, prefer active voice, keep sentences and
   paragraphs focused, use concrete words and examples, and remove filler.
@@ -156,8 +151,8 @@ personas, requires unrelated prerequisites, or has multiple independent goals.
 
 ### Examples and operational safety
 
-- Make examples internally consistent: names, namespaces, queue references,
-  resource requests, versions, and commands must match across all blocks.
+- Make examples consistent: names, namespaces, queue references, requests,
+  versions, and commands must match across all blocks.
 - State prerequisites such as Kubernetes/Kueue versions, CRDs, feature gates,
   RBAC, external controllers, or an existing queue setup before the first step.
 - Explain cleanup for resources created by a tutorial or task.
@@ -166,8 +161,8 @@ personas, requires unrelated prerequisites, or has multiple independent goals.
   rollback path.
 - Prefer read-only inspection commands in troubleshooting guides. When a change
   is required, show how to verify the current state and how to confirm the fix.
-- Link to canonical Kubernetes or dependency documentation rather than copying
-  material that will drift. Keep Kueue-specific behavior in the Kueue page.
+- Link to canonical Kubernetes or dependency docs rather than copying material
+  that will drift. Keep Kueue-specific behavior in the Kueue page.
 
 ## Review before delivery
 
@@ -193,8 +188,7 @@ Review the page as both a user and a maintainer:
    version forks, and remove stale instructions when the feature changes.
 
 When the implementation or KEP leaves a material question unanswered, record it
-as an open question in the change summary and ask a maintainer. Do not hide the
-uncertainty behind generic wording.
+as an open question and ask a maintainer instead of using generic wording.
 
 ## Validate the change
 
@@ -202,9 +196,8 @@ Run the narrowest checks that cover the files changed, then report the commands
 and results:
 
 - `make verify-website-links` checks public-site links when `site/` changes.
-- `make site-server` provides a local Hugo preview for visual and navigation
-  checks. Inspect the rendered page on desktop and mobile widths when layout or
-  shortcodes change.
+- `make site-server` provides a local Hugo preview. Inspect desktop and mobile
+  widths when layout or shortcodes change.
 - `make verify-skills-lint` validates this skill and the skills index.
 - `make toc-update` is required when changing a KEP or another document with a
   generated `<!-- toc -->` block; it is not needed for ordinary site pages.
@@ -213,8 +206,7 @@ and results:
   retain generated changes that belong to the request.
 
 If a check cannot run, state why, what was checked instead, and the remaining
-risk. Do not claim that a preview, link crawl, or generated reference passed
-without running it.
+risk. Report previews, crawls, and generated references only when run.
 
 ## Delivery format
 
