@@ -4979,3 +4979,119 @@ var _ = ginkgo.Describe("Scheduler with AdmissionGatedBy", ginkgo.Label("admissi
 		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl)
 	})
 })
+
+var _ = ginkgo.Describe("Scheduler with multiple ResourceGroups for shared licenses", func() {
+	const (
+		licenseResource = "example.com/license"
+		instanceKey     = "cloud.provider.com/instance"
+	)
+
+	var (
+		ns             *corev1.Namespace
+		onDemandFlavor *kueue.ResourceFlavor
+		spotFlavor     *kueue.ResourceFlavor
+		licenseFlavor  *kueue.ResourceFlavor
+		cq             *kueue.ClusterQueue
+		lq             *kueue.LocalQueue
+	)
+
+	ginkgo.BeforeEach(func() {
+		ns = behavioral.CreateNamespaceFromPrefixWithLog(ctx, k8sClient, "license-")
+
+		onDemandFlavor = utiltestingapi.MakeResourceFlavor("on-demand-flavor").NodeLabel(instanceKey, "on-demand").Obj()
+		behavioral.MustCreate(ctx, k8sClient, onDemandFlavor)
+
+		spotFlavor = utiltestingapi.MakeResourceFlavor("spot-flavor").NodeLabel(instanceKey, "spot").Obj()
+		behavioral.MustCreate(ctx, k8sClient, spotFlavor)
+
+		licenseFlavor = utiltestingapi.MakeResourceFlavor("license-flavor").Obj()
+		behavioral.MustCreate(ctx, k8sClient, licenseFlavor)
+
+		cq = utiltestingapi.MakeClusterQueue("shared-license-cq").
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(onDemandFlavor.Name).Resource(corev1.ResourceCPU, "10").Obj(),
+				*utiltestingapi.MakeFlavorQuotas(spotFlavor.Name).Resource(corev1.ResourceCPU, "10").Obj(),
+			).
+			ResourceGroup(
+				*utiltestingapi.MakeFlavorQuotas(licenseFlavor.Name).Resource(licenseResource, "2").Obj(),
+			).
+			Obj()
+		behavioral.CreateClusterQueuesAndWaitForActive(ctx, k8sClient, cq)
+
+		lq = utiltestingapi.MakeLocalQueue("shared-license-lq", ns.Name).ClusterQueue(cq.Name).Obj()
+		behavioral.CreateLocalQueuesAndWaitForActive(ctx, k8sClient, lq)
+	})
+
+	ginkgo.AfterEach(func() {
+		gomega.Expect(behavioral.DeleteNamespace(ctx, k8sClient, ns)).To(gomega.Succeed())
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, cq, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, onDemandFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, spotFlavor, true)
+		behavioral.ExpectObjectToBeDeleted(ctx, k8sClient, licenseFlavor, true)
+	})
+
+	ginkgo.It("Should enforce shared license quota across distinct compute flavors and allow license-free workloads", func() {
+		ginkgo.By("Creating workload 1 requesting on-demand compute and 1 license")
+		wl1 := utiltestingapi.MakeWorkload("wl1", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			NodeSelector(map[string]string{instanceKey: "on-demand"}).
+			Request(corev1.ResourceCPU, "4").
+			Request(corev1.ResourceName(licenseResource), "1").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl1)
+
+		ginkgo.By("Verifying workload 1 is admitted on on-demand and license flavors")
+		expectAdmission1 := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(onDemandFlavor.Name), "4").
+				Assignment(corev1.ResourceName(licenseResource), kueue.ResourceFlavorReference(licenseFlavor.Name), "1").
+				Obj()).
+			Obj()
+		behavioral.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl1, expectAdmission1)
+
+		ginkgo.By("Creating workload 2 requesting spot compute and 1 license")
+		wl2 := utiltestingapi.MakeWorkload("wl2", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			NodeSelector(map[string]string{instanceKey: "spot"}).
+			Request(corev1.ResourceCPU, "4").
+			Request(corev1.ResourceName(licenseResource), "1").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl2)
+
+		ginkgo.By("Verifying workload 2 is admitted on spot and license flavors")
+		expectAdmission2 := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+			PodSets(utiltestingapi.MakePodSetAssignment(kueue.DefaultPodSetName).
+				Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(spotFlavor.Name), "4").
+				Assignment(corev1.ResourceName(licenseResource), kueue.ResourceFlavorReference(licenseFlavor.Name), "1").
+				Obj()).
+			Obj()
+		behavioral.ExpectWorkloadToBeAdmittedAs(ctx, k8sClient, wl2, expectAdmission2)
+
+		ginkgo.By("Creating workload 3 requiring 1 license when license quota is exhausted (2/2 in use)")
+		wl3 := utiltestingapi.MakeWorkload("wl3", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			Request(corev1.ResourceCPU, "2").
+			Request(corev1.ResourceName(licenseResource), "1").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl3)
+
+		ginkgo.By("Verifying workload 3 remains pending due to lack of license quota despite remaining CPU quota")
+		behavioral.ExpectWorkloadsToBePending(ctx, k8sClient, wl3)
+
+		ginkgo.By("Creating workload 4 requiring compute only (0 licenses)")
+		wl4 := utiltestingapi.MakeWorkload("wl4", ns.Name).
+			Queue(kueue.LocalQueueName(lq.Name)).
+			Request(corev1.ResourceCPU, "2").
+			Obj()
+		behavioral.MustCreate(ctx, k8sClient, wl4)
+
+		ginkgo.By("Verifying workload 4 is admitted since compute quota is available even though license quota is full")
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl4)
+
+		ginkgo.By("Finishing workload 1 to release 1 license")
+		integration.FinishWorkloads(ctx, k8sClient, wl1)
+
+		ginkgo.By("Verifying workload 3 is now admitted after license release")
+		behavioral.ExpectWorkloadsToBeAdmitted(ctx, k8sClient, wl3)
+	})
+})
