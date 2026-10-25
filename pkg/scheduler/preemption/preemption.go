@@ -357,7 +357,7 @@ func messageAndUnderlyingCause(
 
 			return message, underlyingCause
 		}
-		log.Error(nil, "ConfigurablePreemptionReasonData is nil",
+		log.V(1).Info("Configurable preemption reason data is missing; using default message",
 			"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
 			"preemptingWorkload", klog.KObj(preemptor.Obj))
 		// fallback to default behavior
@@ -389,7 +389,7 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 				targets = fillBackWorkloads(ctx, strategy.pCtx, targets, strategy.allowBorrowing)
 				if strategy.verify != nil {
 					if valid, reason := strategy.verify(targets); !valid {
-						if logV := log.V(6); logV.Enabled() {
+						if logV := log.V(5); logV.Enabled() {
 							logV.Info("Discarding preemption targets: strategy verification failed",
 								"preemptingWorkload", klog.KObj(strategy.pCtx.preemptor.Obj),
 								"targets", logging.GetObjectReferences(targets),
@@ -399,8 +399,8 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 					}
 				}
 				restoreSnapshot(strategy.pCtx.snapshot, targets)
-				if logV := log.V(6); logV.Enabled() {
-					logV.Info("Preemption succeeded",
+				if logV := log.V(5); logV.Enabled() {
+					logV.Info("Preemption target search succeeded",
 						"preemptingWorkload", klog.KObj(strategy.pCtx.preemptor.Obj),
 						"targets", logging.GetObjectReferences(targets))
 				}
@@ -409,9 +409,7 @@ func (p *Preemptor) getTargets(ctx context.Context, strategies iter.Seq[Preempti
 		}
 		restoreSnapshot(strategy.pCtx.snapshot, targets)
 	}
-	if logV := log.V(6); logV.Enabled() {
-		logV.Info("All preemption strategies failed")
-	}
+	log.V(5).Info("Preemption target search found no suitable targets")
 	return nil
 }
 
