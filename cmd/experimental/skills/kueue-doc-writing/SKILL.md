@@ -28,13 +28,13 @@ Identify these items before editing a file:
 5. **Scope:** find the smallest existing page that should be updated. Create a
    new page only when the topic has a distinct audience and goal.
 
-Use the [documentation root](../../../../site/content/en/docs/_index.md) and the
+Use the [documentation root](../../../../site/content/en/docs/_index.md) and
 nearest section index for the selected page type, such as
 [`concepts/_index.md`](../../../../site/content/en/docs/concepts/_index.md),
 [`tasks/_index.md`](../../../../site/content/en/docs/tasks/_index.md), or
 [`reference/_index.md`](../../../../site/content/en/docs/reference/_index.md),
-to choose audience wording, navigation, and a destination. Keep one canonical
-explanation and link to it from related pages.
+to choose navigation and a destination. Keep one canonical explanation and link
+to it from related pages.
 
 ## Gather evidence
 
@@ -54,7 +54,7 @@ intent and user stories, but it can describe a design that changed during
 implementation. If code and docs disagree, document the implemented behavior
 and call out the discrepancy for maintainers instead of guessing.
 
-Use repository searches to verify names and links. Examples include:
+Use repository searches to verify names and links:
 
 ```shell
 rg -n "FeatureGateName|apiVersion:|kind:" pkg apis site/content/en site/static
@@ -62,8 +62,8 @@ rg -n "KEP|feature-state|shortcode|related topic" site/content/en/docs keps
 ```
 
 For API or configuration changes, inspect the type, validation, defaulting,
-feature gate, generated reference, and tests. For behavior changes, inspect the
-controller path and observable conditions, events, logs, metrics, or status.
+feature gate, generated reference, and tests. For behavior changes, inspect
+observable status, events, logs, and metrics.
 
 ## Convert a KEP into reader-facing content
 
@@ -134,9 +134,8 @@ unrelated prerequisites, or independent goals.
 - Use headings, numbered steps, bullets, and tables to make relationships and
   sequences easy to scan. Keep list items parallel and start each item with the
   same kind of word or phrase.
-- Use angle-bracket placeholders such as `<namespace>` and `<workload-name>`.
-  Use realistic names in complete examples so readers can run them with minimal
-  editing.
+- Use angle-bracket placeholders such as `<namespace>` and `<workload-name>`;
+  use realistic names in complete examples.
 - Keep command and output blocks separate. Do not include shell prompts (`$`)
   in commands, and label fenced blocks with the language when known.
 
@@ -218,14 +217,9 @@ risk. Report previews, crawls, and generated references only when run.
 
 ## Delivery format
 
-When finishing a documentation task, report:
-
-- changed files and the reader-facing outcome;
-- source evidence used (KEP, code, generated reference, and existing pages);
-- validation commands and results;
-- version, feature-state, or localization assumptions;
-- open questions, unverified behavior, and a rollback or follow-up plan when
-  the change affects operational procedures.
+Report changed files and reader outcome, source evidence, validation commands
+and results, version or feature-state assumptions, and any open questions or
+operational follow-up.
 
 ## References
 
