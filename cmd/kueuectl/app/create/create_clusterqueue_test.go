@@ -589,7 +589,7 @@ func TestParseResourceQuotas(t *testing.T) {
 			wantErr:   `invalid flavor name "Alpha" in --nominal-quota: ` + dns1123SubdomainMsg,
 		},
 		"should fail when a flavor name has a non-breaking space": {
-			quotaArgs: []string{"alpha :cpu=1"},
+			quotaArgs: []string{"alpha\u00a0:cpu=1"},
 			wantErr:   `invalid flavor name "alpha\u00a0" in --nominal-quota: ` + dns1123SubdomainMsg,
 		},
 		"should fail when a flavor name in lendingLimit is longer than 253 bytes": {
