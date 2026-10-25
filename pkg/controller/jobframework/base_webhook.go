@@ -111,7 +111,7 @@ func (w *BaseWebhook[T]) ValidateUpdate(ctx context.Context, oldObj, newObj T) (
 	oldJob := w.FromObject(oldObj)
 	newJob := w.FromObject(newObj)
 	log := ctrl.LoggerFrom(ctx)
-	log.Info("Validating update")
+	log.V(5).Info("Validating update")
 	allErrs := ValidateJobOnUpdate(oldJob, newJob, w.Queues.DefaultLocalQueueExist, w.MaxTimeoutOnWorkload)
 	if jobWithValidation, ok := newJob.(JobWithCustomValidation); ok {
 		validationErrs, err := jobWithValidation.ValidateOnUpdate(ctx, oldJob)
