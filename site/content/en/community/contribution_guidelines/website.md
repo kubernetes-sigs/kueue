@@ -51,3 +51,16 @@ make verify-website-links
 ```
 
 For details on scripts, skip conditions, and environment variables, see [`hack/testing/linkchecker/README.md`](https://github.com/kubernetes-sigs/kueue/blob/main/hack/testing/linkchecker/README.md).
+
+## Agent-assisted documentation
+
+Kueue maintains an experimental [`kueue-doc-writing` skill](https://github.com/kubernetes-sigs/kueue/tree/main/cmd/experimental/skills/kueue-doc-writing)
+for drafting or reviewing documentation from KEPs, the current implementation,
+and Kubernetes documentation guidance. The skill helps choose a page type,
+preserve Kueue's personas and navigation, verify examples, and run the relevant
+site checks.
+
+Treat generated drafts as proposals: confirm behavior against the code and
+tests, review version-specific claims, and follow the
+[Kubernetes AI Tool Usage Policy](https://www.kubernetes.dev/docs/guide/pull-requests/#ai-guidance)
+before submitting a pull request.
