@@ -22,6 +22,7 @@ import (
 	"k8s.io/utils/ptr"
 
 	kueue "sigs.k8s.io/kueue/apis/kueue/v1beta2"
+	"sigs.k8s.io/kueue/pkg/workload"
 )
 
 // PodSetReducer helper structure used to gradually walk down
@@ -31,10 +32,10 @@ type PodSetReducer[R any] struct {
 	fullCounts []int32
 	deltas     []int32
 	totalDelta int64
-	fits       func([]int32) (R, bool)
+	fits       func(workload.PodSetsCounts) (R, bool)
 }
 
-func NewPodSetReducer[R any](podSets []kueue.PodSet, fits func([]int32) (R, bool)) *PodSetReducer[R] {
+func NewPodSetReducer[R any](podSets []kueue.PodSet, fits func(workload.PodSetsCounts) (R, bool)) *PodSetReducer[R] {
 	psr := &PodSetReducer[R]{
 		podSets:    podSets,
 		deltas:     make([]int32, len(podSets)),
@@ -74,7 +75,7 @@ func (psr *PodSetReducer[R]) Search() (R, bool) {
 	current := make([]int32, len(psr.podSets))
 	idx := sort.Search(int(psr.totalDelta), func(i int) bool {
 		fillPodSetSizesForSearchIndex(current, psr.fullCounts, psr.deltas, int64(i), psr.totalDelta)
-		r, f := psr.fits(current)
+		r, f := psr.fits(psr.countsByName(current))
 		if f {
 			lastR = r
 		}
@@ -87,5 +88,14 @@ func (psr *PodSetReducer[R]) Search() (R, bool) {
 
 	// sort.Search searches [0, totalDelta), so check totalDelta separately.
 	fillPodSetSizesForSearchIndex(current, psr.fullCounts, psr.deltas, psr.totalDelta, psr.totalDelta)
-	return psr.fits(current)
+	return psr.fits(psr.countsByName(current))
+}
+
+// countsByName keys counts, which follow podSets, by PodSet name.
+func (psr *PodSetReducer[R]) countsByName(counts []int32) workload.PodSetsCounts {
+	byName := make(workload.PodSetsCounts, len(counts))
+	for i, c := range counts {
+		byName[psr.podSets[i].Name] = c
+	}
+	return byName
 }

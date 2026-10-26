@@ -285,8 +285,9 @@ func New(
 // Assign assigns a flavor to each of the resources requested in each pod set.
 // The result for each pod set is accompanied with reasons why the flavor can't
 // be assigned immediately. Each assigned flavor is accompanied with a
-// FlavorAssignmentMode.
-func (a *FlavorAssigner) Assign(ctx context.Context, counts []int32) Assignment {
+// FlavorAssignmentMode. A PodSet present in counts is scaled to that count;
+// one that is not keeps its current count.
+func (a *FlavorAssigner) Assign(ctx context.Context, counts workload.PodSetsCounts) Assignment {
 	log := log.FromContext(ctx)
 
 	return a.assignFlavors(ctx, log, counts)
@@ -298,9 +299,9 @@ type indexedPodSet struct {
 	podSetAssignment *PodSetAssignment
 }
 
-func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, counts []int32) Assignment {
-	// Second-pass requests follow admission order, while counts and flavor scan state
-	// follow spec order. Use the request's spec index for the lookups below.
+func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, counts workload.PodSetsCounts) Assignment {
+	// Second-pass requests follow admission order, while flavor scan state follows
+	// spec order. Use the request's spec index for the lookups below.
 	specIndexes := podset.SpecIndexes(a.wl.Obj.Spec.PodSets, a.wl.TotalRequests,
 		func(ps *workload.PodSetResources) kueue.PodSetReference { return ps.Name })
 	for i := range specIndexes {
@@ -309,16 +310,14 @@ func (a *FlavorAssigner) assignFlavors(ctx context.Context, log logr.Logger, cou
 		}
 	}
 	requests := make([]workload.PodSetResources, len(a.wl.TotalRequests))
-	if len(counts) == 0 {
-		for i, ps := range a.wl.TotalRequests {
-			requests[i] = ps
-			if ps.Requests != nil {
-				requests[i].Requests = ps.Requests.Clone()
-			}
+	for i, ps := range a.wl.TotalRequests {
+		if c, ok := counts[ps.Name]; ok {
+			requests[i] = *ps.ScaledTo(c)
+			continue
 		}
-	} else {
-		for i := range a.wl.TotalRequests {
-			requests[i] = *a.wl.TotalRequests[i].ScaledTo(counts[specIndexes[i]])
+		requests[i] = ps
+		if ps.Requests != nil {
+			requests[i].Requests = ps.Requests.Clone()
 		}
 	}
 	assignment := Assignment{
