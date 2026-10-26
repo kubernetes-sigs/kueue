@@ -150,6 +150,11 @@ func (j *MPIJob) RunWithPodSetsInfo(ctx context.Context, _ client.Client, podSet
 		if err := podset.Merge(log, &replica.ObjectMeta, &replica.Spec, info); err != nil {
 			return err
 		}
+		// With runLauncherAsWorker, Worker indexes start from 1, which matches
+		// the PodSet group offset.
+		if !ptr.Deref(j.Spec.RunLauncherAsWorker, false) {
+			jobframework.DefaultPodIndexOffsetForPodSetGroup(&replica.ObjectMeta)
+		}
 	}
 	return nil
 }
