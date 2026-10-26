@@ -350,7 +350,7 @@ verify-skills-lint: ## Lint agent skills with skillsaw
 .PHONY: gomod-verify
 gomod-verify: ## Verify go.mod / go.sum are tidy and unchanged.
 gomod-verify: verify-go-prereqs
-	$(GO_CMD) mod tidy
+	$(NETWORK_INSTALL_RETRY) $(GO_CMD) mod tidy
 	git --no-pager diff --exit-code go.mod go.sum
 
 .PHONY: ci-lint
