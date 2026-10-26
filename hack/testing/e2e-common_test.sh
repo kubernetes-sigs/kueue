@@ -494,15 +494,17 @@ fi
 
 unset DOCKER_FAKE_MANIFEST_OK_AFTER DOCKER_FAKE_MANIFEST_ERROR
 
-# e2e_timed runs the step with its arguments unchanged and logs the label, status
-# and duration; once the step completes, e2e_timed_log_unfinished has nothing to log.
+# e2e_timed runs the step with its arguments unchanged and logs its start and end
+# time, status, duration and label; once the step completes,
+# e2e_timed_log_unfinished has nothing to log.
+timestamp_re='[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z'
 timed_output=$(e2e_timed "kind/install_example" printf '%s|%s\n' "first arg" "second"; e2e_timed_log_unfinished 0)
 if [[ "${timed_output}" != *"first arg|second"* ]]; then
   echo "expected e2e_timed to pass arguments through unchanged; got: ${timed_output}" >&2
   exit 1
 fi
 if [[ $(grep -c '^e2e-timing:' <<<"${timed_output}") != "1" ]] ||
-  ! grep -qE '^e2e-timing: step=kind/install_example status=0 duration=[0-9]+s$' <<<"${timed_output}"; then
+  ! grep -qE "^e2e-timing: started=${timestamp_re} finished=${timestamp_re} status=0 duration=[0-9]+s step=kind/install_example$" <<<"${timed_output}"; then
   echo "expected one e2e-timing line for a successful step; got: ${timed_output}" >&2
   exit 1
 fi
@@ -531,7 +533,7 @@ if [[ "${errexit_status}" != "1" ]] || grep -q "continued after failure" "${test
   exit 1
 fi
 if [[ $(grep -c '^e2e-timing:' "${test_dir}/timed-errexit.out") != "1" ]] ||
-  ! grep -qE '^e2e-timing: step=failing_step status=1 duration=[0-9]+s$' "${test_dir}/timed-errexit.out"; then
+  ! grep -qE "^e2e-timing: started=${timestamp_re} finished=${timestamp_re} status=1 duration=[0-9]+s step=failing_step$" "${test_dir}/timed-errexit.out"; then
   cat "${test_dir}/timed-errexit.out" >&2
   echo "expected one e2e-timing line with status=1 from the EXIT trap for a failed step" >&2
   exit 1
