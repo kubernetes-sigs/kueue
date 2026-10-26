@@ -119,15 +119,20 @@ kueuectl delete clusterqueue my-cq
 
 If Kueue was uninstalled while ClusterQueues or other Kueue objects still existed, they
 stay in `Terminating`: their finalizers are only removed by the Kueue controller, which is
-gone. Nothing else will remove them, so remove them by hand from each remaining object:
+gone. Nothing else will remove them, so remove them by hand. On each remaining object,
+delete only Kueue's entry from `metadata.finalizers` and keep any others, which belong to
+other controllers:
+
+- ClusterQueues, ResourceFlavors, AdmissionChecks and Topologies (cluster-scoped), and
+  Workloads (namespaced): remove `kueue.x-k8s.io/resource-in-use`.
+- Pods: remove `kueue.x-k8s.io/managed`.
+
+For example:
 
 ```shell
-kubectl patch clusterqueue my-cq --type=merge -p '{"metadata":{"finalizers":null}}'
+kubectl edit clusterqueue my-cq
+kubectl edit workload my-workload -n my-namespace
 ```
-
-Do the same for remaining Workloads, ResourceFlavors, AdmissionChecks and Topologies. On
-Pods, remove only the `kueue.x-k8s.io/managed` finalizer: other controllers may keep
-their own finalizers there.
 
 Do this only when you are removing Kueue entirely. While the controller runs, removing a
 finalizer skips its checks, for example deleting a ClusterQueue whose quota is still in use.
