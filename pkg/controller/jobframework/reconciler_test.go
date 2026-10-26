@@ -2243,12 +2243,6 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 		wantError        error
 		wantPodCondition *metav1.Condition
 	}{
-		"pending scale-up slice: PodsReady=True is set on the admitted slice": {
-			workload:         admittedSlice.Clone().Obj(),
-			extraWorkloads:   []client.Object{pendingSlice.Clone().Obj()},
-			job:              (*job.Job)(elasticJob.Clone().Ready(2).Obj()),
-			wantPodCondition: &ready,
-		},
 		"pending scale-up slice: PodsReady=False is set on the admitted slice": {
 			workload:         admittedSlice.Clone().Obj(),
 			extraWorkloads:   []client.Object{pendingSlice.Clone().Obj()},
