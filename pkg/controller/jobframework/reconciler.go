@@ -2311,20 +2311,35 @@ func (r *JobReconciler) ignoreUnretryableError(log logr.Logger, err error) error
 	return err
 }
 
-// reconcilePodsReadyCondition sets the PodsReady condition on wl and records the readiness metrics.
+// podsReadyWorkload returns the workload that receives the PodsReady condition.
+// While a replacement slice is pending, it returns the latest admitted slice,
+// because the workload controller evaluates the PodsReady timeout there.
+// This assumes that job.PodsReady() reflects the readiness of the admitted Pods.
+// If job.PodsReady() also waits for the Pods of the pending scale-up, such as
+// scheduling-gated Pods, the admitted slice still gets PodsReady=False and can
+// be evicted on PodsReady timeout.
+func (r *JobReconciler) podsReadyWorkload(ctx context.Context, job GenericJob, wl *kueue.Workload) (*kueue.Workload, error) {
+	if !WorkloadSliceEnabled(job) || workload.IsAdmitted(wl) {
+		return wl, nil
+	}
+	admittedWl, err := workloadslicing.FindLatestAdmittedWorkload(ctx, r.client, wl, true)
+	if err != nil {
+		return nil, fmt.Errorf("finding the admitted workload slice for PodsReady: %w", err)
+	}
+	if admittedWl == nil {
+		return wl, nil
+	}
+	return admittedWl, nil
+}
+
+// reconcilePodsReadyCondition sets the PodsReady condition on the workload
+// returned by podsReadyWorkload and records the readiness metrics.
 // It returns true if the workload was updated.
 func (r *JobReconciler) reconcilePodsReadyCondition(ctx context.Context, job GenericJob, wl *kueue.Workload) (bool, error) {
 	log := ctrl.LoggerFrom(ctx)
-	// While a replacement slice is pending, keep PodsReady on the admitted slice
-	// it replaces: the workload controller evaluates the PodsReady timeout there.
-	if WorkloadSliceEnabled(job) && !workload.IsAdmitted(wl) {
-		admittedWl, err := workloadslicing.FindLatestAdmittedWorkload(ctx, r.client, wl, true)
-		if err != nil {
-			return false, fmt.Errorf("finding the admitted workload slice for PodsReady: %w", err)
-		}
-		if admittedWl != nil {
-			wl = admittedWl
-		}
+	wl, err := r.podsReadyWorkload(ctx, job, wl)
+	if err != nil {
+		return false, err
 	}
 	condition := generatePodsReadyCondition(ctx, r.client, job, wl, r.clock, r.podsScheduledTrackingEnabled())
 	if workload.HasConditionWithTypeAndReason(wl, &condition) {
@@ -2338,7 +2353,7 @@ func (r *JobReconciler) reconcilePodsReadyCondition(ctx context.Context, job Gen
 		prevPodsReadyReason = prevCond.Reason
 		prevPodsReadyTransitionTime = prevCond.LastTransitionTime.Time
 	}
-	err := workload.SetConditionAndUpdate(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
+	err = workload.SetConditionAndUpdate(ctx, r.client, wl, condition.Type, condition.Status, condition.Reason, condition.Message, constants.JobControllerName, r.clock)
 	if err != nil {
 		log.Error(err, "Updating workload status")
 		return false, err
