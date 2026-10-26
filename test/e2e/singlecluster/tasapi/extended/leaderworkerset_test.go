@@ -399,6 +399,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(int(podsTotalCount)))
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+				e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, int(podsTotalCount))
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
@@ -425,7 +426,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 		ginkgo.It("should place pods based on the ranks-ordering", func() {
 			const (
 				replicas = int32(2)
-				size     = int32(4)
+				size     = int32(5)
 			)
 
 			podsTotalCount := replicas * size
@@ -506,6 +507,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(int(podsTotalCount)))
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+				e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, int(podsTotalCount))
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
@@ -521,20 +523,24 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 						"0/1": "kind-worker",
 						"0/2": "kind-worker2",
 						"0/3": "kind-worker3",
+						"0/4": "kind-worker4",
 						"1/0": "kind-worker5",
 						"1/1": "kind-worker5",
 						"1/2": "kind-worker6",
 						"1/3": "kind-worker7",
+						"1/4": "kind-worker8",
 					}),
 					gomega.BeComparableTo(map[string]string{
 						"1/0": "kind-worker",
 						"1/1": "kind-worker",
 						"1/2": "kind-worker2",
 						"1/3": "kind-worker3",
+						"1/4": "kind-worker4",
 						"0/0": "kind-worker5",
 						"0/1": "kind-worker5",
 						"0/2": "kind-worker6",
 						"0/3": "kind-worker7",
+						"0/4": "kind-worker8",
 					}),
 				))
 			})
@@ -629,6 +635,7 @@ var _ = ginkgo.Describe("TopologyAwareScheduling for LeaderWorkerSet", ginkgo.La
 					g.Expect(k8sClient.List(ctx, pods, client.InNamespace(ns.Name), listOpts)).To(gomega.Succeed())
 					g.Expect(pods.Items).Should(gomega.HaveLen(int(podsTotalCount)))
 				}, behavioral.MediumTimeout, behavioral.Interval).Should(gomega.Succeed())
+				e2e.ExpectPodsScheduledAndRunning(ctx, k8sClient, ns.Name, int(podsTotalCount))
 			})
 
 			ginkgo.By("verify the assignment of pods are as expected with rank-based ordering", func() {
