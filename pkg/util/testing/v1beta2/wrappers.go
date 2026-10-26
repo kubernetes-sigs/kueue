@@ -334,6 +334,11 @@ func (w *WorkloadWrapper) Admission(admission *kueue.Admission) *WorkloadWrapper
 	return w
 }
 
+func (w *WorkloadWrapper) ManagedFields(entries ...metav1.ManagedFieldsEntry) *WorkloadWrapper {
+	w.ObjectMeta.ManagedFields = entries
+	return w
+}
+
 func (w *WorkloadWrapper) Conditions(conditions ...metav1.Condition) *WorkloadWrapper {
 	w.Status.Conditions = conditions
 	return w
