@@ -151,6 +151,7 @@ var _ = ginkgo.Describe("SchedulerWithWaitForPodsReady", func() {
 			ginkgo.By("checking the first prod workload gets admitted while the second is waiting")
 			prodWl := utiltestingapi.MakeWorkload("prod-wl", ns.Name).Queue(kueue.LocalQueueName(prodQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			behavioral.MustCreate(ctx, k8sClient, prodWl)
+			behavioral.WaitForNextSecondAfterCreation(prodWl)
 			devWl := utiltestingapi.MakeWorkload("dev-wl", ns.Name).Queue(kueue.LocalQueueName(devQueue.Name)).Request(corev1.ResourceCPU, "2").Obj()
 			behavioral.MustCreate(ctx, k8sClient, devWl)
 			behavioral.ExpectWorkloadsToHaveQuotaReservation(ctx, k8sClient, prodClusterQ.Name, prodWl)
