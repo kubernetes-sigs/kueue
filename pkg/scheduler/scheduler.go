@@ -1376,7 +1376,7 @@ func (s *Scheduler) recordWorkloadAdmissionEvents(log logr.Logger, newWorkload, 
 func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.ClusterQueueReference, newSlice, oldSlice *kueue.Workload) error {
 	log := ctrl.LoggerFrom(ctx)
 	if workloadfinish.IsFinished(oldSlice) {
-		log.V(3).Info("Workload slice already finished", "oldSlice", klog.KObj(oldSlice), "newSlice", klog.KObj(newSlice))
+		log.V(3).Info("Workload slice already finished", "oldWorkloadSlice", klog.KObj(oldSlice), "newWorkloadSlice", klog.KObj(newSlice))
 		return nil
 	}
 	reason := kueue.WorkloadSliceReplaced
@@ -1385,7 +1385,8 @@ func (s *Scheduler) replaceWorkloadSlice(ctx context.Context, oldQueue kueue.Clu
 		return fmt.Errorf("failed to replace workload slice: %w", err)
 	}
 
-	log.V(3).Info("Replaced", "oldSlice", klog.KObj(oldSlice), "newSlice", klog.KObj(newSlice), "reason", reason, "message", message, "oldClusterQueue", klog.KRef("", string(oldQueue)))
+	log.V(3).Info("Replaced", "oldWorkloadSlice", klog.KObj(oldSlice), "newWorkloadSlice", klog.KObj(newSlice),
+		"reason", reason, "message", message, "oldClusterQueue", klog.KRef("", string(oldQueue)))
 	s.recorder.Eventf(oldSlice, nil, corev1.EventTypeNormal, reason, "Replaced", message)
 	metrics.ReportReplacedWorkloadSlices(oldQueue, s.customLabels.CQGet(oldQueue), s.roleTracker)
 	return nil

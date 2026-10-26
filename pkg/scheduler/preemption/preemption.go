@@ -357,10 +357,11 @@ func messageAndUnderlyingCause(
 
 			return message, underlyingCause
 		}
+		// Not expected: the configurable preemption evaluator always sets this data, so
+		// reaching this point means an invariant is broken. Fall back to the default message.
 		log.V(1).Info("Configurable preemption reason data is missing; using default message",
 			"targetWorkload", klog.KObj(target.WorkloadInfo.Obj),
 			"preemptingWorkload", klog.KObj(preemptor.Obj))
-		// fallback to default behavior
 	}
 
 	message := preemptionMessage(preemptor.Obj, target.Reason, preemptorPath, preempteePath)
