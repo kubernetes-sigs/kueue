@@ -932,6 +932,60 @@ var _ = ginkgo.Describe("Pod controller", ginkgo.Label("job:pod", "area:jobs"), 
 		})
 
 		ginkgo.When("Using pod group", func() {
+			ginkgo.It("should deactivate fast-admission workloads with diverging role hashes", func() {
+				wlLookupKey := types.NamespacedName{Namespace: ns.Name, Name: "test-group"}
+
+				pod1 := testingpod.MakePod("test-pod1", ns.Name).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					RoleHash("role-a").
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+					Queue(lq.Name).
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, pod1)
+
+				createdWorkload := &kueue.Workload{}
+				gomega.Eventually(func(g gomega.Gomega) {
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, createdWorkload)).Should(gomega.Succeed())
+					g.Expect(createdWorkload.Spec.PodSets).To(gomega.HaveLen(1))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+				firstUID := createdWorkload.UID
+
+				admission := utiltestingapi.MakeAdmission(kueue.ClusterQueueReference(cq.Name)).
+					PodSets(utiltestingapi.MakePodSetAssignment(createdWorkload.Spec.PodSets[0].Name).
+						Assignment(corev1.ResourceCPU, kueue.ResourceFlavorReference(fl.Name), "1").
+						Count(createdWorkload.Spec.PodSets[0].Count).
+						Obj()).
+					Obj()
+				integration.SetQuotaReservation(ctx, k8sClient, wlLookupKey, admission)
+				integration.SyncAdmittedConditionForWorkloads(ctx, k8sClient, createdWorkload)
+				behavioral.ExpectPodUnsuspendedWithNodeSelectors(ctx, k8sClient, client.ObjectKeyFromObject(pod1), nil)
+
+				pod2 := testingpod.MakePod("test-pod2", ns.Name).
+					GroupNameLabel("test-group").
+					GroupTotalCount("2").
+					RoleHash("role-b").
+					Annotation(podconstants.GroupFastAdmissionAnnotationKey, podconstants.GroupFastAdmissionAnnotationValue).
+					Queue(lq.Name).
+					Request(corev1.ResourceCPU, "1").
+					Obj()
+				behavioral.MustCreate(ctx, k8sClient, pod2)
+
+				gomega.Eventually(func(g gomega.Gomega) {
+					current := &kueue.Workload{}
+					g.Expect(k8sClient.Get(ctx, wlLookupKey, current)).Should(gomega.Succeed())
+					g.Expect(current.UID).To(gomega.Equal(firstUID))
+					g.Expect(workload.IsActive(current)).To(gomega.BeFalse())
+					g.Expect(workload.HasQuotaReservation(current)).To(gomega.BeFalse())
+					g.Expect(current.Status.Conditions).To(utiltesting.HaveConditionStatusTrue(kueue.WorkloadEvicted))
+					g.Expect(current.Status.Conditions).ToNot(utiltesting.HaveCondition(kueue.WorkloadDeactivationTarget))
+					evicted := apimeta.FindStatusCondition(current.Status.Conditions, kueue.WorkloadEvicted)
+					g.Expect(evicted.Message).To(gomega.ContainSubstring(`pod "test-pod2"`))
+					g.Expect(evicted.Message).To(gomega.ContainSubstring(`role hash "role-b"`))
+				}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			})
+
 			ginkgo.It("Should ungate pods when admitted and finalize Pods when succeeded", func() {
 				ginkgo.By("Creating pods with queue name")
 				pod1 := testingpod.MakePod("test-pod1", ns.Name).
