@@ -1727,28 +1727,31 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 	// keeps its quota reservation. This can happen when a fast-admission group
 	// gains a pod with a different role hash after its workload was created.
 	if p.fastAdmission() {
-		for i := range activePods {
-			pod := &activePods[i]
-			if matchedActivePods.Has(pod.GetUID()) {
-				continue
+		unmatchedPods := unmatchedActivePods(activePods, matchedActivePods)
+		if len(unmatchedPods) > 0 {
+			declaredPodCount := 0
+			for _, ps := range wl.Spec.PodSets {
+				declaredPodCount += int(ps.Count)
 			}
 
-			roleHash, err := getRoleHash(*pod)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
-			}
-			msg := fmt.Sprintf(
-				"pod %q role hash %q does not match any role in the group workload %q",
-				pod.Name, roleHash, groupName,
-			)
-			if workload.IsActive(wl) {
+			if len(matchedActivePods) >= declaredPodCount {
+				excessActivePods = append(excessActivePods, unmatchedPods...)
+			} else if workload.IsActive(wl) {
+				pod := &unmatchedPods[0]
+				roleHash, err := getRoleHash(*pod)
+				if err != nil {
+					return nil, nil, fmt.Errorf("failed to calculate pod role hash: %w", err)
+				}
+				msg := fmt.Sprintf(
+					"pod %q role hash %q does not match any role in the group workload %q",
+					pod.Name, roleHash, groupName,
+				)
 				if err := workloadpatching.PatchAdmissionStatus(ctx, c, wl, p.clock, func(wl *kueue.Workload) (bool, error) {
 					return workload.SetDeactivationTarget(wl, jobframework.ReasonErrWorkloadCompose, api.TruncateConditionMessage(msg)), nil
 				}); err != nil {
 					return nil, nil, fmt.Errorf("failed to deactivate workload for pod role hash mismatch: %w", err)
 				}
 			}
-			break
 		}
 	}
 
@@ -1771,6 +1774,16 @@ func (p *Pod) FindMatchingWorkloads(ctx context.Context, c client.Client, r even
 		return nil, nil, err
 	}
 	return wl, []*kueue.Workload{}, nil
+}
+
+func unmatchedActivePods(activePods []corev1.Pod, matchedActivePods sets.Set[types.UID]) []corev1.Pod {
+	var unmatched []corev1.Pod
+	for i := range activePods {
+		if !matchedActivePods.Has(activePods[i].GetUID()) {
+			unmatched = append(unmatched, activePods[i])
+		}
+	}
+	return unmatched
 }
 
 func (p *Pod) countAbsentPods(ps kueue.PodSet, activePods int) int {
