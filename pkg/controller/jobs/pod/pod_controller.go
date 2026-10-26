@@ -504,6 +504,9 @@ func PodActivity(pod *corev1.Pod, now time.Time) (active bool, recheckAfter time
 	if pod.Status.Phase != corev1.PodRunning {
 		return false, 0
 	}
+	if isGated(pod) {
+		return false, 0
+	}
 	if features.Enabled(features.FastQuotaReleaseInPodIntegration) && pod.DeletionTimestamp != nil {
 		return false, 0
 	}
