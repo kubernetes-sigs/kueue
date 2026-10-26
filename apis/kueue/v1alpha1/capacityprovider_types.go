@@ -133,7 +133,9 @@ type CapacityProviderControllerName string
 // CapacityProvider condition types and reasons
 const (
 	// CapacityProviderCapacitySynchronized indicates whether status.capacity is synchronized
-	// with observations from the underlying capacity source.
+	// with observations from the underlying capacity source. Providers must set the
+	// condition's ObservedGeneration to the CapacityProvider's metadata.generation
+	// when publishing capacity synchronized for the current spec.
 	CapacityProviderCapacitySynchronized string = "CapacitySynchronized"
 
 	// CapacityProviderReasonSynchronized indicates that capacity was successfully observed and published.
