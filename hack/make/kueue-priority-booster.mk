@@ -15,7 +15,7 @@
 ##@ Kueue priority booster
 
 .PHONY: kueue-priority-booster-test
-kueue-priority-booster-test: ## Run unit tests for kueue-priority-booster.
+kueue-priority-booster-test: kueue-priority-booster-verify ## Run unit tests for kueue-priority-booster.
 	$(MAKE) -C cmd/experimental/kueue-priority-booster test
 
 .PHONY: kueue-priority-booster-test-integration
