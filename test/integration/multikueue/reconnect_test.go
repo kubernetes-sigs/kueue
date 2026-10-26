@@ -89,6 +89,15 @@ var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", 
 				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 				f.multiKueueAC.Name, kueue.CheckStateReady, `The workload was admitted on "worker1"`,
 			)
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerJob := &batchv1.Job{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), managerJob)).To(gomega.Succeed())
+				g.Expect(managerJob.Spec.Suspend).NotTo(gomega.BeNil())
+				g.Expect(*managerJob.Spec.Suspend).To(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			// Wait for the 2s syncDeferredRequeueAfter timer to fire and settle so that
+			// the state sync after reconnect is driven exclusively by the watch reconnect resync.
+			time.Sleep(3 * time.Second)
 		})
 
 		restoreConnectionToWorker1 := behavioral.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster1, managersConfigNamespace.Name)
@@ -187,6 +196,15 @@ var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", 
 				managerTestCluster.ctx, managerTestCluster.client, wlLookupKey,
 				f.multiKueueAC.Name, kueue.CheckStateReady, `The workload was admitted on "worker1"`,
 			)
+			gomega.Eventually(func(g gomega.Gomega) {
+				managerJob := &batchv1.Job{}
+				g.Expect(managerTestCluster.client.Get(managerTestCluster.ctx, client.ObjectKeyFromObject(job), managerJob)).To(gomega.Succeed())
+				g.Expect(managerJob.Spec.Suspend).NotTo(gomega.BeNil())
+				g.Expect(*managerJob.Spec.Suspend).To(gomega.BeFalse())
+			}, behavioral.Timeout, behavioral.Interval).Should(gomega.Succeed())
+			// Wait for the 2s syncDeferredRequeueAfter timer to fire and settle so that
+			// the eviction after reconnect is driven exclusively by the watch reconnect resync.
+			time.Sleep(3 * time.Second)
 		})
 
 		restoreConnectionToWorker1 := behavioral.BreakConnection(managerTestCluster.ctx, managerTestCluster.client, f.workerCluster1, managersConfigNamespace.Name)
@@ -194,11 +212,17 @@ var _ = ginkgo.Describe("MultiKueue Reconnect", ginkgo.Label("area:multikueue", 
 		ginkgo.By("deleting the worker job and workload while disconnected", func() {
 			workerJob := &batchv1.Job{}
 			gomega.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, client.ObjectKeyFromObject(job), workerJob)).To(gomega.Succeed())
-			gomega.Expect(worker1TestCluster.client.Delete(worker1TestCluster.ctx, workerJob)).To(gomega.Succeed())
+			gomega.Expect(worker1TestCluster.client.Delete(
+				worker1TestCluster.ctx,
+				workerJob,
+				client.PropagationPolicy(metav1.DeletePropagationBackground),
+			)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, workerJob, false)
 
 			workerWl := &kueue.Workload{}
 			gomega.Expect(worker1TestCluster.client.Get(worker1TestCluster.ctx, wlLookupKey, workerWl)).To(gomega.Succeed())
 			gomega.Expect(worker1TestCluster.client.Delete(worker1TestCluster.ctx, workerWl)).To(gomega.Succeed())
+			behavioral.ExpectObjectToBeDeleted(worker1TestCluster.ctx, worker1TestCluster.client, workerWl, false)
 		})
 
 		ginkgo.By("verifying the manager remains admitted while disconnected", func() {
