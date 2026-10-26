@@ -2,7 +2,7 @@
 name: Dependabot Version Sync
 
 on:
-  pull_request_target:
+  pull_request:
     branches: [ main ]
     # Dependabot adds labels after opening the PR, so the "opened" event has none.
     types: [ opened, synchronize, reopened, labeled ]
