@@ -2785,7 +2785,7 @@ func TestReconcileGenericJobWithWaitForPodsReady(t *testing.T) {
 			if diff := cmp.Diff(wantScheduled, apimeta.FindStatusCondition(gotWl.Status.Conditions, kueue.WorkloadPodsScheduled)); diff != "" {
 				t.Errorf("unexpected PodsScheduled condition (-want,+got):\n%s", diff)
 			}
-			gotPodCondition := apimeta.FindStatusCondition(gotWl.Status.Conditions, tc.wantPodCondition.Type)
+			gotPodCondition := apimeta.FindStatusCondition(gotWl.Status.Conditions, kueue.WorkloadPodsReady)
 			if diff := cmp.Diff(tc.wantPodCondition, gotPodCondition, cmpopts.IgnoreFields(metav1.Condition{}, "LastTransitionTime", "ObservedGeneration")); diff != "" {
 				t.Errorf("unexpected PodsReady condition (-want,+got):\n%s", diff)
 			}
