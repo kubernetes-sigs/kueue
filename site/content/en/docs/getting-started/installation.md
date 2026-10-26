@@ -118,6 +118,33 @@ When upgrading Kueue, review the following release notes:
 
 {{< upgrade-policy-example >}}
 
+### Downgrade to a version before v0.21
+
+Starting in v0.21, the API server verifies the certificate of the
+[visibility server](/docs/tasks/manage/monitor_pending_workloads/pending_workloads_on_demand/).
+Kueue sets a `caBundle` on the `v1beta2.visibility.kueue.x-k8s.io` APIService, while
+earlier versions set `insecureSkipTLSVerify: true` instead. The API server rejects
+`insecureSkipTLSVerify` while a `caBundle` is present, so downgrading as usual fails on
+the APIService and leaves the visibility API unavailable. Installations that use
+cert-manager are not affected.
+
+Before downgrading, delete the APIService. The older manifests or chart recreate it:
+
+```shell
+kubectl delete apiservice v1beta2.visibility.kueue.x-k8s.io
+```
+
+Then downgrade with `kubectl apply` of the older manifests, `helm rollback`, or
+`helm upgrade` to the older chart version.
+
+If you only roll back the controller-manager image and keep the newer manifests, update
+the APIService instead:
+
+```shell
+kubectl patch apiservice v1beta2.visibility.kueue.x-k8s.io --type=json \
+  -p='[{"op":"remove","path":"/spec/caBundle"},{"op":"add","path":"/spec/insecureSkipTLSVerify","value":true}]'
+```
+
 ### Uninstall
 
 To uninstall a released version of Kueue from your cluster by kubectl, run the following command:
