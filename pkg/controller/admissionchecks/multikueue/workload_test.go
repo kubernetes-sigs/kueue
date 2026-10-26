@@ -2385,6 +2385,174 @@ func TestOrphanedRemoteWorkloadCleanedAfterReconnect(t *testing.T) {
 	}
 }
 
+type localStatusResettingAdapter struct {
+	jobframework.MultiKueueAdapter
+	resetKeys []types.NamespacedName
+	resetErr  error
+}
+
+var _ jobframework.MultiKueueLocalStatusResetter = (*localStatusResettingAdapter)(nil)
+
+func (a *localStatusResettingAdapter) ResetLocalStatus(_ context.Context, _ client.Client, key types.NamespacedName) error {
+	a.resetKeys = append(a.resetKeys, key)
+	return a.resetErr
+}
+
+func TestWlReconcileResetsLocalStatus(t *testing.T) {
+	now := time.Now().Truncate(time.Second)
+	fakeClock := testingclock.NewFakeClock(now)
+	resetErr := errors.New("reset error")
+
+	baseWorkloadBuilder := utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStatePending}).
+		ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1")
+	baseJob := testingjob.MakeJob("job1", TestNamespace).Suspend(false).ManagedBy(kueue.MultiKueueControllerName).Obj()
+	admission := utiltestingapi.MakeAdmission("q1").Obj()
+	admittedRemoteWorkload := *utiltestingapi.MakeWorkload("wl1", TestNamespace).
+		ReserveQuotaAt(admission, now).
+		Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+		Condition(metav1.Condition{
+			Type:   kueue.WorkloadAdmitted,
+			Status: metav1.ConditionTrue,
+			Reason: "Admitted",
+		}).
+		Obj()
+
+	cases := map[string]struct {
+		managersWorkload kueue.Workload
+		worker1Workloads []kueue.Workload
+		resetErr         error
+
+		wantResetKeys       []types.NamespacedName
+		wantError           error
+		wantWorker1Workload bool
+	}{
+		"wl without reservation resets the local status": {
+			managersWorkload: *baseWorkloadBuilder.Clone().Obj(),
+			wantResetKeys:    []types.NamespacedName{{Name: "job1", Namespace: TestNamespace}},
+		},
+		"finished wl does not reset the local status": {
+			managersWorkload: *baseWorkloadBuilder.Clone().Finished().Obj(),
+		},
+		"reset error for wl without reservation is returned": {
+			managersWorkload: *baseWorkloadBuilder.Clone().Obj(),
+			resetErr:         resetErr,
+			wantResetKeys:    []types.NamespacedName{{Name: "job1", Namespace: TestNamespace}},
+			wantError:        resetErr,
+		},
+		"wl with reservation not admitted by any remote resets the local status": {
+			managersWorkload:    *baseWorkloadBuilder.Clone().ReserveQuotaAt(admission, now).Obj(),
+			wantResetKeys:       []types.NamespacedName{{Name: "job1", Namespace: TestNamespace}},
+			wantWorker1Workload: true,
+		},
+		"wl with reservation and a remote that is not admitted resets the local status": {
+			managersWorkload: *baseWorkloadBuilder.Clone().ReserveQuotaAt(admission, now).Obj(),
+			worker1Workloads: []kueue.Workload{
+				*utiltestingapi.MakeWorkload("wl1", TestNamespace).
+					ReserveQuotaAt(admission, now).
+					Label(kueue.MultiKueueOriginLabel, defaultOrigin).
+					Obj(),
+			},
+			wantResetKeys:       []types.NamespacedName{{Name: "job1", Namespace: TestNamespace}},
+			wantWorker1Workload: true,
+		},
+		"wl with reservation admitted by a remote does not reset the local status": {
+			managersWorkload:    *baseWorkloadBuilder.Clone().ReserveQuotaAt(admission, now).Obj(),
+			worker1Workloads:    []kueue.Workload{*admittedRemoteWorkload.DeepCopy()},
+			wantWorker1Workload: true,
+		},
+		"wl with a Ready admission check and no visible admitted remote does not reset the local status": {
+			managersWorkload: *utiltestingapi.MakeWorkload("wl1", TestNamespace).
+				AdmissionCheck(kueue.AdmissionCheckState{Name: "ac1", State: kueue.CheckStateReady}).
+				ControllerReference(batchv1.SchemeGroupVersion.WithKind("Job"), "job1", "uid1").
+				ReserveQuotaAt(admission, now).
+				ClusterName("worker1").
+				Obj(),
+		},
+		"reset error for wl with reservation does not block the nomination and is returned": {
+			managersWorkload:    *baseWorkloadBuilder.Clone().ReserveQuotaAt(admission, now).Obj(),
+			resetErr:            resetErr,
+			wantResetKeys:       []types.NamespacedName{{Name: "job1", Namespace: TestNamespace}},
+			wantError:           resetErr,
+			wantWorker1Workload: true,
+		},
+		"reset error for wl with reservation is returned when the nomination is skipped": {
+			managersWorkload: *baseWorkloadBuilder.Clone().ReserveQuotaAt(admission, now).ClusterName("worker1").Obj(),
+			resetErr:         resetErr,
+			wantResetKeys:    []types.NamespacedName{{Name: "job1", Namespace: TestNamespace}},
+			wantError:        resetErr,
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			features.SetFeatureGateDuringTest(t, features.WorkloadIdentifierAnnotations, false)
+			ctx, _ := utiltesting.ContextWithLog(t)
+
+			managerClient := getClientBuilder(ctx).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				}).
+				WithLists(&kueue.WorkloadList{Items: []kueue.Workload{tc.managersWorkload}}, &batchv1.JobList{Items: []batchv1.Job{*baseJob.DeepCopy()}}).
+				WithStatusSubresource(&tc.managersWorkload).
+				WithObjects(
+					utiltestingapi.MakeMultiKueueConfig("config1").Clusters("worker1").Obj(),
+					utiltestingapi.MakeAdmissionCheck("ac1").ControllerName(kueue.MultiKueueControllerName).
+						Parameters(kueue.SchemeGroupVersion.Group, "MultiKueueConfig", "config1").
+						Obj(),
+				).
+				Build()
+
+			jobAdapters, _ := jobs.NewIntegrationManager().GetMultiKueueAdapters(sets.New("batch/job"))
+			adapter := &localStatusResettingAdapter{resetErr: tc.resetErr}
+			adapters := make(map[string]jobframework.MultiKueueAdapter, len(jobAdapters))
+			for key, jobAdapter := range jobAdapters {
+				adapter.MultiKueueAdapter = jobAdapter
+				adapters[key] = adapter
+			}
+			cRec := newClustersReconciler(managerClient, TestNamespace, withAdapters(adapters))
+
+			w1remoteClient := newRemoteClient(managerClient, nil, nil, nil, defaultOrigin, "", adapters)
+			w1remoteClient.client = NewNeverCachingClient(getClientBuilder(ctx).
+				WithLists(&kueue.WorkloadList{Items: tc.worker1Workloads}).
+				WithStatusSubresource(&kueue.Workload{}).
+				WithInterceptorFuncs(interceptor.Funcs{
+					SubResourceApply: utiltesting.TreatSSAAsStrategicMergeForApplyConfiguration,
+				}).
+				Build())
+			w1remoteClient.connState.markConnected()
+			cRec.remoteClients["worker1"] = w1remoteClient
+
+			helper, _ := admissioncheck.NewMultiKueueStoreHelper(managerClient)
+			reconciler := newWlReconciler(
+				managerClient,
+				helper,
+				cRec,
+				defaultOrigin,
+				&utiltesting.EventRecorder{},
+				defaultWorkerLostTimeout,
+				time.Second,
+				adapters,
+				config.MultiKueueDispatcherModeAllAtOnce,
+				nil,
+				WithClock(t, fakeClock),
+			)
+
+			_, gotErr := reconciler.Reconcile(ctx, reconcile.Request{Name: "wl1", Namespace: TestNamespace})
+			if diff := cmp.Diff(tc.wantError, gotErr, cmpopts.EquateErrors()); diff != "" {
+				t.Errorf("unexpected error (-want/+got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tc.wantResetKeys, adapter.resetKeys); diff != "" {
+				t.Errorf("unexpected reset keys (-want/+got):\n%s", diff)
+			}
+			err := w1remoteClient.client.Get(ctx, types.NamespacedName{Name: "wl1", Namespace: TestNamespace}, &kueue.Workload{})
+			if gotWorker1Workload := err == nil; gotWorker1Workload != tc.wantWorker1Workload {
+				t.Errorf("unexpected worker1 workload presence, want %t, got error %v", tc.wantWorker1Workload, err)
+			}
+		})
+	}
+}
+
 // A LeaderWorkerSet creates one Workload per group, but all of them share a single remote
 // LeaderWorkerSet on the worker. Removing the remote objects of a group must keep that
 // LeaderWorkerSet while another group is still on the worker, and delete it with the last group.
