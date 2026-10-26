@@ -114,3 +114,21 @@ Once the Workloads are stopped, you can delete the ClusterQueue:
 ```shell
 kueuectl delete clusterqueue my-cq
 ```
+
+## What if Kueue was uninstalled first?
+
+If Kueue was uninstalled while ClusterQueues or other Kueue objects still existed, they
+stay in `Terminating`: their finalizers are only removed by the Kueue controller, which is
+gone. Nothing else will remove them, so remove them by hand from each remaining object:
+
+```shell
+kubectl patch clusterqueue my-cq --type=merge -p '{"metadata":{"finalizers":null}}'
+```
+
+Do the same for remaining Workloads, ResourceFlavors, AdmissionChecks and Topologies. On
+Pods, remove only the `kueue.x-k8s.io/managed` finalizer: other controllers may keep
+their own finalizers there.
+
+Do this only when you are removing Kueue entirely. While the controller runs, removing a
+finalizer skips its checks, for example deleting a ClusterQueue whose quota is still in use.
+To avoid this situation, see [Before you uninstall](/docs/getting-started/installation/#before-you-uninstall).
