@@ -192,7 +192,11 @@ as an open question and ask a maintainer instead of using generic wording.
 Run the narrowest checks that cover the files changed, then report the commands
 and results:
 
-- `make verify-website-links` checks public-site links when `site/` changes.
+- In Prow, `make verify-website-links-preview` checks the PR Netlify preview
+  when `site/` or `netlify.toml` changes. For a local preview check, set
+  `LINK_CHECK_URL` to the deploy-preview URL and run
+  `hack/testing/linkchecker/verify.sh` as documented in its README. Use
+  `make verify-website-links` to check the deployed public site.
 - `make site-server` provides a local Hugo preview. Inspect desktop and mobile
   widths when layout or shortcodes change.
 - `make verify-skills-lint` validates this skill and the skills index.
