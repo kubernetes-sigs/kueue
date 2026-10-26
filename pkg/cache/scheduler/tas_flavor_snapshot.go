@@ -1185,7 +1185,7 @@ func (s *TASFlavorSnapshot) findReplacementAssignment(
 	if reason != "" {
 		return nil, nil, reason
 	}
-	if slicesRequested(tr.PodSet.TopologyRequest) && requiredReplacementDomain != "" && (tr.Count%sliceSize != 0) {
+	if len(existingAssignment.Domains) > 0 && slicesRequested(tr.PodSet.TopologyRequest) && requiredReplacementDomain != "" && (tr.Count%sliceSize != 0) {
 		trCopy.PodSet = tr.PodSet.DeepCopy()
 		// Find the innermost constraint whose size divides the number of replacement
 		// pods to preserve leaf-level grouping
